@@ -1,10 +1,11 @@
-# Final build report — TaskFlow (run-20260712-184538-e77816)
+# Final build report — TaskFlow (run-20260712-194358-61f3af)
 
 Outcome: **success**
 
 ## Specification
 - Problem: Solo consultants track client tasks across notebooks, chat threads, and memory. Tasks slip, follow-ups are missed, and there is no single authoritative list that other tools can integrate with.
 - Target user: Solo consultants who bill multiple clients and currently track tasks in a notebook or spreadsheet.
+- Hypothesis: If task capture is a single authenticated API call, consultants will centralize their task list and complete more of their open tasks each week.
 - North Star Metric: Percentage of active users who complete at least one captured task per week (outcome: work actually finished through the product, not activity volume).
 - Validation: PASSED (0 warning(s), 0 question(s))
 
@@ -20,11 +21,11 @@ Outcome: **success**
 - ADR-004: Deployment shape: single local process + deployable artifact (risk: low, reversible)
 
 ## Quality gates (final re-run)
-- compile: PASS (required, 0.035s)
-- format: PASS (optional, 0.008s)
+- compile: PASS (required, 0.028s)
+- format: PASS (optional, 0.007s)
 - lint: PASS (optional, 0.007s)
-- unit: PASS (required, 0.15s)
-- integration: PASS (required, 6.283s)
+- unit: PASS (required, 0.137s)
+- integration: PASS (required, 6.251s)
 - security: PASS (required, 0.003s)
 
 ## Review
@@ -39,7 +40,7 @@ Outcome: **success**
   - escalations approved: 0
 
 ## Deployment
-- Environment: local at http://127.0.0.1:46883
+- Environment: local at http://127.0.0.1:39351
 - Health check: passed
 - Main user journey: passed (health: ok; auth rejects missing token: ok; create: ok; list: ok; complete: ok; read-back: ok)
 - Rollback instructions: deploy/ROLLBACK.md
@@ -49,7 +50,7 @@ Outcome: **success**
 
 ## Metrics (leading-metric hooks)
 - blocking_findings: 0
-- duration_seconds: 13.346
+- duration_seconds: 12.775
 - escalation_count: 0
 - fix_agent_interventions: 0
 - requirements_with_passing_tests_ratio: 1.0

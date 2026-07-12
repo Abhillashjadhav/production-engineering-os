@@ -1,4 +1,4 @@
-# feat: TaskFlow MVP (run-20260712-184538-e77816)
+# feat: TaskFlow MVP (run-20260712-194358-61f3af)
 
 Automated build of TaskFlow from the approved MVP specification.
 
@@ -17,15 +17,15 @@ Requirement coverage is enforced by the merge gate.
 ```
 README.md                     |  37 +++++++++-
  app/__init__.py               |   1 +
- app/api.py                    | 166 ++++++++++++++++++++++++++++++++++++++++++
+ app/api.py                    | 167 ++++++++++++++++++++++++++++++++++++++++++
  app/auth.py                   |  30 ++++++++
- app/server.py                 |  49 +++++++++++++
+ app/server.py                 |  50 +++++++++++++
  app/storage.py                |  89 ++++++++++++++++++++++
  tests/__init__.py             |   0
  tests/integration/__init__.py |   0
- tests/integration/test_api.py | 143 ++++++++++++++++++++++++++++++++++++
+ tests/integration/test_api.py | 144 ++++++++++++++++++++++++++++++++++++
  tests/unit/__init__.py        |   0
  tests/unit/test_auth.py       |  47 ++++++++++++
  tests/unit/test_storage.py    |  79 ++++++++++++++++++++
- 12 files changed, 640 insertions(+), 1 deletion(-)
+ 12 files changed, 643 insertions(+), 1 deletion(-)
 ```

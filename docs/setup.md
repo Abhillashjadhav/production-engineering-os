@@ -43,7 +43,6 @@ Everything a run produces lives under `runs/<run_id>/` (gitignored):
 ```yaml
 runs_dir: runs              # where run directories are created
 required_gates: [compile, unit, integration, security]
-lint_generated: true
 deploy_timeout_s: 15.0
 ```
 

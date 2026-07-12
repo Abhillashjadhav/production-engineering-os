@@ -3,6 +3,28 @@
 All notable changes to PM Production Engineering OS. Format: Keep a Changelog;
 versions: SemVer.
 
+## [0.1.1] — 2026-07-12
+
+### Fixed (independent review round — 8 finder angles, findings empirically verified)
+- Generated tests/deployer no longer assume status default "open", a `/health`
+  endpoint, an `entity.list` capability, or entities at all — valid non-golden specs
+  now build, test green, and deploy (TCP-readiness fallback; shared auth probe).
+- Required int/bool fields accept falsy values (0/False) in generated APIs.
+- Spec-controlled strings are escaped into generated Python/SQL; query values
+  URL-encoded (hostile product names/defaults covered by regression tests).
+- Structural spec defects fail fast with a spec-fix message instead of offering an
+  approval that would crash codegen; new validator rules REQUIREMENT_ID_FORMAT,
+  CAPABILITY_DEPENDENCY, MISSING_HEALTH_CHECK.
+- Resume robustness: no-op deploy commits, collision-proof escalation ids, atomic
+  writes for every escalation/approval/state file, merge-gate crash-window heal.
+- Security scanner test-file exemption is workspace-relative; chaos test hooks are
+  rejected in user-facing config files; `pmpe status` shows approved/REJECTED/OPEN.
+
+### Changed
+- Oversized modules split to honor the 400-line budget (workflow engine into
+  steps/context/render; stack templates into code/api and tests/tests-api halves).
+- Known limitations documented in docs/known-limitations.md.
+
 ## [0.1.0] — 2026-07-12
 
 ### Added
