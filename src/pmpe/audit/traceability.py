@@ -7,6 +7,8 @@ criterion — the merge gate runs before deployment by design.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from pmpe.domain.models import (
     DeploymentResult,
     EngineeringPlan,
@@ -28,6 +30,7 @@ class TraceabilityBuilder:
         code_by_requirement: dict[str, list[str]],
         findings: list[Finding],
         deployment: DeploymentResult | None,
+        workspace: Path | None = None,
     ) -> TraceabilityReport:
         entries: list[TraceabilityEntry] = []
         gaps: list[str] = []
@@ -39,6 +42,12 @@ class TraceabilityBuilder:
             tasks = [t.id for t in plan.tasks if fr.id in t.requirement_ids]
             adrs = adr_ids_by_requirement.get(fr.id, [])
             code = code_by_requirement.get(fr.id, [])
+            if workspace is not None:
+                # the mapping is the generator's claim; the merge gate needs disk truth
+                missing = [c for c in code if not (workspace / c).exists()]
+                for path in missing:
+                    gaps.append(f"{fr.id} maps to '{path}' which does not exist on disk")
+                code = [c for c in code if c not in missing]
             tests = tests_by_requirement.get(fr.id, [])
             finding_ids = [
                 f.id for f in findings if f.file and any(f.file in c or c in f.file for c in code)

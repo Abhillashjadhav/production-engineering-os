@@ -8,10 +8,13 @@ restart) are generated wherever the capability exists.
 
 from __future__ import annotations
 
+import json
+import urllib.parse
 from collections.abc import Callable
 
 from pmpe.domain.models import Entity, GeneratedFile, GeneratedTests, MvpSpec
 from pmpe.stacks import (
+    auth_probe,
     capabilities_for,
     collection_route,
     entity_var,
@@ -19,6 +22,7 @@ from pmpe.stacks import (
     frs_by_capability,
     has_auth,
     has_health,
+    status_default,
     table_name,
 )
 
@@ -40,11 +44,28 @@ def _required_payload(entity: Entity) -> str:
     return "{" + ", ".join(parts) + "}"
 
 
+def _payload_with(entity: Entity, field_name: str, value_literal: str) -> str:
+    """Required-fields payload with one field overridden by a literal expression."""
+    parts = []
+    for f in entity.fields:
+        if f.name == field_name:
+            parts.append(f'"{f.name}": {value_literal}')
+        elif f.required:
+            value = _SAMPLE_VALUES.get(f.type, '"sample"').format(name=f.name)
+            parts.append(f'"{f.name}": {value}')
+    return "{" + ", ".join(parts) + "}"
+
+
+def _changed_status(entity: Entity) -> str:
+    """A status value guaranteed to differ from the declared default."""
+    return "closed" if status_default(entity) == "done" else "done"
+
+
 def _mutable_field(entity: Entity) -> tuple[str, str]:
-    """Field used by update tests: prefer status -> 'done', else first string field."""
+    """Field used by update tests: prefer status (value != default), else first string."""
     for f in entity.fields:
         if f.name == "status":
-            return "status", "done"
+            return "status", _changed_status(entity)
     for f in entity.fields:
         if f.type in ("string", "text"):
             return f.name, "updated value"
@@ -142,9 +163,13 @@ def _storage_entity_class(spec: MvpSpec, entity: Entity, mapping: _Mapping, path
             mapping.add(fr, ref(test))
         default_check = ""
         if has_status:
-            default_field = next(f for f in entity.fields if f.name == "status")
-            expected = default_field.default or "open"
-            default_check = f'        self.assertEqual(created["status"], "{expected}")\n'
+            default = status_default(entity)
+            if default is not None:
+                default_check = (
+                    f'        self.assertEqual(created["status"], {json.dumps(default)})\n'
+                )
+            else:
+                default_check = '        self.assertIsNone(created["status"])\n'
         lines += [
             "",
             f"    def test_create_{var}_assigns_id(self):",
@@ -176,7 +201,9 @@ def _storage_entity_class(spec: MvpSpec, entity: Entity, mapping: _Mapping, path
             f'        ids = [row["id"] for row in self.storage.list_{table}()]',
             "        self.assertEqual(ids, sorted(ids, reverse=True))",
         ]
-        if has_status:
+        default = status_default(entity)
+        if has_status and default is not None and "entity.update" in caps:
+            changed = _changed_status(entity)
             mapping.add(fr, ref(f"test_list_{table}_filters_by_status"))
             lines += [
                 "",
@@ -184,16 +211,12 @@ def _storage_entity_class(spec: MvpSpec, entity: Entity, mapping: _Mapping, path
                 f'        """Covers: {fr} — optional status filter."""',
                 f"        kept = self.storage.create_{var}({payload})",
                 f"        other = self.storage.create_{var}({payload})",
-                f'        self.storage.update_{var}(other["id"], {{"status": "done"}})'
-                if "entity.update" in caps
-                else "        _ = other",
-                f'        rows = self.storage.list_{table}(status="open")',
+                f'        self.storage.update_{var}(other["id"], '
+                f'{{"status": {json.dumps(changed)}}})',
+                f"        rows = self.storage.list_{table}(status={json.dumps(default)})",
                 '        self.assertIn(kept["id"], [row["id"] for row in rows])',
+                '        self.assertNotIn(other["id"], [row["id"] for row in rows])',
             ]
-            if "entity.update" in caps:
-                lines += [
-                    '        self.assertNotIn(other["id"], [row["id"] for row in rows])',
-                ]
     if "entity.read" in caps:
         fr = fr_id_for(spec, entity, "entity.read")
         mapping.add(fr, ref(f"test_get_{var}_unknown_returns_none"))
@@ -213,13 +236,13 @@ def _storage_entity_class(spec: MvpSpec, entity: Entity, mapping: _Mapping, path
             f'        """Covers: {fr} — update persists the change."""',
             f"        created = self.storage.create_{var}({payload})",
             f'        updated = self.storage.update_{var}(created["id"], '
-            f'{{"{mut_field}": "{mut_value}"}})',
-            f'        self.assertEqual(updated["{mut_field}"], "{mut_value}")',
+            f'{{"{mut_field}": {json.dumps(mut_value)}}})',
+            f'        self.assertEqual(updated["{mut_field}"], {json.dumps(mut_value)})',
             "",
             f"    def test_update_{var}_unknown_returns_none(self):",
             f'        """Covers: {fr} — negative case: unknown id."""',
             f"        self.assertIsNone(self.storage.update_{var}(999999, "
-            f'{{"{mut_field}": "{mut_value}"}}))',
+            f'{{"{mut_field}": {json.dumps(mut_value)}}}))',
         ]
     if "entity.delete" in caps:
         fr = fr_id_for(spec, entity, "entity.delete")
@@ -356,7 +379,8 @@ def _api_tests(spec: MvpSpec, mapping: _Mapping) -> str:
         "    def tearDown(self):",
         "        self.server.shutdown()",
         "        self.server.server_close()",
-        "        self.server.storage.close()",
+        "        if self.server.storage is not None:",
+        "            self.server.storage.close()",
         "        self._tmp.cleanup()",
         "",
         f"    def _request(self, method, path, body=None, token={token_default}):",
@@ -385,22 +409,23 @@ def _api_tests(spec: MvpSpec, mapping: _Mapping) -> str:
             "        self.assertEqual(status, 200)",
             '        self.assertEqual(body["status"], "ok")',
         ]
-    if auth and spec.entities:
+    probe = auth_probe(spec)
+    if auth and probe is not None:
         fr = frs_by_capability(spec, "auth.bearer_token")[0].id
-        first_route = collection_route(spec.entities[0])
+        method, path_probe = probe
         mapping.add(fr, ref("test_missing_token_returns_401"))
         mapping.add(fr, ref("test_invalid_token_returns_401"))
         lines += [
             "",
             "    def test_missing_token_returns_401(self):",
             f'        """Covers: {fr} — negative case: no Authorization header."""',
-            f'        status, body = self._request("GET", "{first_route}", token=None)',
+            f'        status, body = self._request("{method}", "{path_probe}", token=None)',
             "        self.assertEqual(status, 401)",
             '        self.assertIn("error", body)',
             "",
             "    def test_invalid_token_returns_401(self):",
             f'        """Covers: {fr} — negative case: wrong token."""',
-            f'        status, _ = self._request("GET", "{first_route}", token="wrong-token")',
+            f'        status, _ = self._request("{method}", "{path_probe}", token="wrong-token")',
             "        self.assertEqual(status, 401)",
         ]
     for entity in spec.entities:
@@ -432,7 +457,11 @@ def _api_entity_tests(
             '        self.assertIsNotNone(body["id"])',
         ]
         if has_status:
-            lines += ['        self.assertEqual(body["status"], "open")']
+            default = status_default(entity)
+            if default is not None:
+                lines += [f'        self.assertEqual(body["status"], {json.dumps(default)})']
+            else:
+                lines += ['        self.assertIsNone(body["status"])']
         if required:
             mapping.add(fr, ref(f"test_create_{var}_without_required_field_returns_400"))
             lines += [
@@ -442,6 +471,21 @@ def _api_entity_tests(
                 f'        status, body = self._request("POST", "{route}", {{}})',
                 "        self.assertEqual(status, 400)",
                 f'        self.assertEqual(body["error"]["field"], "{required[0]}")',
+            ]
+        falsy_field = next(
+            (f for f in entity.fields if f.required and f.type in ("int", "bool")), None
+        )
+        if falsy_field is not None:
+            falsy_value = "0" if falsy_field.type == "int" else "False"
+            falsy_payload = _payload_with(entity, falsy_field.name, falsy_value)
+            mapping.add(fr, ref(f"test_create_{var}_accepts_falsy_{falsy_field.name}"))
+            lines += [
+                "",
+                f"    def test_create_{var}_accepts_falsy_{falsy_field.name}(self):",
+                f'        """Covers: {fr} — edge case: falsy value for a required field '
+                'is PRESENT, not missing."""',
+                f'        status, body = self._request("POST", "{route}", {falsy_payload})',
+                "        self.assertEqual(status, 201)",
             ]
     if "entity.list" in caps:
         fr = fr_id_for(spec, entity, "entity.list")
@@ -458,20 +502,24 @@ def _api_entity_tests(
             '        ids = [row["id"] for row in body]',
             "        self.assertEqual(ids, sorted(ids, reverse=True))",
         ]
-        if has_status and "entity.update" in caps:
+        default = status_default(entity)
+        if has_status and default is not None and "entity.update" in caps:
+            changed = _changed_status(entity)
+            encoded_default = urllib.parse.quote(default, safe="")
             mapping.add(fr, ref(f"test_list_{var}s_filters_by_status"))
             lines += [
                 "",
                 f"    def test_list_{var}s_filters_by_status(self):",
                 f'        """Covers: {fr} — ?status= filter."""',
                 f'        _, kept = self._request("POST", "{route}", {payload})',
-                f'        _, done = self._request("POST", "{route}", {payload})',
-                f'        self._request("PATCH", "{route}/%d" % done["id"], {{"status": "done"}})',
-                f'        status, body = self._request("GET", "{route}?status=open")',
+                f'        _, other = self._request("POST", "{route}", {payload})',
+                f'        self._request("PATCH", "{route}/%d" % other["id"], '
+                f'{{"status": {json.dumps(changed)}}})',
+                f'        status, body = self._request("GET", "{route}?status={encoded_default}")',
                 "        self.assertEqual(status, 200)",
                 '        ids = [row["id"] for row in body]',
                 '        self.assertIn(kept["id"], ids)',
-                '        self.assertNotIn(done["id"], ids)',
+                '        self.assertNotIn(other["id"], ids)',
             ]
     if "entity.read" in caps:
         fr = fr_id_for(spec, entity, "entity.read")

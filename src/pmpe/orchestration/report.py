@@ -114,6 +114,7 @@ def render_final_report(
         "## Specification",
         f"- Problem: {spec.problem_statement}",
         f"- Target user: {spec.target_user}",
+        f"- Hypothesis: {spec.hypothesis or '—'}",
         f"- North Star Metric: {spec.north_star_metric}",
         f"- Validation: {'PASSED' if not validation_raw.get('errors') else 'FAILED'} "
         f"({len(validation_raw.get('warnings', []))} warning(s), "

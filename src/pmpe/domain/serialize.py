@@ -1,11 +1,24 @@
-"""Serialization helper: dataclasses/enums/paths -> JSON-compatible structures."""
+"""Serialization helpers: dataclasses/enums/paths -> JSON, atomic JSON writes."""
 
 from __future__ import annotations
 
 import dataclasses
+import json
 from enum import Enum
 from pathlib import Path
 from typing import Any
+
+
+def atomic_write_json(path: Path, obj: Any) -> None:
+    """Write JSON via tmp+rename so a crash never leaves a torn file.
+
+    Every persistence site (state, escalations, approvals, artifacts) uses this —
+    a torn escalation/approval file would wedge `pmpe resume` permanently.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(jsonable(obj), indent=2, sort_keys=True) + "\n")
+    tmp.replace(path)
 
 
 def jsonable(obj: Any) -> Any:

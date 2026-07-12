@@ -1,8 +1,9 @@
 """Pipeline configuration with validation.
 
 Chaos fields exist for the test suite only: they let the e2e tests plant failures
-(injected files, simulated crashes) without patching internals. They are documented,
-explicit, and default to off.
+(injected files, simulated crashes) without patching internals. They are
+constructor-only — ``PipelineConfig.load`` rejects them, so a user-facing config
+file can never inject files into a build or sabotage runs.
 """
 
 from __future__ import annotations
@@ -14,6 +15,9 @@ from typing import Any
 import yaml
 
 from pmpe.domain.errors import ConfigError
+from pmpe.quality.gates import DEFAULT_REQUIRED_GATES
+
+_CHAOS_KEYS = ("chaos_inject_files", "chaos_fail_at_step")
 
 
 def packaged_schema_path() -> Path:
@@ -26,12 +30,9 @@ def packaged_schema_path() -> Path:
 class PipelineConfig:
     runs_dir: Path = Path("runs")
     schema_path: Path = field(default_factory=packaged_schema_path)
-    required_gates: list[str] = field(
-        default_factory=lambda: ["compile", "unit", "integration", "security"]
-    )
-    lint_generated: bool = True  # run ruff over generated code when ruff is available
+    required_gates: list[str] = field(default_factory=lambda: list(DEFAULT_REQUIRED_GATES))
     deploy_timeout_s: float = 15.0
-    # --- test/chaos hooks (off by default; see module docstring) ---
+    # --- test/chaos hooks (constructor-only; see module docstring) ---
     chaos_inject_files: dict[str, str] = field(default_factory=dict)
     chaos_fail_at_step: str | None = None
 
@@ -47,7 +48,7 @@ class PipelineConfig:
 
     @classmethod
     def load(cls, path: Path | None = None) -> PipelineConfig:
-        """Load configuration from a YAML file; unknown keys are rejected."""
+        """Load configuration from a YAML file; unknown and chaos keys are rejected."""
         if path is None:
             return cls()
         try:
@@ -58,6 +59,11 @@ class PipelineConfig:
             return cls()
         if not isinstance(raw, dict):
             raise ConfigError(f"config {path} must be a mapping")
+        forbidden = sorted(set(raw) & set(_CHAOS_KEYS))
+        if forbidden:
+            raise ConfigError(
+                f"config keys not allowed in config files (test-only): {', '.join(forbidden)}"
+            )
         known = {f.name for f in fields(cls)}
         unknown = sorted(set(raw) - known)
         if unknown:

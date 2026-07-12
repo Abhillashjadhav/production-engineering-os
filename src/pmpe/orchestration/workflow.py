@@ -12,7 +12,6 @@ Design rules (see ARCHITECTURE.md):
 from __future__ import annotations
 
 import hashlib
-import json
 import secrets
 import shutil
 import subprocess
@@ -40,12 +39,13 @@ from pmpe.domain.models import (
     Implementation,
     MergeRecommendation,
     MvpSpec,
+    PullRequestRecord,
     ReviewReport,
     RiskLevel,
     StepStatus,
     TraceabilityReport,
 )
-from pmpe.domain.serialize import jsonable
+from pmpe.domain.serialize import atomic_write_json, jsonable
 from pmpe.gitops.local import LocalGitAdapter
 from pmpe.implementation.agent import StdlibCrudGenerator
 from pmpe.implementation.workspace import write_files
@@ -55,22 +55,39 @@ from pmpe.orchestration import report as report_mod
 from pmpe.orchestration.state import RunState
 from pmpe.planning.planner import EngineeringPlanner
 from pmpe.policies.engine import PolicyEngine
-from pmpe.quality.gates import QualityGateRunner, normalize_format
+from pmpe.quality.gates import (
+    SUBPROCESS_TIMEOUT_S,
+    QualityGateRunner,
+    normalize_format,
+    tail_output,
+)
 from pmpe.review.fixer import FixAgent
 from pmpe.review.merge_gate import MergeGate
 from pmpe.review.reviewer import PrReviewer
 from pmpe.telemetry.events import EventLog, utc_now
+from pmpe.telemetry.metrics import LocalMetricsRecorder
 from pmpe.testing.architect import TestArchitect
 
 _ISSUE_POLICY = {
     "CONTRADICTION": "validation.contradiction",
-    "AC_UNKNOWN_REQUIREMENT": "validation.missing_product_decision",
-    "FR_WITHOUT_AC": "validation.missing_product_decision",
-    "MISSING_ENTITY": "validation.missing_product_decision",
     "NSM_ACTIVITY_ONLY": "validation.activity_only_nsm",
     "AC_UNTESTABLE": "validation.unclear_acceptance_criteria",
     "UNSUPPORTED_DEPLOYMENT": "deployment.production_target",
 }
+
+# Structural spec defects (broken references, invalid identifiers, capability gaps)
+# are NOT approvable: no human decision can make downstream stages act on them —
+# an approved run would crash in codegen. The spec must be fixed and re-run.
+_STRUCTURAL_ERROR_CODES = frozenset(
+    {
+        "AC_UNKNOWN_REQUIREMENT",
+        "FR_WITHOUT_AC",
+        "MISSING_ENTITY",
+        "INVALID_IDENTIFIER",
+        "REQUIREMENT_ID_FORMAT",
+        "CAPABILITY_DEPENDENCY",
+    }
+)
 
 
 class _Blocked(Exception):  # noqa: N818 — control-flow signal, not an error
@@ -138,11 +155,7 @@ class WorkflowEngine:
             approved=approved,
             timestamp=utc_now(),
         )
-        approvals_dir = run_dir / "approvals"
-        approvals_dir.mkdir(exist_ok=True)
-        (approvals_dir / f"{escalation_id}.json").write_text(
-            json.dumps(jsonable(approval), indent=2) + "\n"
-        )
+        atomic_write_json(run_dir / "approvals" / f"{escalation_id}.json", approval)
         EventLog(run_dir).emit(
             "approval_recorded",
             escalation_id=escalation_id,
@@ -235,8 +248,6 @@ class WorkflowEngine:
         positive approval; a rejection fails the run."""
         if not items:
             return
-        existing = ctx.load_escalations()
-        by_key = {e.context.get("key"): e for e in existing}
         approvals = ctx.load_approvals()
         pending: list[str] = []
         for key, decision_type, reason in items:
@@ -251,18 +262,14 @@ class WorkflowEngine:
             )
             if not self.policy.requires_approval(decision.level):
                 continue
-            esc = by_key.get(key)
-            if esc is None:
-                esc = Escalation(
-                    id=f"ESC-{len(existing) + len(pending) + 1:03d}",
-                    risk=decision.level,
-                    reason=reason,
-                    step=step,
-                    context={"key": key, "rule": decision.rule_id},
-                    created_at=utc_now(),
-                )
-                ctx.write_escalation(esc)
-                by_key[key] = esc
+            esc, created = ctx.ensure_escalation(
+                key=key,
+                step=step,
+                risk=decision.level,
+                reason=reason,
+                rule=decision.rule_id,
+            )
+            if created:
                 pending.append(esc.id)
                 continue
             approval = approvals.get(esc.id)
@@ -290,6 +297,13 @@ class WorkflowEngine:
 
         result = RequirementValidator().validate(ctx.spec)
         ctx.store.write_json("validation_report.json", result)
+        structural = [i for i in result.errors if i.code in _STRUCTURAL_ERROR_CODES]
+        if structural:
+            details = "; ".join(f"[{i.code}] {i.message}" for i in structural)
+            raise StepFailure(
+                "validate",
+                "specification defects require a spec fix (not approvable): " + details,
+            )
         items = [
             (
                 f"{issue.code}:{issue.field}",
@@ -371,7 +385,7 @@ class WorkflowEngine:
             cwd=ctx.workspace,
             capture_output=True,
             text=True,
-            timeout=180,
+            timeout=SUBPROCESS_TIMEOUT_S,
         )
         if proc.returncode == 0:
             raise StepFailure(
@@ -379,7 +393,7 @@ class WorkflowEngine:
                 "generated tests PASSED before implementation — the suite is vacuous "
                 "and cannot gate anything",
             )
-        tail = "\n".join((proc.stdout + proc.stderr).strip().splitlines()[-10:])
+        tail = tail_output(proc.stdout + proc.stderr)
         ctx.store.write_json(
             "confirm_red.json",
             {"tests_failed_before_implementation": True, "output_tail": tail},
@@ -416,41 +430,43 @@ class WorkflowEngine:
             },
         )
 
-    def _step_quality_gates(self, ctx: _RunContext) -> None:
+    def _run_gates(self, ctx: _RunContext, artifact: str, stage: str) -> None:
         results = ctx.gate_runner.run()
-        ctx.store.write_json("gate_results.json", results)
+        ctx.store.write_json(artifact, results)
         for result in results:
             ctx.events.emit(
                 "gate_result",
-                stage="quality_gates",
+                stage=stage,
                 gate=result.gate,
                 passed=result.passed,
                 required=result.required,
                 skipped=result.skipped,
             )
 
+    def _step_quality_gates(self, ctx: _RunContext) -> None:
+        self._run_gates(ctx, "gate_results.json", "quality_gates")
+
     def _step_create_pr(self, ctx: _RunContext) -> None:
         git = ctx.git
-        commits = [c.subject for c in git.log()]
-        record = {
-            "title": f"feat: {ctx.spec.product_name} MVP ({ctx.state.run_id})",
-            "body": (
+        record = PullRequestRecord(
+            title=f"feat: {ctx.spec.product_name} MVP ({ctx.state.run_id})",
+            body=(
                 f"Automated build of {ctx.spec.product_name} from the approved MVP "
                 f"specification.\n\nPlan: {len(ctx.plan.tasks)} tasks; "
                 f"APIs: {', '.join(ctx.plan.apis)}.\n"
                 f"Requirement coverage is enforced by the merge gate."
             ),
-            "branch": ctx.branch,
-            "base": "main",
-            "commits": commits,
-            "diff_stat": git.diff_stat("main"),
-        }
+            branch=ctx.branch,
+            base="main",
+            commits=[c.subject for c in git.log()],
+            diff_stat=git.diff_stat("main"),
+        )
         ctx.store.write_json("pull_request.json", record)
         ctx.store.write_text(
             "pull_request.md",
-            f"# {record['title']}\n\n{record['body']}\n\n## Commits\n"
-            + "\n".join(f"- {c}" for c in commits)
-            + f"\n\n## Diff\n```\n{record['diff_stat']}\n```\n",
+            f"# {record.title}\n\n{record.body}\n\n## Commits\n"
+            + "\n".join(f"- {c}" for c in record.commits)
+            + f"\n\n## Diff\n```\n{record.diff_stat}\n```\n",
         )
 
     def _step_review(self, ctx: _RunContext) -> None:
@@ -466,36 +482,22 @@ class WorkflowEngine:
         ctx.store.write_json("fix_result.json", result)
         if result.escalated:
             ids = ", ".join(sorted({f.id for f in result.escalated}))
-            existing = {e.context.get("key") for e in ctx.load_escalations()}
-            if "fix:blocking" not in existing:
-                decision = self.policy.classify("fix.unresolvable_test_failure")
-                esc = Escalation(
-                    id=f"ESC-{len(ctx.load_escalations()) + 1:03d}",
-                    risk=RiskLevel.HIGH,
-                    reason=(
-                        f"blocking findings the fix agent cannot safely resolve: {ids}. "
-                        f"{decision.justification}"
-                    ),
-                    step="fix",
-                    context={"key": "fix:blocking", "rule": decision.rule_id},
-                    created_at=utc_now(),
-                )
-                ctx.write_escalation(esc)
+            decision = self.policy.classify("fix.unresolvable_test_failure")
+            ctx.ensure_escalation(
+                key="fix:blocking",
+                step="fix",
+                risk=decision.level,
+                reason=(
+                    f"blocking findings the fix agent cannot safely resolve: {ids}. "
+                    f"{decision.justification}"
+                ),
+                rule=decision.rule_id,
+            )
             # deliberately no block: the run completes through the merge gate,
             # which will say NO_MERGE and the report will carry the open escalation
 
     def _step_retest(self, ctx: _RunContext) -> None:
-        results = ctx.gate_runner.run()
-        ctx.store.write_json("gate_results_retest.json", results)
-        for result in results:
-            ctx.events.emit(
-                "gate_result",
-                stage="retest",
-                gate=result.gate,
-                passed=result.passed,
-                required=result.required,
-                skipped=result.skipped,
-            )
+        self._run_gates(ctx, "gate_results_retest.json", "retest")
 
     def _step_merge_gate(self, ctx: _RunContext) -> None:
         gates = [
@@ -524,6 +526,13 @@ class WorkflowEngine:
             for step in ("merge", "deploy", "verify"):
                 ctx.state.mark(step, StepStatus.SKIPPED, detail="merge gate said NO_MERGE")
             ctx.state.save()
+        else:
+            # heal a crash window where a previous NO_MERGE pass marked steps skipped
+            # before merge_gate itself was durably done and the decision then flipped
+            for step in ("merge", "deploy", "verify"):
+                if ctx.state.status_of(step) is StepStatus.SKIPPED:
+                    ctx.state.mark(step, StepStatus.PENDING, detail="re-enabled by MERGE")
+            ctx.state.save()
 
     def _step_merge(self, ctx: _RunContext) -> None:
         sha = ctx.git.merge_to_main(ctx.branch)
@@ -532,7 +541,9 @@ class WorkflowEngine:
     def _step_deploy(self, ctx: _RunContext) -> None:
         deployer = LocalProcessDeployer(timeout_s=self.config.deploy_timeout_s)
         artifact_files = deployer.write_artifacts(ctx.workspace, ctx.spec)
-        ctx.git.commit_all("chore: deployment artifacts (run.sh, Dockerfile, rollback)")
+        ctx.git.commit_all(
+            "chore: deployment artifacts (run.sh, Dockerfile, rollback)", allow_noop=True
+        )
         result = deployer.deploy(ctx.workspace, ctx.spec)
         ctx.store.write_json("deployment_result.json", result)
         ctx.events.emit(
@@ -609,7 +620,10 @@ class WorkflowEngine:
             created_at=ctx.state.created_at,
             outcome=outcome,
         )
-        ctx.store.write_json("metrics.json", metrics)
+        recorder = LocalMetricsRecorder()
+        for name, value in metrics.items():
+            recorder.record(name, value)
+        ctx.store.write_json("metrics.json", recorder.snapshot())
         ctx.store.write_text(
             "final_report.md",
             report_mod.render_final_report(
@@ -648,6 +662,7 @@ class WorkflowEngine:
             code_by_requirement=ctx.implementation.code_by_requirement,
             findings=review.findings,
             deployment=deployment,
+            workspace=ctx.workspace,
         )
 
 
@@ -717,28 +732,41 @@ class _RunContext:
         )
 
     def load_escalations(self) -> list[Escalation]:
-        esc_dir = self.state.run_dir / "escalations"
-        if not esc_dir.is_dir():
-            return []
-        return [
-            decoders.escalation_from_dict(json.loads(p.read_text()))
-            for p in sorted(esc_dir.glob("ESC-*.json"))
-        ]
+        return decoders.load_escalations(self.state.run_dir)
 
     def load_approvals(self) -> dict[str, Approval]:
-        appr_dir = self.state.run_dir / "approvals"
-        if not appr_dir.is_dir():
-            return {}
-        approvals = {}
-        for path in sorted(appr_dir.glob("ESC-*.json")):
-            approval = decoders.approval_from_dict(json.loads(path.read_text()))
-            approvals[approval.escalation_id] = approval
-        return approvals
+        return decoders.load_approvals(self.state.run_dir)
 
-    def write_escalation(self, esc: Escalation) -> None:
-        esc_dir = self.state.run_dir / "escalations"
-        esc_dir.mkdir(exist_ok=True)
-        (esc_dir / f"{esc.id}.json").write_text(json.dumps(jsonable(esc), indent=2) + "\n")
+    def ensure_escalation(
+        self, *, key: str, step: str, risk: RiskLevel, reason: str, rule: str
+    ) -> tuple[Escalation, bool]:
+        """Create-or-return the escalation identified by ``key``.
+
+        Single owner of id allocation (max existing suffix + 1, collision-proof
+        across gaps) and of the dedup convention that makes resume idempotent.
+        """
+        existing = self.load_escalations()
+        for esc in existing:
+            if esc.context.get("key") == key:
+                return esc, False
+        highest = 0
+        for esc in existing:
+            _, _, suffix = esc.id.partition("-")
+            if suffix.isdigit():
+                highest = max(highest, int(suffix))
+        new = Escalation(
+            id=f"ESC-{highest + 1:03d}",
+            risk=risk,
+            reason=reason,
+            step=step,
+            context={"key": key, "rule": rule},
+            created_at=utc_now(),
+        )
+        self._write_escalation(new)
+        return new, True
+
+    def _write_escalation(self, esc: Escalation) -> None:
+        atomic_write_json(self.state.run_dir / "escalations" / f"{esc.id}.json", esc)
         self.events.emit(
             "escalation_created",
             escalation_id=esc.id,

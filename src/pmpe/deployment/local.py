@@ -20,13 +20,25 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from pmpe.domain.models import DeploymentResult, MvpSpec
-from pmpe.stacks import capabilities_for, collection_route, has_auth
+from pmpe.stacks import auth_probe, capabilities_for, collection_route, has_auth, has_health
 
 
 class DeploymentAdapter(Protocol):
     def write_artifacts(self, workspace: Path, spec: MvpSpec) -> list[str]: ...
 
     def deploy(self, workspace: Path, spec: MvpSpec) -> DeploymentResult: ...
+
+
+_SAMPLE_BY_TYPE = {"int": 1, "bool": True, "timestamp": "2026-01-01T00:00:00+00:00"}
+
+
+def _required_sample_payload(entity: Any) -> dict[str, Any]:
+    """Typed sample values for every required field of the entity."""
+    payload: dict[str, Any] = {}
+    for field in entity.fields:
+        if field.required:
+            payload[field.name] = _SAMPLE_BY_TYPE.get(field.type, f"smoke {field.name}")
+    return payload
 
 
 def _free_port() -> int:
@@ -63,7 +75,7 @@ class LocalProcessDeployer:
         deploy_dir = workspace / "deploy"
         deploy_dir.mkdir(exist_ok=True)
         files = {
-            "run.sh": _RUN_SH,
+            "run.sh": _run_sh(spec),
             "Dockerfile": _DOCKERFILE,
             "DEPLOYMENT.md": _deployment_md(spec),
             "ROLLBACK.md": _rollback_md(spec),
@@ -98,7 +110,7 @@ class LocalProcessDeployer:
             text=True,
         )
         try:
-            healthy = self._wait_healthy(base, proc)
+            healthy = self._wait_healthy(base, proc, spec)
             journey_passed, details = (
                 self._run_journey(base, spec, token) if healthy else (False, "not healthy")
             )
@@ -119,15 +131,26 @@ class LocalProcessDeployer:
             details=details if healthy else _proc_failure_details(proc),
         )
 
-    def _wait_healthy(self, base: str, proc: subprocess.Popen[str]) -> bool:
+    def _wait_healthy(self, base: str, proc: subprocess.Popen[str], spec: MvpSpec) -> bool:
+        """Readiness: the /health endpoint when the spec declares one, TCP otherwise.
+
+        A spec without health.check must still deploy (the validator only warns);
+        polling a nonexistent /health would time out every such run.
+        """
+        use_health = has_health(spec)
+        port = int(base.rsplit(":", 1)[1])
         deadline = time.monotonic() + self.timeout_s
         while time.monotonic() < deadline:
             if proc.poll() is not None:
                 return False
             try:
-                status, body = _request("GET", f"{base}/health")
-                if status == 200 and isinstance(body, dict) and body.get("status") == "ok":
-                    return True
+                if use_health:
+                    status, body = _request("GET", f"{base}/health")
+                    if status == 200 and isinstance(body, dict) and body.get("status") == "ok":
+                        return True
+                else:
+                    with socket.create_connection(("127.0.0.1", port), timeout=1):
+                        return True
             except (urllib.error.URLError, OSError):
                 pass
             time.sleep(0.1)
@@ -135,19 +158,23 @@ class LocalProcessDeployer:
 
     def _run_journey(self, base: str, spec: MvpSpec, token: str) -> tuple[bool, str]:
         """Walk the main user journey derived from the spec's capabilities."""
-        steps: list[str] = ["health: ok"]
+        steps: list[str] = ["health: ok" if has_health(spec) else "tcp-ready: ok"]
         if not spec.entities:
             return True, "; ".join(steps)
         entity = spec.entities[0]
         caps = capabilities_for(spec, entity)
         route = collection_route(entity)
-        required = {f.name: f"smoke {f.name}" for f in entity.fields if f.required}
+        required = _required_sample_payload(entity)
         has_status = any(f.name == "status" for f in entity.fields)
 
-        if has_auth(spec):
-            status, _ = _request("GET", f"{base}{route}")
+        probe = auth_probe(spec)
+        if probe is not None:
+            method, probe_path = probe
+            status, _ = _request(method, f"{base}{probe_path}")
             if status != 401:
-                return False, f"unauthorized request returned {status}, expected 401"
+                return False, (
+                    f"unauthorized {method} {probe_path} returned {status}, expected 401"
+                )
             steps.append("auth rejects missing token: ok")
 
         item_id: int | None = None
@@ -182,13 +209,18 @@ def _proc_failure_details(proc: subprocess.Popen[str]) -> str:
     return f"process did not become healthy; stderr tail: {err}"
 
 
-_RUN_SH = """#!/usr/bin/env bash
-set -euo pipefail
-: "${APP_TOKEN:?APP_TOKEN must be set — see DEPLOYMENT.md}"
-export APP_DB="${APP_DB:-data.db}"
-export APP_PORT="${APP_PORT:-8000}"
-exec python3 -m app.server
-"""
+def _run_sh(spec: MvpSpec) -> str:
+    token_guard = (
+        '\n: "${APP_TOKEN:?APP_TOKEN must be set — see DEPLOYMENT.md}"' if has_auth(spec) else ""
+    )
+    return (
+        "#!/usr/bin/env bash\n"
+        "set -euo pipefail" + token_guard + "\n"
+        'export APP_DB="${APP_DB:-data.db}"\n'
+        'export APP_PORT="${APP_PORT:-8000}"\n'
+        "exec python3 -m app.server\n"
+    )
+
 
 _DOCKERFILE = """FROM python:3.11-slim
 WORKDIR /srv/app

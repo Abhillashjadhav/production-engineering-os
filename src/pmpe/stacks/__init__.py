@@ -58,3 +58,36 @@ def fr_id_for(spec: MvpSpec, entity: Entity, capability: str) -> str:
         if fr.entity == entity.name and fr.capability == capability:
             return fr.id
     return ""
+
+
+def status_default(entity: Entity) -> str | None:
+    """Declared default of the status field, or None when absent/undefaulted."""
+    for field in entity.fields:
+        if field.name == "status":
+            return field.default
+    return None
+
+
+def auth_probe(spec: MvpSpec) -> tuple[str, str] | None:
+    """A (method, path) that is auth-guarded in the generated API.
+
+    The negative auth check (expect 401 without a token) must hit a route that
+    actually exists — probing GET on the collection when the entity has no
+    entity.list capability would get a 404 and wrongly fail the check.
+    """
+    if not has_auth(spec):
+        return None
+    for entity in spec.entities:
+        caps = capabilities_for(spec, entity)
+        route = collection_route(entity)
+        if "entity.list" in caps:
+            return "GET", route
+        if "entity.create" in caps:
+            return "POST", route
+        if "entity.read" in caps:
+            return "GET", route + "/1"
+        if "entity.update" in caps:
+            return "PATCH", route + "/1"
+        if "entity.delete" in caps:
+            return "DELETE", route + "/1"
+    return None

@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from pmpe.domain.models import StepStatus
+from pmpe.domain.serialize import atomic_write_json
 from pmpe.telemetry.events import utc_now
 
 STEP_ORDER: tuple[str, ...] = (
@@ -110,10 +111,7 @@ class RunState:
                 for name, rec in self.steps.items()
             },
         }
-        path = self.run_dir / "state.json"
-        tmp = path.with_suffix(".json.tmp")
-        tmp.write_text(json.dumps(payload, indent=2) + "\n")
-        tmp.replace(path)
+        atomic_write_json(self.run_dir / "state.json", payload)
 
     @classmethod
     def load(cls, run_dir: Path) -> RunState:

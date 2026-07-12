@@ -7,6 +7,7 @@ least one task or the traceability gate will refuse the merge later.
 
 from __future__ import annotations
 
+from pmpe.domain.errors import PmpeError
 from pmpe.domain.models import EngineeringPlan, FunctionalRequirement, MvpSpec, PlanTask
 
 _ENTITY_CAPABILITIES = (
@@ -130,8 +131,16 @@ class EngineeringPlanner:
             "S",
         )
 
-        order = [t.id for t in tasks]  # insertion order is already topological
+        order = [t.id for t in tasks]  # insertion order is topological — verified below
         graph = {t.id: list(t.depends_on) for t in tasks}
+        position = {tid: i for i, tid in enumerate(order)}
+        for task in tasks:
+            for dep in task.depends_on:
+                if position[dep] >= position[task.id]:
+                    raise PmpeError(
+                        f"planner produced a non-topological order: {dep} must precede "
+                        f"{task.id} — planner bug, not a spec problem"
+                    )
 
         components = ["project", "tests"]
         if entity_frs:

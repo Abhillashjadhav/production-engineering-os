@@ -62,6 +62,21 @@ def test_log_preserves_commit_order(workspace: Path) -> None:
     assert subjects.index("feat: second") < subjects.index("test: first")
 
 
+def test_commit_all_with_no_changes(workspace: Path) -> None:
+    """Idempotent steps re-commit identical files on resume; that must not error."""
+    import pytest as _pytest
+
+    from pmpe.domain.errors import GitError
+
+    git = LocalGitAdapter(workspace)
+    git.init()
+    (workspace / "a.txt").write_text("x\n")
+    first = git.commit_all("chore: a")
+    assert git.commit_all("chore: noop", allow_noop=True) == first
+    with _pytest.raises(GitError):
+        git.commit_all("chore: strict noop must fail")
+
+
 def test_commit_identity_is_isolated_from_user_config(workspace: Path) -> None:
     git = LocalGitAdapter(workspace)
     git.init()

@@ -16,6 +16,7 @@ from pmpe.config import PipelineConfig, packaged_schema_path
 from pmpe.domain.errors import PmpeError, SpecError
 from pmpe.domain.serialize import jsonable
 from pmpe.ingestion import ingest
+from pmpe.orchestration import decoders
 from pmpe.orchestration.workflow import WorkflowEngine
 from pmpe.validation.validator import RequirementValidator
 
@@ -97,15 +98,17 @@ def _cmd_status(args: argparse.Namespace) -> int:
     print(f"run: {state.run_id}   outcome: {state.outcome or 'in progress'}")
     for name, record in state.steps.items():
         print(f"  {name:<16} {record.status.value:<8} {record.detail[:80]}")
-    esc_dir = config.runs_dir / args.run_id / "escalations"
-    if esc_dir.is_dir():
-        for esc_path in sorted(esc_dir.glob("ESC-*.json")):
-            esc = json.loads(esc_path.read_text())
-            approved = (config.runs_dir / args.run_id / "approvals" / esc_path.name).exists()
-            print(
-                f"  escalation {esc['id']} [{esc['risk']}] "
-                f"{'resolved' if approved else 'OPEN'}: {esc['reason'][:100]}"
-            )
+    run_dir = config.runs_dir / args.run_id
+    approvals = decoders.load_approvals(run_dir)
+    for esc in decoders.load_escalations(run_dir):
+        approval = approvals.get(esc.id)
+        if approval is None:
+            resolution = "OPEN"
+        elif approval.approved:
+            resolution = f"approved by {approval.approver}"
+        else:
+            resolution = f"REJECTED by {approval.approver}"
+        print(f"  escalation {esc.id} [{esc.risk.value}] {resolution}: {esc.reason[:100]}")
     return 0
 
 

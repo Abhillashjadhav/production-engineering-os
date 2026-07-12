@@ -30,6 +30,14 @@ def test_unknown_config_keys_are_rejected(tmp_path: Path) -> None:
         PipelineConfig.load(path)
 
 
+def test_chaos_keys_are_rejected_in_config_files(tmp_path: Path) -> None:
+    """Test-only hooks must not be reachable from user-facing config (injection risk)."""
+    path = tmp_path / "pmpe.yaml"
+    path.write_text('chaos_inject_files:\n  app/evil.py: "x = 1"\n')
+    with pytest.raises(ConfigError, match="test-only"):
+        PipelineConfig.load(path)
+
+
 def test_invalid_timeout_is_rejected() -> None:
     with pytest.raises(ConfigError):
         PipelineConfig(deploy_timeout_s=0)

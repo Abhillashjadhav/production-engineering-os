@@ -27,7 +27,7 @@ class Commit:
 class GitAdapter(Protocol):
     def init(self) -> None: ...
 
-    def commit_all(self, message: str) -> str: ...
+    def commit_all(self, message: str, allow_noop: bool = False) -> str: ...
 
     def create_branch(self, name: str) -> None: ...
 
@@ -73,8 +73,12 @@ class LocalGitAdapter:
         self._run("config", "user.name", _BOT_NAME)
         self._run("config", "user.email", _BOT_EMAIL)
 
-    def commit_all(self, message: str) -> str:
+    def commit_all(self, message: str, allow_noop: bool = False) -> str:
         self._run("add", "-A")
+        if allow_noop and not self._run("status", "--porcelain"):
+            # idempotent steps (e.g. deploy artifacts on resume) regenerate identical
+            # files; an empty commit attempt must not wedge the run
+            return self._run("rev-parse", "HEAD")
         self._run("commit", "--quiet", "--no-verify", "-m", message)
         return self._run("rev-parse", "HEAD")
 

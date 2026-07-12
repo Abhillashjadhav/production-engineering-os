@@ -144,6 +144,46 @@ def test_reserved_field_name_is_rejected(
     assert any(i.code == "INVALID_IDENTIFIER" and "reserved" in i.message for i in report.errors)
 
 
+def test_entity_capabilities_without_create_are_rejected(
+    validator: RequirementValidator, golden_spec_dict: dict[str, Any]
+) -> None:
+    """V1 tests entities through create; list/read/update/delete alone are unverifiable."""
+    golden_spec_dict["functional_requirements"] = [
+        fr for fr in golden_spec_dict["functional_requirements"] if fr["id"] != "FR-002"
+    ]
+    golden_spec_dict["acceptance_criteria"] = [
+        ac for ac in golden_spec_dict["acceptance_criteria"] if ac["requirement"] != "FR-002"
+    ]
+    report = _report(validator, golden_spec_dict)
+    assert any(i.code == "CAPABILITY_DEPENDENCY" for i in report.errors)
+
+
+def test_requirement_id_grammar_is_enforced(
+    validator: RequirementValidator, golden_spec_dict: dict[str, Any]
+) -> None:
+    """FR ids key traceability and Covers: markers — 'fr1' would dead-end the merge gate."""
+    golden_spec_dict["functional_requirements"][0]["id"] = "fr1"
+    for ac in golden_spec_dict["acceptance_criteria"]:
+        if ac["requirement"] == "FR-001":
+            ac["requirement"] = "fr1"
+    report = _report(validator, golden_spec_dict)
+    assert any(i.code == "REQUIREMENT_ID_FORMAT" for i in report.errors)
+
+
+def test_missing_health_check_is_a_warning_only(
+    validator: RequirementValidator, golden_spec_dict: dict[str, Any]
+) -> None:
+    golden_spec_dict["functional_requirements"] = [
+        fr for fr in golden_spec_dict["functional_requirements"] if fr["id"] != "FR-007"
+    ]
+    golden_spec_dict["acceptance_criteria"] = [
+        ac for ac in golden_spec_dict["acceptance_criteria"] if ac["requirement"] != "FR-007"
+    ]
+    report = _report(validator, golden_spec_dict)
+    assert any(i.code == "MISSING_HEALTH_CHECK" for i in report.warnings)
+    assert report.ok  # deployable, with TCP-readiness fallback
+
+
 def test_issue_kinds_are_typed(
     validator: RequirementValidator, golden_spec_dict: dict[str, Any]
 ) -> None:

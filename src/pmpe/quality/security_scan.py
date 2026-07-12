@@ -59,13 +59,13 @@ _RULES: tuple[_Rule, ...] = (
 _SKIP_DIRS = {".git", "__pycache__", ".venv", "deploy", ".ruff_cache", ".pytest_cache"}
 
 
-def _is_test_path(path: Path) -> bool:
-    return "tests" in path.parts or path.name.startswith("test_")
-
-
-def scan_file(path: Path) -> list[Finding]:
+def scan_file(path: Path, root: Path | None = None) -> list[Finding]:
+    """Scan one file. Test-file detection uses the path RELATIVE to ``root`` when
+    given — absolute ancestors named 'tests' (e.g. a runs dir under /home/x/tests/)
+    must never exempt product code from the secret rule."""
+    rel_parts = path.relative_to(root).parts if root is not None else (path.name,)
+    is_test = "tests" in rel_parts or path.name.startswith("test_")
     findings: list[Finding] = []
-    is_test = _is_test_path(path)
     for lineno, line in enumerate(path.read_text().splitlines(), start=1):
         for rule in _RULES:
             if rule.skip_tests and is_test:
@@ -92,7 +92,7 @@ def scan_tree(root: Path) -> list[Finding]:
     for path in sorted(root.rglob("*.py")):
         if any(part in _SKIP_DIRS for part in path.relative_to(root).parts):
             continue
-        findings.extend(scan_file(path))
+        findings.extend(scan_file(path, root=root))
     # re-number across the whole tree for stable ids
     return [
         Finding(

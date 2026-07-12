@@ -18,8 +18,12 @@ from pathlib import Path
 from pmpe.domain.models import GateResult
 from pmpe.quality.security_scan import scan_tree
 
-_DEFAULT_REQUIRED = ("compile", "unit", "integration", "security")
-_SUBPROCESS_TIMEOUT_S = 180
+DEFAULT_REQUIRED_GATES = ("compile", "unit", "integration", "security")
+SUBPROCESS_TIMEOUT_S = 180
+
+
+def tail_output(text: str, lines: int = 15) -> str:
+    return "\n".join(text.strip().splitlines()[-lines:])
 
 
 def normalize_format(workspace: Path) -> bool:
@@ -38,18 +42,14 @@ def normalize_format(workspace: Path) -> bool:
         cwd=workspace,
         capture_output=True,
         text=True,
-        timeout=_SUBPROCESS_TIMEOUT_S,
+        timeout=SUBPROCESS_TIMEOUT_S,
         check=False,
     )
     return True
 
 
-def _tail(text: str, lines: int = 15) -> str:
-    return "\n".join(text.strip().splitlines()[-lines:])
-
-
 class QualityGateRunner:
-    def __init__(self, workspace: Path, required: tuple[str, ...] = _DEFAULT_REQUIRED) -> None:
+    def __init__(self, workspace: Path, required: tuple[str, ...] = DEFAULT_REQUIRED_GATES) -> None:
         self.workspace = workspace
         self.required = set(required)
 
@@ -61,10 +61,10 @@ class QualityGateRunner:
             cwd=self.workspace,
             capture_output=True,
             text=True,
-            timeout=_SUBPROCESS_TIMEOUT_S,
+            timeout=SUBPROCESS_TIMEOUT_S,
         )
         output = (proc.stdout + "\n" + proc.stderr).strip()
-        return proc.returncode == 0, _tail(output)
+        return proc.returncode == 0, tail_output(output)
 
     def _gate_compile(self) -> tuple[bool, str, bool]:
         ok, out = self._run_cmd([sys.executable, "-m", "compileall", "-q", "app", "tests"])
@@ -107,7 +107,7 @@ class QualityGateRunner:
 
     # --- runner -----------------------------------------------------------------
 
-    def run(self, names: list[str] | None = None) -> list[GateResult]:
+    def run(self) -> list[GateResult]:
         gates: dict[str, Callable[[], tuple[bool, str, bool]]] = {
             "compile": self._gate_compile,
             "format": self._gate_format,
@@ -116,9 +116,8 @@ class QualityGateRunner:
             "integration": self._gate_integration,
             "security": self._gate_security,
         }
-        selected = names if names is not None else list(gates)
         results: list[GateResult] = []
-        for name in selected:
+        for name in gates:
             fn = gates[name]
             started = time.monotonic()
             passed, details, skipped = fn()

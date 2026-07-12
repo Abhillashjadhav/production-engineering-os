@@ -39,6 +39,26 @@ def test_contradictory_spec_blocks_at_validation(
     assert state["steps"]["plan"]["status"] == "pending"
 
 
+def test_structural_spec_defect_fails_instead_of_blocking(
+    make_spec_file: Callable[..., Path], pipeline_workdir: Path
+) -> None:
+    """Broken references are not approvable: an approved run would crash in codegen,
+    so the pipeline must fail fast with a spec-fix message, not offer an escalation."""
+    from tests.conftest import mutate_missing_entity
+
+    spec_path = make_spec_file(mutate_missing_entity)
+    with pytest.raises(Exception, match="not approvable"):
+        _engine(pipeline_workdir).run(spec_path)
+    run_dir = next(pipeline_workdir.glob("run-*"))
+    assert (
+        not list((run_dir / "escalations").glob("ESC-*.json"))
+        if (run_dir / "escalations").is_dir()
+        else True
+    )
+    state = json.loads((run_dir / "state.json").read_text())
+    assert state["steps"]["validate"]["status"] == "failed"
+
+
 def test_malformed_spec_is_rejected_at_ingest(fixtures_dir: Path, pipeline_workdir: Path) -> None:
     with pytest.raises(SpecError) as excinfo:
         _engine(pipeline_workdir).run(fixtures_dir / "malformed_spec.yaml")

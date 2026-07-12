@@ -79,6 +79,13 @@ _RECOMMENDED_FIELDS = (
 _SUPPORTED_DEPLOYMENT_TARGETS = ("local",)
 _IDENTIFIER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 _RESERVED_FIELDS = ("id", "created_at", "updated_at")
+_REQUIREMENT_ID_RE = re.compile(r"^[A-Z]+-\d+$")
+_DEPENDENT_ENTITY_CAPABILITIES = (
+    "entity.read",
+    "entity.update",
+    "entity.delete",
+    "entity.list",
+)
 
 
 def _norm(text: str) -> str:
@@ -93,8 +100,11 @@ class RequirementValidator:
 
         self._check_contradictions(spec, errors)
         self._check_requirement_criteria_links(spec, errors)
+        self._check_requirement_id_format(spec, errors)
         self._check_entities(spec, errors)
+        self._check_capability_dependencies(spec, errors)
         self._check_identifiers(spec, errors)
+        self._check_health_capability(spec, warnings)
         self._check_nsm(spec, questions)
         self._check_ac_testability(spec, questions)
         self._check_dependencies(spec, warnings)
@@ -177,6 +187,60 @@ class RequirementValidator:
                         field="entities",
                     )
                 )
+
+    def _check_requirement_id_format(self, spec: MvpSpec, errors: list[ValidationIssue]) -> None:
+        """FR ids become traceability keys and Covers: markers — one grammar owns them."""
+        for fr in spec.functional_requirements:
+            if not _REQUIREMENT_ID_RE.match(fr.id):
+                errors.append(
+                    ValidationIssue(
+                        code="REQUIREMENT_ID_FORMAT",
+                        message=(
+                            f"requirement id '{fr.id}' must match PREFIX-NUMBER "
+                            "(e.g. FR-001) — it keys traceability and test markers"
+                        ),
+                        kind=IssueKind.ERROR,
+                        field="functional_requirements",
+                    )
+                )
+
+    def _check_capability_dependencies(self, spec: MvpSpec, errors: list[ValidationIssue]) -> None:
+        """V1 tests and verifies entities end-to-end through their create capability."""
+        by_entity: dict[str, set[str]] = {}
+        for fr in spec.functional_requirements:
+            if fr.entity and fr.capability.startswith("entity."):
+                by_entity.setdefault(fr.entity, set()).add(fr.capability)
+        for entity, caps in sorted(by_entity.items()):
+            dependents = sorted(c for c in caps if c in _DEPENDENT_ENTITY_CAPABILITIES)
+            if dependents and "entity.create" not in caps:
+                errors.append(
+                    ValidationIssue(
+                        code="CAPABILITY_DEPENDENCY",
+                        message=(
+                            f"entity '{entity}' declares {', '.join(dependents)} but not "
+                            "entity.create — V1 cannot generate verifiable tests or a "
+                            "user journey without a way to create the entity"
+                        ),
+                        kind=IssueKind.ERROR,
+                        field="functional_requirements",
+                    )
+                )
+
+    def _check_health_capability(self, spec: MvpSpec, warnings: list[ValidationIssue]) -> None:
+        if spec.target_platform == "api" and not any(
+            fr.capability == "health.check" for fr in spec.functional_requirements
+        ):
+            warnings.append(
+                ValidationIssue(
+                    code="MISSING_HEALTH_CHECK",
+                    message=(
+                        "no health.check requirement: deployment verification falls back "
+                        "to TCP readiness instead of a health endpoint"
+                    ),
+                    kind=IssueKind.WARNING,
+                    field="functional_requirements",
+                )
+            )
 
     def _check_identifiers(self, spec: MvpSpec, errors: list[ValidationIssue]) -> None:
         """Entity and field names become code and SQL identifiers — constrain them."""
