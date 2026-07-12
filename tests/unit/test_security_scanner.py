@@ -6,7 +6,7 @@ from pathlib import Path
 
 from pmpe.quality.security_scan import scan_file, scan_tree
 
-CLEAN = '''\
+CLEAN = """\
 import hmac
 import os
 
@@ -14,7 +14,7 @@ import os
 def check(token: str) -> bool:
     expected = os.environ.get("APP_TOKEN", "")
     return bool(expected) and hmac.compare_digest(token, expected)
-'''
+"""
 
 
 def test_clean_code_has_no_findings(tmp_path: Path) -> None:
@@ -40,7 +40,7 @@ def test_eval_and_exec_are_found(tmp_path: Path) -> None:
 
 def test_shell_true_is_found(tmp_path: Path) -> None:
     p = tmp_path / "bad.py"
-    p.write_text('import subprocess\nsubprocess.run(cmd, shell=True)\n')
+    p.write_text("import subprocess\nsubprocess.run(cmd, shell=True)\n")
     assert any(f.rule == "SEC_SHELL_TRUE" for f in scan_file(p))
 
 

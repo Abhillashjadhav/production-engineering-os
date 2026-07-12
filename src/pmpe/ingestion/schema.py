@@ -60,8 +60,10 @@ class SchemaValidator:
             errors.append(f"{label}: value {value!r} not one of [{allowed}]")
             return
 
-        if isinstance(value, str) and "minLength" in schema and len(value.strip()) < int(
-            schema["minLength"]
+        if (
+            isinstance(value, str)
+            and "minLength" in schema
+            and len(value.strip()) < int(schema["minLength"])
         ):
             errors.append(f"{label}: shorter than minLength {schema['minLength']}")
 

@@ -39,9 +39,7 @@ class StdlibCrudGenerator:
 
     def implement(self, spec: MvpSpec, plan: EngineeringPlan) -> Implementation:
         if spec.preferred_stack not in SUPPORTED_STACKS:
-            raise StepFailure(
-                "implement", f"no code templates for stack '{spec.preferred_stack}'"
-            )
+            raise StepFailure("implement", f"no code templates for stack '{spec.preferred_stack}'")
         app_init = GeneratedFile("app/__init__.py", app_init_module(spec), "code")
         files_by_task: dict[str, list[GeneratedFile]] = {}
         for task in plan.tasks:
@@ -82,9 +80,5 @@ class StdlibCrudGenerator:
             elif fr.capability == "health.check":
                 code_by_requirement[fr.id] = ["app/api.py", "app/server.py"]
             else:
-                raise StepFailure(
-                    "implement", f"{fr.id}: unsupported capability '{fr.capability}'"
-                )
-        return Implementation(
-            files_by_task=files_by_task, code_by_requirement=code_by_requirement
-        )
+                raise StepFailure("implement", f"{fr.id}: unsupported capability '{fr.capability}'")
+        return Implementation(files_by_task=files_by_task, code_by_requirement=code_by_requirement)

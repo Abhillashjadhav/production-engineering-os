@@ -39,9 +39,7 @@ def test_clean_workspace_has_no_blocking_findings(built_workspace: Path, spec: M
     assert [f for f in report.findings if f.blocking] == []
 
 
-def test_planted_eval_is_a_blocking_security_finding(
-    built_workspace: Path, spec: MvpSpec
-) -> None:
+def test_planted_eval_is_a_blocking_security_finding(built_workspace: Path, spec: MvpSpec) -> None:
     (built_workspace / "app" / "danger.py").write_text("def run(x):\n    return eval(x)\n")
     plan = EngineeringPlanner().plan(spec)
     report = PrReviewer().review(built_workspace, spec, plan)

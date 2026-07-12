@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from pmpe.domain.models import DeploymentResult, MvpSpec
-from pmpe.stacks import capabilities_for, collection_route, has_auth, has_health
+from pmpe.stacks import capabilities_for, collection_route, has_auth
 
 
 class DeploymentAdapter(Protocol):
@@ -132,9 +132,7 @@ class LocalProcessDeployer:
             time.sleep(0.1)
         return False
 
-    def _run_journey(
-        self, base: str, spec: MvpSpec, token: str
-    ) -> tuple[bool, str]:
+    def _run_journey(self, base: str, spec: MvpSpec, token: str) -> tuple[bool, str]:
         """Walk the main user journey derived from the spec's capabilities."""
         steps: list[str] = ["health: ok"]
         if not spec.entities:
@@ -142,9 +140,7 @@ class LocalProcessDeployer:
         entity = spec.entities[0]
         caps = capabilities_for(spec, entity)
         route = collection_route(entity)
-        required = {
-            f.name: f"smoke {f.name}" for f in entity.fields if f.required
-        }
+        required = {f.name: f"smoke {f.name}" for f in entity.fields if f.required}
         has_status = any(f.name == "status" for f in entity.fields)
 
         if has_auth(spec):
@@ -166,9 +162,7 @@ class LocalProcessDeployer:
                 return False, f"list returned {status} or missing created item"
             steps.append("list: ok")
         if "entity.update" in caps and item_id is not None and has_status:
-            status, body = _request(
-                "PATCH", f"{base}{route}/{item_id}", {"status": "done"}, token
-            )
+            status, body = _request("PATCH", f"{base}{route}/{item_id}", {"status": "done"}, token)
             if status != 200 or body.get("status") != "done":
                 return False, f"complete (status=done) failed with {status}"
             steps.append("complete: ok")
@@ -189,7 +183,7 @@ def _proc_failure_details(proc: subprocess.Popen[str]) -> str:
 
 _RUN_SH = """#!/usr/bin/env bash
 set -euo pipefail
-: "${APP_TOKEN:?APP_TOKEN must be set (generate: python3 -c 'import secrets; print(secrets.token_urlsafe(32))')}"
+: "${APP_TOKEN:?APP_TOKEN must be set — see DEPLOYMENT.md}"
 export APP_DB="${APP_DB:-data.db}"
 export APP_PORT="${APP_PORT:-8000}"
 exec python3 -m app.server

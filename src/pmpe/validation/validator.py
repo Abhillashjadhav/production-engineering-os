@@ -77,6 +77,8 @@ _RECOMMENDED_FIELDS = (
     "risks",
 )
 _SUPPORTED_DEPLOYMENT_TARGETS = ("local",)
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+_RESERVED_FIELDS = ("id", "created_at", "updated_at")
 
 
 def _norm(text: str) -> str:
@@ -92,6 +94,7 @@ class RequirementValidator:
         self._check_contradictions(spec, errors)
         self._check_requirement_criteria_links(spec, errors)
         self._check_entities(spec, errors)
+        self._check_identifiers(spec, errors)
         self._check_nsm(spec, questions)
         self._check_ac_testability(spec, questions)
         self._check_dependencies(spec, warnings)
@@ -174,6 +177,37 @@ class RequirementValidator:
                         field="entities",
                     )
                 )
+
+    def _check_identifiers(self, spec: MvpSpec, errors: list[ValidationIssue]) -> None:
+        """Entity and field names become code and SQL identifiers — constrain them."""
+        for entity in spec.entities:
+            names = [("entity", entity.name)] + [("field", f.name) for f in entity.fields]
+            for kind, name in names:
+                if not _IDENTIFIER_RE.match(name):
+                    errors.append(
+                        ValidationIssue(
+                            code="INVALID_IDENTIFIER",
+                            message=(
+                                f"{kind} name '{name}' is not a valid identifier "
+                                "(letters, digits, underscores; must start with a letter)"
+                            ),
+                            kind=IssueKind.ERROR,
+                            field="entities",
+                        )
+                    )
+            for f in entity.fields:
+                if f.name in _RESERVED_FIELDS:
+                    errors.append(
+                        ValidationIssue(
+                            code="INVALID_IDENTIFIER",
+                            message=(
+                                f"field name '{f.name}' on entity '{entity.name}' is "
+                                "reserved (generated automatically)"
+                            ),
+                            kind=IssueKind.ERROR,
+                            field="entities",
+                        )
+                    )
 
     def _check_nsm(self, spec: MvpSpec, questions: list[ValidationIssue]) -> None:
         nsm = _norm(spec.north_star_metric)

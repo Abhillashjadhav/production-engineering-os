@@ -67,9 +67,7 @@ def _escalation() -> Escalation:
 
 
 def test_all_green_recommends_merge() -> None:
-    decision = MergeGate().decide(
-        _green_gates(), _clean_review(), _complete_traceability(), [], {}
-    )
+    decision = MergeGate().decide(_green_gates(), _clean_review(), _complete_traceability(), [], {})
     assert decision.recommendation is MergeRecommendation.MERGE
     assert decision.reasons
 

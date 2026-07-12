@@ -54,8 +54,7 @@ class MergeGate:
                 unapproved.append(f"escalation {esc.id} has no recorded approval")
             elif not approval.approved:
                 unapproved.append(
-                    f"escalation {esc.id} was rejected by {approval.approver}: "
-                    f"{approval.reason}"
+                    f"escalation {esc.id} was rejected by {approval.approver}: {approval.reason}"
                 )
         reasons.extend(unapproved)
 

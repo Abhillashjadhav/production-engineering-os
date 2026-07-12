@@ -125,7 +125,8 @@ def mutate_missing_entity(data: dict[str, Any]) -> None:
         {
             "id": "AC-100",
             "requirement": "FR-100",
-            "criterion": "Given a valid token, when POST /projects is called with a name, then the response status is 201.",
+            "criterion": "Given a valid token, when POST /projects is called "
+            "with a name, then the response status is 201.",
         }
     )
 

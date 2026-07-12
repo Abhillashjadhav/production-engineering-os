@@ -8,6 +8,8 @@ restart) are generated wherever the capability exists.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from pmpe.domain.models import Entity, GeneratedFile, GeneratedTests, MvpSpec
 from pmpe.stacks import (
     capabilities_for,
@@ -20,8 +22,13 @@ from pmpe.stacks import (
     table_name,
 )
 
-_SAMPLE_VALUES = {"string": '"sample {name}"', "text": '"sample {name}"', "int": "1",
-                  "bool": "True", "timestamp": '"2026-01-01T00:00:00+00:00"'}
+_SAMPLE_VALUES = {
+    "string": '"sample {name}"',
+    "text": '"sample {name}"',
+    "int": "1",
+    "bool": "True",
+    "timestamp": '"2026-01-01T00:00:00+00:00"',
+}
 
 
 def _required_payload(entity: Entity) -> str:
@@ -65,12 +72,8 @@ def generate_tests(spec: MvpSpec) -> GeneratedTests:
             GeneratedFile("tests/unit/test_storage.py", _storage_tests(spec, mapping), "test")
         )
     if has_auth(spec):
-        files.append(
-            GeneratedFile("tests/unit/test_auth.py", _auth_tests(spec, mapping), "test")
-        )
-    files.append(
-        GeneratedFile("tests/integration/test_api.py", _api_tests(spec, mapping), "test")
-    )
+        files.append(GeneratedFile("tests/unit/test_auth.py", _auth_tests(spec, mapping), "test"))
+    files.append(GeneratedFile("tests/integration/test_api.py", _api_tests(spec, mapping), "test"))
     return GeneratedTests(files=files, tests_by_requirement=mapping.by_requirement)
 
 
@@ -107,9 +110,7 @@ def _entity_fr_ids(spec: MvpSpec, entity: Entity) -> list[str]:
     ]
 
 
-def _storage_entity_class(
-    spec: MvpSpec, entity: Entity, mapping: _Mapping, path: str
-) -> list[str]:
+def _storage_entity_class(spec: MvpSpec, entity: Entity, mapping: _Mapping, path: str) -> list[str]:
     caps = capabilities_for(spec, entity)
     var, table = entity_var(entity), table_name(entity)
     cls = f"{entity.name}StorageTests"
@@ -134,14 +135,16 @@ def _storage_entity_class(
     ]
     if "entity.create" in caps:
         fr = fr_id_for(spec, entity, "entity.create")
-        for test in (f"test_create_{var}_assigns_id", f"test_created_{var}_persists_across_reconnect"):
+        for test in (
+            f"test_create_{var}_assigns_id",
+            f"test_created_{var}_persists_across_reconnect",
+        ):
             mapping.add(fr, ref(test))
         default_check = ""
         if has_status:
             default_field = next(f for f in entity.fields if f.name == "status")
-            default_check = (
-                f'        self.assertEqual(created["status"], "{default_field.default or "open"}")\n'
-            )
+            expected = default_field.default or "open"
+            default_check = f'        self.assertEqual(created["status"], "{expected}")\n'
         lines += [
             "",
             f"    def test_create_{var}_assigns_id(self):",
@@ -183,13 +186,13 @@ def _storage_entity_class(
                 f"        other = self.storage.create_{var}({payload})",
                 f'        self.storage.update_{var}(other["id"], {{"status": "done"}})'
                 if "entity.update" in caps
-                else f"        _ = other",
+                else "        _ = other",
                 f'        rows = self.storage.list_{table}(status="open")',
-                f'        self.assertIn(kept["id"], [row["id"] for row in rows])',
+                '        self.assertIn(kept["id"], [row["id"] for row in rows])',
             ]
             if "entity.update" in caps:
                 lines += [
-                    f'        self.assertNotIn(other["id"], [row["id"] for row in rows])',
+                    '        self.assertNotIn(other["id"], [row["id"] for row in rows])',
                 ]
     if "entity.read" in caps:
         fr = fr_id_for(spec, entity, "entity.read")
@@ -215,7 +218,7 @@ def _storage_entity_class(
             "",
             f"    def test_update_{var}_unknown_returns_none(self):",
             f'        """Covers: {fr} — negative case: unknown id."""',
-            f'        self.assertIsNone(self.storage.update_{var}(999999, '
+            f"        self.assertIsNone(self.storage.update_{var}(999999, "
             f'{{"{mut_field}": "{mut_value}"}}))',
         ]
     if "entity.delete" in caps:
@@ -397,8 +400,7 @@ def _api_tests(spec: MvpSpec, mapping: _Mapping) -> str:
             "",
             "    def test_invalid_token_returns_401(self):",
             f'        """Covers: {fr} — negative case: wrong token."""',
-            f'        status, _ = self._request("GET", "{first_route}", '
-            'token="wrong-token")',
+            f'        status, _ = self._request("GET", "{first_route}", token="wrong-token")',
             "        self.assertEqual(status, 401)",
         ]
     for entity in spec.entities:
@@ -408,9 +410,8 @@ def _api_tests(spec: MvpSpec, mapping: _Mapping) -> str:
 
 
 def _api_entity_tests(
-    spec: MvpSpec, entity: Entity, mapping: _Mapping, ref: object
+    spec: MvpSpec, entity: Entity, mapping: _Mapping, ref: Callable[[str], str]
 ) -> list[str]:
-    assert callable(ref)
     caps = capabilities_for(spec, entity)
     var, route = entity_var(entity), collection_route(entity)
     payload = _required_payload(entity)
@@ -465,8 +466,7 @@ def _api_entity_tests(
                 f'        """Covers: {fr} — ?status= filter."""',
                 f'        _, kept = self._request("POST", "{route}", {payload})',
                 f'        _, done = self._request("POST", "{route}", {payload})',
-                f'        self._request("PATCH", "{route}/%d" % done["id"], '
-                '{"status": "done"})',
+                f'        self._request("PATCH", "{route}/%d" % done["id"], {{"status": "done"}})',
                 f'        status, body = self._request("GET", "{route}?status=open")',
                 "        self.assertEqual(status, 200)",
                 '        ids = [row["id"] for row in body]',
@@ -504,7 +504,8 @@ def _api_entity_tests(
             f'{{"{mut_field}": "{mut_value}"}})',
             "        self.assertEqual(status, 200)",
             f'        _, read_back = self._request("GET", "{route}/%d" % created["id"])'
-            if "entity.read" in caps else "        read_back = body",
+            if "entity.read" in caps
+            else "        read_back = body",
             f'        self.assertEqual(read_back["{mut_field}"], "{mut_value}")',
             "",
             f"    def test_update_{var}_unknown_field_returns_400(self):",

@@ -11,7 +11,6 @@ import pytest
 from pmpe.config import PipelineConfig
 from pmpe.domain.errors import SpecError
 from pmpe.orchestration.workflow import WorkflowEngine
-
 from tests.conftest import mutate_contradictory, mutate_production_target
 
 pytestmark = pytest.mark.e2e
@@ -40,9 +39,7 @@ def test_contradictory_spec_blocks_at_validation(
     assert state["steps"]["plan"]["status"] == "pending"
 
 
-def test_malformed_spec_is_rejected_at_ingest(
-    fixtures_dir: Path, pipeline_workdir: Path
-) -> None:
+def test_malformed_spec_is_rejected_at_ingest(fixtures_dir: Path, pipeline_workdir: Path) -> None:
     with pytest.raises(SpecError) as excinfo:
         _engine(pipeline_workdir).run(fixtures_dir / "malformed_spec.yaml")
     assert "product_name" in str(excinfo.value)
@@ -77,9 +74,7 @@ def test_rejected_escalation_fails_the_run(
     engine = _engine(pipeline_workdir)
     result = engine.run(spec_path)
     assert result.status == "blocked"
-    esc_id = json.loads(
-        next((result.run_dir / "escalations").glob("ESC-*.json")).read_text()
-    )["id"]
+    esc_id = json.loads(next((result.run_dir / "escalations").glob("ESC-*.json")).read_text())["id"]
     engine.approve(result.run_id, esc_id, approver="abhillash", reason="no", approved=False)
     resumed = engine.resume(result.run_id)
     assert resumed.status == "failed"

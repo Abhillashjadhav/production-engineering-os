@@ -7,7 +7,7 @@ function of the spec.
 
 from __future__ import annotations
 
-from pmpe.domain.models import Entity, GeneratedFile, MvpSpec
+from pmpe.domain.models import Entity, MvpSpec
 from pmpe.stacks import (
     capabilities_for,
     collection_route,
@@ -17,8 +17,13 @@ from pmpe.stacks import (
     table_name,
 )
 
-_SQL_TYPES = {"string": "TEXT", "text": "TEXT", "int": "INTEGER", "bool": "INTEGER",
-              "timestamp": "TEXT"}
+_SQL_TYPES = {
+    "string": "TEXT",
+    "text": "TEXT",
+    "int": "INTEGER",
+    "bool": "INTEGER",
+    "timestamp": "TEXT",
+}
 
 
 def _column_def(name: str, sql_type: str, required: bool, default: str | None) -> str:
@@ -44,7 +49,7 @@ def storage_module(spec: MvpSpec) -> str:
         "",
         "",
         "def _utc_now():",
-        '    return datetime.now(timezone.utc).isoformat()',
+        "    return datetime.now(timezone.utc).isoformat()",
         "",
         "",
         "class Storage:",
@@ -58,8 +63,10 @@ def storage_module(spec: MvpSpec) -> str:
     ]
     for entity in spec.entities:
         columns = ", ".join(
-            [_column_def(f.name, _SQL_TYPES.get(f.type, "TEXT"), f.required, f.default)
-             for f in entity.fields]
+            [
+                _column_def(f.name, _SQL_TYPES.get(f.type, "TEXT"), f.required, f.default)
+                for f in entity.fields
+            ]
         )
         lines += [
             "        self._conn.execute(",
@@ -231,7 +238,7 @@ def api_module(spec: MvpSpec) -> str:
         lines += ["from app import auth", ""]
     lines += [
         f'SERVICE_NAME = "{spec.product_name}"',
-        'logger = logging.getLogger(SERVICE_NAME.lower())',
+        "logger = logging.getLogger(SERVICE_NAME.lower())",
         "",
         "",
         "class ApiHandler(BaseHTTPRequestHandler):",
@@ -324,7 +331,7 @@ def _api_get(spec: MvpSpec, auth: bool) -> list[str]:
             lines += [f'        if path == "{route}":'] + _guard(auth)
             if has_status:
                 lines += [
-                    f'            status = query.get("status", [None])[0]',
+                    '            status = query.get("status", [None])[0]',
                     f"            self._send_json(200, self._storage().list_{table}"
                     "(status=status))",
                 ]
@@ -332,18 +339,22 @@ def _api_get(spec: MvpSpec, auth: bool) -> list[str]:
                 lines += [f"            self._send_json(200, self._storage().list_{table}())"]
             lines += ["            return"]
         if "entity.read" in caps:
-            lines += [
-                f'        {var}_id = self._match_item(path, "{route}")',
-                f"        if {var}_id is not None:",
-            ] + _guard(auth) + [
-                f"            {var} = self._storage().get_{var}({var}_id)",
-                f"            if {var} is None:",
-                f'                self._send_json(404, {{"error": {{"message": '
-                f'"{var} not found"}}}})',
-                "            else:",
-                f"                self._send_json(200, {var})",
-                "            return",
-            ]
+            lines += (
+                [
+                    f'        {var}_id = self._match_item(path, "{route}")',
+                    f"        if {var}_id is not None:",
+                ]
+                + _guard(auth)
+                + [
+                    f"            {var} = self._storage().get_{var}({var}_id)",
+                    f"            if {var} is None:",
+                    f'                self._send_json(404, {{"error": {{"message": '
+                    f'"{var} not found"}}}})',
+                    "            else:",
+                    f"                self._send_json(200, {var})",
+                    "            return",
+                ]
+            )
     lines += ['        self._send_json(404, {"error": {"message": "not found"}})']
     return lines
 
@@ -357,22 +368,24 @@ def _api_post(spec: MvpSpec, auth: bool) -> list[str]:
         var, route = entity_var(entity), collection_route(entity)
         allowed = ", ".join(f'"{f.name}"' for f in entity.fields)
         required = [f.name for f in entity.fields if f.required]
-        lines += [f'        if path == "{route}":'] + _guard(auth) + [
-            "            body = self._read_body()",
-            "            if body is None:",
-            '                self._send_json(400, {"error": {"message": "invalid JSON '
-            'body"}})',
-            "                return",
-            f"            allowed = ({allowed},)",
-            "            unknown = sorted(k for k in body if k not in allowed)",
-            "            if unknown:",
-            "                self._send_json(",
-            '                    400,',
-            '                    {"error": {"field": unknown[0], "message": "unknown '
-            'field"}},',
-            "                )",
-            "                return",
-        ]
+        lines += (
+            [f'        if path == "{route}":']
+            + _guard(auth)
+            + [
+                "            body = self._read_body()",
+                "            if body is None:",
+                '                self._send_json(400, {"error": {"message": "invalid JSON body"}})',
+                "                return",
+                f"            allowed = ({allowed},)",
+                "            unknown = sorted(k for k in body if k not in allowed)",
+                "            if unknown:",
+                "                self._send_json(",
+                "                    400,",
+                '                    {"error": {"field": unknown[0], "message": "unknown field"}},',
+                "                )",
+                "                return",
+            ]
+        )
         for name in required:
             lines += [
                 f'            if not str(body.get("{name}") or "").strip():',
@@ -400,32 +413,34 @@ def _api_patch(spec: MvpSpec, auth: bool) -> list[str]:
     for entity in updatable:
         var, route = entity_var(entity), collection_route(entity)
         allowed = ", ".join(f'"{f.name}"' for f in entity.fields)
-        lines += [
-            f'        {var}_id = self._match_item(path, "{route}")',
-            f"        if {var}_id is not None:",
-        ] + _guard(auth) + [
-            "            body = self._read_body()",
-            "            if body is None:",
-            '                self._send_json(400, {"error": {"message": "invalid JSON '
-            'body"}})',
-            "                return",
-            f"            allowed = ({allowed},)",
-            "            unknown = sorted(k for k in body if k not in allowed)",
-            "            if unknown:",
-            "                self._send_json(",
-            "                    400,",
-            '                    {"error": {"field": unknown[0], "message": "unknown '
-            'field"}},',
-            "                )",
-            "                return",
-            f"            updated = self._storage().update_{var}({var}_id, body)",
-            "            if updated is None:",
-            f'                self._send_json(404, {{"error": {{"message": '
-            f'"{var} not found"}}}})',
-            "            else:",
-            "                self._send_json(200, updated)",
-            "            return",
-        ]
+        lines += (
+            [
+                f'        {var}_id = self._match_item(path, "{route}")',
+                f"        if {var}_id is not None:",
+            ]
+            + _guard(auth)
+            + [
+                "            body = self._read_body()",
+                "            if body is None:",
+                '                self._send_json(400, {"error": {"message": "invalid JSON body"}})',
+                "                return",
+                f"            allowed = ({allowed},)",
+                "            unknown = sorted(k for k in body if k not in allowed)",
+                "            if unknown:",
+                "                self._send_json(",
+                "                    400,",
+                '                    {"error": {"field": unknown[0], "message": "unknown field"}},',
+                "                )",
+                "                return",
+                f"            updated = self._storage().update_{var}({var}_id, body)",
+                "            if updated is None:",
+                f'                self._send_json(404, {{"error": {{"message": '
+                f'"{var} not found"}}}})',
+                "            else:",
+                "                self._send_json(200, updated)",
+                "            return",
+            ]
+        )
     lines += ['        self._send_json(404, {"error": {"message": "not found"}})']
     return lines
 
@@ -437,17 +452,21 @@ def _api_delete(spec: MvpSpec, auth: bool) -> list[str]:
     lines = ["", "    def do_DELETE(self):", "        path, _query = self._split_path()"]
     for entity in deletable:
         var, route = entity_var(entity), collection_route(entity)
-        lines += [
-            f'        {var}_id = self._match_item(path, "{route}")',
-            f"        if {var}_id is not None:",
-        ] + _guard(auth) + [
-            f"            if self._storage().delete_{var}({var}_id):",
-            "                self._send_empty(204)",
-            "            else:",
-            f'                self._send_json(404, {{"error": {{"message": '
-            f'"{var} not found"}}}})',
-            "            return",
-        ]
+        lines += (
+            [
+                f'        {var}_id = self._match_item(path, "{route}")',
+                f"        if {var}_id is not None:",
+            ]
+            + _guard(auth)
+            + [
+                f"            if self._storage().delete_{var}({var}_id):",
+                "                self._send_empty(204)",
+                "            else:",
+                f'                self._send_json(404, {{"error": {{"message": '
+                f'"{var} not found"}}}})',
+                "            return",
+            ]
+        )
     lines += ['        self._send_json(404, {"error": {"message": "not found"}})']
     return lines
 
@@ -455,10 +474,10 @@ def _api_delete(spec: MvpSpec, auth: bool) -> list[str]:
 def server_module(spec: MvpSpec) -> str:
     auth_check = ""
     if has_auth(spec):
-        auth_check = '''    if not os.environ.get("APP_TOKEN"):
+        auth_check = """    if not os.environ.get("APP_TOKEN"):
         logger.error("APP_TOKEN environment variable is required; refusing to start")
         return 2
-'''
+"""
     return f'''"""Process entrypoint. Configuration comes from the environment:
 
 - APP_TOKEN: bearer token (required{"" if has_auth(spec) else " only when auth is enabled"})

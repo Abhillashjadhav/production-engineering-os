@@ -47,7 +47,10 @@ def compute_run_metrics(
     duration_seconds: float,
     outcome: str,
 ) -> dict[str, Any]:
-    """Leading metrics + guardrail hooks for one run (see docs/product-requirements-interpretation.md)."""
+    """Leading metrics + guardrail hooks for one run.
+
+    See docs/product-requirements-interpretation.md for the metric map.
+    """
     total = len(step_statuses)
     done = sum(1 for s in step_statuses.values() if s is StepStatus.DONE)
     return {

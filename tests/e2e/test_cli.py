@@ -9,7 +9,6 @@ from pathlib import Path
 import pytest
 
 from pmpe.cli import main
-
 from tests.conftest import mutate_contradictory
 
 pytestmark = pytest.mark.e2e

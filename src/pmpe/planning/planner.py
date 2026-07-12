@@ -9,8 +9,13 @@ from __future__ import annotations
 
 from pmpe.domain.models import EngineeringPlan, FunctionalRequirement, MvpSpec, PlanTask
 
-_ENTITY_CAPABILITIES = ("entity.create", "entity.read", "entity.update", "entity.delete",
-                        "entity.list")
+_ENTITY_CAPABILITIES = (
+    "entity.create",
+    "entity.read",
+    "entity.update",
+    "entity.delete",
+    "entity.list",
+)
 
 
 def _complexity(requirement_count: int, component: str) -> str:
@@ -40,8 +45,14 @@ class EngineeringPlanner:
         tasks: list[PlanTask] = []
         counter = 1
 
-        def add(title: str, component: str, kind: str, requirement_ids: list[str],
-                depends_on: list[str], complexity: str) -> PlanTask:
+        def add(
+            title: str,
+            component: str,
+            kind: str,
+            requirement_ids: list[str],
+            depends_on: list[str],
+            complexity: str,
+        ) -> PlanTask:
             nonlocal counter
             task = PlanTask(
                 id=f"T-{counter:03d}",
@@ -58,11 +69,19 @@ class EngineeringPlanner:
 
         scaffold = add(
             "Scaffold workspace (package layout, gitignore, README stub)",
-            "project", "scaffold", [], [], "S",
+            "project",
+            "scaffold",
+            [],
+            [],
+            "S",
         )
         add(
             "Generated test suite (written before implementation)",
-            "tests", "test", [f.id for f in frs], [scaffold.id], "M",
+            "tests",
+            "test",
+            [f.id for f in frs],
+            [scaffold.id],
+            "M",
         )
 
         feature_deps_for_api: list[str] = []
@@ -70,14 +89,21 @@ class EngineeringPlanner:
             ids = [f.id for f in entity_frs[entity_name]]
             task = add(
                 f"Storage layer for {entity_name} (SQLite, parameterized queries)",
-                "storage", "feature", ids, [scaffold.id], _complexity(len(ids), "storage"),
+                "storage",
+                "feature",
+                ids,
+                [scaffold.id],
+                _complexity(len(ids), "storage"),
             )
             feature_deps_for_api.append(task.id)
 
         if auth_frs:
             task = add(
                 "Bearer-token auth (env-injected token, constant-time compare)",
-                "auth", "feature", [f.id for f in auth_frs], [scaffold.id],
+                "auth",
+                "feature",
+                [f.id for f in auth_frs],
+                [scaffold.id],
                 _complexity(len(auth_frs), "auth"),
             )
             feature_deps_for_api.append(task.id)
@@ -89,13 +115,19 @@ class EngineeringPlanner:
         )
         api_task = add(
             "HTTP API handlers (routing, request validation, JSON errors)",
-            "api", "feature", api_req_ids, feature_deps_for_api or [scaffold.id],
+            "api",
+            "feature",
+            api_req_ids,
+            feature_deps_for_api or [scaffold.id],
             _complexity(len(api_req_ids), "api"),
         )
         add(
             "Server entrypoint, configuration, and product README",
-            "server", "feature", [f.id for f in health_frs] or api_req_ids[:1],
-            [api_task.id], "S",
+            "server",
+            "feature",
+            [f.id for f in health_frs] or api_req_ids[:1],
+            [api_task.id],
+            "S",
         )
 
         order = [t.id for t in tasks]  # insertion order is already topological

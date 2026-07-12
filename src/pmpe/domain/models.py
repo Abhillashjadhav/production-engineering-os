@@ -3,30 +3,30 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from typing import Any
 
 
-class RiskLevel(str, Enum):
+class RiskLevel(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
 
 
-class Severity(str, Enum):
+class Severity(StrEnum):
     INFO = "info"
     MINOR = "minor"
     MAJOR = "major"
     CRITICAL = "critical"
 
 
-class IssueKind(str, Enum):
+class IssueKind(StrEnum):
     ERROR = "error"
     WARNING = "warning"
     QUESTION = "question"
 
 
-class StepStatus(str, Enum):
+class StepStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     DONE = "done"
@@ -35,7 +35,7 @@ class StepStatus(str, Enum):
     SKIPPED = "skipped"
 
 
-class MergeRecommendation(str, Enum):
+class MergeRecommendation(StrEnum):
     MERGE = "MERGE"
     NO_MERGE = "NO_MERGE"
 

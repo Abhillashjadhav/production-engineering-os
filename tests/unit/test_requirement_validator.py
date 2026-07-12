@@ -9,7 +9,6 @@ import pytest
 from pmpe.domain.models import IssueKind
 from pmpe.ingestion.normalizer import normalize_spec
 from pmpe.validation.validator import RequirementValidator
-
 from tests.conftest import (
     mutate_activity_nsm,
     mutate_contradictory,
@@ -124,6 +123,25 @@ def test_missing_recommended_fields_warn(
     warned = {i.code for i in report.warnings}
     assert "MISSING_RECOMMENDED" in warned
     assert report.ok  # warnings never block
+
+
+def test_malicious_field_name_is_rejected(
+    validator: RequirementValidator, golden_spec_dict: dict[str, Any]
+) -> None:
+    """Entity/field names become SQL identifiers in generated code — injection guard."""
+    golden_spec_dict["entities"][0]["fields"].append(
+        {"name": "notes TEXT; DROP TABLE tasks; --", "type": "string"}
+    )
+    report = _report(validator, golden_spec_dict)
+    assert any(i.code == "INVALID_IDENTIFIER" for i in report.errors)
+
+
+def test_reserved_field_name_is_rejected(
+    validator: RequirementValidator, golden_spec_dict: dict[str, Any]
+) -> None:
+    golden_spec_dict["entities"][0]["fields"].append({"name": "id", "type": "int"})
+    report = _report(validator, golden_spec_dict)
+    assert any(i.code == "INVALID_IDENTIFIER" and "reserved" in i.message for i in report.errors)
 
 
 def test_issue_kinds_are_typed(

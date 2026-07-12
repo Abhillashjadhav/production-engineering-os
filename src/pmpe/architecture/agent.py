@@ -30,11 +30,13 @@ class ArchitectureAgent:
         return ArchitectureOutput(doc=doc, adrs=adrs, escalations=escalations)
 
     def _adrs(self, spec: MvpSpec) -> list[Adr]:
-        entity_frs = [f.id for f in spec.functional_requirements
-                      if f.capability.startswith("entity.")]
-        auth_frs = [f.id for f in spec.functional_requirements
-                    if f.capability == "auth.bearer_token"]
-        adrs = [
+        entity_frs = [
+            f.id for f in spec.functional_requirements if f.capability.startswith("entity.")
+        ]
+        auth_frs = [
+            f.id for f in spec.functional_requirements if f.capability == "auth.bearer_token"
+        ]
+        return [
             Adr(
                 id="ADR-001",
                 title=f"Stack: {spec.preferred_stack} single-process HTTP API",
@@ -118,11 +120,11 @@ class ArchitectureAgent:
                 ),
                 risk=RiskLevel.LOW,
                 reversibility="reversible",
-                requirement_ids=[f.id for f in spec.functional_requirements
-                                 if f.capability == "health.check"],
+                requirement_ids=[
+                    f.id for f in spec.functional_requirements if f.capability == "health.check"
+                ],
             ),
         ]
-        return adrs
 
     def _doc(self, spec: MvpSpec, plan: EngineeringPlan) -> ArchitectureDoc:
         components = {
@@ -157,8 +159,7 @@ class ArchitectureAgent:
                 "requirements; no framework magic."
             ),
         }
-        return ArchitectureDoc(overview=overview, components=components,
-                               implications=implications)
+        return ArchitectureDoc(overview=overview, components=components, implications=implications)
 
     def _escalations(self, spec: MvpSpec, adrs: list[Adr]) -> list[Escalation]:
         escalations: list[Escalation] = []
@@ -170,7 +171,7 @@ class ArchitectureAgent:
                         id="",  # assigned by the orchestrator
                         risk=decision.level,
                         reason=f"{adr.id} ('{adr.title}') is {adr.reversibility} with "
-                               f"risk {adr.risk.value}: {decision.justification}",
+                        f"risk {adr.risk.value}: {decision.justification}",
                         step="architecture",
                         context={"adr": adr.id, "rule": decision.rule_id},
                     )
@@ -182,7 +183,7 @@ class ArchitectureAgent:
                         id="",
                         risk=RiskLevel.HIGH,
                         reason=f"The spec declares a high risk the PM must acknowledge "
-                               f"before build: {risk.description}",
+                        f"before build: {risk.description}",
                         step="architecture",
                         context={"source": "spec.risks"},
                     )
