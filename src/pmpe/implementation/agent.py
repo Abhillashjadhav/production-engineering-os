@@ -20,14 +20,8 @@ from pmpe.domain.models import (
     MvpSpec,
 )
 from pmpe.stacks import SUPPORTED_STACKS
-from pmpe.stacks.stdlib_code import (
-    api_module,
-    app_init_module,
-    auth_module,
-    readme,
-    server_module,
-    storage_module,
-)
+from pmpe.stacks.stdlib_api import api_module, readme, server_module
+from pmpe.stacks.stdlib_code import app_init_module, auth_module, storage_module
 
 
 class ImplementationAgent(Protocol):
