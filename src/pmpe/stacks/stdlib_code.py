@@ -479,7 +479,8 @@ logger = logging.getLogger("{spec.product_name.lower()}")
 
 def create_server(port=0, db_path=None):
     storage = Storage(db_path or os.environ.get("APP_DB", "data.db"))
-    server = ThreadingHTTPServer(("127.0.0.1", port), ApiHandler)
+    bind = os.environ.get("APP_BIND", "127.0.0.1")
+    server = ThreadingHTTPServer((bind, port), ApiHandler)
     server.storage = storage
     return server
 

@@ -61,8 +61,8 @@ def test_unplanned_file_is_flagged_as_architecture_drift(
 def test_missing_requirement_coverage_is_blocking(built_workspace: Path, spec: MvpSpec) -> None:
     for test_file in (built_workspace / "tests").rglob("test_*.py"):
         content = test_file.read_text()
-        if "Covers: FR-006" in content:
-            test_file.write_text(content.replace("Covers: FR-006", "Covers: FR-XXX"))
+        if "FR-006" in content:
+            test_file.write_text(content.replace("FR-006", "FR-XXX"))
     plan = EngineeringPlanner().plan(spec)
     report = PrReviewer().review(built_workspace, spec, plan)
     assert any(f.rule == "REV_UNCOVERED_REQUIREMENT" and f.blocking for f in report.findings)
