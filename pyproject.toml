@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pmpe"
+version = "0.1.0"
+description = "PM Production Engineering OS — converts approved PM OS MVP specifications into tested, reviewed, deployable software."
+readme = "docs/setup.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Abhillash Jadhav" }]
+dependencies = ["PyYAML>=6.0"]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8",
+  "ruff>=0.5",
+  "mypy>=1.10",
+  "bandit>=1.7",
+  "types-PyYAML",
+]
+
+[project.scripts]
+pmpe = "pmpe.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+pmpe = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/unit", "tests/integration", "tests/e2e"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+include = ["src/**/*.py", "tests/unit/**/*.py", "tests/integration/**/*.py", "tests/e2e/**/*.py", "tests/conftest.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "RET"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src/pmpe"]
+mypy_path = "src"
