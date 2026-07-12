@@ -46,6 +46,7 @@ is a file under the run directory.
 | `implementation/` | Generate product code per plan task, small commits, never touch unplanned files, keep traceability markers | `ImplementationAgent` (interface), `StdlibCrudGenerator` (V1 provider) |
 | `quality/` | Run gates: format, lint, static analysis/types, unit, integration, e2e, security, repo-wide regression; each gate returns a typed result | `QualityGateRunner`, `SecurityScanner` |
 | `review/` | Deterministic PR review (correctness, architecture alignment, test sufficiency, security, maintainability, complexity, compat); safe-fix agent; merge gate | `PrReviewer`, `FixAgent`, `MergeGate` |
+| `stacks/` | Everything specific to a generated product's technology: naming, code templates, test templates. V1 ships `python-stdlib-crud-api`; new stacks land here without touching the stages | naming helpers, `stdlib_code`, `stdlib_tests` |
 | `gitops/` | Git adapter interface; V1: local repo per workspace, branch per run, commit per task, diff, local PR record | `GitAdapter`, `LocalGitAdapter` |
 | `deployment/` | Deployment adapter interface; V1: local process deploy, health check, user-journey smoke test, rollback instructions, deployable artifact (run script + Dockerfile) | `DeploymentAdapter`, `LocalProcessDeployer` |
 | `orchestration/` | The workflow state machine; step registry; persisted `RunState`; resume; escalation pause/approve | `WorkflowEngine`, `RunState` |
