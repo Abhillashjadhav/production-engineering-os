@@ -56,7 +56,7 @@ _RULES: tuple[_Rule, ...] = (
     ),
 )
 
-_SKIP_DIRS = {".git", "__pycache__", ".venv", "deploy"}
+_SKIP_DIRS = {".git", "__pycache__", ".venv", "deploy", ".ruff_cache", ".pytest_cache"}
 
 
 def _is_test_path(path: Path) -> bool:

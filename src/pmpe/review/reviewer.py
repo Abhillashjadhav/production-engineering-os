@@ -25,7 +25,7 @@ from pmpe.domain.models import (
 from pmpe.quality.security_scan import scan_tree
 
 _ALLOWED_ROOTS = {"app", "tests", "deploy", "README.md", ".gitignore"}
-_SKIP_PARTS = {".git", "__pycache__"}
+_SKIP_PARTS = {".git", "__pycache__", ".ruff_cache", ".pytest_cache", ".mypy_cache"}
 _MAX_FILE_LINES = 400
 _COVERS_RE = re.compile(r"Covers:\s*([A-Z]+-\d+(?:\s*,\s*[A-Z]+-\d+)*)")
 
@@ -51,9 +51,7 @@ class PrReviewer:
                 message=f.message,
                 rule=f.rule,
             )
-            for i, f in enumerate(
-                sorted(raw, key=lambda f: (f.rule, f.file, f.line)), start=1
-            )
+            for i, f in enumerate(sorted(raw, key=lambda f: (f.rule, f.file, f.line)), start=1)
         ]
         blocking = sum(1 for f in findings if f.blocking)
         summary = (
