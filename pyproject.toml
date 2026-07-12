@@ -6,9 +6,8 @@ build-backend = "setuptools.build_meta"
 name = "pmpe"
 version = "0.1.0"
 description = "PM Production Engineering OS — converts approved PM OS MVP specifications into tested, reviewed, deployable software."
-readme = "docs/setup.md"
 requires-python = ">=3.11"
-license = { text = "MIT" }
+license = "MIT"
 authors = [{ name = "Abhillash Jadhav" }]
 dependencies = ["PyYAML>=6.0"]
 
@@ -33,6 +32,7 @@ pmpe = ["py.typed"]
 [tool.pytest.ini_options]
 testpaths = ["tests/unit", "tests/integration", "tests/e2e"]
 addopts = "-q"
+markers = ["e2e: full-pipeline end-to-end tests"]
 
 [tool.ruff]
 target-version = "py311"
