@@ -12,7 +12,7 @@ import json
 import sys
 from pathlib import Path
 
-from pmpe.config import PipelineConfig
+from pmpe.config import PipelineConfig, packaged_schema_path
 from pmpe.domain.errors import PmpeError, SpecError
 from pmpe.domain.serialize import jsonable
 from pmpe.ingestion import ingest
@@ -25,14 +25,12 @@ _EXIT_BY_OUTCOME = {"success": 0, "failed": 1, "blocked": 3, "no_merge": 4}
 def _config(args: argparse.Namespace) -> PipelineConfig:
     config = PipelineConfig.load(Path(args.config) if getattr(args, "config", None) else None)
     if getattr(args, "runs_dir", None):
-        config.runs_dir = Path(args.runs_dir)
+        config.runs_dir = Path(args.runs_dir).resolve()
     return config
 
 
 def _cmd_validate(args: argparse.Namespace) -> int:
-    schema = Path(args.schema) if args.schema else Path("schemas/mvp_spec.schema.json")
-    if not schema.exists():
-        schema = Path(__file__).resolve().parents[2] / "schemas" / "mvp_spec.schema.json"
+    schema = Path(args.schema) if args.schema else packaged_schema_path()
     spec = ingest(Path(args.spec), schema)
     report = RequirementValidator().validate(spec)
     for issue in report.errors:

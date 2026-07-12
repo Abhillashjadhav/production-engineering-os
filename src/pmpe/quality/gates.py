@@ -22,6 +22,28 @@ _DEFAULT_REQUIRED = ("compile", "unit", "integration", "security")
 _SUBPROCESS_TIMEOUT_S = 180
 
 
+def normalize_format(workspace: Path) -> bool:
+    """Format generated code with the same tool the format gate checks with.
+
+    Returns True if formatting ran. When ruff is absent this is a no-op and the
+    format gate reports itself skipped — consistent either way.
+    """
+    if shutil.which("ruff") is None:
+        return False
+    targets = [d for d in ("app", "tests") if (workspace / d).is_dir()]
+    if not targets:
+        return False
+    subprocess.run(
+        ["ruff", "format", "--quiet", *targets],
+        cwd=workspace,
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT_S,
+        check=False,
+    )
+    return True
+
+
 def _tail(text: str, lines: int = 15) -> str:
     return "\n".join(text.strip().splitlines()[-lines:])
 

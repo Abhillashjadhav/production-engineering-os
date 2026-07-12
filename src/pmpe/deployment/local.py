@@ -78,6 +78,7 @@ class LocalProcessDeployer:
     def deploy(self, workspace: Path, spec: MvpSpec) -> DeploymentResult:
         port = _free_port()
         token = secrets.token_urlsafe(24) if has_auth(spec) else ""
+        workspace = workspace.resolve()
         db_path = workspace / "deploy" / "verify.db"
         db_path.unlink(missing_ok=True)
         env = {

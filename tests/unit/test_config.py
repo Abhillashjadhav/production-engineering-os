@@ -1,0 +1,43 @@
+"""Configuration defaults and validation."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from pmpe.config import PipelineConfig, packaged_schema_path
+from pmpe.domain.errors import ConfigError
+
+
+def test_default_schema_is_packaged_and_exists() -> None:
+    config = PipelineConfig()
+    assert config.schema_path == packaged_schema_path()
+    assert config.schema_path.exists()
+
+
+def test_packaged_schema_stays_in_sync_with_repo_contract(repo_root: Path) -> None:
+    """schemas/mvp_spec.schema.json is the documented contract; the packaged copy
+    must be byte-identical so `pmpe` behaves the same from any directory."""
+    contract = (repo_root / "schemas" / "mvp_spec.schema.json").read_bytes()
+    assert packaged_schema_path().read_bytes() == contract
+
+
+def test_unknown_config_keys_are_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "pmpe.yaml"
+    path.write_text("runs_dir: runs\ntypo_key: true\n")
+    with pytest.raises(ConfigError, match="typo_key"):
+        PipelineConfig.load(path)
+
+
+def test_invalid_timeout_is_rejected() -> None:
+    with pytest.raises(ConfigError):
+        PipelineConfig(deploy_timeout_s=0)
+
+
+def test_config_loads_overrides(tmp_path: Path) -> None:
+    path = tmp_path / "pmpe.yaml"
+    path.write_text("runs_dir: /tmp/other-runs\ndeploy_timeout_s: 30\n")
+    config = PipelineConfig.load(path)
+    assert config.runs_dir == Path("/tmp/other-runs")
+    assert config.deploy_timeout_s == 30

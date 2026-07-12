@@ -16,10 +16,16 @@ import yaml
 from pmpe.domain.errors import ConfigError
 
 
+def packaged_schema_path() -> Path:
+    """The schema shipped inside the package (kept byte-identical to schemas/
+    mvp_spec.schema.json at the repo root — a unit test guards the sync)."""
+    return Path(__file__).parent / "schemas" / "mvp_spec.schema.json"
+
+
 @dataclass
 class PipelineConfig:
     runs_dir: Path = Path("runs")
-    schema_path: Path = Path("schemas/mvp_spec.schema.json")
+    schema_path: Path = field(default_factory=packaged_schema_path)
     required_gates: list[str] = field(
         default_factory=lambda: ["compile", "unit", "integration", "security"]
     )
@@ -30,8 +36,10 @@ class PipelineConfig:
     chaos_fail_at_step: str | None = None
 
     def __post_init__(self) -> None:
-        self.runs_dir = Path(self.runs_dir)
-        self.schema_path = Path(self.schema_path)
+        # absolute paths: pipeline subprocesses run with cwd=workspace, so relative
+        # paths handed to them would silently resolve to the wrong place
+        self.runs_dir = Path(self.runs_dir).resolve()
+        self.schema_path = Path(self.schema_path).resolve()
         if self.deploy_timeout_s <= 0:
             raise ConfigError("deploy_timeout_s must be positive")
         if not isinstance(self.chaos_inject_files, dict):

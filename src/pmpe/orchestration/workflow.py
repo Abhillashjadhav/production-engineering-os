@@ -55,7 +55,7 @@ from pmpe.orchestration import report as report_mod
 from pmpe.orchestration.state import RunState
 from pmpe.planning.planner import EngineeringPlanner
 from pmpe.policies.engine import PolicyEngine
-from pmpe.quality.gates import QualityGateRunner
+from pmpe.quality.gates import QualityGateRunner, normalize_format
 from pmpe.review.fixer import FixAgent
 from pmpe.review.merge_gate import MergeGate
 from pmpe.review.reviewer import PrReviewer
@@ -355,6 +355,7 @@ class WorkflowEngine:
         tests = ctx.generated_tests
         test_task = next(t for t in ctx.plan.tasks if t.kind == "test")
         write_files(workspace, tests.files)
+        normalize_format(workspace)
         git.commit_all(f"test: {test_task.id} add generated test suite (before implementation)")
         ctx.store.write_json(
             "test_plan.json",
@@ -395,6 +396,7 @@ class WorkflowEngine:
                 continue
             task = ctx.plan.task(task_id)
             write_files(ctx.workspace, files)
+            normalize_format(ctx.workspace)
             git.commit_all(f"feat: {task.id} {task.title}")
         if self.config.chaos_inject_files:
             injected = [
