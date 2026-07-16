@@ -26,6 +26,15 @@ class IssueKind(StrEnum):
     QUESTION = "question"
 
 
+class StepStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+    BLOCKED = "blocked"
+    SKIPPED = "skipped"
+
+
 # --- specification -------------------------------------------------------------------
 
 
@@ -254,6 +263,15 @@ class Escalation:
     step: str
     context: dict[str, Any]
     created_at: str = ""
+
+
+@dataclass(frozen=True)
+class Approval:
+    escalation_id: str
+    approver: str
+    reason: str
+    approved: bool
+    timestamp: str
 
 
 @dataclass(frozen=True)
