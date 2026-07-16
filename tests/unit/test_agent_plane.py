@@ -96,6 +96,29 @@ def test_assert_reviewers_read_only_catches_a_write_tool(tmp_path: Path) -> None
         assert_reviewers_read_only(bad_registry)
 
 
+def test_inherit_all_tool_list_is_not_read_only(tmp_path: Path) -> None:
+    """A definition whose frontmatter omits `tools:` inherits ALL tools in Claude
+    Code — the permission model must fail closed on it, not certify it read-only."""
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    (agents_dir / "v2-code-reviewer.md").write_text(
+        "---\nname: v2-code-reviewer\ndescription: x\n---\nbody\n"
+    )
+    bad_registry = AgentRegistry(agents_dir)
+    assert not is_read_only(bad_registry.get("v2-code-reviewer"))
+    with pytest.raises(ReadOnlyViolation, match="inherit-all"):
+        assert_reviewers_read_only(bad_registry)
+
+
+def test_missing_reviewer_fails_closed(tmp_path: Path) -> None:
+    """Every assurance reviewer must exist — an empty registry is a violation,
+    not a vacuous pass."""
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    with pytest.raises(ReadOnlyViolation, match="no agent definition"):
+        assert_reviewers_read_only(AgentRegistry(agents_dir))
+
+
 def test_assert_reviewers_read_only_passes_on_real_definitions(
     registry: AgentRegistry,
 ) -> None:
