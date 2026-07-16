@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from pmpe.domain.models import MvpSpec
+from pmpe.domain.errors import StepFailure
+from pmpe.domain.models import GeneratedFile, MvpSpec
 from pmpe.implementation.agent import StdlibCrudGenerator
 from pmpe.implementation.workspace import write_files
 from pmpe.ingestion import ingest
@@ -82,3 +83,17 @@ def test_implementation_maps_code_to_requirements(spec: MvpSpec) -> None:
     implementation = StdlibCrudGenerator().implement(spec, plan)
     for fr in spec.functional_requirements:
         assert implementation.code_by_requirement.get(fr.id), f"{fr.id} maps to no code"
+
+
+def test_workspace_writer_rejects_escaping_paths(tmp_path: Path) -> None:
+    """The path boundary is fail-closed: absolute, parent-relative, and
+    symlinked targets outside the workspace must never write."""
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (workspace / "link").symlink_to(outside)
+    for path in ("/etc/escape.txt", "../escape.txt", "app/../../escape.txt", "link/escape.txt"):
+        with pytest.raises(StepFailure):
+            write_files(workspace, [GeneratedFile(path=path, content="x", kind="code")])
+    assert not (outside / "escape.txt").exists()
