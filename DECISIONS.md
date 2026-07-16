@@ -12,17 +12,6 @@ Format: "YYYY-MM-DD: Chose X over Y because Z."
   `AgentProvider`-style interfaces over LLM-backed providers because the task requires
   explainable decisions, offline-runnable tests, and no single-LLM dependency; LLM
   providers become V2 adapters. (ADR-002)
-- 2026-07-12: Chose one reference stack — python-stdlib CRUD API (token auth + SQLite)
-  — over Flask/FastAPI because generated products then run and test hermetically with
-  zero third-party dependencies. (ADR-003)
-- 2026-07-12: Chose a local git repository per build workspace with a PR *record*
-  artifact over remote GitHub PR automation because V1 must not assume remote
-  permissions; `GitAdapter` interface allows a GitHub adapter in V2. (ADR-004)
-- 2026-07-12: Chose local process deployment + deployable artifact (run script,
-  Dockerfile, instructions) over cloud deploy because V1 verification must be
-  self-contained; `DeploymentAdapter` interface allows cloud adapters in V2. (ADR-005)
-- 2026-07-12: Chose file/CLI-based human approvals (`pmpe approve`) over interactive
-  prompts because the pipeline must be resumable and non-interactive-safe. (ADR-006)
 - 2026-07-12: Chose additive repo layout (src/, schemas/, examples/, docs/, tests/unit|
   integration|e2e|fixtures alongside existing skill fixtures) over restructuring because
   the repo's pm-agent-os content is working code and must not be disturbed.

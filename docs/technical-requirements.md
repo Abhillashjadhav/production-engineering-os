@@ -1,5 +1,9 @@
 # Technical requirements document (TRD)
 
+> Target requirements for the full V1 system. Delivery status per requirement is
+> tracked in docs/CONTRIBUTION_LEDGER.md; nothing here is a claim that a
+> capability already exists on this branch.
+
 ## Runtime
 - Python ≥ 3.11; runtime dependency: PyYAML only. Dev: ruff, black (check parity), mypy, pytest, bandit.
 - Install: `pip install -e .` → console script `pmpe`.
