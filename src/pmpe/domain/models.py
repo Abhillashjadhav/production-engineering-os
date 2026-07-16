@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
+from typing import Any
 
 
 class RiskLevel(StrEnum):
@@ -156,3 +157,53 @@ class EngineeringPlan:
 
     def task(self, task_id: str) -> PlanTask:
         return next(t for t in self.tasks if t.id == task_id)
+
+
+# --- architecture --------------------------------------------------------------------
+
+
+@dataclass
+class Adr:
+    id: str
+    title: str
+    context: str
+    decision: str
+    consequences: str
+    risk: RiskLevel
+    reversibility: str  # reversible | irreversible
+    requirement_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ArchitectureDoc:
+    overview: str
+    components: dict[str, str]
+    implications: dict[str, str]  # security / scalability / reliability / maintainability
+
+
+@dataclass
+class ArchitectureOutput:
+    doc: ArchitectureDoc
+    adrs: list[Adr]
+    escalations: list[Escalation]
+
+
+# --- escalation / approval -----------------------------------------------------------
+
+
+@dataclass
+class Escalation:
+    id: str
+    risk: RiskLevel
+    reason: str
+    step: str
+    context: dict[str, Any]
+    created_at: str = ""
+
+
+@dataclass(frozen=True)
+class PolicyDecision:
+    decision_type: str
+    level: RiskLevel
+    rule_id: str
+    justification: str

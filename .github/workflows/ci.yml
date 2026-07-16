@@ -47,6 +47,8 @@ jobs:
       - run: pip install -e ".[dev]"
       - name: unit tests
         run: pytest tests/unit -q
+      - name: integration tests
+        run: pytest tests/integration -q
 
   security:
     runs-on: ubuntu-latest
