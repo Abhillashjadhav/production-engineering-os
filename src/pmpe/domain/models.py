@@ -12,6 +12,12 @@ class RiskLevel(StrEnum):
     HIGH = "high"
 
 
+class IssueKind(StrEnum):
+    ERROR = "error"
+    WARNING = "warning"
+    QUESTION = "question"
+
+
 # --- specification -------------------------------------------------------------------
 
 
@@ -100,3 +106,25 @@ class MvpSpec:
 
     def criteria_for(self, requirement_id: str) -> list[AcceptanceCriterion]:
         return [ac for ac in self.acceptance_criteria if ac.requirement == requirement_id]
+
+
+# --- validation ----------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ValidationIssue:
+    code: str
+    message: str
+    kind: IssueKind
+    field: str = ""
+
+
+@dataclass
+class ValidationReport:
+    errors: list[ValidationIssue]
+    warnings: list[ValidationIssue]
+    questions: list[ValidationIssue]
+
+    @property
+    def ok(self) -> bool:
+        return not self.errors

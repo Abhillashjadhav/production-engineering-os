@@ -44,3 +44,60 @@ def golden_spec_dict() -> dict[str, Any]:
 @pytest.fixture()
 def fixtures_dir() -> Path:
     return FIXTURES_DIR
+
+
+def mutate_contradictory(data: dict[str, Any]) -> None:
+    """Plant the same item in scope and non_goals (a product contradiction)."""
+    data["scope"].append("Bulk task import")
+    data["non_goals"].append("Bulk task import")
+
+
+def mutate_activity_nsm(data: dict[str, Any]) -> None:
+    """Plant an activity-only North Star Metric."""
+    data["north_star_metric"] = "Daily signups and pageviews"
+
+
+def mutate_production_target(data: dict[str, Any]) -> None:
+    """Request a production deployment (high-risk in V1)."""
+    data["deployment_target"] = "production"
+
+
+def mutate_vague_ac(data: dict[str, Any]) -> None:
+    """Plant an untestable acceptance criterion."""
+    data["acceptance_criteria"].append(
+        {
+            "id": "AC-VAGUE",
+            "requirement": "FR-002",
+            "criterion": "The app should feel fast and intuitive for everyone.",
+        }
+    )
+
+
+def mutate_unknown_requirement_ac(data: dict[str, Any]) -> None:
+    data["acceptance_criteria"].append(
+        {
+            "id": "AC-GHOST",
+            "requirement": "FR-999",
+            "criterion": "Given a thing, when it happens, then the response status is 200.",
+        }
+    )
+
+
+def mutate_missing_entity(data: dict[str, Any]) -> None:
+    """FR references an entity that is not declared in entities[]."""
+    data["functional_requirements"].append(
+        {
+            "id": "FR-100",
+            "title": "Create a project",
+            "capability": "entity.create",
+            "entity": "Project",
+        }
+    )
+    data["acceptance_criteria"].append(
+        {
+            "id": "AC-100",
+            "requirement": "FR-100",
+            "criterion": "Given a valid token, when POST /projects is called "
+            "with a name, then the response status is 201.",
+        }
+    )
