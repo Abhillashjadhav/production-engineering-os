@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from pmpe.architecture.agent import ArchitectureAgent
+from pmpe.domain.models import RiskLevel
 from pmpe.ingestion import ingest
 from pmpe.planning.planner import EngineeringPlanner
 from pmpe.policies.engine import PolicyEngine
@@ -57,3 +58,21 @@ def test_architecture_covers_security_and_reliability_implications(
     assert {"security", "scalability", "reliability", "maintainability"} <= set(
         arch.doc.implications
     )
+
+
+def test_high_risk_spec_produces_product_decision_escalation(
+    golden_spec_dict: dict[str, Any], schema_path: Path, tmp_path: Path
+) -> None:
+    """The escalation path in the positive direction: a HIGH product risk may not
+    be absorbed silently — the architect must hand it back as an escalation."""
+    golden_spec_dict["risks"].append(
+        {"description": "Migration could destroy existing task records", "level": "high"}
+    )
+    json_path = tmp_path / "spec.json"
+    json_path.write_text(json.dumps(golden_spec_dict))
+    spec = ingest(json_path, schema_path)
+    plan = EngineeringPlanner().plan(spec)
+    arch = ArchitectureAgent(PolicyEngine()).design(spec, plan)
+    assert arch.escalations, "a HIGH spec risk must produce an escalation"
+    assert any(e.risk is RiskLevel.HIGH for e in arch.escalations)
+    assert any("destroy" in e.reason for e in arch.escalations)
