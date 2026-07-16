@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from pmpe.assurance.findings import (
+    STATUSES,
     FindingsStore,
     FindingTransitionError,
     SameCandidateViolation,
@@ -100,6 +101,44 @@ def test_verifier_cannot_be_the_fixer(store: FindingsStore) -> None:
     store.record_fixed(finding.finding_id, fixer="v2-approved-findings-fixer", commits=["a"])
     with pytest.raises(FindingTransitionError, match="fixer"):
         store.record_verified(finding.finding_id, verifier="v2-approved-findings-fixer")
+
+
+def test_set_status_only_accepts_reconciliation_decision_targets(store: FindingsStore) -> None:
+    """FIXED/VERIFIED are earned via record_fixed/record_verified — a decision can
+    never mint them directly (no PROPOSED -> VERIFIED shortcut)."""
+    (finding,) = store.intake("v2-code-reviewer", DIGEST, [_finding()])
+    with pytest.raises(FindingTransitionError, match="not a reconciliation decision"):
+        store.set_status(finding.finding_id, "VERIFIED", decided_by="owner", reason="shortcut")
+    assert store.get(finding.finding_id).status == "PROPOSED"
+
+
+def test_decided_findings_cannot_be_redecided(store: FindingsStore) -> None:
+    (finding,) = store.intake("v2-code-reviewer", DIGEST, [_finding()])
+    store.set_status(finding.finding_id, "REJECTED", decided_by="owner", reason="false positive")
+    with pytest.raises(FindingTransitionError, match="only PROPOSED"):
+        store.set_status(finding.finding_id, "ACCEPTED", decided_by="owner", reason="changed mind")
+    assert store.get(finding.finding_id).status == "REJECTED"
+
+
+def test_decision_requires_named_decider_and_reason(store: FindingsStore) -> None:
+    (finding,) = store.intake("v2-code-reviewer", DIGEST, [_finding()])
+    with pytest.raises(FindingTransitionError, match="decider and a reason"):
+        store.set_status(finding.finding_id, "ACCEPTED", decided_by="  ", reason="ok")
+    with pytest.raises(FindingTransitionError, match="decider and a reason"):
+        store.set_status(finding.finding_id, "ACCEPTED", decided_by="owner", reason="")
+    assert store.get(finding.finding_id).status == "PROPOSED"
+
+
+def test_statuses_tuple_is_the_complete_lifecycle_vocabulary() -> None:
+    assert STATUSES == (
+        "PROPOSED",
+        "ACCEPTED",
+        "REJECTED",
+        "DUPLICATE",
+        "PRODUCT_DECISION_REQUIRED",
+        "FIXED",
+        "VERIFIED",
+    )
 
 
 # --- reconciliation ------------------------------------------------------------------------
@@ -226,6 +265,56 @@ def test_in_scope_fix_records_fixed(tmp_path: Path) -> None:
     gate.record_fix("RF-001", fixer="fixer", commits=["abc"], changed_files=["app/api.py"])
     assert store.get("RF-001").status == "FIXED"
     assert store.get("RF-001").fix_commits == ["abc"]
+
+
+def test_allowlist_derives_only_from_granted_findings(tmp_path: Path) -> None:
+    """A file named ONLY by a rejected (or otherwise ungranted) finding is not
+    fixer-touchable — the allowlist derives from ACCEPTED/FIXED/VERIFIED findings."""
+    store = FindingsStore(tmp_path / "run")
+    store.intake(
+        "v2-code-reviewer",
+        DIGEST,
+        [_finding(), _finding(severity="high", file="app/other.py", line=5, title="other")],
+    )
+    reconcile(
+        store,
+        decisions={
+            "RF-002": OwnerDecision(status="REJECTED", owner="abhillash", reason="false positive")
+        },
+        pcr_store=None,
+    )
+    gate = FixerGate(store)
+    assert "app/other.py" not in gate.scope().allowed_files
+    with pytest.raises(FixScopeViolation, match="app/other.py"):
+        gate.record_fix(
+            "RF-001",
+            fixer="fixer",
+            commits=["a"],
+            changed_files=["app/api.py", "app/other.py"],
+        )
+
+
+def test_extra_allowed_files_is_an_explicit_caller_grant(tmp_path: Path) -> None:
+    """The fixer can never widen its own scope; only the constructing caller can
+    grant extra files, explicitly, at gate construction."""
+    store = FindingsStore(tmp_path / "run")
+    store.intake("v2-code-reviewer", DIGEST, [_finding()])
+    reconcile(store, decisions={}, pcr_store=None)
+    with pytest.raises(FixScopeViolation, match="CHANGELOG"):
+        FixerGate(store).record_fix(
+            "RF-001",
+            fixer="fixer",
+            commits=["a"],
+            changed_files=["app/api.py", "docs/CHANGELOG.md"],
+        )
+    widened = FixerGate(store, extra_allowed_files={"docs/CHANGELOG.md"})
+    widened.record_fix(
+        "RF-001",
+        fixer="fixer",
+        commits=["a"],
+        changed_files=["app/api.py", "docs/CHANGELOG.md"],
+    )
+    assert store.get("RF-001").status == "FIXED"
 
 
 # --- evidence ledger -----------------------------------------------------------------------
