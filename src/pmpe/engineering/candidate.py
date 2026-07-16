@@ -7,12 +7,12 @@ this digest; any change to the tree invalidates them all (fail closed).
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
 
 from pmpe.assurance.readonly_guard import tree_digest as file_map
+from pmpe.contracts.digest import canonical_digest
 from pmpe.domain.errors import PmpeError
 from pmpe.domain.serialize import atomic_write_json, jsonable
 from pmpe.gitops.local import LocalGitAdapter
@@ -33,8 +33,8 @@ class Candidate:
 
 
 def _combined_digest(files: dict[str, str]) -> str:
-    canonical = json.dumps(files, sort_keys=True, separators=(",", ":"))
-    return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
+    # one digest home for the whole system (see pmpe.contracts.digest)
+    return canonical_digest(files)
 
 
 def freeze_candidate(repo: Path, run_dir: Path, *, contract_digest: str) -> Candidate:

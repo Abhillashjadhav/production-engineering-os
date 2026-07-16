@@ -21,12 +21,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-REVIEWER_AGENTS = {
-    "v2-code-reviewer",
-    "v2-product-conformance-reviewer",
-    "v2-architecture-simplicity-reviewer",
-    "v2-eval-integrity-auditor",
-}
+from pmpe.agents.permissions import REVIEWER_NAMES
+
+# one home for the reviewer roster: the permission model (PD-06)
+REVIEWER_AGENTS = set(REVIEWER_NAMES)
 
 
 @dataclass(frozen=True)
@@ -185,9 +183,12 @@ def evaluate_trajectory(events: list[dict[str, Any]]) -> list[TrajectoryViolatio
             if finding not in accepted:
                 violate("TRAJ-10", "fix applied to a non-accepted finding", finding)
 
-    # TRAJ-11: product decisions create change requests
+    # TRAJ-11: every product-decision finding creates a change request — bound by
+    # finding id, so one unrelated PCR event cannot excuse the rest
     product_findings: set[str] = set()
-    change_requests_created = any(e.get("action") == "change_request_created" for e in events)
+    change_requests_for: set[str] = {
+        str(e.get("detail", "")) for e in events if e.get("action") == "change_request_created"
+    }
     for event in events:
         if event.get("stage") == "reconcile":
             for part in str(event.get("detail", "")).split(";"):
@@ -195,11 +196,12 @@ def evaluate_trajectory(events: list[dict[str, Any]]) -> list[TrajectoryViolatio
                     product_findings = {
                         f for f in part.removeprefix("product_decisions=").split(",") if f
                     }
-    if product_findings and not change_requests_created:
+    missing_pcrs = sorted(product_findings - change_requests_for)
+    if missing_pcrs:
         violate(
             "TRAJ-11",
-            "product-decision findings produced no ProductChangeRequest",
-            ", ".join(sorted(product_findings)),
+            "product-decision finding(s) produced no ProductChangeRequest",
+            ", ".join(missing_pcrs),
         )
 
     # TRAJ-12: required checks rerun after fixes

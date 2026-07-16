@@ -26,20 +26,6 @@ class DriftReport:
     status: str  # OK | WATCH | HOLD
     items: list[DriftItem] = field(default_factory=list)
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "status": self.status,
-            "items": [
-                {
-                    "category": i.category,
-                    "description": i.description,
-                    "severity": i.severity,
-                    "hold": i.hold,
-                }
-                for i in self.items
-            ],
-        }
-
 
 def compare(
     baseline: dict[str, Any], current: dict[str, Any], thresholds: dict[str, Any]

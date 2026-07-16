@@ -63,7 +63,7 @@ def _cmd_drift_compare(args: argparse.Namespace) -> int:
         marker = "HOLD" if item.hold else item.severity.upper()
         print(f"[{marker}] {item.category}: {item.description}")
     if args.out:
-        atomic_write_json(Path(args.out), report.to_dict())
+        atomic_write_json(Path(args.out), report)  # jsonable() handles the dataclass tree
     return 3 if report.status == "HOLD" else 0
 
 

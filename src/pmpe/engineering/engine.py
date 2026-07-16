@@ -594,6 +594,8 @@ class EngineeringRun:
             raise PmpeError(f"'{name}' is not one of the independent reviewers (PD-06)")
 
     def _advance(self, stage: str) -> None:
+        if stage not in STAGES:
+            raise PmpeError(f"unknown stage '{stage}' — valid stages: {', '.join(STAGES)}")
         self._state["stage"] = stage
         self._save()
 

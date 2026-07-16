@@ -66,3 +66,33 @@ def test_implementation_before_architecture_is_caught() -> None:
 
 def test_unrouted_specialist_is_caught() -> None:
     assert "TRAJ-04" in _checks("planted_unrouted_specialist.jsonl")
+
+
+def test_implementation_before_its_tests_is_caught() -> None:
+    assert "TRAJ-05" in _checks("planted_implementation_before_tests.jsonl")
+
+
+def test_product_decision_without_change_request_is_caught() -> None:
+    assert "TRAJ-11" in _checks("planted_product_decision_no_pcr.jsonl")
+
+
+def test_unrelated_change_request_does_not_satisfy_traj_11() -> None:
+    """A single stray change_request_created event must not excuse every
+    product-decision finding — the binding is by finding id."""
+    events = _load("planted_product_decision_no_pcr.jsonl")
+    events.append(
+        {
+            "action": "change_request_created",
+            "agent": "pmpe-core",
+            "stage": "reconcile",
+            "detail": "RF-999",
+            "input_digests": {},
+            "output_digests": {},
+            "verdict": "",
+        }
+    )
+    assert "TRAJ-11" in {v.check_id for v in evaluate_trajectory(events)}
+
+
+def test_draft_pr_before_assurance_is_caught() -> None:
+    assert "TRAJ-13" in _checks("planted_draft_pr_before_assurance.jsonl")
