@@ -82,8 +82,21 @@ jobs:
         run: |
           pip install dist/*.whl ruff
           pmpe validate examples/taskflow_mvp_spec.yaml
+          pmpe contract validate examples/v2-demo/contract.json
       - name: full pipeline smoke (golden spec)
         run: |
           git config --global user.email ci@localhost
           git config --global user.name ci
           pmpe run examples/taskflow_mvp_spec.yaml --runs-dir /tmp/ci-runs
+      - name: eval suites (agents + planted trajectory fixture)
+        run: |
+          pmpe evals run --suite all --ledger evals/fixtures/trajectory/good_run.jsonl
+      - name: drift gate holds on a planted regression
+        run: |
+          if pmpe drift compare --baseline evals/baselines/synthetic-baseline.json \
+              --current evals/fixtures/drift/current_hard_gate_failure.json; then
+            echo "expected HOLD (exit 3) on the planted hard-gate failure" && exit 1
+          fi
+      - name: synthetic end-to-end demo
+        run: |
+          pmpe demo --base-dir /tmp/ci-demo
