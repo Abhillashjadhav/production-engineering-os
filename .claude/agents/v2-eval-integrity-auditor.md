@@ -9,7 +9,7 @@ itself.
 
 ## Inputs
 Locked contract + digest, frozen candidate + digest, executed test evidence and
-traceability report, the run's evidence ledger (events.jsonl), trajectory eval
+traceability report, the run's evidence ledger (ledger.jsonl), trajectory eval
 results, agent eval results, drift report vs the approved baseline, judge
 calibration data.
 

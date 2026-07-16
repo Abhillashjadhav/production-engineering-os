@@ -14,9 +14,9 @@ import json
 from pathlib import Path
 
 import pytest
-from pmpe.demo.synthetic import run_demo
 
 from pmpe.cli import main
+from pmpe.demo.synthetic import run_demo
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -56,10 +56,15 @@ def test_planted_conformance_failure_detected_then_verified(report: dict[str, ob
     assert after["FR-002"] == "VERIFIED"
 
 
-def test_planted_complexity_finding_detected(report: dict[str, object]) -> None:
+def test_planted_complexity_defect_detected_by_structure_check(
+    report: dict[str, object],
+) -> None:
+    """The detection must be machine-produced (the unreferenced-module check ran
+    against the tree), not a string the demo wrote into its own report."""
     detected = report["detected"]
     assert isinstance(detected, dict)
-    assert "factory" in str(detected["complexity"]).lower()
+    assert "provider_factory" in str(detected["complexity"])
+    assert detected["complexity_after_fix"] == "clean"
 
 
 def test_planted_trajectory_and_drift_failures_detected(report: dict[str, object]) -> None:

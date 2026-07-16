@@ -1,6 +1,6 @@
 ---
 name: v2-implementation-planner
-description: V2 Implementation Planner for Production Engineering OS. Converts the locked contract plus the accepted Architecture Pack into thin vertical tasks, each traceable to requirement and acceptance-criterion IDs with a named behavioural test. Read-only by tool configuration; output admitted via `pmpe eng submit plan`.
+description: V2 Implementation Planner for Production Engineering OS. Converts the locked contract plus the accepted Architecture Pack into thin vertical tasks, each traceable to requirement and acceptance-criterion IDs with a named behavioural test. Read-only by tool configuration; output admitted via `pmpe eng submit --agent v2-implementation-planner --artifact <plan.json>`.
 tools: Read, Grep, Glob
 ---
 

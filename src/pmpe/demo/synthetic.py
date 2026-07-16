@@ -16,6 +16,7 @@ Planted failures and their detectors:
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -196,7 +197,7 @@ def _routing() -> dict[str, Any]:
 
 
 def _reviews(
-    candidate: str, scan_evidence: str, coverage_evidence: str
+    candidate: str, scan_evidence: str, coverage_evidence: str, complexity_evidence: str
 ) -> dict[str, list[dict[str, Any]]]:
     """The four reviewers' findings; evidence strings quote the real detectors."""
     return {
@@ -247,8 +248,8 @@ def _reviews(
                 "blocking": False,
                 "file": "provider_factory.py",
                 "line": 4,
-                "evidence": "provider_factory.py defines a registry factory; no functional "
-                "requirement or component of the architecture pack references providers",
+                "evidence": f"structure check: {complexity_evidence}; no functional "
+                "requirement or architecture-pack component references providers",
                 "failure_mechanism": "unjustified abstraction grows maintenance surface "
                 "with zero contract value",
                 "mechanically_fixable": True,
@@ -267,6 +268,28 @@ def _scan_summary(workspace: Path) -> str:
     if not findings:
         return "clean"
     return "; ".join(f"{f.rule} {Path(f.file).name}:{f.line} — {f.message}" for f in findings)
+
+
+def _unreferenced_modules(workspace: Path) -> str:
+    """Deterministic structure check: top-level modules no other module imports.
+
+    This — not a hand-written report string — is the demo's complexity detector:
+    it re-runs against the tree, so it finds the planted factory before the fix
+    and comes back clean after it.
+    """
+    workspace = Path(workspace)
+    sources = {
+        path: path.read_text()
+        for path in workspace.rglob("*.py")
+        if "deploy" not in path.relative_to(workspace).parts
+    }
+    unreferenced = []
+    for module in sorted(workspace.glob("*.py")):
+        name = re.escape(module.stem)
+        pattern = re.compile(rf"^\s*(?:import\s+{name}\b|from\s+{name}\b)", re.MULTILINE)
+        if not any(pattern.search(text) for path, text in sources.items() if path != module):
+            unreferenced.append(f"{module.name}: imported by no other module in the workspace")
+    return "; ".join(unreferenced) if unreferenced else "clean"
 
 
 def _traceability(
@@ -326,6 +349,7 @@ def run_demo(
 
     # detection with the real machinery
     scan_before = _scan_summary(workspace)
+    complexity_before = _unreferenced_modules(workspace)
     evidence_before = run_tests_with_evidence(workspace)
     mapping_before = {"FR-001": [_HEALTH_TEST], "FR-002": []}
     traceability_before = _traceability(evidence_before, mapping_before)
@@ -334,7 +358,8 @@ def run_demo(
         f"executed traceability: FR-002 = {traceability_before['FR-002']} "
         "(no test is mapped to this requirement; markers would not count anyway)"
     )
-    for reviewer, findings in _reviews(candidate, scan_before, coverage_evidence).items():
+    reviews = _reviews(candidate, scan_before, coverage_evidence, complexity_before)
+    for reviewer, findings in reviews.items():
         run.begin_review(reviewer, workspace)
         run.submit(
             reviewer,
@@ -392,6 +417,7 @@ def run_demo(
     mapping_after = {"FR-001": [_HEALTH_TEST], "FR-002": [_CONFIG_TEST]}
     traceability_after = _traceability(evidence_after, mapping_after)
     scan_after = _scan_summary(workspace)
+    complexity_after = _unreferenced_modules(workspace)
 
     run.record_draft_pr(
         "SYNTHETIC demo draft-PR record — the demo opens no real PR (PD-08: draft only)"
@@ -430,7 +456,6 @@ def run_demo(
     )
 
     store = FindingsStore(run.run_dir)
-    complexity = store.get("RF-004")
     report: dict[str, Any] = {
         "synthetic": True,
         "label": LABEL,
@@ -447,7 +472,8 @@ def run_demo(
         "detected": {
             "code_defect": scan_before,
             "code_defect_after_fix": scan_after,
-            "complexity": f"{complexity.title}: {complexity.evidence}",
+            "complexity": complexity_before,
+            "complexity_after_fix": complexity_after,
             "planted_trajectory": "; ".join(
                 f"{v.check_id}: {v.description}" for v in planted_violations
             ),
