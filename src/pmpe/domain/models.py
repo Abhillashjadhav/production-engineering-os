@@ -13,6 +13,13 @@ class RiskLevel(StrEnum):
     HIGH = "high"
 
 
+class Severity(StrEnum):
+    INFO = "info"
+    MINOR = "minor"
+    MAJOR = "major"
+    CRITICAL = "critical"
+
+
 class IssueKind(StrEnum):
     ERROR = "error"
     WARNING = "warning"
@@ -208,6 +215,32 @@ class GeneratedTests:
 class Implementation:
     files_by_task: dict[str, list[GeneratedFile]]
     code_by_requirement: dict[str, list[str]]
+
+
+# --- quality / review ----------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GateResult:
+    gate: str
+    passed: bool
+    required: bool
+    details: str
+    duration_s: float = 0.0
+    skipped: bool = False
+
+
+@dataclass(frozen=True)
+class Finding:
+    id: str
+    category: str
+    severity: Severity
+    blocking: bool
+    safe_to_autofix: bool
+    file: str
+    line: int
+    message: str
+    rule: str
 
 
 # --- escalation / approval -----------------------------------------------------------
