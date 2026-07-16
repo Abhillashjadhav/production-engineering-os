@@ -1,0 +1,14 @@
+# pipeline run outputs (each run is a throwaway workspace + audit trail)
+runs/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/

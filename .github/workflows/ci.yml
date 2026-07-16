@@ -1,0 +1,66 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  format-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff
+      - name: ruff format
+        run: ruff format --check src
+      - name: ruff lint
+        run: ruff check src
+
+  types:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - name: mypy --strict
+        run: mypy
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]" pip-audit
+      - name: bandit (fail on high severity)
+        run: bandit -r src -q --severity-level high
+      - name: bandit full report (informational)
+        run: bandit -r src -q || true
+      - name: dependency audit
+        run: pip-audit --strict || echo "::warning::pip-audit reported issues (non-blocking in V1, see SECURITY.md)"
+
+  build-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: build wheel
+        run: |
+          pip install build
+          python -m build --wheel
+      - name: install wheel and import the package
+        run: |
+          pip install dist/*.whl
+          python -c "import pmpe; print('pmpe import OK')"
