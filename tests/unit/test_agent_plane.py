@@ -73,8 +73,8 @@ def test_reviewers_are_read_only_by_tool_configuration(registry: AgentRegistry) 
 
 
 def test_architect_planner_router_are_read_only(registry: AgentRegistry) -> None:
-    """Their artifacts enter the run only through the run engine's validated submit
-    step (ships in a later PR) — the agents themselves need no write access."""
+    """Their artifacts enter the run only through `pmpe eng submit` — the agents
+    themselves need no write access."""
     for name in ("v2-system-architect", "v2-implementation-planner", "v2-engineer-router"):
         assert is_read_only(registry.get(name)), name
 
