@@ -17,10 +17,14 @@ def test_default_schema_is_packaged_and_exists() -> None:
 
 
 def test_packaged_schema_stays_in_sync_with_repo_contract(repo_root: Path) -> None:
-    """schemas/mvp_spec.schema.json is the documented contract; the packaged copy
-    must be byte-identical so `pmpe` behaves the same from any directory."""
-    contract = (repo_root / "schemas" / "mvp_spec.schema.json").read_bytes()
-    assert packaged_schema_path().read_bytes() == contract
+    """schemas/ files are the documented contracts; the packaged copies must be
+    byte-identical so `pmpe` behaves the same from any directory."""
+    from pmpe.config import packaged_schema_dir
+
+    for name in ("mvp_spec.schema.json", "product_decision_contract.schema.json"):
+        contract = (repo_root / "schemas" / name).read_bytes()
+        assert (packaged_schema_dir() / name).read_bytes() == contract, name
+    assert packaged_schema_path().exists()
 
 
 def test_unknown_config_keys_are_rejected(tmp_path: Path) -> None:
