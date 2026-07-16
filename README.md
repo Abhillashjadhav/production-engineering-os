@@ -79,6 +79,29 @@ The same pattern runs through all 40 skills: every fixture set carries a planted
 
 All five stages shipped: 40 skills + 7 reviewer personas, every one gated, fixtured, and PR-reviewed before it landed — the PR history of this repo is the receipt. `/pm` routes the full lifecycle; requests no skill covers still get an honest no-skill line, never improvised output.
 
+## PM Production Engineering OS (`pmpe`)
+
+The downstream half of the system: where pm-agent-os produces validated product
+requirements, **PM Production Engineering OS** turns an approved MVP specification
+into tested, reviewed, deployable software — with engineering involvement only for
+exceptions, high-risk decisions, or failed automated checks.
+
+```bash
+pip install -e ".[dev]"
+pmpe run examples/taskflow_mvp_spec.yaml
+```
+
+One command executes the full lifecycle: validate → plan → architecture (with ADRs)
+→ **tests before implementation** (a `confirm_red` step proves the generated tests
+fail first) → implement → quality gates → PR record → deterministic review → safe
+fixes → merge gate → local deploy → verified user journey → requirement-level
+traceability report. High-risk decisions stop the run until `pmpe approve` records a
+named human decision — the same verification-first discipline as the skills above,
+applied to shipping code.
+
+Start here: [docs/setup.md](docs/setup.md) · [docs/usage.md](docs/usage.md) ·
+[ARCHITECTURE.md](ARCHITECTURE.md) · [example output](examples/sample_output/final_report.md)
+
 ## Credits
 
 Harness patterns — the lint gate, the three-gate fixtures convention, and the PR-review agent — carried over from [AI-PM-essential-skills](https://github.com/Abhillashjadhav/AI-PM-essential-skills).

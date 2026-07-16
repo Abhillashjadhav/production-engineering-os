@@ -7,6 +7,8 @@ Failure-path specs are derived from the golden example by explicit mutation
 from __future__ import annotations
 
 import copy
+import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -17,6 +19,8 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 GOLDEN_SPEC = REPO_ROOT / "examples" / "taskflow_mvp_spec.yaml"
 SCHEMA_PATH = REPO_ROOT / "schemas" / "mvp_spec.schema.json"
 FIXTURES_DIR = REPO_ROOT / "tests" / "fixtures"
+
+SpecMutator = Callable[[dict[str, Any]], None]
 
 
 @pytest.fixture(scope="session")
@@ -44,6 +48,30 @@ def golden_spec_dict() -> dict[str, Any]:
 @pytest.fixture()
 def fixtures_dir() -> Path:
     return FIXTURES_DIR
+
+
+@pytest.fixture()
+def make_spec_file(tmp_path: Path, golden_spec_dict: dict[str, Any]) -> Callable[..., Path]:
+    """Write a (possibly mutated) copy of the golden spec to a temp file.
+
+    Usage: make_spec_file(lambda d: d.pop("product_name"), fmt="yaml")
+    """
+
+    def _make(mutate: SpecMutator | None = None, fmt: str = "yaml", name: str = "spec") -> Path:
+        data = copy.deepcopy(golden_spec_dict)
+        if mutate is not None:
+            mutate(data)
+        path = tmp_path / f"{name}.{fmt}"
+        if fmt == "json":
+            path.write_text(json.dumps(data, indent=2))
+        else:
+            path.write_text(yaml.safe_dump(data, sort_keys=False))
+        return path
+
+    return _make
+
+
+# --- canonical mutations used across test layers -------------------------------------
 
 
 def mutate_contradictory(data: dict[str, Any]) -> None:
@@ -101,3 +129,11 @@ def mutate_missing_entity(data: dict[str, Any]) -> None:
             "with a name, then the response status is 201.",
         }
     )
+
+
+@pytest.fixture()
+def pipeline_workdir(tmp_path: Path) -> Path:
+    """Isolated runs/ directory for orchestrator tests."""
+    d = tmp_path / "runs"
+    d.mkdir()
+    return d

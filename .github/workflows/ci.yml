@@ -49,6 +49,8 @@ jobs:
         run: pytest tests/unit -q
       - name: integration tests
         run: pytest tests/integration -q
+      - name: end-to-end tests
+        run: pytest tests/e2e -q
 
   security:
     runs-on: ubuntu-latest
@@ -78,5 +80,10 @@ jobs:
           python -m build --wheel
       - name: install wheel and smoke the CLI
         run: |
-          pip install dist/*.whl
+          pip install dist/*.whl ruff
           pmpe validate examples/taskflow_mvp_spec.yaml
+      - name: full pipeline smoke (golden spec)
+        run: |
+          git config --global user.email ci@localhost
+          git config --global user.name ci
+          pmpe run examples/taskflow_mvp_spec.yaml --runs-dir /tmp/ci-runs

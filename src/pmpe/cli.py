@@ -1,7 +1,7 @@
 """pmpe — the CLI of PM Production Engineering OS.
 
-Exit codes (part of the contract): 0 success · 1 failure · 2 malformed specification ·
-3 blocked on human gate /
+Exit codes (part of the contract, see docs/usage.md):
+0 success · 1 failure · 2 malformed specification · 3 blocked on human gate /
 semantic errors · 4 completed with NO_MERGE recommendation
 """
 
@@ -112,6 +112,16 @@ def _cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_report(args: argparse.Namespace) -> int:
+    config = _config(args)
+    path = config.runs_dir / args.run_id / "artifacts" / "final_report.md"
+    if not path.exists():
+        print(f"no final report yet for {args.run_id} (run still in progress or blocked)")
+        return 1
+    print(path.read_text())
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pmpe",
@@ -148,11 +158,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_approve.add_argument("--config", default=None)
     p_approve.set_defaults(fn=_cmd_approve)
 
-    p_status = sub.add_parser("status", help="show run status")
-    p_status.add_argument("run_id")
-    p_status.add_argument("--runs-dir", default=None)
-    p_status.add_argument("--config", default=None)
-    p_status.set_defaults(fn=_cmd_status)
+    for name, fn in (("status", _cmd_status), ("report", _cmd_report)):
+        p = sub.add_parser(name, help=f"show run {name}")
+        p.add_argument("run_id")
+        p.add_argument("--runs-dir", default=None)
+        p.add_argument("--config", default=None)
+        p.set_defaults(fn=fn)
 
     return parser
 

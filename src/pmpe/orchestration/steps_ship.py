@@ -1,12 +1,14 @@
-"""Workflow ship steps: quality gates through the merge decision; deploy/verify/
-report land with the deployment PR."""
+"""Workflow steps 9-18: quality gates through the final report (the ship half)."""
 
 from __future__ import annotations
 
 from pmpe.audit.traceability import TraceabilityBuilder
 from pmpe.config import PipelineConfig
+from pmpe.deployment.local import LocalProcessDeployer
+from pmpe.domain.errors import StepFailure
 from pmpe.domain.models import (
     DeploymentResult,
+    FixResult,
     MergeRecommendation,
     PullRequestRecord,
     ReviewReport,
@@ -14,12 +16,14 @@ from pmpe.domain.models import (
     TraceabilityReport,
 )
 from pmpe.orchestration import decoders
+from pmpe.orchestration import report as report_mod
 from pmpe.orchestration.context import RunContext
 from pmpe.orchestration.render import _review_markdown
 from pmpe.policies.engine import PolicyEngine
 from pmpe.review.fixer import FixAgent
 from pmpe.review.merge_gate import MergeGate
 from pmpe.review.reviewer import PrReviewer
+from pmpe.telemetry.metrics import LocalMetricsRecorder
 
 
 class ShipSteps:
@@ -120,13 +124,13 @@ class ShipSteps:
             checks=decision.checks,
         )
         if decision.recommendation is MergeRecommendation.NO_MERGE:
-            for step in ("merge",):
+            for step in ("merge", "deploy", "verify"):
                 ctx.state.mark(step, StepStatus.SKIPPED, detail="merge gate said NO_MERGE")
             ctx.state.save()
         else:
             # heal a crash window where a previous NO_MERGE pass marked steps skipped
             # before merge_gate itself was durably done and the decision then flipped
-            for step in ("merge",):
+            for step in ("merge", "deploy", "verify"):
                 if ctx.state.status_of(step) is StepStatus.SKIPPED:
                     ctx.state.mark(step, StepStatus.PENDING, detail="re-enabled by MERGE")
             ctx.state.save()
@@ -134,6 +138,112 @@ class ShipSteps:
     def _step_merge(self, ctx: RunContext) -> None:
         sha = ctx.git.merge_to_main(ctx.branch)
         ctx.events.emit("merged", branch=ctx.branch, sha=sha)
+
+    def _step_deploy(self, ctx: RunContext) -> None:
+        deployer = LocalProcessDeployer(timeout_s=self.config.deploy_timeout_s)
+        artifact_files = deployer.write_artifacts(ctx.workspace, ctx.spec)
+        ctx.git.commit_all(
+            "chore: deployment artifacts (run.sh, Dockerfile, rollback)", allow_noop=True
+        )
+        result = deployer.deploy(ctx.workspace, ctx.spec)
+        ctx.store.write_json("deployment_result.json", result)
+        ctx.events.emit(
+            "deployment",
+            environment=result.environment,
+            healthy=result.healthy,
+            journey_passed=result.journey_passed,
+            artifacts=artifact_files,
+        )
+        if not (result.healthy and result.journey_passed):
+            raise StepFailure(
+                "deploy",
+                f"deployment verification failed: {result.details} — see "
+                "deploy/ROLLBACK.md for recovery",
+            )
+
+    def _step_verify(self, ctx: RunContext) -> None:
+        deployment = decoders.deployment_from_dict(ctx.store.read_json("deployment_result.json"))
+        checks = {
+            "health_check_passed": deployment.healthy,
+            "main_user_journey_passed": deployment.journey_passed,
+            "rollback_instructions_exist": (
+                ctx.workspace / deployment.rollback_instructions_path
+            ).exists(),
+            "deployable_artifact_exists": (ctx.workspace / "deploy" / "Dockerfile").exists()
+            and (ctx.workspace / "deploy" / "run.sh").exists(),
+        }
+        if not all(checks.values()):
+            failed = [name for name, ok in checks.items() if not ok]
+            raise StepFailure("verify", "production validation failed: " + ", ".join(failed))
+        ctx.store.write_json("verification.json", {"verified": True, "checks": checks})
+
+    def _step_report(self, ctx: RunContext) -> None:
+        review = ctx.load_review("review_report_final.json")
+        fix_raw = ctx.store.read_json("fix_result.json")
+        fix = FixResult(
+            fixed=[decoders.finding_from_dict(f) for f in fix_raw["fixed"]],
+            escalated=[decoders.finding_from_dict(f) for f in fix_raw["escalated"]],
+            skipped=[decoders.finding_from_dict(f) for f in fix_raw["skipped"]],
+        )
+        gates = [
+            decoders.gate_result_from_dict(raw)
+            for raw in ctx.store.read_json("gate_results_retest.json")
+        ]
+        merge_decision = decoders.merge_decision_from_dict(
+            ctx.store.read_json("merge_decision.json")
+        )
+        deployment = None
+        if ctx.store.exists("deployment_result.json"):
+            deployment = decoders.deployment_from_dict(
+                ctx.store.read_json("deployment_result.json")
+            )
+        trace = self._traceability(ctx, review, deployment)
+        ctx.store.write_json("traceability.json", trace)
+        ctx.store.write_text("traceability.md", trace.to_markdown())
+
+        validation_raw = ctx.store.read_json("validation_report.json")
+        escalations = ctx.load_escalations()
+        approvals = ctx.load_approvals()
+        outcome = (
+            "no_merge"
+            if merge_decision.recommendation is MergeRecommendation.NO_MERGE
+            else "success"
+        )
+        metrics = report_mod.build_metrics(
+            step_statuses={n: r.status for n, r in ctx.state.steps.items()},
+            validation_passed=not validation_raw.get("errors"),
+            retest_gates=gates,
+            tests_by_requirement=ctx.generated_tests.tests_by_requirement,
+            requirements_total=len(ctx.spec.functional_requirements),
+            escalation_count=len(escalations),
+            review=review,
+            fix=fix,
+            created_at=ctx.state.created_at,
+            outcome=outcome,
+        )
+        recorder = LocalMetricsRecorder()
+        for name, value in metrics.items():
+            recorder.record(name, value)
+        ctx.store.write_json("metrics.json", recorder.snapshot())
+        ctx.store.write_text(
+            "final_report.md",
+            report_mod.render_final_report(
+                run_id=ctx.state.run_id,
+                spec=ctx.spec,
+                validation_raw=validation_raw,
+                plan=ctx.plan,
+                adrs=ctx.architecture.adrs,
+                retest_gates=gates,
+                review=review,
+                fix=fix,
+                merge=merge_decision,
+                deployment=deployment,
+                escalations=escalations,
+                approvals=approvals,
+                traceability=trace,
+                metrics=metrics,
+            ),
+        )
 
     def _traceability(
         self,

@@ -31,13 +31,6 @@ def test_hardcoded_secret_is_found(tmp_path: Path) -> None:
     assert all(f.blocking for f in findings)
 
 
-def test_exec_alone_is_found(tmp_path: Path) -> None:
-    """SEC_EXEC must fire on its own — not ride along on an eval() in the same file."""
-    p = tmp_path / "bad_exec.py"
-    p.write_text('exec("print(1)")\n')
-    assert any(f.rule == "SEC_EXEC" for f in scan_file(p))
-
-
 def test_eval_and_exec_are_found(tmp_path: Path) -> None:
     p = tmp_path / "bad.py"
     p.write_text('data = eval(user_input)\nexec("print(1)")\n')
@@ -77,6 +70,13 @@ def test_findings_carry_file_and_line(tmp_path: Path) -> None:
     (finding,) = scan_file(p)
     assert finding.file == str(p)
     assert finding.line == 2
+
+
+def test_exec_alone_is_found(tmp_path: Path) -> None:
+    """SEC_EXEC must fire on its own — not ride along on an eval() in the same file."""
+    p = tmp_path / "bad_exec.py"
+    p.write_text('exec("print(1)")\n')
+    assert any(f.rule == "SEC_EXEC" for f in scan_file(p))
 
 
 def test_secret_exemption_is_workspace_relative(tmp_path: Path) -> None:

@@ -12,6 +12,7 @@ from typing import Any
 
 from pmpe.domain.models import (
     Approval,
+    DeploymentResult,
     Escalation,
     Finding,
     GateResult,
@@ -65,6 +66,17 @@ def approval_from_dict(raw: dict[str, Any]) -> Approval:
         reason=raw["reason"],
         approved=bool(raw["approved"]),
         timestamp=raw.get("timestamp", ""),
+    )
+
+
+def deployment_from_dict(raw: dict[str, Any]) -> DeploymentResult:
+    return DeploymentResult(
+        environment=raw["environment"],
+        url=raw["url"],
+        healthy=bool(raw["healthy"]),
+        journey_passed=bool(raw["journey_passed"]),
+        rollback_instructions_path=raw["rollback_instructions_path"],
+        details=raw.get("details", ""),
     )
 
 
