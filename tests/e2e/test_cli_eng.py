@@ -11,9 +11,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pmpe.engineering.engine import EngineeringRun
 
 from pmpe.cli import main
+from pmpe.engineering.engine import EngineeringRun
 from pmpe.gitops.local import LocalGitAdapter
 from tests.integration.test_run_engine import _arch, drive_to_deploy
 
@@ -28,6 +28,7 @@ def _write(path: Path, payload: dict[str, Any]) -> str:
 
 
 def _status(run_dir: Path, capsys: pytest.CaptureFixture[str]) -> dict[str, Any]:
+    capsys.readouterr()  # drop output accumulated from earlier commands
     assert main(["eng", "status", "--run-dir", str(run_dir)]) == 0
     loaded: dict[str, Any] = json.loads(capsys.readouterr().out)
     return loaded

@@ -33,6 +33,7 @@ class EvidenceLedger:
         verdict: str = "",
         escalation: str = "",
         next_state: str = "",
+        detail: str = "",
         cost: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         event = {
@@ -47,6 +48,7 @@ class EvidenceLedger:
             "verdict": verdict,
             "escalation": escalation,
             "next_state": next_state,
+            "detail": detail,
             "cost": jsonable(cost) if cost is not None else None,
         }
         with self.path.open("a") as fh:
