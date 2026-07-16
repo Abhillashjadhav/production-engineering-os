@@ -1,0 +1,8 @@
+# Planted failure: missing most required fields, wrong types, bad enum values.
+spec_version: "1.0"
+problem_statement: too short
+scope: "should be a list, not a string"
+non_goals: []
+priority: urgent
+target_platform: blockchain
+deployment_target: local

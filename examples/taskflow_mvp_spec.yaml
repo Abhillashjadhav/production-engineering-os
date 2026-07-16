@@ -1,0 +1,182 @@
+# Example PM OS MVP specification — the V1 golden path.
+# Produced upstream by pm-agent-os; consumed by `pmpe validate` (and by the full
+# pipeline as the atomic series lands it).
+spec_version: "1.0"
+product_name: TaskFlow
+problem_statement: >
+  Solo consultants track client tasks across notebooks, chat threads, and memory.
+  Tasks slip, follow-ups are missed, and there is no single authoritative list that
+  other tools can integrate with.
+target_user: Solo consultants who bill multiple clients and currently track tasks in a notebook or spreadsheet.
+user_outcome: A consultant can capture a task in under 10 seconds and trust one authoritative list of open work.
+business_outcome: Prove demand for a paid personal task API; 20 external integrations built against it within a quarter.
+hypothesis: >
+  If task capture is a single authenticated API call, consultants will centralize
+  their task list and complete more of their open tasks each week.
+
+scope:
+  - Authenticated JSON API for personal tasks
+  - Create, list, read, update (including completion), and delete tasks
+  - Persistent storage that survives restarts
+  - Health endpoint for operational checks
+
+non_goals:
+  - Team collaboration or task sharing
+  - Web or mobile user interface
+  - Reminders, notifications, or scheduling
+  - Reporting and analytics dashboards
+
+user_stories:
+  - id: US-001
+    as_a: solo consultant
+    i_want: to add a task with a title and optional notes via the API
+    so_that: capturing work takes seconds and nothing is lost
+  - id: US-002
+    as_a: solo consultant
+    i_want: to list my open tasks in one call
+    so_that: I always see the authoritative list of open work
+  - id: US-003
+    as_a: solo consultant
+    i_want: to mark a task done
+    so_that: my list reflects reality and I can see progress
+  - id: US-004
+    as_a: solo consultant
+    i_want: my tasks protected by an API token
+    so_that: nobody else can read or change my work
+
+functional_requirements:
+  - id: FR-001
+    title: Bearer-token authentication on every task endpoint
+    capability: auth.bearer_token
+    description: All /tasks endpoints reject requests without a valid bearer token; the health endpoint stays public.
+  - id: FR-002
+    title: Create a task
+    capability: entity.create
+    entity: Task
+    description: POST /tasks with a title (required) and notes (optional) creates a persistent task with status "open".
+  - id: FR-003
+    title: List tasks
+    capability: entity.list
+    entity: Task
+    description: GET /tasks returns all tasks, newest first, with optional ?status= filter.
+  - id: FR-004
+    title: Read a single task
+    capability: entity.read
+    entity: Task
+    description: GET /tasks/{id} returns the task or 404.
+  - id: FR-005
+    title: Update a task, including completion
+    capability: entity.update
+    entity: Task
+    description: PATCH /tasks/{id} updates title, notes, or status; setting status "done" completes the task.
+  - id: FR-006
+    title: Delete a task
+    capability: entity.delete
+    entity: Task
+    description: DELETE /tasks/{id} removes the task permanently and returns 204.
+  - id: FR-007
+    title: Health endpoint
+    capability: health.check
+    description: GET /health returns 200 with service status for deployment verification.
+
+entities:
+  - name: Task
+    fields:
+      - name: title
+        type: string
+        required: true
+      - name: notes
+        type: text
+        required: false
+      - name: status
+        type: string
+        required: false
+        default: open
+
+acceptance_criteria:
+  - id: AC-001
+    requirement: FR-001
+    criterion: Given no Authorization header, when any /tasks endpoint is called, then the response status is 401 and no data is returned.
+  - id: AC-002
+    requirement: FR-001
+    criterion: Given an invalid bearer token, when any /tasks endpoint is called, then the response status is 401.
+  - id: AC-003
+    requirement: FR-002
+    criterion: Given a valid token, when POST /tasks is called with a title, then the response status is 201 and the body contains an id and status "open".
+  - id: AC-004
+    requirement: FR-002
+    criterion: Given a valid token, when POST /tasks is called without a title, then the response status is 400 with a field-level error message.
+  - id: AC-005
+    requirement: FR-003
+    criterion: Given three stored tasks, when GET /tasks is called with a valid token, then all three are returned newest first.
+  - id: AC-006
+    requirement: FR-003
+    criterion: Given tasks in mixed states, when GET /tasks?status=open is called, then only tasks with status "open" are returned.
+  - id: AC-007
+    requirement: FR-004
+    criterion: Given a stored task, when GET /tasks/{id} is called with a valid token, then the response status is 200 and the body matches the stored task.
+  - id: AC-008
+    requirement: FR-004
+    criterion: Given no task with the requested id, when GET /tasks/{id} is called, then the response status is 404.
+  - id: AC-009
+    requirement: FR-005
+    criterion: Given an open task, when PATCH /tasks/{id} sets status "done", then the response status is 200 and a subsequent read returns status "done".
+  - id: AC-010
+    requirement: FR-005
+    criterion: Given a stored task, when PATCH /tasks/{id} sends an unknown field, then the response status is 400 and the task is unchanged.
+  - id: AC-011
+    requirement: FR-006
+    criterion: Given a stored task, when DELETE /tasks/{id} is called, then the response status is 204 and a subsequent read returns 404.
+  - id: AC-012
+    requirement: FR-007
+    criterion: Given the service is running, when GET /health is called without a token, then the response status is 200 and the body reports status "ok".
+
+non_functional_requirements:
+  - id: NFR-001
+    category: security
+    requirement: The API token is never stored in code or logs; it is injected via environment variable at deploy time.
+  - id: NFR-002
+    category: reliability
+    requirement: Tasks survive a process restart (persistent storage on disk).
+  - id: NFR-003
+    category: performance
+    requirement: Any single-task operation completes in under 200ms locally.
+
+success_metrics:
+  - 80% of created tasks receive a status change within 14 days
+  - Median task-capture time under 10 seconds
+
+north_star_metric: >
+  Percentage of active users who complete at least one captured task per week
+  (outcome: work actually finished through the product, not activity volume).
+
+leading_metrics:
+  - Tasks created per active user per week
+  - Task completion rate within 14 days of creation
+
+guardrails:
+  - API error rate below 1%
+  - Zero data-loss incidents
+  - No authentication bypass findings
+
+constraints:
+  - No third-party runtime dependencies in the generated product
+  - Single-user product; no account system beyond the API token
+
+assumptions:
+  - One token per deployment is acceptable for a single-user V1
+  - Local/self-hosted deployment is acceptable for the first cohort
+
+dependencies:
+  - SQLite (bundled with Python; no external service)
+
+risks:
+  - description: A single static token, if leaked, exposes all data until rotated
+    level: medium
+  - description: Single-process deployment has no high-availability story
+    level: low
+
+priority: P0
+target_platform: api
+preferred_stack: python-stdlib
+deployment_target: local
