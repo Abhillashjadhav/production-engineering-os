@@ -37,11 +37,23 @@ def _combined_digest(files: dict[str, str]) -> str:
     return canonical_digest(files)
 
 
+def tree_content_digest(repo: Path) -> str:
+    """The content digest of a workspace tree — the same digest a freeze records."""
+    return _combined_digest(file_map(Path(repo)))
+
+
 def freeze_candidate(repo: Path, run_dir: Path, *, contract_digest: str) -> Candidate:
     repo = Path(repo)
     run_dir = Path(run_dir)
     git = LocalGitAdapter(repo)
     commit = git._run("rev-parse", "HEAD")  # noqa: SLF001
+    dirty = git._run("status", "--porcelain")  # noqa: SLF001
+    if dirty.strip():
+        raise CandidateViolation(
+            f"cannot freeze a dirty worktree: the manifest would record commit "
+            f"{commit[:12]} while the digest certifies uncommitted content — "
+            "commit or discard first: " + "; ".join(dirty.strip().splitlines()[:5])
+        )
     digest = _combined_digest(file_map(repo))
 
     history_dir = run_dir / "candidates"

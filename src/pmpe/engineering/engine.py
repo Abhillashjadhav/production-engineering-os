@@ -33,12 +33,19 @@ from pmpe.deployment.policy import (
     DeploymentPolicy,
     ProductionApproval,
     load_production_approval,
+    production_readiness,
     write_production_approval,
 )
 from pmpe.deployment.simulated import SimulatedDeployOutcome, simulate_production_deploy
 from pmpe.domain.errors import PmpeError, SpecError
 from pmpe.domain.serialize import atomic_write_json, jsonable
-from pmpe.engineering.candidate import Candidate, freeze_candidate, verify_frozen
+from pmpe.engineering.candidate import (
+    Candidate,
+    CandidateViolation,
+    freeze_candidate,
+    tree_content_digest,
+    verify_frozen,
+)
 from pmpe.engineering.ledger import EvidenceLedger
 from pmpe.engineering.submissions import VALIDATORS, validate_routing_submission
 from pmpe.evals.registry import stage_of
@@ -187,6 +194,16 @@ class EngineeringRun:
     def freeze(self, repo: Path) -> Candidate:
         first = self.stage == "freeze"
         self._require_stage("freeze", "refreeze")
+        if not first:
+            # the shipping candidate must be exactly the tree the retest gate executed
+            last_tested = str(self._state.get("last_tested_digest", ""))
+            current = tree_content_digest(Path(repo))
+            if last_tested and current != last_tested:
+                raise CandidateViolation(
+                    "refusing to refreeze: the tree does not match the retested tree "
+                    f"(retested {last_tested}, found {current}) — retest evidence must "
+                    "cover the candidate that ships"
+                )
         candidate = freeze_candidate(repo, self.run_dir, contract_digest=self.contract_digest)
         self.ledger.record(
             stage="freeze",
@@ -273,16 +290,29 @@ class EngineeringRun:
         self._advance("fix" if result.accepted else "retest")
         return result
 
-    def record_gates(self, *, passed: bool, detail: str) -> None:
+    def record_gates(self, *, repo: Path, passed: bool, detail: str) -> None:
+        """Executed-test evidence is bound to the tree it ran on: the tested tree
+        digest is recorded, and on the no-fix path it must BE the frozen candidate
+        (fail closed on drift); on the fix path the refreeze binds to it."""
         self._require_stage("retest")
+        tested = tree_content_digest(Path(repo))
+        candidate = str(self._state["candidate_digest"])
+        self._state["last_tested_digest"] = tested
         self.ledger.record(
             stage="retest",
             agent=_CORE,
             action="gates",
+            input_digests={"candidate": candidate, "tested_tree": tested},
             verdict="pass" if passed else "fail",
             detail=detail,
         )
         if passed:
+            if not self._state["accepted_findings"] and tested != candidate:
+                raise CandidateViolation(
+                    f"retest evidence covers tree {tested}, but the frozen candidate is "
+                    f"{candidate} and no accepted fix explains the difference — evidence "
+                    "must cover the candidate that ships"
+                )
             self._state["gates_passed"] = True
             # only a run that actually fixed something has fixes to re-freeze and verify
             self._advance("refreeze" if self._state["accepted_findings"] else "draft_pr")
@@ -340,14 +370,32 @@ class EngineeringRun:
         return approval
 
     def deploy(
-        self, environment: str, *, repo: Path | None = None, canary_healthy: bool = True
+        self,
+        environment: str,
+        *,
+        repo: Path,
+        canary_healthy: bool = True,
+        health_verified: bool = False,
+        journey_verified: bool = False,
     ) -> DeploymentDecision | SimulatedDeployOutcome:
         self._require_stage("deploy")
-        if repo is not None:
-            # a changed tree invalidates everything bound to the frozen candidate
-            verify_frozen(Path(repo), self.run_dir)
+        # EVERY deployment path re-verifies the frozen candidate: a changed tree
+        # invalidates everything bound to it (fail closed, no opt-out)
+        verify_frozen(Path(repo), self.run_dir)
         candidate = str(self._state["candidate_digest"])
         approval = load_production_approval(self.run_dir) if environment == "production" else None
+        if environment == "production":
+            # readiness precedes authorization: rollback instructions, a runnable
+            # artifact, and verified health/user-journey checks (fail closed —
+            # attestations default to unverified)
+            readiness = production_readiness(
+                Path(repo), health_verified=health_verified, journey_verified=journey_verified
+            )
+            if not readiness.ready:
+                raise DeploymentBlocked(
+                    "deployment to production blocked: readiness not met: "
+                    + "; ".join(readiness.missing)
+                )
         decision = DeploymentPolicy().authorize(
             environment,
             required_checks_passed=bool(self._state["gates_passed"]),
@@ -388,9 +436,44 @@ class EngineeringRun:
         self._save()
         return decision
 
-    def record_release_report(self, verdict: str) -> None:
+    def record_release_report(
+        self, verdict: str, *, gate_results: dict[str, bool] | None = None
+    ) -> None:
+        """Binary release gates are product intent (PD-01): every gate in the locked
+        contract must be evaluated and pass before any release verdict is recorded.
+        The evaluation is persisted as a run artifact and a ledger event."""
         self._require_stage("deploy")
-        self.ledger.record(stage="release_report", agent=_CORE, action="report", verdict=verdict)
+        contract = load_contract(self.run_dir / "contract.json")
+        gate_ids = [g.id for g in contract.binary_release_gates]
+        results = dict(gate_results or {})
+        unknown = sorted(set(results) - set(gate_ids))
+        if unknown:
+            raise PmpeError(
+                "release report refused: gate result(s) for unknown gate id(s): "
+                + ", ".join(unknown)
+            )
+        missing = sorted(set(gate_ids) - set(results))
+        failed = sorted(g for g in gate_ids if results.get(g) is False)
+        if missing or failed:
+            problems = []
+            if missing:
+                problems.append("unevaluated: " + ", ".join(missing))
+            if failed:
+                problems.append("failed: " + ", ".join(failed))
+            raise PmpeError(
+                "release report refused — every binary release gate of the locked "
+                "contract must be evaluated and pass (PD-01): " + "; ".join(problems)
+            )
+        self._write_artifact(
+            "release_report", "gate-results", {"verdict": verdict, "gates": results}
+        )
+        self.ledger.record(
+            stage="release_report",
+            agent=_CORE,
+            action="report",
+            verdict=verdict,
+            detail="gates_passed=" + ",".join(gate_ids) if gate_ids else "no contract gates",
+        )
         self._state["release_verdict"] = verdict
         self._advance("complete")
 

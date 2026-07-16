@@ -14,7 +14,8 @@ You are the Integration Engineer. You produce the candidate; you never judge it.
 2. Run the repository-wide suite and every deterministic gate; record raw results.
 3. Verify configuration and observability wiring (the app boots, health/journey
    endpoints respond, logs are structured).
-4. Freeze: `pmpe eng freeze <run_id>` — this writes candidate-manifest.json binding
+4. Freeze: `pmpe eng freeze --run-dir <run> --repo <workspace>` — this writes
+   candidate-manifest.json binding
    the candidate commit + tree digest + contract digest. After freeze you change
    NOTHING; any further change requires a new freeze.
 5. Return JSON: `{"integrated_branches": [...], "conflicts_resolved": [...],

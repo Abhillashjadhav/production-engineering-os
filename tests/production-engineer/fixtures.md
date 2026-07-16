@@ -75,7 +75,7 @@ NOTHING is fixed (PD-07 — review-only mode has no fixer step); product finding
 ProductChangeRequests. Output is the findings/PCR report.
 
 INPUT F (eval-only with a planted trajectory violation): "/production-engineer
-eval-only" with `evals/fixtures/trajectory/implement_before_architecture.jsonl` as the
+eval-only" with `evals/fixtures/trajectory/planted_implement_before_architecture.jsonl` as the
 ledger under test.
 EXPECT: `pmpe evals run --suite all` reports the TRAJ-03 violation; drift compare
 returns HOLD for any new hard-gate failure; the skill reports HOLD honestly and

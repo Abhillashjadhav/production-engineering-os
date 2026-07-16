@@ -9,6 +9,7 @@ grammar by construction, not by coincidence.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -38,10 +39,12 @@ AGENTS_DIR = ROOT / ".claude" / "agents"
 @pytest.fixture()
 def repo(tmp_path: Path) -> Path:
     root = tmp_path / "workspace"
-    root.mkdir()
+    (root / "deploy").mkdir(parents=True)
     git = LocalGitAdapter(root)
     git.init()
     (root / "api.py").write_text("STATUS = 'ok'\n")
+    (root / "deploy" / "run.sh").write_text("#!/bin/sh\necho serving\n")
+    (root / "deploy" / "ROLLBACK.md").write_text("# Rollback\n\nRevert and rerun run.sh.\n")
     git.commit_all("chore: base workspace")
     return root
 
@@ -210,9 +213,9 @@ def assure(run: EngineeringRun, repo: Path) -> str:
             ]
         },
     )
-    run.record_gates(passed=True, detail="2/2 executed")
     (repo / "api.py").write_text("STATUS = 'ok'  # input is never evaluated\n")
     LocalGitAdapter(repo).commit_all("fix: RF-001 remove eval of request input")
+    run.record_gates(repo=repo, passed=True, detail="2/2 executed")
     second = run.freeze(repo).tree_digest
     run.record_fix_verification("RF-001", verifier="v2-code-reviewer")
     return second
@@ -401,7 +404,7 @@ def test_clean_reviews_still_require_the_executed_test_gate(
     result = run.reconcile_findings({}, owner="abhillash")
     assert not result.accepted and not result.undecided
     assert run.stage == "retest"
-    run.record_gates(passed=True, detail="1/1 executed")
+    run.record_gates(repo=repo, passed=True, detail="1/1 executed")
     assert run.stage == "draft_pr"  # nothing was fixed, so no refreeze/verify leg
 
 
@@ -472,7 +475,7 @@ def test_verify_recording_recovers_after_crash_between_store_and_state(
             ]
         },
     )
-    run.record_gates(passed=True, detail="2/2 executed")
+    run.record_gates(repo=repo, passed=True, detail="2/2 executed")
     run.freeze(repo)
     FindingsStore(run.run_dir).record_verified("RF-001", verifier="v2-code-reviewer")
     resumed = EngineeringRun.load(run.run_dir)
@@ -558,7 +561,7 @@ def test_verifier_must_be_a_reviewer_and_not_the_fixer(run: EngineeringRun, repo
             ]
         },
     )
-    run.record_gates(passed=True, detail="2/2 executed")
+    run.record_gates(repo=repo, passed=True, detail="2/2 executed")
     run.freeze(repo)
     with pytest.raises(PmpeError):
         run.record_fix_verification("RF-001", verifier="v2-approved-findings-fixer")
@@ -575,21 +578,206 @@ def test_deploy_ladder_blocks_production_until_named_approval(
 ) -> None:
     drive_to_deploy(run, repo)
     assert run.stage == "deploy"
-    run.deploy("local")
-    run.deploy("staging")
+    run.deploy("local", repo=repo)
+    run.deploy("staging", repo=repo)
 
     before = len(run.ledger.read_all())
     with pytest.raises(DeploymentBlocked, match="approval"):
-        run.deploy("production")
+        run.deploy("production", repo=repo, health_verified=True, journey_verified=True)
     assert len(run.ledger.read_all()) == before  # a blocked deploy leaves no deploy event
 
     run.approve_production(owner="abhillash", reason="pilot cohort launch")
-    outcome = run.deploy("production")
+    outcome = run.deploy("production", repo=repo, health_verified=True, journey_verified=True)
     assert "FIXTURE MODE" in outcome.report_line
     assert "no real environment" in outcome.report_line
 
-    run.record_release_report("READY_FOR_PRODUCTION_APPROVAL")
+    run.record_release_report(
+        "READY_FOR_PRODUCTION_APPROVAL",
+        gate_results={"GATE-001": True, "GATE-002": True},
+    )
     assert run.stage == "complete"
+
+
+def test_every_deployment_path_verifies_candidate_integrity(
+    run: EngineeringRun, repo: Path
+) -> None:
+    """Integrity verification has no opt-out: a drifted tree blocks EVERY
+    environment, not only the ones a caller chose to verify."""
+    drive_to_deploy(run, repo)
+    (repo / "api.py").write_text("DRIFTED = True\n")
+    LocalGitAdapter(repo).commit_all("late: unreviewed change")
+    for environment in ("local", "staging", "production"):
+        with pytest.raises(CandidateViolation, match="changed after freeze"):
+            run.deploy(environment, repo=repo, health_verified=True, journey_verified=True)
+
+
+def test_production_requires_readiness_attestations(run: EngineeringRun, repo: Path) -> None:
+    """An approval alone is not enough: unattested health/journey checks block
+    production before authorization is even considered."""
+    drive_to_deploy(run, repo)
+    run.approve_production(owner="abhillash", reason="pilot cohort launch")
+    with pytest.raises(DeploymentBlocked, match="readiness not met.*health"):
+        run.deploy("production", repo=repo)  # attestations default to unverified
+    with pytest.raises(DeploymentBlocked, match="user journey"):
+        run.deploy("production", repo=repo, health_verified=True)
+    outcome = run.deploy("production", repo=repo, health_verified=True, journey_verified=True)
+    assert "FIXTURE MODE" in outcome.report_line
+
+
+def test_production_requires_rollback_and_runnable_artifact(tmp_path: Path) -> None:
+    """A workspace without rollback instructions and a runnable artifact can
+    never be production-authorized, approval or not."""
+    bare = tmp_path / "bare-workspace"
+    bare.mkdir()
+    git = LocalGitAdapter(bare)
+    git.init()
+    (bare / "api.py").write_text("STATUS = 'ok'\n")
+    git.commit_all("chore: workspace without deploy collateral")
+    run = EngineeringRun.start(CONTRACT, tmp_path / "bare-run", agents_dir=AGENTS_DIR)
+    drive_to_deploy(run, bare)
+    run.approve_production(owner="abhillash", reason="pilot cohort launch")
+    with pytest.raises(DeploymentBlocked, match="ROLLBACK"):
+        run.deploy("production", repo=bare, health_verified=True, journey_verified=True)
+
+
+# --- release gates -------------------------------------------------------------------------
+
+
+def test_release_report_refused_without_gate_evaluations(run: EngineeringRun, repo: Path) -> None:
+    """The locked contract's binary release gates are product intent (PD-01):
+    a release verdict with no gate evaluation is refused."""
+    drive_to_deploy(run, repo)
+    run.deploy("local", repo=repo)
+    with pytest.raises(PmpeError, match="unevaluated: GATE-001, GATE-002"):
+        run.record_release_report("READY_FOR_PRODUCTION_APPROVAL")
+    assert run.stage == "deploy"  # nothing advanced
+
+
+def test_release_report_refused_on_a_failed_gate(run: EngineeringRun, repo: Path) -> None:
+    drive_to_deploy(run, repo)
+    with pytest.raises(PmpeError, match="failed: GATE-002"):
+        run.record_release_report(
+            "READY_FOR_PRODUCTION_APPROVAL",
+            gate_results={"GATE-001": True, "GATE-002": False},
+        )
+    with pytest.raises(PmpeError, match="unknown gate"):
+        run.record_release_report(
+            "READY_FOR_PRODUCTION_APPROVAL",
+            gate_results={"GATE-001": True, "GATE-002": True, "GATE-999": True},
+        )
+
+
+def test_release_report_persists_the_gate_evaluation(run: EngineeringRun, repo: Path) -> None:
+    drive_to_deploy(run, repo)
+    run.record_release_report(
+        "READY_FOR_PRODUCTION_APPROVAL",
+        gate_results={"GATE-001": True, "GATE-002": True},
+    )
+    artifact = json.loads(
+        (run.run_dir / "artifacts" / "release_report--gate-results.json").read_text()
+    )
+    assert artifact["gates"] == {"GATE-001": True, "GATE-002": True}
+    report_event = next(e for e in run.ledger.read_all() if e["stage"] == "release_report")
+    assert "GATE-001" in report_event["detail"] and "GATE-002" in report_event["detail"]
+
+
+# --- executed evidence binds to the candidate ----------------------------------------------
+
+
+def test_retest_evidence_must_cover_the_frozen_candidate(run: EngineeringRun, repo: Path) -> None:
+    """On the no-fix path the tested tree must BE the frozen candidate — evidence
+    for some other tree proves nothing about what ships."""
+    candidate = to_review(run, repo)
+    run_reviews(run, repo, candidate, findings=False)
+    run.reconcile_findings({}, owner="abhillash")
+    assert run.stage == "retest"
+    (repo / "api.py").write_text("STATUS = 'ok'  # drifted before retest\n")
+    LocalGitAdapter(repo).commit_all("late: unexplained change")
+    with pytest.raises(CandidateViolation, match="no accepted fix explains"):
+        run.record_gates(repo=repo, passed=True, detail="1/1 executed")
+
+
+def test_refreeze_binds_to_the_retested_tree(run: EngineeringRun, repo: Path) -> None:
+    """The candidate that ships must be exactly the tree the retest executed."""
+    candidate = to_review(run, repo)
+    run_reviews(run, repo, candidate)
+    run.reconcile_findings(
+        {"RF-001": OwnerDecision(status="ACCEPTED", owner="abhillash", reason="real defect")},
+        owner="abhillash",
+    )
+    run.submit(
+        "v2-approved-findings-fixer",
+        {
+            "fixed": [
+                {
+                    "finding_id": "RF-001",
+                    "commits": ["fix1234"],
+                    "checks_rerun": ["unit"],
+                    "changed_files": ["api.py"],
+                }
+            ]
+        },
+    )
+    (repo / "api.py").write_text("STATUS = 'ok'  # fixed\n")
+    LocalGitAdapter(repo).commit_all("fix: RF-001")
+    run.record_gates(repo=repo, passed=True, detail="2/2 executed")
+    (repo / "api.py").write_text("STATUS = 'ok'  # changed again after retest\n")
+    LocalGitAdapter(repo).commit_all("late: post-retest change")
+    with pytest.raises(CandidateViolation, match="retested tree"):
+        run.freeze(repo)
+
+
+def test_retest_ledger_event_records_the_tested_tree(run: EngineeringRun, repo: Path) -> None:
+    candidate = to_review(run, repo)
+    run_reviews(run, repo, candidate, findings=False)
+    run.reconcile_findings({}, owner="abhillash")
+    run.record_gates(repo=repo, passed=True, detail="1/1 executed")
+    gates_event = next(e for e in run.ledger.read_all() if e["action"] == "gates")
+    assert gates_event["input_digests"]["candidate"] == candidate
+    assert gates_event["input_digests"]["tested_tree"] == candidate  # no-fix path: identical
+
+
+def test_duplicate_fix_submission_is_rejected(run: EngineeringRun, repo: Path) -> None:
+    """A second fixer submission for an already-FIXED finding is rejected loudly,
+    not absorbed silently (the fix stage is still open for the other finding)."""
+    second_finding = {
+        **_CODE_FINDING,
+        "title": "unvalidated path join",
+        "file": "storage.py",
+        "line": 7,
+        "evidence": "storage.py:7 joins request input into a filesystem path",
+    }
+    candidate = to_review(run, repo)
+    for reviewer, found in (
+        ("v2-code-reviewer", [_CODE_FINDING]),
+        ("v2-product-conformance-reviewer", []),
+        ("v2-architecture-simplicity-reviewer", [second_finding]),
+        ("v2-eval-integrity-auditor", []),
+    ):
+        run.begin_review(reviewer, repo)
+        run.submit(reviewer, _review(reviewer, candidate, found))
+        run.end_review(reviewer, repo)
+    run.reconcile_findings(
+        {
+            "RF-001": OwnerDecision(status="ACCEPTED", owner="abhillash", reason="real defect"),
+            "RF-002": OwnerDecision(status="ACCEPTED", owner="abhillash", reason="real defect"),
+        },
+        owner="abhillash",
+    )
+    fix_rf_001 = {
+        "fixed": [
+            {
+                "finding_id": "RF-001",
+                "commits": ["fix1234"],
+                "checks_rerun": ["unit"],
+                "changed_files": ["api.py"],
+            }
+        ]
+    }
+    run.submit("v2-approved-findings-fixer", fix_rf_001)
+    assert run.stage == "fix"  # RF-002 still unfixed — the stage is open
+    with pytest.raises(SubmissionRejected, match="already FIXED"):
+        run.submit("v2-approved-findings-fixer", fix_rf_001)
 
 
 # --- the whole trajectory ----------------------------------------------------------------
@@ -597,11 +785,14 @@ def test_deploy_ladder_blocks_production_until_named_approval(
 
 def test_full_run_ledger_is_trajectory_clean(run: EngineeringRun, repo: Path) -> None:
     drive_to_deploy(run, repo)
-    run.deploy("local")
-    run.deploy("staging")
+    run.deploy("local", repo=repo)
+    run.deploy("staging", repo=repo)
     run.approve_production(owner="abhillash", reason="pilot cohort launch")
-    run.deploy("production")
-    run.record_release_report("READY_FOR_PRODUCTION_APPROVAL")
+    run.deploy("production", repo=repo, health_verified=True, journey_verified=True)
+    run.record_release_report(
+        "READY_FOR_PRODUCTION_APPROVAL",
+        gate_results={"GATE-001": True, "GATE-002": True},
+    )
 
     violations = evaluate_trajectory(run.ledger.read_all())
     assert violations == []

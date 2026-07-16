@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from pmpe.assurance.reconcile import OwnerDecision
-from pmpe.domain.errors import ContractViolation
+from pmpe.domain.errors import ContractViolation, SpecError
 from pmpe.engineering.engine import DeploymentBlocked, EngineeringRun
 from pmpe.evals.registry import STAGE_AGENTS
 from pmpe.quality.test_evidence import run_tests_with_evidence
@@ -108,11 +108,12 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
 
 def _cmd_gates(args: argparse.Namespace) -> int:
     run = _load(args)
-    evidence = run_tests_with_evidence(Path(args.workspace))
+    workspace = Path(args.workspace)
+    evidence = run_tests_with_evidence(workspace)
     executed = len(evidence.executions)
     passed_count = sum(1 for e in evidence.executions if e.outcome == "passed")
     detail = f"{passed_count}/{executed} executed tests passed"
-    run.record_gates(passed=evidence.all_passed, detail=detail)
+    run.record_gates(repo=workspace, passed=evidence.all_passed, detail=detail)
     print(f"gates: {detail} -> {'pass' if evidence.all_passed else 'fail'}")
     return 0 if evidence.all_passed else 1
 
@@ -136,9 +137,14 @@ def _cmd_approve_production(args: argparse.Namespace) -> int:
 
 def _cmd_deploy(args: argparse.Namespace) -> int:
     run = _load(args)
-    repo = Path(args.repo) if args.repo else None
     try:
-        outcome = run.deploy(args.environment, repo=repo, canary_healthy=not args.canary_fail)
+        outcome = run.deploy(
+            args.environment,
+            repo=Path(args.repo),
+            canary_healthy=not args.canary_fail,
+            health_verified=args.health_verified,
+            journey_verified=args.journey_verified,
+        )
     except DeploymentBlocked as exc:
         print(str(exc))
         return 3
@@ -147,8 +153,19 @@ def _cmd_deploy(args: argparse.Namespace) -> int:
     return 0
 
 
+def _parse_gate_results(pairs: list[str]) -> dict[str, bool]:
+    results: dict[str, bool] = {}
+    for pair in pairs:
+        gate_id, sep, value = pair.partition("=")
+        if not sep or value.lower() not in ("pass", "fail"):
+            raise SpecError(f"--gate expects ID=pass|fail, got '{pair}'")
+        results[gate_id] = value.lower() == "pass"
+    return results
+
+
 def _cmd_report(args: argparse.Namespace) -> int:
-    _load(args).record_release_report(args.verdict)
+    gate_results = _parse_gate_results(args.gate or [])
+    _load(args).record_release_report(args.verdict, gate_results=gate_results)
     print(f"release report recorded: {args.verdict}")
     return 0
 
@@ -211,9 +228,25 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     p = command("deploy", _cmd_deploy, "deploy up the environment ladder")
     p.add_argument("--environment", required=True)
     p.add_argument(
-        "--repo", default=None, help="workspace to re-verify against the frozen candidate"
+        "--repo", required=True, help="workspace to re-verify against the frozen candidate"
     )
     p.add_argument("--canary-fail", action="store_true", help="simulate a failing canary")
+    p.add_argument(
+        "--health-verified",
+        action="store_true",
+        help="attest the health check was verified (production readiness)",
+    )
+    p.add_argument(
+        "--journey-verified",
+        action="store_true",
+        help="attest the user journey was verified (production readiness)",
+    )
 
     p = command("report", _cmd_report, "record the release report and complete the run")
     p.add_argument("--verdict", required=True)
+    p.add_argument(
+        "--gate",
+        action="append",
+        metavar="ID=pass|fail",
+        help="evaluation of one contract binary release gate (repeat per gate)",
+    )

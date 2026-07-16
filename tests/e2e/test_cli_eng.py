@@ -142,17 +142,32 @@ def test_rejected_submission_exits_2(tmp_path: Path) -> None:
 
 def test_production_gate_via_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     workspace = tmp_path / "workspace"
-    workspace.mkdir()
+    (workspace / "deploy").mkdir(parents=True)
     git = LocalGitAdapter(workspace)
     git.init()
     (workspace / "api.py").write_text("STATUS = 'ok'\n")
+    (workspace / "deploy" / "run.sh").write_text("#!/bin/sh\necho serving\n")
+    (workspace / "deploy" / "ROLLBACK.md").write_text("# Rollback\n\nRevert and rerun run.sh.\n")
     git.commit_all("chore: base workspace")
 
     run = EngineeringRun.start(CONTRACT, tmp_path / "run", agents_dir=AGENTS_DIR)
     drive_to_deploy(run, workspace)
     run_dir = str(run.run_dir)
+    ws = str(workspace)
 
-    rc = main(["eng", "deploy", "--run-dir", run_dir, "--environment", "production"])
+    # unattested readiness blocks production before authorization is considered
+    rc = main(["eng", "deploy", "--run-dir", run_dir, "--environment", "production", "--repo", ws])
+    captured = capsys.readouterr()
+    assert rc == 3
+    assert "readiness" in (captured.err + captured.out)
+
+    attested = [
+        "--repo",
+        ws,
+        "--health-verified",
+        "--journey-verified",
+    ]
+    rc = main(["eng", "deploy", "--run-dir", run_dir, "--environment", "production", *attested])
     captured = capsys.readouterr()
     assert rc == 3
     assert "approval" in (captured.err + captured.out)
@@ -172,9 +187,12 @@ def test_production_gate_via_cli(tmp_path: Path, capsys: pytest.CaptureFixture[s
         )
         == 0
     )
-    assert main(["eng", "deploy", "--run-dir", run_dir, "--environment", "production"]) == 0
+    assert (
+        main(["eng", "deploy", "--run-dir", run_dir, "--environment", "production", *attested]) == 0
+    )
     assert "FIXTURE MODE" in capsys.readouterr().out
 
+    # a release verdict without gate evaluations is refused (exit 1, PD-01)
     assert (
         main(
             [
@@ -184,6 +202,24 @@ def test_production_gate_via_cli(tmp_path: Path, capsys: pytest.CaptureFixture[s
                 run_dir,
                 "--verdict",
                 "READY_FOR_PRODUCTION_APPROVAL",
+            ]
+        )
+        == 1
+    )
+    capsys.readouterr()
+    assert (
+        main(
+            [
+                "eng",
+                "report",
+                "--run-dir",
+                run_dir,
+                "--verdict",
+                "READY_FOR_PRODUCTION_APPROVAL",
+                "--gate",
+                "GATE-001=pass",
+                "--gate",
+                "GATE-002=pass",
             ]
         )
         == 0
