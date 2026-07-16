@@ -31,6 +31,13 @@ class StepFailure(PmpeError):  # noqa: N818 — named for what it represents
         super().__init__(f"step '{step}' failed: {message}")
 
 
+class ContractViolation(PmpeError):  # noqa: N818 — it IS a violation, not an incidental error
+    """The ProductDecisionContract immutability/versioning rules were broken.
+
+    Always fail closed: a violated contract stops the run rather than proceeding
+    on ambiguous product intent (PD-03)."""
+
+
 class GitError(PmpeError):
     """A git operation on the build workspace failed."""
 

@@ -20,10 +20,14 @@ from pmpe.quality.gates import DEFAULT_REQUIRED_GATES
 _CHAOS_KEYS = ("chaos_inject_files", "chaos_fail_at_step")
 
 
+def packaged_schema_dir() -> Path:
+    """Schemas shipped inside the package (kept byte-identical to the repo-root
+    schemas/ contract files — a unit test guards the sync)."""
+    return Path(__file__).parent / "schemas"
+
+
 def packaged_schema_path() -> Path:
-    """The schema shipped inside the package (kept byte-identical to schemas/
-    mvp_spec.schema.json at the repo root — a unit test guards the sync)."""
-    return Path(__file__).parent / "schemas" / "mvp_spec.schema.json"
+    return packaged_schema_dir() / "mvp_spec.schema.json"
 
 
 @dataclass

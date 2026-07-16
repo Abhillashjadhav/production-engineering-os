@@ -1,19 +1,12 @@
-"""pmpe — the CLI of PM Production Engineering OS.
-
-Exit codes (part of the contract, see docs/usage.md):
-0 success · 1 failure · 2 malformed specification · 3 blocked on human gate /
-semantic errors · 4 completed with NO_MERGE recommendation
-"""
+"""V1 (product-build) CLI commands: validate/run/resume/approve/status/report."""
 
 from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 from pmpe.config import PipelineConfig, packaged_schema_path
-from pmpe.domain.errors import PmpeError, SpecError
 from pmpe.domain.serialize import jsonable
 from pmpe.ingestion import ingest
 from pmpe.orchestration import decoders
@@ -122,14 +115,8 @@ def _cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="pmpe",
-        description="Convert an approved PM OS MVP specification into tested, "
-        "reviewed, deployable software.",
-    )
-    sub = parser.add_subparsers(dest="command", required=True)
-
+def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
+    """V1 product-build commands (behaviour unchanged from V1)."""
     p_validate = sub.add_parser("validate", help="validate a specification only")
     p_validate.add_argument("spec")
     p_validate.add_argument("--schema", default=None)
@@ -164,22 +151,3 @@ def build_parser() -> argparse.ArgumentParser:
         p.add_argument("--runs-dir", default=None)
         p.add_argument("--config", default=None)
         p.set_defaults(fn=fn)
-
-    return parser
-
-
-def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
-    try:
-        result: int = args.fn(args)
-    except SpecError as exc:
-        print(f"specification rejected:\n{exc}", file=sys.stderr)
-        return 2
-    except PmpeError as exc:
-        print(f"pipeline error: {exc}", file=sys.stderr)
-        return 1
-    return result
-
-
-if __name__ == "__main__":
-    sys.exit(main())
