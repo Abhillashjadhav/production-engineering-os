@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from pmpe.assurance.reconcile import OwnerDecision
+from pmpe.domain.errors import ContractViolation
 from pmpe.engineering.engine import DeploymentBlocked, EngineeringRun
 from pmpe.evals.registry import STAGE_AGENTS
 from pmpe.quality.test_evidence import run_tests_with_evidence
@@ -29,9 +30,13 @@ def _read_json(path: str) -> dict[str, Any]:
 
 
 def _cmd_start(args: argparse.Namespace) -> int:
-    run = EngineeringRun.start(
-        Path(args.contract), Path(args.run_dir), agents_dir=Path(args.agents_dir)
-    )
+    try:
+        run = EngineeringRun.start(
+            Path(args.contract), Path(args.run_dir), agents_dir=Path(args.agents_dir)
+        )
+    except ContractViolation as exc:
+        print(str(exc))
+        return 3  # blocked on a human gate: the contract is not runnable
     print(f"run {run.status()['run_id']} started at stage '{run.stage}'")
     print(f"contract locked: {run.contract_digest}")
     return 0
@@ -131,8 +136,9 @@ def _cmd_approve_production(args: argparse.Namespace) -> int:
 
 def _cmd_deploy(args: argparse.Namespace) -> int:
     run = _load(args)
+    repo = Path(args.repo) if args.repo else None
     try:
-        outcome = run.deploy(args.environment, canary_healthy=not args.canary_fail)
+        outcome = run.deploy(args.environment, repo=repo, canary_healthy=not args.canary_fail)
     except DeploymentBlocked as exc:
         print(str(exc))
         return 3
@@ -204,6 +210,9 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
 
     p = command("deploy", _cmd_deploy, "deploy up the environment ladder")
     p.add_argument("--environment", required=True)
+    p.add_argument(
+        "--repo", default=None, help="workspace to re-verify against the frozen candidate"
+    )
     p.add_argument("--canary-fail", action="store_true", help="simulate a failing canary")
 
     p = command("report", _cmd_report, "record the release report and complete the run")

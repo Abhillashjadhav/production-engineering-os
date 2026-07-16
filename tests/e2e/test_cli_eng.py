@@ -81,6 +81,25 @@ def test_start_assess_submit_status_resume(
     assert "plan" in capsys.readouterr().out
 
 
+def test_non_runnable_contract_exits_3(tmp_path: Path) -> None:
+    draft = json.loads(CONTRACT.read_text())
+    draft["contract_status"] = "DRAFT"
+    path = _write(tmp_path / "draft-contract.json", draft)
+    rc = main(
+        [
+            "eng",
+            "start",
+            "--contract",
+            path,
+            "--run-dir",
+            str(tmp_path / "run"),
+            "--agents-dir",
+            str(AGENTS_DIR),
+        ]
+    )
+    assert rc == 3  # blocked on a human gate: the contract is not approved
+
+
 def test_rejected_submission_exits_2(tmp_path: Path) -> None:
     run_dir = tmp_path / "run"
     main(

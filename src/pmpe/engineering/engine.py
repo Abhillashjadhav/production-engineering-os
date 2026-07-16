@@ -38,7 +38,7 @@ from pmpe.deployment.policy import (
 from pmpe.deployment.simulated import SimulatedDeployOutcome, simulate_production_deploy
 from pmpe.domain.errors import PmpeError, SpecError
 from pmpe.domain.serialize import atomic_write_json, jsonable
-from pmpe.engineering.candidate import Candidate, freeze_candidate
+from pmpe.engineering.candidate import Candidate, freeze_candidate, verify_frozen
 from pmpe.engineering.ledger import EvidenceLedger
 from pmpe.engineering.submissions import VALIDATORS, validate_routing_submission
 from pmpe.evals.registry import stage_of
@@ -206,6 +206,9 @@ class EngineeringRun:
     def begin_review(self, reviewer: str, repo: Path) -> None:
         self._require_stage("review")
         self._require_reviewer(reviewer)
+        # the reviewer must see exactly the frozen candidate, not whatever the
+        # tree has become since the freeze (fail closed on any drift)
+        verify_frozen(Path(repo), self.run_dir)
         snapshots = self.run_dir / "review-snapshots"
         snapshots.mkdir(parents=True, exist_ok=True)
         atomic_write_json(snapshots / f"{reviewer}.json", tree_digest(Path(repo)))
@@ -337,9 +340,12 @@ class EngineeringRun:
         return approval
 
     def deploy(
-        self, environment: str, *, canary_healthy: bool = True
+        self, environment: str, *, repo: Path | None = None, canary_healthy: bool = True
     ) -> DeploymentDecision | SimulatedDeployOutcome:
         self._require_stage("deploy")
+        if repo is not None:
+            # a changed tree invalidates everything bound to the frozen candidate
+            verify_frozen(Path(repo), self.run_dir)
         candidate = str(self._state["candidate_digest"])
         approval = load_production_approval(self.run_dir) if environment == "production" else None
         decision = DeploymentPolicy().authorize(

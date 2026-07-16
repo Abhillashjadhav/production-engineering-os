@@ -398,11 +398,11 @@ def run_demo(
     )
     deployments: dict[str, str] = {}
     for environment in ("local", "staging"):
-        run.deploy(environment)
+        run.deploy(environment, repo=workspace)  # re-verifies the frozen candidate tree
         deployments[environment] = "authorized"
     production_blocked_reason = ""
     try:
-        run.deploy("production")
+        run.deploy("production", repo=workspace)
     except DeploymentBlocked as exc:
         production_blocked_reason = str(exc)
     readiness = production_readiness(

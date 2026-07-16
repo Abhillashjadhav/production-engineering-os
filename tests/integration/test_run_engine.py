@@ -20,6 +20,7 @@ from pmpe.assurance.findings import FindingsStore
 from pmpe.assurance.reconcile import OwnerDecision
 from pmpe.contracts.change_request import ChangeRequestStore
 from pmpe.domain.errors import ContractViolation, PmpeError
+from pmpe.engineering.candidate import CandidateViolation
 from pmpe.engineering.engine import (
     DeploymentBlocked,
     EngineeringRun,
@@ -329,6 +330,22 @@ def test_review_round_reaches_reconcile(run: EngineeringRun, repo: Path) -> None
     # findings were taken in under RF ids, originals preserved
     store = FindingsStore(run.run_dir)
     assert {f.finding_id for f in store.all()} == {"RF-001", "RF-002"}
+
+
+def test_begin_review_fails_closed_on_a_tampered_candidate(run: EngineeringRun, repo: Path) -> None:
+    """Reviews must bind to the tree that was frozen, not whatever is there now."""
+    to_review(run, repo)
+    (repo / "api.py").write_text("TAMPERED = True\n")
+    with pytest.raises(CandidateViolation, match="changed after freeze"):
+        run.begin_review("v2-code-reviewer", repo)
+
+
+def test_deploy_with_repo_verifies_the_frozen_tree(run: EngineeringRun, repo: Path) -> None:
+    drive_to_deploy(run, repo)
+    run.deploy("local", repo=repo)  # matching tree: authorized
+    (repo / "late.py").write_text("LATE = True\n")
+    with pytest.raises(CandidateViolation, match="changed after freeze"):
+        run.deploy("staging", repo=repo)
 
 
 def test_reviewer_modification_fails_closed(run: EngineeringRun, repo: Path) -> None:
