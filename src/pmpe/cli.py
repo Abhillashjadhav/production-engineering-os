@@ -1,7 +1,8 @@
 """pmpe — the CLI of PM Production Engineering OS.
 
 Exit codes (part of the contract): 0 success · 1 failure · 2 malformed specification ·
-3 blocked on human gate / semantic errors
+3 blocked on human gate /
+semantic errors · 4 completed with NO_MERGE recommendation
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from pmpe.orchestration import decoders
 from pmpe.orchestration.workflow import WorkflowEngine
 from pmpe.validation.validator import RequirementValidator
 
-_EXIT_BY_OUTCOME = {"success": 0, "failed": 1, "blocked": 3}
+_EXIT_BY_OUTCOME = {"success": 0, "failed": 1, "blocked": 3, "no_merge": 4}
 
 
 def _config(args: argparse.Namespace) -> PipelineConfig:

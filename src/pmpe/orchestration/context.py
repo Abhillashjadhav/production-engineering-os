@@ -18,6 +18,7 @@ from pmpe.domain.models import (
     GeneratedTests,
     Implementation,
     MvpSpec,
+    ReviewReport,
     RiskLevel,
 )
 from pmpe.domain.serialize import atomic_write_json
@@ -97,6 +98,13 @@ class RunContext:
     @property
     def gate_runner(self) -> QualityGateRunner:
         return QualityGateRunner(self.workspace, tuple(self.config.required_gates))
+
+    def load_review(self, name: str) -> ReviewReport:
+        raw = self.store.read_json(name)
+        return ReviewReport(
+            findings=[decoders.finding_from_dict(f) for f in raw["findings"]],
+            summary=raw["summary"],
+        )
 
     def load_escalations(self) -> list[Escalation]:
         return decoders.load_escalations(self.state.run_dir)

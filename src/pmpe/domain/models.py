@@ -35,6 +35,11 @@ class StepStatus(StrEnum):
     SKIPPED = "skipped"
 
 
+class MergeRecommendation(StrEnum):
+    MERGE = "MERGE"
+    NO_MERGE = "NO_MERGE"
+
+
 # --- specification -------------------------------------------------------------------
 
 
@@ -252,6 +257,30 @@ class Finding:
     rule: str
 
 
+@dataclass
+class ReviewReport:
+    findings: list[Finding]
+    summary: str
+
+    @property
+    def blocking(self) -> list[Finding]:
+        return [f for f in self.findings if f.blocking]
+
+
+@dataclass
+class FixResult:
+    fixed: list[Finding]
+    escalated: list[Finding]
+    skipped: list[Finding]
+
+
+@dataclass
+class MergeDecision:
+    recommendation: MergeRecommendation
+    reasons: list[str]
+    checks: dict[str, bool]
+
+
 # --- escalation / approval -----------------------------------------------------------
 
 
@@ -280,3 +309,71 @@ class PolicyDecision:
     level: RiskLevel
     rule_id: str
     justification: str
+
+
+# --- deployment / audit --------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class DeploymentResult:
+    environment: str
+    url: str
+    healthy: bool
+    journey_passed: bool
+    rollback_instructions_path: str
+    details: str
+
+
+@dataclass
+class PullRequestRecord:
+    title: str
+    body: str
+    branch: str
+    base: str
+    commits: list[str]
+    diff_stat: str
+
+
+@dataclass
+class TraceabilityEntry:
+    requirement_id: str
+    tasks: list[str]
+    adrs: list[str]
+    code_files: list[str]
+    tests: list[str]
+    finding_ids: list[str]
+    deployment_evidence: str
+
+
+@dataclass
+class TraceabilityReport:
+    entries: list[TraceabilityEntry]
+    complete: bool
+    gaps: list[str]
+
+    def to_markdown(self) -> str:
+        lines = [
+            "# Traceability report",
+            "",
+            "| Requirement | Tasks | ADRs | Code | Tests | Findings | Deployment evidence |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for e in self.entries:
+            lines.append(
+                "| {rid} | {tasks} | {adrs} | {code} | {tests} | {findings} | {dep} |".format(
+                    rid=e.requirement_id,
+                    tasks=", ".join(e.tasks) or "—",
+                    adrs=", ".join(e.adrs) or "—",
+                    code=", ".join(e.code_files) or "—",
+                    tests=", ".join(e.tests) or "—",
+                    findings=", ".join(e.finding_ids) or "none",
+                    dep=e.deployment_evidence or "—",
+                )
+            )
+        lines.append("")
+        lines.append(f"Complete: **{'yes' if self.complete else 'NO'}**")
+        if self.gaps:
+            lines.append("")
+            lines.append("## Gaps")
+            lines.extend(f"- {g}" for g in self.gaps)
+        return "\n".join(lines) + "\n"

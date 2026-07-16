@@ -25,6 +25,12 @@ STEP_ORDER: tuple[str, ...] = (
     "confirm_red",
     "implement",
     "quality_gates",
+    "create_pr",
+    "review",
+    "fix",
+    "retest",
+    "merge_gate",
+    "merge",
 )
 
 _COMPLETE = {StepStatus.DONE, StepStatus.SKIPPED}
