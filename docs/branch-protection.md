@@ -6,8 +6,8 @@ these on GitHub → Settings → Branches → `main` (requires admin):
 1. **Require a pull request before merging** — matches CLAUDE.md ("no direct pushes
    to main") and the pipeline's own merge-gate discipline.
 2. **Require status checks to pass**: the `ci` workflow jobs
-   (`format-lint`, `types`, `security`, `build-smoke`; the `tests` job
-   joins the required set when the first test suite lands) plus the existing
+   (`format-lint`, `types`, `tests`, `security`, `build-smoke`) plus the existing
+   `pr-review` workflow plus the existing
    `pr-review` workflow.
 3. **Require branches to be up to date before merging** — keeps the repo-wide
    regression property honest.
