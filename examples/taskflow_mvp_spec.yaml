@@ -1,6 +1,5 @@
 # Example PM OS MVP specification — the V1 golden path.
-# Produced upstream by pm-agent-os; consumed by `pmpe validate` (and by the full
-# pipeline as the atomic series lands it).
+# Produced upstream by pm-agent-os; consumed by `pmpe run examples/taskflow_mvp_spec.yaml`.
 spec_version: "1.0"
 product_name: TaskFlow
 problem_statement: >

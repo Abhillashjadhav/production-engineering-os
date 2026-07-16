@@ -1,6 +1,4 @@
-"""The workflow engine: ordered idempotent steps, persisted state, human gates.
-At this stage the lifecycle ends at the merge decision; deploy/verify/report
-steps extend it in the deployment PR.
+"""The workflow engine: 18 idempotent steps, persisted state, human gates.
 
 Design rules (see ARCHITECTURE.md):
 - steps communicate through artifacts, never in-memory state that a resume would lose;
@@ -128,6 +126,9 @@ class WorkflowEngine:
             "retest": ship._step_retest,
             "merge_gate": ship._step_merge_gate,
             "merge": ship._step_merge,
+            "deploy": ship._step_deploy,
+            "verify": ship._step_verify,
+            "report": ship._step_report,
         }
         while (step := state.next_step()) is not None:
             if self.config.chaos_fail_at_step == step:

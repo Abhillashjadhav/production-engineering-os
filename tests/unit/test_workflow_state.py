@@ -26,6 +26,9 @@ def test_step_order_is_the_documented_lifecycle() -> None:
         "retest",
         "merge_gate",
         "merge",
+        "deploy",
+        "verify",
+        "report",
     )
 
 

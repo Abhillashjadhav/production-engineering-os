@@ -33,3 +33,7 @@ class StepFailure(PmpeError):  # noqa: N818 — named for what it represents
 
 class GitError(PmpeError):
     """A git operation on the build workspace failed."""
+
+
+class DeploymentError(PmpeError):
+    """Local deployment or its verification failed."""

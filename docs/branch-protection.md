@@ -7,7 +7,6 @@ these on GitHub → Settings → Branches → `main` (requires admin):
    to main") and the pipeline's own merge-gate discipline.
 2. **Require status checks to pass**: the `ci` workflow jobs
    (`format-lint`, `types`, `tests`, `security`, `build-smoke`) plus the existing
-   `pr-review` workflow plus the existing
    `pr-review` workflow.
 3. **Require branches to be up to date before merging** — keeps the repo-wide
    regression property honest.
