@@ -33,7 +33,7 @@ def _run():  # noqa: ANN202
 
 def test_every_required_agent_has_eval_cases() -> None:
     suite = load_eval_suite(EVALS_DIR)
-    assert MINIMUM_AGENTS <= {s.agent for s in suite}
+    assert {s.agent for s in suite} >= MINIMUM_AGENTS
 
 
 def test_case_kinds_cover_the_required_dimensions() -> None:

@@ -13,11 +13,7 @@ FIXTURES = Path(__file__).resolve().parents[2] / "evals" / "fixtures" / "traject
 
 
 def _load(name: str) -> list[dict[str, Any]]:
-    return [
-        json.loads(line)
-        for line in (FIXTURES / name).read_text().splitlines()
-        if line.strip()
-    ]
+    return [json.loads(line) for line in (FIXTURES / name).read_text().splitlines() if line.strip()]
 
 
 def _checks(name: str) -> set[str]:

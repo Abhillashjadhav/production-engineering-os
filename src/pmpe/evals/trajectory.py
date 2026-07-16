@@ -224,12 +224,12 @@ def evaluate_trajectory(events: list[dict[str, Any]]) -> list[TrajectoryViolatio
 
     # TRAJ-14: production deployment requires a bound approval
     for event in events:
-        if event.get("stage") == "deploy" and event.get("action") == "deploy":
-            if str(event.get("detail", "")) == "production":
-                approval = _digest(event, "input_digests", "approval")
-                if not approval:
-                    violate(
-                        "TRAJ-14", "production deployment without a recorded approval", str(event)
-                    )
+        is_production_deploy = (
+            event.get("stage") == "deploy"
+            and event.get("action") == "deploy"
+            and str(event.get("detail", "")) == "production"
+        )
+        if is_production_deploy and not _digest(event, "input_digests", "approval"):
+            violate("TRAJ-14", "production deployment without a recorded approval", str(event))
 
     return violations

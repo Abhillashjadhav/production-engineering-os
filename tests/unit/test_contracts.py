@@ -43,9 +43,7 @@ def test_approved_contract_loads(contract_data: dict[str, Any], tmp_path: Path) 
     assert contract.runnable, contract.blockers
 
 
-def test_missing_required_field_is_rejected(
-    contract_data: dict[str, Any], tmp_path: Path
-) -> None:
+def test_missing_required_field_is_rejected(contract_data: dict[str, Any], tmp_path: Path) -> None:
     del contract_data["problem"]
     with pytest.raises(SpecError, match="problem"):
         load_contract(_write(tmp_path, contract_data))
@@ -125,9 +123,7 @@ def test_locked_contract_mutation_fails_closed(
         store.verify_unchanged(run_dir)
 
 
-def test_lock_refuses_non_runnable_contract(
-    contract_data: dict[str, Any], tmp_path: Path
-) -> None:
+def test_lock_refuses_non_runnable_contract(contract_data: dict[str, Any], tmp_path: Path) -> None:
     contract_data["contract_status"] = "DRAFT"
     source = _write(tmp_path, contract_data)
     store = ContractStore(tmp_path / "registry")

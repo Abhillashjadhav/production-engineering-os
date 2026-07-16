@@ -60,9 +60,7 @@ def test_contract_digest_and_diff(
     assert "FR-002" in out and "contract_version" in out
 
 
-def test_change_request_cli_roundtrip(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_change_request_cli_roundtrip(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     run_dir = str(tmp_path / "run")
     code = main(
         [

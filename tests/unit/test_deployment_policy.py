@@ -53,11 +53,9 @@ def test_local_blocks_when_required_checks_failed(policy: DeploymentPolicy) -> N
 
 
 def test_staging_requires_all_assurance_gates(policy: DeploymentPolicy) -> None:
-    blocked = policy.authorize("staging", required_checks_passed=True,
-                               assurance_gates_passed=False)
+    blocked = policy.authorize("staging", required_checks_passed=True, assurance_gates_passed=False)
     assert not blocked.allowed
-    allowed = policy.authorize("staging", required_checks_passed=True,
-                               assurance_gates_passed=True)
+    allowed = policy.authorize("staging", required_checks_passed=True, assurance_gates_passed=True)
     assert allowed.allowed
 
 
@@ -71,8 +69,11 @@ def test_unknown_environment_is_rejected(policy: DeploymentPolicy) -> None:
 
 def test_production_without_approval_blocks(policy: DeploymentPolicy) -> None:
     decision = policy.authorize(
-        "production", required_checks_passed=True, assurance_gates_passed=True,
-        candidate_digest=CAND, approval=None,
+        "production",
+        required_checks_passed=True,
+        assurance_gates_passed=True,
+        candidate_digest=CAND,
+        approval=None,
     )
     assert not decision.allowed
     assert any("approval" in r for r in decision.reasons)
@@ -81,8 +82,11 @@ def test_production_without_approval_blocks(policy: DeploymentPolicy) -> None:
 def test_approval_for_an_older_candidate_blocks(policy: DeploymentPolicy) -> None:
     stale = _approval(candidate_digest="sha256:cand-OLD")
     decision = policy.authorize(
-        "production", required_checks_passed=True, assurance_gates_passed=True,
-        candidate_digest=CAND, approval=stale,
+        "production",
+        required_checks_passed=True,
+        assurance_gates_passed=True,
+        candidate_digest=CAND,
+        approval=stale,
     )
     assert not decision.allowed
     assert any("digest" in r for r in decision.reasons)
@@ -96,16 +100,22 @@ def test_approval_must_name_owner_time_reason_and_target(policy: DeploymentPolic
         _approval(target="staging"),
     ):
         decision = policy.authorize(
-            "production", required_checks_passed=True, assurance_gates_passed=True,
-            candidate_digest=CAND, approval=broken,
+            "production",
+            required_checks_passed=True,
+            assurance_gates_passed=True,
+            candidate_digest=CAND,
+            approval=broken,
         )
         assert not decision.allowed
 
 
 def test_valid_approval_allows_the_execution_stage(policy: DeploymentPolicy) -> None:
     decision = policy.authorize(
-        "production", required_checks_passed=True, assurance_gates_passed=True,
-        candidate_digest=CAND, approval=_approval(),
+        "production",
+        required_checks_passed=True,
+        assurance_gates_passed=True,
+        candidate_digest=CAND,
+        approval=_approval(),
     )
     assert decision.allowed
 
@@ -143,8 +153,11 @@ def test_readiness_requires_rollback_health_and_journey(tmp_path: Path) -> None:
 
 def test_simulated_deploy_blocked_without_authorization(policy: DeploymentPolicy) -> None:
     decision = policy.authorize(
-        "production", required_checks_passed=True, assurance_gates_passed=True,
-        candidate_digest=CAND, approval=None,
+        "production",
+        required_checks_passed=True,
+        assurance_gates_passed=True,
+        candidate_digest=CAND,
+        approval=None,
     )
     outcome = simulate_production_deploy(decision, canary_healthy=True)
     assert not outcome.executed
@@ -153,8 +166,11 @@ def test_simulated_deploy_blocked_without_authorization(policy: DeploymentPolicy
 
 def test_simulated_failed_canary_produces_rollback(policy: DeploymentPolicy) -> None:
     decision = policy.authorize(
-        "production", required_checks_passed=True, assurance_gates_passed=True,
-        candidate_digest=CAND, approval=_approval(),
+        "production",
+        required_checks_passed=True,
+        assurance_gates_passed=True,
+        candidate_digest=CAND,
+        approval=_approval(),
     )
     outcome = simulate_production_deploy(decision, canary_healthy=False)
     assert outcome.executed
@@ -166,8 +182,11 @@ def test_simulated_success_is_ready_but_never_claims_a_real_deployment(
     policy: DeploymentPolicy,
 ) -> None:
     decision = policy.authorize(
-        "production", required_checks_passed=True, assurance_gates_passed=True,
-        candidate_digest=CAND, approval=_approval(),
+        "production",
+        required_checks_passed=True,
+        assurance_gates_passed=True,
+        candidate_digest=CAND,
+        approval=_approval(),
     )
     outcome = simulate_production_deploy(decision, canary_healthy=True)
     assert outcome.executed and outcome.ready and not outcome.rolled_back

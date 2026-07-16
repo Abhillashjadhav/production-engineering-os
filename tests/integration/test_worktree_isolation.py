@@ -47,10 +47,10 @@ def test_worktree_is_cleaned_up_after_use(repo: Path, tmp_path: Path) -> None:
     assert not kept.exists()
 
 
-def test_uncommitted_worktree_changes_are_not_silently_lost(
-    repo: Path, tmp_path: Path
-) -> None:
+def test_uncommitted_worktree_changes_are_not_silently_lost(repo: Path, tmp_path: Path) -> None:
     """Leaving uncommitted work behind is an error, not a silent discard."""
-    with pytest.raises(RuntimeError, match="uncommitted"):
-        with specialist_worktree(repo, task_id="T-003", worktrees_root=tmp_path / "wt") as wt:
-            (wt.path / "orphan.py").write_text("lost = True\n")
+    with (
+        pytest.raises(RuntimeError, match="uncommitted"),
+        specialist_worktree(repo, task_id="T-003", worktrees_root=tmp_path / "wt") as wt,
+    ):
+        (wt.path / "orphan.py").write_text("lost = True\n")

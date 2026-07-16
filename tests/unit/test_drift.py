@@ -99,9 +99,7 @@ def test_agreement_report_computes_rate_and_direction() -> None:
 
 def test_uncalibrated_verdicts_queue_for_human_labels(tmp_path: Path) -> None:
     queue_path = tmp_path / "human_calibration_queue.jsonl"
-    queued = queue_uncalibrated(
-        [{"case_id": "G-9", "judge": "pass", "human": None}], queue_path
-    )
+    queued = queue_uncalibrated([{"case_id": "G-9", "judge": "pass", "human": None}], queue_path)
     assert queued == 1
     lines = queue_path.read_text().strip().splitlines()
     assert json.loads(lines[0])["case_id"] == "G-9"

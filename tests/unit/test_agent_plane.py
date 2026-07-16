@@ -30,8 +30,12 @@ READ_ONLY_AGENTS = REVIEWERS + (
     "v2-implementation-planner",
     "v2-engineer-router",
 )
-WRITE_CAPABLE = ("v2-backend-engineer", "v2-test-engineer", "v2-integration-engineer",
-                 "v2-approved-findings-fixer")
+WRITE_CAPABLE = (
+    "v2-backend-engineer",
+    "v2-test-engineer",
+    "v2-integration-engineer",
+    "v2-approved-findings-fixer",
+)
 
 
 @pytest.fixture(scope="module")

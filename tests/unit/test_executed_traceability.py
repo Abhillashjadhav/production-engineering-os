@@ -31,8 +31,12 @@ IMPORT_FAIL = _execution(
 )
 
 
-def _build(requirements: list[str], mapping: dict[str, list[str]], evidence: TestEvidence,
-           blocked: set[str] | None = None):  # noqa: ANN202
+def _build(
+    requirements: list[str],
+    mapping: dict[str, list[str]],
+    evidence: TestEvidence,
+    blocked: set[str] | None = None,
+):  # noqa: ANN202
     return build_executed_traceability(
         requirement_ids=requirements,
         tests_by_requirement=mapping,

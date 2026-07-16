@@ -13,7 +13,7 @@ from pmpe.assurance.findings import (
     FindingTransitionError,
     SameCandidateViolation,
 )
-from pmpe.assurance.fixer_gate import FixScopeViolation, FixerGate
+from pmpe.assurance.fixer_gate import FixerGate, FixScopeViolation
 from pmpe.assurance.reconcile import OwnerDecision, reconcile
 from pmpe.contracts.change_request import ChangeRequestStore
 from pmpe.engineering.ledger import EvidenceLedger
@@ -86,9 +86,7 @@ def test_legal_lifecycle_proposed_accepted_fixed_verified(store: FindingsStore) 
 def test_illegal_transitions_raise(store: FindingsStore, from_status: str, action: str) -> None:
     (finding,) = store.intake("v2-code-reviewer", DIGEST, [_finding()])
     if from_status != "PROPOSED":
-        store.set_status(
-            finding.finding_id, from_status, decided_by="owner", reason="test setup"
-        )
+        store.set_status(finding.finding_id, from_status, decided_by="owner", reason="test setup")
     with pytest.raises(FindingTransitionError):
         if action == "fix":
             store.record_fixed(finding.finding_id, fixer="fixer", commits=["x"])
@@ -247,8 +245,17 @@ def test_ledger_records_structured_events(tmp_path: Path) -> None:
     events = ledger.read_all()
     assert len(events) == 1
     event = events[0]
-    for key in ("run_id", "ts", "stage", "agent", "action", "input_digests",
-                "output_digests", "verdict", "next_state"):
+    for key in (
+        "run_id",
+        "ts",
+        "stage",
+        "agent",
+        "action",
+        "input_digests",
+        "output_digests",
+        "verdict",
+        "next_state",
+    ):
         assert key in event, key
     assert event["run_id"] == "eng-001"
 
