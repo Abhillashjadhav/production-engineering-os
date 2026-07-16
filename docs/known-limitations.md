@@ -44,3 +44,40 @@ Explicit, reviewed, and deliberate — each was weighed during the independent r
    `metrics.json` but cannot aggregate across runs yet.
 10. Validator heuristics (vague-AC detection, activity-only NSM, dependency keywords)
     are pattern-based: they catch the common failure shapes, not all of them.
+
+## V2 (0.2.0) — accepted limitations from the independent review round
+
+11. **Crash-window ledger duplication.** Evidence is written before the state
+    transition persists (evidence-first by design). A crash in that window can
+    leave the stage un-advanced; re-issuing the command then appends a second,
+    identical ledger event. Store transitions and stage state recover cleanly
+    (fixed in the same review round); the ledger itself is append-only with no
+    dedup key, so under interruption an action can be one-to-many in the
+    record. Trajectory checks are duplicate-tolerant (first-occurrence and
+    set-based logic).
+12. **Fire/no-fire eval cases check constants, not behavior.** The
+    auto-generated stage-routing cases prove the eval YAML agrees with the
+    engine's STAGE_AGENTS map — a consistency check between two repo surfaces,
+    not a live-routing test. The enforced surface is the engine's admission
+    (`stage_of` gating), which the run-engine tests cover directly. The
+    permission cases (read-only, worktree) DO check the real frontmatter.
+13. **Reviewer agent evals are schema-level, not domain-level.** The
+    planted-failure cases prove the shared review validator rejects
+    wrong-candidate and evidence-free reviews; they do not prove each reviewer
+    catches its own defect class (that is live Claude judgment, checked by the
+    demo's planted defects and, in live runs, by the four-way review round).
+14. **The runtime read-only proof excludes `.git/` and cache directories.**
+    `verify_unmodified` diffs tracked content; writes into `.git` internals or
+    `__pycache__` are invisible to it. The primary control is the reviewers'
+    frontmatter tool list (Read/Grep/Glob only), enforced by the Claude Code
+    runtime and asserted by the permission evals.
+15. **The engine does not spawn worktrees itself.** `specialist_worktree` is
+    the isolation seam for the live `/production-engineer` skill; in fixture
+    mode (CI, demo) specialists are simulated and only their artifacts pass
+    through admission, so worktree isolation is exercised by its own
+    integration tests rather than by the demo run.
+16. **Five specialist profiles are vocabulary without agent files.**
+    `SPECIALIST_PROFILES` names frontend/data/eval/security/platform owners
+    that have no `.claude/agents` definition yet; routing to them fails closed
+    until a definition exists (selecting an undefined specialist is a
+    RoutingError by design).

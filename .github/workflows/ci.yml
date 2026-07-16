@@ -82,6 +82,7 @@ jobs:
         run: |
           pip install dist/*.whl ruff
           pmpe validate examples/taskflow_mvp_spec.yaml
+          pmpe contract validate examples/v2-demo/contract.json
       - name: full pipeline smoke (golden spec)
         run: |
           git config --global user.email ci@localhost
@@ -98,3 +99,6 @@ jobs:
           status=$?
           set -e
           test "$status" -eq 3 || { echo "expected HOLD (exit 3), got $status"; exit 1; }
+      - name: synthetic end-to-end demo
+        run: |
+          pmpe demo --base-dir /tmp/ci-demo

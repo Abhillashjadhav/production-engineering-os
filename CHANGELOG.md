@@ -3,6 +3,54 @@
 All notable changes to PM Production Engineering OS. Format: Keep a Changelog;
 versions: SemVer.
 
+## [0.2.0] — 2026-07-16
+
+### Added (V2 — contract-driven engineering runs)
+- **ProductDecisionContract**: schema, typed model with semantic runnability
+  (APPROVED + named approver + no unresolved product-critical questions),
+  canonical digest, versioned registry, run-scoped immutability lock (fail
+  closed on mutation), id-keyed contract diff, and the ProductChangeRequest
+  store — product changes are a new version and a new run, never an overwrite.
+- **Agent plane**: eleven `v2-*` agent definitions with enforceable
+  frontmatter permissions; read-only provable from the tool list (empty list =
+  inherit-all = NOT read-only); worktree isolation for write-capable
+  specialists; minimum-routing validation (every task routed once by
+  capability, no zero-task selections, unused profiles explicitly justified).
+- **Engineering run engine + `pmpe eng`**: deterministic admission over agent
+  artifacts, digest-bound evidence-ledger events in the trajectory grammar,
+  resume that re-verifies the locked contract and appends nothing, candidate
+  freeze/verify, runtime read-only review proof, re-runnable reconciliation
+  (duplicates linked, REC-001 auto-accept, product findings → PCRs, undecided
+  findings block), fixer scoped to ACCEPTED ids, verifier ≠ fixer, retest/
+  refreeze/verify, draft-PR record, and the deployment ladder.
+- **Executed traceability**: subprocess evidence harness with failure kinds
+  (assertion/import/error/skip); requirements classified VERIFIED / FAILED /
+  NOT_PROVEN / BLOCKED_PRODUCT_DECISION — markers, skips, and import-dead
+  tests never count as coverage.
+- **Evals**: agent evals sharing the engine's admission validators (planted
+  failures + product-boundary cases; permission and fire/no-fire cases
+  auto-generated), trajectory checks TRAJ-01..14 over the ledger, drift
+  reports across five categories with new-hard-gate-failure = HOLD, and
+  judge-calibration reporting. Thresholds shipped as labeled provisional
+  defaults.
+- **Deployment policy**: local/test automatic after checks, staging after all
+  assurance gates, production only with a named, digest-bound human approval;
+  production execution is fixture-mode only (no cloud adapter by decision).
+- **`/production-engineer` skill** (fixtures committed first) with modes
+  start/status/resume/report/review-only/eval-only.
+- **Synthetic demonstration** (`pmpe demo`, `examples/v2-demo/`): four planted
+  failures detected by the real machinery, accepted findings fixed and
+  independently verified, the run's own ledger trajectory-clean, production
+  honestly blocked; everything labeled synthetic.
+
+### Changed
+- README now leads with the PM Agent OS / Production Engineering OS boundary
+  and corrects V1 overclaims (deterministic checker ≠ independent review;
+  marker traceability ≠ executed coverage); V2 reference in
+  docs/v2-production-engineering.md.
+- CI additionally runs the eval suites and the synthetic demo from the
+  installed wheel.
+
 ## [0.1.1] — 2026-07-12
 
 ### Fixed (independent review round — 8 finder angles, findings empirically verified)

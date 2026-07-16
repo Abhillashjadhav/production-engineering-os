@@ -55,6 +55,22 @@ def test_any_post_freeze_change_fails_closed(repo: Path, tmp_path: Path) -> None
         verify_frozen(repo, run_dir)
 
 
+def test_freeze_rejects_uncommitted_changes(repo: Path, tmp_path: Path) -> None:
+    """A dirty worktree must never freeze: the manifest would record a commit
+    that does not contain the digested content, so reviews and deployments
+    would certify content absent from the recorded commit."""
+    (repo / "app.py").write_text("VALUE = 99  # uncommitted\n")
+    with pytest.raises(CandidateViolation, match="dirty worktree"):
+        freeze_candidate(repo, tmp_path / "run", contract_digest=CONTRACT_DIGEST)
+    assert not (tmp_path / "run" / "candidate-manifest.json").exists()
+
+
+def test_freeze_rejects_untracked_files(repo: Path, tmp_path: Path) -> None:
+    (repo / "sneaky.py").write_text("x = 1\n")
+    with pytest.raises(CandidateViolation, match="dirty worktree"):
+        freeze_candidate(repo, tmp_path / "run", contract_digest=CONTRACT_DIGEST)
+
+
 def test_refreeze_after_fixes_creates_new_candidate(repo: Path, tmp_path: Path) -> None:
     run_dir = tmp_path / "run"
     first = freeze_candidate(repo, run_dir, contract_digest=CONTRACT_DIGEST)

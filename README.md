@@ -1,8 +1,34 @@
-# pm-agent-os
+# production-engineering-os
 
-An agentic PM operating system for Claude Code. One `/pm` command orchestrates the full product lifecycle — discovery, strategy, build, launch, iterate — through 40 skills, each with binary verification gates, tested fixtures, and a public PR-review record.
+**PM Agent OS decides what should be built and verifies product reasoning. Production Engineering OS turns that approved decision into verified software and keeps it conformant.**
+
+This repository hosts both planes of that boundary:
+
+- **PM Agent OS** — one `/pm` command orchestrates the product lifecycle (discovery, strategy, build, launch, iterate) through 40 skills, each with binary verification gates, tested fixtures, and a public PR-review record.
+- **Production Engineering OS** (`pmpe`) — takes an APPROVED ProductDecisionContract from that plane and runs it through an evidence-ledgered engineering pipeline: architecture, planning, routed specialists, independent review, executed traceability, and a deployment ladder that ends in a draft PR — never an auto-merge, never a silent production push.
+
+The seam between them is a single immutable artifact: the digest-locked contract. Product changes flow back as ProductChangeRequests, never as mid-run edits. Start with [docs/v2-production-engineering.md](docs/v2-production-engineering.md).
+
+## Production Engineering OS (`pmpe`)
+
+```bash
+pip install -e ".[dev]"
+pmpe demo --base-dir /tmp/pmpe-demo        # labeled synthetic end-to-end demonstration
+pmpe eng start --contract examples/v2-demo/contract.json --run-dir runs/demo
+```
+
+- **Contract in, draft PR out.** `pmpe eng start` refuses anything that is not an APPROVED, unblocked contract and locks a canonical digest; every later step re-verifies it and fails closed on mutation.
+- **Claude agents propose, the Python core disposes (PD-11).** Generative work belongs to the agents in `.claude/agents/v2-*.md` (driven live by the `/production-engineer` skill); admission, state, gates, and evidence belong to deterministic Python. No model SDKs or API keys anywhere in the product.
+- **Assurance that can prove itself.** Four independent reviewers — read-only by construction (tool lists) and by runtime proof (tree snapshots) — examine the same frozen candidate; findings live in an enforced lifecycle; the fixer touches only ACCEPTED ids; the verifier is never the fixer.
+- **Coverage means execution.** Traceability counts only executed, passing tests — markers, skips, and import-dead modules count against coverage, not toward it.
+- **Evals as tripwires.** Agent evals share the engine's admission validators, trajectory evals audit the evidence ledger (TRAJ-01..14), and drift compares against a baseline where any new hard-gate failure is an automatic HOLD.
+- **Production is a human decision.** local/test are automatic after checks, staging after all gates, production only with a named approval bound to the exact candidate digest — and even then execution is fixture-mode only; there is deliberately no cloud adapter.
+
+V1's single-command pipeline (`pmpe run examples/taskflow_mvp_spec.yaml`) is preserved unchanged — see [docs/usage.md](docs/usage.md). Where V1 overclaimed ("review" was a deterministic checker, "traceability" trusted markers), V2 replaces the claim with the mechanism; the honest comparison is at the end of [the V2 guide](docs/v2-production-engineering.md).
 
 ---
+
+# PM Agent OS
 
 ## The problem
 
@@ -78,29 +104,6 @@ The same pattern runs through all 40 skills: every fixture set carries a planted
 | Iterate | eval-engine · llm-as-judge-designer · judge-calibration-auditor · golden-dataset-builder · failure-to-eval-capture · guardrail-designer · loop-designer · regression-gatekeeper · model-upgrade-evaluator · eval-vs-abtest-router · drift-monitor-designer · mcp-migration-auditor | **Shipped** |
 
 All five stages shipped: 40 skills + 7 reviewer personas, every one gated, fixtured, and PR-reviewed before it landed — the PR history of this repo is the receipt. `/pm` routes the full lifecycle; requests no skill covers still get an honest no-skill line, never improvised output.
-
-## PM Production Engineering OS (`pmpe`)
-
-The downstream half of the system: where pm-agent-os produces validated product
-requirements, **PM Production Engineering OS** turns an approved MVP specification
-into tested, reviewed, deployable software — with engineering involvement only for
-exceptions, high-risk decisions, or failed automated checks.
-
-```bash
-pip install -e ".[dev]"
-pmpe run examples/taskflow_mvp_spec.yaml
-```
-
-One command executes the full lifecycle: validate → plan → architecture (with ADRs)
-→ **tests before implementation** (a `confirm_red` step proves the generated tests
-fail first) → implement → quality gates → PR record → deterministic review → safe
-fixes → merge gate → local deploy → verified user journey → requirement-level
-traceability report. High-risk decisions stop the run until `pmpe approve` records a
-named human decision — the same verification-first discipline as the skills above,
-applied to shipping code.
-
-Start here: [docs/setup.md](docs/setup.md) · [docs/usage.md](docs/usage.md) ·
-[ARCHITECTURE.md](ARCHITECTURE.md) · [example output](examples/sample_output/final_report.md)
 
 ## Credits
 
