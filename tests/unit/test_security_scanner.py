@@ -31,6 +31,13 @@ def test_hardcoded_secret_is_found(tmp_path: Path) -> None:
     assert all(f.blocking for f in findings)
 
 
+def test_exec_alone_is_found(tmp_path: Path) -> None:
+    """SEC_EXEC must fire on its own — not ride along on an eval() in the same file."""
+    p = tmp_path / "bad_exec.py"
+    p.write_text('exec("print(1)")\n')
+    assert any(f.rule == "SEC_EXEC" for f in scan_file(p))
+
+
 def test_eval_and_exec_are_found(tmp_path: Path) -> None:
     p = tmp_path / "bad.py"
     p.write_text('data = eval(user_input)\nexec("print(1)")\n')
@@ -70,3 +77,18 @@ def test_findings_carry_file_and_line(tmp_path: Path) -> None:
     (finding,) = scan_file(p)
     assert finding.file == str(p)
     assert finding.line == 2
+
+
+def test_secret_exemption_is_workspace_relative(tmp_path: Path) -> None:
+    """Only the WORKSPACE's tests/ tree is exempt from the secrets rule. Product
+    code must stay flagged even when the workspace itself sits under an absolute
+    ancestor named 'tests' (e.g. a runs dir inside a tests directory)."""
+    root = tmp_path / "tests" / "run-workspace"
+    (root / "app").mkdir(parents=True)
+    (root / "tests").mkdir()
+    (root / "app" / "config.py").write_text('password = "hunter2"\n')
+    (root / "tests" / "helper.py").write_text('password = "hunter2"\n')
+
+    secret_files = {f.file for f in scan_tree(root) if f.rule == "SEC_HARDCODED_SECRET"}
+    assert any(f.endswith("app/config.py") for f in secret_files), "product code must be flagged"
+    assert not any("helper.py" in f for f in secret_files), "workspace tests/ files are exempt"
