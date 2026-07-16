@@ -15,6 +15,9 @@ Format: "YYYY-MM-DD: Chose X over Y because Z."
 - 2026-07-12: Chose one reference stack — python-stdlib CRUD API (token auth + SQLite)
   — over Flask/FastAPI because generated products then run and test hermetically with
   zero third-party dependencies. (ADR-003)
+- 2026-07-12: Chose a local git repository per build workspace with a PR *record*
+  artifact over remote GitHub PR automation because V1 must not assume remote
+  permissions; `GitAdapter` interface allows a GitHub adapter in V2. (ADR-004)
 - 2026-07-12: Chose file/CLI-based human approvals (`pmpe approve`) over interactive
   prompts because the pipeline must be resumable and non-interactive-safe. (ADR-006)
 - 2026-07-12: Chose additive repo layout (src/, schemas/, examples/, docs/, tests/unit|

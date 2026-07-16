@@ -20,6 +20,12 @@ def test_step_order_is_the_documented_lifecycle() -> None:
         "confirm_red",
         "implement",
         "quality_gates",
+        "create_pr",
+        "review",
+        "fix",
+        "retest",
+        "merge_gate",
+        "merge",
     )
 
 

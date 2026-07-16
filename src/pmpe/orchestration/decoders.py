@@ -13,8 +13,38 @@ from typing import Any
 from pmpe.domain.models import (
     Approval,
     Escalation,
+    Finding,
+    GateResult,
+    MergeDecision,
+    MergeRecommendation,
     RiskLevel,
+    Severity,
 )
+
+
+def gate_result_from_dict(raw: dict[str, Any]) -> GateResult:
+    return GateResult(
+        gate=raw["gate"],
+        passed=bool(raw["passed"]),
+        required=bool(raw["required"]),
+        details=raw.get("details", ""),
+        duration_s=float(raw.get("duration_s", 0.0)),
+        skipped=bool(raw.get("skipped", False)),
+    )
+
+
+def finding_from_dict(raw: dict[str, Any]) -> Finding:
+    return Finding(
+        id=raw["id"],
+        category=raw["category"],
+        severity=Severity(raw["severity"]),
+        blocking=bool(raw["blocking"]),
+        safe_to_autofix=bool(raw["safe_to_autofix"]),
+        file=raw["file"],
+        line=int(raw["line"]),
+        message=raw["message"],
+        rule=raw["rule"],
+    )
 
 
 def escalation_from_dict(raw: dict[str, Any]) -> Escalation:
@@ -58,3 +88,11 @@ def load_approvals(run_dir: Path) -> dict[str, Approval]:
         approval = approval_from_dict(json.loads(path.read_text()))
         approvals[approval.escalation_id] = approval
     return approvals
+
+
+def merge_decision_from_dict(raw: dict[str, Any]) -> MergeDecision:
+    return MergeDecision(
+        recommendation=MergeRecommendation(raw["recommendation"]),
+        reasons=list(raw.get("reasons", [])),
+        checks=dict(raw.get("checks", {})),
+    )

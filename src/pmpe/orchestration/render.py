@@ -1,4 +1,4 @@
-"""Markdown rendering for run artifacts (plan, architecture, ADRs)."""
+"""Markdown rendering for run artifacts (plan, architecture, ADRs, review)."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from pmpe.domain.models import (
     ArchitectureOutput,
     EngineeringPlan,
     GeneratedFile,
+    ReviewReport,
 )
 
 
@@ -56,3 +57,11 @@ def _adr_markdown(adr: Adr) -> str:
         f"## Context\n{adr.context}\n\n## Decision\n{adr.decision}\n\n"
         f"## Consequences\n{adr.consequences}\n"
     )
+
+
+def _review_markdown(review: ReviewReport) -> str:
+    lines = [f"# Review report\n\n{review.summary}\n"]
+    for f in review.findings:
+        flag = "BLOCKING" if f.blocking else f.severity.value
+        lines.append(f"- [{flag}] {f.id} {f.rule} at {f.file}:{f.line} — {f.message}")
+    return "\n".join(lines) + "\n"

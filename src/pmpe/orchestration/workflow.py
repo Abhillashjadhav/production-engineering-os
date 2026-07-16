@@ -1,14 +1,14 @@
 """The workflow engine: ordered idempotent steps, persisted state, human gates.
-At this stage the lifecycle ends at quality_gates; review/merge and deploy/report
-steps extend it in their own PRs.
+At this stage the lifecycle ends at the merge decision; deploy/verify/report
+steps extend it in the deployment PR.
 
 Design rules (see ARCHITECTURE.md):
 - steps communicate through artifacts, never in-memory state that a resume would lose;
   deterministic products (plan, architecture, generated files) are recomputed from the
   spec on demand (ADR-002)
 - a HIGH-risk decision writes an Escalation and blocks; `approve` + `resume` continue
-- gate failures never stop the pipeline silently: gate results are recorded and the
-  run keeps its honest outcome
+- gate failures never stop the pipeline silently: the run completes through the merge
+  gate, which says NO_MERGE with reasons, and the final report still lands
 
 Step bodies live in steps_build.py / steps_ship.py; run-scoped machinery in
 context.py; artifact markdown in render.py.
@@ -25,8 +25,13 @@ from pathlib import Path
 
 from pmpe.config import PipelineConfig
 from pmpe.domain.errors import SpecError, StepFailure
-from pmpe.domain.models import Approval, StepStatus
+from pmpe.domain.models import (
+    Approval,
+    MergeRecommendation,
+    StepStatus,
+)
 from pmpe.domain.serialize import atomic_write_json
+from pmpe.orchestration import decoders
 from pmpe.orchestration.context import RunContext, _Blocked, _Rejected
 from pmpe.orchestration.state import RunState
 from pmpe.orchestration.steps_build import BuildSteps
@@ -117,6 +122,12 @@ class WorkflowEngine:
             "confirm_red": build._step_confirm_red,
             "implement": build._step_implement,
             "quality_gates": ship._step_quality_gates,
+            "create_pr": ship._step_create_pr,
+            "review": ship._step_review,
+            "fix": ship._step_fix,
+            "retest": ship._step_retest,
+            "merge_gate": ship._step_merge_gate,
+            "merge": ship._step_merge,
         }
         while (step := state.next_step()) is not None:
             if self.config.chaos_fail_at_step == step:
@@ -160,6 +171,10 @@ class WorkflowEngine:
             ctx.events.emit("step_completed", step=step, status=state.status_of(step).value)
 
         outcome = "success"
+        if ctx.store.exists("merge_decision.json"):
+            decision = decoders.merge_decision_from_dict(ctx.store.read_json("merge_decision.json"))
+            if decision.recommendation is MergeRecommendation.NO_MERGE:
+                outcome = "no_merge"
         state.outcome = outcome
         state.save()
         ctx.events.emit("run_finished", outcome=outcome)
