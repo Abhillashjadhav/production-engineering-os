@@ -34,6 +34,7 @@ WRITE_CAPABLE = (
     "v2-backend-engineer",
     "v2-test-engineer",
     "v2-integration-engineer",
+    "v2-approved-findings-fixer",
 )
 
 
