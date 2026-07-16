@@ -264,11 +264,9 @@ class EngineeringRun:
                 action="change_request_created",
                 detail=finding_id,
             )
-        if result.accepted:
-            self._advance("fix")
-        else:
-            self._state["gates_passed"] = True
-            self._advance("draft_pr")
+        # the executed-test gate (retest) runs on EVERY path — a clean review
+        # round earns nothing by fiat
+        self._advance("fix" if result.accepted else "retest")
         return result
 
     def record_gates(self, *, passed: bool, detail: str) -> None:
@@ -282,15 +280,29 @@ class EngineeringRun:
         )
         if passed:
             self._state["gates_passed"] = True
-            self._advance("refreeze")
+            # only a run that actually fixed something has fixes to re-freeze and verify
+            self._advance("refreeze" if self._state["accepted_findings"] else "draft_pr")
         else:
             self._save()
 
     def record_fix_verification(self, finding_id: str, *, verifier: str) -> None:
         self._require_stage("verify")
         self._require_reviewer(verifier)
-        FindingsStore(self.run_dir).record_verified(finding_id, verifier=verifier)
-        self.ledger.record(stage="fix", agent=verifier, action="verify_fix", detail=finding_id)
+        finding = FindingsStore(self.run_dir).get(finding_id)
+        already_recorded = finding_id in self._state["verified_findings"]
+        if finding.status == "FIXED":
+            FindingsStore(self.run_dir).record_verified(finding_id, verifier=verifier)
+            self.ledger.record(stage="fix", agent=verifier, action="verify_fix", detail=finding_id)
+        elif (
+            finding.status == "VERIFIED"
+            and not already_recorded
+            and finding.verified_by == verifier
+        ):
+            # crash recovery: the store transition landed before run-state was
+            # saved — adopt it without a duplicate ledger event
+            pass
+        else:
+            raise PmpeError(f"{finding_id} is already {finding.status}")
         if finding_id not in self._state["verified_findings"]:
             self._state["verified_findings"].append(finding_id)
         self._save()
@@ -482,6 +494,8 @@ class EngineeringRun:
             self._advance("freeze")
 
         elif agent in REVIEWER_NAMES:
+            if agent in self._state["reviews_submitted"]:
+                raise SubmissionRejected(f"'{agent}' already submitted a review for this candidate")
             candidate = str(self._state["candidate_digest"])
             FindingsStore(self.run_dir).intake(
                 agent, candidate, list(artifact.get("findings") or [])
@@ -493,8 +507,7 @@ class EngineeringRun:
                 input_digests={"candidate": candidate, **contract},
                 output_digests={"review": digest},
             )
-            if agent not in self._state["reviews_submitted"]:
-                self._state["reviews_submitted"].append(agent)
+            self._state["reviews_submitted"].append(agent)
             self._save()
             self._maybe_finish_review()
 
@@ -503,10 +516,20 @@ class EngineeringRun:
             self._write_artifact("fix", agent, artifact)
             for entry in artifact.get("fixed", []):
                 finding_id = str(entry.get("finding_id"))
-                store.record_fixed(
-                    finding_id, fixer=agent, commits=[str(c) for c in entry.get("commits", [])]
-                )
-                self.ledger.record(stage="fix", agent=agent, action="fix", detail=finding_id)
+                finding = store.get(finding_id)
+                if finding.status == "ACCEPTED":
+                    store.record_fixed(
+                        finding_id,
+                        fixer=agent,
+                        commits=[str(c) for c in entry.get("commits", [])],
+                    )
+                    self.ledger.record(stage="fix", agent=agent, action="fix", detail=finding_id)
+                elif finding.status == "FIXED" and finding_id not in self._state["fixed_findings"]:
+                    # crash recovery: the store transition landed before run-state
+                    # was saved — adopt it without a duplicate ledger event
+                    pass
+                else:
+                    raise SubmissionRejected(f"'{finding_id}' is already {finding.status}")
                 if finding_id not in self._state["fixed_findings"]:
                     self._state["fixed_findings"].append(finding_id)
             self._save()

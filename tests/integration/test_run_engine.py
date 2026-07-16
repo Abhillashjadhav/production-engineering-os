@@ -13,11 +13,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pmpe.engineering.engine import (
-    DeploymentBlocked,
-    EngineeringRun,
-    SubmissionRejected,
-)
 
 from pmpe.agents.permissions import ReadOnlyViolation
 from pmpe.agents.router import ALL_PROFILES
@@ -25,6 +20,11 @@ from pmpe.assurance.findings import FindingsStore
 from pmpe.assurance.reconcile import OwnerDecision
 from pmpe.contracts.change_request import ChangeRequestStore
 from pmpe.domain.errors import ContractViolation, PmpeError
+from pmpe.engineering.engine import (
+    DeploymentBlocked,
+    EngineeringRun,
+    SubmissionRejected,
+)
 from pmpe.engineering.ledger import EvidenceLedger
 from pmpe.evals.trajectory import evaluate_trajectory
 from pmpe.gitops.local import LocalGitAdapter
@@ -366,12 +366,74 @@ def test_reconcile_decides_creates_pcrs_and_enters_fix(run: EngineeringRun, repo
     assert any(e["action"] == "change_request_created" for e in events)
 
 
-def test_clean_reviews_skip_fix_to_draft_pr(run: EngineeringRun, repo: Path) -> None:
+def test_clean_reviews_still_require_the_executed_test_gate(
+    run: EngineeringRun, repo: Path
+) -> None:
+    """A clean review round earns nothing by fiat: the retest gate runs on every path."""
     candidate = to_review(run, repo)
     run_reviews(run, repo, candidate, findings=False)
     result = run.reconcile_findings({}, owner="abhillash")
     assert not result.accepted and not result.undecided
-    assert run.stage == "draft_pr"
+    assert run.stage == "retest"
+    run.record_gates(passed=True, detail="1/1 executed")
+    assert run.stage == "draft_pr"  # nothing was fixed, so no refreeze/verify leg
+
+
+def test_reviewer_resubmission_is_rejected(run: EngineeringRun, repo: Path) -> None:
+    candidate = to_review(run, repo)
+    run.begin_review("v2-code-reviewer", repo)
+    run.submit("v2-code-reviewer", _review("v2-code-reviewer", candidate, [_CODE_FINDING]))
+    with pytest.raises(SubmissionRejected, match="already"):
+        run.submit("v2-code-reviewer", _review("v2-code-reviewer", candidate, [_CODE_FINDING]))
+    assert len(FindingsStore(run.run_dir).all()) == 1  # no duplicate findings
+    submits = [e for e in run.ledger.read_all() if e["action"] == "submit_review"]
+    assert len(submits) == 1  # no duplicate evidence
+
+
+def test_fix_recording_recovers_after_crash_between_store_and_state(
+    run: EngineeringRun, repo: Path
+) -> None:
+    """The findings store landed the transition but run-state was never saved
+    (crash window); resubmitting after resume completes the stage instead of
+    deadlocking on the non-repeatable store transition."""
+    candidate = to_review(run, repo)
+    run_reviews(run, repo, candidate)
+    run.reconcile_findings(
+        {"RF-001": OwnerDecision(status="ACCEPTED", owner="abhillash", reason="real defect")},
+        owner="abhillash",
+    )
+    FindingsStore(run.run_dir).record_fixed(
+        "RF-001", fixer="v2-approved-findings-fixer", commits=["fix1234"]
+    )
+    resumed = EngineeringRun.load(run.run_dir)
+    resumed.submit(
+        "v2-approved-findings-fixer",
+        {"fixed": [{"finding_id": "RF-001", "commits": ["fix1234"], "checks_rerun": ["unit"]}]},
+    )
+    assert resumed.stage == "retest"
+    fix_events = [e for e in resumed.ledger.read_all() if e["action"] == "fix"]
+    assert len(fix_events) == 0  # recovery adopts the store state, no phantom event
+
+
+def test_verify_recording_recovers_after_crash_between_store_and_state(
+    run: EngineeringRun, repo: Path
+) -> None:
+    candidate = to_review(run, repo)
+    run_reviews(run, repo, candidate)
+    run.reconcile_findings(
+        {"RF-001": OwnerDecision(status="ACCEPTED", owner="abhillash", reason="real defect")},
+        owner="abhillash",
+    )
+    run.submit(
+        "v2-approved-findings-fixer",
+        {"fixed": [{"finding_id": "RF-001", "commits": ["fix1234"], "checks_rerun": ["unit"]}]},
+    )
+    run.record_gates(passed=True, detail="2/2 executed")
+    run.freeze(repo)
+    FindingsStore(run.run_dir).record_verified("RF-001", verifier="v2-code-reviewer")
+    resumed = EngineeringRun.load(run.run_dir)
+    resumed.record_fix_verification("RF-001", verifier="v2-code-reviewer")
+    assert resumed.stage == "draft_pr"
 
 
 # --- fix, retest, verify -----------------------------------------------------------------
