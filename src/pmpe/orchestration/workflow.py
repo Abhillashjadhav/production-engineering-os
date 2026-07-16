@@ -1,12 +1,14 @@
-"""The workflow engine: 18 idempotent steps, persisted state, human gates.
+"""The workflow engine: ordered idempotent steps, persisted state, human gates.
+At this stage the lifecycle ends at quality_gates; review/merge and deploy/report
+steps extend it in their own PRs.
 
 Design rules (see ARCHITECTURE.md):
 - steps communicate through artifacts, never in-memory state that a resume would lose;
   deterministic products (plan, architecture, generated files) are recomputed from the
   spec on demand (ADR-002)
 - a HIGH-risk decision writes an Escalation and blocks; `approve` + `resume` continue
-- gate failures never stop the pipeline silently: the run completes through the merge
-  gate, which says NO_MERGE with reasons, and the final report still lands
+- gate failures never stop the pipeline silently: gate results are recorded and the
+  run keeps its honest outcome
 
 Step bodies live in steps_build.py / steps_ship.py; run-scoped machinery in
 context.py; artifact markdown in render.py.

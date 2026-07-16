@@ -1,4 +1,4 @@
-"""Markdown rendering for run artifacts (plan, architecture, ADRs, review)."""
+"""Markdown rendering for run artifacts (plan, architecture, ADRs)."""
 
 from __future__ import annotations
 
