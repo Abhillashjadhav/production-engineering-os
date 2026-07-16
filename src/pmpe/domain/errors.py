@@ -29,3 +29,7 @@ class StepFailure(PmpeError):  # noqa: N818 — named for what it represents
     def __init__(self, step: str, message: str) -> None:
         self.step = step
         super().__init__(f"step '{step}' failed: {message}")
+
+
+class GitError(PmpeError):
+    """A git operation on the build workspace failed."""

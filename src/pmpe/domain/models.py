@@ -204,6 +204,12 @@ class GeneratedTests:
     tests_by_requirement: dict[str, list[str]]
 
 
+@dataclass
+class Implementation:
+    files_by_task: dict[str, list[GeneratedFile]]
+    code_by_requirement: dict[str, list[str]]
+
+
 # --- escalation / approval -----------------------------------------------------------
 
 
