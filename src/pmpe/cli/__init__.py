@@ -10,7 +10,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from pmpe.cli import contracts_cmd, core, eng_cmd, evals_cmd
+from pmpe.cli import contracts_cmd, core, demo_cmd, eng_cmd, evals_cmd
 from pmpe.domain.errors import PmpeError, SpecError
 
 
@@ -23,6 +23,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
     core.register(sub)
     contracts_cmd.register(sub)
+    demo_cmd.register(sub)
     eng_cmd.register(sub)
     evals_cmd.register(sub)
     return parser
