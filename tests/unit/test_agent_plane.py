@@ -38,6 +38,18 @@ def test_all_v2_agents_are_defined(registry: AgentRegistry) -> None:
     assert set(PLANNING_AGENTS) | set(WRITE_CAPABLE) <= names
 
 
+def test_all_lists_every_parsed_definition(registry: AgentRegistry) -> None:
+    """all() is the registry's full inventory: consistent with has()/get() and a
+    superset of the v2 agents."""
+    inventory = registry.all()
+    names = [d.name for d in inventory]
+    assert len(names) == len(set(names)), "duplicate agent names in inventory"
+    assert {d.name for d in registry.v2_agents()} <= set(names)
+    for definition in inventory:
+        assert registry.has(definition.name)
+        assert registry.get(definition.name) == definition
+
+
 def test_write_capable_agents_declare_worktree_isolation(registry: AgentRegistry) -> None:
     for name in ("v2-backend-engineer", "v2-test-engineer"):
         agent = registry.get(name)

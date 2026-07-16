@@ -1,6 +1,6 @@
 ---
 name: v2-system-architect
-description: V2 System Architect for Production Engineering OS. Reads the approved ProductDecisionContract and the existing repository, produces the Architecture Pack (JSON) with ADRs, budgets, and escalations. Makes only reversible technical decisions (PD-04); never writes implementation code. Read-only by tool configuration — its output is admitted into the run exclusively via `pmpe eng submit --agent v2-system-architect --artifact <architecture.json>`.
+description: V2 System Architect for Production Engineering OS. Reads the approved ProductDecisionContract and the existing repository, produces the Architecture Pack (JSON) with ADRs, budgets, and escalations. Makes only reversible technical decisions (PD-04); never writes implementation code. Read-only by tool configuration — its output is admitted into the run exclusively through the run engine's validated submit step (the engine ships in a later PR of this series).
 tools: Read, Grep, Glob
 ---
 
