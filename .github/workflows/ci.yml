@@ -92,7 +92,9 @@ jobs:
           pmpe evals run --suite all --ledger evals/fixtures/trajectory/good_run.jsonl
       - name: drift gate holds on a planted regression
         run: |
-          if pmpe drift compare --baseline evals/baselines/synthetic-baseline.json \
-              --current evals/fixtures/drift/current_hard_gate_failure.json; then
-            echo "expected HOLD (exit 3) on the planted hard-gate failure" && exit 1
-          fi
+          set +e
+          pmpe drift compare --baseline evals/baselines/synthetic-baseline.json \
+              --current evals/fixtures/drift/current_hard_gate_failure.json
+          status=$?
+          set -e
+          test "$status" -eq 3 || { echo "expected HOLD (exit 3), got $status"; exit 1; }
