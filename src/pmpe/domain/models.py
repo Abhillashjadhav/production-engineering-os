@@ -188,6 +188,22 @@ class ArchitectureOutput:
     escalations: list[Escalation]
 
 
+# --- generation ----------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GeneratedFile:
+    path: str  # workspace-relative, forward slashes
+    content: str
+    kind: str  # test | code | doc | deploy
+
+
+@dataclass
+class GeneratedTests:
+    files: list[GeneratedFile]
+    tests_by_requirement: dict[str, list[str]]
+
+
 # --- escalation / approval -----------------------------------------------------------
 
 
