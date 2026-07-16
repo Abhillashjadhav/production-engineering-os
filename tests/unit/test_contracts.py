@@ -219,6 +219,24 @@ def test_change_request_lifecycle(contract_data: dict[str, Any], tmp_path: Path)
     assert listed[0].status == "APPROVED"
 
 
+def test_approving_without_resulting_version_fails_closed(tmp_path: Path) -> None:
+    store = ChangeRequestStore(tmp_path / "run")
+    pcr = store.create(
+        source_contract_id="PDC-TEST-001",
+        source_contract_version=1,
+        affected_requirement_ids=["FR-001"],
+        engineering_finding="f",
+        reason="r",
+        options=["a", "b"],
+        engineering_consequences="c",
+        recommended_technical_default="a",
+        decision_owner="abhillash",
+    )
+    with pytest.raises(ContractViolation, match="resulting contract version"):
+        store.decide(pcr.request_id, status="APPROVED")
+    assert store.get(pcr.request_id).status == "OPEN"
+
+
 def test_change_requests_survive_reload(tmp_path: Path) -> None:
     store = ChangeRequestStore(tmp_path / "run")
     store.create(
