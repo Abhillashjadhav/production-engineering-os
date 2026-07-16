@@ -104,6 +104,23 @@ def test_import_error_is_not_meaningful_evidence_either_way() -> None:
     assert any("import" in r for r in entry.reasons)
 
 
+def test_import_failure_inside_an_executed_test_is_not_evidence() -> None:
+    """A mapped test whose own body died on an import EXECUTED under its own node
+    id — but an import death is never meaningful evidence: NOT_PROVEN, never
+    VERIFIED (distinct from the loader collection-death path above)."""
+    executed_import_fail = _execution(
+        "tests.unit.test_app.AppTests.test_uses_missing_dep", "failed", "import"
+    )
+    report = _build(
+        ["FR-001"],
+        {"FR-001": ["tests/unit/test_app.py::AppTests::test_uses_missing_dep"]},
+        _evidence(executed_import_fail),
+    )
+    entry = report.entries[0]
+    assert entry.classification == "NOT_PROVEN"
+    assert any("import" in r for r in entry.reasons)
+
+
 def test_open_product_decision_blocks_the_requirement() -> None:
     report = _build(
         ["FR-001"],
