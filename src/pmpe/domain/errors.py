@@ -21,3 +21,11 @@ class SpecError(PmpeError):
 
 class ConfigError(PmpeError):
     """The pipeline configuration is invalid."""
+
+
+class StepFailure(PmpeError):  # noqa: N818 — named for what it represents
+    """A workflow step failed in a way the pipeline cannot recover from."""
+
+    def __init__(self, step: str, message: str) -> None:
+        self.step = step
+        super().__init__(f"step '{step}' failed: {message}")
