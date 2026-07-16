@@ -128,3 +128,31 @@ class ValidationReport:
     @property
     def ok(self) -> bool:
         return not self.errors
+
+
+# --- planning ------------------------------------------------------------------------
+
+
+@dataclass
+class PlanTask:
+    id: str
+    title: str
+    component: str
+    kind: str  # scaffold | test | feature
+    requirement_ids: list[str]
+    depends_on: list[str]
+    complexity: str  # S | M | L
+
+
+@dataclass
+class EngineeringPlan:
+    tasks: list[PlanTask]
+    order: list[str]
+    graph: dict[str, list[str]]
+    components: list[str]
+    data_model: list[str]
+    apis: list[str]
+    risks: list[str]
+
+    def task(self, task_id: str) -> PlanTask:
+        return next(t for t in self.tasks if t.id == task_id)
