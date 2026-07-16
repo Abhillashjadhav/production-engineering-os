@@ -29,10 +29,13 @@ class FixerGate:
         self.extra_allowed_files = extra_allowed_files or set()
 
     def scope(self) -> FixScope:
-        accepted = [f for f in self.store.all() if f.status == "ACCEPTED"]
+        """Authority is granted at reconciliation and does not shrink as fixes land:
+        the allowed-file set covers every accepted finding, including those already
+        FIXED/VERIFIED, so multi-finding fix rounds are order-insensitive."""
+        granted = [f for f in self.store.all() if f.status in ("ACCEPTED", "FIXED", "VERIFIED")]
         return FixScope(
-            finding_ids=[f.finding_id for f in accepted],
-            allowed_files={f.file for f in accepted if f.file} | self.extra_allowed_files,
+            finding_ids=[f.finding_id for f in granted if f.status == "ACCEPTED"],
+            allowed_files={f.file for f in granted if f.file} | self.extra_allowed_files,
         )
 
     def record_fix(

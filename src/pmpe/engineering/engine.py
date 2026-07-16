@@ -21,6 +21,7 @@ from typing import Any
 from pmpe.agents.permissions import REVIEWER_NAMES, ReadOnlyViolation
 from pmpe.agents.registry import AgentRegistry
 from pmpe.assurance.findings import FindingsStore
+from pmpe.assurance.fixer_gate import FixerGate
 from pmpe.assurance.readonly_guard import tree_digest, verify_unmodified
 from pmpe.assurance.reconcile import OwnerDecision, ReconciliationResult, reconcile
 from pmpe.contracts.change_request import ChangeRequestStore
@@ -424,7 +425,11 @@ class EngineeringRun:
         if agent in REVIEWER_NAMES:
             return {"reviewer": agent, "candidate_digest": self._state["candidate_digest"]}
         if agent == "v2-approved-findings-fixer":
-            return {"accepted_finding_ids": list(self._state["accepted_findings"])}
+            scope = FixerGate(FindingsStore(self.run_dir)).scope()
+            return {
+                "accepted_finding_ids": list(self._state["accepted_findings"]),
+                "allowed_files": sorted(scope.allowed_files),
+            }
         if agent == "v2-integration-engineer":
             return {}
         assignments: dict[str, str] = self._state["assignments"]
@@ -513,15 +518,17 @@ class EngineeringRun:
 
         elif agent == "v2-approved-findings-fixer":
             store = FindingsStore(self.run_dir)
+            gate = FixerGate(store)
             self._write_artifact("fix", agent, artifact)
             for entry in artifact.get("fixed", []):
                 finding_id = str(entry.get("finding_id"))
                 finding = store.get(finding_id)
                 if finding.status == "ACCEPTED":
-                    store.record_fixed(
+                    gate.record_fix(
                         finding_id,
                         fixer=agent,
                         commits=[str(c) for c in entry.get("commits", [])],
+                        changed_files=[str(f) for f in entry.get("changed_files", [])],
                     )
                     self.ledger.record(stage="fix", agent=agent, action="fix", detail=finding_id)
                 elif finding.status == "FIXED" and finding_id not in self._state["fixed_findings"]:

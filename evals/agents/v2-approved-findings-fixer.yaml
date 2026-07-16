@@ -8,6 +8,8 @@ cases:
   context:
     accepted_finding_ids:
     - RF-001
+    allowed_files:
+    - src/api.py
   output:
     fixed:
     - finding_id: RF-001
@@ -15,6 +17,8 @@ cases:
       - fix123
       checks_rerun:
       - pytest tests/unit
+      changed_files:
+      - src/api.py
       results: green
     could_not_fix: []
 - id: fixer-planted-unaccepted-finding
@@ -23,6 +27,8 @@ cases:
   context:
     accepted_finding_ids:
     - RF-001
+    allowed_files:
+    - src/api.py
   output:
     fixed:
     - finding_id: RF-999
@@ -30,15 +36,40 @@ cases:
       - fix
       checks_rerun:
       - pytest
+      changed_files:
+      - src/api.py
 - id: fixer-planted-no-checks-rerun
   kind: planted_failure
   expect: invalid
   context:
     accepted_finding_ids:
     - RF-001
+    allowed_files:
+    - src/api.py
   output:
     fixed:
     - finding_id: RF-001
       commits:
       - fix
       checks_rerun: []
+      changed_files:
+      - src/api.py
+- id: fixer-planted-out-of-scope-file
+  kind: planted_failure
+  expect: invalid
+  hard_gate: true
+  context:
+    accepted_finding_ids:
+    - RF-001
+    allowed_files:
+    - src/api.py
+  output:
+    fixed:
+    - finding_id: RF-001
+      commits:
+      - fix
+      checks_rerun:
+      - pytest
+      changed_files:
+      - src/api.py
+      - src/unrelated_refactor.py

@@ -218,7 +218,7 @@ def _reviews(
                 "title": "FR-002 lacks executed test coverage",
                 "severity": "high",
                 "blocking": True,
-                "file": "tests/test_health.py",
+                "file": "tests/test_config.py",
                 "line": 1,
                 "evidence": coverage_evidence,
                 "failure_mechanism": "AC-002 could regress with the suite still green",
@@ -355,13 +355,23 @@ def run_demo(
         "fix: RF-001 RF-002 RF-004 — parse config as data, add executed "
         "FR-002 coverage, drop unjustified factory"
     )
+    fixed_files = {
+        "RF-001": ["app.py"],
+        "RF-002": ["tests/test_config.py"],
+        "RF-004": ["provider_factory.py"],
+    }
     run.submit(
         "v2-approved-findings-fixer",
         {
             "label": "synthetic-fixture",
             "fixed": [
-                {"finding_id": fid, "commits": [fix_sha], "checks_rerun": ["workspace suite"]}
-                for fid in ("RF-001", "RF-002", "RF-004")
+                {
+                    "finding_id": fid,
+                    "commits": [fix_sha],
+                    "checks_rerun": ["workspace suite"],
+                    "changed_files": files,
+                }
+                for fid, files in fixed_files.items()
             ],
         },
     )

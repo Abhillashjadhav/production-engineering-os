@@ -198,7 +198,16 @@ def assure(run: EngineeringRun, repo: Path) -> str:
     )
     run.submit(
         "v2-approved-findings-fixer",
-        {"fixed": [{"finding_id": "RF-001", "commits": ["fix1234"], "checks_rerun": ["unit"]}]},
+        {
+            "fixed": [
+                {
+                    "finding_id": "RF-001",
+                    "commits": ["fix1234"],
+                    "checks_rerun": ["unit"],
+                    "changed_files": ["api.py"],
+                }
+            ]
+        },
     )
     run.record_gates(passed=True, detail="2/2 executed")
     (repo / "api.py").write_text("STATUS = 'ok'  # input is never evaluated\n")
@@ -408,7 +417,16 @@ def test_fix_recording_recovers_after_crash_between_store_and_state(
     resumed = EngineeringRun.load(run.run_dir)
     resumed.submit(
         "v2-approved-findings-fixer",
-        {"fixed": [{"finding_id": "RF-001", "commits": ["fix1234"], "checks_rerun": ["unit"]}]},
+        {
+            "fixed": [
+                {
+                    "finding_id": "RF-001",
+                    "commits": ["fix1234"],
+                    "checks_rerun": ["unit"],
+                    "changed_files": ["api.py"],
+                }
+            ]
+        },
     )
     assert resumed.stage == "retest"
     fix_events = [e for e in resumed.ledger.read_all() if e["action"] == "fix"]
@@ -426,7 +444,16 @@ def test_verify_recording_recovers_after_crash_between_store_and_state(
     )
     run.submit(
         "v2-approved-findings-fixer",
-        {"fixed": [{"finding_id": "RF-001", "commits": ["fix1234"], "checks_rerun": ["unit"]}]},
+        {
+            "fixed": [
+                {
+                    "finding_id": "RF-001",
+                    "commits": ["fix1234"],
+                    "checks_rerun": ["unit"],
+                    "changed_files": ["api.py"],
+                }
+            ]
+        },
     )
     run.record_gates(passed=True, detail="2/2 executed")
     run.freeze(repo)
@@ -449,12 +476,46 @@ def test_fixer_is_scoped_to_accepted_findings(run: EngineeringRun, repo: Path) -
     with pytest.raises(SubmissionRejected, match="RF-002"):
         run.submit(
             "v2-approved-findings-fixer",
-            {"fixed": [{"finding_id": "RF-002", "commits": ["x"], "checks_rerun": ["unit"]}]},
+            {
+                "fixed": [
+                    {
+                        "finding_id": "RF-002",
+                        "commits": ["x"],
+                        "checks_rerun": ["unit"],
+                        "changed_files": ["api.py"],
+                    }
+                ]
+            },
+        )
+
+    # PD-07's other half: the fix may only touch files the accepted findings name
+    with pytest.raises(SubmissionRejected, match="outside the accepted-findings scope"):
+        run.submit(
+            "v2-approved-findings-fixer",
+            {
+                "fixed": [
+                    {
+                        "finding_id": "RF-001",
+                        "commits": ["x"],
+                        "checks_rerun": ["unit"],
+                        "changed_files": ["api.py", "unrelated.py"],
+                    }
+                ]
+            },
         )
 
     run.submit(
         "v2-approved-findings-fixer",
-        {"fixed": [{"finding_id": "RF-001", "commits": ["fix1234"], "checks_rerun": ["unit"]}]},
+        {
+            "fixed": [
+                {
+                    "finding_id": "RF-001",
+                    "commits": ["fix1234"],
+                    "checks_rerun": ["unit"],
+                    "changed_files": ["api.py"],
+                }
+            ]
+        },
     )
     assert FindingsStore(run.run_dir).get("RF-001").status == "FIXED"
     assert run.stage == "retest"
@@ -469,7 +530,16 @@ def test_verifier_must_be_a_reviewer_and_not_the_fixer(run: EngineeringRun, repo
     )
     run.submit(
         "v2-approved-findings-fixer",
-        {"fixed": [{"finding_id": "RF-001", "commits": ["fix1234"], "checks_rerun": ["unit"]}]},
+        {
+            "fixed": [
+                {
+                    "finding_id": "RF-001",
+                    "commits": ["fix1234"],
+                    "checks_rerun": ["unit"],
+                    "changed_files": ["api.py"],
+                }
+            ]
+        },
     )
     run.record_gates(passed=True, detail="2/2 executed")
     run.freeze(repo)

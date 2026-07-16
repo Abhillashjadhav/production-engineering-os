@@ -171,6 +171,7 @@ def validate_review_output(data: dict[str, Any], context: dict[str, Any]) -> lis
 def validate_fixer_output(data: dict[str, Any], context: dict[str, Any]) -> list[str]:
     errors: list[str] = _boundary_errors(data, "fixer")
     accepted = set(context.get("accepted_finding_ids", []))
+    allowed_files = context.get("allowed_files")
     fixed = data.get("fixed")
     if fixed is None:
         errors.append("fixer output missing 'fixed'")
@@ -183,6 +184,16 @@ def validate_fixer_output(data: dict[str, Any], context: dict[str, Any]) -> list
             errors.append(f"fix for '{finding_id}' names no commits")
         if not entry.get("checks_rerun"):
             errors.append(f"fix for '{finding_id}' reran no checks")
+        changed = [str(f) for f in entry.get("changed_files", [])]
+        if not changed:
+            errors.append(f"fix for '{finding_id}' names no changed files")
+        elif allowed_files is not None:
+            out_of_scope = sorted(set(changed) - set(allowed_files))
+            if out_of_scope:
+                errors.append(
+                    f"fix for '{finding_id}' touched file(s) outside the accepted-findings "
+                    f"scope (PD-07): " + ", ".join(out_of_scope)
+                )
     return errors
 
 
