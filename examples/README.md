@@ -3,15 +3,11 @@
 - `taskflow_mvp_spec.yaml` — the reference PM OS specification (golden path). Run it:
 
   ```bash
-  pmpe validate examples/taskflow_mvp_spec.yaml   # structure + semantic validation only
-  pmpe run examples/taskflow_mvp_spec.yaml        # full lifecycle → runs/<run_id>/
+  pmpe validate examples/taskflow_mvp_spec.yaml   # structural validation
   ```
 
-A full run produces `runs/<run_id>/` containing `state.json` (workflow state),
-`events.jsonl` (decision/telemetry log), `artifacts/` (plan, architecture, ADRs,
-review, merge decision, deployment record, traceability report, final build report)
-and `workspace/` — the generated TaskFlow product as its own git repository with
-tests committed before implementation.
+Semantic validation and the full pipeline (`pmpe run`) land in later PRs of the
+atomic series; this example is their shared golden input.
 
 Specs that exercise the failure paths (contradictions, activity-only NSM, malformed
 input, forced escalations) live in `tests/fixtures/` — they are part of the test
