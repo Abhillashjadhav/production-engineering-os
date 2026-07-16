@@ -1,5 +1,5 @@
-"""PD-05: agent definitions, minimum routing, worktree isolation declarations, and
-the content-snapshot guard. Read-only permission proofs land with the assurance PR."""
+"""PD-05/PD-06: agent definitions, read-only proof by tool config, minimum routing,
+and worktree isolation for write-capable agents."""
 
 from __future__ import annotations
 
@@ -7,13 +7,25 @@ from pathlib import Path
 
 import pytest
 
+from pmpe.agents.permissions import (
+    READ_ONLY_TOOLS,
+    ReadOnlyViolation,
+    assert_reviewers_read_only,
+    is_read_only,
+)
 from pmpe.agents.registry import AgentRegistry
 from pmpe.agents.router import RoutingError, validate_routing
 from pmpe.assurance.readonly_guard import tree_digest, verify_unmodified
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-PLANNING_AGENTS = (
+REVIEWERS = (
+    "v2-code-reviewer",
+    "v2-product-conformance-reviewer",
+    "v2-architecture-simplicity-reviewer",
+    "v2-eval-integrity-auditor",
+)
+READ_ONLY_AGENTS = REVIEWERS + (
     "v2-system-architect",
     "v2-implementation-planner",
     "v2-engineer-router",
@@ -30,12 +42,12 @@ def registry() -> AgentRegistry:
     return AgentRegistry(REPO_ROOT / ".claude" / "agents")
 
 
-# --- definitions ------------------------------------------------------------------------
+# --- definitions and permissions -------------------------------------------------------
 
 
 def test_all_v2_agents_are_defined(registry: AgentRegistry) -> None:
     names = {a.name for a in registry.v2_agents()}
-    assert set(PLANNING_AGENTS) | set(WRITE_CAPABLE) <= names
+    assert set(READ_ONLY_AGENTS) | set(WRITE_CAPABLE) <= names
 
 
 def test_all_lists_every_parsed_definition(registry: AgentRegistry) -> None:
@@ -50,10 +62,44 @@ def test_all_lists_every_parsed_definition(registry: AgentRegistry) -> None:
         assert registry.get(definition.name) == definition
 
 
+def test_reviewers_are_read_only_by_tool_configuration(registry: AgentRegistry) -> None:
+    """PD-06: reviewers cannot write files — provable from their tool list alone."""
+    for name in REVIEWERS:
+        agent = registry.get(name)
+        assert agent.tools, f"{name} must declare an explicit tool list"
+        assert set(agent.tools) <= READ_ONLY_TOOLS, f"{name} has write-capable tools"
+        assert is_read_only(agent)
+
+
+def test_architect_planner_router_are_read_only(registry: AgentRegistry) -> None:
+    """Their artifacts enter the run only through the run engine's validated submit
+    step (ships in a later PR) — the agents themselves need no write access."""
+    for name in ("v2-system-architect", "v2-implementation-planner", "v2-engineer-router"):
+        assert is_read_only(registry.get(name)), name
+
+
 def test_write_capable_agents_declare_worktree_isolation(registry: AgentRegistry) -> None:
     for name in ("v2-backend-engineer", "v2-test-engineer"):
         agent = registry.get(name)
+        assert not is_read_only(agent)
         assert agent.isolation == "worktree", f"{name} must run in an isolated worktree"
+
+
+def test_assert_reviewers_read_only_catches_a_write_tool(tmp_path: Path) -> None:
+    agents_dir = tmp_path / "agents"
+    agents_dir.mkdir()
+    (agents_dir / "v2-code-reviewer.md").write_text(
+        "---\nname: v2-code-reviewer\ndescription: x\ntools: Read, Grep, Glob, Write\n---\nbody\n"
+    )
+    bad_registry = AgentRegistry(agents_dir)
+    with pytest.raises(ReadOnlyViolation, match="v2-code-reviewer"):
+        assert_reviewers_read_only(bad_registry)
+
+
+def test_assert_reviewers_read_only_passes_on_real_definitions(
+    registry: AgentRegistry,
+) -> None:
+    assert_reviewers_read_only(registry)
 
 
 # --- minimum routing --------------------------------------------------------------------
