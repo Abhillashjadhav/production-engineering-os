@@ -1,0 +1,12 @@
+# Drift thresholds — PROVISIONAL example defaults.
+# These values are not production-calibrated; tune them against your own run
+# history before treating WATCH/HOLD boundaries as meaningful.
+provisional: true
+note: "Provisional example defaults — not production-calibrated."
+pass_rate_drop_max: 0.05
+judge_agreement_min: 0.85
+output_growth_max_pct:
+  files: 25
+  loc: 25
+  runtime_dependencies: 0
+  duration_seconds: 50

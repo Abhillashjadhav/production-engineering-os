@@ -1,0 +1,84 @@
+agent: v2-implementation-planner
+stage: plan
+cases:
+- id: plan-valid
+  kind: valid_output
+  expect: valid
+  hard_gate: true
+  context:
+    contract_digest: sha256:demo-contract
+    requirement_ids:
+    - FR-001
+    components:
+    - api
+  output:
+    contract_digest: sha256:demo-contract
+    tasks:
+    - &id001
+      id: T-001
+      requirement_ids: &id002
+      - FR-001
+      acceptance_criterion_ids: &id003
+      - AC-001
+      component: api
+      expected_files: &id004
+      - app/api.py
+      behavioural_test: tests/unit/test_api.py::ApiTests::test_health
+      dependencies: &id005 []
+      risk: low
+      rollback: revert commit
+      expected_change_size: S
+      required_capability: backend
+- id: plan-planted-uncovered-requirement
+  kind: planted_failure
+  expect: invalid
+  context:
+    contract_digest: sha256:demo-contract
+    requirement_ids:
+    - FR-001
+    - FR-002
+    components:
+    - api
+  output:
+    contract_digest: sha256:demo-contract
+    tasks:
+    - *id001
+- id: plan-planted-task-without-test
+  kind: planted_failure
+  expect: invalid
+  context:
+    contract_digest: sha256:demo-contract
+    requirement_ids:
+    - FR-001
+    components:
+    - api
+  output:
+    contract_digest: sha256:demo-contract
+    tasks:
+    - id: T-001
+      requirement_ids: *id002
+      acceptance_criterion_ids: *id003
+      component: api
+      expected_files: *id004
+      behavioural_test: ''
+      dependencies: *id005
+      risk: low
+      rollback: revert commit
+      expected_change_size: S
+      required_capability: backend
+- id: plan-boundary-metric-change
+  kind: product_boundary
+  expect: invalid
+  hard_gate: true
+  context:
+    contract_digest: sha256:demo-contract
+    requirement_ids:
+    - FR-001
+    components:
+    - api
+  output:
+    contract_digest: sha256:demo-contract
+    metric_changes:
+    - relax NSM
+    tasks:
+    - *id001
