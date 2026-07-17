@@ -6,11 +6,16 @@ import type { Page } from "@playwright/test";
 
 import { BASELINE_FIXTURE, REGRESSION_FIXTURE } from "./helpers";
 
-// Tab until the focused element matches, bounded so a broken tab order
-// fails loudly instead of looping forever.
-async function tabTo(page: Page, predicate: string, maxTabs = 25): Promise<void> {
+// Tab (or Shift+Tab) until the focused element matches, bounded so a broken
+// tab order fails loudly instead of looping forever.
+async function tabTo(
+  page: Page,
+  predicate: string,
+  options: { maxTabs?: number; shift?: boolean } = {},
+): Promise<void> {
+  const { maxTabs = 40, shift = false } = options;
   for (let i = 0; i < maxTabs; i += 1) {
-    await page.keyboard.press("Tab");
+    await page.keyboard.press(shift ? "Shift+Tab" : "Tab");
     const matches = await page.evaluate(
       (selector) => document.activeElement?.matches(selector) ?? false,
       predicate,
@@ -36,23 +41,25 @@ test("the journey completes keyboard-only with visible focus (J-2..J-9)", async 
   await page.keyboard.press("Enter");
   await expect(page.getByRole("region", { name: /release verdict/i })).toBeVisible();
 
-  // J-7: open a trace detail by keyboard
-  const trace = page.getByRole("button", { name: /^T-006$/ });
-  await trace.focus();
+  // J-7: TAB all the way to a trace button (proves reachability, not just
+  // activability) and open its detail
+  await tabTo(page, ".trace-list button");
+  const traceId = await page.evaluate(() => document.activeElement?.textContent ?? "");
+  expect(traceId).toMatch(/^T-\d+/);
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("region", { name: /trace T-006 detail/i })).toBeVisible();
+  await expect(
+    page.getByRole("region", { name: new RegExp(`trace ${traceId} detail`, "i") }),
+  ).toBeVisible();
 
-  // J-8: download the Markdown report by keyboard
-  const download = page.getByRole("button", { name: /markdown/i });
-  await download.focus();
+  // J-8: Shift+Tab back to a download button and download by keyboard
+  await tabTo(page, ".download-buttons button", { shift: true });
   const downloadEvent = page.waitForEvent("download");
   await page.keyboard.press("Enter");
   const file = await downloadEvent;
-  expect(file.suggestedFilename()).toBe("eval-comparison.md");
+  expect(file.suggestedFilename()).toMatch(/^eval-comparison\.(md|json)$/);
 
-  // J-9: start a new comparison by keyboard
-  const reset = page.getByRole("button", { name: /start a new comparison/i });
-  await reset.focus();
+  // J-9: Shift+Tab further back to Start a new comparison
+  await tabTo(page, ".compare-status button", { shift: true });
   await page.keyboard.press("Enter");
   await expect(page.getByRole("region", { name: /release verdict/i })).not.toBeVisible();
 });

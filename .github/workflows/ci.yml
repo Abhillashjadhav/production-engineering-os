@@ -138,9 +138,19 @@ jobs:
         run: |
           npm ci
           npx playwright install --with-deps chromium
-      - name: browser verification (a11y, keyboard, responsive)
+      - name: browser verification (a11y, keyboard, responsive, journeys)
         working-directory: products/pm-evals-web/e2e
         run: npx playwright test
+      - name: upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            products/pm-evals-web/e2e/test-results/
+            products/pm-evals-web/e2e/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
 
   build-smoke:
     runs-on: ubuntu-latest
