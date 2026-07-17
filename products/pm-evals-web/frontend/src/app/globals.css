@@ -90,3 +90,13 @@ button:disabled { background: var(--muted); border-color: var(--muted); cursor: 
 @media (max-width: 480px) {
   .criteria { display: block; overflow-x: auto; }
 }
+
+/* J-8 downloads */
+.download-panel { border: 1px solid var(--border); border-radius: 4px; padding: 0.75rem 1rem; margin: 1rem 0; }
+.download-buttons { display: flex; gap: 1rem; flex-wrap: wrap; }
+.download-buttons button { font: inherit; padding: 0.5rem 1.25rem; border: 1px solid var(--accent); border-radius: 4px; background: var(--accent); color: #fff; cursor: pointer; }
+.verdict-guidance { color: var(--insufficient); }
+
+@media (max-width: 480px) {
+  .download-buttons button { width: 100%; }
+}
