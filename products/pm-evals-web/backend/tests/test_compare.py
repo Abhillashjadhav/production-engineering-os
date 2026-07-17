@@ -116,6 +116,66 @@ def test_result_values_are_constrained() -> None:
     assert not result.ok
 
 
+def test_duplicate_object_key_in_results_is_refused_not_silently_coalesced() -> None:
+    """json.loads keeps the LAST value for a duplicate key, so a results map with
+    two entries for the same criterion silently collapses — a candidate could
+    hide a 'fail' behind a trailing 'pass' (or vice versa). The parser must
+    refuse duplicate object keys with a named issue, never coalesce them."""
+    raw = (
+        '{"format_version": 1, "run_id": "r", "suite": "s",'
+        ' "criteria": [{"id": "C"}],'
+        ' "traces": [{"trace_id": "T", "results": {"C": "pass", "C": "fail"}}]}'
+    )
+    result = parse_run(raw, source_name="candidate")
+    assert not result.ok
+    blob = " ".join(i.message for i in result.issues)
+    assert "duplicate key" in blob
+    assert "C" in blob  # the offending key is named
+
+
+def test_duplicate_key_anywhere_in_the_document_is_refused() -> None:
+    """Duplicate keys are ambiguous at any depth, not only in results — a
+    repeated top-level field (here format_version) must also be refused."""
+    raw = (
+        '{"format_version": 1, "format_version": 2, "run_id": "r", "suite": "s",'
+        ' "criteria": [{"id": "C"}],'
+        ' "traces": [{"trace_id": "T", "results": {"C": "pass"}}]}'
+    )
+    result = parse_run(raw, source_name="baseline")
+    assert not result.ok
+    assert any("duplicate key" in i.message for i in result.issues)
+
+
+def test_non_finite_numbers_are_refused() -> None:
+    """json.loads accepts NaN, Infinity and -Infinity by default — non-standard
+    tokens no other JSON reader need accept and that break deterministic
+    re-serialization (json.dumps emits them back as bare NaN/Infinity). Any
+    non-finite number must be a named refusal, wherever it appears."""
+    for token in ("NaN", "Infinity", "-Infinity"):
+        raw = (
+            '{"format_version": 1, "run_id": "r", "suite": "s",'
+            ' "config": {"threshold": ' + token + "},"
+            ' "criteria": [{"id": "C"}],'
+            ' "traces": [{"trace_id": "T", "results": {"C": "pass"}}]}'
+        )
+        result = parse_run(raw, source_name="candidate")
+        assert not result.ok, token
+        assert any("non-finite" in i.message for i in result.issues), token
+
+
+def test_a_valid_file_with_no_duplicates_or_non_finite_numbers_still_parses() -> None:
+    """The hardening must not reject well-formed files: a run with a numeric
+    config value and no repeated keys parses clean."""
+    raw = (
+        '{"format_version": 1, "run_id": "r", "suite": "s",'
+        ' "config": {"threshold": 0.5},'
+        ' "criteria": [{"id": "C"}],'
+        ' "traces": [{"trace_id": "T", "results": {"C": "pass"}}]}'
+    )
+    result = parse_run(raw, source_name="candidate")
+    assert result.ok, result.issues
+
+
 def test_committed_fixture_files_parse_clean() -> None:
     for name in ("baseline.json", "candidate_regression.json", "candidate_improved.json"):
         result = parse_run((FIXTURES / name).read_bytes(), source_name=name)
