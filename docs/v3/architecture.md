@@ -81,8 +81,10 @@ Single-page journey (PD-V3-03): explainer → two upload dropzones with
 client-side schema pre-validation (mirror of the backend rules, backend
 remains authoritative) → Compare Runs → dashboard (pass rates, net change,
 criterion deltas, changed-trace table with filter + detail drawer, verdict
-panel with evidence) → download buttons. All five UI states implemented per
-screen (loading/empty/error/success/insufficient-evidence). Minimal
+panel with evidence) → download buttons. Each screen declares which states of
+the contract's five-state vocabulary
+(loading/empty/error/success/insufficient-evidence) apply to it, and every
+declared state is implemented and tested. Minimal
 hand-rolled component styling (CSS modules); no design-system dependency.
 Accessibility: labeled controls, keyboard-completable journey, focus
 management, axe-core automated checks in E2E.
