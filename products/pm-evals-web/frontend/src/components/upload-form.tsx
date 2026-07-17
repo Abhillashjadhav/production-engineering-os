@@ -122,6 +122,11 @@ export function UploadForm({ fetcher = fetch, onComparison, onLoadingChange }: U
     setApiProblems(null);
     setApiError(null);
     clearComparison();
+    // Any selection change invalidates a shown verdict, so normalize the phase
+    // now — on every path (clear, applied, or a later-discarded read) — rather
+    // than only when a read lands, which could otherwise strand phase at
+    // "success" with an empty status region.
+    setPhase("empty");
     // Claim this source's newest selection token before any await, so a read
     // started earlier can tell it has been superseded (a re-select or a clear).
     const generation = (readGeneration.current[source] += 1);
@@ -152,10 +157,10 @@ export function UploadForm({ fetcher = fetch, onComparison, onLoadingChange }: U
       };
     }
     // Discard a result the user has already replaced: only the latest selection
-    // for this source may land, regardless of which read finished first.
+    // for this source may land, regardless of which read finished first. (Phase
+    // was already normalized to "empty" at the top, on every path.)
     if (readGeneration.current[source] === generation) {
       setSelected((prev) => ({ ...prev, [source]: { file, pre } }));
-      setPhase("empty");
     }
     setPendingReads((n) => n - 1);
   }

@@ -216,9 +216,33 @@ describe("UploadForm — loading state (J-5)", () => {
       // The form holds the last-SELECTED file, never the last-COMPLETED one.
       await waitFor(() => expect(screen.getByText(/fresh-B\.json/)).toBeInTheDocument());
       expect(screen.queryByText(/stale-A\.json/)).not.toBeInTheDocument();
+      // The discarded read still balanced pendingReads back to 0: had A's
+      // decrement not run, pendingReads would stay stuck > 0 and the button
+      // could never enable. Release a candidate read and the button enables.
+      selectFile(/candidate/i, fileOf(VALID_CANDIDATE, "candidate.json"));
+      await waitFor(() => expect(releases).toHaveLength(3));
+      act(() => releases[2]());
+      await waitFor(() =>
+        expect(screen.getByRole("button", { name: /compare runs/i })).toBeEnabled(),
+      );
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+
+  it("clearing a source while a comparison shows returns to the empty state, not a stranded success", async () => {
+    // After a verdict is shown, changing a selection invalidates it; the phase
+    // must normalize to empty on every path — including a clear — so no empty
+    // status region is left behind under a stale "success" phase.
+    render(<UploadForm fetcher={fetchReturning(200, { comparison: PROCEED_COMPARISON })} />);
+    await selectBothValidFiles();
+    fireEvent.click(screen.getByRole("button", { name: /compare runs/i }));
+    expect((await screen.findByRole("status")).textContent).toContain("PROCEED");
+    // Clear the baseline input (no file selected).
+    fireEvent.change(screen.getByLabelText(/baseline/i), { target: { files: [] } });
+    await waitFor(() => expect(screen.queryByText(/PROCEED/)).not.toBeInTheDocument());
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /compare runs/i })).toBeDisabled();
   });
 
   it("announces status changes politely to assistive technology", async () => {
