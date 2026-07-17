@@ -21,7 +21,11 @@ def test_packaged_schema_stays_in_sync_with_repo_contract(repo_root: Path) -> No
     byte-identical so `pmpe` behaves the same from any directory."""
     from pmpe.config import packaged_schema_dir
 
-    for name in ("mvp_spec.schema.json", "product_decision_contract.schema.json"):
+    for name in (
+        "mvp_spec.schema.json",
+        "product_decision_contract.schema.json",
+        "fullstack_product_contract.schema.json",
+    ):
         contract = (repo_root / "schemas" / name).read_bytes()
         assert (packaged_schema_dir() / name).read_bytes() == contract, name
     assert packaged_schema_path().exists()
