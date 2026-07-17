@@ -271,3 +271,53 @@ def test_v2_ledgers_still_judge_identically(tmp_path: Path) -> None:
     fixture = REPO_ROOT / "evals" / "fixtures" / "trajectory" / "good_run.jsonl"
     events = [json.loads(line) for line in fixture.read_text().splitlines() if line.strip()]
     assert evaluate_trajectory(events) == []
+
+
+def test_infrastructure_invalid_review_permits_hold_but_not_proceed(
+    tmp_path: Path, repo: Path
+) -> None:
+    """A reviewer-integrity proof invalidated by infrastructure (harness
+    runtime-file churn), not a reviewer write, must not block an honest HOLD —
+    but it must block PROCEED. release_report separates the three dimensions:
+    product verdict, reviewer findings (all six lenses reviewed), and
+    verification integrity."""
+    run = _start(tmp_path)
+    _drive_to_freeze(run, repo)
+    run.record_browser_verification(
+        suites=("a11y", "keyboard", "responsive", "journeys"), mocked=False, passed=True
+    )
+    evidence = _preview_evidence(tmp_path / "preview-evidence.json", "sha256:" + "s" * 64)
+    run.record_preview(evidence, expected_source_digest="sha256:" + "s" * 64)
+    for lens in LENSES[:5]:
+        run.begin_review(lens, repo)
+        run.end_review(lens, repo)
+    run.record_infrastructure_invalid_review(
+        LENSES[5], reason="harness deleted .claude/scheduled_tasks.lock mid-review"
+    )
+    # PROCEED is refused while any reviewer-integrity proof is infrastructure-invalid
+    with pytest.raises(OrchestrationViolation, match="PROCEED"):
+        run.release_report(verdict="PROCEED")
+    # HOLD is honest and issued, with the integrity dimension reported degraded
+    report = run.release_report(verdict="HOLD")
+    assert report.product_verdict == "HOLD"
+    assert report.verification_integrity == "degraded"
+    assert report.integrity_by_lens[LENSES[5]] == "infrastructure_invalid"
+    release = next(e for e in run.events() if e["stage"] == "release_report")
+    assert release["verdict"] == "HOLD"
+    assert release["detail"] == "integrity=degraded"
+
+
+def test_a_clean_run_reports_valid_integrity(tmp_path: Path, repo: Path) -> None:
+    run = _start(tmp_path)
+    _drive_to_freeze(run, repo)
+    run.record_browser_verification(
+        suites=("a11y", "keyboard", "responsive", "journeys"), mocked=False, passed=True
+    )
+    evidence = _preview_evidence(tmp_path / "preview-evidence.json", "sha256:" + "s" * 64)
+    run.record_preview(evidence, expected_source_digest="sha256:" + "s" * 64)
+    for lens in LENSES:
+        run.begin_review(lens, repo)
+        run.end_review(lens, repo)
+    report = run.release_report(verdict="PROCEED")
+    assert report.verification_integrity == "valid"
+    assert set(report.integrity_by_lens.values()) == {"valid"}

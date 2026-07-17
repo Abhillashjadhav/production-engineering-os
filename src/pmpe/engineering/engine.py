@@ -22,7 +22,7 @@ from pmpe.agents.permissions import REVIEWER_NAMES, ReadOnlyViolation
 from pmpe.agents.registry import AgentRegistry
 from pmpe.assurance.findings import FindingsStore
 from pmpe.assurance.fixer_gate import FixerGate
-from pmpe.assurance.readonly_guard import tree_digest, verify_unmodified
+from pmpe.assurance.readonly_guard import readonly_snapshot, verify_unmodified
 from pmpe.assurance.reconcile import OwnerDecision, ReconciliationResult, reconcile
 from pmpe.contracts.change_request import ChangeRequestStore
 from pmpe.contracts.digest import canonical_digest
@@ -228,7 +228,7 @@ class EngineeringRun:
         verify_frozen(Path(repo), self.run_dir)
         snapshots = self.run_dir / "review-snapshots"
         snapshots.mkdir(parents=True, exist_ok=True)
-        atomic_write_json(snapshots / f"{reviewer}.json", tree_digest(Path(repo)))
+        atomic_write_json(snapshots / f"{reviewer}.json", readonly_snapshot(Path(repo)))
 
     def end_review(self, reviewer: str, repo: Path) -> None:
         """Record the runtime read-only proof; fail closed on any modification."""

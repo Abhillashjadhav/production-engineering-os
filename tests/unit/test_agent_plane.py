@@ -3,6 +3,7 @@ and worktree isolation for write-capable agents."""
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -15,7 +16,26 @@ from pmpe.agents.permissions import (
 )
 from pmpe.agents.registry import AgentRegistry
 from pmpe.agents.router import RoutingError, validate_routing
-from pmpe.assurance.readonly_guard import tree_digest, verify_unmodified
+from pmpe.assurance.readonly_guard import readonly_snapshot, tree_digest, verify_unmodified
+
+
+def _git_repo(root: Path, files: dict[str, str]) -> Path:
+    root.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["git", "-C", str(root), "init", "-q"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.email", "t@t.t"], check=True, capture_output=True
+    )
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.name", "t"], check=True, capture_output=True
+    )
+    for rel, body in files.items():
+        (root / rel).write_text(body)
+    subprocess.run(["git", "-C", str(root), "add", "-A"], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(root), "commit", "-qm", "base"], check=True, capture_output=True
+    )
+    return root
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -217,20 +237,22 @@ def test_tree_digest_detects_any_modification(tmp_path: Path) -> None:
     assert tree_digest(tmp_path) != before
 
 
-def test_verify_unmodified_reports_changed_added_removed(tmp_path: Path) -> None:
-    (tmp_path / "keep.py").write_text("k = 1\n")
-    (tmp_path / "gone.py").write_text("g = 1\n")
-    before = tree_digest(tmp_path)
+def test_verify_unmodified_reports_changed_and_removed(tmp_path: Path) -> None:
+    # the read-only proof is drawn at the git-tracked boundary (readonly_snapshot)
+    repo = _git_repo(tmp_path / "repo", {"keep.py": "k = 1\n", "gone.py": "g = 1\n"})
+    before = readonly_snapshot(repo)
 
-    (tmp_path / "keep.py").write_text("k = 2\n")
-    (tmp_path / "gone.py").unlink()
-    (tmp_path / "new.py").write_text("n = 1\n")
-    violations = verify_unmodified(tmp_path, before)
+    (repo / "keep.py").write_text("k = 2\n")
+    (repo / "gone.py").unlink()
+    (repo / "new.py").write_text("n = 1\n")  # untracked: outside the boundary by design
+    violations = verify_unmodified(repo, before)
     blob = " ".join(violations)
-    assert "keep.py" in blob and "gone.py" in blob and "new.py" in blob
+    assert "changed: keep.py" in blob
+    assert "removed: gone.py" in blob
+    assert "new.py" not in blob  # an untracked addition is not a reviewer write
 
 
 def test_verify_unmodified_clean_tree_passes(tmp_path: Path) -> None:
-    (tmp_path / "a.py").write_text("x = 1\n")
-    before = tree_digest(tmp_path)
-    assert verify_unmodified(tmp_path, before) == []
+    repo = _git_repo(tmp_path / "repo", {"a.py": "x = 1\n"})
+    before = readonly_snapshot(repo)
+    assert verify_unmodified(repo, before) == []

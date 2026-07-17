@@ -14,7 +14,9 @@ Event-grammar extensions the V3 engine emits (on top of the V2 grammar in
   containerized_preview``; ``input_digests.candidate`` must equal the freeze's
   output candidate digest (PD-V3-10/14; cloud claims are never verifiable).
 - ``review`` events from the six PD-V3-15 lenses (``v3-*`` agents), each with
-  a matching ``readonly_check`` verdict ``clean``.
+  a matching ``readonly_check`` verdict ``clean`` (intact) or
+  ``infrastructure_invalid`` (an honestly-recorded degraded proof — acceptable
+  for a HOLD, never for a PROCEED).
 - ``api_contract``/verify — verdict ``current`` when the committed OpenAPI
   document matches the live app (PD-V3-13); anything else is drift.
 
@@ -185,19 +187,33 @@ def evaluate_fullstack_trajectory(events: list[dict[str, Any]]) -> list[Trajecto
                 ", ".join(sorted(strangers)),
             )
 
-    # TRAJ-FS-06: every v3 reviewer proves read-only per run
+    # TRAJ-FS-06: every v3 reviewer proves read-only per run. "clean" is an
+    # intact proof; "infrastructure_invalid" is an honestly-recorded degraded
+    # proof (harness interference, not a reviewer write) — acceptable for a
+    # HOLD/INSUFFICIENT_EVIDENCE but never for a PROCEED. Any other verdict
+    # ("modified", or none) is a compromise. This mirrors release_report, so the
+    # trajectory auditor and the orchestrator agree about the same run.
     readonly_verdicts = {
         str(e.get("agent")): str(e.get("verdict"))
         for e in events
         if e.get("action") == "readonly_check" and str(e.get("agent", "")).startswith("v3-")
     }
+    acceptable = {"clean", "infrastructure_invalid"}
     for event in v3_reviews:
         agent = str(event.get("agent"))
-        if readonly_verdicts.get(agent) != "clean":
+        if readonly_verdicts.get(agent) not in acceptable:
             violate(
                 "TRAJ-FS-06",
-                "a full-stack reviewer has no clean read-only proof for this run",
-                agent,
+                "a full-stack reviewer has no acceptable read-only proof for this run",
+                f"{agent}={readonly_verdicts.get(agent)}",
+            )
+    if report_i is not None and str(events[report_i].get("verdict")) == "PROCEED":
+        degraded = sorted(a for a, v in readonly_verdicts.items() if v == "infrastructure_invalid")
+        if degraded:
+            violate(
+                "TRAJ-FS-06",
+                "a PROCEED release rests on an infrastructure-invalid read-only proof",
+                ", ".join(degraded),
             )
 
     # TRAJ-FS-07: the a11y suite executed before the release report
