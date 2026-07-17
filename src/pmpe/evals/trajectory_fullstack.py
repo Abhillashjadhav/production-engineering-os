@@ -105,7 +105,15 @@ def evaluate_fullstack_trajectory(events: list[dict[str, Any]]) -> list[Trajecto
     if journey_i is not None and lock_i is not None:
         locked = (events[lock_i].get("output_digests") or {}).get("contract")
         journey_input = (events[journey_i].get("input_digests") or {}).get("contract")
-        if locked is not None and journey_input != locked:
+        if locked is None:
+            # a digest-less lock would silently disable this binding check,
+            # and no V2 rule owns that case — fail closed here
+            violate(
+                "TRAJ-FS-02",
+                "the contract lock emitted no digest — the journey binding cannot be verified",
+                str(events[lock_i].get("output_digests")),
+            )
+        elif journey_input != locked:
             violate(
                 "TRAJ-FS-02",
                 "journey validated against a different contract digest than the lock",

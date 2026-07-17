@@ -85,6 +85,17 @@ def test_a_run_with_no_fullstack_stages_is_not_judged() -> None:
     assert evaluate_fullstack_trajectory(v2_only) == []
 
 
+def test_a_digestless_lock_cannot_disable_the_journey_binding() -> None:
+    """Reviewer finding: a contract_lock with empty output_digests silently
+    skipped FS-02, and no V2 rule owns that case — it must fail closed."""
+    events = _load("good_fullstack_run.jsonl")
+    for event in events:
+        if event.get("stage") == "contract_lock":
+            event["output_digests"] = {}
+    checks = {v.check_id for v in evaluate_fullstack_trajectory(events)}
+    assert "TRAJ-FS-02" in checks
+
+
 def test_mocked_flag_variants_are_caught() -> None:
     events = _load("good_fullstack_run.jsonl")
     for event in events:
