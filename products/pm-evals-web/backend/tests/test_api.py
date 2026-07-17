@@ -409,6 +409,29 @@ def test_spooled_upload_and_error_path_leave_no_residue(
     assert list(spool.iterdir()) == []
 
 
+def test_a_request_opens_no_outbound_connection(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """J-1's "no data leaves this app" rests on the backend calling nothing
+    outbound (app.py: "No egress: the backend calls nothing"). The no-persistence
+    half is tested; guard the no-egress half too: any socket connection attempt
+    during a compare or a report — a dependency adding telemetry, say — would
+    break the promise shown to the user, so fail on any connect."""
+    import socket
+
+    connects: list[Any] = []
+    real_connect = socket.socket.connect
+
+    def recording_connect(self: socket.socket, address: Any) -> Any:
+        connects.append(address)
+        return real_connect(self, address)
+
+    monkeypatch.setattr(socket.socket, "connect", recording_connect)
+    assert client.post("/api/compare", files=_files(candidate=REGRESSION)).status_code == 200
+    assert client.post("/api/report", files=_files(), data={"format": "json"}).status_code == 200
+    assert connects == [], f"the backend attempted an outbound connection: {connects}"
+
+
 def test_openapi_schema_is_committed_and_current(client: TestClient) -> None:
     """The committed OpenAPI schema is the contract (PD-V3-13): the live app
     must match it byte-for-byte under the export serialization (the CI diff
