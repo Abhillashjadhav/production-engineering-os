@@ -30,3 +30,15 @@ test("the journey completes at a phone viewport without horizontal overflow", as
   await expect(page.getByRole("region", { name: /trace T-006 detail/i })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 });
+
+test("the S-3 criterion table does not overflow the page at 375px", async ({ page }) => {
+  // The contract's declared mobile width. The per-criterion table scrolls in
+  // its own container (.table-scroll), so the page itself never scrolls sideways.
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto("/");
+  await compareFixtures(page);
+  await page.getByRole("button", { name: /^T-006$/ }).click();
+  const detail = page.getByRole("region", { name: /trace T-006 detail/i });
+  await expect(detail.getByRole("table")).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+});

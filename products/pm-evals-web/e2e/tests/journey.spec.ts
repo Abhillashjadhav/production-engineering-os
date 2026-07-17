@@ -43,9 +43,17 @@ test("HOLD journey: hard-gate regression with trace-level evidence (J-6/J-7)", a
   await expect(panel).toContainText("T-006");
   await expect(panel).toContainText(/guardrail violation/i);
   await page.getByRole("button", { name: /^T-006$/ }).click();
-  await expect(page.getByRole("region", { name: /trace T-006 detail/i })).toContainText(
-    "C-GROUNDED",
-  );
+  const detail = page.getByRole("region", { name: /trace T-006 detail/i });
+  // S-3: the detail shows EVERY evaluated criterion (not only the flipped one),
+  // each with baseline vs candidate results — the contract's purpose for S-3.
+  const table = detail.getByRole("table");
+  await expect(table).toContainText("C-GROUNDED"); // the regressed hard gate
+  await expect(table).toContainText("C-ACCURACY"); // an unchanged criterion, still shown
+  const groundedRow = table.getByRole("row", { name: /C-GROUNDED/ });
+  await expect(groundedRow).toContainText(/regressed/i);
+  await expect(groundedRow).toContainText("fail"); // candidate result rendered
+  // the trace's evidence fields are surfaced
+  await expect(detail).toContainText(/GDPR data-export request/);
 });
 
 test("INSUFFICIENT_EVIDENCE journey: thin pair gets the honest verdict and guidance", async ({

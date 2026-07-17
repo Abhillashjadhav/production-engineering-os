@@ -67,6 +67,22 @@ def test_compare_regression_holds_with_evidence(client: TestClient) -> None:
     assert gate_reason["trace_ids"] == ["T-006"]  # trace-level evidence (PD-V3-05)
 
 
+def test_compare_response_carries_per_trace_criterion_details(client: TestClient) -> None:
+    """S-3: the payload must carry a per-trace, per-criterion comparison for every
+    changed trace (not only flipped criteria) so the frontend renders, never
+    re-computes, the verdict."""
+    response = client.post("/api/compare", files=_files(candidate=REGRESSION))
+    comparison = response.json()["comparison"]
+    details = {t["trace_id"]: t for t in comparison["trace_details"]}
+    assert "T-006" in details  # the regressed trace is inspectable
+    cells = {c["criterion_id"]: c for c in details["T-006"]["criteria"]}
+    # every shared criterion is present, each with both sides + a verdict/rationale
+    assert len(cells) >= 1
+    for cell in cells.values():
+        assert "baseline_result" in cell and "candidate_result" in cell
+        assert cell["state"] and cell["verdict"] and cell["rationale"]
+
+
 def test_malformed_file_returns_named_issues(client: TestClient) -> None:
     response = client.post("/api/compare", files=_files(candidate=b"{broken"))
     assert response.status_code == 422

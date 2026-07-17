@@ -17,11 +17,25 @@ every verdict reason carries trace-level evidence (PD-V3-05).
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
-from pm_evals_compare.models import EvalRun
+from pm_evals_compare.models import Criterion, EvalRun, Trace
 
 VERDICTS = ("PROCEED", "HOLD", "INSUFFICIENT_EVIDENCE")
+
+Result = Literal["pass", "fail"]
+CellState = Literal[
+    "improved",
+    "regressed",
+    "unchanged",
+    "missing",
+    "insufficient",
+    "conflicting",
+    "not_evaluated",
+]
+Provenance = Literal["both", "baseline_only", "candidate_only", "neither"]
 
 
 class CompareConfig(BaseModel):
@@ -50,6 +64,38 @@ class VerdictReason(BaseModel):
     detail: str
 
 
+class CriterionCell(BaseModel):
+    """One criterion's baseline-vs-candidate outcome for a single trace (S-3).
+
+    The state, verdict, and rationale are computed here in the domain layer; the
+    frontend renders them and never re-derives an outcome.
+    """
+
+    criterion_id: str
+    name: str
+    hard_gate: bool
+    baseline_result: Result | None
+    candidate_result: Result | None
+    changed: bool
+    state: CellState
+    verdict: str
+    rationale: str
+    provenance: Provenance
+
+
+class TraceComparison(BaseModel):
+    """One changed trace's full per-criterion detail and evidence fields (S-3)."""
+
+    trace_id: str
+    direction: Literal["improved", "regressed", "mixed"]
+    changed: bool
+    baseline_label: str
+    baseline_notes: str
+    candidate_label: str
+    candidate_notes: str
+    criteria: list[CriterionCell]
+
+
 class Comparison(BaseModel):
     suite: str
     baseline_run_id: str
@@ -66,6 +112,7 @@ class Comparison(BaseModel):
     newly_passing_traces: list[str]
     newly_failing_traces: list[str]
     hard_gate_regressions: list[str]  # criterion ids with newly failing hard-gate traces
+    trace_details: list[TraceComparison]  # per-criterion detail for each changed trace (S-3)
     verdict: str
     reasons: list[VerdictReason]
 
@@ -88,6 +135,118 @@ def check_compatibility(baseline: EvalRun, candidate: EvalRun) -> list[str]:
 
 def _pass_rate(passes: int, total: int) -> float:
     return round(passes / total, 6) if total else 0.0
+
+
+def _criterion_cell(
+    base_def: Criterion, cand_def: Criterion, base_trace: Trace, cand_trace: Trace
+) -> CriterionCell:
+    """Compute one trace/criterion cell — the whole verdict lives here (PD-V3-04)."""
+    b = base_trace.results.get(base_def.id)
+    c = cand_trace.results.get(base_def.id)
+    # The release verdict is baseline-driven (hard_gate_regressions uses the
+    # baseline criterion), so the cell reports the same authoritative flag.
+    hard_gate = base_def.hard_gate
+    metadata_conflict = base_def.hard_gate != cand_def.hard_gate
+    conflict_note = (
+        " The criterion's hard-gate flag differs between the runs "
+        f"(baseline={base_def.hard_gate}, candidate={cand_def.hard_gate})."
+        if metadata_conflict
+        else ""
+    )
+
+    if b is not None and c is not None:
+        provenance: Provenance = "both"
+        # A result flip is the salient, verdict-driving fact and always wins —
+        # its improved/regressed state matches newly_passing/newly_failing
+        # membership exactly. "conflicting" is only for an *unchanged* result
+        # whose definition nonetheless differs (nothing directional to report).
+        if b == "fail" and c == "pass":
+            state: CellState = "improved"
+        elif b == "pass" and c == "fail":
+            state = "regressed"
+        elif metadata_conflict:
+            state = "conflicting"
+        else:
+            state = "unchanged"
+    elif b is not None:
+        provenance = "baseline_only"
+        state = "insufficient" if hard_gate else "missing"
+    elif c is not None:
+        provenance = "candidate_only"
+        state = "insufficient" if hard_gate else "missing"
+    else:
+        provenance = "neither"
+        state = "not_evaluated"
+
+    gate = " — hard gate" if hard_gate else ""
+    verdicts: dict[CellState, str] = {
+        "improved": "Improved",
+        "regressed": f"Regressed{gate}",
+        "unchanged": "Unchanged — passing" if b == "pass" else "Unchanged — failing",
+        "missing": "Not comparable — result missing on one side",
+        "insufficient": "Insufficient — hard-gate result missing on one side",
+        "conflicting": "Conflicting definition between runs",
+        "not_evaluated": "Not evaluated on either run",
+    }
+    present = "baseline" if b is not None else "candidate"
+    rationales: dict[CellState, str] = {
+        # a flip is directional truth even when the definition also changed —
+        # the conflict is disclosed (conflict_note), never used to hide the flip
+        "improved": "Baseline failed and the candidate passes." + conflict_note,
+        "regressed": "Baseline passed and the candidate fails"
+        + (" — this is a hard-gate regression." if hard_gate else ".")
+        + conflict_note,
+        "unchanged": "Both runs pass this criterion."
+        if b == "pass"
+        else "Both runs fail this criterion.",
+        "missing": f"Recorded on the {present} run only, so the two runs cannot be compared "
+        "on this criterion for this trace.",
+        "insufficient": f"This hard gate is recorded on the {present} run only; the gate "
+        "cannot be evaluated for this trace.",
+        "conflicting": "Both runs recorded the same result, but the criterion's hard-gate flag "
+        f"differs between the runs (baseline={base_def.hard_gate}, candidate={cand_def.hard_gate}); "
+        "the definitions conflict, so even the agreement may not be comparable.",
+        "not_evaluated": "Neither run recorded a result for this criterion on this trace.",
+    }
+    return CriterionCell(
+        criterion_id=base_def.id,
+        name=base_def.description,
+        hard_gate=hard_gate,
+        baseline_result=b,
+        candidate_result=c,
+        changed=state in ("improved", "regressed"),
+        state=state,
+        verdict=verdicts[state],
+        rationale=rationales[state],
+        provenance=provenance,
+    )
+
+
+def _trace_comparison(
+    trace_id: str,
+    shared_criteria: list[Criterion],
+    cand_defs: dict[str, Criterion],
+    base_trace: Trace,
+    cand_trace: Trace,
+) -> TraceComparison:
+    cells = [
+        _criterion_cell(bc, cand_defs[bc.id], base_trace, cand_trace) for bc in shared_criteria
+    ]
+    improved = any(cell.state == "improved" for cell in cells)
+    regressed = any(cell.state == "regressed" for cell in cells)
+    direction: Literal["improved", "regressed", "mixed"] = (
+        "mixed" if improved and regressed else "regressed" if regressed else "improved"
+    )
+    return TraceComparison(
+        trace_id=trace_id,
+        direction=direction,
+        changed=improved or regressed,
+        baseline_label=base_trace.label,
+        baseline_notes=base_trace.notes,
+        candidate_label=cand_trace.label,
+        candidate_notes=cand_trace.notes,
+        criteria=cells,
+    )
 
 
 def compare_runs(
@@ -222,6 +381,15 @@ def compare_runs(
             )
         )
 
+    # S-3: per-criterion detail for every changed trace (both improved and
+    # regressed), each covering EVERY shared criterion, sorted for determinism.
+    cand_defs = {c.id: c for c in candidate.criteria}
+    changed_trace_ids = sorted(newly_passing_traces | newly_failing_traces)
+    trace_details = [
+        _trace_comparison(tid, shared_criteria, cand_defs, base_traces[tid], cand_traces[tid])
+        for tid in changed_trace_ids
+    ]
+
     hold_kinds = {"hard_gate_regression", "incompatible", "coverage", "guardrail"}
     ie_kinds = {"thin_evidence", "unevaluable_gate"}
     if any(r.kind in hold_kinds for r in reasons):
@@ -247,6 +415,7 @@ def compare_runs(
         newly_passing_traces=sorted(newly_passing_traces),
         newly_failing_traces=sorted(newly_failing_traces),
         hard_gate_regressions=hard_gate_regressions,
+        trace_details=trace_details,
         verdict=verdict,
         reasons=reasons,
     )

@@ -70,5 +70,184 @@
   ],
   "reasons": [],
   "suite": "support-copilot-v2",
+  "trace_details": [
+    {
+      "baseline_label": "duplicate charge dispute with two invoices attached",
+      "baseline_notes": "SYNTHETIC fixture trace \u2014 generated for pm-evals Web tests",
+      "candidate_label": "duplicate charge dispute with two invoices attached",
+      "candidate_notes": "SYNTHETIC fixture trace \u2014 generated for pm-evals Web tests",
+      "changed": true,
+      "criteria": [
+        {
+          "baseline_result": "fail",
+          "candidate_result": "pass",
+          "changed": true,
+          "criterion_id": "C-ACCURACY",
+          "hard_gate": true,
+          "name": "The answer is factually accurate for the customer's plan",
+          "provenance": "both",
+          "rationale": "Baseline failed and the candidate passes.",
+          "state": "improved",
+          "verdict": "Improved"
+        },
+        {
+          "baseline_result": "pass",
+          "candidate_result": "pass",
+          "changed": false,
+          "criterion_id": "C-GROUNDED",
+          "hard_gate": true,
+          "name": "Every claim is grounded in the retrieved policy documents",
+          "provenance": "both",
+          "rationale": "Both runs pass this criterion.",
+          "state": "unchanged",
+          "verdict": "Unchanged \u2014 passing"
+        },
+        {
+          "baseline_result": "pass",
+          "candidate_result": "pass",
+          "changed": false,
+          "criterion_id": "C-TONE",
+          "hard_gate": false,
+          "name": "Tone is professional and empathetic",
+          "provenance": "both",
+          "rationale": "Both runs pass this criterion.",
+          "state": "unchanged",
+          "verdict": "Unchanged \u2014 passing"
+        },
+        {
+          "baseline_result": "pass",
+          "candidate_result": "pass",
+          "changed": false,
+          "criterion_id": "C-BREVITY",
+          "hard_gate": false,
+          "name": "Reply fits in four sentences or fewer",
+          "provenance": "both",
+          "rationale": "Both runs pass this criterion.",
+          "state": "unchanged",
+          "verdict": "Unchanged \u2014 passing"
+        }
+      ],
+      "direction": "improved",
+      "trace_id": "T-003"
+    },
+    {
+      "baseline_label": "cancellation request citing a competitor discount",
+      "baseline_notes": "SYNTHETIC fixture trace \u2014 generated for pm-evals Web tests",
+      "candidate_label": "cancellation request citing a competitor discount",
+      "candidate_notes": "SYNTHETIC fixture trace \u2014 generated for pm-evals Web tests",
+      "changed": true,
+      "criteria": [
+        {
+          "baseline_result": "pass",
+          "candidate_result": "pass",
+          "changed": false,
+          "criterion_id": "C-ACCURACY",
+          "hard_gate": true,
+          "name": "The answer is factually accurate for the customer's plan",
+          "provenance": "both",
+          "rationale": "Both runs pass this criterion.",
+          "state": "unchanged",
+          "verdict": "Unchanged \u2014 passing"
+        },
+        {
+          "baseline_result": "pass",
+          "candidate_result": "pass",
+          "changed": false,
+          "criterion_id": "C-GROUNDED",
+          "hard_gate": true,
+          "name": "Every claim is grounded in the retrieved policy documents",
+          "provenance": "both",
+          "rationale": "Both runs pass this criterion.",
+          "state": "unchanged",
+          "verdict": "Unchanged \u2014 passing"
+        },
+        {
+          "baseline_result": "fail",
+          "candidate_result": "pass",
+          "changed": true,
+          "criterion_id": "C-TONE",
+          "hard_gate": false,
+          "name": "Tone is professional and empathetic",
+          "provenance": "both",
+          "rationale": "Baseline failed and the candidate passes.",
+          "state": "improved",
+          "verdict": "Improved"
+        },
+        {
+          "baseline_result": "pass",
+          "candidate_result": "pass",
+          "changed": false,
+          "criterion_id": "C-BREVITY",
+          "hard_gate": false,
+          "name": "Reply fits in four sentences or fewer",
+          "provenance": "both",
+          "rationale": "Both runs pass this criterion.",
+          "state": "unchanged",
+          "verdict": "Unchanged \u2014 passing"
+        }
+      ],
+      "direction": "improved",
+      "trace_id": "T-004"
+    },
+    {
+      "baseline_label": "enterprise seat expansion pricing question",
+      "baseline_notes": "SYNTHETIC fixture trace \u2014 generated for pm-evals Web tests",
+      "candidate_label": "enterprise seat expansion pricing question",
+      "candidate_notes": "SYNTHETIC fixture trace \u2014 generated for pm-evals Web tests",
+      "changed": true,
+      "criteria": [
+        {
+          "baseline_result": "pass",
+          "candidate_result": "pass",
+          "changed": false,
+          "criterion_id": "C-ACCURACY",
+          "hard_gate": true,
+          "name": "The answer is factually accurate for the customer's plan",
+          "provenance": "both",
+          "rationale": "Both runs pass this criterion.",
+          "state": "unchanged",
+          "verdict": "Unchanged \u2014 passing"
+        },
+        {
+          "baseline_result": "fail",
+          "candidate_result": "pass",
+          "changed": true,
+          "criterion_id": "C-GROUNDED",
+          "hard_gate": true,
+          "name": "Every claim is grounded in the retrieved policy documents",
+          "provenance": "both",
+          "rationale": "Baseline failed and the candidate passes.",
+          "state": "improved",
+          "verdict": "Improved"
+        },
+        {
+          "baseline_result": "pass",
+          "candidate_result": "pass",
+          "changed": false,
+          "criterion_id": "C-TONE",
+          "hard_gate": false,
+          "name": "Tone is professional and empathetic",
+          "provenance": "both",
+          "rationale": "Both runs pass this criterion.",
+          "state": "unchanged",
+          "verdict": "Unchanged \u2014 passing"
+        },
+        {
+          "baseline_result": "pass",
+          "candidate_result": "pass",
+          "changed": false,
+          "criterion_id": "C-BREVITY",
+          "hard_gate": false,
+          "name": "Reply fits in four sentences or fewer",
+          "provenance": "both",
+          "rationale": "Both runs pass this criterion.",
+          "state": "unchanged",
+          "verdict": "Unchanged \u2014 passing"
+        }
+      ],
+      "direction": "improved",
+      "trace_id": "T-005"
+    }
+  ],
   "verdict": "PROCEED"
 }

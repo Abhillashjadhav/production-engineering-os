@@ -323,3 +323,179 @@ def test_thin_evidence_boundary_is_exact() -> None:
     five = compare_runs(_run("b", traces=_traces(rows5)), _run("c", traces=_traces(rows5)))
     assert four.verdict == "INSUFFICIENT_EVIDENCE"
     assert five.verdict == "PROCEED"
+
+
+# --- S-3 Trace Detail: per-trace, per-criterion comparison (contract S-3) -------------------
+
+_EDGE_CRITERIA_BASE = [
+    {"id": "C-REG", "description": "Regression gate", "hard_gate": True},
+    {"id": "C-UNCH", "description": "Stable criterion", "hard_gate": False},
+    {"id": "C-CONF", "description": "Conflicting definition", "hard_gate": False},
+    {"id": "C-MISS", "description": "Baseline-only result", "hard_gate": False},
+    {"id": "C-INSUF", "description": "Hard gate, one side", "hard_gate": True},
+    {"id": "C-NONE", "description": "Never recorded", "hard_gate": False},
+]
+# candidate flips C-CONF's hard_gate → a metadata conflict on any shared trace
+_EDGE_CRITERIA_CAND = [dict(c) for c in _EDGE_CRITERIA_BASE]
+_EDGE_CRITERIA_CAND[2]["hard_gate"] = True
+
+
+def _edge_pair() -> tuple[EvalRun, EvalRun]:
+    filler = {f"F-{i}": {"C-REG": "pass", "C-UNCH": "pass"} for i in range(1, 6)}
+    base_traces = [
+        {
+            "trace_id": "T-EDGE",
+            "label": "baseline case label",
+            "notes": "baseline note",
+            "results": {"C-REG": "pass", "C-UNCH": "pass", "C-CONF": "pass", "C-MISS": "pass"},
+        },
+        *_traces(filler),
+    ]
+    cand_traces = [
+        {
+            "trace_id": "T-EDGE",
+            "label": "candidate case label",
+            "notes": "candidate note",
+            # C-CONF: same result as baseline (pass) but a differing hard_gate flag
+            # → "conflicting" (an unchanged result whose definition still differs)
+            "results": {"C-REG": "fail", "C-UNCH": "pass", "C-CONF": "pass", "C-INSUF": "fail"},
+        },
+        *_traces(filler),
+    ]
+    baseline = _run("b", criteria=_EDGE_CRITERIA_BASE, traces=base_traces)
+    candidate = _run("c", criteria=_EDGE_CRITERIA_CAND, traces=cand_traces)
+    return baseline, candidate
+
+
+def _cells(comparison: Any, trace_id: str) -> dict[str, Any]:
+    detail = next(t for t in comparison.trace_details if t.trace_id == trace_id)
+    return {c.criterion_id: c for c in detail.criteria}
+
+
+def test_trace_details_exist_only_for_changed_traces() -> None:
+    baseline, candidate = _edge_pair()
+    comparison = compare_runs(baseline, candidate)
+    # only T-EDGE changed (a hard-gate regression); the 5 filler traces are unchanged
+    assert [t.trace_id for t in comparison.trace_details] == ["T-EDGE"]
+
+
+def test_a_changed_trace_lists_every_shared_criterion_not_only_flips() -> None:
+    baseline, candidate = _edge_pair()
+    comparison = compare_runs(baseline, candidate)
+    detail = comparison.trace_details[0]
+    # the contract requires per-criterion baseline vs candidate for EVERY criterion,
+    # not just the flipped ones — all six shared criteria appear, in criterion order
+    assert [c.criterion_id for c in detail.criteria] == [
+        "C-REG",
+        "C-UNCH",
+        "C-CONF",
+        "C-MISS",
+        "C-INSUF",
+        "C-NONE",
+    ]
+
+
+def test_every_criterion_cell_state_is_computed_in_the_domain() -> None:
+    baseline, candidate = _edge_pair()
+    comparison = compare_runs(baseline, candidate)
+    cells = _cells(comparison, "T-EDGE")
+    assert (
+        cells["C-REG"].state,
+        cells["C-REG"].baseline_result,
+        cells["C-REG"].candidate_result,
+    ) == (
+        "regressed",
+        "pass",
+        "fail",
+    )
+    assert cells["C-REG"].changed is True and cells["C-REG"].hard_gate is True
+    assert cells["C-UNCH"].state == "unchanged" and cells["C-UNCH"].changed is False
+    assert cells["C-CONF"].state == "conflicting"  # hard_gate differs between runs
+    assert cells["C-MISS"].state == "missing" and cells["C-MISS"].provenance == "baseline_only"
+    assert (
+        cells["C-INSUF"].state == "insufficient"
+        and cells["C-INSUF"].provenance == "candidate_only"
+    )
+    assert cells["C-NONE"].state == "not_evaluated" and cells["C-NONE"].provenance == "neither"
+
+
+def test_each_cell_carries_a_verdict_and_rationale() -> None:
+    baseline, candidate = _edge_pair()
+    cells = _cells(compare_runs(baseline, candidate), "T-EDGE")
+    for cell in cells.values():
+        assert cell.verdict, f"{cell.criterion_id} needs a verdict"
+        assert cell.rationale, f"{cell.criterion_id} needs a rationale"
+    assert "hard-gate" in cells["C-REG"].rationale.lower()
+
+
+def test_trace_detail_carries_both_sides_evidence_fields() -> None:
+    baseline, candidate = _edge_pair()
+    detail = compare_runs(baseline, candidate).trace_details[0]
+    assert detail.baseline_label == "baseline case label"
+    assert detail.candidate_label == "candidate case label"
+    assert detail.baseline_notes == "baseline note"
+    assert detail.candidate_notes == "candidate note"
+
+
+def test_trace_direction_is_mixed_when_both_improve_and_regress() -> None:
+    base_traces = [
+        {
+            "trace_id": "T-MIX",
+            "results": {"C-REG": "pass", "C-UNCH": "fail"},
+        },
+        *_traces({f"F-{i}": {"C-REG": "pass", "C-UNCH": "pass"} for i in range(1, 6)}),
+    ]
+    cand_traces = [
+        {
+            "trace_id": "T-MIX",
+            "results": {"C-REG": "fail", "C-UNCH": "pass"},  # C-REG regressed, C-UNCH improved
+        },
+        *_traces({f"F-{i}": {"C-REG": "pass", "C-UNCH": "pass"} for i in range(1, 6)}),
+    ]
+    baseline = _run("b", criteria=_EDGE_CRITERIA_BASE, traces=base_traces)
+    candidate = _run("c", criteria=_EDGE_CRITERIA_BASE, traces=cand_traces)
+    detail = next(
+        t for t in compare_runs(baseline, candidate).trace_details if t.trace_id == "T-MIX"
+    )
+    assert detail.direction == "mixed"
+
+
+def test_trace_details_are_deterministic() -> None:
+    baseline, candidate = _edge_pair()
+    first = compare_runs(baseline, candidate).model_dump()
+    second = compare_runs(baseline, candidate).model_dump()
+    assert first == second
+    assert [t["trace_id"] for t in first["trace_details"]] == ["T-EDGE"]
+
+
+def test_a_flip_on_a_metadata_conflicting_criterion_is_still_a_regression() -> None:
+    """A criterion whose hard_gate flag changed between runs but whose result
+    flips pass->fail must render as a *regressed* (changed) cell — never masked
+    to 'conflicting' or a trace mislabeled 'improved'. The cell direction must
+    agree with the engine's own newly_failing_traces aggregation."""
+    base_criteria = [
+        {"id": "C-X", "description": "Was a hard gate", "hard_gate": True},
+        {"id": "C-Y", "description": "Soft", "hard_gate": False},
+    ]
+    cand_criteria = [
+        {"id": "C-X", "description": "Was a hard gate", "hard_gate": False},  # demoted
+        {"id": "C-Y", "description": "Soft", "hard_gate": False},
+    ]
+    filler = {f"F-{i}": {"C-X": "pass", "C-Y": "pass"} for i in range(1, 6)}
+    base = _run(
+        "b",
+        criteria=base_criteria,
+        traces=[{"trace_id": "T", "results": {"C-X": "pass", "C-Y": "pass"}}, *_traces(filler)],
+    )
+    cand = _run(
+        "c",
+        criteria=cand_criteria,
+        traces=[{"trace_id": "T", "results": {"C-X": "fail", "C-Y": "pass"}}, *_traces(filler)],
+    )
+    comparison = compare_runs(base, cand)
+    assert "T" in comparison.newly_failing_traces  # the aggregation sees the flip
+    detail = next(t for t in comparison.trace_details if t.trace_id == "T")
+    assert detail.direction == "regressed"  # NOT the old "improved" fallback
+    cell = next(c for c in detail.criteria if c.criterion_id == "C-X")
+    assert cell.state == "regressed" and cell.changed is True
+    assert "differs between the runs" in cell.rationale  # the conflict is disclosed, not hidden

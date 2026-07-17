@@ -121,6 +121,43 @@ export interface components {
             reasons: components["schemas"]["VerdictReason"][];
             /** Suite */
             suite: string;
+            /** Trace Details */
+            trace_details: components["schemas"]["TraceComparison"][];
+            /** Verdict */
+            verdict: string;
+        };
+        /**
+         * CriterionCell
+         * @description One criterion's baseline-vs-candidate outcome for a single trace (S-3).
+         *
+         *     The state, verdict, and rationale are computed here in the domain layer; the
+         *     frontend renders them and never re-derives an outcome.
+         */
+        CriterionCell: {
+            /** Baseline Result */
+            baseline_result: ("pass" | "fail") | null;
+            /** Candidate Result */
+            candidate_result: ("pass" | "fail") | null;
+            /** Changed */
+            changed: boolean;
+            /** Criterion Id */
+            criterion_id: string;
+            /** Hard Gate */
+            hard_gate: boolean;
+            /** Name */
+            name: string;
+            /**
+             * Provenance
+             * @enum {string}
+             */
+            provenance: "both" | "baseline_only" | "candidate_only" | "neither";
+            /** Rationale */
+            rationale: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "improved" | "regressed" | "unchanged" | "missing" | "insufficient" | "conflicting" | "not_evaluated";
             /** Verdict */
             verdict: string;
         };
@@ -164,6 +201,31 @@ export interface components {
             location: string;
             /** Message */
             message: string;
+        };
+        /**
+         * TraceComparison
+         * @description One changed trace's full per-criterion detail and evidence fields (S-3).
+         */
+        TraceComparison: {
+            /** Baseline Label */
+            baseline_label: string;
+            /** Baseline Notes */
+            baseline_notes: string;
+            /** Candidate Label */
+            candidate_label: string;
+            /** Candidate Notes */
+            candidate_notes: string;
+            /** Changed */
+            changed: boolean;
+            /** Criteria */
+            criteria: components["schemas"]["CriterionCell"][];
+            /**
+             * Direction
+             * @enum {string}
+             */
+            direction: "improved" | "regressed" | "mixed";
+            /** Trace Id */
+            trace_id: string;
         };
         /** ValidationProblem */
         ValidationProblem: {

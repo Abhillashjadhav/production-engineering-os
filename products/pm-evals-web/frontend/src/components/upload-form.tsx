@@ -43,6 +43,9 @@ interface UploadFormProps {
   // whenever the result is invalidated) so the dashboard can never show a
   // verdict for inputs the form no longer holds.
   onComparison?: (handoff: ComparisonHandoff | null) => void;
+  // Reports whether a comparison request is in flight, so the trace explorer
+  // (S-3) can show its declared loading state while the result is computed.
+  onLoadingChange?: (loading: boolean) => void;
 }
 
 // FileReader instead of File.text(): supported everywhere the app runs,
@@ -66,7 +69,7 @@ function issueList(issues: LocalIssue[], className = "issues"): React.ReactEleme
   );
 }
 
-export function UploadForm({ fetcher = fetch, onComparison }: UploadFormProps) {
+export function UploadForm({ fetcher = fetch, onComparison, onLoadingChange }: UploadFormProps) {
   const baselineInputId = useId();
   const candidateInputId = useId();
   const [phase, setPhase] = useState<Phase>("empty");
@@ -149,10 +152,12 @@ export function UploadForm({ fetcher = fetch, onComparison }: UploadFormProps) {
     event.preventDefault();
     if (!canSubmit || !selected.baseline || !selected.candidate) return;
     setPhase("loading");
+    onLoadingChange?.(true);
     setApiProblems(null);
     setApiError(null);
     clearComparison();
     const result = await compareRuns(selected.baseline.file, selected.candidate.file, fetcher);
+    onLoadingChange?.(false);
     if (result.kind === "ok") {
       setComparison(result.value);
       onComparison?.({
