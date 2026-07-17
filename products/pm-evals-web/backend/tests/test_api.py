@@ -365,21 +365,23 @@ def test_spooled_upload_and_error_path_leave_no_residue(
     """PD-V3-08 / dogfood F-7: the small-file success case never crosses
     Starlette's 1 MB spool threshold, so it never causes the disk write whose
     cleanup it claims to verify. Force a part large enough to actually roll over
-    to disk, prove the rollover happened, and confirm no residue remains — on the
-    success path AND the malformed error path."""
+    to disk, then prove the spool handle is CLOSED afterwards — which is what
+    releases the inode and fd. The rolled-over file is an anonymous temp file
+    (TemporaryFile uses O_TMPFILE / an unlinked mkstemp), so it has no directory
+    entry to observe; a leaked, un-closed spool — the real PD-V3-08 violation —
+    is only visible as an open handle, on the success path AND the error path."""
     spool = tmp_path / "spool"
     spool.mkdir()
     monkeypatch.setattr(tempfile, "tempdir", str(spool))
 
-    rollovers = 0
+    spooled: list[Any] = []
     original_rollover = tempfile.SpooledTemporaryFile.rollover
 
-    def counting_rollover(self: Any) -> Any:
-        nonlocal rollovers
-        rollovers += 1
+    def tracking_rollover(self: Any) -> Any:
+        spooled.append(self)  # this handle really rolled over to disk
         return original_rollover(self)
 
-    monkeypatch.setattr(tempfile.SpooledTemporaryFile, "rollover", counting_rollover)
+    monkeypatch.setattr(tempfile.SpooledTemporaryFile, "rollover", tracking_rollover)
 
     padded = json.loads(BASELINE)
     padded["model"] = "x" * (1024 * 1024 + 1000)  # > Starlette's 1 MB spool threshold
@@ -390,15 +392,20 @@ def test_spooled_upload_and_error_path_leave_no_residue(
     # Success path with a genuine disk spool.
     ok = client.post("/api/compare", files=_files(baseline=big_baseline))
     assert ok.status_code == 200
-    assert rollovers >= 1, "the >1 MB part never spooled — the cleanup stays untested"
-    assert list(spool.iterdir()) == []  # the rolled-over temp file was cleaned up
+    assert len(spooled) >= 1, "the >1 MB part never spooled — the cleanup stays untested"
+    assert all(handle.closed for handle in spooled)  # inode + fd released
+    assert list(spool.iterdir()) == []  # and nothing was written under a persistent name
 
-    # Malformed error path: a >1 MB part still spools, then parsing fails 422.
+    # Malformed error path: a >1 MB part still spools, then parsing fails 422 —
+    # the spool must be closed even when the request errors.
+    spooled.clear()
     malformed = client.post(
         "/api/compare",
         files=_files(baseline=big_baseline, candidate=b"{" + b"x" * (1024 * 1024)),
     )
     assert malformed.status_code == 422
+    assert len(spooled) >= 1
+    assert all(handle.closed for handle in spooled)
     assert list(spool.iterdir()) == []
 
 
