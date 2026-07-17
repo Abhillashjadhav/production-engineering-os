@@ -43,9 +43,9 @@ function readFileText(file: File): Promise<string> {
   });
 }
 
-function issueList(issues: LocalIssue[]): React.ReactElement {
+function issueList(issues: LocalIssue[], className = "issues"): React.ReactElement {
   return (
-    <ul className="issues">
+    <ul className={className}>
       {issues.map((issue) => (
         <li key={issue.location + issue.message}>{issue.message}</li>
       ))}
@@ -71,10 +71,18 @@ export function UploadForm({ fetcher = fetch }: UploadFormProps) {
     baseline: selected.baseline?.pre.issues ?? [],
     candidate: selected.candidate?.pre.issues ?? [],
   };
+  const advisories: Record<UploadSource, LocalIssue[]> = {
+    baseline: selected.baseline?.pre.advisories ?? [],
+    candidate: selected.candidate?.pre.advisories ?? [],
+  };
+  // Blocking issues block; advisories do not — a file the browser cannot
+  // parse may still be one the server accepts, so the server decides.
   const canSubmit =
     phase !== "loading" &&
-    selected.baseline?.pre.run != null &&
-    selected.candidate?.pre.run != null &&
+    selected.baseline != null &&
+    selected.baseline.pre.issues.length === 0 &&
+    selected.candidate != null &&
+    selected.candidate.pre.issues.length === 0 &&
     pairIssues.length === 0;
 
   async function handleSelect(source: UploadSource, file: File | null): Promise<void> {
@@ -91,8 +99,18 @@ export function UploadForm({ fetcher = fetch }: UploadFormProps) {
       const text = file.size <= MAX_UPLOAD_BYTES ? await readFileText(file) : "";
       pre = preValidateFile(source, file.size, text);
     } catch {
+      // A local read failure is a client limitation, not proof the server
+      // would refuse the file — advisory, never blocking.
       pre = {
-        issues: [{ location: source, message: "the file could not be read — re-select it" }],
+        issues: [],
+        advisories: [
+          {
+            location: source,
+            message:
+              "the file could not be read in this browser — " +
+              "you can still run the comparison; the server makes the final call",
+          },
+        ],
         run: null,
       };
     }
@@ -147,6 +165,7 @@ export function UploadForm({ fetcher = fetch }: UploadFormProps) {
             id={baselineInputId}
             type="file"
             accept="application/json,.json"
+            disabled={phase === "loading"}
             onChange={(e) => void handleSelect("baseline", e.target.files?.[0] ?? null)}
           />
           {selected.baseline && (
@@ -156,6 +175,7 @@ export function UploadForm({ fetcher = fetch }: UploadFormProps) {
             </p>
           )}
           {localIssues.baseline.length > 0 && issueList(localIssues.baseline)}
+          {advisories.baseline.length > 0 && issueList(advisories.baseline, "advisories")}
         </div>
         <div className="file-field">
           <label htmlFor={candidateInputId}>Candidate eval results (JSON)</label>
@@ -163,6 +183,7 @@ export function UploadForm({ fetcher = fetch }: UploadFormProps) {
             id={candidateInputId}
             type="file"
             accept="application/json,.json"
+            disabled={phase === "loading"}
             onChange={(e) => void handleSelect("candidate", e.target.files?.[0] ?? null)}
           />
           {selected.candidate && (
@@ -172,6 +193,7 @@ export function UploadForm({ fetcher = fetch }: UploadFormProps) {
             </p>
           )}
           {localIssues.candidate.length > 0 && issueList(localIssues.candidate)}
+          {advisories.candidate.length > 0 && issueList(advisories.candidate, "advisories")}
         </div>
         {pairIssues.length > 0 && (
           <div className="pair-issues">

@@ -57,3 +57,6 @@ button:disabled { background: var(--muted); border-color: var(--muted); cursor: 
 @media (max-width: 480px) {
   button[type="submit"], .compare-status button { width: 100%; }
 }
+
+.advisories { margin: 0.25rem 0 0; padding-left: 1.25rem; color: var(--insufficient); }
+.advisories li { overflow-wrap: anywhere; }

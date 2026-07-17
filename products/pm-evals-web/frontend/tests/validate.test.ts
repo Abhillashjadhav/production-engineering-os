@@ -28,6 +28,7 @@ describe("preValidateFile", () => {
   it("accepts a valid run and extracts suite and ids", () => {
     const result = preValidateFile("baseline", VALID_RUN.length, VALID_RUN);
     expect(result.issues).toEqual([]);
+    expect(result.advisories).toEqual([]);
     expect(result.run).not.toBeNull();
     expect(result.run?.suite).toBe("support-copilot-v2");
     expect(result.run?.criterionIds).toEqual(["C-1"]);
@@ -41,10 +42,16 @@ describe("preValidateFile", () => {
     expect(result.issues[0].location).toBe("candidate");
   });
 
-  it("names broken JSON the way the backend does", () => {
-    const result = preValidateFile("baseline", 7, "{broken");
+  it("flags browser-unparseable JSON as advisory only — the server decides", () => {
+    // JSON.parse is stricter than the server's parser (Python json.loads
+    // accepts NaN/Infinity tokens, and the server detects encodings the
+    // browser mis-decodes), so a parse failure here must never block.
+    const nanRun = VALID_RUN.replace('"pass"', "NaN"); // Python json.dumps emits bare NaN
+    const result = preValidateFile("baseline", nanRun.length, nanRun);
     expect(result.run).toBeNull();
-    expect(result.issues[0].message).toContain("not valid JSON");
+    expect(result.issues).toEqual([]); // nothing blocking
+    expect(result.advisories[0].message).toContain("not valid JSON in this browser's reading");
+    expect(result.advisories[0].message).toContain("the server makes the final call");
   });
 
   it("refuses a top-level array", () => {
@@ -102,5 +109,22 @@ describe("preValidatePair", () => {
     const other = parsed(VALID_RUN.replace("T-1", "T-2"));
     const issues = preValidatePair(parsed(VALID_RUN), other);
     expect(issues.some((i) => i.message.includes("share no trace ids"))).toBe(true);
+  });
+
+  it("skips shared-id checks when id extraction was lossy — the server names the real problem", () => {
+    // criteria entries without string ids fail the SERVER's field validation
+    // with a precise message; a client-side "share no criteria" here would be
+    // both wrong and blocking. Lossy extraction must suppress the pair check.
+    const lossyText = JSON.stringify({
+      format_version: 1,
+      suite: "support-copilot-v2",
+      criteria: [{ id: 1 }],
+      traces: [{ trace_id: "T-1", results: {} }],
+    });
+    const lossy = parsed(lossyText);
+    expect(lossy.criterionIdsComplete).toBe(false);
+    const issues = preValidatePair(parsed(VALID_RUN), lossy);
+    expect(issues.some((i) => i.message.includes("share no criteria"))).toBe(false);
+    expect(issues.some((i) => i.message.includes("share no trace ids"))).toBe(false);
   });
 });

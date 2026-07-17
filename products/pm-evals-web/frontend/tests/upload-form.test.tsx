@@ -67,10 +67,34 @@ describe("UploadForm — empty state (J-2/J-3)", () => {
 });
 
 describe("UploadForm — client-side pre-validation (J-4)", () => {
-  it("names a malformed baseline and keeps Compare disabled", async () => {
-    render(<UploadForm />);
+  it("flags a browser-unparseable baseline as advisory and lets the server decide", async () => {
+    // The client parser is stricter than the server's (NaN tokens, encoding
+    // differences) — so an unparseable file warns but never blocks; the
+    // submission goes through and the SERVER's named 422 is what the user sees.
+    const detail = [
+      {
+        source: "baseline",
+        issues: [{ location: "baseline", message: "not valid JSON: server's own words" }],
+      },
+    ];
+    render(<UploadForm fetcher={fetchReturning(422, { detail })} />);
     selectFile(/baseline/i, fileOf("{broken", "baseline.json"));
-    expect(await screen.findByText(/not valid JSON/)).toBeInTheDocument();
+    expect(await screen.findByText(/not valid JSON in this browser's reading/)).toBeInTheDocument();
+    selectFile(/candidate/i, fileOf(VALID_CANDIDATE, "candidate.json"));
+    const button = screen.getByRole("button", { name: /compare runs/i });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("server's own words");
+  });
+
+  it("blocks an oversized file — a refusal the server is known to share", async () => {
+    render(<UploadForm />);
+    const oversized = new File([new ArrayBuffer(5 * 1024 * 1024 + 1)], "baseline.json", {
+      type: "application/json",
+    });
+    selectFile(/baseline/i, oversized);
+    expect(await screen.findByText(/5 MB/)).toBeInTheDocument();
     selectFile(/candidate/i, fileOf(VALID_CANDIDATE, "candidate.json"));
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /compare runs/i })).toBeDisabled(),
@@ -98,6 +122,25 @@ describe("UploadForm — loading state (J-5)", () => {
     const status = await screen.findByRole("status");
     expect(status.textContent).toMatch(/comparing/i);
     expect(screen.getByRole("button", { name: /compare runs/i })).toBeDisabled();
+  });
+
+  it("locks the file inputs while a comparison is in flight — no stale-response race", async () => {
+    const never: typeof fetch = () => new Promise(() => {});
+    render(<UploadForm fetcher={never} />);
+    await selectBothValidFiles();
+    fireEvent.click(screen.getByRole("button", { name: /compare runs/i }));
+    await screen.findByRole("status");
+    expect(screen.getByLabelText(/baseline/i)).toBeDisabled();
+    expect(screen.getByLabelText(/candidate/i)).toBeDisabled();
+  });
+
+  it("announces status changes politely to assistive technology", async () => {
+    const never: typeof fetch = () => new Promise(() => {});
+    render(<UploadForm fetcher={never} />);
+    await selectBothValidFiles();
+    fireEvent.click(screen.getByRole("button", { name: /compare runs/i }));
+    const status = await screen.findByRole("status");
+    expect(status).toHaveAttribute("aria-live", "polite");
   });
 });
 
@@ -147,6 +190,31 @@ describe("UploadForm — API error surfacing (J-4)", () => {
     fireEvent.click(screen.getByRole("button", { name: /compare runs/i }));
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toMatch(/unreachable/i);
+  });
+
+  it("clears a previous error on resubmit — no alert beside a success banner", async () => {
+    let calls = 0;
+    const failThenSucceed: typeof fetch = async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response(JSON.stringify({ detail: "too big" }), {
+          status: 413,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ comparison: PROCEED_COMPARISON }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    };
+    render(<UploadForm fetcher={failThenSucceed} />);
+    await selectBothValidFiles();
+    fireEvent.click(screen.getByRole("button", { name: /compare runs/i }));
+    await screen.findByRole("alert");
+    fireEvent.click(screen.getByRole("button", { name: /compare runs/i }));
+    const status = await screen.findByRole("status");
+    expect(status.textContent).toContain("PROCEED");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 
