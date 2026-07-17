@@ -36,6 +36,7 @@ def _git_repo(root: Path, files: dict[str, str]) -> Path:
     )
     return root
 
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 REVIEWERS = (
