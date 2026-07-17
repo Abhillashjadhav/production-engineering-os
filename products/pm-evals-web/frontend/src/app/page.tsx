@@ -1,13 +1,14 @@
-import { UploadForm } from "@/components/upload-form";
+import { Workspace } from "@/components/workspace";
 import { Explainer } from "@/lib/explainer";
 
-// Screen S-1: the explainer (J-1) plus the upload-and-compare journey
-// (J-2..J-5, J-9). The evidence dashboard (S-2) renders below in PR 8.
+// The explainer (J-1) plus the full compare workspace: S-1 upload journey
+// (J-2..J-5, J-9) feeding the S-2 dashboard (J-6) and S-3 trace explorer
+// (J-7). Downloads (J-8) land in PR 9.
 export default function HomePage() {
   return (
     <main>
       <Explainer />
-      <UploadForm />
+      <Workspace />
     </main>
   );
 }

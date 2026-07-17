@@ -31,7 +31,7 @@ describe("Dashboard — verdict panel shows evidence (PD-V3-05)", () => {
     expect(screen.getByText("HOLD")).toBeInTheDocument();
     const panel = screen.getByRole("region", { name: /release verdict/i });
     expect(within(panel).getByText(/hard-gate regression/i)).toBeInTheDocument();
-    expect(within(panel).getByText(/C-GROUNDED/)).toBeInTheDocument();
+    expect(within(panel).getAllByText(/C-GROUNDED/).length).toBeGreaterThan(0);
     expect(within(panel).getByText(/T-006/)).toBeInTheDocument(); // the evidence
     expect(within(panel).getByText(/guardrail violation/i)).toBeInTheDocument();
     expect(

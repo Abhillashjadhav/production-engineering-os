@@ -2,7 +2,7 @@
 // and trace explorer beneath the upload form; reset and re-selection clear
 // them. The REAL UploadForm, client, Dashboard, and TraceExplorer run —
 // only the network is fake.
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { Workspace } from "@/components/workspace";
@@ -51,7 +51,8 @@ describe("Workspace — S-1 feeds S-2/S-3", () => {
   it("renders the dashboard and trace explorer after a successful comparison", async () => {
     render(<Workspace fetcher={fetchReturning(200, { comparison: regression })} />);
     await compareSuccessfully();
-    expect(screen.getByText("HOLD")).toBeInTheDocument();
+    const panel = screen.getByRole("region", { name: /release verdict/i });
+    expect(within(panel).getByText("HOLD")).toBeInTheDocument();
     expect(screen.getByRole("list", { name: /changed traces/i })).toBeInTheDocument();
   });
 
