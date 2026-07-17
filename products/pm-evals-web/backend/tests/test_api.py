@@ -115,6 +115,59 @@ def test_oversized_upload_is_refused(client: TestClient) -> None:
     assert "baseline" in response.json()["detail"]
 
 
+def test_whole_request_body_over_cap_is_refused_before_multipart_parsing(
+    client: TestClient,
+) -> None:
+    """P-5 / dogfood F-1: a request body far larger than any legitimate two-file
+    upload must be refused at the transport boundary — before Starlette's
+    multipart parser reads and disk-spools it. Sent as multipart with a valid
+    boundary but no matching parts: WITHOUT the size middleware the parser reads
+    the whole body first and only then errors (4xx); WITH it, the oversize body
+    is rejected 413 before a single byte reaches the parser. That the status is
+    413 (not the parser's own error) is the proof the cap fires ahead of it."""
+    oversize = b"x" * (3 * MAX_UPLOAD_BYTES)  # ~15 MB, over the whole-request cap
+    response = client.post(
+        "/api/compare",
+        content=oversize,
+        headers={"content-type": "multipart/form-data; boundary=zzzzzzzzzz"},
+    )
+    assert response.status_code == 413
+    assert isinstance(response.json()["detail"], str)
+
+
+def test_every_413_shares_one_documented_string_detail_envelope(client: TestClient) -> None:
+    """The 413 body is a single documented shape — {"detail": str} — for both the
+    per-file cap and the whole-request cap, so the committed contract matches the
+    wire for either boundary (the #39 reviewer's open 413 NOTE)."""
+    per_file = client.post(
+        "/api/compare",
+        files=_files(baseline=b'{"padding": "' + b"x" * MAX_UPLOAD_BYTES + b'"}'),
+    )
+    whole_request = client.post(
+        "/api/compare",
+        content=b"x" * (3 * MAX_UPLOAD_BYTES),
+        headers={"content-type": "multipart/form-data; boundary=zzzzzzzzzz"},
+    )
+    for response in (per_file, whole_request):
+        assert response.status_code == 413
+        body = response.json()
+        assert set(body) == {"detail"}, body
+        assert isinstance(body["detail"], str) and body["detail"]
+
+
+def test_committed_openapi_documents_the_413_body(client: TestClient) -> None:
+    """The 413 must carry a content schema in the committed contract, not just a
+    prose description — the typed client can only surface a shape the contract
+    documents."""
+    schema = client.app.openapi()  # type: ignore[attr-defined]
+    ref = schema["paths"]["/api/compare"]["post"]["responses"]["413"]["content"][
+        "application/json"
+    ]["schema"]["$ref"]
+    name = ref.rsplit("/", 1)[-1]
+    model = schema["components"]["schemas"][name]
+    assert model["properties"]["detail"]["type"] == "string"
+
+
 def test_hostile_filenames_never_reach_response_headers(client: TestClient) -> None:
     response = client.post(
         "/api/report",
