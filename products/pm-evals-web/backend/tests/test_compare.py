@@ -291,3 +291,35 @@ def test_json_report_round_trips_and_isolates_timestamps() -> None:
     parsed = json.loads(render_json(comparison))
     assert parsed["comparison"]["verdict"] == "PROCEED"
     assert parsed["report_format_version"] == 1
+
+
+def test_baseline_declared_guardrail_still_applies_to_the_candidate() -> None:
+    """The threshold falls back to the BASELINE's declaration when the candidate
+    omits one — stricter, fail-closed: a candidate cannot escape a guardrail by
+    not declaring it."""
+    base_criteria = [
+        {"id": "C-ACC", "hard_gate": True},
+        {"id": "C-TONE", "min_pass_rate": 0.9},
+    ]
+    cand_criteria = [
+        {"id": "C-ACC", "hard_gate": True},
+        {"id": "C-TONE"},  # candidate declares no threshold
+    ]
+    rows = {f"T-{i}": {"C-ACC": "pass", "C-TONE": "pass"} for i in range(1, 7)}
+    regressed = dict(rows)
+    regressed["T-2"] = {"C-ACC": "pass", "C-TONE": "fail"}
+    baseline = _run("b", criteria=base_criteria, traces=_traces(rows))
+    candidate = _run("c", criteria=cand_criteria, traces=_traces(regressed))
+    comparison = compare_runs(baseline, candidate)
+    assert comparison.verdict == "HOLD"
+    assert any(r.kind == "guardrail" for r in comparison.reasons)
+
+
+def test_thin_evidence_boundary_is_exact() -> None:
+    """matched == min-1 is insufficient; matched == min is sufficient."""
+    rows4 = {f"T-{i}": {"C-ACC": "pass", "C-TONE": "pass"} for i in range(1, 5)}
+    rows5 = {f"T-{i}": {"C-ACC": "pass", "C-TONE": "pass"} for i in range(1, 6)}
+    four = compare_runs(_run("b", traces=_traces(rows4)), _run("c", traces=_traces(rows4)))
+    five = compare_runs(_run("b", traces=_traces(rows5)), _run("c", traces=_traces(rows5)))
+    assert four.verdict == "INSUFFICIENT_EVIDENCE"
+    assert five.verdict == "PROCEED"
