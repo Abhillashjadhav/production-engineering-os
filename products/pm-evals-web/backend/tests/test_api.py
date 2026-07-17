@@ -359,6 +359,56 @@ def test_uploads_leave_no_residue(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert list(spool.iterdir()) == []
 
 
+def test_spooled_upload_and_error_path_leave_no_residue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PD-V3-08 / dogfood F-7: the small-file success case never crosses
+    Starlette's 1 MB spool threshold, so it never causes the disk write whose
+    cleanup it claims to verify. Force a part large enough to actually roll over
+    to disk, then prove the spool handle is CLOSED afterwards — which is what
+    releases the inode and fd. The rolled-over file is an anonymous temp file
+    (TemporaryFile uses O_TMPFILE / an unlinked mkstemp), so it has no directory
+    entry to observe; a leaked, un-closed spool — the real PD-V3-08 violation —
+    is only visible as an open handle, on the success path AND the error path."""
+    spool = tmp_path / "spool"
+    spool.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(spool))
+
+    spooled: list[Any] = []
+    original_rollover = tempfile.SpooledTemporaryFile.rollover
+
+    def tracking_rollover(self: Any) -> Any:
+        spooled.append(self)  # this handle really rolled over to disk
+        return original_rollover(self)
+
+    monkeypatch.setattr(tempfile.SpooledTemporaryFile, "rollover", tracking_rollover)
+
+    padded = json.loads(BASELINE)
+    padded["model"] = "x" * (1024 * 1024 + 1000)  # > Starlette's 1 MB spool threshold
+    big_baseline = json.dumps(padded).encode()
+
+    client = TestClient(create_app())
+
+    # Success path with a genuine disk spool.
+    ok = client.post("/api/compare", files=_files(baseline=big_baseline))
+    assert ok.status_code == 200
+    assert len(spooled) >= 1, "the >1 MB part never spooled — the cleanup stays untested"
+    assert all(handle.closed for handle in spooled)  # inode + fd released
+    assert list(spool.iterdir()) == []  # and nothing was written under a persistent name
+
+    # Malformed error path: a >1 MB part still spools, then parsing fails 422 —
+    # the spool must be closed even when the request errors.
+    spooled.clear()
+    malformed = client.post(
+        "/api/compare",
+        files=_files(baseline=big_baseline, candidate=b"{" + b"x" * (1024 * 1024)),
+    )
+    assert malformed.status_code == 422
+    assert len(spooled) >= 1
+    assert all(handle.closed for handle in spooled)
+    assert list(spool.iterdir()) == []
+
+
 def test_openapi_schema_is_committed_and_current(client: TestClient) -> None:
     """The committed OpenAPI schema is the contract (PD-V3-13): the live app
     must match it byte-for-byte under the export serialization (the CI diff
