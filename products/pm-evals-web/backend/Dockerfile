@@ -2,9 +2,13 @@
 FROM python:3.11-slim
 
 WORKDIR /app
-COPY pyproject.toml ./
+COPY pyproject.toml requirements.lock ./
 COPY src ./src
-RUN pip install --no-cache-dir .
+# Install the hash-verified, fully pinned runtime closure first, then the app
+# itself with no re-resolution — two builds of the same commit install the same
+# dependency versions (dogfood F-3, digest-reproducible artifact).
+RUN pip install --no-cache-dir --require-hashes -r requirements.lock \
+ && pip install --no-cache-dir --no-deps .
 
 EXPOSE 8000
 # slim has no curl; health-check with the stdlib

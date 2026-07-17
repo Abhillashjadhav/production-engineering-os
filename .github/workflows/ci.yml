@@ -85,6 +85,11 @@ jobs:
         run: |
           ruff format --check src tests
           ruff check src tests
+      - name: dependency audit (backend lockfile blocks on any known vuln)
+        working-directory: products/pm-evals-web/backend
+        run: |
+          pip install pip-audit
+          pip-audit --require-hashes -r requirements.lock --strict
 
   product-frontend:
     runs-on: ubuntu-latest
