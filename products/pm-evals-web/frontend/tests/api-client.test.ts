@@ -144,6 +144,23 @@ describe("downloadReport", () => {
       expect(result.problems[0].issues[0].message).toContain("not valid JSON");
     }
   });
+
+  it("maps a mid-transfer body failure to a recoverable error, never a rejection", async () => {
+    // a 200 whose body stream dies must not strand the caller's in-flight
+    // state behind an unhandled rejection
+    const brokenBody: typeof fetch = async () =>
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            controller.error(new Error("connection reset"));
+          },
+        }),
+        { status: 200, headers: { "content-type": "text/markdown" } },
+      );
+    const result = await downloadReport(fileOf("{}"), fileOf("{}"), "markdown", brokenBody);
+    expect(result.kind).toBe("error");
+    if (result.kind === "error") expect(result.message).toContain("mid-transfer");
+  });
 });
 
 describe("health", () => {

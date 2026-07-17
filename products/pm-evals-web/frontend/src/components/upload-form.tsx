@@ -27,13 +27,22 @@ interface SelectedFile {
   pre: PreValidation;
 }
 
+// What the form hands upward on success: the verdict plus the exact files
+// it was computed from, so downstream consumers (dashboard downloads, J-8)
+// can regenerate the report from the same evidence without any storage.
+export interface ComparisonHandoff {
+  comparison: Comparison;
+  baseline: File;
+  candidate: File;
+}
+
 interface UploadFormProps {
   // Injected in tests so the real typed client runs against a fake network.
   fetcher?: typeof fetch;
   // Reports every comparison-state change upward (value on success, null
   // whenever the result is invalidated) so the dashboard can never show a
   // verdict for inputs the form no longer holds.
-  onComparison?: (comparison: Comparison | null) => void;
+  onComparison?: (handoff: ComparisonHandoff | null) => void;
 }
 
 // FileReader instead of File.text(): supported everywhere the app runs,
@@ -146,7 +155,11 @@ export function UploadForm({ fetcher = fetch, onComparison }: UploadFormProps) {
     const result = await compareRuns(selected.baseline.file, selected.candidate.file, fetcher);
     if (result.kind === "ok") {
       setComparison(result.value);
-      onComparison?.(result.value);
+      onComparison?.({
+        comparison: result.value,
+        baseline: selected.baseline.file,
+        candidate: selected.candidate.file,
+      });
       setPhase("success");
       return;
     }

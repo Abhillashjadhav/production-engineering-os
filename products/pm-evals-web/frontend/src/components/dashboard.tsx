@@ -63,6 +63,13 @@ export function Dashboard({ comparison }: { comparison: Comparison }) {
             evidence.
           </p>
         )}
+        {comparison.verdict === "INSUFFICIENT_EVIDENCE" && (
+          <p className="verdict-guidance">
+            The files are valid but do not hold enough comparable results to
+            judge safely. Upload results that share more trace ids — the
+            verdict needs enough matched traces to be trustworthy.
+          </p>
+        )}
       </div>
 
       <dl className="summary">

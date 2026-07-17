@@ -1,15 +1,16 @@
 "use client";
 
-// The S-1 → S-2/S-3 wiring: the upload form reports its comparison up, and
-// the dashboard + trace explorer render beneath it. Reset or re-selection
-// clears them — a stale verdict is never left standing next to new inputs.
+// The S-1 → S-2/S-3 wiring: the upload form hands its comparison (plus the
+// exact files it came from) upward, and the dashboard, downloads (J-8), and
+// trace explorer render beneath it. Reset or re-selection clears them — a
+// stale verdict is never left standing next to new inputs.
 
 import { useState } from "react";
 
 import { Dashboard } from "@/components/dashboard";
+import { DownloadPanel } from "@/components/download-panel";
 import { TraceExplorer } from "@/components/trace-explorer";
-import { UploadForm } from "@/components/upload-form";
-import type { Comparison } from "@/lib/api";
+import { UploadForm, type ComparisonHandoff } from "@/components/upload-form";
 
 interface WorkspaceProps {
   // Injected in tests so the real components run against a fake network.
@@ -17,14 +18,19 @@ interface WorkspaceProps {
 }
 
 export function Workspace({ fetcher }: WorkspaceProps) {
-  const [comparison, setComparison] = useState<Comparison | null>(null);
+  const [handoff, setHandoff] = useState<ComparisonHandoff | null>(null);
   return (
     <>
-      <UploadForm fetcher={fetcher} onComparison={setComparison} />
-      {comparison !== null && (
+      <UploadForm fetcher={fetcher} onComparison={setHandoff} />
+      {handoff !== null && (
         <>
-          <Dashboard comparison={comparison} />
-          <TraceExplorer comparison={comparison} />
+          <Dashboard comparison={handoff.comparison} />
+          <DownloadPanel
+            baseline={handoff.baseline}
+            candidate={handoff.candidate}
+            fetcher={fetcher}
+          />
+          <TraceExplorer comparison={handoff.comparison} />
         </>
       )}
     </>
