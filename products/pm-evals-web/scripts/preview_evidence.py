@@ -20,7 +20,7 @@ import argparse
 import hashlib
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pmpe.contracts.digest import canonical_digest
@@ -76,7 +76,7 @@ def main() -> int:
                 "source-tree": digest,
             },
             journeys=journeys,
-            recorded_at=datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            recorded_at=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
         )
         print(f"recorded {args.out} ({evidence.deployment_kind}, {len(journeys)} journeys)")
         return 0
