@@ -24,19 +24,33 @@ function comparePayload(baseline: File, candidate: File): FormData {
   return form;
 }
 
-async function readValidationProblems(response: Response): Promise<ValidationProblem[]> {
-  const body: unknown = await response.json();
-  const detail = (body as { detail?: unknown }).detail;
-  if (Array.isArray(detail) && detail.every((p) => typeof p === "object" && p !== null && "source" in p)) {
-    return detail as ValidationProblem[];
-  }
-  // framework-shaped 422 (missing part / bad form field) — not the J-4 shape
+function frameworkFallback(): ValidationProblem[] {
+  // framework-shaped or unreadable 422 (missing part / bad form field / non-JSON
+  // body) — anything that is not the J-4 named-issues shape
   return [
     {
       source: "baseline",
       issues: [{ location: "request", message: "The request was not accepted. Re-select both files and try again." }],
     },
   ];
+}
+
+async function readValidationProblems(response: Response): Promise<ValidationProblem[]> {
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return frameworkFallback();
+  }
+  const detail = (body as { detail?: unknown }).detail;
+  if (
+    Array.isArray(detail) &&
+    detail.length > 0 &&
+    detail.every((p) => typeof p === "object" && p !== null && "source" in p)
+  ) {
+    return detail as ValidationProblem[];
+  }
+  return frameworkFallback();
 }
 
 export async function compareRuns(
@@ -59,7 +73,12 @@ export async function compareRuns(
   if (!response.ok) {
     return { kind: "error", message: `The comparison failed (HTTP ${response.status}).` };
   }
-  const body = (await response.json()) as CompareResponse;
+  let body: CompareResponse;
+  try {
+    body = (await response.json()) as CompareResponse;
+  } catch {
+    return { kind: "error", message: "The comparison service returned an unreadable response." };
+  }
   return { kind: "ok", value: body.comparison };
 }
 
@@ -79,6 +98,9 @@ export async function downloadReport(
   }
   if (response.status === 422) {
     return { kind: "validation", problems: await readValidationProblems(response) };
+  }
+  if (response.status === 413) {
+    return { kind: "error", message: "One of the files is larger than the 5 MB limit." };
   }
   if (!response.ok) {
     return { kind: "error", message: `The report download failed (HTTP ${response.status}).` };

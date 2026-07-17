@@ -74,3 +74,14 @@ def test_committed_schema_drift_fails_closed(tmp_path: Path) -> None:
 def test_missing_committed_schema_fails_closed(tmp_path: Path) -> None:
     problems = verify_committed_schema(tmp_path / "absent.json", {})
     assert problems and "no committed OpenAPI contract" in problems[0]
+
+
+def test_formatting_only_drift_is_still_drift(tmp_path: Path) -> None:
+    """The match is byte-level, not semantic: a document that parses to the
+    identical JSON but uses a different serialization (whitespace only) is
+    drift — reviewers read bytes, so bytes are the contract."""
+    live = json.loads(COMMITTED.read_text())
+    drifted = tmp_path / "openapi.json"
+    drifted.write_text(json.dumps(live, indent=4, sort_keys=True) + "\n")
+    problems = verify_committed_schema(drifted, live)
+    assert problems and "does not match" in problems[0]

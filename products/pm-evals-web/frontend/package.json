@@ -12,7 +12,7 @@
     "generate:api-types": "openapi-typescript ../backend/openapi.json -o src/lib/api-types.gen.ts"
   },
   "dependencies": {
-    "next": "15.5.12",
+    "next": "15.5.20",
     "react": "19.2.4",
     "react-dom": "19.2.4"
   },
@@ -22,10 +22,10 @@
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^5.2.0",
     "jsdom": "^25.0.1",
     "openapi-typescript": "^7.4.4",
     "typescript": "^5.7.2",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.10"
   }
 }

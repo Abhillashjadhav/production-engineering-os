@@ -16,7 +16,8 @@ export function Explainer() {
         </li>
         <li>
           <strong>HOLD</strong> — something a release gate protects newly
-          fails, or a guardrail was violated.
+          fails, a guardrail was violated, or the two files are not comparable
+          evidence (for example, different eval suites).
         </li>
         <li>
           <strong>INSUFFICIENT_EVIDENCE</strong> — the files are valid but do
