@@ -64,6 +64,20 @@ describe("TraceExplorer — changed traces (J-7)", () => {
     expect(within(detail).getByText(/now passes/i)).toBeInTheDocument();
   });
 
+  it("closes the detail when the filter excludes the selected trace", () => {
+    // PR 8's reviewer noted the detail panel outliving its filtered-out row —
+    // a detail must never describe a trace the table no longer shows.
+    render(<TraceExplorer comparison={regression} />);
+    fireEvent.click(screen.getByRole("button", { name: /T-006/ }));
+    expect(screen.getByRole("region", { name: /trace T-006 detail/i })).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(/filter changed traces/i), {
+      target: { value: "T-003" },
+    });
+    expect(
+      screen.queryByRole("region", { name: /trace T-006 detail/i }),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders the empty state when nothing changed between the runs", () => {
     const unchanged = {
       ...regression,
