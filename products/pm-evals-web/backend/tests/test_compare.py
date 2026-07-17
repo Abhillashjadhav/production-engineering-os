@@ -163,6 +163,23 @@ def test_non_finite_numbers_are_refused() -> None:
         assert any("non-finite" in i.message for i in result.issues), token
 
 
+def test_numeric_overflow_to_infinity_is_refused() -> None:
+    """A finite-looking literal that overflows to inf (e.g. 1e400) is parsed by
+    parse_float, NOT the bare-token parse_constant path — so it slips past a
+    NaN/Infinity-token-only guard and lands as inf. The refusal must cover the
+    overflow path too, or the non-finite guarantee is hollow."""
+    for token in ("1e400", "-1e400"):
+        raw = (
+            '{"format_version": 1, "run_id": "r", "suite": "s",'
+            ' "config": {"threshold": ' + token + "},"
+            ' "criteria": [{"id": "C"}],'
+            ' "traces": [{"trace_id": "T", "results": {"C": "pass"}}]}'
+        )
+        result = parse_run(raw, source_name="candidate")
+        assert not result.ok, token
+        assert any("non-finite" in i.message for i in result.issues), token
+
+
 def test_a_valid_file_with_no_duplicates_or_non_finite_numbers_still_parses() -> None:
     """The hardening must not reject well-formed files: a run with a numeric
     config value and no repeated keys parses clean."""
