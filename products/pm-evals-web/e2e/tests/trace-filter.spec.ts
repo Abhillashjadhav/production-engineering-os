@@ -10,7 +10,7 @@ import { compareFixtures } from "./helpers";
 
 test("S-3 changed-trace filters narrow the browser view (J-7)", async ({ page }) => {
   await page.goto("/");
-  await compareFixtures(page); // REGRESSION: 4 changed traces, mixed direction
+  await compareFixtures(page); // REGRESSION: 4 changed traces, both directions present
 
   const traces = page.getByRole("region", { name: /changed traces/i });
   const list = traces.getByRole("list", { name: /changed traces/i });
@@ -23,9 +23,10 @@ test("S-3 changed-trace filters narrow the browser view (J-7)", async ({ page })
   await expect(list.getByRole("button")).toHaveCount(1);
   await expect(list.getByRole("button", { name: /^T-006/ })).toBeVisible();
 
-  // A filter that matches nothing shows the declared empty state.
+  // A filter that matches nothing shows the declared empty state and no rows.
   await traces.getByLabel(/filter changed traces/i).fill("T-999");
   await expect(traces.getByText(/no changed traces match the filter/i)).toBeVisible();
+  await expect(list.getByRole("button")).toHaveCount(0);
 
   // Clear the text filter, then filter by direction via the Show select.
   await traces.getByLabel(/filter changed traces/i).fill("");
