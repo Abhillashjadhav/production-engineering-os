@@ -78,7 +78,7 @@ def parse_run(raw: str | bytes, *, source_name: str = "upload") -> ParseResult:
     """Parse one run file. Never raises on bad input — returns named issues."""
     try:
         data = json.loads(raw)
-    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
         return ParseResult(
             issues=[ParseIssue(location=source_name, message=f"not valid JSON: {exc}")]
         )

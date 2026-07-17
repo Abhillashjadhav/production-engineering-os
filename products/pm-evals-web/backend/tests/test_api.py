@@ -156,6 +156,35 @@ def test_uploads_leave_no_residue(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
 def test_openapi_schema_is_committed_and_current(client: TestClient) -> None:
     """The committed OpenAPI schema is the contract (PD-V3-13): the live app
-    must match it byte-for-byte (the CI diff and typed client build on this)."""
-    committed = json.loads((Path(__file__).resolve().parents[1] / "openapi.json").read_text())
-    assert client.app.openapi() == committed  # type: ignore[attr-defined]
+    must match it byte-for-byte under the export serialization (the CI diff
+    and typed client build on this)."""
+    committed = (Path(__file__).resolve().parents[1] / "openapi.json").read_text()
+    live = json.dumps(
+        client.app.openapi(),  # type: ignore[attr-defined]
+        indent=2,
+        sort_keys=True,
+    )
+    assert live + "\n" == committed
+
+
+def test_deeply_nested_json_gets_named_issues_not_500(client: TestClient) -> None:
+    """Pathological nesting must stay inside the locked malformed->422 mapping
+    (T4): a ~2 KB bomb of 1000 nested arrays previously escaped as a bare 500."""
+    bomb = b"[" * 1000 + b"]" * 1000
+    response = client.post("/api/compare", files=_files(candidate=bomb))
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail[0]["source"] == "candidate"
+    assert detail[0]["issues"][0]["message"].startswith("not valid JSON")
+
+
+def test_input_digests_are_the_real_sha256(client: TestClient) -> None:
+    """The digests are the verdict's evidence provenance — pin them to the
+    actual bytes, not just the prefix."""
+    import hashlib
+
+    response = client.post("/api/compare", files=_files(candidate=REGRESSION))
+    comparison = response.json()["comparison"]
+    assert comparison["baseline_digest"] == "sha256:" + hashlib.sha256(BASELINE).hexdigest()
+    assert comparison["candidate_digest"] == "sha256:" + hashlib.sha256(REGRESSION).hexdigest()
+    assert comparison["baseline_digest"] != comparison["candidate_digest"]

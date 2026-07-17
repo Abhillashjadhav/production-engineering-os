@@ -107,7 +107,15 @@ def create_app() -> FastAPI:
     async def health() -> HealthResponse:
         return HealthResponse(status="ok", api_version=API_VERSION)
 
-    @app.post("/api/compare", response_model=CompareResponse)
+    validation_responses: dict[int | str, dict[str, Any]] = {
+        413: {"description": "An uploaded file exceeds the size limit."},
+        422: {
+            "description": "Malformed upload(s): named per-source parse issues.",
+            "model": list[ValidationProblem],
+        },
+    }
+
+    @app.post("/api/compare", response_model=CompareResponse, responses=validation_responses)
     async def compare(
         baseline: UploadFile = File(...),
         candidate: UploadFile = File(...),
@@ -123,7 +131,20 @@ def create_app() -> FastAPI:
         )
         return CompareResponse(comparison=comparison)
 
-    @app.post("/api/report")
+    @app.post(
+        "/api/report",
+        responses={
+            **validation_responses,
+            200: {
+                "description": "The comparison report as a downloadable attachment "
+                "(text/markdown or application/json, server-generated filename).",
+                "content": {
+                    "text/markdown": {"schema": {"type": "string"}},
+                    "application/json": {"schema": {"type": "object"}},
+                },
+            },
+        },
+    )
     async def report(
         baseline: UploadFile = File(...),
         candidate: UploadFile = File(...),

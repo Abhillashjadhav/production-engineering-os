@@ -257,19 +257,6 @@
         "title": "CriterionDelta",
         "type": "object"
       },
-      "HTTPValidationError": {
-        "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "title": "Detail",
-            "type": "array"
-          }
-        },
-        "title": "HTTPValidationError",
-        "type": "object"
-      },
       "HealthResponse": {
         "properties": {
           "api_version": {
@@ -289,44 +276,48 @@
         "title": "HealthResponse",
         "type": "object"
       },
-      "ValidationError": {
+      "ParseIssue": {
+        "description": "One named problem with an uploaded run file.",
         "properties": {
-          "ctx": {
-            "title": "Context",
-            "type": "object"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
-            },
+          "location": {
             "title": "Location",
-            "type": "array"
-          },
-          "msg": {
-            "title": "Message",
             "type": "string"
           },
-          "type": {
-            "title": "Error Type",
+          "message": {
+            "title": "Message",
             "type": "string"
           }
         },
         "required": [
-          "loc",
-          "msg",
-          "type"
+          "location",
+          "message"
         ],
-        "title": "ValidationError",
+        "title": "ParseIssue",
+        "type": "object"
+      },
+      "ValidationProblem": {
+        "properties": {
+          "issues": {
+            "items": {
+              "$ref": "#/components/schemas/ParseIssue"
+            },
+            "title": "Issues",
+            "type": "array"
+          },
+          "source": {
+            "enum": [
+              "baseline",
+              "candidate"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source",
+          "issues"
+        ],
+        "title": "ValidationProblem",
         "type": "object"
       },
       "VerdictReason": {
@@ -392,15 +383,22 @@
             },
             "description": "Successful Response"
           },
+          "413": {
+            "description": "An uploaded file exceeds the size limit."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "items": {
+                    "$ref": "#/components/schemas/ValidationProblem"
+                  },
+                  "title": "Response 422 Compare Api Compare Post",
+                  "type": "array"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Malformed upload(s): named per-source parse issues."
           }
         },
         "summary": "Compare"
@@ -441,20 +439,34 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "type": "object"
+                }
+              },
+              "text/markdown": {
+                "schema": {
+                  "type": "string"
+                }
               }
             },
-            "description": "Successful Response"
+            "description": "The comparison report as a downloadable attachment (text/markdown or application/json, server-generated filename)."
+          },
+          "413": {
+            "description": "An uploaded file exceeds the size limit."
           },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "items": {
+                    "$ref": "#/components/schemas/ValidationProblem"
+                  },
+                  "title": "Response 422 Report Api Report Post",
+                  "type": "array"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "Malformed upload(s): named per-source parse issues."
           }
         },
         "summary": "Report"
