@@ -6,6 +6,10 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const chromiumPath = process.env.PLAYWRIGHT_CHROMIUM_PATH;
+// E2E_EXTERNAL_SERVERS=1: the suite runs against servers someone else
+// started on the default ports — the compose stack in CI's preview job, or
+// scripts/preview.sh's built-artifact processes locally (PD-V3-14).
+const externalServers = !!process.env.E2E_EXTERNAL_SERVERS;
 
 export default defineConfig({
   testDir: "./tests",
@@ -38,7 +42,7 @@ export default defineConfig({
   // time (next.config.mjs rewrites are evaluated during `next build`), so the
   // e2e servers run where the committed default points — backend 8000,
   // frontend 3000. A BACKEND_URL set only at start time would be ignored.
-  webServer: [
+  webServer: externalServers ? undefined : [
     {
       // E2E_PYTHON lets the local run use the repo venv; CI installs the
       // backend into the system interpreter and leaves it unset

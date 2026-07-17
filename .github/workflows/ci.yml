@@ -152,6 +152,67 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
+  product-preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: install pmpe (preview evidence tooling)
+        run: pip install -e "."
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: products/pm-evals-web/e2e/package-lock.json
+      - name: build and start the containerized preview
+        run: docker compose -f products/pm-evals-web/docker-compose.yml up -d --build --wait
+      - name: browser suite against the containers (no mocks)
+        working-directory: products/pm-evals-web/e2e
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          E2E_EXTERNAL_SERVERS=1 npx playwright test
+      - name: record and verify digest-bound preview evidence
+        run: |
+          BUILD_ID="$(docker compose -f products/pm-evals-web/docker-compose.yml exec -T frontend cat .next/BUILD_ID)"
+          python products/pm-evals-web/scripts/preview_evidence.py record \
+            --kind containerized_preview \
+            --build-id "$BUILD_ID" \
+            --out products/pm-evals-web/preview-evidence.json \
+            --journeys a11y=passed keyboard=passed responsive=passed journeys=passed
+          python products/pm-evals-web/scripts/preview_evidence.py verify \
+            --path products/pm-evals-web/preview-evidence.json
+      - name: the digest binding fails closed on a doctored record
+        run: |
+          python - <<'EOF'
+          import json, pathlib
+          path = pathlib.Path("products/pm-evals-web/preview-evidence.json")
+          data = json.loads(path.read_text())
+          data["source_digest"] = "sha256:" + "0" * 64
+          path.write_text(json.dumps(data))
+          EOF
+          if python products/pm-evals-web/scripts/preview_evidence.py verify \
+              --path products/pm-evals-web/preview-evidence.json; then
+            echo "::error::a doctored preview record verified — the binding is broken"
+            exit 1
+          fi
+          echo "doctored record refused, as required"
+      - name: upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview-playwright-artifacts
+          path: |
+            products/pm-evals-web/e2e/test-results/
+            products/pm-evals-web/e2e/playwright-report/
+          retention-days: 7
+          if-no-files-found: ignore
+      - name: teardown
+        if: always()
+        run: docker compose -f products/pm-evals-web/docker-compose.yml down -v
+
   build-smoke:
     runs-on: ubuntu-latest
     steps:
