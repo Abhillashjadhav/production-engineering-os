@@ -24,6 +24,7 @@
     "v3-product-conformance-reviewer",
     "v3-evidence-integrity-reviewer"
   ],
+  "ledger_clean_under_both_rule_sets": true,
   "reused_evidence": {
     "browser_suites": [
       "a11y",

@@ -66,11 +66,22 @@ Explicit, reviewed, and deliberate — each was weighed during the independent r
     wrong-candidate and evidence-free reviews; they do not prove each reviewer
     catches its own defect class (that is live Claude judgment, checked by the
     demo's planted defects and, in live runs, by the four-way review round).
-14. **The runtime read-only proof excludes `.git/` and cache directories.**
-    `verify_unmodified` diffs tracked content; writes into `.git` internals or
-    `__pycache__` are invisible to it. The primary control is the reviewers'
-    frontmatter tool list (Read/Grep/Glob only), enforced by the Claude Code
-    runtime and asserted by the permission evals.
+14. **The runtime read-only proof is drawn at the git-tracked boundary.**
+    `readonly_snapshot`/`verify_unmodified` diff git-tracked content (`git
+    ls-files`, plus an explicit untracked allowlist). This is deliberate: it
+    excludes untracked runtime files — Claude Code's own
+    `.claude/scheduled_tasks.lock`, dependency/build caches — symmetrically on
+    both sides, so a transient harness file the harness itself creates or
+    deletes cannot register as a reviewer write. The trade-off is that a
+    reviewer *creating a new untracked file* is not detected by the content
+    proof (a tracked-file change or removal still is). The primary control
+    remains the reviewers' frontmatter tool list (Read/Grep/Glob only), enforced
+    by the Claude Code runtime and asserted by the permission evals; the content
+    proof is belt-and-braces. Two related scopes: the candidate **freeze**
+    digest (`pmpe.engineering.candidate`) intentionally still hashes the whole
+    tree — narrowing it would move already-frozen candidate digests — so the V2
+    `verify_frozen` path retains the whole-tree behaviour; and a non-git root
+    now fails closed with a clear error rather than silently walking the tree.
 15. **The engine does not spawn worktrees itself.** `specialist_worktree` is
     the isolation seam for the live `/production-engineer` skill; in fixture
     mode (CI, demo) specialists are simulated and only their artifacts pass

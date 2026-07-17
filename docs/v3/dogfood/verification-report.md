@@ -54,6 +54,12 @@ not retrofitted into the frozen candidate.
 - Driving `begin_review`/`end_review` over the frozen candidate worktree yields
   **six clean read-only proofs**; `release_report` emits **HOLD** with
   `verification_integrity = valid`. (`verification-ledger.jsonl`.)
+- The complete verification ledger (reused phase-1 evidence + the six
+  re-established reviews + the HOLD release) is **clean under both rule sets** —
+  `evaluate_fullstack_trajectory` (TRAJ-FS) and `evaluate_trajectory` (V2) both
+  return no violations. TRAJ-FS-06 was aligned with `release_report` in this PR
+  so the trajectory auditor and the orchestrator agree about the same run
+  (an `infrastructure_invalid` proof is acceptable for HOLD, never for PROCEED).
 
 The original run's failed read-only proof (`readonly_check: modified`) was a
 harness-lock **false positive**, not a reviewer write. It is preserved verbatim

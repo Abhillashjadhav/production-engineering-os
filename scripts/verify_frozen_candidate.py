@@ -49,6 +49,8 @@ from pmpe.agents.permissions import (  # noqa: E402
 )
 from pmpe.agents.registry import AgentRegistry  # noqa: E402
 from pmpe.assurance.readonly_guard import readonly_snapshot, verify_unmodified  # noqa: E402
+from pmpe.evals.trajectory import evaluate_trajectory  # noqa: E402
+from pmpe.evals.trajectory_fullstack import evaluate_fullstack_trajectory  # noqa: E402
 from pmpe.fullstack.contract import load_fullstack_contract  # noqa: E402
 from pmpe.fullstack.orchestration import FullStackRun  # noqa: E402
 
@@ -169,9 +171,34 @@ def main() -> int:
         file=log,
     )
 
+    # compose the complete verification ledger: reused phase-1 evidence
+    # (re-stamped to this verification run) + the six re-established reviews +
+    # the release report. The reused phase-1 events keep their original digests
+    # (freeze candidate, browser suites, preview) — only the run_id is aligned.
+    review_events = [
+        json.loads(line)
+        for line in (run_dir / "ledger.jsonl").read_text().splitlines()
+        if line.strip()
+    ]
+    phase1_reused = [
+        {**e, "run_id": state["run_id"]}
+        for e in phase1
+        if e.get("stage") not in ("review", "release_report")
+    ]
+    full_ledger = phase1_reused + review_events
+
+    # the dogfood thesis: a complete run ledger is clean under BOTH rule sets
+    fs = [v.check_id for v in evaluate_fullstack_trajectory(full_ledger)]
+    v2 = [v.check_id for v in evaluate_trajectory(full_ledger)]
+    if fs or v2:
+        raise SystemExit(f"verification ledger not clean — TRAJ-FS={fs} V2={v2}")
+    print("\nverification ledger clean under both rule sets (TRAJ-FS + V2)", file=log)
+
     # emit evidence
     (dest / "readonly-proof.txt").write_text(log.getvalue())
-    shutil.copy2(run_dir / "ledger.jsonl", dest / "verification-ledger.jsonl")
+    (dest / "verification-ledger.jsonl").write_text(
+        "\n".join(json.dumps(e) for e in full_ledger) + "\n"
+    )
     shutil.rmtree(run_dir)
 
     result = {
@@ -186,6 +213,7 @@ def main() -> int:
         "verification_integrity": report.verification_integrity,
         "integrity_by_lens": report.integrity_by_lens,
         "lenses_reviewed": list(report.lenses_reviewed),
+        "ledger_clean_under_both_rule_sets": True,
         "reused_evidence": {
             "browser_suites": sorted(suites),
             "preview_recorded": True,

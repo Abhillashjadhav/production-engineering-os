@@ -61,8 +61,14 @@ def _tracked_files(root: Path) -> list[str]:
         ["git", "-C", str(root), "ls-files", "-z", "--cached"],
         capture_output=True,
         text=True,
-        check=True,
     )
+    if result.returncode != 0:
+        # the read-only proof is defined against the git-tracked candidate; a
+        # non-git root (or a missing git binary) has no boundary to draw
+        raise ValueError(
+            f"read-only proof requires a git worktree at {root}: "
+            f"{result.stderr.strip() or 'git ls-files failed'}"
+        )
     return [rel for rel in result.stdout.split("\0") if rel]
 
 

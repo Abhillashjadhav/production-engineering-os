@@ -23,3 +23,5 @@ roster proof: PASS (all six lenses read-only by tool config)
   v3-evidence-integrity-reviewer: readonly_check=clean over 243eddf72005
 
 release_report: product_verdict=HOLD, verification_integrity=valid
+
+verification ledger clean under both rule sets (TRAJ-FS + V2)
