@@ -27,3 +27,33 @@ main { max-width: 60rem; margin: 0 auto; padding: 2rem 1rem; }
 }
 
 :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+
+/* S-1 upload journey (J-2..J-5) */
+.file-field { margin: 1rem 0; }
+.file-field label { display: block; font-weight: 600; margin-bottom: 0.25rem; }
+.file-note { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.9rem; overflow-wrap: anywhere; }
+.issues { margin: 0.25rem 0 0; padding-left: 1.25rem; color: var(--error); }
+.issues li { overflow-wrap: anywhere; }
+.pair-issues { border: 1px solid var(--error); border-radius: 4px; padding: 0.5rem 0.75rem; margin: 1rem 0; }
+.pair-issues p { margin: 0; font-weight: 600; }
+.api-errors { border: 1px solid var(--error); border-radius: 4px; padding: 0.5rem 0.75rem; margin: 1rem 0; color: var(--error); }
+.api-errors p { margin: 0; }
+.compare-status { margin: 1rem 0; }
+.verdict { border-left: 4px solid var(--muted); padding: 0.5rem 0.75rem; }
+.verdict-proceed { border-left-color: var(--ok); }
+.verdict-hold { border-left-color: var(--hold); }
+.verdict-insufficient_evidence { border-left-color: var(--insufficient); }
+button[type="submit"], .compare-status button {
+  font: inherit;
+  padding: 0.5rem 1.25rem;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+button:disabled { background: var(--muted); border-color: var(--muted); cursor: not-allowed; }
+
+@media (max-width: 480px) {
+  button[type="submit"], .compare-status button { width: 100%; }
+}

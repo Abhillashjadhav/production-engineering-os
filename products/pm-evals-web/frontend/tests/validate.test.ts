@@ -54,7 +54,7 @@ describe("preValidateFile", () => {
   });
 
   it("names an unsupported format_version and states the supported one", () => {
-    const text = VALID_RUN.replace('"format_version": 1', '"format_version": 2');
+    const text = VALID_RUN.replace('"format_version":1', '"format_version":2');
     const result = preValidateFile("baseline", text.length, text);
     expect(result.run).toBeNull();
     expect(result.issues[0].message).toContain("unsupported format_version");
