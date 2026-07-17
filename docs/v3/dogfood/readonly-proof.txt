@@ -1,0 +1,25 @@
+# Read-only guard proof over the frozen candidate tree
+candidate worktree HEAD: 243eddf72005f6f23ed70142053adbd27f7ae3c3
+tracked files in snapshot: 464
+harness lock present-then-deleted → verify_unmodified: clean
+tracked file .claude/agents/customer-reviewer.md modified → verify_unmodified: ['changed: .claude/agents/customer-reviewer.md']
+guard proof: PASS (clean over candidate; lock tolerated; real change caught)
+
+# Reviewer read-only proof by tool configuration (at 243eddf)
+  v3-ux-journey-reviewer: tools Read/Grep/Glob only (read-only) ✓
+  v3-frontend-accessibility-reviewer: tools Read/Grep/Glob only (read-only) ✓
+  v3-backend-api-security-reviewer: tools Read/Grep/Glob only (read-only) ✓
+  v3-architecture-simplicity-reviewer: tools Read/Grep/Glob only (read-only) ✓
+  v3-product-conformance-reviewer: tools Read/Grep/Glob only (read-only) ✓
+  v3-evidence-integrity-reviewer: tools Read/Grep/Glob only (read-only) ✓
+roster proof: PASS (all six lenses read-only by tool config)
+
+# Six reviewer read-only proofs re-established over the frozen candidate
+  v3-ux-journey-reviewer: readonly_check=clean over 243eddf72005
+  v3-frontend-accessibility-reviewer: readonly_check=clean over 243eddf72005
+  v3-backend-api-security-reviewer: readonly_check=clean over 243eddf72005
+  v3-architecture-simplicity-reviewer: readonly_check=clean over 243eddf72005
+  v3-product-conformance-reviewer: readonly_check=clean over 243eddf72005
+  v3-evidence-integrity-reviewer: readonly_check=clean over 243eddf72005
+
+release_report: product_verdict=HOLD, verification_integrity=valid
