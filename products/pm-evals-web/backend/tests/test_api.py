@@ -117,7 +117,7 @@ def test_markdown_report_downloads(client: TestClient) -> None:
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/markdown")
     assert "## Verdict: HOLD" in response.text
-    assert "Generated at: " in response.text  # timestamp isolated to a labeled field
+    assert "Generated at:" not in response.text  # no uncontrolled wall-clock (GATE-4)
 
 
 def test_json_report_downloads(client: TestClient) -> None:
@@ -125,10 +125,22 @@ def test_json_report_downloads(client: TestClient) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["comparison"]["verdict"] == "PROCEED"
-    assert "generated_at" in payload
+    assert "generated_at" not in payload  # deterministic: no wall-clock field
     assert response.headers["content-disposition"] == (
         'attachment; filename="eval-comparison.json"'
     )
+
+
+def test_reports_are_byte_identical_for_identical_inputs(client: TestClient) -> None:
+    """GATE-4: identical inputs produce byte-identical reports (no clock)."""
+
+    def _report(fmt: str) -> bytes:
+        return client.post(
+            "/api/report", files=_files(candidate=REGRESSION), data={"format": fmt}
+        ).content
+
+    assert _report("markdown") == _report("markdown")
+    assert _report("json") == _report("json")
 
 
 def test_invalid_min_matched_traces_is_refused(client: TestClient) -> None:
