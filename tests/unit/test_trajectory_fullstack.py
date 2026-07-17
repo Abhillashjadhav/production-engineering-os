@@ -103,3 +103,42 @@ def test_mocked_flag_variants_are_caught() -> None:
             event["detail"] = str(event["detail"]).replace("mocked=false", "mocked=true")
     checks = {v.check_id for v in evaluate_fullstack_trajectory(events)}
     assert "TRAJ-FS-03" in checks
+
+
+def _set_readonly(events: list[dict[str, object]], agent: str, verdict: str) -> None:
+    for e in events:
+        if e.get("action") == "readonly_check" and e.get("agent") == agent:
+            e["verdict"] = verdict
+
+
+def _set_release_verdict(events: list[dict[str, object]], verdict: str) -> None:
+    for e in events:
+        if e.get("stage") == "release_report":
+            e["verdict"] = verdict
+
+
+def test_an_infrastructure_invalid_proof_is_accepted_for_a_hold() -> None:
+    """TRAJ-FS-06 must agree with release_report: an honestly-recorded
+    infrastructure-invalid proof (harness interference, not a reviewer write)
+    is acceptable for a HOLD — not a trajectory violation."""
+    events = _load("good_fullstack_run.jsonl")
+    _set_readonly(events, "v3-backend-api-security-reviewer", "infrastructure_invalid")
+    _set_release_verdict(events, "HOLD")
+    assert evaluate_fullstack_trajectory(events) == []
+
+
+def test_a_modified_read_only_proof_is_still_a_violation() -> None:
+    events = _load("good_fullstack_run.jsonl")
+    _set_readonly(events, "v3-backend-api-security-reviewer", "modified")
+    checks = {v.check_id for v in evaluate_fullstack_trajectory(events)}
+    assert "TRAJ-FS-06" in checks
+
+
+def test_a_proceed_release_cannot_rest_on_a_degraded_proof() -> None:
+    """PROCEED demands intact integrity on every lens, exactly as release_report
+    refuses PROCEED at degraded integrity."""
+    events = _load("good_fullstack_run.jsonl")
+    _set_readonly(events, "v3-backend-api-security-reviewer", "infrastructure_invalid")
+    _set_release_verdict(events, "PROCEED")
+    checks = {v.check_id for v in evaluate_fullstack_trajectory(events)}
+    assert "TRAJ-FS-06" in checks
