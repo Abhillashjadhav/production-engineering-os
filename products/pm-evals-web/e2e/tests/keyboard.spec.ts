@@ -69,7 +69,12 @@ test("status changes are exposed to assistive technology", async ({ page }) => {
   await page.getByLabel(/baseline/i).setInputFiles(BASELINE_FIXTURE);
   await page.getByLabel(/candidate/i).setInputFiles(REGRESSION_FIXTURE);
   await page.getByRole("button", { name: /compare runs/i }).click();
-  const status = page.getByRole("status");
+  // Scope to the S-1 compare-status: while a comparison is in flight the S-3
+  // trace explorer also renders a role="status" ("Loading trace comparison…"),
+  // so an unscoped getByRole("status") is ambiguous in slower environments.
+  const status = page
+    .getByRole("region", { name: /compare two runs/i })
+    .getByRole("status");
   await expect(status).toBeVisible();
   await expect(status).toHaveAttribute("aria-live", "polite");
   await expect(status).toContainText(/HOLD/);

@@ -15,7 +15,8 @@ import hashlib
 import json
 from typing import Any, Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
@@ -36,8 +37,19 @@ API_VERSION = "1.0.0"
 
 
 class ValidationProblem(BaseModel):
-    source: Literal["baseline", "candidate"]
+    # "baseline" | "candidate" for upload issues, or a request-field name
+    # (e.g. "min_matched_traces") for transport-level validation errors.
+    source: str
     issues: list[ParseIssue]
+
+
+class ValidationErrorResponse(BaseModel):
+    """The single 422 envelope: every validation failure — malformed upload,
+    out-of-range config, or a native transport type error — is reported as
+    ``{"detail": [ValidationProblem, ...]}`` so one committed schema matches
+    the wire for all of them (P-4)."""
+
+    detail: list[ValidationProblem]
 
 
 class CompareResponse(BaseModel):
@@ -86,11 +98,19 @@ async def _parse_pair(
     return base_result.run, cand_result.run, _sha256(base_bytes), _sha256(cand_bytes)
 
 
+def _validation_error(source: str, message: str, *, location: str | None = None) -> HTTPException:
+    """A 422 in the single documented envelope: {"detail": [ValidationProblem]}."""
+    problem = ValidationProblem(
+        source=source, issues=[ParseIssue(location=location or source, message=message)]
+    )
+    return HTTPException(status_code=422, detail=[problem.model_dump()])
+
+
 def _config(min_matched_traces: int | None) -> CompareConfig:
     if min_matched_traces is None:
         return CompareConfig()
     if min_matched_traces < 1:
-        raise HTTPException(status_code=422, detail="min_matched_traces must be >= 1")
+        raise _validation_error("min_matched_traces", "must be >= 1")
     return CompareConfig(min_matched_traces=min_matched_traces)
 
 
@@ -102,6 +122,24 @@ def create_app() -> FastAPI:
         "Uploads are processed in memory and never stored.",
     )
 
+    @app.exception_handler(RequestValidationError)
+    async def _on_validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
+        # Map FastAPI's native transport errors (missing part, wrong type) into
+        # the SAME {"detail": [ValidationProblem]} envelope every other 422 uses,
+        # grouped by request field so the source is real, never mis-attributed.
+        by_source: dict[str, list[ParseIssue]] = {}
+        for err in exc.errors():
+            parts = [str(p) for p in err["loc"] if p != "body"]
+            source = parts[0] if parts else "request"
+            by_source.setdefault(source, []).append(
+                ParseIssue(location=".".join(parts) or source, message=err["msg"])
+            )
+        detail = [
+            ValidationProblem(source=source, issues=issues).model_dump()
+            for source, issues in by_source.items()
+        ]
+        return JSONResponse(status_code=422, content={"detail": detail})
+
     @app.get("/api/health", response_model=HealthResponse)
     async def health() -> HealthResponse:
         return HealthResponse(status="ok", api_version=API_VERSION)
@@ -109,8 +147,8 @@ def create_app() -> FastAPI:
     validation_responses: dict[int | str, dict[str, Any]] = {
         413: {"description": "An uploaded file exceeds the size limit."},
         422: {
-            "description": "Malformed upload(s): named per-source parse issues.",
-            "model": list[ValidationProblem],
+            "description": "A validation failure: one or more named per-source problems.",
+            "model": ValidationErrorResponse,
         },
     }
 

@@ -227,15 +227,23 @@ export interface components {
             /** Trace Id */
             trace_id: string;
         };
+        /**
+         * ValidationErrorResponse
+         * @description The single 422 envelope: every validation failure — malformed upload,
+         *     out-of-range config, or a native transport type error — is reported as
+         *     ``{"detail": [ValidationProblem, ...]}`` so one committed schema matches
+         *     the wire for all of them (P-4).
+         */
+        ValidationErrorResponse: {
+            /** Detail */
+            detail: components["schemas"]["ValidationProblem"][];
+        };
         /** ValidationProblem */
         ValidationProblem: {
             /** Issues */
             issues: components["schemas"]["ParseIssue"][];
-            /**
-             * Source
-             * @enum {string}
-             */
-            source: "baseline" | "candidate";
+            /** Source */
+            source: string;
         };
         /** VerdictReason */
         VerdictReason: {
@@ -289,13 +297,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Malformed upload(s): named per-source parse issues. */
+            /** @description A validation failure: one or more named per-source problems. */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ValidationProblem"][];
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
                 };
             };
         };
@@ -350,13 +358,13 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Malformed upload(s): named per-source parse issues. */
+            /** @description A validation failure: one or more named per-source problems. */
             422: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ValidationProblem"][];
+                    "application/json": components["schemas"]["ValidationErrorResponse"];
                 };
             };
         };

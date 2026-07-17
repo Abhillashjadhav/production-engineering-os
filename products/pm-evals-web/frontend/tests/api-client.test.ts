@@ -75,6 +75,32 @@ describe("compareRuns", () => {
     }
   });
 
+  it("surfaces a real request-field source from the unified 422 envelope (P-4)", async () => {
+    // the backend now names transport-field errors by their real source, not a
+    // mis-attributed "baseline"
+    const detail = [
+      { source: "min_matched_traces", issues: [{ location: "min_matched_traces", message: "must be >= 1" }] },
+    ];
+    const result = await compareRuns(fileOf("{}"), fileOf("{}"), fetchReturning(422, { detail }));
+    expect(result.kind).toBe("validation");
+    if (result.kind === "validation") {
+      expect(result.problems[0].source).toBe("min_matched_traces");
+    }
+  });
+
+  it("falls back safely when a 422 problem has a source but no issues array", async () => {
+    // a malformed problem must never reach the renderer's problem.issues.map
+    const result = await compareRuns(
+      fileOf("{}"),
+      fileOf("{}"),
+      fetchReturning(422, { detail: [{ source: "candidate" }] }),
+    );
+    expect(result.kind).toBe("validation");
+    if (result.kind === "validation") {
+      expect(Array.isArray(result.problems[0].issues)).toBe(true);
+    }
+  });
+
   it("maps a non-JSON 422 body to the recoverable framework message, never a crash", async () => {
     const htmlError: typeof fetch = async () =>
       new Response("<html>Bad Gateway</html>", {
