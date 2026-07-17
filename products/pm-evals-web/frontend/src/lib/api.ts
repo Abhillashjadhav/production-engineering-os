@@ -7,6 +7,8 @@ import type { components } from "@/lib/api-types.gen";
 export type Comparison = components["schemas"]["Comparison"];
 export type CompareResponse = components["schemas"]["CompareResponse"];
 export type CriterionDelta = components["schemas"]["CriterionDelta"];
+export type TraceComparison = components["schemas"]["TraceComparison"];
+export type CriterionCell = components["schemas"]["CriterionCell"];
 export type HealthResponse = components["schemas"]["HealthResponse"];
 export type ParseIssue = components["schemas"]["ParseIssue"];
 export type ValidationProblem = components["schemas"]["ValidationProblem"];

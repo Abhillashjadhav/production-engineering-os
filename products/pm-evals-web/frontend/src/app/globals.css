@@ -84,8 +84,22 @@ button:disabled { background: var(--muted); border-color: var(--muted); cursor: 
 .trace-list button { font: inherit; background: none; border: 1px solid var(--border); border-radius: 4px; padding: 0.25rem 0.75rem; cursor: pointer; }
 .direction-improved { color: var(--ok); }
 .direction-regressed { color: var(--hold); }
+.direction-mixed { color: var(--insufficient); }
 .trace-detail { border: 1px solid var(--border); border-radius: 4px; padding: 0.75rem 1rem; margin: 1rem 0; }
 .trace-detail-error { color: var(--error); }
+.trace-evidence { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 0.5rem 1.5rem; margin: 0.5rem 0 1rem; }
+.trace-evidence dt { font-weight: 600; font-size: 0.85rem; color: var(--muted); }
+.trace-evidence dd { margin: 0; overflow-wrap: anywhere; }
+.table-scroll { overflow-x: auto; }
+.trace-detail table { border-collapse: collapse; width: 100%; min-width: 32rem; }
+.trace-detail caption { text-align: left; font-weight: 600; margin-bottom: 0.5rem; }
+.trace-detail th, .trace-detail td { border: 1px solid var(--border); padding: 0.4rem 0.6rem; text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+.trace-detail th[scope="col"] { background: var(--surface, transparent); }
+.criterion-id { font-weight: 600; }
+.criterion-name { display: block; font-weight: 400; color: var(--muted); font-size: 0.85rem; }
+.trace-detail tr.cell-regressed { border-left: 3px solid var(--hold); }
+.trace-detail tr.cell-improved { border-left: 3px solid var(--ok); }
+.trace-detail tr.cell-conflicting, .trace-detail tr.cell-insufficient, .trace-detail tr.cell-missing { border-left: 3px solid var(--insufficient); }
 
 @media (max-width: 480px) {
   .criteria { display: block; overflow-x: auto; }

@@ -19,9 +19,10 @@ interface WorkspaceProps {
 
 export function Workspace({ fetcher }: WorkspaceProps) {
   const [handoff, setHandoff] = useState<ComparisonHandoff | null>(null);
+  const [loading, setLoading] = useState(false);
   return (
     <>
-      <UploadForm fetcher={fetcher} onComparison={setHandoff} />
+      <UploadForm fetcher={fetcher} onComparison={setHandoff} onLoadingChange={setLoading} />
       {handoff !== null && (
         <>
           <Dashboard comparison={handoff.comparison} />
@@ -30,8 +31,10 @@ export function Workspace({ fetcher }: WorkspaceProps) {
             candidate={handoff.candidate}
             fetcher={fetcher}
           />
-          <TraceExplorer comparison={handoff.comparison} />
         </>
+      )}
+      {(loading || handoff !== null) && (
+        <TraceExplorer comparison={handoff?.comparison ?? null} loading={loading} />
       )}
     </>
   );

@@ -171,6 +171,13 @@
             "title": "Suite",
             "type": "string"
           },
+          "trace_details": {
+            "items": {
+              "$ref": "#/components/schemas/TraceComparison"
+            },
+            "title": "Trace Details",
+            "type": "array"
+          },
           "verdict": {
             "title": "Verdict",
             "type": "string"
@@ -192,10 +199,107 @@
           "newly_passing_traces",
           "newly_failing_traces",
           "hard_gate_regressions",
+          "trace_details",
           "verdict",
           "reasons"
         ],
         "title": "Comparison",
+        "type": "object"
+      },
+      "CriterionCell": {
+        "description": "One criterion's baseline-vs-candidate outcome for a single trace (S-3).\n\nThe state, verdict, and rationale are computed here in the domain layer; the\nfrontend renders them and never re-derives an outcome.",
+        "properties": {
+          "baseline_result": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pass",
+                  "fail"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Result"
+          },
+          "candidate_result": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pass",
+                  "fail"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Result"
+          },
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "criterion_id": {
+            "title": "Criterion Id",
+            "type": "string"
+          },
+          "hard_gate": {
+            "title": "Hard Gate",
+            "type": "boolean"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "provenance": {
+            "enum": [
+              "both",
+              "baseline_only",
+              "candidate_only",
+              "neither"
+            ],
+            "title": "Provenance",
+            "type": "string"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "improved",
+              "regressed",
+              "unchanged",
+              "missing",
+              "insufficient",
+              "conflicting",
+              "not_evaluated"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "verdict": {
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "criterion_id",
+          "name",
+          "hard_gate",
+          "baseline_result",
+          "candidate_result",
+          "changed",
+          "state",
+          "verdict",
+          "rationale",
+          "provenance"
+        ],
+        "title": "CriterionCell",
         "type": "object"
       },
       "CriterionDelta": {
@@ -293,6 +397,63 @@
           "message"
         ],
         "title": "ParseIssue",
+        "type": "object"
+      },
+      "TraceComparison": {
+        "description": "One changed trace's full per-criterion detail and evidence fields (S-3).",
+        "properties": {
+          "baseline_label": {
+            "title": "Baseline Label",
+            "type": "string"
+          },
+          "baseline_notes": {
+            "title": "Baseline Notes",
+            "type": "string"
+          },
+          "candidate_label": {
+            "title": "Candidate Label",
+            "type": "string"
+          },
+          "candidate_notes": {
+            "title": "Candidate Notes",
+            "type": "string"
+          },
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "criteria": {
+            "items": {
+              "$ref": "#/components/schemas/CriterionCell"
+            },
+            "title": "Criteria",
+            "type": "array"
+          },
+          "direction": {
+            "enum": [
+              "improved",
+              "regressed",
+              "mixed"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "trace_id": {
+            "title": "Trace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "trace_id",
+          "direction",
+          "changed",
+          "baseline_label",
+          "baseline_notes",
+          "candidate_label",
+          "candidate_notes",
+          "criteria"
+        ],
+        "title": "TraceComparison",
         "type": "object"
       },
       "ValidationProblem": {
