@@ -36,6 +36,7 @@ def compare(
     items += _eval_coverage(baseline, current)
     items += _judge(current, thresholds)
     items += _engineering_output(baseline, current, thresholds)
+    items += _web_surface(baseline, current)
 
     if any(i.hold for i in items):
         status = "HOLD"
@@ -178,4 +179,58 @@ def _engineering_output(
                     hold=False,
                 )
             )
+    return items
+
+
+def _web_surface(baseline: dict[str, Any], current: dict[str, Any]) -> list[DriftItem]:
+    """V3 web-surface coverage: judged only when the baseline carries a
+    web_surface section (V2 baselines stay silent). Disappearing evidence and
+    new accessibility violations are HOLDs; a shrinking browser suite is a
+    WATCH."""
+    base = baseline.get("web_surface")
+    if not isinstance(base, dict):
+        return []
+    cur = current.get("web_surface")
+    if not isinstance(cur, dict):
+        return [
+            DriftItem(
+                category="web_surface",
+                description="web-surface evidence disappeared from the current run",
+                severity="hold",
+                hold=True,
+            )
+        ]
+    items: list[DriftItem] = []
+    base_axe = int(base.get("axe_violations", 0))
+    cur_axe = int(cur.get("axe_violations", 0))
+    if cur_axe > base_axe:
+        items.append(
+            DriftItem(
+                category="web_surface",
+                description=f"new axe violation(s): {cur_axe} vs baseline {base_axe}",
+                severity="hold",
+                hold=True,
+            )
+        )
+    missing_suites = sorted(set(base.get("suites", [])) - set(cur.get("suites", [])))
+    if missing_suites:
+        items.append(
+            DriftItem(
+                category="web_surface",
+                description="executed browser suite(s) disappeared: " + ", ".join(missing_suites),
+                severity="hold",
+                hold=True,
+            )
+        )
+    base_tests = int(base.get("browser_tests", 0))
+    cur_tests = int(cur.get("browser_tests", 0))
+    if cur_tests < base_tests:
+        items.append(
+            DriftItem(
+                category="web_surface",
+                description=f"browser suite shrank: {cur_tests} tests vs baseline {base_tests}",
+                severity="warn",
+                hold=False,
+            )
+        )
     return items

@@ -58,7 +58,7 @@ def test_there_are_exactly_twelve_planted_fixtures() -> None:
 
 
 def test_every_rule_id_is_exercised_by_at_least_one_fixture() -> None:
-    assert {rule for rule in PLANTED.values()} == {
+    assert set(PLANTED.values()) == {
         "TRAJ-FS-01",
         "TRAJ-FS-02",
         "TRAJ-FS-03",
