@@ -1,6 +1,11 @@
 """The V3 full-stack adapter: web product contracts, stack declarations, and
 (in later PRs) UX journey validation, web evidence, and preview verification."""
 
+from pmpe.fullstack.api_contract import (
+    canonical_openapi_text,
+    verify_committed_schema,
+    verify_openapi_covers_contract,
+)
 from pmpe.fullstack.contract import (
     FullStackProductContract,
     fullstack_schema_path,
@@ -22,6 +27,7 @@ from pmpe.fullstack.stack import (
 
 __all__ = [
     "CAPABILITY_SURFACES",
+    "canonical_openapi_text",
     "REFERENCE_STACK",
     "FullStackAdapter",
     "FullStackProductContract",
@@ -33,4 +39,6 @@ __all__ = [
     "record_validated_journey",
     "require_validated_journey",
     "validate_ux_architecture",
+    "verify_committed_schema",
+    "verify_openapi_covers_contract",
 ]
