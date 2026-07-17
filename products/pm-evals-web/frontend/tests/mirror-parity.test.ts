@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { FORMAT_VERSION, MAX_UPLOAD_BYTES } from "@/lib/validate";
+import { FORMAT_VERSION, MAX_UPLOAD_BYTES, preValidateFile } from "@/lib/validate";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const BACKEND_SRC = path.resolve(HERE, "../../backend/src");
@@ -43,5 +43,13 @@ describe("client mirror stays in parity with the backend (arch F-3)", () => {
 
   it("FORMAT_VERSION matches the backend format version", () => {
     expect(FORMAT_VERSION).toBe(backendConstant("pm_evals_compare/models.py", "FORMAT_VERSION"));
+  });
+
+  it("the oversized-file message reports the cap derived from MAX_UPLOAD_BYTES", () => {
+    // The displayed limit must be computed from the constant, not a separate
+    // hardcoded number that could survive a cap change and mislead the user.
+    const expectedMb = Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024));
+    const message = preValidateFile("baseline", MAX_UPLOAD_BYTES + 1, "").issues[0].message;
+    expect(message).toContain(`${expectedMb} MB limit`);
   });
 });
