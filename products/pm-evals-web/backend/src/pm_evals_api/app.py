@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime, timezone
 from typing import Any, Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -159,10 +158,12 @@ def create_app() -> FastAPI:
             baseline_digest=base_digest,
             candidate_digest=cand_digest,
         )
-        generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # No wall-clock timestamp in the artifact: identical inputs must produce
+        # byte-identical reports (GATE-4 / PD-V3-07). The render functions leave
+        # the field out when no timestamp is supplied.
         if format == "markdown":
             return Response(
-                content=render_markdown(comparison, generated_at=generated_at),
+                content=render_markdown(comparison),
                 media_type="text/markdown; charset=utf-8",
                 headers={
                     # server-generated name: uploaded filenames never reach headers (T11)
@@ -170,7 +171,7 @@ def create_app() -> FastAPI:
                 },
             )
         return JSONResponse(
-            content=json.loads(render_json(comparison, generated_at=generated_at)),
+            content=json.loads(render_json(comparison)),
             headers={"Content-Disposition": 'attachment; filename="eval-comparison.json"'},
         )
 

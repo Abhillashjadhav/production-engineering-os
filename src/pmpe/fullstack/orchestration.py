@@ -23,6 +23,7 @@ full-stack path, enforcing V2's core disciplines through the same primitives:
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,7 @@ from pmpe.agents.permissions import (
     assert_fullstack_reviewers_read_only,
 )
 from pmpe.agents.registry import AgentRegistry
-from pmpe.assurance.readonly_guard import tree_digest, verify_unmodified
+from pmpe.assurance.readonly_guard import readonly_snapshot, verify_unmodified
 from pmpe.domain.errors import PmpeError
 from pmpe.engineering.candidate import Candidate, freeze_candidate
 from pmpe.engineering.ledger import EvidenceLedger
@@ -47,10 +48,41 @@ from pmpe.fullstack.stack import REFERENCE_STACK
 _CORE = "pmpe-core"
 _STATE_FILE = "fullstack-run-state.json"
 REQUIRED_LENSES = tuple(FULLSTACK_REVIEW_LENSES.values())
+_RELEASE_VERDICTS = ("PROCEED", "HOLD", "INSUFFICIENT_EVIDENCE")
+
+# Per-lens reviewer-integrity states for the read-only proof:
+#   valid                  — snapshot/verify clean; the reviewer touched nothing
+#   infrastructure_invalid — the proof could not be validly established because
+#                            of infrastructure interference (e.g. harness
+#                            runtime-file churn), NOT a reviewer write; the
+#                            findings still stand, only the mechanical proof is
+#                            unavailable
+#   compromised            — a real tracked-file modification (never recorded as
+#                            a review — ``end_review`` raises)
+INTEGRITY_VALID = "valid"
+INTEGRITY_INFRASTRUCTURE_INVALID = "infrastructure_invalid"
 
 
 class OrchestrationViolation(PmpeError):  # noqa: N818 — deliberate: it is a violation
     """A full-stack gate refused the requested step."""
+
+
+@dataclass(frozen=True)
+class ReleaseReport:
+    """The release verdict as three separated dimensions.
+
+    ``product_verdict`` answers "ship it?"; ``verification_integrity`` answers
+    "can we trust the reviewer proofs?"; the reviewer *findings* live in the
+    per-lens review artifacts (this object records that all six lenses reviewed
+    and each lens's integrity state). A PROCEED requires intact integrity; an
+    honest HOLD or INSUFFICIENT_EVIDENCE may be issued even when a proof is
+    infrastructure-invalid.
+    """
+
+    product_verdict: str
+    verification_integrity: str  # "valid" | "degraded"
+    integrity_by_lens: dict[str, str] = field(default_factory=dict)
+    lenses_reviewed: tuple[str, ...] = ()
 
 
 class FullStackRun:
@@ -60,6 +92,10 @@ class FullStackRun:
         self.run_dir = Path(run_dir)
         self.contract = contract
         self._state = state
+        # reviews: lens -> {"integrity": <state>, "reason"?: str}. Default here so
+        # a run persisted before the integrity model loads without a crash.
+        self._state.setdefault("reviews", {})
+        self._state.setdefault("release_integrity", "")
         self.ledger = EvidenceLedger(self.run_dir, run_id=str(state["run_id"]))
         self._snapshots: dict[str, dict[str, str]] = {}
 
@@ -91,8 +127,9 @@ class FullStackRun:
             "candidate_digest": "",
             "browser_suites": [],
             "preview_recorded": False,
-            "lenses_clean": [],
+            "reviews": {},
             "release_verdict": "",
+            "release_integrity": "",
         }
         run = cls(run_dir, contract, state)
         run.ledger.record(
@@ -278,7 +315,7 @@ class FullStackRun:
         if lens_agent not in REQUIRED_LENSES:
             raise OrchestrationViolation(f"'{lens_agent}' is not on the six-lens roster")
         self._require_candidate()
-        self._snapshots[lens_agent] = tree_digest(Path(repo))
+        self._snapshots[lens_agent] = readonly_snapshot(Path(repo))
 
     def end_review(self, lens_agent: str, repo: Path) -> None:
         before = self._snapshots.pop(lens_agent, None)
@@ -296,23 +333,69 @@ class FullStackRun:
             stage="review", agent=lens_agent, action="readonly_check", verdict=verdict
         )
         if changed:
+            # a real tracked-file change is a genuine compromise, never recorded
+            # as a completed review — the run cannot reach release with it
             raise OrchestrationViolation(
                 f"reviewer '{lens_agent}' violated read-only: " + "; ".join(changed[:5])
             )
-        self._state["lenses_clean"] = sorted(set(self._state["lenses_clean"]) | {lens_agent})
+        self._state["reviews"][lens_agent] = {"integrity": INTEGRITY_VALID}
+        self._save()
+
+    def record_infrastructure_invalid_review(self, lens_agent: str, *, reason: str) -> None:
+        """Record a review whose read-only proof could not be validly established
+        because of infrastructure interference (e.g. a harness runtime file the
+        harness itself churned), NOT a reviewer write.
+
+        The reviewer's findings still stand; only the mechanical integrity proof
+        is unavailable, and that is recorded honestly as audit evidence. A run
+        carrying such a review may still issue HOLD/INSUFFICIENT_EVIDENCE but is
+        refused PROCEED (integrity is degraded, not intact).
+        """
+        if lens_agent not in REQUIRED_LENSES:
+            raise OrchestrationViolation(f"'{lens_agent}' is not on the six-lens roster")
+        self._require_candidate()
+        self._snapshots.pop(lens_agent, None)
+        self.ledger.record(
+            stage="review",
+            agent=lens_agent,
+            action="submit_review",
+            input_digests={"candidate": self.candidate_digest},
+        )
+        self.ledger.record(
+            stage="review",
+            agent=lens_agent,
+            action="readonly_check",
+            verdict=INTEGRITY_INFRASTRUCTURE_INVALID,
+            detail=reason,
+        )
+        self._state["reviews"][lens_agent] = {
+            "integrity": INTEGRITY_INFRASTRUCTURE_INVALID,
+            "reason": reason,
+        }
         self._save()
 
     # -- release -------------------------------------------------------------
 
-    def release_report(self, *, verdict: str) -> None:
-        if verdict not in ("PROCEED", "HOLD", "INSUFFICIENT_EVIDENCE"):
+    def release_report(self, *, verdict: str) -> ReleaseReport:
+        """Emit the release verdict across three separated dimensions.
+
+        - product verdict (the argument, vocabulary-bound);
+        - reviewer findings — represented here by all six lenses having a review;
+        - verification integrity — ``valid`` if every read-only proof is intact,
+          ``degraded`` if one or more are infrastructure-invalid.
+
+        PROCEED requires ``valid`` integrity; HOLD and INSUFFICIENT_EVIDENCE are
+        honest even when integrity is ``degraded``.
+        """
+        if verdict not in _RELEASE_VERDICTS:
             raise OrchestrationViolation(
                 f"'{verdict}' is not a release verdict (PROCEED/HOLD/INSUFFICIENT_EVIDENCE)"
             )
-        missing = set(REQUIRED_LENSES) - set(self._state["lenses_clean"])
+        reviews: dict[str, Any] = self._state["reviews"]
+        missing = set(REQUIRED_LENSES) - set(reviews)
         if missing:
             raise OrchestrationViolation(
-                "release refused — lens(es) without a clean review: " + ", ".join(sorted(missing))
+                "release refused — lens(es) without a review: " + ", ".join(sorted(missing))
             )
         if "a11y" not in self._state["browser_suites"]:
             raise OrchestrationViolation(
@@ -320,15 +403,35 @@ class FullStackRun:
             )
         if not self._state["preview_recorded"]:
             raise OrchestrationViolation("release refused — no verified preview evidence")
+        integrity_by_lens = {lens: reviews[lens]["integrity"] for lens in REQUIRED_LENSES}
+        integrity = (
+            INTEGRITY_VALID
+            if all(s == INTEGRITY_VALID for s in integrity_by_lens.values())
+            else "degraded"
+        )
+        if verdict == "PROCEED" and integrity != INTEGRITY_VALID:
+            raise OrchestrationViolation(
+                "PROCEED refused — verification integrity is degraded "
+                "(a reviewer-integrity proof is infrastructure-invalid); "
+                "only HOLD or INSUFFICIENT_EVIDENCE may be issued"
+            )
         self.ledger.record(
             stage="release_report",
             agent=_CORE,
             action="report",
             input_digests={"candidate": self.candidate_digest},
             verdict=verdict,
+            detail=f"integrity={integrity}",
         )
         self._state["release_verdict"] = verdict
+        self._state["release_integrity"] = integrity
         self._save()
+        return ReleaseReport(
+            product_verdict=verdict,
+            verification_integrity=integrity,
+            integrity_by_lens=integrity_by_lens,
+            lenses_reviewed=REQUIRED_LENSES,
+        )
 
     # -- internals -----------------------------------------------------------
 
