@@ -177,6 +177,50 @@ describe("UploadForm — loading state (J-5)", () => {
     }
   });
 
+  it("discards a stale slow read: the last-SELECTED file wins, not the last-COMPLETED (F-1)", async () => {
+    // Re-selecting the same source while its first read is still in flight is a
+    // race: without a per-source generation token, the slower FIRST read
+    // completing AFTER the faster SECOND read overwrites the newer file, and the
+    // form then submits the stale pair while the input holds the newer file.
+    const releases: Array<() => void> = [];
+    const RealFileReader = FileReader;
+    class GatedFileReader {
+      result: string | ArrayBuffer | null = null;
+      error: DOMException | null = null;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readAsText(file: File): void {
+        const inner = new RealFileReader();
+        inner.onload = () => {
+          releases.push(() => {
+            this.result = inner.result;
+            this.onload?.();
+          });
+        };
+        inner.readAsText(file);
+      }
+    }
+    vi.stubGlobal("FileReader", GatedFileReader as unknown as typeof FileReader);
+    try {
+      render(<UploadForm />);
+      // First selection (its read will be released LAST — the stale one).
+      selectFile(/baseline/i, fileOf(VALID_BASELINE, "stale-A.json"));
+      await waitFor(() => expect(releases).toHaveLength(1));
+      // Re-select the SAME source before the first read resolves.
+      selectFile(/baseline/i, fileOf(VALID_BASELINE, "fresh-B.json"));
+      await waitFor(() => expect(releases).toHaveLength(2));
+      // The newer selection (B) completes first...
+      act(() => releases[1]());
+      // ...then the older selection (A) completes late; it must be discarded.
+      act(() => releases[0]());
+      // The form holds the last-SELECTED file, never the last-COMPLETED one.
+      await waitFor(() => expect(screen.getByText(/fresh-B\.json/)).toBeInTheDocument());
+      expect(screen.queryByText(/stale-A\.json/)).not.toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("announces status changes politely to assistive technology", async () => {
     const never: typeof fetch = () => new Promise(() => {});
     render(<UploadForm fetcher={never} />);
