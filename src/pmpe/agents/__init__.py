@@ -6,9 +6,9 @@ validates routing decisions the Engineer Router agent proposes.
 """
 
 from pmpe.agents.permissions import (
+    FULLSTACK_REVIEW_LENSES,
     READ_ONLY_TOOLS,
     ReadOnlyViolation,
-    FULLSTACK_REVIEW_LENSES,
     assert_fullstack_reviewers_read_only,
     assert_reviewers_read_only,
     is_read_only,
