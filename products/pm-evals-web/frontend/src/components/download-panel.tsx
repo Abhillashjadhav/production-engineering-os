@@ -31,9 +31,13 @@ function saveBlob(blob: Blob, filename: string): void {
   anchor.href = url;
   anchor.download = filename;
   document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  URL.revokeObjectURL(url);
+  try {
+    anchor.click();
+  } finally {
+    // cleanup must not depend on click() succeeding
+    anchor.remove();
+    URL.revokeObjectURL(url);
+  }
 }
 
 export function DownloadPanel({ baseline, candidate, fetcher = fetch }: DownloadPanelProps) {

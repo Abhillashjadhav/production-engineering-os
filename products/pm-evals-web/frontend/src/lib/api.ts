@@ -105,7 +105,15 @@ export async function downloadReport(
   if (!response.ok) {
     return { kind: "error", message: `The report download failed (HTTP ${response.status}).` };
   }
-  return { kind: "ok", value: await response.blob() };
+  let blob: Blob;
+  try {
+    blob = await response.blob();
+  } catch {
+    // a body-stream failure after a 200 must stay a recoverable result —
+    // an exception here would strand the caller's in-flight state
+    return { kind: "error", message: "The report download failed mid-transfer. Try again." };
+  }
+  return { kind: "ok", value: blob };
 }
 
 export async function health(fetcher: typeof fetch = fetch): Promise<ApiResult<HealthResponse>> {

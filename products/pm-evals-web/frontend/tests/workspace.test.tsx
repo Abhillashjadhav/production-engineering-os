@@ -3,7 +3,7 @@
 // them. The REAL UploadForm, client, Dashboard, and TraceExplorer run —
 // only the network is fake.
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { Workspace } from "@/components/workspace";
 import type { Comparison } from "@/lib/api";
@@ -23,6 +23,16 @@ const VALID_CANDIDATE = VALID_BASELINE.replace('"fail"', '"pass"');
 
 function fileOf(content: string, name: string): File {
   return new File([content], name, { type: "application/json" });
+}
+
+// jsdom's File has no .text() — read the way the app itself does
+function readText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsText(file);
+  });
 }
 
 function fetchReturning(status: number, body: unknown): typeof fetch {
@@ -90,5 +100,44 @@ describe("Workspace — S-1 feeds S-2/S-3", () => {
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: /markdown/i })).not.toBeInTheDocument(),
     );
+  });
+
+  it("regenerates the report from the exact files that were compared", async () => {
+    // The PR's integrity guarantee: the downloaded report can never describe
+    // different files than the dashboard shows. A swapped or substituted
+    // handoff pair must fail here, at the request boundary.
+    const bodies: FormData[] = [];
+    const fetcher: typeof fetch = async (_input, init) => {
+      bodies.push(init?.body as FormData);
+      if (bodies.length === 1) {
+        return new Response(JSON.stringify({ comparison: regression }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response("# report\n", {
+        status: 200,
+        headers: { "content-type": "text/markdown; charset=utf-8" },
+      });
+    };
+    (URL as unknown as Record<string, unknown>).createObjectURL = vi.fn(() => "blob:mock");
+    (URL as unknown as Record<string, unknown>).revokeObjectURL = vi.fn();
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+    try {
+      render(<Workspace fetcher={fetcher} />);
+      await compareSuccessfully();
+      fireEvent.click(screen.getByRole("button", { name: /markdown/i }));
+      await waitFor(() => expect(bodies).toHaveLength(2));
+      const baseline = bodies[1].get("baseline") as File;
+      const candidate = bodies[1].get("candidate") as File;
+      expect(baseline.name).toBe("baseline.json");
+      expect(candidate.name).toBe("candidate.json");
+      expect(await readText(baseline)).toBe(VALID_BASELINE);
+      expect(await readText(candidate)).toBe(VALID_CANDIDATE);
+    } finally {
+      vi.restoreAllMocks();
+      delete (URL as unknown as Record<string, unknown>).createObjectURL;
+      delete (URL as unknown as Record<string, unknown>).revokeObjectURL;
+    }
   });
 });

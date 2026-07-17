@@ -12,3 +12,6 @@ dist/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+
+# javascript workspaces (each has its own lockfile-driven install)
+node_modules/
