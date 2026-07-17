@@ -16,6 +16,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from pmpe.assurance.readonly_guard import readonly_snapshot, verify_unmodified
 
 
@@ -69,3 +71,12 @@ def test_a_removed_tracked_file_is_detected(tmp_path: Path) -> None:
     before = readonly_snapshot(repo)
     (repo / "app.py").unlink()  # a reviewer deletes tracked content
     assert verify_unmodified(repo, before) == ["removed: app.py"]
+
+
+def test_a_non_git_root_fails_closed(tmp_path: Path) -> None:
+    plain = tmp_path / "not-a-repo"
+    plain.mkdir()
+    (plain / "a.py").write_text("x = 1\n")
+    # the read-only proof is defined against a git-tracked tree; no boundary to draw
+    with pytest.raises(ValueError, match="git worktree"):
+        readonly_snapshot(plain)
