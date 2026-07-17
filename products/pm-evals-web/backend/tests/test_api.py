@@ -1,0 +1,161 @@
+"""The pm-evals Web API: typed transport over the deterministic engine.
+
+Covers the contract APIs (API-1..3), the malformed/incompatible journeys
+(J-4), size caps (T3), hostile filenames (T11), no-persistence (T2), and the
+determinism guardrail at the transport level (PD-V3-07)."""
+
+from __future__ import annotations
+
+import json
+import tempfile
+from pathlib import Path
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+from pm_evals_api.app import MAX_UPLOAD_BYTES, create_app
+
+FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
+BASELINE = (FIXTURES / "baseline.json").read_bytes()
+IMPROVED = (FIXTURES / "candidate_improved.json").read_bytes()
+REGRESSION = (FIXTURES / "candidate_regression.json").read_bytes()
+
+
+@pytest.fixture()
+def client() -> TestClient:
+    return TestClient(create_app())
+
+
+def _files(
+    baseline: bytes = BASELINE,
+    candidate: bytes = IMPROVED,
+    *,
+    baseline_name: str = "baseline.json",
+    candidate_name: str = "candidate.json",
+) -> dict[str, Any]:
+    return {
+        "baseline": (baseline_name, baseline, "application/json"),
+        "candidate": (candidate_name, candidate, "application/json"),
+    }
+
+
+def test_health(client: TestClient) -> None:
+    response = client.get("/api/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+
+def test_compare_improved_proceeds(client: TestClient) -> None:
+    response = client.post("/api/compare", files=_files())
+    assert response.status_code == 200
+    comparison = response.json()["comparison"]
+    assert comparison["verdict"] == "PROCEED"
+    assert comparison["matched_traces"] == 8
+    assert comparison["baseline_digest"].startswith("sha256:")
+    assert comparison["newly_passing_traces"] == ["T-003", "T-004", "T-005"]
+
+
+def test_compare_regression_holds_with_evidence(client: TestClient) -> None:
+    response = client.post("/api/compare", files=_files(candidate=REGRESSION))
+    assert response.status_code == 200
+    comparison = response.json()["comparison"]
+    assert comparison["verdict"] == "HOLD"
+    kinds = {r["kind"] for r in comparison["reasons"]}
+    assert "hard_gate_regression" in kinds
+    gate_reason = next(r for r in comparison["reasons"] if r["kind"] == "hard_gate_regression")
+    assert gate_reason["trace_ids"] == ["T-006"]  # trace-level evidence (PD-V3-05)
+
+
+def test_malformed_file_returns_named_issues(client: TestClient) -> None:
+    response = client.post("/api/compare", files=_files(candidate=b"{broken"))
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail[0]["source"] == "candidate"
+    assert "not valid JSON" in detail[0]["issues"][0]["message"]
+
+
+def test_both_files_malformed_reports_both(client: TestClient) -> None:
+    response = client.post("/api/compare", files=_files(baseline=b"[]", candidate=b"{"))
+    assert response.status_code == 422
+    sources = [p["source"] for p in response.json()["detail"]]
+    assert sources == ["baseline", "candidate"]
+
+
+def test_incompatible_pair_holds(client: TestClient) -> None:
+    other = json.loads(BASELINE)
+    other["suite"] = "another-suite"
+    response = client.post("/api/compare", files=_files(candidate=json.dumps(other).encode()))
+    assert response.status_code == 200
+    comparison = response.json()["comparison"]
+    assert comparison["verdict"] == "HOLD"
+    assert any(r["kind"] == "incompatible" for r in comparison["reasons"])
+
+
+def test_oversized_upload_is_refused(client: TestClient) -> None:
+    big = b'{"format_version": 1, "padding": "' + b"x" * MAX_UPLOAD_BYTES + b'"}'
+    response = client.post("/api/compare", files=_files(baseline=big))
+    assert response.status_code == 413
+    assert "baseline" in response.json()["detail"]
+
+
+def test_hostile_filenames_never_reach_response_headers(client: TestClient) -> None:
+    response = client.post(
+        "/api/report",
+        files=_files(baseline_name='../../etc/passwd";x="', candidate_name="<script>.json"),
+        data={"format": "markdown"},
+    )
+    assert response.status_code == 200
+    disposition = response.headers["content-disposition"]
+    assert disposition == 'attachment; filename="eval-comparison.md"'
+
+
+def test_markdown_report_downloads(client: TestClient) -> None:
+    response = client.post(
+        "/api/report", files=_files(candidate=REGRESSION), data={"format": "markdown"}
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/markdown")
+    assert "## Verdict: HOLD" in response.text
+    assert "Generated at: " in response.text  # timestamp isolated to a labeled field
+
+
+def test_json_report_downloads(client: TestClient) -> None:
+    response = client.post("/api/report", files=_files(), data={"format": "json"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["comparison"]["verdict"] == "PROCEED"
+    assert "generated_at" in payload
+    assert response.headers["content-disposition"] == (
+        'attachment; filename="eval-comparison.json"'
+    )
+
+
+def test_invalid_min_matched_traces_is_refused(client: TestClient) -> None:
+    response = client.post("/api/compare", files=_files(), data={"min_matched_traces": "0"})
+    assert response.status_code == 422
+
+
+def test_verdict_is_deterministic_across_requests(client: TestClient) -> None:
+    first = client.post("/api/compare", files=_files(candidate=REGRESSION)).json()
+    second = client.post("/api/compare", files=_files(candidate=REGRESSION)).json()
+    assert first == second  # PD-V3-07 at the transport level
+
+
+def test_uploads_leave_no_residue(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """PD-V3-08: nothing persisted. Spool space is redirected to a fresh dir,
+    which must be empty once the request cycle completes."""
+    spool = tmp_path / "spool"
+    spool.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(spool))
+    client = TestClient(create_app())
+    response = client.post("/api/compare", files=_files(candidate=REGRESSION))
+    assert response.status_code == 200
+    assert list(spool.iterdir()) == []
+
+
+def test_openapi_schema_is_committed_and_current(client: TestClient) -> None:
+    """The committed OpenAPI schema is the contract (PD-V3-13): the live app
+    must match it byte-for-byte (the CI diff and typed client build on this)."""
+    committed = json.loads((Path(__file__).resolve().parents[1] / "openapi.json").read_text())
+    assert client.app.openapi() == committed  # type: ignore[attr-defined]
