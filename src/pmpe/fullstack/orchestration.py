@@ -210,6 +210,9 @@ class FullStackRun:
     def freeze(self, repo: Path) -> Candidate:
         if not self._state["journey_validated"]:
             raise OrchestrationViolation("cannot freeze before the journey is validated")
+        # the flag alone is tamperable state — the digest-bound record is the
+        # evidence (same asymmetry fix as record_implementation)
+        require_validated_journey(self.run_dir, self.contract_digest)
         if not self._state["api_contract_current"]:
             raise OrchestrationViolation(
                 "cannot freeze without a current api-contract verification"
@@ -302,6 +305,10 @@ class FullStackRun:
     # -- release -------------------------------------------------------------
 
     def release_report(self, *, verdict: str) -> None:
+        if verdict not in ("PROCEED", "HOLD", "INSUFFICIENT_EVIDENCE"):
+            raise OrchestrationViolation(
+                f"'{verdict}' is not a release verdict (PROCEED/HOLD/INSUFFICIENT_EVIDENCE)"
+            )
         missing = set(REQUIRED_LENSES) - set(self._state["lenses_clean"])
         if missing:
             raise OrchestrationViolation(

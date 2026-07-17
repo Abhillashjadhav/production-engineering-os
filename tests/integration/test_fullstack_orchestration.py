@@ -190,6 +190,64 @@ def test_a_reviewer_write_is_refused_and_recorded(tmp_path: Path, repo: Path) ->
     assert "modified" in verdicts
 
 
+def test_release_requires_verified_preview_evidence(tmp_path: Path, repo: Path) -> None:
+    """The release preview gate is the SOLE defense for PD-V3-10/14 at release
+    time (no TRAJ-FS rule requires preview presence) — reviewer MAJOR."""
+    run = _start(tmp_path)
+    _drive_to_freeze(run, repo)
+    run.record_browser_verification(
+        suites=("a11y", "keyboard", "responsive", "journeys"), mocked=False, passed=True
+    )
+    for lens in LENSES:
+        run.begin_review(lens, repo)
+        run.end_review(lens, repo)
+    with pytest.raises(OrchestrationViolation, match="preview"):
+        run.release_report(verdict="PROCEED")
+
+
+def test_release_requires_an_executed_a11y_suite(tmp_path: Path, repo: Path) -> None:
+    run = _start(tmp_path)
+    _drive_to_freeze(run, repo)
+    run.record_browser_verification(
+        suites=("keyboard", "responsive", "journeys"), mocked=False, passed=True
+    )
+    evidence = _preview_evidence(tmp_path / "preview-evidence.json", "sha256:" + "s" * 64)
+    run.record_preview(evidence, expected_source_digest="sha256:" + "s" * 64)
+    for lens in LENSES:
+        run.begin_review(lens, repo)
+        run.end_review(lens, repo)
+    with pytest.raises(OrchestrationViolation, match="accessibility"):
+        run.release_report(verdict="PROCEED")
+
+
+def test_nothing_candidate_bound_runs_before_freeze(tmp_path: Path, repo: Path) -> None:
+    run = _start(tmp_path)
+    with pytest.raises(OrchestrationViolation, match="freeze"):
+        run.begin_review(LENSES[0], repo)
+    with pytest.raises(OrchestrationViolation, match="freeze"):
+        run.record_browser_verification(suites=("a11y",), mocked=False, passed=True)
+    evidence = _preview_evidence(tmp_path / "preview-evidence.json", "sha256:" + "s" * 64)
+    with pytest.raises(OrchestrationViolation, match="freeze"):
+        run.record_preview(evidence, expected_source_digest="sha256:" + "s" * 64)
+
+
+def test_a_tampered_journey_flag_cannot_unlock_freeze(tmp_path: Path, repo: Path) -> None:
+    """Reviewer finding: the freeze gates were flag-based — a hand-written
+    state file could freeze with no journey record. The digest-bound record
+    is now required, same as record_implementation."""
+    run = _start(tmp_path)
+    run._state["journey_validated"] = True  # tamper: flag without a record
+    run._state["api_contract_current"] = True
+    with pytest.raises(JourneyNotValidated):
+        run.freeze(repo)
+
+
+def test_release_verdicts_are_vocabulary_bound(tmp_path: Path, repo: Path) -> None:
+    run = _start(tmp_path)
+    with pytest.raises(OrchestrationViolation, match="release verdict"):
+        run.release_report(verdict="banana")
+
+
 def test_the_happy_path_ledger_is_clean_under_both_rule_sets(tmp_path: Path, repo: Path) -> None:
     run = _start(tmp_path)
     _drive_to_freeze(run, repo)
