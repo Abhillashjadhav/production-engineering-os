@@ -81,6 +81,16 @@ describe("DownloadPanel — J-8 downloads", () => {
     expect(screen.getByRole("button", { name: /json/i })).toBeDisabled();
   });
 
+  it("locks the Markdown button while the JSON download is in flight", async () => {
+    // the inverse direction of the test above — a per-button lock that only
+    // guards its own format would pass that test and fail this one
+    const never: typeof fetch = () => new Promise(() => {});
+    render(<DownloadPanel baseline={BASELINE} candidate={CANDIDATE} fetcher={never} />);
+    fireEvent.click(screen.getByRole("button", { name: /json/i }));
+    await screen.findByRole("status");
+    expect(screen.getByRole("button", { name: /markdown/i })).toBeDisabled();
+  });
+
   it("surfaces a failed download as an alert and recovers on retry", async () => {
     let calls = 0;
     const failThenSucceed: typeof fetch = async () => {
