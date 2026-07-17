@@ -103,3 +103,52 @@ def test_uncalibrated_verdicts_queue_for_human_labels(tmp_path: Path) -> None:
     assert queued == 1
     lines = queue_path.read_text().strip().splitlines()
     assert json.loads(lines[0])["case_id"] == "G-9"
+
+
+# --- V3 web-surface drift (TRAJ-FS companion; fullstack baseline only) ---
+
+
+def _fs_baseline() -> dict[str, Any]:
+    return json.loads(
+        (REPO_ROOT / "evals" / "baselines" / "synthetic-fullstack-baseline.json").read_text()
+    )
+
+
+def test_fullstack_baseline_is_labeled_synthetic() -> None:
+    baseline = _fs_baseline()
+    assert baseline["synthetic"] is True
+    assert baseline["web_surface"]["axe_violations"] == 0
+
+
+def test_missing_web_surface_evidence_holds() -> None:
+    report = compare(_fs_baseline(), _fixture("current_web_surface_missing.json"), _thresholds())
+    assert report.status == "HOLD"
+    assert any(i.category == "web_surface" and i.hold for i in report.items)
+
+
+def test_new_axe_violation_holds() -> None:
+    report = compare(
+        _fs_baseline(), _fixture("current_web_surface_axe_regression.json"), _thresholds()
+    )
+    assert report.status == "HOLD"
+    assert any("axe" in i.description for i in report.items if i.category == "web_surface")
+
+
+def test_browser_suite_shrink_watches_without_holding() -> None:
+    report = compare(
+        _fs_baseline(), _fixture("current_web_surface_suite_shrink.json"), _thresholds()
+    )
+    web_items = [i for i in report.items if i.category == "web_surface"]
+    assert web_items and not any(i.hold for i in web_items)
+
+
+def test_clean_web_surface_produces_no_web_items() -> None:
+    report = compare(_fs_baseline(), _fixture("current_web_surface_clean.json"), _thresholds())
+    assert not [i for i in report.items if i.category == "web_surface"]
+
+
+def test_v2_baseline_without_web_surface_stays_silent() -> None:
+    """The web-surface category must not judge V2-era runs: a baseline with no
+    web_surface section produces no web items for any current."""
+    report = compare(_baseline(), _fixture("current_web_surface_missing.json"), _thresholds())
+    assert not [i for i in report.items if i.category == "web_surface"]
