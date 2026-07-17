@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pm-evals-web-backend"
+version = "0.1.0"
+description = "pm-evals Web backend: deterministic eval-run comparison engine (API layer arrives in V3 PR 5)"
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.5"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "mypy>=1.8", "ruff>=0.4"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+strict = true
+files = ["src/pm_evals_compare"]
+
+[tool.ruff]
+line-length = 99
+target-version = "py311"
