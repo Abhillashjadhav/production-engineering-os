@@ -8,7 +8,7 @@
 // JSX text nodes throughout — filenames and server-sent messages are escaped
 // by React, never injected as markup.
 
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 
 import { compareRuns, type Comparison, type ValidationProblem } from "@/lib/api";
 import {
@@ -84,6 +84,11 @@ export function UploadForm({ fetcher = fetch, onComparison, onLoadingChange }: U
   // the in-flight input lock, no handleSelect completion can ever land while
   // a comparison is loading.
   const [pendingReads, setPendingReads] = useState(0);
+  // Per-source selection token: every handleSelect bumps its source's counter,
+  // and a read only applies its result if the token is still current. A slower
+  // earlier read completing after a newer selection is discarded, so the file
+  // that wins is the last SELECTED, never the last to finish reading (F-1).
+  const readGeneration = useRef<Record<UploadSource, number>>({ baseline: 0, candidate: 0 });
 
   const pairIssues: LocalIssue[] =
     selected.baseline?.pre.run && selected.candidate?.pre.run
@@ -117,6 +122,14 @@ export function UploadForm({ fetcher = fetch, onComparison, onLoadingChange }: U
     setApiProblems(null);
     setApiError(null);
     clearComparison();
+    // Any selection change invalidates a shown verdict, so normalize the phase
+    // now — on every path (clear, applied, or a later-discarded read) — rather
+    // than only when a read lands, which could otherwise strand phase at
+    // "success" with an empty status region.
+    setPhase("empty");
+    // Claim this source's newest selection token before any await, so a read
+    // started earlier can tell it has been superseded (a re-select or a clear).
+    const generation = (readGeneration.current[source] += 1);
     if (file === null) {
       setSelected((prev) => ({ ...prev, [source]: undefined }));
       return;
@@ -143,8 +156,12 @@ export function UploadForm({ fetcher = fetch, onComparison, onLoadingChange }: U
         run: null,
       };
     }
-    setSelected((prev) => ({ ...prev, [source]: { file, pre } }));
-    setPhase("empty");
+    // Discard a result the user has already replaced: only the latest selection
+    // for this source may land, regardless of which read finished first. (Phase
+    // was already normalized to "empty" at the top, on every path.)
+    if (readGeneration.current[source] === generation) {
+      setSelected((prev) => ({ ...prev, [source]: { file, pre } }));
+    }
     setPendingReads((n) => n - 1);
   }
 
