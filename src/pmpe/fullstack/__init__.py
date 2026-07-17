@@ -17,6 +17,13 @@ from pmpe.fullstack.journey import (
     require_validated_journey,
     validate_ux_architecture,
 )
+from pmpe.fullstack.preview import (
+    ALLOWED_PREVIEW_KINDS,
+    PreviewEvidence,
+    PreviewViolation,
+    record_preview,
+    verify_preview,
+)
 from pmpe.fullstack.stack import (
     CAPABILITY_SURFACES,
     REFERENCE_STACK,
@@ -28,6 +35,11 @@ from pmpe.fullstack.stack import (
 __all__ = [
     "CAPABILITY_SURFACES",
     "canonical_openapi_text",
+    "ALLOWED_PREVIEW_KINDS",
+    "PreviewEvidence",
+    "PreviewViolation",
+    "record_preview",
+    "verify_preview",
     "REFERENCE_STACK",
     "FullStackAdapter",
     "FullStackProductContract",
