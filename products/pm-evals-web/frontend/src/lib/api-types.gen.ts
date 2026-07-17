@@ -203,6 +203,16 @@ export interface components {
             message: string;
         };
         /**
+         * SizeLimitResponse
+         * @description The 413 body — one documented shape for either size boundary: the
+         *     whole-request cap (the middleware, before parsing) and the per-file cap
+         *     (``_read_capped``, at read-back) both emit ``{"detail": str}``.
+         */
+        SizeLimitResponse: {
+            /** Detail */
+            detail: string;
+        };
+        /**
          * TraceComparison
          * @description One changed trace's full per-criterion detail and evidence fields (S-3).
          */
@@ -290,12 +300,14 @@ export interface operations {
                     "application/json": components["schemas"]["CompareResponse"];
                 };
             };
-            /** @description An uploaded file exceeds the size limit. */
+            /** @description The request exceeds a size limit — the whole-request cap (enforced before parsing) or an individual file's cap. */
             413: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["SizeLimitResponse"];
+                };
             };
             /** @description A validation failure: one or more named per-source problems. */
             422: {
@@ -351,12 +363,14 @@ export interface operations {
                     "text/markdown": string;
                 };
             };
-            /** @description An uploaded file exceeds the size limit. */
+            /** @description The request exceeds a size limit — the whole-request cap (enforced before parsing) or an individual file's cap. */
             413: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["SizeLimitResponse"];
+                };
             };
             /** @description A validation failure: one or more named per-source problems. */
             422: {

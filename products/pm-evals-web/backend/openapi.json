@@ -399,6 +399,20 @@
         "title": "ParseIssue",
         "type": "object"
       },
+      "SizeLimitResponse": {
+        "description": "The 413 body \u2014 one documented shape for either size boundary: the\nwhole-request cap (the middleware, before parsing) and the per-file cap\n(``_read_capped``, at read-back) both emit ``{\"detail\": str}``.",
+        "properties": {
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "SizeLimitResponse",
+        "type": "object"
+      },
       "TraceComparison": {
         "description": "One changed trace's full per-criterion detail and evidence fields (S-3).",
         "properties": {
@@ -558,7 +572,14 @@
             "description": "Successful Response"
           },
           "413": {
-            "description": "An uploaded file exceeds the size limit."
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SizeLimitResponse"
+                }
+              }
+            },
+            "description": "The request exceeds a size limit \u2014 the whole-request cap (enforced before parsing) or an individual file's cap."
           },
           "422": {
             "content": {
@@ -622,7 +643,14 @@
             "description": "The comparison report as a downloadable attachment (text/markdown or application/json, server-generated filename)."
           },
           "413": {
-            "description": "An uploaded file exceeds the size limit."
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SizeLimitResponse"
+                }
+              }
+            },
+            "description": "The request exceeds a size limit \u2014 the whole-request cap (enforced before parsing) or an individual file's cap."
           },
           "422": {
             "content": {

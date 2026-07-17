@@ -19,6 +19,7 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from pm_evals_compare import (
     CompareConfig,
@@ -31,9 +32,91 @@ from pm_evals_compare import (
     render_markdown,
 )
 
-MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # per file; bounded before any parsing (T3)
+MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # per file; capped at read-back (T3)
+# Whole-request outer bound, enforced at the transport boundary before the
+# multipart parser reads or disk-spools anything (dogfood F-1). Two full-size
+# files plus multipart framing and any form fields fit comfortably under it.
+MAX_REQUEST_BYTES = 2 * MAX_UPLOAD_BYTES + 1024 * 1024
 
 API_VERSION = "1.0.0"
+
+
+class SizeLimitResponse(BaseModel):
+    """The 413 body — one documented shape for either size boundary: the
+    whole-request cap (the middleware, before parsing) and the per-file cap
+    (``_read_capped``, at read-back) both emit ``{"detail": str}``."""
+
+    detail: str
+
+
+class BodySizeLimitMiddleware:
+    """Refuse an over-cap request body at the transport boundary — before the
+    multipart parser reads it or spools parts to disk (dogfood F-1). A declared
+    Content-Length over the cap is rejected without reading a byte; otherwise the
+    body is buffered up to the cap and aborted the instant it is exceeded, so the
+    app (and its parser) never sees an oversized body. The per-file cap in
+    ``_read_capped`` still bounds each parsed part; this is the coarse outer
+    bound on the whole request."""
+
+    def __init__(self, app: ASGIApp, *, max_bytes: int) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        for name, value in scope["headers"]:
+            if name == b"content-length":
+                try:
+                    declared = int(value)
+                except ValueError:
+                    break
+                if declared > self.max_bytes:
+                    await self._too_large(send)
+                    return
+                break
+
+        body = bytearray()
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            body.extend(message.get("body", b""))
+            if len(body) > self.max_bytes:
+                await self._too_large(send)
+                return
+            if not message.get("more_body", False):
+                break
+
+        buffered = bytes(body)
+        replayed = False
+
+        async def replay() -> Message:
+            nonlocal replayed
+            if not replayed:
+                replayed = True
+                return {"type": "http.request", "body": buffered, "more_body": False}
+            return await receive()
+
+        await self.app(scope, replay, send)
+
+    async def _too_large(self, send: Send) -> None:
+        payload = json.dumps(
+            {"detail": f"The request exceeds the {self.max_bytes // (1024 * 1024)} MB limit."}
+        ).encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 413,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(payload)).encode()),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": payload})
 
 
 class ValidationProblem(BaseModel):
@@ -121,6 +204,7 @@ def create_app() -> FastAPI:
         description="Compare two eval runs and receive an evidence-backed release verdict. "
         "Uploads are processed in memory and never stored.",
     )
+    app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_REQUEST_BYTES)
 
     @app.exception_handler(RequestValidationError)
     async def _on_validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
@@ -145,7 +229,11 @@ def create_app() -> FastAPI:
         return HealthResponse(status="ok", api_version=API_VERSION)
 
     validation_responses: dict[int | str, dict[str, Any]] = {
-        413: {"description": "An uploaded file exceeds the size limit."},
+        413: {
+            "description": "The request exceeds a size limit — the whole-request cap "
+            "(enforced before parsing) or an individual file's cap.",
+            "model": SizeLimitResponse,
+        },
         422: {
             "description": "A validation failure: one or more named per-source problems.",
             "model": ValidationErrorResponse,
