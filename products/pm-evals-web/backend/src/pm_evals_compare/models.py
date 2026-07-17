@@ -1,0 +1,143 @@
+"""Eval-run file format (v1) — typed, bounded, deterministic to parse.
+
+One documented JSON format (PD-V3-12 excludes arbitrary spreadsheets): a run
+carries identity (`run_id`, `suite`), optional metadata, `criteria` (with
+`hard_gate` flags and optional `min_pass_rate` guardrails), and `traces` with
+per-criterion pass/fail results. Parsing is strict and size-bounded; every
+problem is reported as a named issue, never a stack trace.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any, Literal
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
+FORMAT_VERSION = 1
+MAX_CRITERIA = 200
+MAX_TRACES = 5000
+
+
+class Criterion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1)
+    description: str = ""
+    hard_gate: bool = False
+    min_pass_rate: float | None = Field(default=None, ge=0.0, le=1.0)
+
+
+class Trace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    trace_id: str = Field(min_length=1)
+    label: str = ""
+    results: dict[str, Literal["pass", "fail"]]
+    notes: str = ""
+
+
+class EvalRun(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    format_version: int
+    run_id: str = Field(min_length=1)
+    suite: str = Field(min_length=1)
+    model: str = ""
+    config: dict[str, Any] = Field(default_factory=dict)
+    criteria: list[Criterion] = Field(min_length=1, max_length=MAX_CRITERIA)
+    traces: list[Trace] = Field(min_length=1, max_length=MAX_TRACES)
+
+    def criterion_ids(self) -> list[str]:
+        return [c.id for c in self.criteria]
+
+    def hard_gate_ids(self) -> list[str]:
+        return [c.id for c in self.criteria if c.hard_gate]
+
+    def trace_by_id(self) -> dict[str, Trace]:
+        return {t.trace_id: t for t in self.traces}
+
+
+class ParseIssue(BaseModel):
+    """One named problem with an uploaded run file."""
+
+    location: str
+    message: str
+
+
+class ParseResult(BaseModel):
+    run: EvalRun | None = None
+    issues: list[ParseIssue] = Field(default_factory=list)
+
+    @property
+    def ok(self) -> bool:
+        return self.run is not None and not self.issues
+
+
+def parse_run(raw: str | bytes, *, source_name: str = "upload") -> ParseResult:
+    """Parse one run file. Never raises on bad input — returns named issues."""
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        return ParseResult(
+            issues=[ParseIssue(location=source_name, message=f"not valid JSON: {exc}")]
+        )
+    if not isinstance(data, dict):
+        return ParseResult(
+            issues=[ParseIssue(location=source_name, message="the file must be a JSON object")]
+        )
+    if data.get("format_version") != FORMAT_VERSION:
+        return ParseResult(
+            issues=[
+                ParseIssue(
+                    location=f"{source_name}.format_version",
+                    message=f"unsupported format_version {data.get('format_version')!r} "
+                    f"(supported: {FORMAT_VERSION})",
+                )
+            ]
+        )
+    try:
+        run = EvalRun.model_validate(data)
+    except ValidationError as exc:
+        issues = [
+            ParseIssue(
+                location=source_name + "." + ".".join(str(p) for p in err["loc"]),
+                message=err["msg"],
+            )
+            for err in exc.errors()
+        ]
+        return ParseResult(issues=issues)
+
+    issues = []
+    known = set(run.criterion_ids())
+    seen_criteria: set[str] = set()
+    for criterion in run.criteria:
+        if criterion.id in seen_criteria:
+            issues.append(
+                ParseIssue(
+                    location=f"{source_name}.criteria",
+                    message=f"duplicate criterion id '{criterion.id}'",
+                )
+            )
+        seen_criteria.add(criterion.id)
+    seen_traces: set[str] = set()
+    for trace in run.traces:
+        if trace.trace_id in seen_traces:
+            issues.append(
+                ParseIssue(
+                    location=f"{source_name}.traces",
+                    message=f"duplicate trace_id '{trace.trace_id}'",
+                )
+            )
+        seen_traces.add(trace.trace_id)
+        unknown = sorted(set(trace.results) - known)
+        if unknown:
+            issues.append(
+                ParseIssue(
+                    location=f"{source_name}.traces.{trace.trace_id}",
+                    message="results reference undeclared criteria: " + ", ".join(unknown),
+                )
+            )
+    if issues:
+        return ParseResult(issues=issues)
+    return ParseResult(run=run)

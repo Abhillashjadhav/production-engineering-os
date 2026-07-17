@@ -67,6 +67,25 @@ jobs:
       - name: dependency audit
         run: pip-audit --strict || echo "::warning::pip-audit reported issues (non-blocking in V1, see SECURITY.md)"
 
+  product-backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e "products/pm-evals-web/backend[dev]"
+      - name: comparison-engine tests
+        run: pytest products/pm-evals-web/backend/tests -q
+      - name: comparison-engine types
+        working-directory: products/pm-evals-web/backend
+        run: mypy
+      - name: comparison-engine lint
+        working-directory: products/pm-evals-web/backend
+        run: |
+          ruff format --check src tests
+          ruff check src tests
+
   build-smoke:
     runs-on: ubuntu-latest
     steps:
