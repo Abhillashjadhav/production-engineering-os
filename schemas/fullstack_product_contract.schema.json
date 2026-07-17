@@ -74,7 +74,7 @@
     "ui_states": {
       "type": "array",
       "minItems": 1,
-      "description": "The state vocabulary every interactive screen must cover.",
+      "description": "The UI-state vocabulary screens draw their declared states from; each screen lists the subset that applies to it.",
       "items": { "type": "string", "minLength": 1 }
     },
     "backend_capabilities": {

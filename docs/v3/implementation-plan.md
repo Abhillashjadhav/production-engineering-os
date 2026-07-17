@@ -24,7 +24,7 @@ are ledger rows 19+, titled "V3: …").
 | 14 | TRAJ-FS trajectory rules + drift extensions + 12 planted fixtures | every planted fixture caught by its intended rule; good run clean |
 | 15 | Integrated V3 orchestration: engine stages for journey/web-evidence/preview + `pmpe eng` surface | stage machine tests; full synthetic V3 run trajectory-clean |
 | 16 | Dogfood run: pm-evals Web driven through V3 (contract→journey→plans→tests-first→freeze→reviews→fixes→traceability→browser+preview verification→draft PR→release decision) | the run's evidence ledger + artifacts committed as the dogfood record; defects fixed via reviewed PRs |
-| 17 | Final evidence pack, demo instructions, docs, ledger closure, V3 contribution report | pack complete per PD-V3 §10; demo path documented; definition-of-done checklist confirmed |
+| 17 | Final evidence pack, demo instructions, docs, ledger closure, V3 contribution report | pack complete (approved contract, UX architecture, screen/state inventory, API contract, requirement traceability, executed backend/frontend/browser-journey/accessibility/responsive evidence, assurance findings + decisions, candidate + preview digests, release verdict, known limitations, human decisions, demo instructions); demo path documented; definition-of-done checklist confirmed |
 
 Deviations from this partition require the scope analysis recorded in the PR
 body. PRs 4–5 (backend) and 6–11 (frontend/E2E) each leave `main` green and
@@ -34,7 +34,9 @@ against the real API from PR 7 onward.
 ## CI evolution
 
 - PR 4: `product-backend` job (pytest for `products/pm-evals-web/backend`).
-- PR 6: `product-frontend` job (npm ci, tsc, vitest, next build).
+- PR 6: `product-frontend` job (npm ci, tsc, vitest, next build) plus
+  `npm audit --audit-level=high` (blocking on high severity, informational
+  otherwise — parity with the pip-audit policy; threat T9).
 - PR 6: `api-contract` step (schema diff fails on mismatch).
 - PR 11: `product-e2e` job (start backend+frontend, Playwright chromium).
 - PR 12: `product-preview` job (docker compose build + E2E against containers).
