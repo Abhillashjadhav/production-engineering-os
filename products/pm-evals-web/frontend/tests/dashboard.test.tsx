@@ -46,6 +46,14 @@ describe("Dashboard — verdict panel shows evidence (PD-V3-05)", () => {
     expect(within(panel).getByText(/insufficient comparable evidence/i)).toBeInTheDocument();
   });
 
+  it("guides the user on INSUFFICIENT_EVIDENCE — and only then", () => {
+    const { unmount } = render(<Dashboard comparison={insufficient} />);
+    expect(screen.getByText(/share more trace ids/i)).toBeInTheDocument();
+    unmount();
+    render(<Dashboard comparison={regression} />);
+    expect(screen.queryByText(/share more trace ids/i)).not.toBeInTheDocument();
+  });
+
   it("renders one criteria row per criterion with signed deltas and hard-gate marking", () => {
     render(<Dashboard comparison={regression} />);
     const table = screen.getByRole("table", { name: /criterion-level deltas/i });

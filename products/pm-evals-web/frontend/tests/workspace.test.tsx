@@ -75,4 +75,20 @@ describe("Workspace — S-1 feeds S-2/S-3", () => {
       expect(screen.queryByRole("region", { name: /release verdict/i })).not.toBeInTheDocument(),
     );
   });
+
+  it("offers the report downloads after a successful comparison (J-8)", async () => {
+    render(<Workspace fetcher={fetchReturning(200, { comparison: regression })} />);
+    await compareSuccessfully();
+    expect(screen.getByRole("button", { name: /markdown/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /json/i })).toBeInTheDocument();
+  });
+
+  it("removes the download buttons when the comparison is cleared", async () => {
+    render(<Workspace fetcher={fetchReturning(200, { comparison: regression })} />);
+    await compareSuccessfully();
+    fireEvent.click(screen.getByRole("button", { name: /start a new comparison/i }));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /markdown/i })).not.toBeInTheDocument(),
+    );
+  });
 });
