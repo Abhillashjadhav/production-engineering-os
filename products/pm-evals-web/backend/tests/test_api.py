@@ -164,6 +164,47 @@ def test_invalid_min_matched_traces_is_refused(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def _assert_validation_envelope(response: Any) -> None:
+    assert response.status_code == 422
+    body = response.json()
+    assert set(body) == {"detail"}, body  # one documented envelope: {"detail": [...]}
+    assert isinstance(body["detail"], list) and body["detail"]
+    for problem in body["detail"]:
+        assert set(problem) == {"source", "issues"}, problem
+        assert isinstance(problem["source"], str) and problem["source"]
+        assert isinstance(problem["issues"], list) and problem["issues"]
+        for issue in problem["issues"]:
+            assert {"location", "message"} <= set(issue), issue
+
+
+def test_every_422_shares_one_documented_envelope(client: TestClient) -> None:
+    """P-4: malformed-parse, out-of-range config, native type errors, and a
+    missing part must all return the SAME {"detail": [ValidationProblem]} shape
+    the committed OpenAPI documents — not three different wire shapes."""
+    malformed = client.post("/api/compare", files=_files(candidate=b"{broken"))
+    bad_config = client.post("/api/compare", files=_files(), data={"min_matched_traces": "0"})
+    non_integer = client.post("/api/compare", files=_files(), data={"min_matched_traces": "abc"})
+    missing_part = client.post(
+        "/api/compare", files={"baseline": ("b.json", BASELINE, "application/json")}
+    )
+    for response in (malformed, bad_config, non_integer, missing_part):
+        _assert_validation_envelope(response)
+    # the config error names its own field, not a mis-attributed upload source
+    assert bad_config.json()["detail"][0]["source"] == "min_matched_traces"
+    assert missing_part.json()["detail"][0]["source"] == "candidate"
+
+
+def test_committed_openapi_documents_the_422_envelope(client: TestClient) -> None:
+    schema = client.app.openapi()  # type: ignore[attr-defined]
+    ref = schema["paths"]["/api/compare"]["post"]["responses"]["422"]["content"][
+        "application/json"
+    ]["schema"]["$ref"]
+    name = ref.rsplit("/", 1)[-1]
+    model = schema["components"]["schemas"][name]
+    assert list(model["properties"]) == ["detail"]
+    assert model["properties"]["detail"]["type"] == "array"
+
+
 def test_verdict_is_deterministic_across_requests(client: TestClient) -> None:
     first = client.post("/api/compare", files=_files(candidate=REGRESSION)).json()
     second = client.post("/api/compare", files=_files(candidate=REGRESSION)).json()
