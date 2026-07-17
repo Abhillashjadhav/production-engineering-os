@@ -16,7 +16,7 @@ export default defineConfig({
   reporter: [["list"]],
   timeout: 60_000,
   use: {
-    baseURL: "http://127.0.0.1:3100",
+    baseURL: "http://127.0.0.1:3000",
     trace: "retain-on-failure",
     ...(chromiumPath ? { launchOptions: { executablePath: chromiumPath } } : {}),
   },
@@ -34,23 +34,28 @@ export default defineConfig({
       testMatch: /responsive\.spec\.ts/,
     },
   ],
+  // Default ports on purpose: `next start` bakes the rewrite target at BUILD
+  // time (next.config.mjs rewrites are evaluated during `next build`), so the
+  // e2e servers run where the committed default points — backend 8000,
+  // frontend 3000. A BACKEND_URL set only at start time would be ignored.
   webServer: [
     {
       // E2E_PYTHON lets the local run use the repo venv; CI installs the
       // backend into the system interpreter and leaves it unset
       command:
-        "cd ../backend && ${E2E_PYTHON:-python3} -m uvicorn pm_evals_api.app:app --host 127.0.0.1 --port 8100",
-      url: "http://127.0.0.1:8100/api/health",
+        "cd ../backend && ${E2E_PYTHON:-python3} -m uvicorn pm_evals_api.app:app --host 127.0.0.1 --port 8000",
+      url: "http://127.0.0.1:8000/api/health",
       reuseExistingServer: false,
       timeout: 60_000,
-      env: { PYTHONPATH: "src" },
+      // spread: an explicit env object replaces inheritance entirely
+      env: { ...process.env, PYTHONPATH: "src" },
     },
     {
-      command: "cd ../frontend && npx next start --hostname 127.0.0.1 --port 3100",
-      url: "http://127.0.0.1:3100",
+      command: "cd ../frontend && npx next start --hostname 127.0.0.1 --port 3000",
+      url: "http://127.0.0.1:3000",
       reuseExistingServer: false,
       timeout: 60_000,
-      env: { BACKEND_URL: "http://127.0.0.1:8100" },
+      env: { ...process.env },
     },
   ],
 });

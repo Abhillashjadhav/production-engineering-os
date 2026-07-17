@@ -78,7 +78,10 @@ export function TraceExplorer({ comparison }: { comparison: Comparison }) {
       trace.traceId.toLowerCase().includes(filter.toLowerCase()) &&
       (direction === "all" || trace.direction === direction),
   );
-  const selectedFlips = selectedTrace !== null ? flipsFor(comparison, selectedTrace) : [];
+  // the detail must never describe a trace the table no longer shows
+  const selectedVisible =
+    selectedTrace !== null && visible.some((trace) => trace.traceId === selectedTrace);
+  const selectedFlips = selectedVisible && selectedTrace !== null ? flipsFor(comparison, selectedTrace) : [];
 
   return (
     <section aria-labelledby="traces-heading">
@@ -130,7 +133,7 @@ export function TraceExplorer({ comparison }: { comparison: Comparison }) {
         </ul>
       )}
 
-      {selectedTrace !== null && (
+      {selectedVisible && (
         <div role="region" aria-label={`Trace ${selectedTrace} detail`} className="trace-detail">
           <h3>{selectedTrace}</h3>
           {selectedFlips.length > 0 ? (
