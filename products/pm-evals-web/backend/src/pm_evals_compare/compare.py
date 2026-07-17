@@ -143,19 +143,31 @@ def _criterion_cell(
     """Compute one trace/criterion cell — the whole verdict lives here (PD-V3-04)."""
     b = base_trace.results.get(base_def.id)
     c = cand_trace.results.get(base_def.id)
-    hard_gate = base_def.hard_gate or cand_def.hard_gate
+    # The release verdict is baseline-driven (hard_gate_regressions uses the
+    # baseline criterion), so the cell reports the same authoritative flag.
+    hard_gate = base_def.hard_gate
     metadata_conflict = base_def.hard_gate != cand_def.hard_gate
+    conflict_note = (
+        " The criterion's hard-gate flag differs between the runs "
+        f"(baseline={base_def.hard_gate}, candidate={cand_def.hard_gate})."
+        if metadata_conflict
+        else ""
+    )
 
     if b is not None and c is not None:
         provenance: Provenance = "both"
-        if metadata_conflict:
-            state: CellState = "conflicting"
-        elif b == c:
-            state = "unchanged"
-        elif b == "fail" and c == "pass":
-            state = "improved"
-        else:
+        # A result flip is the salient, verdict-driving fact and always wins —
+        # its improved/regressed state matches newly_passing/newly_failing
+        # membership exactly. "conflicting" is only for an *unchanged* result
+        # whose definition nonetheless differs (nothing directional to report).
+        if b == "fail" and c == "pass":
+            state: CellState = "improved"
+        elif b == "pass" and c == "fail":
             state = "regressed"
+        elif metadata_conflict:
+            state = "conflicting"
+        else:
+            state = "unchanged"
     elif b is not None:
         provenance = "baseline_only"
         state = "insufficient" if hard_gate else "missing"
@@ -166,7 +178,7 @@ def _criterion_cell(
         provenance = "neither"
         state = "not_evaluated"
 
-    gate = " — hard gate" if base_def.hard_gate else ""
+    gate = " — hard gate" if hard_gate else ""
     verdicts: dict[CellState, str] = {
         "improved": "Improved",
         "regressed": f"Regressed{gate}",
@@ -178,9 +190,12 @@ def _criterion_cell(
     }
     present = "baseline" if b is not None else "candidate"
     rationales: dict[CellState, str] = {
-        "improved": "Baseline failed and the candidate passes.",
+        # a flip is directional truth even when the definition also changed —
+        # the conflict is disclosed (conflict_note), never used to hide the flip
+        "improved": "Baseline failed and the candidate passes." + conflict_note,
         "regressed": "Baseline passed and the candidate fails"
-        + (" — this is a hard-gate regression." if base_def.hard_gate else "."),
+        + (" — this is a hard-gate regression." if hard_gate else ".")
+        + conflict_note,
         "unchanged": "Both runs pass this criterion."
         if b == "pass"
         else "Both runs fail this criterion.",
@@ -188,15 +203,15 @@ def _criterion_cell(
         "on this criterion for this trace.",
         "insufficient": f"This hard gate is recorded on the {present} run only; the gate "
         "cannot be evaluated for this trace.",
-        "conflicting": "The criterion's hard-gate flag differs between the runs "
-        f"(baseline={base_def.hard_gate}, candidate={cand_def.hard_gate}); the definitions "
-        "conflict, so the results are not comparable.",
+        "conflicting": "Both runs recorded the same result, but the criterion's hard-gate flag "
+        f"differs between the runs (baseline={base_def.hard_gate}, candidate={cand_def.hard_gate}); "
+        "the definitions conflict, so even the agreement may not be comparable.",
         "not_evaluated": "Neither run recorded a result for this criterion on this trace.",
     }
     return CriterionCell(
         criterion_id=base_def.id,
         name=base_def.description,
-        hard_gate=base_def.hard_gate,
+        hard_gate=hard_gate,
         baseline_result=b,
         candidate_result=c,
         changed=state in ("improved", "regressed"),

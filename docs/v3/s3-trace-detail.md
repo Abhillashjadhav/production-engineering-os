@@ -33,6 +33,17 @@ results and the trace's evidence fields never reached the UI.
 | determinism (PD-V3-07) | sorted iteration, no clock | `test_compare.py::test_trace_details_are_deterministic`; golden fixtures byte-pinned |
 | typed client / golden fixtures in sync | `api-types.gen.ts`, `frontend/tests/fixtures/comparison_*.json` regenerated | drift check + `test_golden_fixtures.py` |
 
+## Known bound (independent-review note)
+
+`trace_details` is eager: O(changed traces × shared criteria) full cells, each
+carrying prose verdict + rationale. It is bounded by the input (MAX_TRACES=5000 ×
+MAX_CRITERIA=200) and the 5 MB upload cap, but a pathological all-changed input
+yields a large `/api/compare` response (~10–20× amplification vs the old
+trace-id lists). Realistic inputs (a handful of changed traces) are small. If
+this becomes a problem, the follow-up is an on-demand per-trace detail endpoint
+rather than eager inclusion; not needed for the current contract ("inspect one
+changed trace").
+
 ## Out of scope (separate follow-ups, not started here)
 
 422 wire-shape vs OpenAPI, size-cap-before-parse + parser differentials
