@@ -62,6 +62,12 @@ export function UploadForm({ fetcher = fetch }: UploadFormProps) {
   const [apiError, setApiError] = useState<string | null>(null);
   const [comparison, setComparison] = useState<Comparison | null>(null);
   const [formKey, setFormKey] = useState(0); // bumped on reset to clear the file inputs
+  // File reads are async: a submit inside a pending read's window would send
+  // the OLD pair while the note soon shows the new file. Submission is
+  // blocked until every started read has applied its result; combined with
+  // the in-flight input lock, no handleSelect completion can ever land while
+  // a comparison is loading.
+  const [pendingReads, setPendingReads] = useState(0);
 
   const pairIssues: LocalIssue[] =
     selected.baseline?.pre.run && selected.candidate?.pre.run
@@ -79,6 +85,7 @@ export function UploadForm({ fetcher = fetch }: UploadFormProps) {
   // parse may still be one the server accepts, so the server decides.
   const canSubmit =
     phase !== "loading" &&
+    pendingReads === 0 &&
     selected.baseline != null &&
     selected.baseline.pre.issues.length === 0 &&
     selected.candidate != null &&
@@ -95,6 +102,7 @@ export function UploadForm({ fetcher = fetch }: UploadFormProps) {
     }
     // Oversized files are refused on size alone — never read into memory.
     let pre: PreValidation;
+    setPendingReads((n) => n + 1);
     try {
       const text = file.size <= MAX_UPLOAD_BYTES ? await readFileText(file) : "";
       pre = preValidateFile(source, file.size, text);
@@ -116,6 +124,7 @@ export function UploadForm({ fetcher = fetch }: UploadFormProps) {
     }
     setSelected((prev) => ({ ...prev, [source]: { file, pre } }));
     setPhase("empty");
+    setPendingReads((n) => n - 1);
   }
 
   async function handleSubmit(event: React.FormEvent): Promise<void> {

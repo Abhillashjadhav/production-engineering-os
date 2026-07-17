@@ -9,9 +9,9 @@
 //   presence, and (once both files parse) suite mismatch and shared-id
 //   checks. These messages mirror the backend's character for character
 //   where the backend has a fixed string (the compatibility trio, the size
-//   cap, "not valid JSON", "the file must be a JSON object", the
-//   format_version message shape); presence checks use client wording since
-//   the server's come from pydantic.
+//   cap, "the file must be a JSON object", the format_version message
+//   shape); presence checks use client wording since the server's come from
+//   pydantic, and the parse-failure advisory is deliberately client-worded.
 // - `advisories` (non-blocking): the client could not tell. JSON.parse is
 //   STRICTER than Python's json.loads (NaN/Infinity tokens, some encodings
 //   FileReader decodes differently), so a browser-side parse failure must

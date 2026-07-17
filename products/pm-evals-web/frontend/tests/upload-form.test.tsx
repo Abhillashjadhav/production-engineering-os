@@ -2,8 +2,8 @@
 // (empty/loading/error/success), client-side pre-validation feedback, API
 // error surfacing, and hostile-string safety. The fetcher is injected so the
 // REAL typed client runs in every test — only the network is fake.
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import { UploadForm } from "@/components/upload-form";
 
@@ -132,6 +132,49 @@ describe("UploadForm — loading state (J-5)", () => {
     await screen.findByRole("status");
     expect(screen.getByLabelText(/baseline/i)).toBeDisabled();
     expect(screen.getByLabelText(/candidate/i)).toBeDisabled();
+  });
+
+  it("blocks submission while a re-selected file is still being read — the old pair can never be sent", async () => {
+    // A re-select whose FileReader completion would land mid-flight was the
+    // R2-1 race: submit inside the read window sends the OLD pair while the
+    // note soon shows the new file. Gate the reader to hold that window open.
+    const releases: Array<() => void> = [];
+    const RealFileReader = FileReader;
+    class GatedFileReader {
+      result: string | ArrayBuffer | null = null;
+      error: DOMException | null = null;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readAsText(file: File): void {
+        const inner = new RealFileReader();
+        inner.onload = () => {
+          releases.push(() => {
+            this.result = inner.result;
+            this.onload?.();
+          });
+        };
+        inner.readAsText(file);
+      }
+    }
+    vi.stubGlobal("FileReader", GatedFileReader as unknown as typeof FileReader);
+    try {
+      render(<UploadForm />);
+      selectFile(/baseline/i, fileOf(VALID_BASELINE, "baseline.json"));
+      selectFile(/candidate/i, fileOf(VALID_CANDIDATE, "candidate.json"));
+      await waitFor(() => expect(releases).toHaveLength(2));
+      act(() => releases.splice(0).forEach((release) => release()));
+      const button = screen.getByRole("button", { name: /compare runs/i });
+      await waitFor(() => expect(button).toBeEnabled());
+      // re-select the baseline; its read is now pending and NOT released
+      selectFile(/baseline/i, fileOf(VALID_BASELINE, "new-baseline.json"));
+      await waitFor(() => expect(releases).toHaveLength(1));
+      expect(button).toBeDisabled(); // pending read blocks submit — no stale pair
+      act(() => releases.splice(0).forEach((release) => release()));
+      await waitFor(() => expect(button).toBeEnabled());
+      expect(screen.getByText(/new-baseline\.json/)).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("announces status changes politely to assistive technology", async () => {
