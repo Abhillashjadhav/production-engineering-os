@@ -28,9 +28,8 @@ def is_read_only(agent: AgentDefinition) -> bool:
     return bool(agent.tools) and set(agent.tools) <= READ_ONLY_TOOLS
 
 
-def assert_reviewers_read_only(registry: AgentRegistry) -> None:
-    """Fail closed if any assurance reviewer could write a file (PD-06)."""
-    for name in REVIEWER_NAMES:
+def _assert_named_read_only(registry: AgentRegistry, names: tuple[str, ...]) -> None:
+    for name in names:
         if not registry.has(name):
             raise ReadOnlyViolation(f"reviewer '{name}' has no agent definition")
         agent = registry.get(name)
@@ -39,3 +38,26 @@ def assert_reviewers_read_only(registry: AgentRegistry) -> None:
             raise ReadOnlyViolation(
                 f"reviewer '{name}' is not read-only: tool(s) {', '.join(offending)}"
             )
+
+
+def assert_reviewers_read_only(registry: AgentRegistry) -> None:
+    """Fail closed if any assurance reviewer could write a file (PD-06)."""
+    _assert_named_read_only(registry, REVIEWER_NAMES)
+
+
+# PD-V3-15: the six full-stack assurance lenses. The mapping is the enforced
+# roster — dropping a lens (or pointing one at a write-capable agent) fails
+# the permission proof, so no lens can silently disappear from a run.
+FULLSTACK_REVIEW_LENSES: dict[str, str] = {
+    "ux-journey": "v3-ux-journey-reviewer",
+    "frontend-accessibility": "v3-frontend-accessibility-reviewer",
+    "backend-api-security": "v3-backend-api-security-reviewer",
+    "architecture-simplicity": "v3-architecture-simplicity-reviewer",
+    "product-conformance": "v3-product-conformance-reviewer",
+    "evidence-integrity": "v3-evidence-integrity-reviewer",
+}
+
+
+def assert_fullstack_reviewers_read_only(registry: AgentRegistry) -> None:
+    """Fail closed if any PD-V3-15 lens is missing or could write a file."""
+    _assert_named_read_only(registry, tuple(FULLSTACK_REVIEW_LENSES.values()))
