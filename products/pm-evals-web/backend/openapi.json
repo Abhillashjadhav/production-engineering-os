@@ -456,6 +456,23 @@
         "title": "TraceComparison",
         "type": "object"
       },
+      "ValidationErrorResponse": {
+        "description": "The single 422 envelope: every validation failure \u2014 malformed upload,\nout-of-range config, or a native transport type error \u2014 is reported as\n``{\"detail\": [ValidationProblem, ...]}`` so one committed schema matches\nthe wire for all of them (P-4).",
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationProblem"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "ValidationErrorResponse",
+        "type": "object"
+      },
       "ValidationProblem": {
         "properties": {
           "issues": {
@@ -466,10 +483,6 @@
             "type": "array"
           },
           "source": {
-            "enum": [
-              "baseline",
-              "candidate"
-            ],
             "title": "Source",
             "type": "string"
           }
@@ -551,15 +564,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ValidationProblem"
-                  },
-                  "title": "Response 422 Compare Api Compare Post",
-                  "type": "array"
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
                 }
               }
             },
-            "description": "Malformed upload(s): named per-source parse issues."
+            "description": "A validation failure: one or more named per-source problems."
           }
         },
         "summary": "Compare"
@@ -619,15 +628,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ValidationProblem"
-                  },
-                  "title": "Response 422 Report Api Report Post",
-                  "type": "array"
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
                 }
               }
             },
-            "description": "Malformed upload(s): named per-source parse issues."
+            "description": "A validation failure: one or more named per-source problems."
           }
         },
         "summary": "Report"

@@ -12,6 +12,7 @@ export type CriterionCell = components["schemas"]["CriterionCell"];
 export type HealthResponse = components["schemas"]["HealthResponse"];
 export type ParseIssue = components["schemas"]["ParseIssue"];
 export type ValidationProblem = components["schemas"]["ValidationProblem"];
+export type ValidationErrorResponse = components["schemas"]["ValidationErrorResponse"];
 export type VerdictReason = components["schemas"]["VerdictReason"];
 
 export type ApiResult<T> =
@@ -48,7 +49,15 @@ async function readValidationProblems(response: Response): Promise<ValidationPro
   if (
     Array.isArray(detail) &&
     detail.length > 0 &&
-    detail.every((p) => typeof p === "object" && p !== null && "source" in p)
+    // require the full documented shape: a source AND an issues array — a
+    // source-bearing entry without issues would otherwise crash the renderer
+    detail.every(
+      (p) =>
+        typeof p === "object" &&
+        p !== null &&
+        typeof (p as { source?: unknown }).source === "string" &&
+        Array.isArray((p as { issues?: unknown }).issues),
+    )
   ) {
     return detail as ValidationProblem[];
   }
