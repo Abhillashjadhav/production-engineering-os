@@ -6,7 +6,8 @@ COPY pyproject.toml requirements.lock ./
 COPY src ./src
 # Install the hash-verified, fully pinned runtime closure first, then the app
 # itself with no re-resolution — two builds of the same commit install the same
-# dependency versions (dogfood F-3, digest-reproducible artifact).
+# runtime dependency versions (dogfood F-3). (The setuptools build backend is
+# fetched by pip's build isolation and is not itself pinned here.)
 RUN pip install --no-cache-dir --require-hashes -r requirements.lock \
  && pip install --no-cache-dir --no-deps .
 
