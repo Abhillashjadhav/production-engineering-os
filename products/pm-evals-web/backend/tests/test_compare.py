@@ -163,6 +163,19 @@ def test_non_finite_numbers_are_refused() -> None:
         assert any("non-finite" in i.message for i in result.issues), token
 
 
+def test_duplicate_key_message_is_bounded_not_the_whole_key() -> None:
+    """A duplicated key can be megabytes long (bounded only by the upload cap).
+    The refusal must name it without echoing an unbounded slice of the payload
+    back in the error message."""
+    huge = "k" * 5000
+    raw = '{"' + huge + '": 1, "' + huge + '": 2}'
+    result = parse_run(raw, source_name="candidate")
+    assert not result.ok
+    message = result.issues[0].message
+    assert "duplicate key" in message
+    assert len(message) < 200  # the 5000-char key is clipped, not echoed whole
+
+
 def test_numeric_overflow_to_infinity_is_refused() -> None:
     """A finite-looking literal that overflows to inf (e.g. 1e400) is parsed by
     parse_float, NOT the bare-token parse_constant path — so it slips past a

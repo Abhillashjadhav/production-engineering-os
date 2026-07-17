@@ -82,6 +82,13 @@ class _StrictJSONError(ValueError):
     (NaN/Infinity — non-standard and not deterministically re-serializable)."""
 
 
+def _clip(text: str, limit: int = 64) -> str:
+    # Uploaded keys and numeric literals can be megabytes long (bounded only by
+    # the upload cap); never echo an unbounded slice of the payload back in an
+    # error message.
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
 def _reject_non_finite(token: str) -> Any:
     # parse_constant is called only for the bare tokens NaN / Infinity / -Infinity.
     raise _StrictJSONError(f"non-finite number {token} is not allowed")
@@ -93,7 +100,7 @@ def _finite_float(token: str) -> float:
     # is not finite so the non-finite guarantee covers the overflow path too.
     value = float(token)
     if not math.isfinite(value):
-        raise _StrictJSONError(f"non-finite number {token} is not allowed")
+        raise _StrictJSONError(f"non-finite number {_clip(token)} is not allowed")
     return value
 
 
@@ -103,7 +110,7 @@ def _forbid_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     seen: set[str] = set()
     for key, _ in pairs:
         if key in seen:
-            raise _StrictJSONError(f"duplicate key {key!r} in a JSON object")
+            raise _StrictJSONError(f"duplicate key {_clip(repr(key))} in a JSON object")
         seen.add(key)
     return dict(pairs)
 

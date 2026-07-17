@@ -92,7 +92,9 @@ test("advisory journey: a browser-unparseable file submits and the server's fiel
   await expect(button).toBeEnabled(); // advisory, never blocking
   await button.click();
   const alert = page.locator('[role="alert"].api-errors');
-  await expect(alert).toContainText("less than or equal to 1"); // pydantic's precise message
+  // The parser now refuses the non-finite value at read time with a named issue,
+  // rather than letting NaN through to a downstream numeric-constraint message.
+  await expect(alert).toContainText(/non-finite number/i);
 });
 
 test("advisory journey: UTF-16 bytes the browser cannot read reach the server's HOLD verdict", async ({
