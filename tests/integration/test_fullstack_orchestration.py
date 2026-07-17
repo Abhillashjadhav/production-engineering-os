@@ -186,15 +186,11 @@ def test_a_reviewer_write_is_refused_and_recorded(tmp_path: Path, repo: Path) ->
     (repo / "app.py").write_text("VALUE = 2\n")
     with pytest.raises(OrchestrationViolation, match="read-only"):
         run.end_review(LENSES[0], repo)
-    verdicts = [
-        e["verdict"] for e in run.events() if e["action"] == "readonly_check"
-    ]
+    verdicts = [e["verdict"] for e in run.events() if e["action"] == "readonly_check"]
     assert "modified" in verdicts
 
 
-def test_the_happy_path_ledger_is_clean_under_both_rule_sets(
-    tmp_path: Path, repo: Path
-) -> None:
+def test_the_happy_path_ledger_is_clean_under_both_rule_sets(tmp_path: Path, repo: Path) -> None:
     run = _start(tmp_path)
     _drive_to_freeze(run, repo)
     run.record_browser_verification(

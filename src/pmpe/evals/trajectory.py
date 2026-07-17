@@ -21,10 +21,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from pmpe.agents.permissions import REVIEWER_NAMES
+from pmpe.agents.permissions import FULLSTACK_REVIEW_LENSES, REVIEWER_NAMES
 
-# one home for the reviewer roster: the permission model (PD-06)
-REVIEWER_AGENTS = set(REVIEWER_NAMES)
+# one home for the reviewer roster: the permission model (PD-06). The V3
+# six-lens roster is included so a combined run over a full-stack ledger does
+# not flag v3 reviewers as strangers (v3 agents never appear in V2 ledgers,
+# so V2 verdicts are unchanged).
+REVIEWER_AGENTS = set(REVIEWER_NAMES) | set(FULLSTACK_REVIEW_LENSES.values())
 
 
 @dataclass(frozen=True)
