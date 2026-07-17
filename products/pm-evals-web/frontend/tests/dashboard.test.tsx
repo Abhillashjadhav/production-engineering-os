@@ -59,6 +59,9 @@ describe("Dashboard — verdict panel shows evidence (PD-V3-05)", () => {
     expect(within(tone).getByText("-25.0%")).toBeInTheDocument();
     const accuracy = within(table).getByText("C-ACCURACY").closest("tr") as HTMLElement;
     expect(within(accuracy).getByText("+12.5%")).toBeInTheDocument();
+    // exactly-zero delta is unsigned — "+0.0%" would read as strictly positive
+    const brevity = within(table).getByText("C-BREVITY").closest("tr") as HTMLElement;
+    expect(within(brevity).getByText("0.0%")).toBeInTheDocument();
   });
 
   it("shows the input digests — the verdict's evidence provenance", () => {

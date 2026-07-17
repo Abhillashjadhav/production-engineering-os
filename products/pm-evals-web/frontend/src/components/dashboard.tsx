@@ -19,7 +19,9 @@ function pct(rate: number): string {
 }
 
 function signedPct(rate: number): string {
-  return rate >= 0 ? `+${pct(rate)}` : pct(rate);
+  // exactly zero is unsigned: a "+" prefix would read as strictly positive
+  if (rate === 0) return pct(rate);
+  return rate > 0 ? `+${pct(rate)}` : pct(rate);
 }
 
 function reasonLabel(reason: VerdictReason): string {
