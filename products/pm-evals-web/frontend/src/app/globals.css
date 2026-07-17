@@ -60,3 +60,33 @@ button:disabled { background: var(--muted); border-color: var(--muted); cursor: 
 
 .advisories { margin: 0.25rem 0 0; padding-left: 1.25rem; color: var(--insufficient); }
 .advisories li { overflow-wrap: anywhere; }
+
+/* S-2 dashboard (J-6) */
+.verdict-panel { border: 1px solid var(--border); border-radius: 4px; padding: 0.75rem 1rem; margin: 1rem 0; }
+.reasons { padding-left: 1.25rem; }
+.reasons li { margin-bottom: 0.5rem; }
+.evidence { color: var(--muted); font-size: 0.9rem; }
+.summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.5rem 1.5rem; margin: 1rem 0; }
+.summary dt { font-weight: 600; }
+.summary dd { margin: 0; overflow-wrap: anywhere; }
+.criteria { border-collapse: collapse; width: 100%; margin: 1rem 0; }
+.criteria caption { text-align: left; font-weight: 600; margin-bottom: 0.5rem; }
+.criteria th, .criteria td { border: 1px solid var(--border); padding: 0.4rem 0.6rem; text-align: left; }
+.regressed-row { background: color-mix(in srgb, var(--hold) 8%, transparent); }
+.hard-gate-badge { color: var(--hold); font-size: 0.8rem; font-weight: 700; text-transform: uppercase; }
+.criterion-description { font-weight: 400; color: var(--muted); font-size: 0.9rem; }
+
+/* S-3 trace explorer (J-7) */
+.trace-filters { display: flex; gap: 1.5rem; flex-wrap: wrap; margin: 0.5rem 0 1rem; }
+.trace-filters label { display: block; font-weight: 600; margin-bottom: 0.25rem; }
+.trace-list { list-style: none; padding: 0; }
+.trace-list li { margin-bottom: 0.25rem; }
+.trace-list button { font: inherit; background: none; border: 1px solid var(--border); border-radius: 4px; padding: 0.25rem 0.75rem; cursor: pointer; }
+.direction-improved { color: var(--ok); }
+.direction-regressed { color: var(--hold); }
+.trace-detail { border: 1px solid var(--border); border-radius: 4px; padding: 0.75rem 1rem; margin: 1rem 0; }
+.trace-detail-error { color: var(--error); }
+
+@media (max-width: 480px) {
+  .criteria { display: block; overflow-x: auto; }
+}

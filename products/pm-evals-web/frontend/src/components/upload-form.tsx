@@ -30,6 +30,10 @@ interface SelectedFile {
 interface UploadFormProps {
   // Injected in tests so the real typed client runs against a fake network.
   fetcher?: typeof fetch;
+  // Reports every comparison-state change upward (value on success, null
+  // whenever the result is invalidated) so the dashboard can never show a
+  // verdict for inputs the form no longer holds.
+  onComparison?: (comparison: Comparison | null) => void;
 }
 
 // FileReader instead of File.text(): supported everywhere the app runs,
@@ -53,7 +57,7 @@ function issueList(issues: LocalIssue[], className = "issues"): React.ReactEleme
   );
 }
 
-export function UploadForm({ fetcher = fetch }: UploadFormProps) {
+export function UploadForm({ fetcher = fetch, onComparison }: UploadFormProps) {
   const baselineInputId = useId();
   const candidateInputId = useId();
   const [phase, setPhase] = useState<Phase>("empty");
@@ -92,10 +96,15 @@ export function UploadForm({ fetcher = fetch }: UploadFormProps) {
     selected.candidate.pre.issues.length === 0 &&
     pairIssues.length === 0;
 
+  function clearComparison(): void {
+    setComparison(null);
+    onComparison?.(null);
+  }
+
   async function handleSelect(source: UploadSource, file: File | null): Promise<void> {
     setApiProblems(null);
     setApiError(null);
-    setComparison(null);
+    clearComparison();
     if (file === null) {
       setSelected((prev) => ({ ...prev, [source]: undefined }));
       return;
@@ -133,10 +142,11 @@ export function UploadForm({ fetcher = fetch }: UploadFormProps) {
     setPhase("loading");
     setApiProblems(null);
     setApiError(null);
-    setComparison(null);
+    clearComparison();
     const result = await compareRuns(selected.baseline.file, selected.candidate.file, fetcher);
     if (result.kind === "ok") {
       setComparison(result.value);
+      onComparison?.(result.value);
       setPhase("success");
       return;
     }
@@ -152,7 +162,7 @@ export function UploadForm({ fetcher = fetch }: UploadFormProps) {
     setSelected({});
     setApiProblems(null);
     setApiError(null);
-    setComparison(null);
+    clearComparison();
     setPhase("empty");
     setFormKey((k) => k + 1);
   }
