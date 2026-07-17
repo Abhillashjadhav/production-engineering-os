@@ -359,6 +359,49 @@ def test_uploads_leave_no_residue(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
     assert list(spool.iterdir()) == []
 
 
+def test_spooled_upload_and_error_path_leave_no_residue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PD-V3-08 / dogfood F-7: the small-file success case never crosses
+    Starlette's 1 MB spool threshold, so it never causes the disk write whose
+    cleanup it claims to verify. Force a part large enough to actually roll over
+    to disk, prove the rollover happened, and confirm no residue remains — on the
+    success path AND the malformed error path."""
+    spool = tmp_path / "spool"
+    spool.mkdir()
+    monkeypatch.setattr(tempfile, "tempdir", str(spool))
+
+    rollovers = 0
+    original_rollover = tempfile.SpooledTemporaryFile.rollover
+
+    def counting_rollover(self: Any) -> Any:
+        nonlocal rollovers
+        rollovers += 1
+        return original_rollover(self)
+
+    monkeypatch.setattr(tempfile.SpooledTemporaryFile, "rollover", counting_rollover)
+
+    padded = json.loads(BASELINE)
+    padded["model"] = "x" * (1024 * 1024 + 1000)  # > Starlette's 1 MB spool threshold
+    big_baseline = json.dumps(padded).encode()
+
+    client = TestClient(create_app())
+
+    # Success path with a genuine disk spool.
+    ok = client.post("/api/compare", files=_files(baseline=big_baseline))
+    assert ok.status_code == 200
+    assert rollovers >= 1, "the >1 MB part never spooled — the cleanup stays untested"
+    assert list(spool.iterdir()) == []  # the rolled-over temp file was cleaned up
+
+    # Malformed error path: a >1 MB part still spools, then parsing fails 422.
+    malformed = client.post(
+        "/api/compare",
+        files=_files(baseline=big_baseline, candidate=b"{" + b"x" * (1024 * 1024)),
+    )
+    assert malformed.status_code == 422
+    assert list(spool.iterdir()) == []
+
+
 def test_openapi_schema_is_committed_and_current(client: TestClient) -> None:
     """The committed OpenAPI schema is the contract (PD-V3-13): the live app
     must match it byte-for-byte under the export serialization (the CI diff
