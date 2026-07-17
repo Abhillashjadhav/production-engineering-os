@@ -338,6 +338,15 @@ export interface operations {
                     "application/json": components["schemas"]["HealthResponse"];
                 };
             };
+            /** @description The request exceeds a size limit — the whole-request cap (enforced before parsing) or an individual file's cap. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SizeLimitResponse"];
+                };
+            };
         };
     };
     report_api_report_post: {

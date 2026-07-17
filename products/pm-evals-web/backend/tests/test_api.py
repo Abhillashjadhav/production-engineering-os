@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import json
 import tempfile
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
-from pm_evals_api.app import MAX_UPLOAD_BYTES, create_app
+from pm_evals_api.app import MAX_REQUEST_BYTES, MAX_UPLOAD_BYTES, create_app
 
 FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
 BASELINE = (FIXTURES / "baseline.json").read_bytes()
@@ -168,6 +169,60 @@ def test_committed_openapi_documents_the_413_body(client: TestClient) -> None:
     assert model["properties"]["detail"]["type"] == "string"
 
 
+def _streamed(total_bytes: int, chunk: int = 256 * 1024) -> Iterator[bytes]:
+    """A generator body: httpx sends it with Transfer-Encoding: chunked and NO
+    Content-Length, so the size guard's header fast path cannot apply and the cap
+    must be enforced inside the streaming buffer loop instead."""
+    sent = 0
+    while sent < total_bytes:
+        n = min(chunk, total_bytes - sent)
+        yield b"x" * n
+        sent += n
+
+
+def test_chunked_over_cap_body_without_content_length_is_refused_before_parsing(
+    client: TestClient,
+) -> None:
+    """The adversarial F-1 path: an oversized body with NO Content-Length
+    (chunked transfer) cannot take the header fast path — refusal depends
+    entirely on the streaming buffer aborting at the cap, before the multipart
+    parser reads or disk-spools the body. Delete the loop's size check and this
+    is the test that fails; the Content-Length tests would still pass."""
+    response = client.post(
+        "/api/compare",
+        content=_streamed(3 * MAX_UPLOAD_BYTES),  # ~15 MB, over the whole-request cap
+        headers={"content-type": "multipart/form-data; boundary=zzzzzzzzzz"},
+    )
+    assert response.status_code == 413
+    assert isinstance(response.json()["detail"], str)
+
+
+def test_request_body_exactly_at_the_cap_is_not_size_rejected(client: TestClient) -> None:
+    """The cap is inclusive: a body of exactly MAX_REQUEST_BYTES must pass the
+    size guard — it then fails the multipart parser as non-conforming (a 4xx that
+    is NOT 413). This pins the '>' comparison on both the header fast path and
+    the buffer loop; a '>' -> '>=' regression would falsely reject a legitimate
+    maximum-size upload and turn this 4xx into a 413."""
+    response = client.post(
+        "/api/compare",
+        content=b"x" * MAX_REQUEST_BYTES,
+        headers={"content-type": "multipart/form-data; boundary=zzzzzzzzzz"},
+    )
+    assert response.status_code != 413
+
+
+def test_request_body_one_byte_over_the_cap_is_refused(client: TestClient) -> None:
+    """The other side of the boundary: exactly one byte over the cap is refused
+    413, so the guard is a true threshold, not an approximate one."""
+    response = client.post(
+        "/api/compare",
+        content=b"x" * (MAX_REQUEST_BYTES + 1),
+        headers={"content-type": "multipart/form-data; boundary=zzzzzzzzzz"},
+    )
+    assert response.status_code == 413
+    assert isinstance(response.json()["detail"], str)
+
+
 def test_hostile_filenames_never_reach_response_headers(client: TestClient) -> None:
     response = client.post(
         "/api/report",
@@ -256,6 +311,18 @@ def test_committed_openapi_documents_the_422_envelope(client: TestClient) -> Non
     model = schema["components"]["schemas"][name]
     assert list(model["properties"]) == ["detail"]
     assert model["properties"]["detail"]["type"] == "array"
+
+
+def test_health_documents_the_413_it_can_return(client: TestClient) -> None:
+    """The size-limit middleware wraps every route, so an over-cap body to
+    /api/health returns a 413 — the committed contract must document it, not
+    claim health can only ever return 200 (PD-V3-13: no undocumented response a
+    client could receive)."""
+    schema = client.app.openapi()  # type: ignore[attr-defined]
+    responses = schema["paths"]["/api/health"]["get"]["responses"]
+    assert "413" in responses
+    ref = responses["413"]["content"]["application/json"]["schema"]["$ref"]
+    assert ref.rsplit("/", 1)[-1] == "SizeLimitResponse"
 
 
 def test_verdict_is_deterministic_across_requests(client: TestClient) -> None:

@@ -608,6 +608,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SizeLimitResponse"
+                }
+              }
+            },
+            "description": "The request exceeds a size limit \u2014 the whole-request cap (enforced before parsing) or an individual file's cap."
           }
         },
         "summary": "Health"

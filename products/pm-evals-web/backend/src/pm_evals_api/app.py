@@ -206,6 +206,18 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_REQUEST_BYTES)
 
+    # The size-limit middleware wraps *every* route, so 413 is reachable on any
+    # endpoint that receives an over-cap body — it is documented wherever it can
+    # occur, including /api/health, so the committed contract never omits a
+    # response a client could actually receive (PD-V3-13).
+    size_limit_response: dict[int | str, dict[str, Any]] = {
+        413: {
+            "description": "The request exceeds a size limit — the whole-request cap "
+            "(enforced before parsing) or an individual file's cap.",
+            "model": SizeLimitResponse,
+        },
+    }
+
     @app.exception_handler(RequestValidationError)
     async def _on_validation_error(_: Request, exc: RequestValidationError) -> JSONResponse:
         # Map FastAPI's native transport errors (missing part, wrong type) into
@@ -224,16 +236,12 @@ def create_app() -> FastAPI:
         ]
         return JSONResponse(status_code=422, content={"detail": detail})
 
-    @app.get("/api/health", response_model=HealthResponse)
+    @app.get("/api/health", response_model=HealthResponse, responses=size_limit_response)
     async def health() -> HealthResponse:
         return HealthResponse(status="ok", api_version=API_VERSION)
 
     validation_responses: dict[int | str, dict[str, Any]] = {
-        413: {
-            "description": "The request exceeds a size limit — the whole-request cap "
-            "(enforced before parsing) or an individual file's cap.",
-            "model": SizeLimitResponse,
-        },
+        **size_limit_response,
         422: {
             "description": "A validation failure: one or more named per-source problems.",
             "model": ValidationErrorResponse,
