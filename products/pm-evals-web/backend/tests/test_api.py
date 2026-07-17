@@ -92,6 +92,22 @@ def test_malformed_file_returns_named_issues(client: TestClient) -> None:
     assert "not valid JSON" in detail[0]["issues"][0]["message"]
 
 
+def test_duplicate_object_key_upload_is_refused_at_the_wire(client: TestClient) -> None:
+    """Evidence integrity end-to-end: a run whose results map repeats a criterion
+    key (which json.loads would silently coalesce to the last value) must reach
+    the client as a named 422, never a silently-accepted 200 with a hidden flip."""
+    poisoned = (
+        b'{"format_version": 1, "run_id": "r", "suite": "support-copilot",'
+        b' "criteria": [{"id": "C-ACC"}],'
+        b' "traces": [{"trace_id": "T-1", "results": {"C-ACC": "pass", "C-ACC": "fail"}}]}'
+    )
+    response = client.post("/api/compare", files=_files(candidate=poisoned))
+    assert response.status_code == 422
+    detail = response.json()["detail"]
+    assert detail[0]["source"] == "candidate"
+    assert "duplicate key" in detail[0]["issues"][0]["message"]
+
+
 def test_both_files_malformed_reports_both(client: TestClient) -> None:
     response = client.post("/api/compare", files=_files(baseline=b"[]", candidate=b"{"))
     assert response.status_code == 422

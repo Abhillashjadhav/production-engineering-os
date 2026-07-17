@@ -10,6 +10,7 @@ problem is reported as a named issue, never a stack trace.
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -74,10 +75,57 @@ class ParseResult(BaseModel):
         return self.run is not None and not self.issues
 
 
+class _StrictJSONError(ValueError):
+    """A structurally ambiguous or non-standard JSON construct that ``json.loads``
+    accepts by default but this parser refuses: a duplicate object key (silent
+    last-value-wins, which could hide an evidence flip) or a non-finite number
+    (NaN/Infinity — non-standard and not deterministically re-serializable)."""
+
+
+def _clip(text: str, limit: int = 64) -> str:
+    # Uploaded keys and numeric literals can be megabytes long (bounded only by
+    # the upload cap); never echo an unbounded slice of the payload back in an
+    # error message.
+    return text if len(text) <= limit else text[:limit] + "…"
+
+
+def _reject_non_finite(token: str) -> Any:
+    # parse_constant is called only for the bare tokens NaN / Infinity / -Infinity.
+    raise _StrictJSONError(f"non-finite number {token} is not allowed")
+
+
+def _finite_float(token: str) -> float:
+    # parse_float handles ordinary numeric literals — including ones like 1e400
+    # that overflow to inf without ever reaching parse_constant. Reject any that
+    # is not finite so the non-finite guarantee covers the overflow path too.
+    value = float(token)
+    if not math.isfinite(value):
+        raise _StrictJSONError(f"non-finite number {_clip(token)} is not allowed")
+    return value
+
+
+def _forbid_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    # object_pairs_hook fires for every object at every depth, before the
+    # last-value-wins collapse, so a repeated key is caught wherever it appears.
+    seen: set[str] = set()
+    for key, _ in pairs:
+        if key in seen:
+            raise _StrictJSONError(f"duplicate key {_clip(repr(key))} in a JSON object")
+        seen.add(key)
+    return dict(pairs)
+
+
 def parse_run(raw: str | bytes, *, source_name: str = "upload") -> ParseResult:
     """Parse one run file. Never raises on bad input — returns named issues."""
     try:
-        data = json.loads(raw)
+        data = json.loads(
+            raw,
+            parse_constant=_reject_non_finite,
+            parse_float=_finite_float,
+            object_pairs_hook=_forbid_duplicate_keys,
+        )
+    except _StrictJSONError as exc:
+        return ParseResult(issues=[ParseIssue(location=source_name, message=str(exc))])
     except (json.JSONDecodeError, UnicodeDecodeError, RecursionError) as exc:
         return ParseResult(
             issues=[ParseIssue(location=source_name, message=f"not valid JSON: {exc}")]
