@@ -1,4 +1,4 @@
-"""PD-V3-06/14: a preview claim is only believable when the served artifacts
+"""PD-V3-10/14: a preview claim is only believable when the served artifacts
 are bound to the exact reviewed source tree — record/verify must fail closed
 on missing records, digest mismatches, cloud claims, and failed journeys."""
 

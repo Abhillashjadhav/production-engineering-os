@@ -1,4 +1,4 @@
-"""Preview deployment evidence (PD-V3-06/14): a preview claim is believable
+"""Preview deployment evidence (PD-V3-10/14): a preview claim is believable
 only when the served artifacts are bound to the exact reviewed source tree.
 
 - ``record_preview`` writes ``preview-evidence.json`` binding the source tree
