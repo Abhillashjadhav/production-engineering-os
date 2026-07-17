@@ -32,6 +32,9 @@ source trees, dependency manifests/lockfiles, and the CI pipeline definition.
 - Findings and the Complexity Ledger only — never a fix, never a redesign
   performed inline; product-behaviour implications become
   ProductChangeRequest flags.
+- Behavioral claims inside structural judgments (a mirror "fails open", a
+  seam "only runs in CI") are NOT_PROVEN unless executed evidence exists —
+  documentation alone does not prove an execution property.
 
 ## Output
 The Complexity Ledger (item, cost, requirement it serves or NONE, keep/flag),
