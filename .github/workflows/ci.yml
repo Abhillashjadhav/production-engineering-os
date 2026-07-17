@@ -86,6 +86,33 @@ jobs:
           ruff format --check src tests
           ruff check src tests
 
+  product-frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: products/pm-evals-web/frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: products/pm-evals-web/frontend/package-lock.json
+      - name: install
+        run: npm ci
+      - name: dependency audit (high severity blocks)
+        run: npm audit --audit-level=high
+      - name: typed client is current with the committed contract
+        run: |
+          npm run generate:api-types
+          git diff --exit-code src/lib/api-types.gen.ts
+      - name: typecheck
+        run: npx tsc --noEmit
+      - name: unit and component tests
+        run: npx vitest run
+      - name: production build
+        run: npx next build
+
   build-smoke:
     runs-on: ubuntu-latest
     steps:

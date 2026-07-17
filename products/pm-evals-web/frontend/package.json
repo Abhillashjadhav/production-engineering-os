@@ -1,0 +1,31 @@
+{
+  "name": "pm-evals-web-frontend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "pm-evals Web frontend: compare eval runs in the browser (PD-V3)",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "generate:api-types": "openapi-typescript ../backend/openapi.json -o src/lib/api-types.gen.ts"
+  },
+  "dependencies": {
+    "next": "15.5.20",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^5.2.0",
+    "jsdom": "^25.0.1",
+    "openapi-typescript": "^7.4.4",
+    "typescript": "^5.7.2",
+    "vitest": "^4.1.10"
+  }
+}
