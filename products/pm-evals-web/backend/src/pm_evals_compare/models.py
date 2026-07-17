@@ -10,6 +10,7 @@ problem is reported as a named issue, never a stack trace.
 from __future__ import annotations
 
 import json
+import math
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
@@ -86,6 +87,16 @@ def _reject_non_finite(token: str) -> Any:
     raise _StrictJSONError(f"non-finite number {token} is not allowed")
 
 
+def _finite_float(token: str) -> float:
+    # parse_float handles ordinary numeric literals — including ones like 1e400
+    # that overflow to inf without ever reaching parse_constant. Reject any that
+    # is not finite so the non-finite guarantee covers the overflow path too.
+    value = float(token)
+    if not math.isfinite(value):
+        raise _StrictJSONError(f"non-finite number {token} is not allowed")
+    return value
+
+
 def _forbid_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     # object_pairs_hook fires for every object at every depth, before the
     # last-value-wins collapse, so a repeated key is caught wherever it appears.
@@ -103,6 +114,7 @@ def parse_run(raw: str | bytes, *, source_name: str = "upload") -> ParseResult:
         data = json.loads(
             raw,
             parse_constant=_reject_non_finite,
+            parse_float=_finite_float,
             object_pairs_hook=_forbid_duplicate_keys,
         )
     except _StrictJSONError as exc:
