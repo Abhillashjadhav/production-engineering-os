@@ -1,0 +1,16 @@
+[
+  "README.md",
+  "LICENSE",
+  "CONTRIBUTING.md",
+  "pyproject.toml",
+  "poetry.lock",
+  ".github/workflows/ci.yml",
+  "src/healthy_lib/__init__.py",
+  "src/healthy_lib/core.py",
+  "src/healthy_lib/parser.py",
+  "tests/test_core.py",
+  "tests/test_parser.py",
+  "tests/test_edge_cases.py",
+  "docs/index.md",
+  "docs/usage.md"
+]

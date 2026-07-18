@@ -1,0 +1,16 @@
+{
+  "owner": "acme",
+  "name": "healthy-lib",
+  "visibility": "PUBLIC",
+  "description": "A small, well-tested utility library for parsing config files.",
+  "topics": ["python", "configuration", "parsing"],
+  "default_branch": "main",
+  "created_at": "2025-02-01T00:00:00+00:00",
+  "pushed_at": "2026-07-10T00:00:00+00:00",
+  "license": "MIT",
+  "stargazers_count": 120,
+  "forks_count": 15,
+  "archived": false,
+  "is_fork": false,
+  "primary_language": "Python"
+}

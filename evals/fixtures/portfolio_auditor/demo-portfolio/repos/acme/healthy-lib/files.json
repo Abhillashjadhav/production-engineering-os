@@ -1,0 +1,10 @@
+{
+  "README.md": "# healthy-lib\n\n![CI](https://img.shields.io/badge/ci-passing-green)\n\nA small utility library for parsing configuration files.\n\n## Installation\n\n```bash\npip install healthy-lib\n```\n\n## Usage\n\n```python\nfrom healthy_lib import parse\nconfig = parse(\"config.yaml\")\n```\n\nParses YAML and TOML. Covered by unit tests on every push.\n\n## Limitations\n\nDoes not support JSON5 or environment interpolation yet.\n",
+  "LICENSE": "MIT License\n\nCopyright (c) 2025 acme\n\nPermission is hereby granted, free of charge, to any person obtaining a copy...\n",
+  "CONTRIBUTING.md": "# Contributing\n\nRun `pytest` before opening a PR. All changes need a test.\n",
+  "pyproject.toml": "[project]\nname = \"healthy-lib\"\nversion = \"0.3.1\"\ndependencies = [\n  \"PyYAML==6.0.1\",\n  \"tomli==2.0.1\"\n]\n\n[project.scripts]\nhealthy-lib = \"healthy_lib.cli:main\"\n",
+  "poetry.lock": "# generated lockfile\n[[package]]\nname = \"PyYAML\"\nversion = \"6.0.1\"\n",
+  ".github/workflows/ci.yml": "name: ci\non: [push, pull_request]\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: pip install -e .[dev]\n      - run: pytest\n",
+  "docs/index.md": "# healthy-lib docs\n\nSee usage.md.\n",
+  "docs/usage.md": "# Usage\n\nCall `parse(path)`.\n"
+}

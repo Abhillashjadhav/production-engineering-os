@@ -147,6 +147,25 @@ class TestSchemas:
             errors = validate_finding_dict(data)
             assert any(missing in e for e in errors), f"expected error for {missing}"
 
+    def test_finding_schema_rejects_empty_evidence_list(self) -> None:
+        # M1 review follow-up: the Finding model already refuses empty
+        # evidence; the schema must agree so a schema-only validation surface
+        # can never accept an evidence-free finding (PD-PA-07).
+        data = {
+            "finding_id": "PA-F-001",
+            "repository": "acme/healthy-lib",
+            "dimension": "technical_health",
+            "summary": "s",
+            "evidence": [],
+            "confidence": 80,
+            "severity": "HIGH",
+            "affected_capability": "tests_ci_evaluations",
+            "reasoning": "r",
+            "remediation_recommendation": "m",
+        }
+        errors = validate_finding_dict(data)
+        assert any("evidence" in e for e in errors)
+
 
 class TestNoPrototypeDependency:
     def test_portfolio_package_never_imports_loop_engineering(self) -> None:

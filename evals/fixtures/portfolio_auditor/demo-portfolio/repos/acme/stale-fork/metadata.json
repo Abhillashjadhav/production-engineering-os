@@ -1,0 +1,16 @@
+{
+  "owner": "acme",
+  "name": "stale-fork",
+  "visibility": "PUBLIC",
+  "description": "Fork of upstream/thing.",
+  "topics": [],
+  "default_branch": "master",
+  "created_at": "2023-11-01T00:00:00+00:00",
+  "pushed_at": "2024-01-01T00:00:00+00:00",
+  "license": "Apache-2.0",
+  "stargazers_count": 0,
+  "forks_count": 0,
+  "archived": true,
+  "is_fork": true,
+  "primary_language": "Python"
+}
