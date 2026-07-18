@@ -1,0 +1,194 @@
+{
+  "contract_version": 1,
+  "contract_id": "PDC-PORTFOLIO-AUDITOR-V1",
+  "contract_status": "APPROVED",
+  "approved_at": "2026-07-18T00:00:00Z",
+  "approved_by": "Abhillash Jadhav (operator commissioning instruction, 2026-07-18)",
+  "source_digest": "sha256:410f3b6d3048d068f3fb46501b0a2f2f56dfbe1be753fb78d3637e70af111438",
+  "product_name": "GitHub Portfolio Auditor V1",
+  "problem": "A GitHub portfolio accumulates repositories whose real technical health, security posture, business claims, and AI-slop risk are unknown, so the owner cannot tell which repositories build authority and which quietly damage it.",
+  "target_user": "The portfolio owner (operator) and product managers or builders who fork the Production Engineering OS and audit their own portfolios.",
+  "desired_outcome": "Every strategic repository carries an evidence-backed scorecard, an explicit AI-slop verdict, a recommendation (FIX / SHOWCASE / CONSOLIDATE / REBUILD / KEEP_AS_IS), and a prioritized remediation backlog whose fixes are verified by re-audit.",
+  "scope": [
+    "Broad deterministic scan of a configured repository inventory",
+    "Two-stage inspection: broad scan, then deep inspection of selected repositories",
+    "Evidence-backed recommendation verdicts and repository scorecards",
+    "Explicit repository-level AI-slop verdict with counter-evidence review",
+    "Prioritized remediation backlog and portfolio dashboard",
+    "Sandbox remediation PR generation with gated merge decisions",
+    "Post-remediation re-audit with regression detection",
+    "On-demand audit modes labeled quarterly, on_demand, or post_remediation"
+  ],
+  "out_of_scope": [
+    "Scanning, cloning, or modifying any real repository in V1 builds — fixtures, mocked responses, planted repositories, and sandbox PRs only",
+    "External market research for business-accuracy judgments (V1 uses repository evidence only)",
+    "Model SDK or API calls inside the Python runtime (PD-11)",
+    "Services, queues, databases, vector stores, or a web UI (file-backed state only)",
+    "Schedulers, daemons, or self-prompting loops (PD-10) — every audit is an on-demand invocation",
+    "Classifying or judging the person who created a repository"
+  ],
+  "functional_requirements": [
+    {
+      "id": "FR-PA-001",
+      "title": "Locked auditor contract and policy",
+      "description": "The auditor loads an APPROVED ProductDecisionContract plus a schema-validated policy config, digest-binds both, and refuses to run on a mutated or non-runnable contract.",
+      "capability": "portfolio.contract"
+    },
+    {
+      "id": "FR-PA-002",
+      "title": "Broad deterministic repository scan",
+      "description": "Given a repository inventory from a fixture-backed source, the scanner extracts mechanical signals (metadata, stack, docs, tests/CI, security and dependency signals, freshness, claims) with byte-identical repeated runs and redacted secret hits.",
+      "capability": "portfolio.scan.broad"
+    },
+    {
+      "id": "FR-PA-003",
+      "title": "Strategic configuration and deep-scan selection",
+      "description": "The operator-supplied strategic repository list is imported from configuration; risk ranking deterministically selects repositories for deep inspection.",
+      "capability": "portfolio.selection"
+    },
+    {
+      "id": "FR-PA-004",
+      "title": "Deep inspection with graded business accuracy",
+      "description": "Selected repositories receive deep technical, architecture, security, and business-evidence inspection; business claims are graded PROVEN / LIKELY / NOT_PROVEN / CONTRADICTED / INSUFFICIENT_EVIDENCE with origin-independent corroboration.",
+      "capability": "portfolio.scan.deep"
+    },
+    {
+      "id": "FR-PA-005",
+      "title": "Gated AI-slop verdict",
+      "description": "Each deeply inspected repository receives AI_SLOP, NOT_AI_SLOP, or INSUFFICIENT_EVIDENCE; hard verdicts require the confidence floor and a completed counter-evidence review, never rest solely on a forbidden basis, and are checked by stability evals.",
+      "capability": "portfolio.slop"
+    },
+    {
+      "id": "FR-PA-006",
+      "title": "Deterministic reporting",
+      "description": "The auditor renders a portfolio dashboard, per-repository scorecards, and a prioritized remediation backlog as pure functions of recorded evidence.",
+      "capability": "portfolio.report"
+    },
+    {
+      "id": "FR-PA-007",
+      "title": "Sandbox remediation with gated merge",
+      "description": "Remediation PRs are generated only against sandbox repositories; the merge decision function enforces every required gate and refuses every forbidden action, bound to the inspected commit.",
+      "capability": "portfolio.remediation"
+    },
+    {
+      "id": "FR-PA-008",
+      "title": "Post-remediation re-audit",
+      "description": "After remediation, the affected repository is re-audited against the frozen baseline; regressions are detected and reported as HOLD.",
+      "capability": "portfolio.reaudit"
+    },
+    {
+      "id": "FR-PA-009",
+      "title": "Evidence-led honesty",
+      "description": "Every delivered finding carries structured evidence, a confidence value, severity, affected capability, reasoning, and a remediation recommendation; a blocked audit reports BLOCKED rather than inventing results.",
+      "capability": "portfolio.evidence"
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-PA-001",
+      "requirement": "FR-PA-001",
+      "criterion": "Given the shipped contract and policy, when the auditor bundle loads, then both digests are computed and stable; and given a post-lock mutation of the locked contract copy, when verify_unchanged runs, then it raises a ContractViolation."
+    },
+    {
+      "id": "AC-PA-002",
+      "requirement": "FR-PA-002",
+      "criterion": "Given the fixture portfolio, when the broad scan runs twice with the same injected clock, then the two outputs are byte-identical and every planted secret appears only as rule/path/line with the value redacted."
+    },
+    {
+      "id": "AC-PA-003",
+      "requirement": "FR-PA-003",
+      "criterion": "Given a strategic configuration file, when selection runs, then the deep-scan set is a deterministic function of the recorded risk ranking and the configured strategy, and an absent configuration fails loudly."
+    },
+    {
+      "id": "AC-PA-004",
+      "requirement": "FR-PA-004",
+      "criterion": "Given planted business claims in the fixture portfolio, when deep inspection grades them, then unsupported claims never grade above NOT_PROVEN and no grade rests on fewer independent origins than the policy floor."
+    },
+    {
+      "id": "AC-PA-005",
+      "requirement": "FR-PA-005",
+      "criterion": "Given the planted slop-wrapper fixture, when classification runs, then the hard verdict appears only with confidence at or above the floor and a recorded counter-evidence review; and given only a forbidden sole basis, then the verdict is INSUFFICIENT_EVIDENCE."
+    },
+    {
+      "id": "AC-PA-006",
+      "requirement": "FR-PA-006",
+      "criterion": "Given recorded audit evidence, when reports render twice, then the dashboard, scorecards, and backlog are byte-identical, and every backlog entry traces to a finding id."
+    },
+    {
+      "id": "AC-PA-007",
+      "requirement": "FR-PA-007",
+      "criterion": "Given a sandbox remediation PR, when any required merge gate fails or any forbidden action is present, then the merge decision is REFUSE with the failing gate named; and no code path can target a non-sandbox repository."
+    },
+    {
+      "id": "AC-PA-008",
+      "requirement": "FR-PA-008",
+      "criterion": "Given a remediated sandbox repository, when the re-audit runs against the frozen baseline, then fixed findings close as FIXED and any newly failing prior-pass signal is reported as REGRESSED with HOLD."
+    },
+    {
+      "id": "AC-PA-009",
+      "requirement": "FR-PA-009",
+      "criterion": "Given any delivered finding, when it is serialized, then it validates against the finding schema with all seven required fields present; and given an audit that cannot proceed, then the output is an explicit BLOCKED report, never fabricated results."
+    }
+  ],
+  "binary_release_gates": [
+    {"id": "GATE-PA-001", "description": "All acceptance criteria have executed passing tests."},
+    {"id": "GATE-PA-002", "description": "Repeated audit runs over the fixture portfolio are byte-identical (determinism)."},
+    {"id": "GATE-PA-003", "description": "Every planted failure in the fixture portfolio is detected and reported."},
+    {"id": "GATE-PA-004", "description": "Zero blocking security findings from the OS security scan over the auditor's own code."},
+    {"id": "GATE-PA-005", "description": "No real repository was scanned or modified by any test or demo (fixture-only proof)."},
+    {"id": "GATE-PA-006", "description": "Independent read-only review returned APPROVE on the delivered milestone."}
+  ],
+  "scored_eval_rubric": [
+    {"id": "RUB-PA-001", "criterion": "Finding reasoning is specific enough to act on without re-reading the repository", "scale": "1-5"},
+    {"id": "RUB-PA-002", "criterion": "Remediation recommendations are the smallest change that closes the finding", "scale": "1-5"},
+    {"id": "RUB-PA-003", "criterion": "Scorecards read coherently as one narrative per repository", "scale": "1-5"}
+  ],
+  "golden_cases": [
+    "evals/fixtures/portfolio_auditor/demo-portfolio/repos/acme/healthy-lib",
+    "evals/fixtures/portfolio_auditor/demo-portfolio/repos/acme/slop-wrapper",
+    "evals/fixtures/portfolio_auditor/demo-portfolio/repos/acme/stale-fork",
+    "evals/fixtures/portfolio_auditor/demo-portfolio/repos/acme/internal-service"
+  ],
+  "north_star_metric": "Percentage of strategic repositories that are evidence-backed, reproducibly usable, technically healthy, authority-ready, and classified NOT_AI_SLOP.",
+  "leading_metrics": [
+    "Repositories broadly scanned",
+    "Strategic repositories deeply inspected",
+    "High-confidence findings recorded",
+    "Blocking findings remediated",
+    "Supported business claims",
+    "Post-remediation audits passed"
+  ],
+  "guardrails": [
+    "Repeated-audit consistency: identical inputs yield identical verdicts",
+    "Zero unsupported hard verdicts",
+    "Zero private-data leakage into public reports",
+    "Zero destructive changes to any repository",
+    "Zero incorrect auto-merge decisions in sandbox evaluation"
+  ],
+  "non_functional_requirements": [
+    {"id": "NFR-PA-001", "category": "determinism", "requirement": "All scoring, ranking, selection, and rendering are pure functions of recorded inputs; clocks are injected."},
+    {"id": "NFR-PA-002", "category": "privacy", "requirement": "Private-repository evidence never appears in public reports; secret values are never stored or printed, only rule/path/line."},
+    {"id": "NFR-PA-003", "category": "safety", "requirement": "Dry-run is the default; destructive actions are refused; repository access requires an explicit allowlist."},
+    {"id": "NFR-PA-004", "category": "traceability", "requirement": "Every verdict traces to finding ids, evidence origins, and the (contract digest, policy digest) pair of the run."}
+  ],
+  "known_risks": [
+    {"description": "Mechanical signals can misread unconventional repository layouts; deep inspection and counter-evidence review exist to catch this.", "level": "medium"},
+    {"description": "Fixture-first development may miss real-API edge cases; the live source is a fail-loud stub until the operator supplies the allowlist.", "level": "medium"},
+    {"description": "AI-slop classification is adversarial territory; the confidence floor, counter-evidence review, and forbidden sole bases bound the damage of a wrong call.", "level": "high"}
+  ],
+  "approved_product_decisions": [
+    {"id": "PD-PA-01", "decision": "The verdict applies only to the repository artifact and its accessible evidence, never to the person who created it."},
+    {"id": "PD-PA-02", "decision": "The operator supplies the strategic and marketable repository list before the first real scan; it is imported via configuration, not source code."},
+    {"id": "PD-PA-03", "decision": "Business and product accuracy is judged from repository evidence only in V1."},
+    {"id": "PD-PA-04", "decision": "Build and verify entirely on deterministic fixtures, mocked GitHub data, sandbox repositories, and planted failures before touching any real repository."},
+    {"id": "PD-PA-05", "decision": "Auto-merge authority applies only to future remediation PRs created by the finished auditor, never to the auditor feature branch itself."},
+    {"id": "PD-PA-06", "decision": "Private-repository evidence stays private; public reports never expose private source code, secrets, private repository names, or configuration."},
+    {"id": "PD-PA-07", "decision": "No model-based finding is delivered without structured evidence and a confidence value; honesty over helpfulness — a BLOCKED report beats an invented result."},
+    {"id": "PD-PA-08", "decision": "The auditor is built on existing Production Engineering OS mechanisms (contract store, evidence ledger, candidate freeze, read-only review guard, drift evals) and never on the archived loop-engineering prototype."}
+  ],
+  "unresolved_questions": [],
+  "required_approvals": [
+    {"role": "operator", "for": "supplying the strategic repository list and enabling any real scan"},
+    {"role": "operator", "for": "any remediation PR that changes business claims"}
+  ]
+}

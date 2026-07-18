@@ -13,6 +13,9 @@ import json
 from pathlib import Path
 
 import pytest
+
+from pmpe.contracts.digest import canonical_digest
+from pmpe.domain.errors import ConfigError
 from pmpe.portfolio.models import (
     AISlopVerdict,
     BusinessAccuracyVerdict,
@@ -25,9 +28,6 @@ from pmpe.portfolio.policy import (
     policy_schema_path,
     validate_finding_dict,
 )
-
-from pmpe.contracts.digest import canonical_digest
-from pmpe.domain.errors import ConfigError
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

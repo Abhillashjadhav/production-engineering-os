@@ -1,0 +1,147 @@
+{
+  "type": "object",
+  "required": [
+    "policy_version",
+    "recommendation_verdicts",
+    "assessment_dimensions",
+    "business_accuracy_scale",
+    "ai_slop_policy",
+    "evidence_model",
+    "scoring_model",
+    "prioritization",
+    "remediation_policy",
+    "safety_privacy"
+  ],
+  "properties": {
+    "policy_version": {"type": "integer"},
+    "recommendation_verdicts": {
+      "type": "array",
+      "minItems": 5,
+      "items": {"type": "string", "minLength": 2}
+    },
+    "assessment_dimensions": {
+      "type": "array",
+      "minItems": 10,
+      "items": {"type": "string", "minLength": 3}
+    },
+    "business_accuracy_scale": {
+      "type": "array",
+      "minItems": 5,
+      "items": {"type": "string", "minLength": 2}
+    },
+    "ai_slop_policy": {
+      "type": "object",
+      "required": [
+        "verdicts",
+        "hard_verdict_min_confidence",
+        "require_counter_evidence_review",
+        "default_when_uncertain",
+        "forbidden_sole_bases"
+      ],
+      "properties": {
+        "verdicts": {"type": "array", "minItems": 3, "items": {"type": "string"}},
+        "hard_verdict_min_confidence": {"type": "integer"},
+        "require_counter_evidence_review": {"type": "boolean"},
+        "default_when_uncertain": {"type": "string", "enum": ["INSUFFICIENT_EVIDENCE"]},
+        "forbidden_sole_bases": {
+          "type": "array",
+          "minItems": 6,
+          "items": {"type": "string", "minLength": 3}
+        }
+      }
+    },
+    "evidence_model": {
+      "type": "object",
+      "required": [
+        "valid_evidence_kinds",
+        "independence_key",
+        "min_origins_normal",
+        "min_origins_high_impact"
+      ],
+      "properties": {
+        "valid_evidence_kinds": {
+          "type": "array",
+          "minItems": 12,
+          "items": {"type": "string", "minLength": 3}
+        },
+        "independence_key": {"type": "string", "enum": ["origin"]},
+        "min_origins_normal": {"type": "integer"},
+        "min_origins_high_impact": {"type": "integer"}
+      }
+    },
+    "scoring_model": {
+      "type": "object",
+      "required": [
+        "high_confidence_floor",
+        "numeric_score_never_overrides_material_finding"
+      ],
+      "properties": {
+        "high_confidence_floor": {"type": "integer"},
+        "numeric_score_never_overrides_material_finding": {
+          "type": "boolean",
+          "enum": [true]
+        }
+      }
+    },
+    "prioritization": {
+      "type": "object",
+      "required": ["formula", "priority_order"],
+      "properties": {
+        "formula": {"type": "string", "minLength": 10},
+        "priority_order": {
+          "type": "array",
+          "minItems": 6,
+          "items": {"type": "string", "minLength": 3}
+        }
+      }
+    },
+    "remediation_policy": {
+      "type": "object",
+      "required": [
+        "auto_merge_scope",
+        "never_auto_merges_the_auditor_feature_branch",
+        "auto_merge_required_gates",
+        "forbidden_auto_merge_actions"
+      ],
+      "properties": {
+        "auto_merge_scope": {
+          "type": "string",
+          "enum": ["sandbox_remediation_prs_only"]
+        },
+        "never_auto_merges_the_auditor_feature_branch": {
+          "type": "boolean",
+          "enum": [true]
+        },
+        "auto_merge_required_gates": {
+          "type": "array",
+          "minItems": 9,
+          "items": {"type": "string", "minLength": 3}
+        },
+        "forbidden_auto_merge_actions": {
+          "type": "array",
+          "minItems": 8,
+          "items": {"type": "string", "minLength": 3}
+        }
+      }
+    },
+    "safety_privacy": {
+      "type": "object",
+      "required": [
+        "redact_private_origins_in_public_reports",
+        "least_privilege_github_permissions",
+        "dry_run_default",
+        "explicit_repository_allowlist_required",
+        "block_destructive_actions",
+        "no_real_repository_access_in_v1_builds"
+      ],
+      "properties": {
+        "redact_private_origins_in_public_reports": {"type": "boolean", "enum": [true]},
+        "least_privilege_github_permissions": {"type": "boolean", "enum": [true]},
+        "dry_run_default": {"type": "boolean", "enum": [true]},
+        "explicit_repository_allowlist_required": {"type": "boolean", "enum": [true]},
+        "block_destructive_actions": {"type": "boolean", "enum": [true]},
+        "no_real_repository_access_in_v1_builds": {"type": "boolean", "enum": [true]}
+      }
+    }
+  }
+}

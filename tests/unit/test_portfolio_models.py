@@ -11,6 +11,7 @@ overrides a material high-confidence finding.
 from __future__ import annotations
 
 import pytest
+
 from pmpe.portfolio.models import (
     AISlopVerdict,
     BusinessAccuracyVerdict,

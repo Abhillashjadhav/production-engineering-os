@@ -14,15 +14,15 @@ import json
 from pathlib import Path
 
 import pytest
+
+from pmpe.contracts.model import load_contract
+from pmpe.contracts.store import ContractStore, ContractViolation
 from pmpe.portfolio.contract import (
     AuditorBundle,
     contract_path,
     load_auditor_bundle,
     product_root,
 )
-
-from pmpe.contracts.model import load_contract
-from pmpe.contracts.store import ContractStore, ContractViolation
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 

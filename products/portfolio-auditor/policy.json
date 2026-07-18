@@ -1,0 +1,98 @@
+{
+  "policy_version": 1,
+  "recommendation_verdicts": ["FIX", "SHOWCASE", "CONSOLIDATE", "REBUILD", "KEEP_AS_IS"],
+  "assessment_dimensions": [
+    "technical_health",
+    "architecture_quality",
+    "tests_ci_evaluations",
+    "security_dependency_integrity",
+    "reusability_deployability",
+    "repository_cleanliness",
+    "product_usability_packaging",
+    "business_product_accuracy",
+    "claim_to_evidence_integrity",
+    "authority_readiness"
+  ],
+  "business_accuracy_scale": ["PROVEN", "LIKELY", "NOT_PROVEN", "CONTRADICTED", "INSUFFICIENT_EVIDENCE"],
+  "ai_slop_policy": {
+    "verdicts": ["AI_SLOP", "NOT_AI_SLOP", "INSUFFICIENT_EVIDENCE"],
+    "hard_verdict_min_confidence": 70,
+    "require_counter_evidence_review": true,
+    "default_when_uncertain": "INSUFFICIENT_EVIDENCE",
+    "forbidden_sole_bases": [
+      "writing_style",
+      "disclosed_ai_assistance",
+      "commit_volume",
+      "repository_size",
+      "generated_file_count",
+      "lack_of_popularity"
+    ]
+  },
+  "evidence_model": {
+    "valid_evidence_kinds": [
+      "repo_file_line",
+      "commit",
+      "test",
+      "ci_workflow",
+      "release_artifact",
+      "executed_command",
+      "evaluation_report",
+      "browser_trace",
+      "screenshot",
+      "deployment_proof",
+      "architecture_document",
+      "issue_or_pr_history"
+    ],
+    "independence_key": "origin",
+    "min_origins_normal": 2,
+    "min_origins_high_impact": 3
+  },
+  "scoring_model": {
+    "high_confidence_floor": 70,
+    "numeric_score_never_overrides_material_finding": true
+  },
+  "prioritization": {
+    "formula": "strategic_importance * severity_weight * authority_impact * confidence / remediation_effort",
+    "priority_order": [
+      "marketable_repositories",
+      "genai_authority_repositories",
+      "high_technical_or_incident_risk",
+      "large_claim_to_evidence_gap",
+      "high_ai_slop_risk",
+      "strong_reuse_potential"
+    ]
+  },
+  "remediation_policy": {
+    "auto_merge_scope": "sandbox_remediation_prs_only",
+    "never_auto_merges_the_auditor_feature_branch": true,
+    "auto_merge_required_gates": [
+      "within_approved_scope",
+      "no_unresolved_product_decision_change",
+      "tests_first_where_applicable",
+      "substantive_ci_green",
+      "independent_review_approve",
+      "no_blocking_finding_remaining",
+      "post_patch_audit_passes",
+      "bound_to_inspected_commit",
+      "does_not_weaken_gates"
+    ],
+    "forbidden_auto_merge_actions": [
+      "major_architecture_rewrite",
+      "product_scope_change",
+      "business_claim_change_needs_user",
+      "destructive_archival_or_deletion",
+      "repository_consolidation",
+      "insufficient_evidence",
+      "weakens_validation",
+      "hides_or_deletes_failed_evidence"
+    ]
+  },
+  "safety_privacy": {
+    "redact_private_origins_in_public_reports": true,
+    "least_privilege_github_permissions": true,
+    "dry_run_default": true,
+    "explicit_repository_allowlist_required": true,
+    "block_destructive_actions": true,
+    "no_real_repository_access_in_v1_builds": true
+  }
+}

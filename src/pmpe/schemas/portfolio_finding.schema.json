@@ -1,0 +1,45 @@
+{
+  "type": "object",
+  "required": [
+    "finding_id",
+    "repository",
+    "dimension",
+    "summary",
+    "evidence",
+    "confidence",
+    "severity",
+    "affected_capability",
+    "reasoning",
+    "remediation_recommendation"
+  ],
+  "properties": {
+    "finding_id": {"type": "string", "minLength": 1},
+    "repository": {"type": "string", "minLength": 1},
+    "dimension": {"type": "string", "minLength": 1},
+    "summary": {"type": "string", "minLength": 1},
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["evidence_id", "kind", "origin", "reference", "content_digest"],
+        "properties": {
+          "evidence_id": {"type": "string", "minLength": 1},
+          "kind": {"type": "string", "minLength": 1},
+          "origin": {"type": "string", "minLength": 1},
+          "reference": {"type": "string", "minLength": 1},
+          "content_digest": {"type": "string", "minLength": 7},
+          "excerpt": {"type": "string"}
+        }
+      }
+    },
+    "confidence": {"type": "integer"},
+    "severity": {
+      "type": "string",
+      "enum": ["BLOCKING", "HIGH", "MEDIUM", "LOW", "INFO"]
+    },
+    "affected_capability": {"type": "string", "minLength": 1},
+    "reasoning": {"type": "string", "minLength": 1},
+    "remediation_recommendation": {"type": "string", "minLength": 1},
+    "tags": {"type": "array", "items": {"type": "string"}}
+  }
+}
