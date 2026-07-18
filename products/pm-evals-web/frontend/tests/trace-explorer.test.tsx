@@ -130,4 +130,21 @@ describe("TraceExplorer — S-3 Trace Detail (J-7)", () => {
     });
     expect(screen.getByText(/no changed traces match/i)).toBeInTheDocument();
   });
+
+  it("keeps aria-controls a valid IDREF for a trace_id containing whitespace", () => {
+    // trace_id is uploaded content (backend only enforces min_length=1); a
+    // whitespace id must not produce an invalid DOM id / multi-token aria-controls.
+    const hostile = {
+      ...edge,
+      trace_details: [{ ...edge.trace_details[0], trace_id: "T 006" }],
+    } as Comparison;
+    render(<TraceExplorer comparison={hostile} />);
+    const button = screen.getByRole("button", { name: /^T 006$/ });
+    fireEvent.click(button);
+    const controls = button.getAttribute("aria-controls");
+    const region = screen.getByRole("region", { name: /trace T 006 detail/i });
+    expect(controls).toBe(region.getAttribute("id")); // link is consistent
+    expect(controls).toBeTruthy();
+    expect(controls).not.toMatch(/\s/); // a single valid IDREF has no whitespace
+  });
 });

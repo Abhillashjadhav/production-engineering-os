@@ -31,10 +31,16 @@ export default defineConfig({
       testIgnore: /responsive\.spec\.ts/,
     },
     {
-      // the device profile supplies the mobile viewport/UA; Chromium is
-      // forced because it is the only installed engine (documented seam)
+      // the device profile supplies the mobile UA; the viewport is pinned to the
+      // contract's 375px (PD-V3-09) rather than the iPhone 12 profile's 390px, so
+      // the whole mobile journey is exercised at the declared width. Chromium is
+      // forced because it is the only installed engine (documented seam).
       name: "mobile-chromium",
-      use: { ...devices["iPhone 12"], browserName: "chromium" },
+      use: {
+        ...devices["iPhone 12"],
+        viewport: { width: 375, height: 812 },
+        browserName: "chromium",
+      },
       testMatch: /responsive\.spec\.ts/,
     },
   ],

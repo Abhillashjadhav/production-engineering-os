@@ -12,6 +12,15 @@ import type { Comparison, CriterionCell, TraceComparison } from "@/lib/api";
 
 type DirectionFilter = "all" | "improved" | "regressed";
 
+// The trace_id is uploaded content (the backend only enforces min_length=1), so
+// encode it before it becomes a DOM id / aria-controls IDREF: encodeURIComponent
+// strips ASCII whitespace (space -> %20, etc.), keeping the value a single valid
+// IDREF even for a hostile trace_id. The button and its region derive their link
+// from this one helper, so they always match.
+function traceDetailId(traceId: string): string {
+  return `trace-detail-${encodeURIComponent(traceId)}`;
+}
+
 function matchesDirection(trace: TraceComparison, filter: DirectionFilter): boolean {
   if (filter === "all") return true;
   if (filter === "improved") return trace.direction === "improved" || trace.direction === "mixed";
@@ -108,6 +117,9 @@ export function TraceExplorer({
                   )
                 }
                 aria-expanded={selectedTrace === trace.trace_id}
+                aria-controls={
+                  selectedTrace === trace.trace_id ? traceDetailId(trace.trace_id) : undefined
+                }
               >
                 {trace.trace_id}
               </button>{" "}
@@ -124,7 +136,12 @@ export function TraceExplorer({
 
 function TraceDetail({ trace }: { trace: TraceComparison }) {
   return (
-    <div role="region" aria-label={`Trace ${trace.trace_id} detail`} className="trace-detail">
+    <div
+      id={traceDetailId(trace.trace_id)}
+      role="region"
+      aria-label={`Trace ${trace.trace_id} detail`}
+      className="trace-detail"
+    >
       <h3>{trace.trace_id}</h3>
       <dl className="trace-evidence">
         <div>

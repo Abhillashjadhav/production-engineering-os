@@ -1,6 +1,7 @@
-// PD-V3-09: the journey works at a phone viewport (iPhone 12 profile,
-// 390x844) with no horizontal page overflow — the criterion table scrolls
-// inside its own container, never the page.
+// PD-V3-09: the journey works at the contract's declared 375px phone viewport
+// (the mobile-chromium project pins width 375 with the iPhone 12 UA) with no
+// horizontal page overflow — the criterion table scrolls inside its own
+// container, never the page.
 import { expect, test } from "@playwright/test";
 
 import { compareFixtures } from "./helpers";
@@ -19,6 +20,8 @@ test("the journey completes at a phone viewport without horizontal overflow", as
   page,
 }) => {
   await page.goto("/");
+  // The whole journey below runs at the contract's declared 375px width.
+  expect(page.viewportSize()?.width).toBe(375);
   await expect(page.getByRole("heading", { name: /compare eval runs/i })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
