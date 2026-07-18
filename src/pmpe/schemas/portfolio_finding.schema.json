@@ -19,6 +19,7 @@
     "summary": {"type": "string", "minLength": 1},
     "evidence": {
       "type": "array",
+      "minItems": 1,
       "items": {
         "type": "object",
         "required": ["evidence_id", "kind", "origin", "reference", "content_digest"],

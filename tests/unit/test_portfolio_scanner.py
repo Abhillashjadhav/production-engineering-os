@@ -15,6 +15,7 @@ import json
 from pathlib import Path
 
 import pytest
+
 from pmpe.portfolio.datasource import (
     FixtureRepositorySource,
     LiveAccessUnavailable,

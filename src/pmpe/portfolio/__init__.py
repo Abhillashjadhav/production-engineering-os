@@ -8,6 +8,12 @@ the archived loop-engineering prototype.
 """
 
 from pmpe.portfolio.contract import AuditorBundle, load_auditor_bundle
+from pmpe.portfolio.datasource import (
+    FixtureRepositorySource,
+    LiveAccessUnavailable,
+    LiveRepositorySource,
+    RepositorySource,
+)
 from pmpe.portfolio.models import (
     AISlopVerdict,
     BusinessAccuracyVerdict,
@@ -18,6 +24,7 @@ from pmpe.portfolio.models import (
     SlopPolicy,
 )
 from pmpe.portfolio.policy import AuditorPolicy, load_policy
+from pmpe.portfolio.scanner import RepoScan, scan_portfolio, scan_repository
 
 __all__ = [
     "AISlopVerdict",
@@ -26,9 +33,16 @@ __all__ = [
     "BusinessAccuracyVerdict",
     "EvidenceRef",
     "Finding",
+    "FixtureRepositorySource",
+    "LiveAccessUnavailable",
+    "LiveRepositorySource",
     "RecommendationVerdict",
+    "RepoScan",
+    "RepositorySource",
     "Severity",
     "SlopPolicy",
     "load_auditor_bundle",
     "load_policy",
+    "scan_portfolio",
+    "scan_repository",
 ]

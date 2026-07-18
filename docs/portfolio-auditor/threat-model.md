@@ -37,8 +37,8 @@ A verdict without evidence damages a real person's repository standing.
 - PD-PA-06 pinned; policy `redact_private_origins_in_public_reports` is
   schema-enforced to `true` (an edited policy fails validation).
 - Secret hits are recorded as rule/path/line only — the value is never
-  stored, logged, or rendered (scanner tests plant placeholder secrets and
-  assert full redaction).
+  stored, logged, or rendered (M2 scanner tests plant placeholder secrets
+  and assert full redaction).
 - Fixture private repos exist precisely to test that no private source,
   name, or configuration reaches a public report.
 
@@ -48,7 +48,7 @@ A verdict without evidence damages a real person's repository standing.
   (schema-enforced `explicit_repository_allowlist_required: true`).
 - Dry-run is the default; destructive actions are refused
   (`block_destructive_actions: true`).
-- Deep inspection wraps every pass in `readonly_snapshot` /
+- Deep inspection (M4) will wrap every pass in `readonly_snapshot` /
   `verify_unmodified` — a modified tree fails the run, mirroring PD-06
   reviewer guarantees.
 - Remediation (M7) targets sandbox repositories only; the merge decision
