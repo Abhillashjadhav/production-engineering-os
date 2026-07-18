@@ -25,7 +25,6 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any
 
-from pmpe.contracts.digest import canonical_digest
 from pmpe.domain.errors import PmpeError
 from pmpe.portfolio.datasource import RepositorySource
 from pmpe.portfolio.models import (
@@ -36,21 +35,17 @@ from pmpe.portfolio.models import (
     must_surface,
 )
 from pmpe.portfolio.policy import AuditorPolicy
-from pmpe.portfolio.scanner import MechanicalClaim, RepoScan
+from pmpe.portfolio.scanner import MechanicalClaim, RepoScan, snapshot_digest
 
 INSPECTOR_VERSION = "pa-inspector-1"
 
 #: Claim categories that V1 mechanical inspection cannot evaluate at all
 #: from repository content (external adoption, benchmarks, scale claims).
-_UNEVALUABLE_CATEGORIES = frozenset({"metric", "scale", "adoption"})
+_UNEVALUABLE_CATEGORIES = frozenset({"metric", "scale", "adoption", "superlative"})
 
 
 def _sha(text: str) -> str:
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
-
-
-def _snapshot_digest(meta: dict[str, Any], tree: list[str], files: dict[str, str]) -> str:
-    return canonical_digest({"metadata": meta, "tree": sorted(tree), "files": files})
 
 
 @dataclass(frozen=True)
@@ -439,7 +434,13 @@ def inspect_repository(
     meta = source.metadata(owner, name)
     tree = source.tree(owner, name)
     files = source.files(owner, name)
-    digest_before = _snapshot_digest(meta, tree, files)
+    digest_before = snapshot_digest(meta, tree, files)
+    if scan.snapshot_digest and scan.snapshot_digest != digest_before:
+        raise PmpeError(
+            f"scan for {repo} was taken from a different snapshot "
+            f"({scan.snapshot_digest} != {digest_before}) — the snapshot mutated "
+            "between scan and inspection; re-scan before inspecting"
+        )
 
     findings = (
         _secret_findings(repo, scan, files)
@@ -454,7 +455,7 @@ def inspect_repository(
         if must_surface(f, high_confidence_floor=policy.scoring.high_confidence_floor)
     )
 
-    digest_after = _snapshot_digest(
+    digest_after = snapshot_digest(
         source.metadata(owner, name), source.tree(owner, name), source.files(owner, name)
     )
     if digest_after != digest_before:

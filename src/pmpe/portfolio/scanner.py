@@ -21,10 +21,21 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
 
+from pmpe.contracts.digest import canonical_digest
 from pmpe.portfolio.datasource import RepositorySource
 from pmpe.portfolio.models import RepoVisibility
 
 SCANNER_VERSION = "pa-scanner-1"
+
+
+def snapshot_digest(meta: dict[str, Any], tree: list[str], files: dict[str, str]) -> str:
+    """Canonical content digest of one repository snapshot.
+
+    Shared by the scanner and the deep inspector so a scan and an
+    inspection provably describe the same snapshot (M4 review, TOCTOU).
+    """
+    return canonical_digest({"metadata": meta, "tree": sorted(tree), "files": files})
+
 
 REDACTED = "***REDACTED***"
 
@@ -242,6 +253,7 @@ class RepoScan:
     packaging: PackagingSignals
     freshness: FreshnessSignals
     mechanical_claims: list[MechanicalClaim]
+    snapshot_digest: str = ""
     scanner_version: str = SCANNER_VERSION
 
     def to_dict(self) -> dict[str, Any]:
@@ -263,6 +275,7 @@ class RepoScan:
             "packaging": self.packaging.to_dict(),
             "freshness": self.freshness.to_dict(),
             "mechanical_claims": [c.to_dict() for c in self.mechanical_claims],
+            "snapshot_digest": self.snapshot_digest,
             "scanner_version": self.scanner_version,
         }
 
@@ -288,6 +301,7 @@ class RepoScan:
             mechanical_claims=[
                 MechanicalClaim.from_dict(c) for c in d.get("mechanical_claims", [])
             ],
+            snapshot_digest=str(d.get("snapshot_digest", "")),
             scanner_version=str(d.get("scanner_version", SCANNER_VERSION)),
         )
 
@@ -706,6 +720,7 @@ def scan_repository(
             is_fork=bool(meta.get("is_fork", False)),
         ),
         mechanical_claims=extract_mechanical_claims(readme_text) if readme_text else [],
+        snapshot_digest=snapshot_digest(meta, tree, files),
     )
 
 

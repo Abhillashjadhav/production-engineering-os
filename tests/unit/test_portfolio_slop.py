@@ -19,11 +19,6 @@ import json
 from pathlib import Path
 
 import pytest
-from pmpe.portfolio.slop import (
-    SlopAssessment,
-    classify_slop,
-    verify_stability,
-)
 
 from pmpe.domain.errors import PmpeError
 from pmpe.portfolio.datasource import FixtureRepositorySource
@@ -31,6 +26,11 @@ from pmpe.portfolio.inspection import inspect_repository
 from pmpe.portfolio.models import AISlopVerdict, BusinessAccuracyVerdict
 from pmpe.portfolio.policy import load_policy
 from pmpe.portfolio.scanner import scan_repository
+from pmpe.portfolio.slop import (
+    SlopAssessment,
+    classify_slop,
+    verify_stability,
+)
 
 FIXTURES = (
     Path(__file__).resolve().parents[2]
