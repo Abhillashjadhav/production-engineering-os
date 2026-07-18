@@ -397,15 +397,38 @@ _CLAIM_RULES: list[tuple[str, re.Pattern[str]]] = [
 ]
 
 
+#: Credential-in-URL (https://user:token@host) — a common install-command
+#: pattern the assignment-shaped rules cannot see.
+_URL_CREDENTIAL_RE = re.compile(r"://[^/\s:@]+:[^/\s@]+@")
+
+
 def _basename(path: str) -> str:
     return path.rsplit("/", 1)[-1]
 
 
 def _find_readme(files: dict[str, str]) -> str | None:
-    for path, content in files.items():
-        if _basename(path).lower().startswith("readme"):
-            return content
-    return None
+    """Deterministic README selection: shallowest path, then lexicographic.
+
+    Multiple READMEs (``README.md`` + ``docs/README.md``) must never make
+    the chosen one depend on ``files()`` iteration order (AC-PA-002).
+    """
+    candidates = [path for path in files if _basename(path).lower().startswith("readme")]
+    if not candidates:
+        return None
+    best = min(candidates, key=lambda p: (p.count("/"), p.lower()))
+    return files[best]
+
+
+def redact_text(text: str) -> str:
+    """Replace every secret-shaped span in ``text`` with the redaction marker.
+
+    Output fields that copy repository text verbatim (claim text, install
+    commands, descriptions) MUST pass through here — redaction is holistic,
+    not a property of the secret_hits subsystem alone (PD-PA-06).
+    """
+    for _, pattern in _SECRET_RULES:
+        text = pattern.sub(REDACTED, text)
+    return _URL_CREDENTIAL_RE.sub(f"://{REDACTED}@", text)
 
 
 def detect_secrets(files: dict[str, str]) -> list[SecretHit]:
@@ -423,7 +446,12 @@ def detect_secrets(files: dict[str, str]) -> list[SecretHit]:
 def extract_mechanical_claims(
     readme_text: str, location_file: str = "README.md"
 ) -> list[MechanicalClaim]:
-    """Pull candidate claim sentences from a README for later accuracy grading."""
+    """Pull candidate claim sentences from a README for later accuracy grading.
+
+    Redaction happens BEFORE truncation: truncating first could clip a
+    secret so the pattern no longer matches while most of the value
+    survives in the kept prefix.
+    """
     claims: list[MechanicalClaim] = []
     for lineno, raw in enumerate(readme_text.splitlines(), start=1):
         line = raw.strip()
@@ -433,7 +461,9 @@ def extract_mechanical_claims(
             if pattern.search(line):
                 claims.append(
                     MechanicalClaim(
-                        text=line[:200], category=category, location=f"{location_file}:{lineno}"
+                        text=redact_text(line)[:200],
+                        category=category,
+                        location=f"{location_file}:{lineno}",
                     )
                 )
     return claims
@@ -535,7 +565,9 @@ def _install_commands(readme_text: str) -> list[str]:
             continue
         m = _INSTALL_CMD.match(raw)
         if m:
-            cmds.append(m.group(1).strip())
+            # Install commands routinely embed registry credentials
+            # (--extra-index-url https://user:token@host) — redact before copy.
+            cmds.append(redact_text(m.group(1).strip()))
     return cmds
 
 
@@ -654,7 +686,7 @@ def scan_repository(
         owner=owner,
         name=name,
         visibility=RepoVisibility(str(meta.get("visibility", "PUBLIC"))),
-        description=str(meta.get("description") or ""),
+        description=redact_text(str(meta.get("description") or "")),
         topics=[str(t) for t in meta.get("topics", [])],
         default_branch=str(meta.get("default_branch", "main")),
         stars=int(meta.get("stargazers_count", 0)),

@@ -236,3 +236,96 @@ class _FakeSource:
 
     def files(self, owner: str, name: str) -> dict[str, str]:
         return self._files
+
+
+HOSTILE_CLAIM_SECRET = "HOSTILE_SECRET_VALUE_a1b2c3d4e5f6g7h8"
+HOSTILE_URL_TOKEN = "HOSTILE_CMD_TOKEN_x9y8z7w6v5u4t3s2"
+
+
+class TestHolisticRedaction:
+    """M2 review blockers: secrets must never leak through copy-through fields."""
+
+    def test_claim_line_secret_never_reaches_claim_text(self) -> None:
+        readme = (
+            "# X\n"
+            f'This production-ready platform uses api_key = "{HOSTILE_CLAIM_SECRET}" '
+            "internally and is blazing fast.\n"
+        )
+        s = scan_repository(_FakeSource(_source(), {"README.md": readme}), "acme", "healthy-lib")
+        assert s.mechanical_claims, "the claim patterns must still fire"
+        blob = json.dumps(s.to_dict())
+        assert HOSTILE_CLAIM_SECRET not in blob
+        assert any("***REDACTED***" in c.text for c in s.mechanical_claims)
+
+    def test_redaction_happens_before_truncation(self) -> None:
+        # Pad so the secret straddles the 200-char cut: truncating first would
+        # clip the pattern while keeping most of the value.
+        pad = "battle-tested " + "x" * 170
+        readme = f'{pad} token = "{HOSTILE_CLAIM_SECRET}"\n'
+        s = scan_repository(_FakeSource(_source(), {"README.md": readme}), "acme", "healthy-lib")
+        blob = json.dumps(s.to_dict())
+        assert HOSTILE_CLAIM_SECRET not in blob
+        assert HOSTILE_CLAIM_SECRET[:12] not in blob
+
+    def test_install_command_credentials_redacted(self) -> None:
+        readme = (
+            "# X\n```bash\n"
+            f"pip install leaky --extra-index-url https://user:{HOSTILE_URL_TOKEN}@pypi.internal\n"
+            "```\n"
+        )
+        s = scan_repository(_FakeSource(_source(), {"README.md": readme}), "acme", "healthy-lib")
+        assert s.packaging.install_commands, "the install command must still be captured"
+        blob = json.dumps(s.to_dict())
+        assert HOSTILE_URL_TOKEN not in blob
+
+    def test_description_with_secret_is_redacted(self) -> None:
+        meta = dict(_source().metadata("acme", "healthy-lib"))
+        meta["description"] = f'ships with api_key = "{HOSTILE_CLAIM_SECRET}" built in'
+        s = scan_repository(_MetaSource(_source(), meta), "acme", "healthy-lib", now=NOW)
+        assert HOSTILE_CLAIM_SECRET not in json.dumps(s.to_dict())
+
+
+class TestReviewHardening:
+    """M2 review notes: traversal containment and order-independent README pick."""
+
+    def test_datasource_rejects_traversal_names(self) -> None:
+        src = _source()
+        for owner, name in (
+            ("acme", "../../../outside"),
+            ("../evil", "healthy-lib"),
+            ("acme", "a/b"),
+            ("acme", ".."),
+            ("", "healthy-lib"),
+        ):
+            with pytest.raises(ValueError):
+                src.metadata(owner, name)
+
+    def test_readme_selection_is_order_independent(self) -> None:
+        root = "# Root readme\nblazing fast\n"
+        nested = "# Docs readme\nsomething else entirely\n"
+        a = _FakeSource(_source(), {"README.md": root, "docs/README.md": nested})
+        b = _FakeSource(_source(), {"docs/README.md": nested, "README.md": root})
+        scan_a = scan_repository(a, "acme", "healthy-lib", now=NOW)
+        scan_b = scan_repository(b, "acme", "healthy-lib", now=NOW)
+        assert json.dumps(scan_a.to_dict()) == json.dumps(scan_b.to_dict())
+        assert scan_a.readme.length_chars == len(root)
+
+
+class _MetaSource:
+    """Wraps the fixture source, overriding metadata() only."""
+
+    def __init__(self, inner: FixtureRepositorySource, meta: dict[str, object]) -> None:
+        self._inner = inner
+        self._meta = meta
+
+    def discover(self, owner: str) -> list[str]:
+        return self._inner.discover(owner)
+
+    def metadata(self, owner: str, name: str) -> dict[str, object]:
+        return self._meta
+
+    def tree(self, owner: str, name: str) -> list[str]:
+        return self._inner.tree(owner, name)
+
+    def files(self, owner: str, name: str) -> dict[str, str]:
+        return self._inner.files(owner, name)

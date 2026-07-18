@@ -42,23 +42,36 @@ class RepositorySource(Protocol):
     def files(self, owner: str, name: str) -> dict[str, str]: ...
 
 
+def _safe_segment(value: str, label: str) -> str:
+    """One path segment, contained: no separators, no traversal, non-empty.
+
+    Owner and repository names come from configuration; a crafted name must
+    never read outside the fixture root (M2 review hardening, pre-M3).
+    """
+    if not value or value in (".", "..") or "/" in value or "\\" in value:
+        raise ValueError(f"{label} must be a plain name, got {value!r}")
+    return value
+
+
 class FixtureRepositorySource:
     """Reads repository snapshots from a fixture directory."""
 
     def __init__(self, root: str | Path) -> None:
-        self.root = Path(root)
+        self.root = Path(root).resolve()
         if not self.root.is_dir():
             raise FileNotFoundError(f"fixture root does not exist: {self.root}")
 
     def _load(self, path: Path) -> Any:
-        with path.open(encoding="utf-8") as fh:
+        resolved = path.resolve()
+        resolved.relative_to(self.root)  # containment: never read outside the root
+        with resolved.open(encoding="utf-8") as fh:
             return json.load(fh)
 
     def _repo_dir(self, owner: str, name: str) -> Path:
-        return self.root / "repos" / owner / name
+        return self.root / "repos" / _safe_segment(owner, "owner") / _safe_segment(name, "name")
 
     def discover(self, owner: str) -> list[str]:
-        path = self.root / "owners" / f"{owner}.json"
+        path = self.root / "owners" / f"{_safe_segment(owner, 'owner')}.json"
         if not path.is_file():
             raise LiveAccessUnavailable(f"no owner index for {owner} at {path}")
         names = self._load(path)
