@@ -39,6 +39,12 @@ from pmpe.portfolio.selection import (
     rank_risks,
     select_for_deep_scan,
 )
+from pmpe.portfolio.slop import (
+    SlopAssessment,
+    StabilityReport,
+    classify_slop,
+    verify_stability,
+)
 
 __all__ = [
     "AISlopVerdict",
@@ -58,6 +64,8 @@ __all__ = [
     "RepositorySource",
     "SelectionReport",
     "Severity",
+    "SlopAssessment",
+    "StabilityReport",
     "SlopPolicy",
     "Strategy",
     "load_auditor_bundle",
@@ -68,5 +76,7 @@ __all__ = [
     "rank_risks",
     "scan_portfolio",
     "scan_repository",
+    "classify_slop",
     "select_for_deep_scan",
+    "verify_stability",
 ]

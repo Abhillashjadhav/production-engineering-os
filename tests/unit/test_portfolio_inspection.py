@@ -18,14 +18,14 @@ import json
 from pathlib import Path
 
 import pytest
+
+from pmpe.domain.errors import PmpeError
+from pmpe.portfolio.datasource import FixtureRepositorySource
 from pmpe.portfolio.inspection import (
     DeepInspection,
     inspect_repository,
     inspect_selected,
 )
-
-from pmpe.domain.errors import PmpeError
-from pmpe.portfolio.datasource import FixtureRepositorySource
 from pmpe.portfolio.models import BusinessAccuracyVerdict, Severity, must_surface
 from pmpe.portfolio.policy import load_policy, validate_finding_dict
 from pmpe.portfolio.scanner import scan_repository
