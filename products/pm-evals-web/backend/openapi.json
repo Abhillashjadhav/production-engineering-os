@@ -328,6 +328,9 @@
             "title": "Description",
             "type": "string"
           },
+          "guardrail": {
+            "$ref": "#/components/schemas/GuardrailGovernance"
+          },
           "hard_gate": {
             "title": "Hard Gate",
             "type": "boolean"
@@ -356,9 +359,58 @@
           "delta",
           "newly_passing",
           "newly_failing",
-          "covered_traces"
+          "covered_traces",
+          "guardrail"
         ],
         "title": "CriterionDelta",
+        "type": "object"
+      },
+      "GuardrailGovernance": {
+        "description": "Baseline-authoritative provenance for one criterion's min_pass_rate\nguardrail (PD-V3-19).\n\nThe baseline governs the threshold; the candidate \u2014 the artifact under\nevaluation \u2014 may STRENGTHEN it but may never WEAKEN it. Resolution is by\nexplicit `is not None`, never truthiness, so an explicit candidate 0.0 is a\nreal value (which cannot lower the baseline), not a falsy fallback trigger.",
+        "properties": {
+          "baseline_threshold": {
+            "title": "Baseline Threshold",
+            "type": "number"
+          },
+          "candidate_effect": {
+            "enum": [
+              "unset",
+              "matched",
+              "strengthened",
+              "weakened_ignored"
+            ],
+            "title": "Candidate Effect",
+            "type": "string"
+          },
+          "candidate_threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Threshold"
+          },
+          "effective_threshold": {
+            "title": "Effective Threshold",
+            "type": "number"
+          },
+          "policy": {
+            "const": "baseline-authoritative",
+            "default": "baseline-authoritative",
+            "title": "Policy",
+            "type": "string"
+          }
+        },
+        "required": [
+          "baseline_threshold",
+          "candidate_threshold",
+          "effective_threshold",
+          "candidate_effect"
+        ],
+        "title": "GuardrailGovernance",
         "type": "object"
       },
       "HealthResponse": {

@@ -123,3 +123,26 @@ of them requires a ProductChangeRequest, never an engineering fix.
 - **PD-V3-18 — Honest evidence only**: synthetic evidence is labeled
   synthetic; no real-user claims from fixtures; no manufactured timestamps or
   activity; disagreement and uncertainty are preserved in the record.
+- **PD-V3-19 — Guardrail thresholds are baseline-authoritative** (dogfood
+  backend finding F-4; approved by the repo owner 2026-07-18): a criterion's
+  `min_pass_rate` guardrail is governed by the **baseline** run, never the
+  artifact under evaluation.
+  - The baseline's explicitly configured `min_pass_rate` governs.
+  - When the baseline omits it, the locked system default
+    (`DEFAULT_MIN_PASS_RATE = 0.0` — no floor unless a run configures one, so
+    pre-existing comparisons keep their verdict) applies.
+  - The candidate run may **strengthen** the threshold but may never
+    **weaken** it. The effective threshold is
+    `max(baseline_threshold, candidate_threshold)`, where the candidate value
+    participates only when it is **explicitly present**.
+  - Resolution uses explicit `is not None` handling, never truthiness, so an
+    explicit candidate `0.0` cannot trigger a falsy-fallback defect and cannot
+    bypass the baseline.
+  - Every comparison records, per criterion: the baseline threshold, the
+    candidate-declared threshold, the effective threshold, the policy
+    (`baseline-authoritative`), and whether the candidate `unset`, `matched`,
+    `strengthened`, or attempted to weaken (`weakened_ignored`) the gate.
+  - Rationale: a release guardrail the evaluated artifact can lower is not a
+    guardrail; threshold changes must flow through the baseline as a
+    deliberate, reviewable act. Supersedes the prior
+    `candidate_min_pass_rate or baseline_min_pass_rate` truthiness resolution.
