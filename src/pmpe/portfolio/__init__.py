@@ -30,6 +30,15 @@ from pmpe.portfolio.models import (
     SlopPolicy,
 )
 from pmpe.portfolio.policy import AuditorPolicy, load_policy
+from pmpe.portfolio.reporting import (
+    BacklogItem,
+    RepoReport,
+    build_backlog,
+    build_repo_report,
+    recommend,
+    render_dashboard,
+    render_scorecard,
+)
 from pmpe.portfolio.scanner import RepoScan, scan_portfolio, scan_repository
 from pmpe.portfolio.selection import (
     RepoRisk,
@@ -50,6 +59,7 @@ __all__ = [
     "AISlopVerdict",
     "AuditorBundle",
     "AuditorPolicy",
+    "BacklogItem",
     "BusinessAccuracyVerdict",
     "ClaimGrade",
     "DeepInspection",
@@ -59,6 +69,7 @@ __all__ = [
     "LiveAccessUnavailable",
     "LiveRepositorySource",
     "RecommendationVerdict",
+    "RepoReport",
     "RepoRisk",
     "RepoScan",
     "RepositorySource",
@@ -74,8 +85,13 @@ __all__ = [
     "inspect_selected",
     "load_strategy",
     "rank_risks",
+    "recommend",
+    "render_dashboard",
+    "render_scorecard",
     "scan_portfolio",
     "scan_repository",
+    "build_backlog",
+    "build_repo_report",
     "classify_slop",
     "select_for_deep_scan",
     "verify_stability",
