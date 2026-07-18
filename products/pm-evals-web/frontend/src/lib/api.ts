@@ -3,6 +3,13 @@
 // and CI fails when it drifts). The UI can never depend on an undocumented
 // field: these are the only response types the app knows.
 import type { components } from "@/lib/api-types.gen";
+import { MAX_UPLOAD_MB } from "@/lib/validate";
+
+// The size the 413 message reports is the single MAX_UPLOAD_MB derived in the
+// client mirror (floored to whole MB from MAX_UPLOAD_BYTES, like the backend),
+// so it can never drift into a stale literal when the cap changes.
+// mirror-parity.test.ts keeps that cap equal to the backend's.
+const OVERSIZE_MESSAGE = `One of the files is larger than the ${MAX_UPLOAD_MB} MB limit.`;
 
 export type Comparison = components["schemas"]["Comparison"];
 export type CompareResponse = components["schemas"]["CompareResponse"];
@@ -79,7 +86,7 @@ export async function compareRuns(
     return { kind: "validation", problems: await readValidationProblems(response) };
   }
   if (response.status === 413) {
-    return { kind: "error", message: "One of the files is larger than the 5 MB limit." };
+    return { kind: "error", message: OVERSIZE_MESSAGE };
   }
   if (!response.ok) {
     return { kind: "error", message: `The comparison failed (HTTP ${response.status}).` };
@@ -111,7 +118,7 @@ export async function downloadReport(
     return { kind: "validation", problems: await readValidationProblems(response) };
   }
   if (response.status === 413) {
-    return { kind: "error", message: "One of the files is larger than the 5 MB limit." };
+    return { kind: "error", message: OVERSIZE_MESSAGE };
   }
   if (!response.ok) {
     return { kind: "error", message: `The report download failed (HTTP ${response.status}).` };

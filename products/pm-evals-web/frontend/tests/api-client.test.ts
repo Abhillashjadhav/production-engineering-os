@@ -2,6 +2,13 @@
 import { describe, expect, it } from "vitest";
 
 import { compareRuns, downloadReport, health } from "@/lib/api";
+import { MAX_UPLOAD_BYTES } from "@/lib/validate";
+
+// The size-limit the client reports on a 413 must be DERIVED from the upload
+// cap, not a hardcoded number that could survive a cap change and mislead the
+// user. mirror-parity.test.ts keeps MAX_UPLOAD_BYTES equal to the backend cap,
+// so deriving from it here transitively pins the message to the server's cap.
+const EXPECTED_MB = Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024));
 
 function fileOf(content: string, name = "run.json"): File {
   return new File([content], name, { type: "application/json" });
@@ -51,10 +58,11 @@ describe("compareRuns", () => {
     }
   });
 
-  it("maps 413 to the size-limit message", async () => {
+  it("maps 413 to a size-limit message derived from the upload cap", async () => {
     const result = await compareRuns(fileOf("{}"), fileOf("{}"), fetchReturning(413, { detail: "too big" }));
     expect(result.kind).toBe("error");
-    if (result.kind === "error") expect(result.message).toContain("5 MB");
+    // the displayed limit is computed from MAX_UPLOAD_BYTES, never a stale literal
+    if (result.kind === "error") expect(result.message).toContain(`${EXPECTED_MB} MB limit`);
   });
 
   it("maps network failure to an unreachable error", async () => {
@@ -140,7 +148,7 @@ describe("downloadReport", () => {
     }
   });
 
-  it("maps 413 to the size-limit message", async () => {
+  it("maps 413 to a size-limit message derived from the upload cap", async () => {
     const result = await downloadReport(
       fileOf("{}"),
       fileOf("{}"),
@@ -148,7 +156,7 @@ describe("downloadReport", () => {
       fetchReturning(413, { detail: "too big" }),
     );
     expect(result.kind).toBe("error");
-    if (result.kind === "error") expect(result.message).toContain("5 MB");
+    if (result.kind === "error") expect(result.message).toContain(`${EXPECTED_MB} MB limit`);
   });
 
   it("surfaces named per-source issues on the J-4 422 shape", async () => {
