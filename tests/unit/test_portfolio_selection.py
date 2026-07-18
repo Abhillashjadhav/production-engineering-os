@@ -180,3 +180,28 @@ class TestSelection:
         assert isinstance(report, SelectionReport)
         all_repos = {s.repository for s in report.selected} | set(report.not_selected)
         assert all_repos == {r.repository for r in rank_risks(_scans())}
+
+
+class TestSelectionInputHardening:
+    """M3 review follow-up: selection must not trust its risks argument."""
+
+    def test_selection_resorts_unordered_risks(self, tmp_path: Path) -> None:
+        # Quota 1 with an empty strategy: the single slot must go to the
+        # HIGHEST-risk repo even when the caller passes risks in reverse.
+        data = _strategy_data()
+        data["strategic_repositories"] = []
+        data["marketable_repositories"] = []
+        data["genai_authority_repositories"] = []
+        data["deep_scan_quota"] = 1
+        strategy = load_strategy(_write(tmp_path, data))
+        risks = rank_risks(_scans())
+        a = select_for_deep_scan(_scans(), strategy, risks)
+        b = select_for_deep_scan(_scans(), strategy, list(reversed(risks)))
+        assert json.dumps(a.to_dict()) == json.dumps(b.to_dict())
+        assert a.selected[0].repository == risks[0].repository
+
+    def test_selection_rejects_risks_outside_inventory(self) -> None:
+        strategy = load_strategy(FIXTURES / "strategy.json")
+        phantom = RepoRisk(repository="acme/phantom", score=999.0, factors=("no_tests",))
+        with pytest.raises(ConfigError, match="phantom"):
+            select_for_deep_scan(_scans(), strategy, [*rank_risks(_scans()), phantom])

@@ -14,6 +14,12 @@ from pmpe.portfolio.datasource import (
     LiveRepositorySource,
     RepositorySource,
 )
+from pmpe.portfolio.inspection import (
+    ClaimGrade,
+    DeepInspection,
+    inspect_repository,
+    inspect_selected,
+)
 from pmpe.portfolio.models import (
     AISlopVerdict,
     BusinessAccuracyVerdict,
@@ -39,6 +45,8 @@ __all__ = [
     "AuditorBundle",
     "AuditorPolicy",
     "BusinessAccuracyVerdict",
+    "ClaimGrade",
+    "DeepInspection",
     "EvidenceRef",
     "Finding",
     "FixtureRepositorySource",
@@ -54,6 +62,8 @@ __all__ = [
     "Strategy",
     "load_auditor_bundle",
     "load_policy",
+    "inspect_repository",
+    "inspect_selected",
     "load_strategy",
     "rank_risks",
     "scan_portfolio",
