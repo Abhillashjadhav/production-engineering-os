@@ -108,6 +108,11 @@ export function TraceExplorer({
                   )
                 }
                 aria-expanded={selectedTrace === trace.trace_id}
+                aria-controls={
+                  selectedTrace === trace.trace_id
+                    ? `trace-detail-${trace.trace_id}`
+                    : undefined
+                }
               >
                 {trace.trace_id}
               </button>{" "}
@@ -124,7 +129,12 @@ export function TraceExplorer({
 
 function TraceDetail({ trace }: { trace: TraceComparison }) {
   return (
-    <div role="region" aria-label={`Trace ${trace.trace_id} detail`} className="trace-detail">
+    <div
+      id={`trace-detail-${trace.trace_id}`}
+      role="region"
+      aria-label={`Trace ${trace.trace_id} detail`}
+      className="trace-detail"
+    >
       <h3>{trace.trace_id}</h3>
       <dl className="trace-evidence">
         <div>

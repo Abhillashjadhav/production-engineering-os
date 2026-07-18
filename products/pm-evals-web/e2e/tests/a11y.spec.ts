@@ -46,7 +46,14 @@ test("S-2 dashboard and downloads after a real comparison (J-6/J-8) are axe-clea
 test("S-3 trace detail (J-7) is axe-clean", async ({ page }) => {
   await page.goto("/");
   await compareFixtures(page);
-  await page.getByRole("button", { name: /^T-006$/ }).click();
-  await expect(page.getByRole("region", { name: /trace T-006 detail/i })).toBeVisible();
+  const traceButton = page.getByRole("button", { name: /^T-006$/ });
+  await traceButton.click();
+  const detail = page.getByRole("region", { name: /trace T-006 detail/i });
+  await expect(detail).toBeVisible();
+  // The expanded button is programmatically linked to the region it reveals
+  // (aria-controls → the detail's id), so AT users can follow the relationship.
+  const controls = await traceButton.getAttribute("aria-controls");
+  expect(controls).toBe(await detail.getAttribute("id"));
+  expect(controls).toBeTruthy();
   await expectNoViolations(page);
 });
