@@ -409,6 +409,58 @@ def test_spooled_upload_and_error_path_leave_no_residue(
     assert list(spool.iterdir()) == []
 
 
+def test_a_request_opens_no_outbound_connection(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """J-1's "no data leaves this app" rests on the backend calling nothing
+    outbound (app.py: "No egress: the backend calls nothing"). Guard the
+    no-egress half: record every in-process TCP connect() during a compare and a
+    report (both formats) and assert none is initiated. This observes the named
+    threat — a dependency adding an HTTP client — because requests / urllib /
+    httpx and asyncio all funnel outbound TCP through ``socket.socket.connect``.
+
+    Scope: this proves no in-process TCP connect on the request path. It does not
+    prove the absence of exotic channels (a subprocess with its own socket table,
+    UDP sendto, C-level DNS, or a socket connected before the patch) — the app
+    statically imports none of those primitives (grep of src/ shows no socket /
+    requests / urllib / httpx / subprocess import), which is why they cannot
+    occur. On the Linux CI target the asyncio self-pipe uses ``socketpair`` (no
+    connect), so the count is deterministic."""
+    import socket
+
+    connects: list[Any] = []
+    real_connect = socket.socket.connect
+
+    def recording_connect(self: socket.socket, address: Any) -> Any:
+        connects.append(address)
+        return real_connect(self, address)
+
+    monkeypatch.setattr(socket.socket, "connect", recording_connect)
+    assert client.post("/api/compare", files=_files(candidate=REGRESSION)).status_code == 200
+    assert client.post("/api/report", files=_files(), data={"format": "json"}).status_code == 200
+    assert (
+        client.post(
+            "/api/report", files=_files(candidate=REGRESSION), data={"format": "markdown"}
+        ).status_code
+        == 200
+    )
+    assert connects == [], f"the backend attempted an outbound connection: {connects}"
+
+    # Positive control: without this, `connects == []` could pass because the
+    # recorder is not armed (a drifted monkeypatch target), not because the
+    # backend is silent. A deliberate connect to a closed local port must be
+    # recorded — proving the chokepoint above is live.
+    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    probe.settimeout(0.05)
+    try:
+        probe.connect(("127.0.0.1", 1))
+    except OSError:
+        pass  # refused/unreachable is fine — the connect() call is what we assert on
+    finally:
+        probe.close()
+    assert connects == [("127.0.0.1", 1)], "the egress guard is not armed — it recorded no connect"
+
+
 def test_openapi_schema_is_committed_and_current(client: TestClient) -> None:
     """The committed OpenAPI schema is the contract (PD-V3-13): the live app
     must match it byte-for-byte under the export serialization (the CI diff
