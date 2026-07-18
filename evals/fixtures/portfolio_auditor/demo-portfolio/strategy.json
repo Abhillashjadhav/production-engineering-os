@@ -1,0 +1,7 @@
+{
+  "strategy_version": 1,
+  "strategic_repositories": ["acme/internal-service"],
+  "marketable_repositories": ["acme/healthy-lib"],
+  "genai_authority_repositories": [],
+  "deep_scan_quota": 2
+}
