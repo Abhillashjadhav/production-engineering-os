@@ -51,6 +51,22 @@ describe("compareRuns", () => {
     }
   });
 
+  it("attributes an unreadable framework 422 to the request, not a specific file", async () => {
+    // when the client cannot read which file the server rejected (framework
+    // shape / non-JSON body), it must not blame "baseline" — the honest source
+    // is the request itself, matching the issue's location.
+    const result = await compareRuns(
+      fileOf("{}"),
+      fileOf("{}"),
+      fetchReturning(422, { detail: [{ loc: ["body", "baseline"], msg: "x", type: "missing" }] }),
+    );
+    expect(result.kind).toBe("validation");
+    if (result.kind === "validation") {
+      expect(result.problems[0].source).toBe("request");
+      expect(result.problems[0].source).not.toBe("baseline");
+    }
+  });
+
   it("maps 413 to the size-limit message", async () => {
     const result = await compareRuns(fileOf("{}"), fileOf("{}"), fetchReturning(413, { detail: "too big" }));
     expect(result.kind).toBe("error");
