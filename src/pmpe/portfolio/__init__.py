@@ -30,6 +30,14 @@ from pmpe.portfolio.models import (
     SlopPolicy,
 )
 from pmpe.portfolio.policy import AuditorPolicy, load_policy
+from pmpe.portfolio.remediation import (
+    MergeDecision,
+    RemediationPR,
+    SandboxRepo,
+    apply_merge,
+    decide_merge,
+    generate_remediation_prs,
+)
 from pmpe.portfolio.reporting import (
     BacklogItem,
     RepoReport,
@@ -68,11 +76,14 @@ __all__ = [
     "FixtureRepositorySource",
     "LiveAccessUnavailable",
     "LiveRepositorySource",
+    "MergeDecision",
     "RecommendationVerdict",
+    "RemediationPR",
     "RepoReport",
     "RepoRisk",
     "RepoScan",
     "RepositorySource",
+    "SandboxRepo",
     "SelectionReport",
     "Severity",
     "SlopAssessment",
@@ -90,9 +101,12 @@ __all__ = [
     "render_scorecard",
     "scan_portfolio",
     "scan_repository",
+    "apply_merge",
     "build_backlog",
     "build_repo_report",
     "classify_slop",
+    "decide_merge",
+    "generate_remediation_prs",
     "select_for_deep_scan",
     "verify_stability",
 ]

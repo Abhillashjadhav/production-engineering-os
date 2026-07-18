@@ -149,11 +149,20 @@ def recommend(
             "archive it or fold anything valuable into an owned repository",
         )
     authority = inspection.dimension_scores.get("authority_readiness", 0)
-    if not inspection.findings and authority >= _SHOWCASE_FLOOR:
+    is_slop = assessment.verdict.value == "AI_SLOP"
+    if not inspection.findings and authority >= _SHOWCASE_FLOOR and not is_slop:
         return (
             RecommendationVerdict.SHOWCASE,
             f"zero findings and authority readiness {authority} >= "
             f"{_SHOWCASE_FLOOR} — worth featuring",
+        )
+    if is_slop:
+        return (
+            RecommendationVerdict.KEEP_AS_IS,
+            f"classified AI_SLOP but nothing rises to a material finding; "
+            f"authority readiness {authority} — kept only for lack of "
+            "actionable findings, and never featured while the AI_SLOP "
+            "verdict stands",
         )
     return (
         RecommendationVerdict.KEEP_AS_IS,
@@ -299,10 +308,19 @@ def render_scorecard(report: RepoReport, *, run: dict[str, str]) -> str:
 
 
 def render_dashboard(
-    reports: list[RepoReport], *, backlog: list[BacklogItem], run: dict[str, str]
+    reports: list[RepoReport],
+    *,
+    backlog: list[BacklogItem],
+    run: dict[str, str],
+    policy: AuditorPolicy | None = None,
 ) -> str:
-    """The portfolio dashboard (markdown, deterministic, honestly labeled)."""
-    policy = load_policy()
+    """The portfolio dashboard (markdown, deterministic, honestly labeled).
+
+    Pass the policy that produced the reports so the rendered digest is
+    provably the one used; omitting it falls back to the shipped policy
+    file (M6 review note 1).
+    """
+    policy = policy or load_policy()
     lines = [
         "# Portfolio dashboard",
         "",

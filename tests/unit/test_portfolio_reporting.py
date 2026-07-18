@@ -15,6 +15,11 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+
+from pmpe.portfolio.datasource import FixtureRepositorySource
+from pmpe.portfolio.inspection import DeepInspection, inspect_repository
+from pmpe.portfolio.models import RecommendationVerdict, Severity
+from pmpe.portfolio.policy import load_policy
 from pmpe.portfolio.reporting import (
     BacklogItem,
     RepoReport,
@@ -24,11 +29,6 @@ from pmpe.portfolio.reporting import (
     render_dashboard,
     render_scorecard,
 )
-
-from pmpe.portfolio.datasource import FixtureRepositorySource
-from pmpe.portfolio.inspection import DeepInspection, inspect_repository
-from pmpe.portfolio.models import RecommendationVerdict, Severity
-from pmpe.portfolio.policy import load_policy
 from pmpe.portfolio.scanner import scan_repository
 from pmpe.portfolio.selection import load_strategy
 from pmpe.portfolio.slop import classify_slop

@@ -17,6 +17,12 @@ import json
 from pathlib import Path
 
 import pytest
+
+from pmpe.domain.errors import PmpeError
+from pmpe.portfolio.datasource import FixtureRepositorySource
+from pmpe.portfolio.inspection import DeepInspection, inspect_repository
+from pmpe.portfolio.models import AISlopVerdict, RecommendationVerdict
+from pmpe.portfolio.policy import load_policy
 from pmpe.portfolio.remediation import (
     MergeDecision,
     RemediationPR,
@@ -25,12 +31,6 @@ from pmpe.portfolio.remediation import (
     decide_merge,
     generate_remediation_prs,
 )
-
-from pmpe.domain.errors import PmpeError
-from pmpe.portfolio.datasource import FixtureRepositorySource
-from pmpe.portfolio.inspection import DeepInspection, inspect_repository
-from pmpe.portfolio.models import AISlopVerdict, RecommendationVerdict
-from pmpe.portfolio.policy import load_policy
 from pmpe.portfolio.reporting import recommend, render_dashboard
 from pmpe.portfolio.scanner import scan_repository
 from pmpe.portfolio.selection import load_strategy
