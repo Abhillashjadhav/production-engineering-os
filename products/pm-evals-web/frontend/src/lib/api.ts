@@ -3,13 +3,12 @@
 // and CI fails when it drifts). The UI can never depend on an undocumented
 // field: these are the only response types the app knows.
 import type { components } from "@/lib/api-types.gen";
-import { MAX_UPLOAD_BYTES } from "@/lib/validate";
+import { MAX_UPLOAD_MB } from "@/lib/validate";
 
-// The size the 413 message reports is derived from the upload cap (floored to
-// whole MB like the backend and the client mirror), so it can never drift into
-// a stale literal when the cap changes. mirror-parity.test.ts keeps
-// MAX_UPLOAD_BYTES equal to the backend cap.
-const MAX_UPLOAD_MB = Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024));
+// The size the 413 message reports is the single MAX_UPLOAD_MB derived in the
+// client mirror (floored to whole MB from MAX_UPLOAD_BYTES, like the backend),
+// so it can never drift into a stale literal when the cap changes.
+// mirror-parity.test.ts keeps that cap equal to the backend's.
 const OVERSIZE_MESSAGE = `One of the files is larger than the ${MAX_UPLOAD_MB} MB limit.`;
 
 export type Comparison = components["schemas"]["Comparison"];
