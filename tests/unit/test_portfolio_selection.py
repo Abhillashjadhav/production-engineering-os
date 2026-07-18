@@ -14,6 +14,10 @@ import json
 from pathlib import Path
 
 import pytest
+
+from pmpe.domain.errors import ConfigError
+from pmpe.portfolio.datasource import FixtureRepositorySource
+from pmpe.portfolio.scanner import scan_portfolio
 from pmpe.portfolio.selection import (
     RepoRisk,
     SelectionReport,
@@ -22,10 +26,6 @@ from pmpe.portfolio.selection import (
     select_for_deep_scan,
     strategy_schema_path,
 )
-
-from pmpe.domain.errors import ConfigError
-from pmpe.portfolio.datasource import FixtureRepositorySource
-from pmpe.portfolio.scanner import scan_portfolio
 
 FIXTURES = (
     Path(__file__).resolve().parents[2]
