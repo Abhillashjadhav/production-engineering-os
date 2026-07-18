@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "required": [
+    "strategy_version",
+    "strategic_repositories",
+    "marketable_repositories",
+    "genai_authority_repositories",
+    "deep_scan_quota"
+  ],
+  "properties": {
+    "strategy_version": {"type": "integer"},
+    "strategic_repositories": {"type": "array", "items": {"type": "string", "minLength": 3}},
+    "marketable_repositories": {"type": "array", "items": {"type": "string", "minLength": 3}},
+    "genai_authority_repositories": {"type": "array", "items": {"type": "string", "minLength": 3}},
+    "deep_scan_quota": {"type": "integer"}
+  }
+}
