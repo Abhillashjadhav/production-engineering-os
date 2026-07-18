@@ -36,10 +36,13 @@ function comparePayload(baseline: File, candidate: File): FormData {
 
 function frameworkFallback(): ValidationProblem[] {
   // framework-shaped or unreadable 422 (missing part / bad form field / non-JSON
-  // body) — anything that is not the J-4 named-issues shape
+  // body) — anything that is not the J-4 named-issues shape. The client cannot
+  // tell which file the server faulted, so it attributes the problem to the
+  // "request" itself (matching the issue's location) rather than mis-blaming
+  // the baseline file.
   return [
     {
-      source: "baseline",
+      source: "request",
       issues: [{ location: "request", message: "The request was not accepted. Re-select both files and try again." }],
     },
   ];
