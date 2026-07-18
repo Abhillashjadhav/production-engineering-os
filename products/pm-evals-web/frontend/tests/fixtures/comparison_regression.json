@@ -15,6 +15,13 @@
       "criterion_id": "C-ACCURACY",
       "delta": 0.125,
       "description": "The answer is factually accurate for the customer's plan",
+      "guardrail": {
+        "baseline_threshold": 0.0,
+        "candidate_effect": "unset",
+        "candidate_threshold": null,
+        "effective_threshold": 0.0,
+        "policy": "baseline-authoritative"
+      },
       "hard_gate": true,
       "newly_failing": [],
       "newly_passing": [
@@ -28,6 +35,13 @@
       "criterion_id": "C-GROUNDED",
       "delta": -0.125,
       "description": "Every claim is grounded in the retrieved policy documents",
+      "guardrail": {
+        "baseline_threshold": 0.0,
+        "candidate_effect": "unset",
+        "candidate_threshold": null,
+        "effective_threshold": 0.0,
+        "policy": "baseline-authoritative"
+      },
       "hard_gate": true,
       "newly_failing": [
         "T-006"
@@ -41,6 +55,13 @@
       "criterion_id": "C-TONE",
       "delta": -0.25,
       "description": "Tone is professional and empathetic",
+      "guardrail": {
+        "baseline_threshold": 0.75,
+        "candidate_effect": "matched",
+        "candidate_threshold": 0.75,
+        "effective_threshold": 0.75,
+        "policy": "baseline-authoritative"
+      },
       "hard_gate": false,
       "newly_failing": [
         "T-001",
@@ -55,6 +76,13 @@
       "criterion_id": "C-BREVITY",
       "delta": 0.0,
       "description": "Reply fits in four sentences or fewer",
+      "guardrail": {
+        "baseline_threshold": 0.0,
+        "candidate_effect": "unset",
+        "candidate_threshold": null,
+        "effective_threshold": 0.0,
+        "policy": "baseline-authoritative"
+      },
       "hard_gate": false,
       "newly_failing": [],
       "newly_passing": []

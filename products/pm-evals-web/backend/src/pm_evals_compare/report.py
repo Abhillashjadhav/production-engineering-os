@@ -79,6 +79,24 @@ def render_markdown(comparison: Comparison, *, generated_at: str | None = None) 
             f"| {_pct(d.baseline_pass_rate)} | {_pct(d.candidate_pass_rate)} "
             f"| {_pct(d.delta)} | {len(d.newly_passing)} | {len(d.newly_failing)} |"
         )
+    lines += [
+        "",
+        "## Guardrails",
+        "",
+        "Policy: **baseline-authoritative** — the baseline governs each "
+        "`min_pass_rate` guardrail; a candidate may strengthen a threshold but "
+        "never weaken it.",
+        "",
+        "| Criterion | Baseline | Candidate | Effective | Candidate effect |",
+        "|---|---|---|---|---|",
+    ]
+    for d in c.criteria:
+        g = d.guardrail
+        candidate = "—" if g.candidate_threshold is None else _pct(g.candidate_threshold)
+        lines.append(
+            f"| {d.criterion_id} | {_pct(g.baseline_threshold)} | {candidate} "
+            f"| {_pct(g.effective_threshold)} | {g.candidate_effect} |"
+        )
     lines += ["", "## Changed traces", ""]
     if c.newly_failing_traces:
         lines.append("Newly failing: " + ", ".join(f"`{t}`" for t in c.newly_failing_traces))

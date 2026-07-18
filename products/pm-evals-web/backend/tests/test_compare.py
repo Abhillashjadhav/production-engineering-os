@@ -11,7 +11,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-from pm_evals_compare.compare import CompareConfig, check_compatibility, compare_runs
+from pm_evals_compare.compare import (
+    DEFAULT_MIN_PASS_RATE,
+    Comparison,
+    CompareConfig,
+    GuardrailGovernance,
+    check_compatibility,
+    compare_runs,
+)
 from pm_evals_compare.models import EvalRun, parse_run
 from pm_evals_compare.report import render_json, render_markdown, to_json_report
 
@@ -403,6 +410,142 @@ def test_baseline_declared_guardrail_still_applies_to_the_candidate() -> None:
     comparison = compare_runs(baseline, candidate)
     assert comparison.verdict == "HOLD"
     assert any(r.kind == "guardrail" for r in comparison.reasons)
+
+
+# --- F-4: baseline-authoritative guardrail governance (PD-V3-19) ---------------------------
+#
+# A 6-trace pair where the candidate fails C-TONE on exactly one trace, so the
+# candidate's C-TONE pass rate is 5/6 ≈ 0.833. C-ACC passes everywhere, so ONLY
+# the C-TONE min_pass_rate guardrail can drive the verdict: effective > 0.833 →
+# HOLD, effective ≤ 0.833 → PROCEED. This lets a single threshold decide the
+# verdict, isolating the governance rule.
+
+
+def _guardrail_pair(
+    *, baseline_min: float | None, candidate_min: float | None
+) -> tuple[EvalRun, EvalRun]:
+    def tone(min_pass_rate: float | None) -> dict[str, Any]:
+        cell: dict[str, Any] = {"id": "C-TONE"}
+        if min_pass_rate is not None:
+            cell["min_pass_rate"] = min_pass_rate
+        return cell
+
+    rows = {f"T-{i}": {"C-ACC": "pass", "C-TONE": "pass"} for i in range(1, 7)}
+    cand_rows = dict(rows)
+    cand_rows["T-2"] = {"C-ACC": "pass", "C-TONE": "fail"}  # candidate C-TONE = 5/6 ≈ 0.833
+    baseline = _run(
+        "b",
+        criteria=[{"id": "C-ACC", "hard_gate": True}, tone(baseline_min)],
+        traces=_traces(rows),
+    )
+    candidate = _run(
+        "c",
+        criteria=[{"id": "C-ACC", "hard_gate": True}, tone(candidate_min)],
+        traces=_traces(cand_rows),
+    )
+    return baseline, candidate
+
+
+def _tone_guardrail(comparison: Comparison) -> GuardrailGovernance:
+    return next(d for d in comparison.criteria if d.criterion_id == "C-TONE").guardrail
+
+
+def test_candidate_below_baseline_cannot_weaken_the_gate() -> None:
+    # The load-bearing rule: baseline 0.9, candidate declares a weaker 0.5.
+    # Baseline-authoritative → effective 0.9 → candidate's 0.833 fails → HOLD.
+    # (The old `candidate or baseline` truthiness would have used 0.5 → PROCEED.)
+    comparison = compare_runs(*_guardrail_pair(baseline_min=0.9, candidate_min=0.5))
+    assert comparison.verdict == "HOLD"
+    assert any(r.kind == "guardrail" and r.criterion_id == "C-TONE" for r in comparison.reasons)
+    g = _tone_guardrail(comparison)
+    assert g.effective_threshold == 0.9
+    assert g.candidate_effect == "weakened_ignored"
+
+
+def test_candidate_equal_to_baseline_is_unchanged() -> None:
+    comparison = compare_runs(*_guardrail_pair(baseline_min=0.9, candidate_min=0.9))
+    assert comparison.verdict == "HOLD"
+    g = _tone_guardrail(comparison)
+    assert g.baseline_threshold == 0.9
+    assert g.effective_threshold == 0.9
+    assert g.candidate_effect == "matched"
+
+
+def test_candidate_above_baseline_strengthens_the_gate() -> None:
+    # baseline 0.5 would pass 0.833; candidate raises the bar to 0.9 → HOLD.
+    comparison = compare_runs(*_guardrail_pair(baseline_min=0.5, candidate_min=0.9))
+    assert comparison.verdict == "HOLD"
+    g = _tone_guardrail(comparison)
+    assert g.baseline_threshold == 0.5
+    assert g.candidate_threshold == 0.9
+    assert g.effective_threshold == 0.9
+    assert g.candidate_effect == "strengthened"
+
+
+def test_candidate_zero_does_not_bypass_the_baseline() -> None:
+    # Explicit 0.0 must be honored as a real value, not a falsy fallback trigger;
+    # it still cannot lower the baseline 0.9 floor.
+    comparison = compare_runs(*_guardrail_pair(baseline_min=0.9, candidate_min=0.0))
+    assert comparison.verdict == "HOLD"
+    g = _tone_guardrail(comparison)
+    assert g.candidate_threshold == 0.0
+    assert g.effective_threshold == 0.9
+    assert g.candidate_effect == "weakened_ignored"
+
+
+def test_missing_candidate_threshold_uses_the_baseline() -> None:
+    comparison = compare_runs(*_guardrail_pair(baseline_min=0.9, candidate_min=None))
+    assert comparison.verdict == "HOLD"
+    g = _tone_guardrail(comparison)
+    assert g.candidate_threshold is None
+    assert g.effective_threshold == 0.9
+    assert g.candidate_effect == "unset"
+
+
+def test_missing_baseline_threshold_uses_the_locked_default() -> None:
+    comparison = compare_runs(*_guardrail_pair(baseline_min=None, candidate_min=None))
+    assert comparison.verdict == "PROCEED"  # default 0.0 floor never bites
+    g = _tone_guardrail(comparison)
+    assert g.baseline_threshold == DEFAULT_MIN_PASS_RATE == 0.0
+    assert g.effective_threshold == 0.0
+
+
+def test_report_exposes_baseline_candidate_and_effective_thresholds() -> None:
+    comparison = compare_runs(*_guardrail_pair(baseline_min=0.9, candidate_min=0.7))
+    tone = next(
+        d
+        for d in to_json_report(comparison)["comparison"]["criteria"]
+        if d["criterion_id"] == "C-TONE"
+    )
+    assert tone["guardrail"]["baseline_threshold"] == 0.9
+    assert tone["guardrail"]["candidate_threshold"] == 0.7
+    assert tone["guardrail"]["effective_threshold"] == 0.9
+    assert tone["guardrail"]["policy"] == "baseline-authoritative"
+    md = render_markdown(comparison)
+    assert "Guardrails" in md
+    assert "baseline-authoritative" in md
+    assert "C-TONE" in md
+
+
+def test_guardrail_governance_output_is_deterministic() -> None:
+    pair = _guardrail_pair(baseline_min=0.9, candidate_min=0.5)
+    first = compare_runs(*pair)
+    second = compare_runs(*_guardrail_pair(baseline_min=0.9, candidate_min=0.5))
+    assert first.model_dump() == second.model_dump()
+    assert render_json(first) == render_json(second)
+
+
+def test_guardrail_free_comparison_does_not_regress() -> None:
+    # No min_pass_rate anywhere: the verdict and the default provenance must match
+    # the pre-F-4 behavior (a clean improvement still PROCEEDs).
+    rows = {f"T-{i}": {"C-ACC": "pass", "C-TONE": "pass"} for i in range(1, 7)}
+    baseline = _run("b", traces=_traces(rows))
+    candidate = _run("c", traces=_traces(rows))
+    comparison = compare_runs(baseline, candidate)
+    assert comparison.verdict == "PROCEED"
+    for d in comparison.criteria:
+        assert d.guardrail.effective_threshold == 0.0
+        assert d.guardrail.candidate_effect == "unset"
 
 
 def test_thin_evidence_boundary_is_exact() -> None:

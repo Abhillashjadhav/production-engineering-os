@@ -175,12 +175,42 @@ export interface components {
             delta: number;
             /** Description */
             description: string;
+            guardrail: components["schemas"]["GuardrailGovernance"];
             /** Hard Gate */
             hard_gate: boolean;
             /** Newly Failing */
             newly_failing: string[];
             /** Newly Passing */
             newly_passing: string[];
+        };
+        /**
+         * GuardrailGovernance
+         * @description Baseline-authoritative provenance for one criterion's min_pass_rate
+         *     guardrail (PD-V3-19).
+         *
+         *     The baseline governs the threshold; the candidate — the artifact under
+         *     evaluation — may STRENGTHEN it but may never WEAKEN it. Resolution is by
+         *     explicit `is not None`, never truthiness, so an explicit candidate 0.0 is a
+         *     real value (which cannot lower the baseline), not a falsy fallback trigger.
+         */
+        GuardrailGovernance: {
+            /** Baseline Threshold */
+            baseline_threshold: number;
+            /**
+             * Candidate Effect
+             * @enum {string}
+             */
+            candidate_effect: "unset" | "matched" | "strengthened" | "weakened_ignored";
+            /** Candidate Threshold */
+            candidate_threshold: number | null;
+            /** Effective Threshold */
+            effective_threshold: number;
+            /**
+             * Policy
+             * @default baseline-authoritative
+             * @constant
+             */
+            policy: "baseline-authoritative";
         };
         /** HealthResponse */
         HealthResponse: {

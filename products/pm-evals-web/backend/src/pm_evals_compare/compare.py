@@ -45,6 +45,29 @@ class CompareConfig(BaseModel):
     hard_gate_coverage: float = Field(default=1.0, ge=0.0, le=1.0)
 
 
+DEFAULT_MIN_PASS_RATE = 0.0
+"""Locked system floor for a criterion's pass-rate guardrail when the baseline
+run does not configure one (PD-V3-19). 0.0 means no floor unless a run sets one,
+so comparisons predating this policy keep their verdict."""
+
+
+class GuardrailGovernance(BaseModel):
+    """Baseline-authoritative provenance for one criterion's min_pass_rate
+    guardrail (PD-V3-19).
+
+    The baseline governs the threshold; the candidate — the artifact under
+    evaluation — may STRENGTHEN it but may never WEAKEN it. Resolution is by
+    explicit `is not None`, never truthiness, so an explicit candidate 0.0 is a
+    real value (which cannot lower the baseline), not a falsy fallback trigger.
+    """
+
+    policy: Literal["baseline-authoritative"] = "baseline-authoritative"
+    baseline_threshold: float
+    candidate_threshold: float | None
+    effective_threshold: float
+    candidate_effect: Literal["unset", "matched", "strengthened", "weakened_ignored"]
+
+
 class CriterionDelta(BaseModel):
     criterion_id: str
     description: str
@@ -55,6 +78,7 @@ class CriterionDelta(BaseModel):
     newly_passing: list[str]
     newly_failing: list[str]
     covered_traces: int
+    guardrail: GuardrailGovernance
 
 
 class VerdictReason(BaseModel):
@@ -135,6 +159,38 @@ def check_compatibility(baseline: EvalRun, candidate: EvalRun) -> list[str]:
 
 def _pass_rate(passes: int, total: int) -> float:
     return round(passes / total, 6) if total else 0.0
+
+
+def _resolve_guardrail(
+    baseline_min: float | None, candidate_min: float | None
+) -> GuardrailGovernance:
+    """Baseline-authoritative guardrail resolution (PD-V3-19).
+
+    The baseline's explicit threshold governs; the locked default applies when it
+    omits one. The candidate may only strengthen — the effective threshold is
+    max(baseline, candidate) with the candidate participating only when it is
+    explicitly present (`is not None`, never truthiness, so 0.0 counts).
+    """
+    baseline_threshold = baseline_min if baseline_min is not None else DEFAULT_MIN_PASS_RATE
+    if candidate_min is None:
+        return GuardrailGovernance(
+            baseline_threshold=baseline_threshold,
+            candidate_threshold=None,
+            effective_threshold=baseline_threshold,
+            candidate_effect="unset",
+        )
+    if candidate_min > baseline_threshold:
+        effect: Literal["matched", "strengthened", "weakened_ignored"] = "strengthened"
+    elif candidate_min == baseline_threshold:
+        effect = "matched"
+    else:
+        effect = "weakened_ignored"
+    return GuardrailGovernance(
+        baseline_threshold=baseline_threshold,
+        candidate_threshold=candidate_min,
+        effective_threshold=max(baseline_threshold, candidate_min),
+        candidate_effect=effect,
+    )
 
 
 def _criterion_cell(
@@ -298,6 +354,9 @@ def compare_runs(
         newly_passing_traces.update(newly_pass)
         newly_failing_traces.update(newly_fail)
 
+        candidate_criterion = next(c for c in candidate.criteria if c.id == criterion.id)
+        guardrail = _resolve_guardrail(criterion.min_pass_rate, candidate_criterion.min_pass_rate)
+
         delta = CriterionDelta(
             criterion_id=criterion.id,
             description=criterion.description,
@@ -308,6 +367,7 @@ def compare_runs(
             newly_passing=newly_pass,
             newly_failing=newly_fail,
             covered_traces=covered,
+            guardrail=guardrail,
         )
         criteria_deltas.append(delta)
 
@@ -351,9 +411,11 @@ def compare_runs(
                         "release rules cannot be evaluated",
                     )
                 )
-        candidate_criterion = next(c for c in candidate.criteria if c.id == criterion.id)
-        threshold = candidate_criterion.min_pass_rate or criterion.min_pass_rate
-        if threshold is not None and c_total:
+        # Baseline-authoritative guardrail (PD-V3-19): the candidate cannot weaken
+        # the effective threshold, and an explicit 0.0 is honored, not treated as
+        # a falsy fallback. A 0.0 effective floor can never bite (rate >= 0.0).
+        threshold = guardrail.effective_threshold
+        if c_total:
             rate = _pass_rate(c_pass, c_total)
             if rate < threshold:
                 failing = [
