@@ -8,11 +8,14 @@ generated-file count, lack of popularity) are not signals at all, so no
 verdict can rest on them, solely or otherwise.
 
 Gating (locked): a hard verdict requires >= 3 distinct signals on its own
-side, zero findings on the opposing side, the policy confidence floor, and
-a completed counter-evidence review — the review is the opposing-side
-search itself, and its searched categories and findings are recorded on
-the assessment. Anything less is INSUFFICIENT_EVIDENCE; uncertainty is
-always expressible and never penalized.
+side, the policy confidence floor, and a completed counter-evidence
+review — the review is the opposing-side search itself, and its searched
+categories and findings are recorded on the assessment. The accusatory
+verdict (AI_SLOP) additionally demands ZERO exculpatory evidence, while
+NOT_AI_SLOP tolerates at most one slop signal — the asymmetry runs in the
+subject-protective direction and is disclosed in each assessment's
+reasoning. Anything less is INSUFFICIENT_EVIDENCE; uncertainty is always
+expressible and never penalized.
 """
 
 from __future__ import annotations
