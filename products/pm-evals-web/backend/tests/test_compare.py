@@ -510,6 +510,29 @@ def test_missing_baseline_threshold_uses_the_locked_default() -> None:
     assert g.effective_threshold == 0.0
 
 
+def test_candidate_strengthens_above_the_default_floor() -> None:
+    # baseline omits its threshold (default 0.0); the candidate raises the bar to
+    # 0.9 → the candidate strengthens FROM the locked default, and 0.833 fails.
+    comparison = compare_runs(*_guardrail_pair(baseline_min=None, candidate_min=0.9))
+    assert comparison.verdict == "HOLD"
+    g = _tone_guardrail(comparison)
+    assert g.baseline_threshold == 0.0
+    assert g.effective_threshold == 0.9
+    assert g.candidate_effect == "strengthened"
+
+
+def test_candidate_zero_matches_the_default_floor() -> None:
+    # baseline omits its threshold (default 0.0); the candidate declares an
+    # explicit 0.0 → honored as a real value equal to the floor → "matched", not
+    # dropped to "unset" (which a truthy `not candidate_min` would produce).
+    comparison = compare_runs(*_guardrail_pair(baseline_min=None, candidate_min=0.0))
+    assert comparison.verdict == "PROCEED"
+    g = _tone_guardrail(comparison)
+    assert g.candidate_threshold == 0.0
+    assert g.effective_threshold == 0.0
+    assert g.candidate_effect == "matched"
+
+
 def test_report_exposes_baseline_candidate_and_effective_thresholds() -> None:
     comparison = compare_runs(*_guardrail_pair(baseline_min=0.9, candidate_min=0.7))
     tone = next(
