@@ -1,0 +1,9 @@
+[
+  "README.md",
+  "requirements.txt",
+  "app/__init__.py",
+  "app/billing.py",
+  "app/settings.py",
+  "tests/test_billing.py",
+  ".github/workflows/test.yml"
+]

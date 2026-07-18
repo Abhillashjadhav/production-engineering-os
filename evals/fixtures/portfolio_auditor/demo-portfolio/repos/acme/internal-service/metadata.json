@@ -1,0 +1,16 @@
+{
+  "owner": "acme",
+  "name": "internal-service",
+  "visibility": "PRIVATE",
+  "description": "Internal billing service (private).",
+  "topics": ["internal", "billing"],
+  "default_branch": "main",
+  "created_at": "2025-09-01T00:00:00+00:00",
+  "pushed_at": "2026-07-01T00:00:00+00:00",
+  "license": "UNLICENSED",
+  "stargazers_count": 0,
+  "forks_count": 0,
+  "archived": false,
+  "is_fork": false,
+  "primary_language": "Python"
+}

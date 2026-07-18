@@ -1,0 +1,8 @@
+{
+  "README.md": "# internal-service\n\nPrivate billing service. Internal use only.\n\n## Setup\n\n```bash\npip install -r requirements.txt\n```\n",
+  "requirements.txt": "flask==3.0.0\nstripe==7.0.0\nrequests>=2.31\n",
+  "app/settings.py": "STRIPE_KEY = 'EXAMPLE_placeholder_billing_secret_0002'\nDEBUG = True\n",
+  "app/billing.py": "def charge(customer, amount):\n    return {'ok': True}\n",
+  "tests/test_billing.py": "from app.billing import charge\n\ndef test_charge():\n    assert charge('c', 1)['ok']\n",
+  ".github/workflows/test.yml": "name: test\non: [push]\njobs:\n  t:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: pytest\n"
+}

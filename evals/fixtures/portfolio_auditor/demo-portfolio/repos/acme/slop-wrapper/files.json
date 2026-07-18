@@ -1,0 +1,6 @@
+{
+  "README.md": "# slop-wrapper\n\nThe **production-ready**, enterprise-grade AI platform used by millions of developers worldwide.\n\nOur system is 100% accurate and blazing fast — 10x faster than any competitor. It scales to billions of requests with zero downtime and industry-leading 5ms latency. Battle-tested in production at Fortune 500 companies.\n\n## Features\n\n- State-of-the-art AI\n- Infinitely scalable\n- 99.999% uptime guaranteed\n\nJust works out of the box.\n",
+  "package.json": "{\n  \"name\": \"slop-wrapper\",\n  \"version\": \"1.0.0\",\n  \"main\": \"index.js\",\n  \"dependencies\": {\n    \"express\": \"^4.18.0\",\n    \"axios\": \"^1.4.0\",\n    \"lodash\": \"*\"\n  }\n}\n",
+  "index.js": "const config = require('./config');\nconst axios = require('axios');\n\nmodule.exports = function run(input) {\n  return axios.post(config.endpoint, { input });\n};\n",
+  "config.js": "module.exports = {\n  endpoint: 'https://api.example.com/v1',\n  apiKey: 'EXAMPLE_placeholder_secret_abcdef0123',\n  awsKey: 'aws_secret_FAKE_placeholder_0000'\n};\n"
+}

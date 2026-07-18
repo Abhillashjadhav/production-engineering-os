@@ -244,3 +244,15 @@ class TestSlopGate:
             )
             is AISlopVerdict.INSUFFICIENT_EVIDENCE
         )
+
+    def test_empty_string_sole_basis_is_rejected(self) -> None:
+        # M1 review follow-up: None means "no sole basis"; an empty string is
+        # ambiguous caller input and must be rejected, not silently allowed.
+        with pytest.raises(ValueError, match="sole_basis"):
+            gate_slop_verdict(
+                AISlopVerdict.AI_SLOP,
+                confidence=95,
+                counter_evidence_reviewed=True,
+                sole_basis="",
+                policy=_SLOP_POLICY,
+            )

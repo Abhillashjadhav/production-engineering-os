@@ -281,6 +281,11 @@ def gate_slop_verdict(
     downgraded, whatever the confidence. INSUFFICIENT_EVIDENCE passes
     through untouched — uncertainty is always expressible.
     """
+    if sole_basis == "":
+        raise ValueError(
+            "sole_basis must be None (no sole basis) or a named basis — "
+            "an empty string is ambiguous caller input"
+        )
     if proposed is AISlopVerdict.INSUFFICIENT_EVIDENCE:
         return proposed
     if sole_basis is not None and sole_basis in policy.forbidden_sole_bases:

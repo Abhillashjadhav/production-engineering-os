@@ -1,0 +1,5 @@
+{
+  "README.md": "# stale-fork\n\nForked from upstream/thing. No longer maintained.\n",
+  "main.py": "print('hello from a fork')\n",
+  "LICENSE": "Apache License 2.0\n"
+}
