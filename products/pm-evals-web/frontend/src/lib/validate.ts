@@ -69,7 +69,7 @@ function idsOf(entries: unknown[], key: string): { ids: string[]; complete: bool
 // The cap in whole MB, floored like the backend's message
 // (MAX_UPLOAD_BYTES // (1024 * 1024)), so the displayed limit is derived from
 // the constant and can never drift from it into a stale hardcoded number.
-const MAX_UPLOAD_MB = Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024));
+export const MAX_UPLOAD_MB = Math.floor(MAX_UPLOAD_BYTES / (1024 * 1024));
 
 export function preValidateFile(source: UploadSource, size: number, text: string): PreValidation {
   if (size > MAX_UPLOAD_BYTES) {
