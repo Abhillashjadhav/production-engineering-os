@@ -202,6 +202,15 @@ def select_for_deep_scan(
             + ", ".join(sorted(unknown))
             + " — fix the strategy config or the inventory before selecting"
         )
+    # The risks argument is untrusted caller input (M3 review): re-sort so a
+    # permuted list cannot redirect quota slots, and refuse risks naming
+    # repositories outside the inventory.
+    phantom = sorted({r.repository for r in risks} - inventory)
+    if phantom:
+        raise ConfigError(
+            "risk ranking names repositories outside the scanned inventory: " + ", ".join(phantom)
+        )
+    risks = sorted(risks, key=lambda r: (-r.score, r.repository))
 
     reasons: dict[str, str] = {}
     for name in strategy.strategic_repositories:
