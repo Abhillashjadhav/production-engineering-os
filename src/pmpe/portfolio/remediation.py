@@ -17,6 +17,7 @@ MERGE decision.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -96,8 +97,14 @@ def generate_remediation_prs(scan: RepoScan, inspection: DeepInspection) -> list
     with a removal marker naming the finding — correct by construction and
     carrying no secret value. Everything else stays on the human backlog.
     """
-    secret_findings = [f for f in inspection.findings if "-SEC-" in f.finding_id]
-    if not secret_findings:
+    # Anchored match: finding ids embed the repo NAME, so a repository
+    # legally named with "-SEC-" in it must not turn its claim-gap or
+    # dependency findings into "secret" findings (M7 review blocker —
+    # repo-name injection). A PR is also never emitted without actual
+    # secret hits to point its line edits at.
+    sec_id = re.compile(rf"PA-{re.escape(scan.name)}-SEC-\d{{3}}\Z")
+    secret_findings = [f for f in inspection.findings if sec_id.fullmatch(f.finding_id)]
+    if not secret_findings or not scan.security.secret_hits:
         return []
     by_path: dict[str, list[int]] = {}
     for hit in scan.security.secret_hits:
@@ -231,12 +238,27 @@ def apply_merge(sandbox: SandboxRepo, pr: RemediationPR, decision: MergeDecision
         raise PmpeError(
             f"refusing to apply {pr.pr_id}: the merge decision is REFUSE ({decision.reasoning})"
         )
+    # Defense in depth (M7 review notes 3-4): a decision object is
+    # in-process state and could be forged — re-assert the two invariants
+    # that make application safe, and treat an out-of-range line edit as a
+    # tamper tripwire rather than skipping it silently.
+    if not pr.sandbox_only:
+        raise PmpeError(f"refusing to apply {pr.pr_id}: not a sandbox-only PR (PD-PA-05, PD-08)")
+    if pr.base_snapshot_digest != sandbox.snapshot_digest:
+        raise PmpeError(
+            f"refusing to apply {pr.pr_id}: snapshot digest mismatch "
+            f"({pr.base_snapshot_digest} != {sandbox.snapshot_digest})"
+        )
     patched = dict(sandbox.files)
     for path, lines in pr.line_edits.items():
         original = patched.get(path, "")
         rows = original.split("\n")
         for lineno in lines:
-            if 1 <= lineno <= len(rows):
-                rows[lineno - 1] = pr.patch[path]
+            if not 1 <= lineno <= len(rows):
+                raise PmpeError(
+                    f"refusing to apply {pr.pr_id}: line edit {path}:{lineno} lies "
+                    f"outside the snapshot ({len(rows)} lines) — possible tampering"
+                )
+            rows[lineno - 1] = pr.patch[path]
         patched[path] = "\n".join(rows)
     return patched

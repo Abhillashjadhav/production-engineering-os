@@ -271,3 +271,106 @@ class TestM6ReviewFollowUps:
             policy=load_policy(),
         )
         assert verdict is not RecommendationVerdict.SHOWCASE
+
+
+class _SyntheticSource:
+    """Minimal in-memory source for a repository crafted in the test."""
+
+    def __init__(self, name: str, files: dict[str, str], meta: dict[str, object]) -> None:
+        self._name = name
+        self._files = files
+        self._meta = meta
+
+    def discover(self, owner: str) -> list[str]:
+        return [self._name]
+
+    def metadata(self, owner: str, name: str) -> dict[str, object]:
+        return dict(self._meta)
+
+    def tree(self, owner: str, name: str) -> list[str]:
+        return sorted(self._files)
+
+    def files(self, owner: str, name: str) -> dict[str, str]:
+        return dict(self._files)
+
+
+class TestM7ReviewRegressions:
+    """M7 review blocker + tamper-tripwire hardening."""
+
+    def _sec_named_repo(self):  # type: ignore[no-untyped-def]
+        # A repository legally named with "-SEC-" whose findings are all
+        # non-secret (claim gap + missing lockfile). The reviewer's PoC.
+        files = {
+            "README.md": "# my-SEC-tools\nThe enterprise-grade production-ready toolkit.\n",
+            "package.json": '{"name": "my-SEC-tools", "dependencies": {"left-pad": "^1.0.0"}}\n',
+            "index.js": "module.exports = {};\n",
+        }
+        meta = {
+            "owner": "evil",
+            "name": "my-SEC-tools",
+            "visibility": "PUBLIC",
+            "description": "",
+            "topics": [],
+            "default_branch": "main",
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "pushed_at": "2026-07-01T00:00:00+00:00",
+            "license": None,
+            "stargazers_count": 0,
+            "forks_count": 0,
+            "archived": False,
+            "is_fork": False,
+            "primary_language": "JavaScript",
+        }
+        source = _SyntheticSource("my-SEC-tools", files, meta)
+        scan = scan_repository(source, "evil", "my-SEC-tools", now=NOW)
+        inspection = inspect_repository(source, scan, policy=load_policy())
+        return scan, inspection
+
+    def test_repo_named_with_sec_substring_generates_no_fabricated_pr(self) -> None:
+        scan, inspection = self._sec_named_repo()
+        assert scan.security.secret_hits == []
+        assert inspection.findings, "the planted non-secret findings must exist"
+        assert generate_remediation_prs(scan, inspection) == []
+
+    def test_generated_prs_always_carry_nonempty_patch_and_edits(self) -> None:
+        # Hardened form of the honesty assertion: a PR without concrete line
+        # edits would be a fabricated resolution claim.
+        for name in ("slop-wrapper", "internal-service"):
+            _, scan, inspection = _pipeline(name)
+            for pr in generate_remediation_prs(scan, inspection):
+                assert pr.patch and pr.line_edits
+                assert all(edits for edits in pr.line_edits.values())
+
+    def test_apply_merge_reasserts_sandbox_only(self) -> None:
+        _, scan, inspection = _pipeline("slop-wrapper")
+        pr = generate_remediation_prs(scan, inspection)[0]
+        sandbox = _sandbox("slop-wrapper")
+        forged = MergeDecision(
+            decision="MERGE", failing_gates=(), forbidden_hits=(), reasoning="forged"
+        )
+        real = RemediationPR.from_dict({**pr.to_dict(), "sandbox_only": False})
+        with pytest.raises(PmpeError, match="sandbox"):
+            apply_merge(sandbox, real, forged)
+
+    def test_apply_merge_reasserts_digest(self) -> None:
+        _, scan, inspection = _pipeline("slop-wrapper")
+        pr = generate_remediation_prs(scan, inspection)[0]
+        sandbox = _sandbox("slop-wrapper")
+        drifted = RemediationPR.from_dict(
+            {**pr.to_dict(), "base_snapshot_digest": "sha256:" + "1" * 64}
+        )
+        forged = MergeDecision(
+            decision="MERGE", failing_gates=(), forbidden_hits=(), reasoning="forged"
+        )
+        with pytest.raises(PmpeError, match="digest"):
+            apply_merge(sandbox, drifted, forged)
+
+    def test_out_of_range_line_edit_is_a_tamper_tripwire(self) -> None:
+        _, scan, inspection = _pipeline("slop-wrapper")
+        pr = generate_remediation_prs(scan, inspection)[0]
+        sandbox = _sandbox("slop-wrapper")
+        tampered = RemediationPR.from_dict({**pr.to_dict(), "line_edits": {"config.js": [999]}})
+        decision = decide_merge(tampered, gates=_all_gates_pass(pr), sandbox=sandbox)
+        if decision.decision == "MERGE":
+            with pytest.raises(PmpeError, match="outside the snapshot"):
+                apply_merge(sandbox, tampered, decision)
