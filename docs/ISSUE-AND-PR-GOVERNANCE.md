@@ -265,7 +265,11 @@ A PR may leave draft only when:
   prerequisite for leaving PR draft;
 - scope, atomicity, documentation, migration, observability, and rollback are current.
 
-Only an authorized maintainer merges according to branch protection. Phase 0 explicitly
+Only an authorized maintainer may enqueue or authorize a merge through an enforced
+merge queue or compare-and-swap gate that atomically admits the unchanged reviewed PR
+head, protected-base SHA, prospective merge-tree digest, required checks, and approvals.
+Generic branch protection or a normal maintainer merge is insufficient; any bypass
+blocks deployment even when the resulting tree happens to match. Phase 0 explicitly
 stays draft and unmerged until the user directs otherwise.
 
 Close the primary issue through the merged PR only after its definition of done is

@@ -324,16 +324,17 @@
       "result": "passed"
     },
     {
-      "name": "path_only_secret_scan",
-      "command": "rg -l --hidden --glob '!.git/**' --glob '!tests/**' --glob '!evals/**' --glob '!build/**' --glob '!dist/**' '(AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|xox[baprs]-[A-Za-z0-9-]{10,})' .; phase0_secret_status=$?; if [ \"$phase0_secret_status\" -eq 1 ]; then echo 'SECRET_PATH_SCAN_PASS_NO_MATCHES'; exit 0; fi; if [ \"$phase0_secret_status\" -eq 0 ]; then echo 'SECRET_PATH_SCAN_FAIL_MATCHES_FOUND'; exit 1; fi; exit \"$phase0_secret_status\"",
+      "name": "repository_secret_path_scan",
+      "command": "rg -l --hidden --glob '!.git/**' --glob '!build/**' --glob '!dist/**' '(AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|xox[baprs]-[A-Za-z0-9-]{10,})' .; phase0_secret_status=$?; if [ \"$phase0_secret_status\" -eq 1 ]; then echo 'SECRET_PATH_SCAN_PASS_NO_MATCHES'; exit 0; fi; if [ \"$phase0_secret_status\" -eq 0 ]; then echo 'SECRET_PATH_SCAN_FAIL_MATCHES_FOUND'; exit 1; fi; exit \"$phase0_secret_status\"",
       "provenance": {
-        "subject_sha": "091e26573375999c78db27566215e2be00c7fd37",
+        "subject_sha": "9ab41bf1c0eb2d2c53d9eb54443a51eaf71f9d18",
         "tool_identity": "ripgrep 15.2.0 (rev e89fff89ac)",
-        "executed_at": "2026-07-28T17:57:29Z",
+        "executed_at": "2026-07-28T18:26:03Z",
         "environment_fingerprint": "macOS_host_arm64_shell_zsh",
         "reusable_for_exact_head_readiness": false
       },
-      "result": "passed_no_non_fixture_matches"
+      "result": "passed_no_matches_full_tree",
+      "notes": "Scanned source, documentation, tests, and evals; only .git, build, and dist artifact trees were excluded. No credential-shaped fixture needed an allowlist. A temporary credential-shaped probe under tests/ produced exit 1 and was removed."
     },
     {
       "name": "web_backend_pytest",
@@ -418,10 +419,10 @@
     }
   ],
   "review": {
-    "status": "fifteenth_review_corrections_complete_local_rereview_pending",
+    "status": "sixteenth_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 70,
-    "findings_resolved": 70,
+    "findings_identified": 75,
+    "findings_resolved": 75,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -439,7 +440,8 @@
     "thirteenth_reviewed_head_sha": "091e26573375999c78db27566215e2be00c7fd37",
     "fourteenth_reviewed_head_sha": "275609d51d6a9281964718345ea8275b3d743916",
     "fifteenth_reviewed_head_sha": "af50ca5c85b07b49439ca8e4bf2ccdb80e750635",
-    "latest_reviewed_head_sha": "af50ca5c85b07b49439ca8e4bf2ccdb80e750635",
+    "sixteenth_reviewed_head_sha": "9ab41bf1c0eb2d2c53d9eb54443a51eaf71f9d18",
+    "latest_reviewed_head_sha": "9ab41bf1c0eb2d2c53d9eb54443a51eaf71f9d18",
     "findings": [
       {
         "id": "P1-01",
@@ -930,6 +932,41 @@
         "summary": "Align readiness-invalidation examples and merge-gate failure routes with repository re-admission and candidate re-verification.",
         "location": "docs/METRICS-AND-GATES.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-38",
+        "severity": "high",
+        "summary": "Persist a rollback-specific idempotency key and attempt before every rollback adapter mutation.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-39",
+        "severity": "high",
+        "summary": "Require an atomic unchanged-head/base/tree merge gate instead of generic branch-protection compliance.",
+        "location": "docs/ISSUE-AND-PR-GOVERNANCE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-34",
+        "severity": "medium",
+        "summary": "Route review-stage head drift through candidate integration and exact-head verification before fresh review.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-35",
+        "severity": "medium",
+        "summary": "Make the approval-system BLOCKED exit mutually exclusive with healthy approval-request teardown and reset.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-36",
+        "severity": "medium",
+        "summary": "Scan test and eval trees for credential-shaped values instead of excluding those directories wholesale.",
+        "location": "state/loop-state.json",
+        "disposition": "fixed"
       }
     ]
   },
@@ -973,7 +1010,9 @@
     "issues_65_68_69_72_fourteenth_review_scope_refined_at": "2026-07-28T18:12:06Z",
     "fifteenth_codex_review_completed_at": "2026-07-28T18:15:48Z",
     "issues_65_72_fifteenth_review_scope_refined_at": "2026-07-28T18:16:41Z",
-    "last_updated_at": "2026-07-28T18:16:41Z"
+    "sixteenth_codex_review_completed_at": "2026-07-28T18:26:03Z",
+    "issues_65_68_69_70_71_72_sixteenth_review_scope_refined_at": "2026-07-28T18:29:32Z",
+    "last_updated_at": "2026-07-28T18:29:32Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
