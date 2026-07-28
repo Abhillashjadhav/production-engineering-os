@@ -419,10 +419,10 @@
     }
   ],
   "review": {
-    "status": "thirtieth_review_corrections_complete_local_rereview_pending",
+    "status": "thirty_first_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 117,
-    "findings_resolved": 117,
+    "findings_identified": 119,
+    "findings_resolved": 119,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -455,7 +455,8 @@
     "twenty_eighth_reviewed_head_sha": "3a12d608dd2673a68cddfe78194140dfaa792ecc",
     "twenty_ninth_reviewed_head_sha": "94c546ad8a948453521ddfc3c65356c84899280c",
     "thirtieth_reviewed_head_sha": "7f467a0d43e6e40d1b197339a845012ac2815475",
-    "latest_reviewed_head_sha": "7f467a0d43e6e40d1b197339a845012ac2815475",
+    "thirty_first_reviewed_head_sha": "f215e0d370d9d5d20718380fd0a757e1ec2a0843",
+    "latest_reviewed_head_sha": "f215e0d370d9d5d20718380fd0a757e1ec2a0843",
     "findings": [
       {
         "id": "P1-01",
@@ -1275,6 +1276,20 @@
         "summary": "Require proven staging cleanup and zero rollout-owned staging, canary, or changed-production resources before a budget-exceeded stop.",
         "location": "docs/METRICS-AND-GATES.md; docs/PRODUCT-DECISIONS-AND-TRADEOFFS.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-58",
+        "severity": "high",
+        "summary": "Prevent a superseding contract from bypassing unresolved quarantine deletion or terminal-disposition safety work.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-59",
+        "severity": "high",
+        "summary": "Pre-journal and complete staging cleanup before an unresolved transient-infrastructure dependency can block rollback recovery.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1348,7 +1363,9 @@
     "issues_65_68_69_73_twenty_ninth_review_scope_refined_at": "2026-07-28T20:28:41Z",
     "thirtieth_codex_review_completed_at": "2026-07-28T20:37:04Z",
     "issues_65_68_73_thirtieth_review_scope_refined_at": "2026-07-28T20:38:26Z",
-    "last_updated_at": "2026-07-28T20:38:26Z"
+    "thirty_first_codex_review_completed_at": "2026-07-28T20:50:06Z",
+    "issues_65_72_76_thirty_first_review_scope_refined_at": "2026-07-28T20:51:42Z",
+    "last_updated_at": "2026-07-28T20:51:42Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
