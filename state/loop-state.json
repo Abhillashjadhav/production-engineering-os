@@ -263,10 +263,10 @@
     }
   ],
   "review": {
-    "status": "tenth_review_corrections_complete_local_rereview_pending",
+    "status": "eleventh_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 50,
-    "findings_resolved": 50,
+    "findings_identified": 52,
+    "findings_resolved": 52,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -279,7 +279,8 @@
     "eighth_reviewed_head_sha": "4a7e35548078510dc38d3a8c8a9b4081de7a3676",
     "ninth_reviewed_head_sha": "c557e88489f01f50af5244ef2141b0e75fc1ff72",
     "tenth_reviewed_head_sha": "7cae6e60eeefce38014cfa3eb304fafc3ec8ab2f",
-    "latest_reviewed_head_sha": "7cae6e60eeefce38014cfa3eb304fafc3ec8ab2f",
+    "eleventh_reviewed_head_sha": "35368abcf402e232e2305437ef3e7b7fbe6e425f",
+    "latest_reviewed_head_sha": "35368abcf402e232e2305437ef3e7b7fbe6e425f",
     "findings": [
       {
         "id": "P1-01",
@@ -630,6 +631,20 @@
         "summary": "Route changed contract or repository inputs out of BLOCKED through explicit evidence-invalidation and re-admission transitions.",
         "location": "docs/TARGET-ARCHITECTURE.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-26",
+        "severity": "high",
+        "summary": "Require separately versioned mutable-governance evidence and query provenance at repository admission and in the pre-code evidence profile.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-26",
+        "severity": "medium",
+        "summary": "Define MVP candidate-readiness gates as checks completed on an already-open draft PR.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -664,7 +679,8 @@
     "ninth_codex_review_completed_at": "2026-07-28T17:22:21Z",
     "tenth_codex_review_completed_at": "2026-07-28T17:31:31Z",
     "issue_69_atomic_merge_scope_refined_at": "2026-07-28T17:31:27Z",
-    "last_updated_at": "2026-07-28T17:31:31Z"
+    "eleventh_codex_review_completed_at": "2026-07-28T17:40:22Z",
+    "last_updated_at": "2026-07-28T17:40:22Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",

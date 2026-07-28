@@ -82,7 +82,8 @@ privacy findings; these severities are never waivable.
 **Definition**
 
 > Percentage of eligible approved contract slices that produce an atomic draft PR
-> whose exact head SHA has passed every required pre-PR gate, has complete
+> whose exact head SHA has passed every required candidate-readiness gate while the
+> PR remains draft, has complete
 > requirement-to-executed-test traceability and a sealed EvidenceBundle, with no
 > manual code/test/config modification or unplanned engineering intervention.
 
@@ -97,6 +98,11 @@ A draft PR is not a success if it is merely opened. It must be issue-linked, ato
 exact-SHA bound, green on required checks, independently reviewed at the analysis
 level, and free of unresolved blocking findings. Formal GitHub approval is tracked
 separately because it requires an eligible human collaborator.
+
+The draft PR is opened before implementation. “Candidate-readiness gate” therefore
+means the pre-code, implementation, exact-head verification, and analysis-review gates
+completed on that already-open draft before it may become ready for formal approval; it
+does not mean a gate that must precede PR creation.
 
 **Target:** requires a baseline cohort and product approval. Phase 1 must not invent a
 percentage.
