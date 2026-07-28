@@ -333,8 +333,21 @@
         "environment_fingerprint": "macOS_host_arm64_shell_zsh",
         "reusable_for_exact_head_readiness": false
       },
-      "result": "passed_no_matches_full_tree",
-      "notes": "Scanned source, documentation, tests, and evals; only .git, build, and dist artifact trees were excluded. No credential-shaped fixture needed an allowlist. A temporary credential-shaped probe under tests/ produced exit 1 and was removed."
+      "result": "passed_no_matches_nonignored_workspace",
+      "notes": "This historical command honored ripgrep ignore rules. It covered tracked source, documentation, tests, and evals, but did not cover ignored paths such as runs or caches; .git, build, and dist were its only explicit exclusions. The planted tracked-tests probe proved match exit behavior, not ignored-path coverage."
+    },
+    {
+      "name": "repository_secret_path_scan_no_ignore",
+      "command": "rg -l --hidden --no-ignore --glob '!.git/**' --glob '!build/**' --glob '!dist/**' '(AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|xox[baprs]-[A-Za-z0-9-]{10,})' .; scan_status=$?; if [ \"$scan_status\" -eq 1 ]; then echo SECRET_PATH_SCAN_PASS_NO_MATCHES; exit 0; fi; if [ \"$scan_status\" -eq 0 ]; then echo SECRET_PATH_SCAN_FAIL_MATCHES_FOUND; exit 1; fi; exit \"$scan_status\"",
+      "provenance": {
+        "subject_sha": "b5b77600697f3b3e284434f646e56d3af9939f6a",
+        "tool_identity": "ripgrep 15.2.0 (rev e89fff89ac)",
+        "executed_at": "2026-07-28T21:01:16Z",
+        "environment_fingerprint": "macOS_host_arm64_shell_zsh_workspace_including_ignored_paths",
+        "reusable_for_exact_head_readiness": false
+      },
+      "result": "passed_no_matches_full_workspace_except_explicit_artifact_exclusions",
+      "notes": "Used --no-ignore and scanned tracked plus ignored workspace paths; only .git, build, and dist artifact trees were explicitly excluded. This observation is bound to the pre-correction reviewed head and is audit evidence, not final-head readiness evidence."
     },
     {
       "name": "web_backend_pytest",
@@ -419,10 +432,10 @@
     }
   ],
   "review": {
-    "status": "thirty_first_review_corrections_complete_local_rereview_pending",
+    "status": "thirty_second_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 119,
-    "findings_resolved": 119,
+    "findings_identified": 123,
+    "findings_resolved": 123,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -456,7 +469,8 @@
     "twenty_ninth_reviewed_head_sha": "94c546ad8a948453521ddfc3c65356c84899280c",
     "thirtieth_reviewed_head_sha": "7f467a0d43e6e40d1b197339a845012ac2815475",
     "thirty_first_reviewed_head_sha": "f215e0d370d9d5d20718380fd0a757e1ec2a0843",
-    "latest_reviewed_head_sha": "f215e0d370d9d5d20718380fd0a757e1ec2a0843",
+    "thirty_second_reviewed_head_sha": "b5b77600697f3b3e284434f646e56d3af9939f6a",
+    "latest_reviewed_head_sha": "b5b77600697f3b3e284434f646e56d3af9939f6a",
     "findings": [
       {
         "id": "P1-01",
@@ -1290,6 +1304,34 @@
         "summary": "Pre-journal and complete staging cleanup before an unresolved transient-infrastructure dependency can block rollback recovery.",
         "location": "docs/TARGET-ARCHITECTURE.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-60",
+        "severity": "high",
+        "summary": "Clean rollout staging and prove zero resources before post-rollback remediation or infrastructure blocking.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-61",
+        "severity": "high",
+        "summary": "Fence production approval through every promotion mutation and final state admission, with mid-promotion revocation or expiry forcing rollback.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-62",
+        "severity": "high",
+        "summary": "Restore the exact pre-code tree before same-PR reuse and require fresh meaningful-red evidence before any old patch is reapplied.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-61",
+        "severity": "medium",
+        "summary": "Correct the historical secret-scan scope and add a no-ignore scan that covers ignored workspace paths.",
+        "location": "state/loop-state.json",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1365,7 +1407,10 @@
     "issues_65_68_73_thirtieth_review_scope_refined_at": "2026-07-28T20:38:26Z",
     "thirty_first_codex_review_completed_at": "2026-07-28T20:50:06Z",
     "issues_65_72_76_thirty_first_review_scope_refined_at": "2026-07-28T20:51:42Z",
-    "last_updated_at": "2026-07-28T20:51:42Z"
+    "thirty_second_codex_review_completed_at": "2026-07-28T21:01:16Z",
+    "full_workspace_secret_scan_completed_at": "2026-07-28T21:01:16Z",
+    "issues_65_68_70_72_thirty_second_review_scope_refined_at": "2026-07-28T21:03:17Z",
+    "last_updated_at": "2026-07-28T21:03:17Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
