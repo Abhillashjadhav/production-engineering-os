@@ -31,7 +31,10 @@ An **eligible slice** has:
 - a supported repository or an approved adapter;
 - approved per-run and applicable per-stage token, credit, elapsed-time,
   external-compute/spend, and repair-attempt budgets, plus a reserved safety budget for
-  monitoring, abort, staging teardown/cleanup, rollback, and incident response.
+  monitoring, abort, staging teardown/cleanup, rollback, and incident response;
+- a named owner-approved, versioned maturity policy for every North Star applicable to
+  the run's autonomy stage, including its evaluation/delivery/observation windows and
+  reporting-policy reference.
 
 Invalid or product-blocked inputs are reported separately and do not lower delivery
 rate. A slice that became eligible and then failed, exhausted budget, or needed manual
@@ -41,15 +44,20 @@ approved adapter. Later architecture, canary, or exact-subject production approv
 are outcome gates and never remove a slice from the denominator.
 
 The draft-PR evaluation window, production-delivery window, live observation window,
-reporting window, and product success targets require human approval. Until every
-window needed by a North Star is approved, its `metric_due_at` and due cohort are
-undefined. Phase 1 contract intake records and validates these policy inputs but does
-not compute a fleet rate. The Phase 6/#73 reporting component must emit
-`TARGET_NOT_APPROVED`, omit the numeric rate, and report only clearly labelled raw
-counts, pending inputs, and window-independent diagnostics. No phase may substitute an
-agent-selected or retrospective window. A provisional baseline is permitted only after
-a named owner approves a separately versioned policy before the affected slices become
-eligible; provisional and target-policy series are never combined.
+reporting window, and product success targets require human approval. A lineage cannot
+become eligible for a North Star until that metric's applicable maturity policy exists;
+otherwise intake records `POLICY_INPUT_REQUIRED`, exposes the pre-policy lineage only
+in first-pass validation and explicitly labelled baseline/exclusion counts, and admits
+no `eligibility_at` or `metric_due_at`. After policy approval, the same lineage may be
+re-evaluated and become eligible prospectively; its due time is fixed from that later
+eligibility instant, never backdated. Phase 1 contract intake records and validates
+these policy inputs but does not compute a fleet rate. The Phase 6/#73 reporting
+component must emit `TARGET_NOT_APPROVED`, omit the numeric rate, and report only
+clearly labelled raw counts, pending-policy lineages, exclusions, and window-independent
+diagnostics. No phase may substitute an agent-selected or retrospective window. A
+provisional baseline is permitted only after a named owner approves a separately
+versioned policy before the affected slices become eligible; provisional and
+target-policy series are never combined.
 
 Each North Star uses a versioned maturity policy fixed when eligibility is admitted.
 For EADPR, `metric_due_at` is `eligibility_at + approved draft-PR evaluation window`.
@@ -80,11 +88,13 @@ every period while keeping unfinished future cohorts visible.
 
 **Definition**
 
-> Percentage of eligible approved contract slices that reach production, meet every
-> acceptance criterion and required SLO/guardrail through the approved observation
-> window, carry a complete exact-subject EvidenceBundle, and require no manual code,
-> test, configuration, deployment/environment mutation, technical evidence execution,
-> or other planned or unplanned manual engineering intervention as defined below.
+> Percentage of eligible approved contract slices whose exact release remains active
+> and conformant in production through its fixed metric due time, meets every acceptance
+> criterion and required SLO/guardrail through the approved observation window and the
+> due-time seal, carries a complete exact-subject EvidenceBundle, and requires no manual
+> code, test, configuration, deployment/environment mutation, technical evidence
+> execution, or other planned or unplanned manual engineering intervention as defined
+> below.
 
 ```text
 VAPDR =
@@ -95,14 +105,17 @@ VAPDR =
 
 Numerator conditions:
 
-1. exact approved contract slice deployed;
-2. exact candidate/build/config/migration digests match production;
+1. exact approved contract slice is the active conformant production release at
+   `metric_due_at`;
+2. exact candidate/build/config/migration digests match that active production release;
 3. all acceptance criteria and binary release gates pass;
 4. required SLO and product guardrail window passes;
 5. EvidenceBundle completeness is 100%;
 6. no manual engineering intervention as defined in the autonomy guardrails below;
-7. no false-DONE event, unplanned rollback, or Critical/High escaped defect in the
-   observation window.
+7. no false-DONE event, unplanned rollback, or Critical/High escaped defect from initial
+   production deployment through `metric_due_at`; any pre-due removal, rollback,
+   supersession, or loss of conformance fails the sealed numerator even if the minimum
+   observation window passed earlier.
 
 Product decisions, named approvals, and an authorized merge click are expected human
 governance and do not count as manual engineering modification. Shared platform
@@ -213,8 +226,13 @@ values are product/operations inputs and remain unresolved.
 
 - Zero critical or high SAST, dependency, secret, configuration, or
   architecture-boundary findings; neither severity is waivable.
-- Required scanners execute with pinned tool/rule/advisory versions or the gate is
-  `BLOCKED` with reason `infrastructure_unavailable`; unavailable scanning never passes.
+- Required scanners execute with pinned tool/rule versions and a signed or
+  integrity-verified vulnerability-advisory snapshot that satisfies an approved
+  source-specific maximum-age/freshness policy at gate time. The evidence records
+  source, snapshot/version/digest, generated/fetched/evaluated times, max age, and
+  freshness result. Missing, unverifiable, stale, or unavailable advisory data is
+  `BLOCKED` with reason `security_intelligence_unavailable_or_stale`; reproducible but
+  stale data never passes.
 - SBOM/provenance covers the exact build artifact.
 - Secrets are referenced through an approved secret manager and never stored in
   contracts, evidence, source, logs, or fixtures.
