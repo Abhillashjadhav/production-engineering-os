@@ -21,8 +21,9 @@ An **eligible slice** has:
 
 Invalid or product-blocked inputs are reported separately and do not lower delivery
 rate. A slice that became eligible and then failed, exhausted budget, or needed manual
-code modification remains in the denominator. Eligibility is frozen on entry to
-`CONTRACT_APPROVED`: later architecture, canary, or exact-subject production approvals
+code modification remains in the denominator. Eligibility is frozen only after
+`REPOSITORY_ANALYSED` proves that the approved repository is supported or has an
+approved adapter. Later architecture, canary, or exact-subject production approvals
 are outcome gates and never remove a slice from the denominator.
 
 The reporting window and product success targets require human approval. Until then,
@@ -44,7 +45,7 @@ Phase 1 may calculate the metrics but must label target-dependent verdicts
 VAPDR =
   eligible slices satisfying all numerator conditions
   ---------------------------------------------------
-  all eligible slices entering CONTRACT_APPROVED
+  all slices becoming eligible after REPOSITORY_ANALYSED
 ```
 
 Numerator conditions:
@@ -61,14 +62,14 @@ Numerator conditions:
 Product decisions and named approvals are expected human governance and do not count
 as manual engineering modification. A safe product-input request or unsupported
 repository before eligibility does not count as failure; it is measured by contract
-validation metrics.
+validation and repository-admission metrics.
 
 **Why this is outcome-based:** it measures safely delivered, live, conformant product
 outcomes—not commits, PRs, tokens, or deployments alone.
 
 **Target:** requires product approval after a baseline cohort. The non-negotiable
-release-level constraints are zero false DONE and zero unwaived critical/high
-security or privacy findings.
+release-level constraints are zero false DONE and zero critical/high security or
+privacy findings; these severities are never waivable.
 
 ## MVP North Star Metric
 
@@ -85,7 +86,7 @@ security or privacy findings.
 EADPR =
   eligible slices producing a qualifying draft PR
   ------------------------------------------------
-  all eligible slices entering CONTRACT_APPROVED
+  all slices becoming eligible after REPOSITORY_ANALYSED
 ```
 
 A draft PR is not a success if it is merely opened. It must be issue-linked, atomic,
@@ -102,6 +103,7 @@ percentage.
 |---|---|---|---|
 | First-pass contract-validation rate | eligible contracts passing without a PM correction / contracts received | Up | Diagnostic; target after baseline |
 | Product-input request precision | confirmed required product blockers / product-input requests | Up | Must be sampled before changing validator strictness |
+| Repository-admission support rate | approved slices with a supported repository/adapter / approved slices analysed | Contextual | Report exclusions; never hide unsupported inputs |
 | Requirement-to-test-plan coverage | required IDs with admitted evidence-producing tests / required IDs | 100% | Hard pre-code gate |
 | Meaningful-red rate | planned test nodes failing for intended assertion before code / planned nodes requiring red | 100% | Hard pre-code gate |
 | First-pass deterministic verification rate | candidates passing required checks before repair / candidates verified | Up | Diagnostic |
@@ -145,22 +147,23 @@ values are product/operations inputs and remain unresolved.
 
 ## Security guardrails
 
-- Zero unwaived critical or high SAST, dependency, secret, configuration, or
-  architecture-boundary findings.
+- Zero critical or high SAST, dependency, secret, configuration, or
+  architecture-boundary findings; neither severity is waivable.
 - Required scanners execute with pinned tool/rule/advisory versions or the gate is
   `BLOCKED` with reason `infrastructure_unavailable`; unavailable scanning never passes.
 - SBOM/provenance covers the exact build artifact.
 - Secrets are referenced through an approved secret manager and never stored in
   contracts, evidence, source, logs, or fixtures.
-- Waivers are named, scoped, reasoned, expiring, and exact-subject bound.
+- Permitted medium/low waivers are named, scoped, reasoned, expiring, and
+  exact-subject bound.
 
 ## Privacy guardrails
 
 - Data classification, collection purpose, allowed fields, residency, retention,
   deletion, telemetry allowlist, and access roles must be approved when applicable.
 - Tests use synthetic or explicitly approved non-production data.
-- Zero unwaived high/critical privacy finding or unauthorized sensitive field in
-  logs/traces/evidence.
+- Zero high/critical privacy finding or unauthorized sensitive field in
+  logs/traces/evidence; neither severity is waivable.
 - Required deletion/retention/export behavior is executed and evidenced.
 - Missing privacy intent for a data-handling slice returns PRODUCT_INPUT_REQUIRED.
 

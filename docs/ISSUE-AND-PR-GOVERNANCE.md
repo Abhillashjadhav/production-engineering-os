@@ -288,7 +288,7 @@ recovery plan. An exception cannot:
 - waive exact-subject provenance;
 - treat model output as a deterministic pass;
 - permit fabricated review or product truth;
-- bypass critical security/privacy/rollback failures;
+- bypass critical/high security or privacy findings, or rollback failures;
 - retroactively declare a deployment complete.
 
 Emergency rollback is pre-authorized when defined guardrails breach. It still requires

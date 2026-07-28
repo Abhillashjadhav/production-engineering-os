@@ -175,6 +175,8 @@ Exit criteria:
 - deployments are real, idempotent, environment-protected, and digest-verified;
 - staging verifies integrations, migrations, smoke tests, and cleanup;
 - canary cohorts, windows, SLOs, abort thresholds, and rollback targets are explicit;
+- #72 delivers the minimum deployment-correlated telemetry, SLO/business-guardrail
+  evaluator, alert/abort path, and rollback trigger required before canary starts;
 - production approval is named and bound to exact subjects;
 - live failure automatically enters rollback, and rollback is regularly exercised;
 - simulation is never accepted as production delivery evidence.
@@ -186,9 +188,10 @@ Issues:
 1. [#73](https://github.com/Abhillashjadhav/production-engineering-os/issues/73) — observability, SLO evaluation, incident evidence, and PMOS feedback
 2. [#74](https://github.com/Abhillashjadhav/production-engineering-os/issues/74) — non-technical Guided Mode
 
-Correlate lifecycle, CI, deployment, runtime, cost, and outcome telemetry. Return a
-structured OutcomeReport to PMOS. Guided Mode explains state and decisions without
-hiding evidence or weakening gates.
+Build on #72's release-critical instrumentation to correlate lifecycle, CI, deployment,
+runtime, cost, and outcome telemetry across runs and repositories. Add durable
+dashboards, incident evidence, and structured OutcomeReports to PMOS. Guided Mode
+explains state and decisions without hiding evidence or weakening gates.
 
 Exit criteria:
 

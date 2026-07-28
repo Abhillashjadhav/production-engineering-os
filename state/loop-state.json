@@ -215,40 +215,46 @@
     {
       "name": "web_backend_pytest",
       "command": "pytest -q",
+      "working_directory": "products/pm-evals-web/backend",
       "environment": "macOS host, Python 3.14",
       "result": "84_passed_1_version_sensitive_json_failure",
       "notes": "CI declares Python 3.11; Python 3.14 accepts the deeply nested input then the API correctly rejects its non-object shape."
     },
     {
       "name": "web_backend_mypy",
-      "command": "mypy --strict app",
+      "command": "mypy",
+      "working_directory": "products/pm-evals-web/backend",
       "result": "passed"
     },
     {
       "name": "web_backend_ruff_format",
       "command": "ruff format --check .",
+      "working_directory": "products/pm-evals-web/backend",
       "result": "passed"
     },
     {
       "name": "web_backend_ruff_lint",
       "command": "ruff check .",
+      "working_directory": "products/pm-evals-web/backend",
       "result": "failed_8_on_unpinned_current_ruff",
       "notes": "Four B008, three ISC004, and one import-order finding show allowed-toolchain drift."
     },
     {
       "name": "web_backend_hash_locked_dependency_audit",
       "command": "pip-audit --require-hashes -r requirements.lock --strict",
+      "working_directory": "products/pm-evals-web/backend",
       "result": "passed"
     }
   ],
   "review": {
     "status": "corrections_complete_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 9,
-    "findings_resolved": 9,
+    "findings_identified": 16,
+    "findings_resolved": 16,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
+    "second_reviewed_head_sha": "cf6a75052909647087cbab826ea8d9e0cec4d6a1",
     "latest_reviewed_head_sha": null,
     "findings": [
       {
@@ -296,7 +302,7 @@
       {
         "id": "P2-03",
         "severity": "medium",
-        "summary": "Freeze eligibility at admission and exclude later production approval from it.",
+        "summary": "Freeze eligibility after deterministic admission and exclude later production approval from it.",
         "location": "docs/METRICS-AND-GATES.md",
         "disposition": "fixed"
       },
@@ -313,6 +319,55 @@
         "summary": "Persist an executable, exact path-only secret-scan command.",
         "location": "state/loop-state.json",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-05",
+        "severity": "high",
+        "summary": "Keep critical and high security/privacy findings non-waivable.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-06",
+        "severity": "high",
+        "summary": "Split evidence profiles at every merge, staging, canary, authorization, deployment, and completion checkpoint.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-07",
+        "severity": "high",
+        "summary": "Add append-only transitions for completion-evidence invalidation.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-06",
+        "severity": "medium",
+        "summary": "Put minimum deployment-correlated telemetry and SLO evaluation inside issue 72 before canary.",
+        "location": "docs/PMOS-PEOS-END-TO-END-PLAN.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-07",
+        "severity": "medium",
+        "summary": "Freeze metric eligibility only after successful repository admission.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-08",
+        "severity": "medium",
+        "summary": "Record the actual backend mypy command and working directory.",
+        "location": "state/loop-state.json",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-09",
+        "severity": "medium",
+        "summary": "Require superseding TestPlan creation and validation after staging or rollback defects.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -328,7 +383,9 @@
     "planning_artifacts_built_at": "2026-07-28T15:40:53Z",
     "draft_pr_created_at": "2026-07-28T15:46:17Z",
     "initial_codex_review_completed_at": "2026-07-28T15:53:32Z",
-    "last_updated_at": "2026-07-28T15:53:32Z"
+    "second_codex_review_completed_at": "2026-07-28T16:02:06Z",
+    "issue_72_observability_scope_refined_at": "2026-07-28T16:03:28Z",
+    "last_updated_at": "2026-07-28T16:03:28Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
