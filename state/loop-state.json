@@ -419,10 +419,10 @@
     }
   ],
   "review": {
-    "status": "twenty_first_review_corrections_complete_local_rereview_pending",
+    "status": "twenty_second_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 90,
-    "findings_resolved": 90,
+    "findings_identified": 94,
+    "findings_resolved": 94,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -446,7 +446,8 @@
     "nineteenth_reviewed_head_sha": "f690e8173612842dd64518852cf4a9276211e4f3",
     "twentieth_reviewed_head_sha": "3082575affda18784ab017e02987308c0ef0dfef",
     "twenty_first_reviewed_head_sha": "4d1bc7515e17405e86d37677a36899693e2b7349",
-    "latest_reviewed_head_sha": "4d1bc7515e17405e86d37677a36899693e2b7349",
+    "twenty_second_reviewed_head_sha": "5b2528322343b09f240f61e16a652139aff0fd0f",
+    "latest_reviewed_head_sha": "5b2528322343b09f240f61e16a652139aff0fd0f",
     "findings": [
       {
         "id": "P1-01",
@@ -1077,6 +1078,34 @@
         "summary": "Add a legal pre-journaled canary teardown and staging reset for non-decision approval-service outages.",
         "location": "docs/TARGET-ARCHITECTURE.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-44",
+        "severity": "high",
+        "summary": "Distinguish ordinary compare-and-swap drift from merge-gate integrity, authorization, bypass, or availability incidents.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-45",
+        "severity": "high",
+        "summary": "Add direct pre-journaled stale-staging cleanup transitions after canary teardown and verified rollback.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-48",
+        "severity": "medium",
+        "summary": "Tear down staging under reserved safety budget before entering BUDGET_EXCEEDED.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-49",
+        "severity": "medium",
+        "summary": "Exclude every planned or unplanned manual engineering intervention from both autonomy numerators and the companion formula.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1132,7 +1161,9 @@
     "issues_65_69_71_72_76_twentieth_review_scope_refined_at": "2026-07-28T19:03:31Z",
     "twenty_first_codex_review_completed_at": "2026-07-28T19:12:32Z",
     "issues_65_67_69_72_73_twenty_first_review_scope_refined_at": "2026-07-28T19:13:38Z",
-    "last_updated_at": "2026-07-28T19:13:38Z"
+    "twenty_second_codex_review_completed_at": "2026-07-28T19:21:31Z",
+    "issues_65_69_71_72_73_twenty_second_review_scope_refined_at": "2026-07-28T19:22:36Z",
+    "last_updated_at": "2026-07-28T19:22:36Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",

@@ -31,7 +31,7 @@ An **eligible slice** has:
 - a supported repository or an approved adapter;
 - approved per-run and applicable per-stage token, credit, elapsed-time,
   external-compute/spend, and repair-attempt budgets, plus a reserved safety budget for
-  monitoring, abort, rollback, and incident response.
+  monitoring, abort, staging teardown/cleanup, rollback, and incident response.
 
 Invalid or product-blocked inputs are reported separately and do not lower delivery
 rate. A slice that became eligible and then failed, exhausted budget, or needed manual
@@ -93,8 +93,7 @@ Numerator conditions:
 3. all acceptance criteria and binary release gates pass;
 4. required SLO and product guardrail window passes;
 5. EvidenceBundle completeness is 100%;
-6. no manual code/test/config/deployment/environment mutation or unplanned engineering
-   intervention;
+6. no manual engineering intervention as defined in the autonomy guardrails below;
 7. no false-DONE event, unplanned rollback, or Critical/High escaped defect in the
    observation window.
 
@@ -102,10 +101,11 @@ Product decisions, named approvals, and an authorized merge click are expected h
 governance and do not count as manual engineering modification. Shared platform
 capacity, organization credentials, or base infrastructure provisioned outside the
 slice lineage before eligibility is also external governance. A human executing or
-mutating a slice-specific rollout, traffic shift, environment, artifact, configuration,
-test, repair, or post-eligibility infrastructure does count, even when planned. A safe
-product-input request or unsupported repository before eligibility does not count as
-failure; it is measured by contract validation and repository-admission metrics.
+acting as the acceptance oracle for a slice-specific test/evidence procedure, rollout,
+traffic shift, environment, artifact, configuration, repair, or post-eligibility
+infrastructure does count, even when planned. A safe product-input request or
+unsupported repository before eligibility does not count as failure; it is measured by
+contract validation and repository-admission metrics.
 
 **Why this is outcome-based:** it measures safely delivered, live, conformant product
 outcomes—not commits, PRs, tokens, or deployments alone.
@@ -124,7 +124,7 @@ privacy findings; these severities are never waivable.
 > whose exact head SHA has passed every required candidate-readiness gate while the
 > PR remains draft, has complete
 > requirement-to-executed-test traceability and a sealed EvidenceBundle, with no
-> manual code/test/config modification or unplanned engineering intervention.
+> manual engineering intervention as defined in the autonomy guardrails below.
 
 ```text
 EADPR =
@@ -159,7 +159,7 @@ percentage.
 | Approved-contract-to-draft-PR time | elapsed from `CONTRACT_APPROVED` to qualifying draft PR | Down | Target after baseline; report p50/p95 |
 | Approved-contract-to-production time | elapsed to successful observation-window close | Down | Target after real production exists; p50/p95 |
 | Automated repair success rate | accepted engineering findings verified within budget / repairable accepted findings | Up | Guarded by regression and scope-violation metrics |
-| Manual engineering intervention rate | eligible slices with manual code/test/config/deployment/environment mutation or other unplanned engineering intervention / eligible slices | Down | Companion to both North Stars |
+| Manual engineering intervention rate | eligible slices with any manual engineering intervention as defined below / eligible slices | Down | Companion to both North Stars; planned manual technical evidence is included |
 | Review defect yield | credible findings before production / reviewed candidates | Interpret with escape rate | Never maximize alone |
 | Evidence completeness rate | present valid required evidence items / required evidence items | 100% | Hard readiness/completion gate |
 | Canary success rate | canaries promoted without breach / canaries started | Up | Not available until #72 |
