@@ -418,10 +418,10 @@
     }
   ],
   "review": {
-    "status": "fourteenth_review_corrections_complete_local_rereview_pending",
+    "status": "fifteenth_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 68,
-    "findings_resolved": 68,
+    "findings_identified": 70,
+    "findings_resolved": 70,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -438,7 +438,8 @@
     "twelfth_reviewed_head_sha": "3dd3dfe267782efd305dda81c0d7e961ab96c83f",
     "thirteenth_reviewed_head_sha": "091e26573375999c78db27566215e2be00c7fd37",
     "fourteenth_reviewed_head_sha": "275609d51d6a9281964718345ea8275b3d743916",
-    "latest_reviewed_head_sha": "275609d51d6a9281964718345ea8275b3d743916",
+    "fifteenth_reviewed_head_sha": "af50ca5c85b07b49439ca8e4bf2ccdb80e750635",
+    "latest_reviewed_head_sha": "af50ca5c85b07b49439ca8e4bf2ccdb80e750635",
     "findings": [
       {
         "id": "P1-01",
@@ -915,6 +916,20 @@
         "summary": "Treat GitHub metadata and PR comments as mutable pointers and block readiness until a content-addressed append-only final-head attestation exists.",
         "location": "state/loop-state.json",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-37",
+        "severity": "high",
+        "summary": "Make healthy production-approval request expiry and canary exposure-authorization expiry mutually exclusive lifecycle triggers.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-33",
+        "severity": "medium",
+        "summary": "Align readiness-invalidation examples and merge-gate failure routes with repository re-admission and candidate re-verification.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -956,7 +971,9 @@
     "issues_65_68_69_72_final_review_scope_refined_at": "2026-07-28T18:00:49Z",
     "fourteenth_codex_review_completed_at": "2026-07-28T18:09:11Z",
     "issues_65_68_69_72_fourteenth_review_scope_refined_at": "2026-07-28T18:12:06Z",
-    "last_updated_at": "2026-07-28T18:12:06Z"
+    "fifteenth_codex_review_completed_at": "2026-07-28T18:15:48Z",
+    "issues_65_72_fifteenth_review_scope_refined_at": "2026-07-28T18:16:41Z",
+    "last_updated_at": "2026-07-28T18:16:41Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",

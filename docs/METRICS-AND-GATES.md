@@ -235,11 +235,12 @@ false-DONE rate =
 ```
 
 An append-only, fail-closed revocation of a claim that was valid when asserted—such
-as `PR_READY → REVIEW_REQUIRED` after the protected base advances—is correct behavior,
-not false-DONE, provided no downstream action uses the invalidated claim and revocation
-occurs within policy. Track normal readiness supersession/revocation rate and
-invalidation-detection latency separately. A claim used or left active past that
-deadline is false-DONE.
+as `PR_READY → REPOSITORY_ANALYSED` after the protected base advances—is correct
+behavior, not false-DONE, provided no downstream action uses the invalidated claim and
+revocation occurs within policy. Head-only drift instead returns to
+`IMPLEMENTATION_IN_PROGRESS` for candidate integration and verification. Track normal
+readiness supersession/revocation rate and invalidation-detection latency separately.
+A claim used or left active past that deadline is false-DONE.
 
 Target and hard guardrail: **0%**. Any nonzero result is a Critical process defect,
 sets the affected release to `BLOCKED` or rollback flow, and requires a planted
@@ -292,7 +293,7 @@ baseline.
 | Candidate verification | pinned checks, exact-SHA results, no hard failures | VERIFICATION_FAILED |
 | Independent review | all required lenses; findings reconciled; no self-review | REVIEW_FAILED |
 | PR readiness | existing draft PR, exact-SHA EvidenceBundle, required checks/reviews | REVIEW_REQUIRED or BLOCKED |
-| Merge admission | reviewed head/base/prospective tree, eligible approval, observed merge actor/SHA, actual-tree equality | REVIEW_REQUIRED or BLOCKED |
+| Merge admission | reviewed head/base/prospective tree, eligible approval, observed merge actor/SHA, actual-tree equality | Head drift: IMPLEMENTATION_IN_PROGRESS; base/policy/toolchain/tree drift: REPOSITORY_ANALYSED; bypass/mismatch: BLOCKED |
 | Staging | exact artifact/config, all integration/smoke/migration checks | STAGING_FAILED |
 | Canary | bounded exposure and full guardrail window | CANARY_FAILED |
 | Production authorization | named exact-subject approval and rollback readiness | PRODUCTION_APPROVAL_REQUIRED |
