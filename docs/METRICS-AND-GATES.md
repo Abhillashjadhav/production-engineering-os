@@ -14,13 +14,16 @@ An **eligible slice** has:
 
 - passed deterministic contract validation;
 - no unresolved product-critical question;
-- all required product/security/privacy/release approvals;
+- all approvals required at contract admission, including product approval and applicable
+  security/privacy policy and release-intent approvals;
 - a supported repository or an approved adapter;
 - an approved cost/time budget.
 
 Invalid or product-blocked inputs are reported separately and do not lower delivery
 rate. A slice that became eligible and then failed, exhausted budget, or needed manual
-code modification remains in the denominator.
+code modification remains in the denominator. Eligibility is frozen on entry to
+`CONTRACT_APPROVED`: later architecture, canary, or exact-subject production approvals
+are outcome gates and never remove a slice from the denominator.
 
 The reporting window and product success targets require human approval. Until then,
 Phase 1 may calculate the metrics but must label target-dependent verdicts
@@ -145,7 +148,7 @@ values are product/operations inputs and remain unresolved.
 - Zero unwaived critical or high SAST, dependency, secret, configuration, or
   architecture-boundary findings.
 - Required scanners execute with pinned tool/rule/advisory versions or the gate is
-  `BLOCKED_INFRASTRUCTURE`; unavailable scanning never passes.
+  `BLOCKED` with reason `infrastructure_unavailable`; unavailable scanning never passes.
 - SBOM/provenance covers the exact build artifact.
 - Secrets are referenced through an approved secret manager and never stored in
   contracts, evidence, source, logs, or fixtures.
@@ -252,10 +255,12 @@ requires a baseline.
 | Repository admission | exact-SHA read-only snapshot, supported toolchain or blocker | BLOCKED |
 | Architecture approval | admitted pack/ADRs/threat model, named approvals | PRODUCT_INPUT_REQUIRED or BLOCKED |
 | Test-plan validation | 100% ID mapping, meaningful-red plan, tool feasibility | PRODUCT_INPUT_REQUIRED or BLOCKED |
-| Implementation authorization | ready issue, branch/worktree, admitted plan | BLOCKED |
+| Draft PR admission | ready issue, branch, initial planning/test commit, atomic draft PR | BLOCKED |
+| Implementation authorization | existing draft PR, worktree, meaningful red, admitted plan | BLOCKED |
 | Candidate verification | pinned checks, exact-SHA results, no hard failures | VERIFICATION_FAILED |
 | Independent review | all required lenses; findings reconciled; no self-review | REVIEW_FAILED |
-| Draft PR readiness | atomicity, issue link, exact-SHA EvidenceBundle | REVIEW_REQUIRED or BLOCKED |
+| PR readiness | existing draft PR, exact-SHA EvidenceBundle, required checks/reviews | REVIEW_REQUIRED or BLOCKED |
+| Merge admission | exact reviewed head, eligible approval, GitHub merge actor/SHA | REVIEW_REQUIRED or BLOCKED |
 | Staging | exact artifact/config, all integration/smoke/migration checks | STAGING_FAILED |
 | Canary | bounded exposure and full guardrail window | CANARY_FAILED |
 | Production authorization | named exact-subject approval and rollback readiness | PRODUCTION_APPROVAL_REQUIRED |

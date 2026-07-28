@@ -209,7 +209,7 @@
     },
     {
       "name": "path_only_secret_scan",
-      "command": "rg -l --hidden with high-confidence provider/private-key patterns and fixture/build exclusions",
+      "command": "rg -l --hidden --glob '!.git/**' --glob '!tests/**' --glob '!evals/**' --glob '!build/**' --glob '!dist/**' '(AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|xox[baprs]-[A-Za-z0-9-]{10,})' .; phase0_secret_status=$?; if [ \"$phase0_secret_status\" -eq 1 ]; then echo 'SECRET_PATH_SCAN_PASS_NO_MATCHES'; exit 0; fi; exit \"$phase0_secret_status\"",
       "result": "passed_no_non_fixture_matches"
     },
     {
@@ -242,13 +242,79 @@
     }
   ],
   "review": {
-    "status": "pending",
-    "analysis_tool": "Codex /review",
-    "findings_identified": 0,
-    "findings_resolved": 0,
+    "status": "corrections_complete_rereview_pending",
+    "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
+    "findings_identified": 9,
+    "findings_resolved": 9,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
-    "reviewed_head_sha": null
+    "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
+    "latest_reviewed_head_sha": null,
+    "findings": [
+      {
+        "id": "P1-01",
+        "severity": "high",
+        "summary": "Create the draft PR before requiring formal review.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-02",
+        "severity": "high",
+        "summary": "Require an observed merged exact head before deployment and production promotion.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-03",
+        "severity": "high",
+        "summary": "Resume budget extensions at the recorded interrupted state.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-04",
+        "severity": "high",
+        "summary": "Scope EvidenceBundle completeness by lifecycle stage.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-01",
+        "severity": "medium",
+        "summary": "Add the verification-failed to product-input-required transition.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-02",
+        "severity": "medium",
+        "summary": "Use the defined BLOCKED result with an infrastructure reason for unavailable scanners.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-03",
+        "severity": "medium",
+        "summary": "Freeze eligibility at admission and exclude later production approval from it.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-04",
+        "severity": "medium",
+        "summary": "Correct the audited tracked-file count from 435 to 484.",
+        "location": "docs/CURRENT-CAPABILITY-AUDIT.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-05",
+        "severity": "medium",
+        "summary": "Persist an executable, exact path-only secret-scan command.",
+        "location": "state/loop-state.json",
+        "disposition": "fixed"
+      }
+    ]
   },
   "next_recommended_issue": {
     "number": 62,
@@ -261,7 +327,8 @@
     "phase_0_branch_created_at": "2026-07-28T15:16:01Z",
     "planning_artifacts_built_at": "2026-07-28T15:40:53Z",
     "draft_pr_created_at": "2026-07-28T15:46:17Z",
-    "last_updated_at": "2026-07-28T15:46:17Z"
+    "initial_codex_review_completed_at": "2026-07-28T15:53:32Z",
+    "last_updated_at": "2026-07-28T15:53:32Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",

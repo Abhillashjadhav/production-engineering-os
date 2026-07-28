@@ -31,7 +31,7 @@ The classification vocabulary is:
 | Default branch | `main`; local and `origin/main` were both `8ddc4cc…` after `git pull --ff-only origin main` reported “Already up to date.” |
 | Worktree at audit start | Clean: `## main...origin/main`. No user changes were overwritten. |
 | Phase 0 branch | `docs/phase-0-pmos-peos-plan`, created only after issues #60–#74 existed. |
-| Size and shape | 435 tracked files at audit start: Python package (`src/pmpe`), 450 collected core tests, PM skills/agents, V3 web product, schemas, evals, docs, and two Actions workflows. |
+| Size and shape | 484 tracked files at audited commit: Python package (`src/pmpe`), 450 collected core tests, PM skills/agents, V3 web product, schemas, evals, docs, and two Actions workflows. |
 | Build systems | Root `setuptools`/`pyproject.toml`; web backend `setuptools`; frontend/e2e npm lockfiles; Dockerfiles and Compose preview. |
 | Runtime data | File-based run state, JSON/JSONL artifacts, local generated SQLite products; no PEOS service database. |
 | Remote activity | No open PRs and no pre-existing GitHub issues were returned by the connected GitHub app. Sixty-three remote branch refs other than the symbolic remote ref remain visible locally. |

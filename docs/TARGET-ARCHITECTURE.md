@@ -25,16 +25,18 @@ flowchart LR
     CONTROL --> REPO[Repository intelligence]
     CONTROL --> ARCH[Architecture / ADR / threat model]
     CONTROL --> TESTPLAN[Requirement-to-test compiler]
-    CONTROL --> ROUTER[Minimum specialist router]
+    CONTROL --> DRAFT[Issue / branch / atomic draft PR]
+    DRAFT --> ROUTER[Minimum specialist router]
     ROUTER --> WORKTREES[Scoped specialist worktrees]
     WORKTREES --> INTEGRATE[Deterministic integration]
     INTEGRATE --> VERIFY[Verification profiles]
     VERIFY --> REVIEW[Independent assurance]
     REVIEW --> FIX[Bounded accepted-findings repair]
     FIX --> VERIFY
-    REVIEW --> PR[Atomic draft PR]
+    REVIEW --> READY[Reviewed PR ready]
+    READY --> MERGE[Authorized exact-head merge]
 
-    PR --> STAGING[Staging adapter and integration verification]
+    MERGE --> STAGING[Staging adapter and integration verification]
     STAGING --> CANARY[Canary / traffic control]
     CANARY --> PROD[Production adapter]
     PROD --> OBS[Live verification / observability / SLOs]
@@ -46,8 +48,10 @@ flowchart LR
     REPO --> EVIDENCE
     ARCH --> EVIDENCE
     TESTPLAN --> EVIDENCE
+    DRAFT --> EVIDENCE
     VERIFY --> EVIDENCE
     REVIEW --> EVIDENCE
+    MERGE --> EVIDENCE
     STAGING --> EVIDENCE
     CANARY --> EVIDENCE
     PROD --> EVIDENCE
@@ -105,11 +109,21 @@ The EvidenceBundle is a content-addressed manifest. Each item records:
 - raw artifact reference, retention class, and redaction status;
 - supersedes/duplicate relationship.
 
-Required bundle members are contract validation, repository snapshot, architecture,
-ADRs, threat model, test plan, meaningful-red evidence, issue/branch/worktree record,
-candidate/build/SBOM/provenance, verification results, independent reviews and
-finding lifecycle, PR record, staging/canary/production/rollback evidence, live
-SLO/guardrail window, and OutcomeReport.
+Evidence completeness uses stage-specific profiles. Each checkpoint seals a new
+content-addressed EvidenceBundle that references and supersedes the prior stage bundle:
+
+| Profile | Required members added at this stage |
+|---|---|
+| Contract admission | contract source/version/digest, validation, approvals, and rule-set digest |
+| Pre-code | repository snapshot, architecture, ADRs, threat model, TestPlan, issue/branch/draft-PR record, and meaningful-red evidence |
+| Candidate review | exact commit/tree, build/SBOM/provenance, deterministic verification, independent reviews, and finding lifecycle |
+| Staging | immutable artifact/config/target, deployment, integration, migration, smoke, security, and teardown/rollback readiness |
+| Canary/production | canary policy/window/telemetry, production approval, merged PR/head/merge subjects, deployment, and rollback evidence |
+| Completion | live SLO/guardrail observation window, acceptance evidence, final rollback readiness, and OutcomeReport |
+
+A gate requires 100% of the members in its current and preceding applicable profiles,
+not artifacts from future stages. Thus an MVP draft PR can seal a complete candidate
+review bundle without pretending that production evidence already exists.
 
 ```mermaid
 flowchart TB
@@ -241,7 +255,7 @@ owner; **SO** security/operations owner; **HA** explicit human approval.
 | `CONTRACT_RECEIVED → CONTRACT_APPROVED` | Valid complete approved bundle | 100% contract gates, rule-set digest, approval metadata | CP admits and locks | Any blocker routes to invalid/input-required; no rollback needed. | Existing PM approval required |
 | `CONTRACT_APPROVED → REPOSITORY_ANALYSED` | Locked contract and repository ref | Exact-SHA read-only RepositorySnapshot and scanner versions | CP invokes read-only repository intelligence | Dirty/unsupported/inaccessible critical facts → `BLOCKED`; discard partial recommendation, retain scan evidence. | No |
 | `CONTRACT_APPROVED → BLOCKED` | Contract plus missing adapter/permission | Blocker owner, attempted evidence, resume target | CP stops; owner may provision/authorize | No repository mutation; resume from approved contract. | Depends on blocker |
-| `BLOCKED →` recorded resume state | Resolved external state or approved superseding input | Resolution identity, changed external-state evidence, unchanged upstream digests | CP rechecks then resumes exact prior gate | Recheck failure remains blocked; no skip. | If permission/decision |
+| `BLOCKED → <recorded resume state>` | Resolved external state or approved superseding input | Resolution identity, changed external-state evidence, prior state/action, and unchanged upstream digests | CP rechecks then resumes the exact interrupted gate | Recheck failure remains blocked; no skip to a later or terminal state. | If permission/decision |
 | `REPOSITORY_ANALYSED → ARCHITECTURE_PROPOSED` | Contract + snapshot | ArchitecturePack, ADRs, threat model, all digests | Architect proposes; CP admits structure/references | Missing/invalid pack remains analysed; no implementation. | No |
 | `ARCHITECTURE_PROPOSED → PRODUCT_INPUT_REQUIRED` | Cross-boundary/irreversible finding | Decision request with options/consequences | CP/architect requests PM/security/ops decision | Never choose vendor, retention, UX, cost, or irreversible behavior by default. | Yes |
 | `ARCHITECTURE_PROPOSED → ARCHITECTURE_APPROVED` | Admitted pack and resolved escalations | Engineering review, boundary policy, required approvals | EO approves technical design; CP locks pack | Rejected design returns to proposed; superseding pack invalidates downstream. | EO; PM/SO where boundary crossed |
@@ -249,33 +263,36 @@ owner; **SO** security/operations owner; **HA** explicit human approval.
 | `TEST_PLAN_CREATED → TEST_PLAN_VALIDATED` | TestPlan and toolchain inventory | 100% required-ID mapping, applicability rules, planned meaningful-red evidence | CP/test validator admits | Missing/vague evidence mapping returns to created/input-required; no code. | No |
 | `TEST_PLAN_CREATED → PRODUCT_INPUT_REQUIRED` | Missing acceptance oracle/threshold | Named unmapped IDs and questions | CP requests PM truth | Resume with superseding contract; downstream plan invalidated. | Yes |
 | `TEST_PLAN_VALIDATED → IMPLEMENTATION_PLANNED` | Approved issue candidates and architecture/test plan | Ordered atomic tasks, dependencies, file/task scopes, rollback per task | Planner proposes; CP admits | Non-atomic/uncovered task plan refused; remain validated. | EO for plan exceptions |
-| `IMPLEMENTATION_PLANNED → IMPLEMENTATION_IN_PROGRESS` | Ready GitHub issue, dedicated branch/worktrees, budgets | Issue/branch/worktree records; meaningful-red execution where required | CP authorizes minimum specialists | Missing issue, stale base, scope/budget/permission failure → `BLOCKED`; dispose worktree safely. | No |
+| `IMPLEMENTATION_PLANNED → DRAFT_PR_OPEN` | Ready GitHub issue, dedicated branch, admitted atomic plan | GitHub issue/branch, initial planning/test commit, atomic draft PR, base/head, and rollback record | CP creates the draft PR only; never marks ready, approves, or merges | Missing issue, stale base, non-atomic scope, or PR failure → `BLOCKED`; no implementation starts. | No |
+| `DRAFT_PR_OPEN → IMPLEMENTATION_IN_PROGRESS` | Draft PR, isolated worktrees, budgets, validated TestPlan | PR/branch/worktree records; meaningful-red execution where required | CP authorizes minimum specialists | Scope/budget/permission/test-order failure → `BLOCKED`; dispose worktree safely without deleting evidence. | No |
 | `IMPLEMENTATION_IN_PROGRESS → VERIFICATION_FAILED` | Integrated candidate | Exact-SHA verification results | Verification runner executes only | Any required check FAIL/NOT_PROVEN; candidate not publishable. Roll back disposable integration/worktree as needed. | No |
 | `IMPLEMENTATION_IN_PROGRESS → REVIEW_REQUIRED` | Integrated candidate with all deterministic gates pass | Frozen commit/tree/build/SBOM, test results, preliminary EvidenceBundle | CP freezes and opens review stage | Digest drift returns to verification; no PR readiness. | No |
 | `VERIFICATION_FAILED → REPAIR_IN_PROGRESS` | Accepted engineering findings within scope/budget | Finding status, fixer/task/file allowlist, remaining attempts/cost | CP authorizes fixer only | Product finding → input-required; exhausted budget → budget-exceeded; unrepairable → blocked. | Owner decision for non-mechanical finding |
+| `VERIFICATION_FAILED → PRODUCT_INPUT_REQUIRED` | Product-level finding or missing acceptance oracle discovered by verification | Finding/PCR linked to contract, requirement, and failed proof | CP requests PM truth; no fixer may decide it | Superseding contract returns through intake and invalidates downstream candidate evidence. | Yes |
 | `REPAIR_IN_PROGRESS → VERIFICATION_FAILED` | Candidate changed by scoped fixes | Fix commits/files/checks and new candidate digest | Independent verifier reruns full affected and required gates | Any failure stays verification-failed; never weaken test/gate. | No |
 | `REPAIR_IN_PROGRESS → REVIEW_REQUIRED` | All fixes verified and all gates green | New exact-SHA EvidenceBundle and fixer ≠ verifier proof | CP refreezes and requests fresh review | Stale previous review is invalid; digest drift returns to verification. | No |
 | `VERIFICATION_FAILED → BUDGET_EXCEEDED` | Exhausted attempt/time/token/credit/external-compute budget | Budget policy, consumption ledger, last safe state | CP stops; only report/rollback/dispose actions allowed | No further repair. Worktrees disposed or retained per evidence policy. | Budget extension requires named owner |
-| `BUDGET_EXCEEDED → REPAIR_IN_PROGRESS` | Approved budget extension with unchanged scope | Named reason/new budget and unchanged upstream digests | CP resumes one bounded attempt set | Changed product scope requires new contract; invalid extension remains stopped. | Yes |
+| `BUDGET_EXCEEDED → <recorded resume state>` | Approved budget extension with unchanged scope | Named reason/new budget, interrupted state/action, and unchanged upstream digests | CP rechecks and resumes exactly the interrupted state; it cannot choose a later state | Changed product scope requires new contract; invalid extension remains stopped. Never default to repair without a candidate. | Yes |
 | `BUDGET_EXCEEDED → BLOCKED` | No extension or external dependency | Terminal report and resume conditions | CP closes active execution safely | No completion claim. | No |
 | `REVIEW_REQUIRED → REVIEW_FAILED` | Frozen candidate and required reviewer roster | Read-only proofs, exact candidate reviews, credible findings | Independent reviewers analyze only | Critical/high/credible-medium or integrity failure blocks. No reviewer fix. | Finding decisions by owner |
 | `REVIEW_FAILED → REPAIR_IN_PROGRESS` | Reconciled accepted engineering findings and budget | Decisions/reasons, fixer scope, PCRs for product findings | CP authorizes fixer | Undecided/product findings remain failed/input-required; stale candidate forbidden. | Yes for non-mechanical decisions |
 | `REVIEW_FAILED → PRODUCT_INPUT_REQUIRED` | Product-decision finding | PCR linked to contract/requirements | PM decides; CP does not fix | Superseding contract returns to contract intake and invalidates downstream. | Yes |
-| `REVIEW_REQUIRED → PR_READY` | All reviews complete and blocking findings resolved | Exact-SHA sealed pre-release EvidenceBundle, atomicity/issue/PR metadata, checks | CP may create/update **draft** PR only | Missing formal-review requirement remains review-required; no self-approval/merge. | Formal review if repository policy requires |
-| `PR_READY → STAGING_DEPLOYED` | Approved staging action and immutable artifact/config | Real environment deployment ID and digest match | Deployment adapter deploys only | Adapter/infrastructure/check failure → `STAGING_FAILED`; teardown/rollback. | Per environment policy |
-| `PR_READY → STAGING_FAILED` | Staging attempt | Failed deploy/check and cleanup evidence | CP records failure only | Candidate repair or infrastructure block; no canary. | No |
-| `STAGING_FAILED → REPAIR_IN_PROGRESS` | Accepted code/config finding in budget | Failure mechanism and scoped fix | CP authorizes repair | Infrastructure-only problem → blocked; staging teardown required. | Owner for classification |
+| `REVIEW_REQUIRED → PR_READY` | Existing draft PR, all reviews complete, and blocking findings resolved | Exact-SHA sealed candidate-review EvidenceBundle, atomicity/issue/PR metadata, checks, and formal review when required | CP records readiness on the existing draft; it does not create, approve, undraft, or merge it | Missing review/check/evidence remains review-required; no self-approval/merge. | Formal review if repository policy requires |
+| `PR_READY → PR_MERGED` | Existing draft PR marked ready by an authorized maintainer after all policies pass | GitHub-recorded exact head, required checks/approvals, merge actor/time/method/SHA, and primary issue linkage | Eligible maintainer marks ready and merges; CP only observes and validates | Changed head or missing check/review returns to review-required; rejected/closed PR → `BLOCKED`. | Yes |
+| `PR_MERGED → STAGING_DEPLOYED` | Approved staging action and immutable artifact/config built from merged source | Merge/head/artifact parity plus real environment deployment ID and digest match | Deployment adapter deploys only | Adapter/infrastructure/check failure → `STAGING_FAILED`; teardown/rollback. | Per environment policy |
+| `PR_MERGED → STAGING_FAILED` | Staging attempt using merged artifact | Failed deploy/check and cleanup evidence | CP records failure only | Candidate repair requires a new issue/PR; infrastructure failure blocks; no canary. | No |
+| `STAGING_FAILED → IMPLEMENTATION_PLANNED` | Accepted code/config defect within approved product scope | Failure mechanism, staging teardown, new defect issue, and invalidated release-candidate evidence | CP starts a new atomic issue/branch/draft-PR cycle; merged history is never rewritten | Product change → input-required; infrastructure-only problem → blocked. | Owner for classification |
 | `STAGING_FAILED → BLOCKED` | Missing/broken infrastructure or failed cleanup | Blocker/owner/environment state | CP stops and protects environment | Human resolves; resume at staging with same exact artifact or reverify changed one. | Often SO |
 | `STAGING_DEPLOYED → CANARY_DEPLOYED` | Staging pass, canary authorization, policy | Staging EvidenceBundle, bounded cohort/traffic/window, rollback readiness | Traffic/deploy adapter exposes canary only | Failure to deploy or any guardrail breach → `CANARY_FAILED`. | Per approved canary policy |
 | `CANARY_DEPLOYED → CANARY_FAILED` | Canary telemetry window | Exact deploy, SLO/guardrail breach and detection evidence | CP aborts promotion and starts rollback | Immediate rollback; no averaging away critical breach. | No |
 | `CANARY_FAILED → ROLLBACK_IN_PROGRESS` | Abort decision and rollback subject | Last-known-good/migration compatibility/runbook | Rollback adapter executes only | Rollback failure → `BLOCKED` with incident escalation. | No; pre-authorized emergency action |
 | `CANARY_DEPLOYED → PRODUCTION_APPROVAL_REQUIRED` | Successful complete canary window | All canary gates, no unresolved findings, exact subjects | CP requests named production approval | No approval means wait/expire; canary remains bounded or is removed by policy. | Yes |
-| `PRODUCTION_APPROVAL_REQUIRED → PRODUCTION_DEPLOYED` | Named approval bound to artifact/config/migration/target/policy | Approval identity/time/reason/digests and protected-environment authorization | Production adapter progressively promotes | Stale/mismatched/expired approval refused; no deployment. | Yes |
+| `PRODUCTION_APPROVAL_REQUIRED → PRODUCTION_DEPLOYED` | Named approval bound to merged source, artifact/config/migration/target/policy | GitHub merge/head/SHA, approval identity/time/reason/digests, and protected-environment authorization | Production adapter progressively promotes only the merge-bound immutable artifact | Unmerged, stale, mismatched, or expired subject is refused; no deployment. | Yes |
 | `PRODUCTION_APPROVAL_REQUIRED → BLOCKED` | Rejection/expiry/missing approver | Decision/reason and safe canary teardown | CP stops promotion | No completion; resume needs new exact approval after revalidation. | Yes |
 | `PRODUCTION_DEPLOYED → LIVE_VERIFICATION_FAILED` | Live health/journey/SLO/business/privacy/security window | Runtime telemetry and exact deployment correlation | CP evaluates; no model verdict | Any hard breach/missing required signal starts rollback. | No |
 | `LIVE_VERIFICATION_FAILED → ROLLBACK_IN_PROGRESS` | Failed live gate | Failure, last-known-good, rollback/migration plan | Rollback adapter executes | Rollback failure → blocked/incident; never completed. | No |
 | `ROLLBACK_IN_PROGRESS → ROLLED_BACK` | Completed rollback | Service/data verification, RTO/RPO, traffic/config state, incident link | CP verifies restored state | Verification failure → blocked; continue incident response. | No |
-| `ROLLED_BACK → REPAIR_IN_PROGRESS` | Approved follow-up within original product scope/budget | Incident finding and scoped repair plan | CP may create new candidate path | Product/architecture change → new contract/PCR; otherwise bounded repair. | Owner decision |
+| `ROLLED_BACK → IMPLEMENTATION_PLANNED` | Approved follow-up within original product scope/budget | Incident finding, new defect issue, and scoped atomic plan | CP starts a new issue/branch/draft-PR candidate path | Product/architecture change → new contract/PCR; merged history is never rewritten. | Owner decision |
 | `PRODUCTION_DEPLOYED → COMPLETED` | Full observation window passed | Exact production subjects, acceptance/SLO/guardrail PASS, complete sealed EvidenceBundle, rollback readiness, OutcomeReport | CP alone records terminal completion | Missing/invalid/stale/model-only evidence routes to live-verification-failed or blocked. | Prior production approval already required |
 
 Any non-terminal state may transition to `BLOCKED` for an external dependency or to
