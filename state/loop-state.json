@@ -1,0 +1,275 @@
+{
+  "schema_version": "1.0.0",
+  "repository": {
+    "name": "Abhillashjadhav/production-engineering-os",
+    "url": "https://github.com/Abhillashjadhav/production-engineering-os",
+    "local_root": "/Users/abhilashjadhav/Documents/GitHub/production-engineering-os",
+    "default_branch": "main",
+    "audited_base_sha": "8ddc4ccfeb88d7efd5531ca9411e5f2229cce0ec"
+  },
+  "current_phase": "PHASE_0",
+  "current_lifecycle_state": "REVIEW_REQUIRED",
+  "completed_audit_items": [
+    "repository_identity",
+    "current_branch_and_working_tree",
+    "remotes_and_github_authentication",
+    "readme_and_repository_instructions",
+    "documentation_and_source_layout",
+    "package_and_architecture_structure",
+    "apis_data_models_and_integrations",
+    "test_frameworks_and_coverage_inventory",
+    "ci_cd_and_github_actions",
+    "observable_branch_protection",
+    "security_secret_and_dependency_scanning",
+    "lockfiles_build_and_deployment_configuration",
+    "infrastructure_observability_and_rollback",
+    "release_evidence",
+    "issues_pull_requests_branches_and_recent_commits",
+    "incomplete_work_todos_and_technical_debt",
+    "capability_classification",
+    "product_decisions_metrics_and_target_architecture"
+  ],
+  "capability_classifications": {
+    "pm_agent_os_contract_schema": "partially_implemented",
+    "contract_compiler": "absent",
+    "contract_validator": "partially_implemented",
+    "contradiction_detection": "partially_implemented",
+    "open_question_blocking": "implemented_and_verified",
+    "requirement_ids": "partially_implemented",
+    "acceptance_criterion_ids": "partially_implemented",
+    "risk_classification": "implemented_and_verified",
+    "approval_metadata": "implemented_and_verified",
+    "repository_intelligence": "absent",
+    "architecture_generation": "partially_implemented",
+    "adr_generation": "partially_implemented",
+    "threat_modelling": "present_only_as_documentation",
+    "requirement_to_test_compilation": "partially_implemented",
+    "test_before_code_enforcement": "partially_implemented",
+    "unit_testing": "implemented_and_verified",
+    "integration_testing": "implemented_and_verified",
+    "end_to_end_testing": "implemented_but_insufficiently_tested",
+    "migration_testing": "absent",
+    "performance_testing": "absent",
+    "accessibility_testing": "implemented_but_insufficiently_tested",
+    "implementation_orchestration": "partially_implemented",
+    "specialist_agent_orchestration": "partially_implemented",
+    "bounded_repair_loop": "absent",
+    "deterministic_verification": "partially_implemented",
+    "architecture_boundary_checks": "absent",
+    "security_scanning": "partially_implemented",
+    "privacy_verification": "absent",
+    "dependency_review": "partially_implemented",
+    "secret_scanning": "partially_implemented",
+    "independent_code_review": "implemented_but_unsafe",
+    "evidence_packaging": "partially_implemented",
+    "commit_bound_provenance": "partially_implemented",
+    "staging_deployment": "partially_implemented",
+    "smoke_testing": "implemented_and_verified",
+    "canarying": "partially_implemented",
+    "production_promotion": "partially_implemented",
+    "observability": "partially_implemented",
+    "rollback": "partially_implemented",
+    "non_technical_guided_mode": "absent",
+    "pm_agent_os_feedback_loop": "partially_implemented",
+    "false_done_prevention": "partially_implemented"
+  },
+  "open_blockers": [
+    {
+      "id": "B-001",
+      "owner": "repository_owner",
+      "summary": "GitHub CLI credential is invalid in this environment; remote claims use the connected GitHub integration.",
+      "blocks": [
+        "gh_cli_only_branch_protection_queries",
+        "local_codex_review_if_it_requires_gh_auth"
+      ],
+      "resume_condition": "Authenticate gh with a valid, least-privilege credential."
+    },
+    {
+      "id": "B-002",
+      "owner": "product_owner",
+      "summary": "Authoritative PMOS publisher, approval roles, metric targets, autonomy ceiling, deployment targets, data policy, and cost budgets are undecided.",
+      "blocks": [
+        "affected_implementation_acceptance",
+        "production_transition"
+      ],
+      "resume_condition": "Record approved decisions in a versioned PMOS contract or policy."
+    },
+    {
+      "id": "B-003",
+      "owner": "repository_owner",
+      "summary": "No eligible independent formal GitHub reviewer was observable during Phase 0.",
+      "blocks": [
+        "formal_review_completion",
+        "merge_readiness"
+      ],
+      "resume_condition": "Identify an eligible collaborator and obtain GitHub-recorded review."
+    },
+    {
+      "id": "B-004",
+      "owner": "tooling_owner",
+      "summary": "Node.js, npm, and Docker are unavailable locally, so frontend, Playwright, and container checks require CI or provisioned tooling.",
+      "blocks": [
+        "local_full_stack_verification"
+      ],
+      "resume_condition": "Use the supported CI runner or provision the pinned local toolchain."
+    }
+  ],
+  "github": {
+    "umbrella_issue": 60,
+    "phase_0_issue": 61,
+    "implementation_issues": [
+      62,
+      63,
+      64,
+      65,
+      66,
+      67,
+      68,
+      69,
+      70,
+      71,
+      72,
+      73,
+      74
+    ],
+    "active_branch": "docs/phase-0-pmos-peos-plan",
+    "draft_pr_number": null,
+    "draft_pr_url": null,
+    "formal_review_requested": false,
+    "formal_review_submitted": false
+  },
+  "checks_executed": [
+    {
+      "name": "core_pytest",
+      "command": "pytest -q",
+      "environment": "macOS host, Python 3.14",
+      "result": "449_passed_1_platform_path_failure",
+      "notes": "The remaining assertion expects /tmp rather than macOS-canonical /private/tmp."
+    },
+    {
+      "name": "core_ruff_format",
+      "command": "ruff format --check src tests/unit tests/integration tests/e2e tests/conftest.py",
+      "result": "passed"
+    },
+    {
+      "name": "core_ruff_lint",
+      "command": "ruff check src tests/unit tests/integration tests/e2e tests/conftest.py",
+      "result": "passed"
+    },
+    {
+      "name": "core_mypy",
+      "command": "mypy --strict src/pmpe",
+      "result": "passed"
+    },
+    {
+      "name": "core_bandit",
+      "command": "bandit -q -r src -lll",
+      "result": "passed"
+    },
+    {
+      "name": "schema_sync",
+      "command": "Parse and compare all three schemas/*.json files with src/pmpe/schemas/*.json",
+      "result": "passed"
+    },
+    {
+      "name": "contract_validation",
+      "command": "pmpe contract validate examples/v2-demo/contract.json",
+      "result": "passed"
+    },
+    {
+      "name": "spec_validation",
+      "command": "pmpe validate examples/taskflow_mvp_spec.yaml",
+      "result": "passed"
+    },
+    {
+      "name": "evaluation_suite",
+      "command": "pmpe evals run --suite all --ledger evals/fixtures/trajectory/good_run.jsonl",
+      "result": "passed_11_of_11"
+    },
+    {
+      "name": "planted_drift",
+      "command": "pmpe drift compare --baseline evals/baselines/synthetic-baseline.json --current evals/fixtures/drift/current_hard_gate_failure.json",
+      "result": "expected_hold_exit_3"
+    },
+    {
+      "name": "skill_lint",
+      "command": "python tests/lint_skill.py .claude/skills/production-engineer/SKILL.md",
+      "result": "passed_9_of_9"
+    },
+    {
+      "name": "wheel_build",
+      "command": "python -m build --wheel",
+      "result": "passed"
+    },
+    {
+      "name": "root_dependency_audit",
+      "command": "pip-audit . --strict",
+      "result": "passed"
+    },
+    {
+      "name": "path_only_secret_scan",
+      "command": "rg -l --hidden with high-confidence provider/private-key patterns and fixture/build exclusions",
+      "result": "passed_no_non_fixture_matches"
+    },
+    {
+      "name": "web_backend_pytest",
+      "command": "pytest -q",
+      "environment": "macOS host, Python 3.14",
+      "result": "84_passed_1_version_sensitive_json_failure",
+      "notes": "CI declares Python 3.11; Python 3.14 accepts the deeply nested input then the API correctly rejects its non-object shape."
+    },
+    {
+      "name": "web_backend_mypy",
+      "command": "mypy --strict app",
+      "result": "passed"
+    },
+    {
+      "name": "web_backend_ruff_format",
+      "command": "ruff format --check .",
+      "result": "passed"
+    },
+    {
+      "name": "web_backend_ruff_lint",
+      "command": "ruff check .",
+      "result": "failed_8_on_unpinned_current_ruff",
+      "notes": "Four B008, three ISC004, and one import-order finding show allowed-toolchain drift."
+    },
+    {
+      "name": "web_backend_hash_locked_dependency_audit",
+      "command": "pip-audit --require-hashes -r requirements.lock --strict",
+      "result": "passed"
+    }
+  ],
+  "review": {
+    "status": "pending",
+    "analysis_tool": "Codex /review",
+    "findings_identified": 0,
+    "findings_resolved": 0,
+    "findings_rejected": 0,
+    "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
+    "reviewed_head_sha": null
+  },
+  "next_recommended_issue": {
+    "number": 62,
+    "url": "https://github.com/Abhillashjadhav/production-engineering-os/issues/62",
+    "title": "Define a unified, versioned PM Agent OS contract bundle"
+  },
+  "timestamps": {
+    "strategy": "Explicit UTC instants are written only when an external action is observed; validators preserve values and never inject the wall clock. Canonical JSON uses sorted keys and UTC Z notation.",
+    "issues_created_at": "2026-07-28T15:10:54Z",
+    "phase_0_branch_created_at": "2026-07-28T15:16:01Z",
+    "planning_artifacts_built_at": "2026-07-28T15:40:53Z",
+    "last_updated_at": "2026-07-28T15:44:47Z"
+  },
+  "evidence_references": [
+    "docs/CURRENT-CAPABILITY-AUDIT.md",
+    "docs/PMOS-PEOS-END-TO-END-PLAN.md",
+    "docs/TARGET-ARCHITECTURE.md",
+    "docs/PRODUCT-DECISIONS-AND-TRADEOFFS.md",
+    "docs/METRICS-AND-GATES.md",
+    "docs/ISSUE-AND-PR-GOVERNANCE.md",
+    "https://github.com/Abhillashjadhav/production-engineering-os/issues/60",
+    "https://github.com/Abhillashjadhav/production-engineering-os/issues/61"
+  ],
+  "self_reference_policy": "The state file cannot embed the SHA of the commit that contains itself. The exact final PR head is recorded by immutable GitHub metadata and the PR verification comment; this file records the audited base and observed review subject."
+}
