@@ -419,10 +419,10 @@
     }
   ],
   "review": {
-    "status": "twenty_sixth_review_corrections_complete_local_rereview_pending",
+    "status": "twenty_seventh_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 108,
-    "findings_resolved": 108,
+    "findings_identified": 111,
+    "findings_resolved": 111,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -451,7 +451,8 @@
     "twenty_fourth_reviewed_head_sha": "ede283835b87d92ef6961040b061d03fd3ae4b8b",
     "twenty_fifth_reviewed_head_sha": "2663a8b92b07ea35137edb6b594bfac30db92e49",
     "twenty_sixth_reviewed_head_sha": "01d6912ddb6a2ee2915056573292197abe329364",
-    "latest_reviewed_head_sha": "01d6912ddb6a2ee2915056573292197abe329364",
+    "twenty_seventh_reviewed_head_sha": "9f0ea2604677b5ad5a1740d206ed89482124c81d",
+    "latest_reviewed_head_sha": "9f0ea2604677b5ad5a1740d206ed89482124c81d",
     "findings": [
       {
         "id": "P1-01",
@@ -1208,6 +1209,27 @@
         "summary": "Scope zero-exposure predicates to candidate-rollout staging, canary, and changed-production resources while preserving the active last-known-good deployment.",
         "location": "docs/TARGET-ARCHITECTURE.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-53",
+        "severity": "high",
+        "summary": "Permit a BLOCKED incident to resume only its original pre-journaled rollback or staging-cleanup safety action while rollout exposure remains unresolved.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-54",
+        "severity": "high",
+        "summary": "Move policy-required formal GitHub approval after the ready-for-review transition and before atomic merge admission.",
+        "location": "docs/ISSUE-AND-PR-GOVERNANCE.md and docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-57",
+        "severity": "medium",
+        "summary": "Assign numeric North Star suppression and TARGET_NOT_APPROVED reporting to the Phase 6 issue 73 reporting component while Phase 1 validates policy inputs.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1273,7 +1295,9 @@
     "issues_65_68_71_72_twenty_fifth_review_scope_refined_at": "2026-07-28T19:51:56Z",
     "twenty_sixth_codex_review_completed_at": "2026-07-28T19:59:53Z",
     "issues_65_71_72_twenty_sixth_review_scope_refined_at": "2026-07-28T20:01:02Z",
-    "last_updated_at": "2026-07-28T20:01:02Z"
+    "twenty_seventh_codex_review_completed_at": "2026-07-28T20:07:33Z",
+    "issues_65_68_69_73_twenty_seventh_review_scope_refined_at": "2026-07-28T20:08:23Z",
+    "last_updated_at": "2026-07-28T20:08:23Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",

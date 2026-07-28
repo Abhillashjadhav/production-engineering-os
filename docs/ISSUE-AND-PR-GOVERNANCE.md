@@ -235,7 +235,8 @@ failures and reproduced in the supported CI environment where possible.
 5. Fix all critical/high and credible medium findings; record rejected findings and why.
 6. Use a separate repair pass; never silently let the reviewer rewrite the candidate.
 7. Re-run the full affected and mandatory suite on the changed head.
-8. Request formal GitHub review from an eligible collaborator when one exists.
+8. After the ready-for-review action is separately authorized and observed, request
+   formal GitHub review from an eligible collaborator when one exists.
 9. Do not request a fabricated identity, self-approve, or claim a review without GitHub
    evidence.
 10. If corrections change the candidate, earlier approvals and exact-subject evidence
@@ -264,10 +265,15 @@ A PR may leave draft only when:
 
 - the exact head has all required green checks and a complete EvidenceBundle;
 - critical, high, and credible medium findings are resolved;
-- required PR/review approvals exist; protected-environment approvals are acquired
-  separately at their staging, canary, and production lifecycle gates, not as a
-  prerequisite for leaving PR draft;
+- required advisory/analysis review has completed and its findings are dispositioned;
 - scope, atomicity, documentation, migration, observability, and rollback are current.
+
+Leaving draft makes the PR eligible for formal GitHub review; it is not merge approval.
+After the ready-for-review state is observed, request every policy-required formal
+approval from eligible collaborators. Those approvals, and any still-current required
+checks/evidence, are prerequisites for merge. Protected-environment approvals are
+acquired separately at their staging, canary, and production lifecycle gates, not as a
+prerequisite for leaving PR draft or merging code.
 
 Only an authorized maintainer may enqueue or authorize a merge through an enforced
 merge queue or compare-and-swap gate that atomically admits the unchanged reviewed PR
