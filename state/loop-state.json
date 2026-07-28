@@ -419,10 +419,10 @@
     }
   ],
   "review": {
-    "status": "seventeenth_review_corrections_complete_local_rereview_pending",
+    "status": "eighteenth_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 77,
-    "findings_resolved": 77,
+    "findings_identified": 81,
+    "findings_resolved": 81,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -442,7 +442,8 @@
     "fifteenth_reviewed_head_sha": "af50ca5c85b07b49439ca8e4bf2ccdb80e750635",
     "sixteenth_reviewed_head_sha": "9ab41bf1c0eb2d2c53d9eb54443a51eaf71f9d18",
     "seventeenth_reviewed_head_sha": "d97b54be34d8916fb1ccfaa39c789690b6492198",
-    "latest_reviewed_head_sha": "d97b54be34d8916fb1ccfaa39c789690b6492198",
+    "eighteenth_reviewed_head_sha": "18bdd4e10045d6d64ac920ba6a15b0cd1c4de5b5",
+    "latest_reviewed_head_sha": "18bdd4e10045d6d64ac920ba6a15b0cd1c4de5b5",
     "findings": [
       {
         "id": "P1-01",
@@ -982,6 +983,34 @@
         "summary": "Assign immutable ingestion lineage before parsing and keep it independent of corrected publisher-supplied slice identifiers.",
         "location": "docs/METRICS-AND-GATES.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P2-38",
+        "severity": "medium",
+        "summary": "Make durable lineage and ingestion-attempt receipt a pre-parse lifecycle entry invariant carried through corrections.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-39",
+        "severity": "medium",
+        "summary": "Require all execution and reserved safety budgets before a slice becomes eligible.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-40",
+        "severity": "medium",
+        "summary": "Use fixed per-metric cohort due times and report in-flight eligible slices as pending/right-censored.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-41",
+        "severity": "medium",
+        "summary": "Exempt only shared pre-eligibility provisioning; count slice-specific or post-eligibility infrastructure mutation as manual intervention.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1029,7 +1058,9 @@
     "issues_65_68_69_70_71_72_sixteenth_review_scope_refined_at": "2026-07-28T18:29:32Z",
     "seventeenth_codex_review_completed_at": "2026-07-28T18:35:13Z",
     "issues_63_65_68_76_seventeenth_review_scope_refined_at": "2026-07-28T18:36:45Z",
-    "last_updated_at": "2026-07-28T18:36:45Z"
+    "eighteenth_codex_review_completed_at": "2026-07-28T18:44:19Z",
+    "issues_65_69_73_76_eighteenth_review_scope_refined_at": "2026-07-28T18:45:45Z",
+    "last_updated_at": "2026-07-28T18:45:45Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",

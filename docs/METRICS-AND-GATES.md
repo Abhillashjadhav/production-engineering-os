@@ -29,7 +29,9 @@ An **eligible slice** has:
 - all approvals required at contract admission, including product approval and applicable
   security/privacy policy and release-intent approvals;
 - a supported repository or an approved adapter;
-- an approved cost/time budget.
+- approved per-run and applicable per-stage token, credit, elapsed-time,
+  external-compute/spend, and repair-attempt budgets, plus a reserved safety budget for
+  monitoring, abort, rollback, and incident response.
 
 Invalid or product-blocked inputs are reported separately and do not lower delivery
 rate. A slice that became eligible and then failed, exhausted budget, or needed manual
@@ -41,6 +43,17 @@ are outcome gates and never remove a slice from the denominator.
 The reporting window and product success targets require human approval. Until then,
 Phase 1 may calculate the metrics but must label target-dependent verdicts
 `TARGET_NOT_APPROVED`.
+
+Each North Star uses a versioned maturity policy fixed when eligibility is admitted.
+For EADPR, `metric_due_at` is `eligibility_at + approved draft-PR evaluation window`.
+For VAPDR, it is `eligibility_at + approved production-delivery window + required live
+observation window`. A slice becomes mature for that metric when it qualifies, reaches
+an admitted terminal failure, or its due time passes. Eligible slices whose due time is
+after the reporting cutoff and have no admitted outcome are reported as pending/right-
+censored and are not yet in that metric's denominator. Due times and policy versions
+cannot be changed retrospectively. Every report publishes eligible, mature-success,
+mature-failure, pending/censored, and excluded counts, so late-arriving in-flight work
+cannot temporarily depress the rate or disappear.
 
 ## End-state North Star Metric
 
@@ -56,9 +69,9 @@ Phase 1 may calculate the metrics but must label target-dependent verdicts
 
 ```text
 VAPDR =
-  eligible slices satisfying all numerator conditions
-  ---------------------------------------------------
-  all slices becoming eligible after REPOSITORY_ANALYSED
+  mature eligible slices satisfying all numerator conditions
+  ----------------------------------------------------------
+  all VAPDR-mature eligible slices in the cohort
 ```
 
 Numerator conditions:
@@ -74,11 +87,13 @@ Numerator conditions:
    observation window.
 
 Product decisions, named approvals, and an authorized merge click are expected human
-governance and do not count as manual engineering modification. A human executing or
-mutating a rollout, traffic shift, environment, artifact, configuration, test, or
-repair does count, even when planned. A safe product-input request or unsupported
-repository before eligibility does not count as failure; it is measured by contract
-validation and repository-admission metrics.
+governance and do not count as manual engineering modification. Shared platform
+capacity, organization credentials, or base infrastructure provisioned outside the
+slice lineage before eligibility is also external governance. A human executing or
+mutating a slice-specific rollout, traffic shift, environment, artifact, configuration,
+test, repair, or post-eligibility infrastructure does count, even when planned. A safe
+product-input request or unsupported repository before eligibility does not count as
+failure; it is measured by contract validation and repository-admission metrics.
 
 **Why this is outcome-based:** it measures safely delivered, live, conformant product
 outcomes—not commits, PRs, tokens, or deployments alone.
@@ -101,9 +116,9 @@ privacy findings; these severities are never waivable.
 
 ```text
 EADPR =
-  eligible slices producing a qualifying draft PR
-  ------------------------------------------------
-  all slices becoming eligible after REPOSITORY_ANALYSED
+  mature eligible slices producing a qualifying draft PR
+  -------------------------------------------------------
+  all EADPR-mature eligible slices in the cohort
 ```
 
 A draft PR is not a success if it is merely opened. It must be issue-linked, atomic,
@@ -212,8 +227,10 @@ budget.
 - Manual modification means a human directly changes code, tests, configuration,
   deployment/environment/traffic state, or a release artifact. Planned operator work
   still counts as manual for autonomy metrics even when the lifecycle authorizes it.
-- Product answers, approvals, reviewer feedback, and infrastructure provisioning are
-  separately categorized human governance, not hidden as autonomy.
+- Product answers, approvals, reviewer feedback, and shared platform provisioning
+  completed outside the slice lineage before eligibility are separately categorized
+  human governance. Slice-specific or post-eligibility environment/infrastructure
+  provisioning is manual engineering intervention, not hidden as governance.
 - Zero task/file permission violation, unapproved product change, self-approval,
   force-push, unapproved merge, or production action.
 - Repair attempts and specialist selection remain within approved bounds.
