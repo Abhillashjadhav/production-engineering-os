@@ -263,10 +263,10 @@
     }
   ],
   "review": {
-    "status": "local_review_corrections_complete_formal_review_pending",
+    "status": "sixth_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 32,
-    "findings_resolved": 32,
+    "findings_identified": 36,
+    "findings_resolved": 36,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -274,7 +274,8 @@
     "third_reviewed_head_sha": "d18cdc02175bf80719c5f1ffbd3f66b82b373f12",
     "fourth_reviewed_head_sha": "1e052cee3d269aa830ced3d05c0d626779921fa0",
     "fifth_reviewed_head_sha": "8a8794c7c0fd87518cb40ed226a4a910d910e5dd",
-    "latest_reviewed_head_sha": "8a8794c7c0fd87518cb40ed226a4a910d910e5dd",
+    "sixth_reviewed_head_sha": "f074499f109d646e17a5402b1aabe8f0e50fde63",
+    "latest_reviewed_head_sha": "f074499f109d646e17a5402b1aabe8f0e50fde63",
     "findings": [
       {
         "id": "P1-01",
@@ -499,6 +500,34 @@
         "summary": "Exclude all manual deployment and environment mutations from the autonomous production-delivery numerator.",
         "location": "docs/METRICS-AND-GATES.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-17",
+        "severity": "high",
+        "summary": "Route partial or indeterminate canary mutations directly from staging-deployed to rollback.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-18",
+        "severity": "high",
+        "summary": "Acquire protected-environment approvals at deployment gates instead of making them a circular prerequisite for PR readiness.",
+        "location": "docs/ISSUE-AND-PR-GOVERNANCE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-17",
+        "severity": "medium",
+        "summary": "Mark the changed Phase 0 head as requiring local rereview until its correction commit is reviewed.",
+        "location": "state/loop-state.json",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-18",
+        "severity": "medium",
+        "summary": "Make contract-validator completion an explicit dependency of architecture issue 66.",
+        "location": "GitHub issue 66",
+        "disposition": "fixed"
       }
     ]
   },
@@ -526,7 +555,9 @@
     "issues_60_62_63_review_scope_refined_at": "2026-07-28T16:38:59Z",
     "issues_65_68_69_71_review_scope_refined_at": "2026-07-28T16:39:47Z",
     "fifth_codex_review_completed_at": "2026-07-28T16:40:09Z",
-    "last_updated_at": "2026-07-28T16:40:09Z"
+    "sixth_codex_review_completed_at": "2026-07-28T16:49:23Z",
+    "issue_66_review_scope_refined_at": "2026-07-28T16:49:19Z",
+    "last_updated_at": "2026-07-28T16:49:23Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",

@@ -260,7 +260,9 @@ A PR may leave draft only when:
 
 - the exact head has all required green checks and a complete EvidenceBundle;
 - critical, high, and credible medium findings are resolved;
-- required formal review and protected-environment approvals exist;
+- required PR/review approvals exist; protected-environment approvals are acquired
+  separately at their staging, canary, and production lifecycle gates, not as a
+  prerequisite for leaving PR draft;
 - scope, atomicity, documentation, migration, observability, and rollback are current.
 
 Only an authorized maintainer merges according to branch protection. Phase 0 explicitly
