@@ -263,10 +263,10 @@
     }
   ],
   "review": {
-    "status": "sixth_review_corrections_complete_local_rereview_pending",
+    "status": "seventh_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 36,
-    "findings_resolved": 36,
+    "findings_identified": 39,
+    "findings_resolved": 39,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -275,7 +275,8 @@
     "fourth_reviewed_head_sha": "1e052cee3d269aa830ced3d05c0d626779921fa0",
     "fifth_reviewed_head_sha": "8a8794c7c0fd87518cb40ed226a4a910d910e5dd",
     "sixth_reviewed_head_sha": "f074499f109d646e17a5402b1aabe8f0e50fde63",
-    "latest_reviewed_head_sha": "f074499f109d646e17a5402b1aabe8f0e50fde63",
+    "seventh_reviewed_head_sha": "3e5f547b2ec2f9dcd557181c36e2944b887fc7e0",
+    "latest_reviewed_head_sha": "3e5f547b2ec2f9dcd557181c36e2944b887fc7e0",
     "findings": [
       {
         "id": "P1-01",
@@ -528,6 +529,27 @@
         "summary": "Make contract-validator completion an explicit dependency of architecture issue 66.",
         "location": "GitHub issue 66",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-19",
+        "severity": "high",
+        "summary": "Route active, partial, or indeterminate canary teardown through the failure-safe rollback path when production approval is rejected or expires.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-19",
+        "severity": "medium",
+        "summary": "Count manual deployment and environment mutations in the manual engineering intervention rate.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-20",
+        "severity": "medium",
+        "summary": "Measure first-pass contract validation independently of later repository eligibility.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -557,7 +579,8 @@
     "fifth_codex_review_completed_at": "2026-07-28T16:40:09Z",
     "sixth_codex_review_completed_at": "2026-07-28T16:49:23Z",
     "issue_66_review_scope_refined_at": "2026-07-28T16:49:19Z",
-    "last_updated_at": "2026-07-28T16:49:23Z"
+    "seventh_codex_review_completed_at": "2026-07-28T17:06:26Z",
+    "last_updated_at": "2026-07-28T17:06:26Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",

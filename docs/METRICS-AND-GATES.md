@@ -104,7 +104,7 @@ percentage.
 
 | Metric | Formula | Direction | Initial gate or use |
 |---|---|---|---|
-| First-pass contract-validation rate | eligible contracts passing without a PM correction / contracts received | Up | Diagnostic; target after baseline |
+| First-pass contract-validation rate | contracts passing validation without a PM correction / contracts received | Up | Diagnostic; independent of later repository eligibility; target after baseline |
 | Product-input request precision | confirmed required product blockers / product-input requests | Up | Must be sampled before changing validator strictness |
 | Repository-admission support rate | approved slices with a supported repository/adapter / approved slices analysed | Contextual | Report exclusions; never hide unsupported inputs |
 | Requirement-to-test-plan coverage | required IDs with admitted evidence-producing tests / required IDs | 100% | Hard pre-code gate |
@@ -113,7 +113,7 @@ percentage.
 | Approved-contract-to-draft-PR time | elapsed from `CONTRACT_APPROVED` to qualifying draft PR | Down | Target after baseline; report p50/p95 |
 | Approved-contract-to-production time | elapsed to successful observation-window close | Down | Target after real production exists; p50/p95 |
 | Automated repair success rate | accepted engineering findings verified within budget / repairable accepted findings | Up | Guarded by regression and scope-violation metrics |
-| Manual engineering intervention rate | eligible slices with manual code/test/config/unplanned intervention / eligible slices | Down | Companion to both North Stars |
+| Manual engineering intervention rate | eligible slices with manual code/test/config/deployment/environment mutation or other unplanned engineering intervention / eligible slices | Down | Companion to both North Stars |
 | Review defect yield | credible findings before production / reviewed candidates | Interpret with escape rate | Never maximize alone |
 | Evidence completeness rate | present valid required evidence items / required evidence items | 100% | Hard readiness/completion gate |
 | Canary success rate | canaries promoted without breach / canaries started | Up | Not available until #72 |
