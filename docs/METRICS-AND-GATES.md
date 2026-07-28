@@ -235,10 +235,14 @@ values are product/operations inputs and remain unresolved.
 
 - Every run and stage has approved token/credit, elapsed-time, external-compute, and
   repair-attempt budgets.
-- A delivery-budget breach transitions to `BUDGET_EXCEEDED` only when no active
-  production exposure exists. With active canary/production exposure it first consumes
-  the reserved safety budget to monitor, abort, and roll back, then stops; a model
-  summary can never convert a breach to PASS.
+- A delivery-budget breach transitions to `BUDGET_EXCEEDED` only after rollout-scoped
+  evidence proves zero staging resources, zero candidate canary exposure, and zero
+  changed-production resources or exposure. Active or indeterminate staging first
+  consumes the separately reserved safety budget to run and prove idempotent teardown.
+  Active or indeterminate canary/changed-production exposure first consumes that budget
+  to monitor, abort, roll back, and then clean staging. The restored or existing
+  last-known-good production deployment remains active and monitored; a model summary
+  can never convert a breach or incomplete cleanup to PASS.
 - Fast mode never changes test/review/security/deployment gates.
 - Report cost per eligible slice, qualifying draft PR, verified production slice, and
   failed/blocked terminal outcome.

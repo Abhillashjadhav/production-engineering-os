@@ -174,7 +174,11 @@ is insufficient.
 - **Chosen direction:** Fast mode may reduce latency but never changes gate depth,
   permissions, or evidence. Each run needs a contract/operator cost-credit budget plus
   a separately reserved safety budget for monitoring, abort, rollback, and incident
-  actions. Ordinary work stops at BUDGET_EXCEEDED; active exposure first rolls back.
+  actions. Ordinary work stops at BUDGET_EXCEEDED only after evidence proves zero
+  rollout-owned staging, candidate-canary, and changed-production resources or
+  exposure. Active or indeterminate staging first tears down; active or indeterminate
+  canary/changed-production exposure first rolls back and then cleans staging. The
+  restored or existing last-known-good production deployment is not removed.
 - **Reason:** speed is a scheduling/cost choice, not a safety policy.
 - **Benefit:** faster interactive progress without a hidden verification downgrade.
 - **Downside:** credits may exhaust earlier; the exact budget is currently missing.
