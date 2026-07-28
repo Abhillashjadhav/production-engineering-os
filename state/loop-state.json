@@ -419,10 +419,10 @@
     }
   ],
   "review": {
-    "status": "nineteenth_review_corrections_complete_local_rereview_pending",
+    "status": "twentieth_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 84,
-    "findings_resolved": 84,
+    "findings_identified": 87,
+    "findings_resolved": 87,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -444,7 +444,8 @@
     "seventeenth_reviewed_head_sha": "d97b54be34d8916fb1ccfaa39c789690b6492198",
     "eighteenth_reviewed_head_sha": "18bdd4e10045d6d64ac920ba6a15b0cd1c4de5b5",
     "nineteenth_reviewed_head_sha": "f690e8173612842dd64518852cf4a9276211e4f3",
-    "latest_reviewed_head_sha": "f690e8173612842dd64518852cf4a9276211e4f3",
+    "twentieth_reviewed_head_sha": "3082575affda18784ab017e02987308c0ef0dfef",
+    "latest_reviewed_head_sha": "3082575affda18784ab017e02987308c0ef0dfef",
     "findings": [
       {
         "id": "P1-01",
@@ -1033,6 +1034,27 @@
         "summary": "Use a fixed due cohort so early successes cannot enter the North Star numerator before their denominator cohort.",
         "location": "docs/METRICS-AND-GATES.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-43",
+        "severity": "high",
+        "summary": "Pre-journal quarantine allocation so failed receipt finalization or deletion cannot orphan untracked input.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-43",
+        "severity": "medium",
+        "summary": "Add a pre-journaled staging teardown and safe-stop transition for cancellation or pre-mutation canary failure.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-44",
+        "severity": "medium",
+        "summary": "Permit independently classified transient-infrastructure rollbacks to re-admit a healthy unchanged staging deployment.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1084,7 +1106,9 @@
     "issues_65_69_73_76_eighteenth_review_scope_refined_at": "2026-07-28T18:45:45Z",
     "nineteenth_codex_review_completed_at": "2026-07-28T18:53:07Z",
     "issues_65_69_73_76_nineteenth_review_scope_refined_at": "2026-07-28T18:54:22Z",
-    "last_updated_at": "2026-07-28T18:54:22Z"
+    "twentieth_codex_review_completed_at": "2026-07-28T19:02:20Z",
+    "issues_65_69_71_72_76_twentieth_review_scope_refined_at": "2026-07-28T19:03:31Z",
+    "last_updated_at": "2026-07-28T19:03:31Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
