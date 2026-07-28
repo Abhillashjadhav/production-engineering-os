@@ -105,7 +105,7 @@ percentage.
 
 | Metric | Formula | Direction | Initial gate or use |
 |---|---|---|---|
-| First-pass contract-validation rate | contracts passing validation without a PM correction / contracts received | Up | Diagnostic; independent of later repository eligibility; target after baseline |
+| First-pass contract-validation rate | unique contract slices whose initial submission passes validation without PM correction / unique contract slices initially submitted | Up | Count each stable slice/source lineage once; corrected versions do not add denominator entries; independent of later repository eligibility; target after baseline |
 | Product-input request precision | confirmed required product blockers / product-input requests | Up | Must be sampled before changing validator strictness |
 | Repository-admission support rate | approved slices with a supported repository/adapter / approved slices analysed | Contextual | Report exclusions; never hide unsupported inputs |
 | Requirement-to-test-plan coverage | required IDs with admitted evidence-producing tests / required IDs | 100% | Hard pre-code gate |

@@ -263,10 +263,10 @@
     }
   ],
   "review": {
-    "status": "eighth_review_corrections_complete_local_rereview_pending",
+    "status": "ninth_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 43,
-    "findings_resolved": 43,
+    "findings_identified": 46,
+    "findings_resolved": 46,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -277,7 +277,8 @@
     "sixth_reviewed_head_sha": "f074499f109d646e17a5402b1aabe8f0e50fde63",
     "seventh_reviewed_head_sha": "3e5f547b2ec2f9dcd557181c36e2944b887fc7e0",
     "eighth_reviewed_head_sha": "4a7e35548078510dc38d3a8c8a9b4081de7a3676",
-    "latest_reviewed_head_sha": "4a7e35548078510dc38d3a8c8a9b4081de7a3676",
+    "ninth_reviewed_head_sha": "c557e88489f01f50af5244ef2141b0e75fc1ff72",
+    "latest_reviewed_head_sha": "c557e88489f01f50af5244ef2141b0e75fc1ff72",
     "findings": [
       {
         "id": "P1-01",
@@ -579,6 +580,27 @@
         "summary": "Separate replay-stable semantic evidence digests from timestamped run-instance audit envelopes.",
         "location": "docs/TARGET-ARCHITECTURE.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-22",
+        "severity": "high",
+        "summary": "Persist an exact-subject production DeploymentAttempt and idempotency key before any production mutation.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-23",
+        "severity": "medium",
+        "summary": "Keep non-canonical raw run-artifact digests in audit envelopes rather than replay-stable semantic claims.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-24",
+        "severity": "medium",
+        "summary": "Count each unique contract slice's initial submission once in first-pass validation rate.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -610,7 +632,8 @@
     "issue_66_review_scope_refined_at": "2026-07-28T16:49:19Z",
     "seventh_codex_review_completed_at": "2026-07-28T17:06:26Z",
     "eighth_codex_review_completed_at": "2026-07-28T17:16:02Z",
-    "last_updated_at": "2026-07-28T17:16:02Z"
+    "ninth_codex_review_completed_at": "2026-07-28T17:22:21Z",
+    "last_updated_at": "2026-07-28T17:22:21Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
