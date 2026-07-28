@@ -419,10 +419,10 @@
     }
   ],
   "review": {
-    "status": "sixteenth_review_corrections_complete_local_rereview_pending",
+    "status": "seventeenth_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 75,
-    "findings_resolved": 75,
+    "findings_identified": 77,
+    "findings_resolved": 77,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -441,7 +441,8 @@
     "fourteenth_reviewed_head_sha": "275609d51d6a9281964718345ea8275b3d743916",
     "fifteenth_reviewed_head_sha": "af50ca5c85b07b49439ca8e4bf2ccdb80e750635",
     "sixteenth_reviewed_head_sha": "9ab41bf1c0eb2d2c53d9eb54443a51eaf71f9d18",
-    "latest_reviewed_head_sha": "9ab41bf1c0eb2d2c53d9eb54443a51eaf71f9d18",
+    "seventeenth_reviewed_head_sha": "d97b54be34d8916fb1ccfaa39c789690b6492198",
+    "latest_reviewed_head_sha": "d97b54be34d8916fb1ccfaa39c789690b6492198",
     "findings": [
       {
         "id": "P1-01",
@@ -967,6 +968,20 @@
         "summary": "Scan test and eval trees for credential-shaped values instead of excluding those directories wholesale.",
         "location": "state/loop-state.json",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-40",
+        "severity": "high",
+        "summary": "Govern and order issue, branch, initial planning/test commit, and draft-PR creation before implementation.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-37",
+        "severity": "medium",
+        "summary": "Assign immutable ingestion lineage before parsing and keep it independent of corrected publisher-supplied slice identifiers.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1012,7 +1027,9 @@
     "issues_65_72_fifteenth_review_scope_refined_at": "2026-07-28T18:16:41Z",
     "sixteenth_codex_review_completed_at": "2026-07-28T18:26:03Z",
     "issues_65_68_69_70_71_72_sixteenth_review_scope_refined_at": "2026-07-28T18:29:32Z",
-    "last_updated_at": "2026-07-28T18:29:32Z"
+    "seventeenth_codex_review_completed_at": "2026-07-28T18:35:13Z",
+    "issues_63_65_68_76_seventeenth_review_scope_refined_at": "2026-07-28T18:36:45Z",
+    "last_updated_at": "2026-07-28T18:36:45Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",

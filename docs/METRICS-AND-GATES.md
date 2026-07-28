@@ -11,10 +11,16 @@ requirements and acceptance criteria with one immutable bundle version and stabl
 IDs.
 
 A **submitted-slice lineage** begins at the first received attempt to describe that
-independently deployable unit, before validation or approval. The intake event assigns
-an immutable lineage/attempt ID from publisher identity, source reference, and claimed
-slice identifiers; a malformed attempt without usable IDs still receives an ingestion
-attempt ID. Corrections remain in the same lineage and do not add denominator entries.
+independently deployable unit, before parsing, validation, or approval. The control
+plane assigns an opaque immutable lineage ID and a distinct ingestion-attempt ID before
+it inspects mutable contract content; neither ID is derived from publisher-supplied
+slice identifiers, source references, or fields that a correction may change. Every
+correction must reference the server-issued lineage ID or the immutable original
+ingestion-attempt ID. Publisher identity, source reference, and claimed slice IDs are
+audited attributes, not lineage keys. An attempt without a valid correction reference
+starts a new lineage and raises a possible-duplicate finding; the system never silently
+coalesces attempts by corrected content. Thus malformed first attempts remain in the
+denominator and corrections in their admitted lineage do not add denominator entries.
 
 An **eligible slice** has:
 
