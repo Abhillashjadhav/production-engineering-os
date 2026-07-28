@@ -120,6 +120,16 @@
         "exact_head_ci_verification"
       ],
       "resume_condition": "Restore GitHub Actions runner/account availability and rerun CI on the current exact PR head."
+    },
+    {
+      "id": "B-006",
+      "owner": "repository_owner",
+      "summary": "No content-addressed, append-only attestation or immutable check artifact is available for the final Phase 0 head; live PR metadata and comments are mutable pointers only.",
+      "blocks": [
+        "immutable_exact_head_verification",
+        "pr_readiness"
+      ],
+      "resume_condition": "Produce a content-addressed attestation or immutable CI/check artifact bound to the exact final commit and environment, and use the PR comment only as its pointer."
     }
   ],
   "github": {
@@ -152,7 +162,7 @@
   "check_evidence_policy": {
     "readiness_rule": "A check is reusable for exact-head readiness only when its item records a concrete subject SHA/tree or artifact digest, executable/tool version, execution timestamp, and applicable environment fingerprint. 'not_recorded' makes the item audit context only, never reusable PASS evidence.",
     "legacy_observations": "Most Phase 0 audit checks were recorded before this provenance rule and are retained honestly with missing fields rather than backfilled by inference.",
-    "final_exact_head_evidence": "The self-referential final Phase 0 head and rerun results are recorded in immutable GitHub PR metadata and the PR verification comment."
+    "final_exact_head_evidence": "Live GitHub PR metadata and comments are mutable pointers and are not readiness evidence. The exact final head requires a content-addressed append-only attestation or immutable check artifact; its absence is blocker B-006."
   },
   "checks_executed": [
     {
@@ -408,10 +418,10 @@
     }
   ],
   "review": {
-    "status": "thirteenth_review_corrections_complete_local_rereview_pending",
+    "status": "fourteenth_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 63,
-    "findings_resolved": 63,
+    "findings_identified": 68,
+    "findings_resolved": 68,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -427,7 +437,8 @@
     "eleventh_reviewed_head_sha": "35368abcf402e232e2305437ef3e7b7fbe6e425f",
     "twelfth_reviewed_head_sha": "3dd3dfe267782efd305dda81c0d7e961ab96c83f",
     "thirteenth_reviewed_head_sha": "091e26573375999c78db27566215e2be00c7fd37",
-    "latest_reviewed_head_sha": "091e26573375999c78db27566215e2be00c7fd37",
+    "fourteenth_reviewed_head_sha": "275609d51d6a9281964718345ea8275b3d743916",
+    "latest_reviewed_head_sha": "275609d51d6a9281964718345ea8275b3d743916",
     "findings": [
       {
         "id": "P1-01",
@@ -869,6 +880,41 @@
         "summary": "Make production observability and PMOS feedback issue 73 an explicit prerequisite for Guided Mode issue 74.",
         "location": "docs/PMOS-PEOS-END-TO-END-PLAN.md and GitHub issues 60/74",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-34",
+        "severity": "high",
+        "summary": "Route protected-base or merge-policy drift through repository re-admission and PR-head drift through candidate re-verification before review.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-35",
+        "severity": "high",
+        "summary": "Block every merge-gate bypass independently of whether the externally produced tree matches.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-36",
+        "severity": "high",
+        "summary": "Journal and execute canary teardown before resetting an approval-waiting run to staging.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-31",
+        "severity": "medium",
+        "summary": "Add the direct ARCHITECTURE_APPROVED to PRODUCT_INPUT_REQUIRED transition for a missing test oracle.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-32",
+        "severity": "medium",
+        "summary": "Treat GitHub metadata and PR comments as mutable pointers and block readiness until a content-addressed append-only final-head attestation exists.",
+        "location": "state/loop-state.json",
+        "disposition": "fixed"
       }
     ]
   },
@@ -908,7 +954,9 @@
     "thirteenth_codex_review_completed_at": "2026-07-28T17:57:21Z",
     "issues_60_74_dependency_refined_at": "2026-07-28T17:59:49Z",
     "issues_65_68_69_72_final_review_scope_refined_at": "2026-07-28T18:00:49Z",
-    "last_updated_at": "2026-07-28T18:00:49Z"
+    "fourteenth_codex_review_completed_at": "2026-07-28T18:09:11Z",
+    "issues_65_68_69_72_fourteenth_review_scope_refined_at": "2026-07-28T18:12:06Z",
+    "last_updated_at": "2026-07-28T18:12:06Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
@@ -923,5 +971,5 @@
     "https://github.com/Abhillashjadhav/production-engineering-os/issues/77",
     "https://github.com/Abhillashjadhav/production-engineering-os/pull/75"
   ],
-  "self_reference_policy": "The state file cannot embed the SHA of the commit that contains itself. The exact final PR head is recorded by immutable GitHub metadata and the PR verification comment; this file records the audited base and observed review subject."
+  "self_reference_policy": "The state file cannot embed the SHA of the commit that contains itself. GitHub PR metadata and the verification comment may point to the live head but are mutable and do not satisfy immutable readiness evidence. A content-addressed append-only attestation or immutable check artifact must bind the exact final commit; B-006 records that it is unavailable."
 }
