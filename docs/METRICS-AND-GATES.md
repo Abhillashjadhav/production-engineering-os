@@ -10,6 +10,12 @@ A **contract slice** is the smallest independently deployable set of approved
 requirements and acceptance criteria with one immutable bundle version and stable
 IDs.
 
+A **submitted-slice lineage** begins at the first received attempt to describe that
+independently deployable unit, before validation or approval. The intake event assigns
+an immutable lineage/attempt ID from publisher identity, source reference, and claimed
+slice identifiers; a malformed attempt without usable IDs still receives an ingestion
+attempt ID. Corrections remain in the same lineage and do not add denominator entries.
+
 An **eligible slice** has:
 
 - passed deterministic contract validation;
@@ -111,7 +117,7 @@ percentage.
 
 | Metric | Formula | Direction | Initial gate or use |
 |---|---|---|---|
-| First-pass contract-validation rate | unique contract slices whose initial submission passes validation without PM correction / unique contract slices initially submitted | Up | Count each stable slice/source lineage once; corrected versions do not add denominator entries; independent of later repository eligibility; target after baseline |
+| First-pass contract-validation rate | submitted-slice lineages whose initial received attempt passes validation without PM correction / all submitted-slice lineages initially received | Up | Count every initial attempt, including malformed, unapproved, incomplete, contradictory, and product-blocked attempts; corrections stay in the original lineage; independent of later eligibility; target after baseline |
 | Product-input request precision | confirmed required product blockers / product-input requests | Up | Must be sampled before changing validator strictness |
 | Repository-admission support rate | approved slices with a supported repository/adapter / approved slices analysed | Contextual | Report exclusions; never hide unsupported inputs |
 | Requirement-to-test-plan coverage | required IDs with admitted evidence-producing tests / required IDs | 100% | Hard pre-code gate |
@@ -278,7 +284,7 @@ baseline.
 | Gate | Required pass evidence | Failure transition |
 |---|---|---|
 | Contract admission | schema, completeness, contradictions, approvals, rule-set digest | CONTRACT_INVALID or PRODUCT_INPUT_REQUIRED |
-| Repository admission | exact-SHA read-only snapshot, supported toolchain or blocker | BLOCKED |
+| Repository admission | exact-SHA read-only snapshot, separately versioned governance observation with query provenance, supported toolchain or blocker | BLOCKED |
 | Architecture approval | admitted pack/ADRs/threat model, named approvals | PRODUCT_INPUT_REQUIRED or BLOCKED |
 | Test-plan validation | 100% ID mapping, meaningful-red plan, tool feasibility | PRODUCT_INPUT_REQUIRED or BLOCKED |
 | Draft PR admission | ready issue, branch, initial planning/test commit, atomic draft PR | BLOCKED |

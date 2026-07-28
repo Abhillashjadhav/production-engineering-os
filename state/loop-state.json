@@ -219,7 +219,7 @@
     },
     {
       "name": "path_only_secret_scan",
-      "command": "rg -l --hidden --glob '!.git/**' --glob '!tests/**' --glob '!evals/**' --glob '!build/**' --glob '!dist/**' '(AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|xox[baprs]-[A-Za-z0-9-]{10,})' .; phase0_secret_status=$?; if [ \"$phase0_secret_status\" -eq 1 ]; then echo 'SECRET_PATH_SCAN_PASS_NO_MATCHES'; exit 0; fi; exit \"$phase0_secret_status\"",
+      "command": "rg -l --hidden --glob '!.git/**' --glob '!tests/**' --glob '!evals/**' --glob '!build/**' --glob '!dist/**' '(AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|xox[baprs]-[A-Za-z0-9-]{10,})' .; phase0_secret_status=$?; if [ \"$phase0_secret_status\" -eq 1 ]; then echo 'SECRET_PATH_SCAN_PASS_NO_MATCHES'; exit 0; fi; if [ \"$phase0_secret_status\" -eq 0 ]; then echo 'SECRET_PATH_SCAN_FAIL_MATCHES_FOUND'; exit 1; fi; exit \"$phase0_secret_status\"",
       "result": "passed_no_non_fixture_matches"
     },
     {
@@ -263,10 +263,10 @@
     }
   ],
   "review": {
-    "status": "eleventh_review_corrections_complete_local_rereview_pending",
+    "status": "twelfth_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 52,
-    "findings_resolved": 52,
+    "findings_identified": 56,
+    "findings_resolved": 56,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -280,7 +280,8 @@
     "ninth_reviewed_head_sha": "c557e88489f01f50af5244ef2141b0e75fc1ff72",
     "tenth_reviewed_head_sha": "7cae6e60eeefce38014cfa3eb304fafc3ec8ab2f",
     "eleventh_reviewed_head_sha": "35368abcf402e232e2305437ef3e7b7fbe6e425f",
-    "latest_reviewed_head_sha": "35368abcf402e232e2305437ef3e7b7fbe6e425f",
+    "twelfth_reviewed_head_sha": "3dd3dfe267782efd305dda81c0d7e961ab96c83f",
+    "latest_reviewed_head_sha": "3dd3dfe267782efd305dda81c0d7e961ab96c83f",
     "findings": [
       {
         "id": "P1-01",
@@ -645,6 +646,34 @@
         "summary": "Define MVP candidate-readiness gates as checks completed on an already-open draft PR.",
         "location": "docs/METRICS-AND-GATES.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-27",
+        "severity": "high",
+        "summary": "Make the persisted path-only secret scan return a nonzero result when matching files are found.",
+        "location": "state/loop-state.json",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-28",
+        "severity": "high",
+        "summary": "Scope mutable governance evidence by lifecycle checkpoint and admit only planned lifecycle-owned deltas without invalidating unrelated artifacts.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-27",
+        "severity": "medium",
+        "summary": "Define a pre-approval submitted-slice lineage so rejected initial submissions remain in the first-pass validation denominator.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-28",
+        "severity": "medium",
+        "summary": "Route staging code or configuration defects through a new remediation issue/run and repository reanalysis in the overview workflow.",
+        "location": "docs/PMOS-PEOS-END-TO-END-PLAN.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -680,7 +709,8 @@
     "tenth_codex_review_completed_at": "2026-07-28T17:31:31Z",
     "issue_69_atomic_merge_scope_refined_at": "2026-07-28T17:31:27Z",
     "eleventh_codex_review_completed_at": "2026-07-28T17:40:22Z",
-    "last_updated_at": "2026-07-28T17:40:22Z"
+    "twelfth_codex_review_completed_at": "2026-07-28T17:47:17Z",
+    "last_updated_at": "2026-07-28T17:47:17Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",

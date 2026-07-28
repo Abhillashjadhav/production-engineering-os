@@ -51,7 +51,8 @@ flowchart LR
   CV -. product input .-> PM
   DV -. bounded repair .-> EX
   RV -. bounded repair .-> EX
-  ST -. repair or block .-> EX
+  ST -. code/config defect: new remediation issue and run .-> RI
+  ST -. infrastructure or cleanup blocker .-> BL[BLOCKED]
   CA -. rollback .-> RB[Rollback]
   LV -. rollback .-> RB
 ```
