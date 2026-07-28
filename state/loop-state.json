@@ -149,77 +149,180 @@
     "formal_review_requested": false,
     "formal_review_submitted": false
   },
+  "check_evidence_policy": {
+    "readiness_rule": "A check is reusable for exact-head readiness only when its item records a concrete subject SHA/tree or artifact digest, executable/tool version, execution timestamp, and applicable environment fingerprint. 'not_recorded' makes the item audit context only, never reusable PASS evidence.",
+    "legacy_observations": "Most Phase 0 audit checks were recorded before this provenance rule and are retained honestly with missing fields rather than backfilled by inference.",
+    "final_exact_head_evidence": "The self-referential final Phase 0 head and rerun results are recorded in immutable GitHub PR metadata and the PR verification comment."
+  },
   "checks_executed": [
     {
       "name": "core_pytest",
       "command": "pytest -q",
       "environment": "macOS host, Python 3.14",
+      "provenance": {
+        "subject_sha": "not_recorded",
+        "tool_identity": "pytest_version_not_recorded; Python 3.14.6 observed after the run",
+        "executed_at": "not_recorded",
+        "environment_fingerprint": "partial_macos_host_python_3_14_only",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "449_passed_1_platform_path_failure",
       "notes": "The remaining assertion expects /tmp rather than macOS-canonical /private/tmp."
     },
     {
       "name": "core_ruff_format",
       "command": "ruff format --check src tests/unit tests/integration tests/e2e tests/conftest.py",
+      "provenance": {
+        "subject_sha": "not_recorded",
+        "tool_identity": "ruff_version_not_recorded",
+        "executed_at": "not_recorded",
+        "environment_fingerprint": "not_recorded",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "passed"
     },
     {
       "name": "core_ruff_lint",
       "command": "ruff check src tests/unit tests/integration tests/e2e tests/conftest.py",
+      "provenance": {
+        "subject_sha": "not_recorded",
+        "tool_identity": "ruff_version_not_recorded",
+        "executed_at": "not_recorded",
+        "environment_fingerprint": "not_recorded",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "passed"
     },
     {
       "name": "core_mypy",
       "command": "mypy --strict src/pmpe",
+      "provenance": {
+        "subject_sha": "not_recorded",
+        "tool_identity": "mypy_version_not_recorded",
+        "executed_at": "not_recorded",
+        "environment_fingerprint": "not_recorded",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "passed"
     },
     {
       "name": "core_bandit",
       "command": "bandit -q -r src -lll",
+      "provenance": {
+        "subject_sha": "not_recorded",
+        "tool_identity": "bandit_version_not_recorded",
+        "executed_at": "not_recorded",
+        "environment_fingerprint": "not_recorded",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "passed"
     },
     {
       "name": "schema_sync",
       "command": "Parse and compare all three schemas/*.json files with src/pmpe/schemas/*.json",
+      "provenance": {
+        "subject_sha": "not_recorded",
+        "tool_identity": "ad_hoc_python_version_not_recorded",
+        "executed_at": "not_recorded",
+        "environment_fingerprint": "not_recorded",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "passed"
     },
     {
       "name": "contract_validation",
       "command": "pmpe contract validate examples/v2-demo/contract.json",
+      "provenance": {
+        "subject_sha": "not_recorded",
+        "tool_identity": "pmpe_local_version_not_recorded",
+        "executed_at": "not_recorded",
+        "environment_fingerprint": "not_recorded",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "passed"
     },
     {
       "name": "spec_validation",
       "command": "pmpe validate examples/taskflow_mvp_spec.yaml",
+      "provenance": {
+        "subject_sha": "not_recorded",
+        "tool_identity": "pmpe_local_version_not_recorded",
+        "executed_at": "not_recorded",
+        "environment_fingerprint": "not_recorded",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "passed"
     },
     {
       "name": "evaluation_suite",
       "command": "pmpe evals run --suite all --ledger evals/fixtures/trajectory/good_run.jsonl",
+      "provenance": {
+        "subject_sha": "not_recorded",
+        "tool_identity": "pmpe_local_version_not_recorded",
+        "executed_at": "not_recorded",
+        "environment_fingerprint": "not_recorded",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "passed_11_of_11"
     },
     {
       "name": "planted_drift",
       "command": "pmpe drift compare --baseline evals/baselines/synthetic-baseline.json --current evals/fixtures/drift/current_hard_gate_failure.json",
+      "provenance": {
+        "subject_sha": "not_recorded",
+        "tool_identity": "pmpe_local_version_not_recorded",
+        "executed_at": "not_recorded",
+        "environment_fingerprint": "not_recorded",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "expected_hold_exit_3"
     },
     {
       "name": "skill_lint",
       "command": "python tests/lint_skill.py .claude/skills/production-engineer/SKILL.md",
+      "provenance": {
+        "subject_sha": "not_recorded",
+        "tool_identity": "Python_version_not_recorded_at_execution",
+        "executed_at": "not_recorded",
+        "environment_fingerprint": "not_recorded",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "passed_9_of_9"
     },
     {
       "name": "wheel_build",
       "command": "python -m build --wheel",
+      "provenance": {
+        "subject_sha": "not_recorded",
+        "tool_identity": "Python_and_build_versions_not_recorded",
+        "executed_at": "not_recorded",
+        "environment_fingerprint": "not_recorded",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "passed"
     },
     {
       "name": "root_dependency_audit",
       "command": "pip-audit . --strict",
+      "provenance": {
+        "subject_sha": "not_recorded",
+        "tool_identity": "pip_audit_version_not_recorded",
+        "executed_at": "not_recorded",
+        "environment_fingerprint": "not_recorded",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "passed"
     },
     {
       "name": "path_only_secret_scan",
       "command": "rg -l --hidden --glob '!.git/**' --glob '!tests/**' --glob '!evals/**' --glob '!build/**' --glob '!dist/**' '(AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{20,}|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY-----|xox[baprs]-[A-Za-z0-9-]{10,})' .; phase0_secret_status=$?; if [ \"$phase0_secret_status\" -eq 1 ]; then echo 'SECRET_PATH_SCAN_PASS_NO_MATCHES'; exit 0; fi; if [ \"$phase0_secret_status\" -eq 0 ]; then echo 'SECRET_PATH_SCAN_FAIL_MATCHES_FOUND'; exit 1; fi; exit \"$phase0_secret_status\"",
+      "provenance": {
+        "subject_sha": "091e26573375999c78db27566215e2be00c7fd37",
+        "tool_identity": "ripgrep 15.2.0 (rev e89fff89ac)",
+        "executed_at": "2026-07-28T17:57:29Z",
+        "environment_fingerprint": "macOS_host_arm64_shell_zsh",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "passed_no_non_fixture_matches"
     },
     {
@@ -227,6 +330,13 @@
       "command": "PYTHONPATH=src pytest -q",
       "working_directory": "products/pm-evals-web/backend",
       "environment": "macOS host, Python 3.14",
+      "provenance": {
+        "subject_sha": "not_recorded",
+        "tool_identity": "pytest_version_not_recorded; Python 3.14.6 observed after the run",
+        "executed_at": "not_recorded",
+        "environment_fingerprint": "partial_macos_host_python_3_14_only",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "84_passed_1_version_sensitive_json_failure",
       "notes": "The backend declares Python >=3.11, so 3.14 is currently supported. Python 3.14 accepts the deeply nested input then the API correctly rejects its non-object shape, producing a different assertion message; CI covers only 3.11."
     },
@@ -234,18 +344,39 @@
       "name": "web_backend_mypy",
       "command": "mypy",
       "working_directory": "products/pm-evals-web/backend",
+      "provenance": {
+        "subject_sha": "not_recorded",
+        "tool_identity": "mypy_version_not_recorded",
+        "executed_at": "not_recorded",
+        "environment_fingerprint": "not_recorded",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "passed"
     },
     {
       "name": "web_backend_ruff_format",
       "command": "ruff format --check .",
       "working_directory": "products/pm-evals-web/backend",
+      "provenance": {
+        "subject_sha": "not_recorded",
+        "tool_identity": "ruff_version_not_recorded",
+        "executed_at": "not_recorded",
+        "environment_fingerprint": "not_recorded",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "passed"
     },
     {
       "name": "web_backend_ruff_lint",
       "command": "ruff check .",
       "working_directory": "products/pm-evals-web/backend",
+      "provenance": {
+        "subject_sha": "not_recorded",
+        "tool_identity": "ruff_unpinned_current_version_not_recorded",
+        "executed_at": "not_recorded",
+        "environment_fingerprint": "not_recorded",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "failed_8_on_unpinned_current_ruff",
       "notes": "Four B008, three ISC004, and one import-order finding show allowed-toolchain drift."
     },
@@ -253,20 +384,34 @@
       "name": "web_backend_hash_locked_dependency_audit",
       "command": "pip-audit --require-hashes -r requirements.lock --strict",
       "working_directory": "products/pm-evals-web/backend",
+      "provenance": {
+        "subject_sha": "not_recorded",
+        "tool_identity": "pip_audit_version_not_recorded",
+        "executed_at": "not_recorded",
+        "environment_fingerprint": "not_recorded",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "passed"
     },
     {
       "name": "github_actions_pr_ci",
       "command": "GitHub Actions ci run 30377528370 for commit 1e052cee3d269aa830ced3d05c0d626779921fa0",
+      "provenance": {
+        "subject_sha": "1e052cee3d269aa830ced3d05c0d626779921fa0",
+        "tool_identity": "GitHub Actions run 30377528370 via connected GitHub status API",
+        "executed_at": "GitHub_job_timestamps_recorded_remotely; observed_2026-07-28T16:27:12Z",
+        "environment_fingerprint": "runner_allocation_failed_before_steps_no_runtime_environment",
+        "reusable_for_exact_head_readiness": false
+      },
       "result": "infrastructure_failure_before_steps",
       "notes": "Nine jobs failed, one was cancelled, no job exposed any steps, and logs were unavailable. PR Review Agent run 30377528156 was skipped because PR #75 remains draft."
     }
   ],
   "review": {
-    "status": "twelfth_review_corrections_complete_local_rereview_pending",
+    "status": "thirteenth_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 56,
-    "findings_resolved": 56,
+    "findings_identified": 63,
+    "findings_resolved": 63,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -281,7 +426,8 @@
     "tenth_reviewed_head_sha": "7cae6e60eeefce38014cfa3eb304fafc3ec8ab2f",
     "eleventh_reviewed_head_sha": "35368abcf402e232e2305437ef3e7b7fbe6e425f",
     "twelfth_reviewed_head_sha": "3dd3dfe267782efd305dda81c0d7e961ab96c83f",
-    "latest_reviewed_head_sha": "3dd3dfe267782efd305dda81c0d7e961ab96c83f",
+    "thirteenth_reviewed_head_sha": "091e26573375999c78db27566215e2be00c7fd37",
+    "latest_reviewed_head_sha": "091e26573375999c78db27566215e2be00c7fd37",
     "findings": [
       {
         "id": "P1-01",
@@ -674,6 +820,55 @@
         "summary": "Route staging code or configuration defects through a new remediation issue/run and repository reanalysis in the overview workflow.",
         "location": "docs/PMOS-PEOS-END-TO-END-PLAN.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-29",
+        "severity": "high",
+        "summary": "Govern the draft-to-ready-for-review GitHub action and observe its exact effect before PR_READY.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-30",
+        "severity": "high",
+        "summary": "Add a rollback-and-incident evidence profile and require it before admitting ROLLED_BACK.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-31",
+        "severity": "high",
+        "summary": "Bind environment-sensitive evidence claims to a policy-selected execution-environment fingerprint.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-32",
+        "severity": "high",
+        "summary": "Allow a healthy candidate rolled back only for a governance stop to re-enter staging without fabricating a defect.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-33",
+        "severity": "high",
+        "summary": "Model COMPLETED as an immutable historical event with a revocable current claim status rather than an absorbing state.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-29",
+        "severity": "medium",
+        "summary": "Record per-check provenance and mark legacy observations with missing exact subjects or tool identities as non-reusable.",
+        "location": "state/loop-state.json",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-30",
+        "severity": "medium",
+        "summary": "Make production observability and PMOS feedback issue 73 an explicit prerequisite for Guided Mode issue 74.",
+        "location": "docs/PMOS-PEOS-END-TO-END-PLAN.md and GitHub issues 60/74",
+        "disposition": "fixed"
       }
     ]
   },
@@ -710,7 +905,10 @@
     "issue_69_atomic_merge_scope_refined_at": "2026-07-28T17:31:27Z",
     "eleventh_codex_review_completed_at": "2026-07-28T17:40:22Z",
     "twelfth_codex_review_completed_at": "2026-07-28T17:47:17Z",
-    "last_updated_at": "2026-07-28T17:47:17Z"
+    "thirteenth_codex_review_completed_at": "2026-07-28T17:57:21Z",
+    "issues_60_74_dependency_refined_at": "2026-07-28T17:59:49Z",
+    "issues_65_68_69_72_final_review_scope_refined_at": "2026-07-28T18:00:49Z",
+    "last_updated_at": "2026-07-28T18:00:49Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",

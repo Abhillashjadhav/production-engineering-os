@@ -246,7 +246,8 @@ Recommended execution:
 6. complete #65 after #63/#64; it may overlap #66/#67 with interface coordination;
 7. implement #68, #69, and #70 in order;
 8. implement #71, #72, and #73 in order;
-9. implement #74 after trustworthy evidence and feedback interfaces exist.
+9. implement #74 after #73 provides the trustworthy observability and feedback
+   interfaces its product-facing status and feedback flows consume.
 
 The umbrella [#60](https://github.com/Abhillashjadhav/production-engineering-os/issues/60)
 is the authoritative index. Each child issue remains independently reviewable and has

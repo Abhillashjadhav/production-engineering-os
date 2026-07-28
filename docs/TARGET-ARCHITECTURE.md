@@ -102,19 +102,26 @@ layers:
 
 1. A replay-stable semantic claim records the evidence type/schema, producer role,
    command/tool/model/rule-set versions, subject and input/output digests,
-   PASS/FAIL/BLOCKED/NOT_PROVEN result, any schema-defined canonical result digest,
-   and versioned retention/redaction policy. Its canonical semantic digest excludes
-   run-instance metadata and non-canonical raw logs.
+   and a policy-selected execution-environment fingerprint. The fingerprint includes
+   applicable OS/distribution and architecture, language/runtime, executable/tool and
+   dependency-resolution/lock digests, container or runner image digest, locale/timezone,
+   relevant non-secret environment/configuration/policy digests, and hardware class for
+   hardware-sensitive checks. Secret references are digested identifiers, never values.
+   The claim also records its PASS/FAIL/BLOCKED/NOT_PROVEN result, any schema-defined
+   canonical result digest, and versioned retention/redaction policy. Its canonical
+   semantic digest excludes run-instance metadata and non-canonical raw logs.
 2. An append-only event envelope records producer instance identity, run/attempt ID,
-   explicit UTC start/end timestamps, raw-artifact location and digest, and
-   supersedes/duplicate relationships. The envelope has its own audit digest and
-   references the semantic digest.
+   runner/host identity, explicit UTC start/end timestamps, raw-artifact location and
+   digest, and supersedes/duplicate relationships. The envelope has its own audit
+   digest and references the semantic digest.
 
 A bundle's replay-stable digest is calculated from the sorted semantic member digests
 and stable subject/profile references. Audit envelopes are retained and integrity
 checked but do not change semantic replay equality merely because the same work ran
 later. Deterministic replay compares semantic, subject, input, and output digests;
-run-instance timestamps are expected to differ.
+run-instance timestamps are expected to differ. An environment-sensitive claim is
+inapplicable—not equivalent—when its required environment fingerprint differs or is
+missing.
 
 Evidence completeness uses stage-specific profiles. Each checkpoint seals a new
 content-addressed EvidenceBundle that references and supersedes the prior stage bundle:
@@ -129,6 +136,7 @@ content-addressed EvidenceBundle that references and supersedes the prior stage 
 | Canary | bounded cohort/traffic policy, deployment, complete SLO/guardrail window, abort decision, and rollback readiness |
 | Production authorization | named approval bound to merge/artifact/config/migration/target/rollout subjects |
 | Production deployment | progressive deployment, exact subject correlation, and rollback target |
+| Rollback and incident | exact failed deployment/exposure and last-known-good subjects, pre-recorded rollback attempt/idempotency key, executed steps, restored traffic/config/service/data state, RTO/RPO result, post-rollback verification, and incident/decision evidence |
 | Completion | live SLO/guardrail observation window, acceptance evidence, final rollback readiness, and OutcomeReport |
 
 A gate requires 100% of the members in its current and preceding applicable profiles,
@@ -272,6 +280,10 @@ PEOS returns:
 - `COMPLETED` requires deterministic contract, commit/build, verification, review,
   deployment, live observation, and rollback-readiness evidence. Model output alone
   can never satisfy a transition.
+- `COMPLETED` is a revocable current claim, not an absorbing state. The original
+  append-only completion event remains historical evidence, while its separately
+  versioned claim status can become `revoked` and transition to live-failure or blocked
+  handling when evidence is invalidated.
 
 ### Transition table
 
@@ -312,7 +324,7 @@ owner; **SO** security/operations owner; **HA** explicit human approval.
 | `REVIEW_FAILED → REPAIR_IN_PROGRESS` | Reconciled accepted engineering findings and budget | Decisions/reasons, fixer scope, PCRs for product findings | CP authorizes fixer | Undecided/product findings remain failed/input-required; stale candidate forbidden. | Yes for non-mechanical decisions |
 | `REVIEW_FAILED → PRODUCT_INPUT_REQUIRED` | Product-decision finding | PCR linked to contract/requirements, active issue/branch/draft PR, and stopped worktree record | CP halts execution and marks the existing draft PR/issue blocked on product input; PM decides and CP does not fix | Superseding contract returns to intake and invalidates downstream evidence; reuse or supersession must be recorded before another primary PR can exist. | Yes |
 | `REVIEW_FAILED → REVIEW_REQUIRED` | Every blocking finding is dispositioned without a source change | Unchanged candidate digest, authorized `rejected-with-reason` records, independent disposition validation, and no unresolved finding | CP reopens readiness evaluation on the same frozen candidate; reviewers do not create a no-op repair | Missing authority/evidence or any accepted finding stays failed and uses repair/input-required. | Finding owner; independent validation |
-| `REVIEW_REQUIRED → PR_READY` | Existing draft PR, all reviews complete, and blocking findings resolved against a frozen protected base | Sealed candidate-review EvidenceBundle for the exact PR head + base + prospective merge-tree digest, fresh governance checkpoint ID/digest/time/query provenance, atomicity/issue/PR metadata, checks, and formal review when required | CP records readiness on the existing draft; it does not create, approve, undraft, or merge it | Missing review/check/evidence or unexpected governance drift remains review-required or returns to repository re-admission; no self-approval/merge. | Formal review if repository policy requires |
+| `REVIEW_REQUIRED → PR_READY` | Existing draft PR, all reviews complete, blocking findings resolved against a frozen protected base, and policy authorization to invoke GitHub's ready-for-review action | Sealed candidate-review EvidenceBundle for the exact PR head + base + prospective merge-tree digest, pre-action governance checkpoint, atomicity/issue/PR metadata, checks, formal review when required, expected-effect manifest for draft → ready, ready actor/time/event, and post-action governance checkpoint ID/digest/time/query provenance | CP seals eligibility; an eligible maintainer or narrowly scoped GitHub governor invokes ready-for-review only for that exact authorized PR/head; CP observes the non-draft result and admits `PR_READY`. Neither actor approves or merges through this transition | Missing review/check/evidence/authorization, an unchanged draft flag, or unexpected governance drift remains review-required or returns to repository re-admission; no self-approval/merge. | Formal review and ready actor as policy requires |
 | `PR_READY → REVIEW_REQUIRED` | PR head, protected base, or prospective merge tree changes before merge | New head/base/tree digests and invalidated check/review/evidence references | CP revokes readiness and requires verification/review of the new prospective merge result | No merge or staging while stale; unchanged evidence cannot be reused across the new tree. | Formal review when required |
 | `PR_READY → PR_MERGED` | Existing PR enters an enforced protected-branch merge queue or compare-and-swap merge gate that atomically requires the unchanged reviewed head, protected base, and prospective tree at commit time | Branch-protection/merge-queue policy version, expected head/base/tree, required checks/approvals, atomic admission result, merge actor/time/method/SHA, actual merge-tree equality, and primary issue linkage | Eligible maintainer enqueues/authorizes through the protected gate; CP has no bypass or direct merge authority and only admits the exact result | Any pre-commit drift is rejected atomically and returns to review-required. A protection bypass or impossible observed mismatch uses the blocked incident transition below; it never deploys. | Yes |
 | `PR_READY → BLOCKED` | PR closed/rejected or GitHub records an external merge whose actual tree differs from the admitted prospective merge tree | GitHub event, expected/actual head/base/tree digests, governance incident, and remediation owner | CP blocks staging and records the externally mutated result; it cannot rewrite merged history | A new remediation issue/run must reanalyze the current target branch; no artifact from the mismatched merge is promoted. | Owner for remediation |
@@ -333,10 +345,11 @@ owner; **SO** security/operations owner; **HA** explicit human approval.
 | `PRODUCTION_APPROVAL_REQUIRED → BLOCKED` | Rejection/expiry/missing approver and deterministic evidence that no canary or production exposure remains | Decision/reason, zero-exposure proof, and stopped promotion state | CP stops promotion only | Any active, partial, or indeterminate exposure must use the canary-failed/rollback path; resume needs new exact approval after revalidation. | Yes |
 | `PRODUCTION_DEPLOYED → LIVE_VERIFICATION_FAILED` | Live health/journey/SLO/business/privacy/security window | Runtime telemetry and exact deployment correlation | CP evaluates; no model verdict | Any hard breach/missing required signal starts rollback. | No |
 | `LIVE_VERIFICATION_FAILED → ROLLBACK_IN_PROGRESS` | Failed live gate | Failure, last-known-good, rollback/migration plan | Rollback adapter executes | Rollback failure → blocked/incident; never completed. | No |
-| `ROLLBACK_IN_PROGRESS → ROLLED_BACK` | Completed rollback | Service/data verification, RTO/RPO, traffic/config state, incident link | CP verifies restored state | Verification failure → blocked; continue incident response. | No |
+| `ROLLBACK_IN_PROGRESS → ROLLED_BACK` | Completed rollback | Sealed rollback-and-incident EvidenceBundle with exact failed and restored subjects, rollback DeploymentAttempt/Result, service/data/traffic/config verification, RTO/RPO result, and incident or governance-stop decision link | CP verifies and seals the restored state; model prose cannot establish recovery | Verification or evidence-profile failure → blocked with continuing incident response; never claim restored state. | No |
+| `ROLLED_BACK → STAGING_DEPLOYED` | Rollback was caused only by withheld/rejected/expired production approval or another non-defect governance stop; zero canary/production exposure is proven; and the same staging deployment remains healthy and current | Rollback-and-incident bundle classified `governance_stop_no_defect`, zero-exposure proof, current staging deployment/revalidation evidence, invalidated canary/approval evidence, and new approval-request eligibility | CP re-admits staging without a defect issue, production mutation, or reused approval; a new current canary window and new production approval are required before promotion | Any code/config/product defect uses repository reanalysis; stale/failed staging uses `STAGING_FAILED`; active/indeterminate exposure remains in rollback/incident handling. | Owner confirms governance-only classification |
 | `ROLLED_BACK → REPOSITORY_ANALYSED` | Approved follow-up within original product scope/budget and a new remediation run | Incident finding, new defect issue, current target-branch SHA, fresh exact-SHA RepositorySnapshot, and current GovernanceObservation ID/digest/time/query provenance | Repository intelligence re-admits changed content and governance inputs; architecture and TestPlan are then reproposed and revalidated | Product change → new contract/PCR; infrastructure-only follow-up → blocked. Missing/stale repository or governance proof blocks. Merged history is never rewritten. | Owner decision |
 | `ROLLED_BACK → BUDGET_EXCEEDED` | Rollback restored the last-known-good state but delivery budget is exhausted | Rollback verification, consumption ledger, stopped run, and resume conditions | CP stops non-safety work only | No new implementation/deployment until a named owner extends budget; restored production remains monitored under operations policy. | Budget extension requires named owner |
-| `PRODUCTION_DEPLOYED → COMPLETED` | Full observation window passed | Exact production subjects, acceptance/SLO/guardrail PASS, complete sealed EvidenceBundle, rollback readiness, OutcomeReport | CP alone records terminal completion | Missing/invalid/stale/model-only evidence routes to live-verification-failed or blocked. | Prior production approval already required |
+| `PRODUCTION_DEPLOYED → COMPLETED` | Full observation window passed | Exact production subjects, acceptance/SLO/guardrail PASS, complete sealed EvidenceBundle, rollback readiness, OutcomeReport | CP alone appends the immutable completion event and sets its current claim status to `active`; this status remains revocable | Missing/invalid/stale/model-only evidence routes to live-verification-failed or blocked. | Prior production approval already required |
 | `COMPLETED → LIVE_VERIFICATION_FAILED` | Post-completion evidence invalidation leaves active production safety, acceptance, or SLO conformance unproven | Original completion event/bundle, invalid item/subject, detection event, and incident link | Integrity monitor or CP appends revocation evidence and reopens the record; it never erases the original claim | Existing live-failure path starts rollback; no approval is needed to fail safe. | No |
 | `COMPLETED → BLOCKED` | Post-completion evidence invalidation with no active-production safety risk | Original completion event/bundle, invalid item/subject, safety assessment, incident, owner, and recorded resume gate | CP revokes terminal status append-only and blocks; resume must re-run the recorded gate and every downstream proof | Claim stays invalid until exact-subject evidence is rebuilt; no silent return to completed. | Owner for resume |
 
