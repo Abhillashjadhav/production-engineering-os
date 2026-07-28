@@ -419,10 +419,10 @@
     }
   ],
   "review": {
-    "status": "twentieth_review_corrections_complete_local_rereview_pending",
+    "status": "twenty_first_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 87,
-    "findings_resolved": 87,
+    "findings_identified": 90,
+    "findings_resolved": 90,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -445,7 +445,8 @@
     "eighteenth_reviewed_head_sha": "18bdd4e10045d6d64ac920ba6a15b0cd1c4de5b5",
     "nineteenth_reviewed_head_sha": "f690e8173612842dd64518852cf4a9276211e4f3",
     "twentieth_reviewed_head_sha": "3082575affda18784ab017e02987308c0ef0dfef",
-    "latest_reviewed_head_sha": "3082575affda18784ab017e02987308c0ef0dfef",
+    "twenty_first_reviewed_head_sha": "4d1bc7515e17405e86d37677a36899693e2b7349",
+    "latest_reviewed_head_sha": "4d1bc7515e17405e86d37677a36899693e2b7349",
     "findings": [
       {
         "id": "P1-01",
@@ -1055,6 +1056,27 @@
         "summary": "Permit independently classified transient-infrastructure rollbacks to re-admit a healthy unchanged staging deployment.",
         "location": "docs/TARGET-ARCHITECTURE.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P2-45",
+        "severity": "medium",
+        "summary": "Count human execution or interpretation of technical evidence as manual engineering intervention.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-46",
+        "severity": "medium",
+        "summary": "Bound every period North Star cohort by both reporting-window start and cutoff.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-47",
+        "severity": "medium",
+        "summary": "Add a legal pre-journaled canary teardown and staging reset for non-decision approval-service outages.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1108,7 +1130,9 @@
     "issues_65_69_73_76_nineteenth_review_scope_refined_at": "2026-07-28T18:54:22Z",
     "twentieth_codex_review_completed_at": "2026-07-28T19:02:20Z",
     "issues_65_69_71_72_76_twentieth_review_scope_refined_at": "2026-07-28T19:03:31Z",
-    "last_updated_at": "2026-07-28T19:03:31Z"
+    "twenty_first_codex_review_completed_at": "2026-07-28T19:12:32Z",
+    "issues_65_67_69_72_73_twenty_first_review_scope_refined_at": "2026-07-28T19:13:38Z",
+    "last_updated_at": "2026-07-28T19:13:38Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",

@@ -48,16 +48,24 @@ Each North Star uses a versioned maturity policy fixed when eligibility is admit
 For EADPR, `metric_due_at` is `eligibility_at + approved draft-PR evaluation window`.
 For VAPDR, it is `eligibility_at + approved production-delivery window + required live
 observation window`. A slice enters **both** that metric's numerator opportunity and
-denominator only when its fixed `metric_due_at` is at or before the reporting cutoff.
-Before then, an early success or terminal failure remains provisional and cannot enter
-the reported rate. At the due time, the system seals the outcome-as-of-due: success
-only if every numerator condition was satisfied by then; otherwise failure. A later
-recovery is reported separately and never rewrites the historical due-cohort result
-(except a separately versioned correction for invalid evidence). Due times and policy
-versions cannot be changed retrospectively. Every report publishes due-cohort
-eligible, success-as-of-due, failure-as-of-due, not-yet-due/pending, and excluded
-counts. This fixed due-cohort denominator prevents early successes from producing a
-success-biased rate while also keeping unfinished future cohorts visible.
+denominator only when its fixed `metric_due_at` falls inside that report's bounded due
+cohort.
+
+For a period report with an approved `(window_start, reporting_cutoff]`, its rate cohort
+is exactly the eligible slices satisfying
+`window_start < metric_due_at <= reporting_cutoff`; the numerator and denominator use
+that same predicate. A cumulative report must be explicitly labeled and substitutes
+the approved program-inception instant for `window_start`. Before its due time, an
+early success or terminal failure remains provisional and cannot enter the reported
+rate. At the due time, the system seals the outcome-as-of-due: success only if every
+numerator condition was satisfied by then; otherwise failure. A later recovery is
+reported separately and never rewrites the historical due-cohort result (except a
+separately versioned correction for invalid evidence). Due times, window bounds, and
+policy versions cannot be changed retrospectively. Every report publishes due-cohort
+eligible, success-as-of-due, failure-as-of-due, not-yet-due/pending context, and
+excluded counts. This fixed, bounded due-cohort denominator prevents early successes
+from producing a success-biased rate and prevents old slices from silently re-entering
+every period while keeping unfinished future cohorts visible.
 
 ## End-state North Star Metric
 
@@ -228,13 +236,20 @@ budget.
 
 ## Autonomy guardrails
 
-- Manual modification means a human directly changes code, tests, configuration,
-  deployment/environment/traffic state, or a release artifact. Planned operator work
-  still counts as manual for autonomy metrics even when the lifecycle authorizes it.
-- Product answers, approvals, reviewer feedback, and shared platform provisioning
-  completed outside the slice lineage before eligibility are separately categorized
-  human governance. Slice-specific or post-eligibility environment/infrastructure
-  provisioning is manual engineering intervention, not hidden as governance.
+- Manual engineering intervention means a human directly changes code, tests,
+  configuration, deployment/environment/traffic state, or a release artifact, **or**
+  executes or interprets an acceptance test, verification check, technical evidence
+  procedure, repair, deployment, or rollback step for the slice. Planned operator work
+  and an approved manual evidence procedure still count for autonomy metrics even when
+  the lifecycle authorizes them.
+- Product answers, candidate-bound approvals, formal review analysis/feedback, and
+  shared platform provisioning completed outside the slice lineage before eligibility
+  are separately categorized human governance. Merely reading existing evidence to
+  make an approval or review decision does not count; executing a test/check, creating
+  or manually interpreting a technical evidence result as its acceptance oracle, or
+  mutating the candidate/environment does. Slice-specific or post-eligibility
+  environment/infrastructure provisioning is manual engineering intervention, not
+  hidden as governance.
 - Zero task/file permission violation, unapproved product change, self-approval,
   force-push, unapproved merge, or production action.
 - Repair attempts and specialist selection remain within approved bounds.
