@@ -419,10 +419,10 @@
     }
   ],
   "review": {
-    "status": "twenty_eighth_review_corrections_complete_local_rereview_pending",
+    "status": "twenty_ninth_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 112,
-    "findings_resolved": 112,
+    "findings_identified": 115,
+    "findings_resolved": 115,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -450,10 +450,11 @@
     "twenty_third_reviewed_head_sha": "89ed67246c25cf910a107673c5941c26225bd035",
     "twenty_fourth_reviewed_head_sha": "ede283835b87d92ef6961040b061d03fd3ae4b8b",
     "twenty_fifth_reviewed_head_sha": "2663a8b92b07ea35137edb6b594bfac30db92e49",
-    "twenty_sixth_reviewed_head_sha": "01d6912ddb6a2ee2915056573292197abe329364",
+    "twenty_sixth_reviewed_head_sha": "01d69129f74c35195fad65b9f103f679d4e597b4",
     "twenty_seventh_reviewed_head_sha": "9f0ea2604677b5ad5a1740d206ed89482124c81d",
     "twenty_eighth_reviewed_head_sha": "3a12d608dd2673a68cddfe78194140dfaa792ecc",
-    "latest_reviewed_head_sha": "3a12d608dd2673a68cddfe78194140dfaa792ecc",
+    "twenty_ninth_reviewed_head_sha": "94c546ad8a948453521ddfc3c65356c84899280c",
+    "latest_reviewed_head_sha": "94c546ad8a948453521ddfc3c65356c84899280c",
     "findings": [
       {
         "id": "P1-01",
@@ -1238,6 +1239,27 @@
         "summary": "Carry a no-defect approval-reset classification through staging cleanup so an unchanged candidate with missing staging can return to PR_MERGED for a fresh deployment.",
         "location": "docs/TARGET-ARCHITECTURE.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-56",
+        "severity": "high",
+        "summary": "Route an eligible formal GitHub CHANGES_REQUESTED result from PR_READY through governed draft revocation, finding reconciliation, repair, verification, and fresh review.",
+        "location": "docs/TARGET-ARCHITECTURE.md and docs/ISSUE-AND-PR-GOVERNANCE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-58",
+        "severity": "medium",
+        "summary": "Measure manual engineering intervention separately over each North Star's fixed mature due cohort so pending slices cannot bias the denominator.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-59",
+        "severity": "medium",
+        "summary": "Replace the invalid twenty-sixth reviewed-head identifier with the exact commit SHA that exists in branch history.",
+        "location": "state/loop-state.json",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1307,7 +1329,9 @@
     "issues_65_68_69_73_twenty_seventh_review_scope_refined_at": "2026-07-28T20:08:23Z",
     "twenty_eighth_codex_review_completed_at": "2026-07-28T20:18:16Z",
     "issues_65_72_twenty_eighth_review_scope_refined_at": "2026-07-28T20:19:23Z",
-    "last_updated_at": "2026-07-28T20:19:23Z"
+    "twenty_ninth_codex_review_completed_at": "2026-07-28T20:27:16Z",
+    "issues_65_68_69_73_twenty_ninth_review_scope_refined_at": "2026-07-28T20:28:41Z",
+    "last_updated_at": "2026-07-28T20:28:41Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",

@@ -167,7 +167,7 @@ percentage.
 | Approved-contract-to-draft-PR time | elapsed from `CONTRACT_APPROVED` to qualifying draft PR | Down | Target after baseline; report p50/p95 |
 | Approved-contract-to-production time | elapsed to successful observation-window close | Down | Target after real production exists; p50/p95 |
 | Automated repair success rate | accepted engineering findings verified within budget / repairable accepted findings | Up | Guarded by regression and scope-violation metrics |
-| Manual engineering intervention rate | eligible slices with any manual engineering intervention as defined below / eligible slices | Down | Companion to both North Stars; planned manual technical evidence is included |
+| Manual engineering intervention rate | for each North Star: slices in that metric's fixed mature due cohort with any manual engineering intervention observed by `metric_due_at` / all slices in the same mature due cohort | Down | Report EADPR and VAPDR companions separately; planned manual technical evidence is included; not-yet-due slices are pending, not denominator members |
 | Review defect yield | credible findings before production / reviewed candidates | Interpret with escape rate | Never maximize alone |
 | Evidence completeness rate | present valid required evidence items / required evidence items | 100% | Hard readiness/completion gate |
 | Canary success rate | canaries promoted without breach / canaries started | Up | Not available until #72 |
@@ -175,6 +175,13 @@ percentage.
 | Escaped-defect rate | confirmed production defects / production releases or slices | Down | Severity segmented |
 | Contract-to-test compilation time/cost | elapsed and credits for compilation / compiled slice | Down within quality | Cost/latency diagnostic |
 | State dwell time | time in each non-terminal lifecycle state | Down where avoidable | Finds approval/infrastructure bottlenecks |
+
+The manual-intervention outcome is sealed separately for the EADPR and VAPDR due
+cohorts using the same approved `(window_start, reporting_cutoff]` predicate as its
+companion North Star. An intervention occurring after one metric's `metric_due_at` is
+reported as later activity for that cohort and may still count by the later metric's
+due time; it never retroactively changes a sealed rate except through a versioned
+invalid-evidence correction.
 
 ## Quality guardrails
 

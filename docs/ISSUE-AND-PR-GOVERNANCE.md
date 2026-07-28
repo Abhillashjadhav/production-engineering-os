@@ -239,7 +239,11 @@ failures and reproduced in the supported CI environment where possible.
    formal GitHub review from an eligible collaborator when one exists.
 9. Do not request a fabricated identity, self-approve, or claim a review without GitHub
    evidence.
-10. If corrections change the candidate, earlier approvals and exact-subject evidence
+10. A formal `CHANGES_REQUESTED` result revokes readiness through a governed
+    ready-to-draft action, records the formal findings, and re-enters reconciliation,
+    repair, exact-head verification, and advisory review before the PR can become ready
+    and request formal review again.
+11. If corrections change the candidate, earlier approvals and exact-subject evidence
     are stale unless repository policy explicitly and safely preserves them.
 
 The current automated PR-review workflow must not be treated as independent approval
@@ -274,6 +278,11 @@ approval from eligible collaborators. Those approvals, and any still-current req
 checks/evidence, are prerequisites for merge. Protected-environment approvals are
 acquired separately at their staging, canary, and production lifecycle gates, not as a
 prerequisite for leaving PR draft or merging code.
+
+A policy-required formal `CHANGES_REQUESTED` review blocks merge and triggers the
+governed return to draft. Accepted findings follow the fixer-independent repair and
+verification loop; a disposition without source changes still requires fresh advisory
+review/readiness evidence and a new current formal approval.
 
 Only an authorized maintainer may enqueue or authorize a merge through an enforced
 merge queue or compare-and-swap gate that atomically admits the unchanged reviewed PR
