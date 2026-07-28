@@ -40,9 +40,15 @@ code modification remains in the denominator. Eligibility is frozen only after
 approved adapter. Later architecture, canary, or exact-subject production approvals
 are outcome gates and never remove a slice from the denominator.
 
-The reporting window and product success targets require human approval. Until then,
-Phase 1 may calculate the metrics but must label target-dependent verdicts
-`TARGET_NOT_APPROVED`.
+The draft-PR evaluation window, production-delivery window, live observation window,
+reporting window, and product success targets require human approval. Until every
+window needed by a North Star is approved, its `metric_due_at` and due cohort are
+undefined: Phase 1 must emit `TARGET_NOT_APPROVED`, omit the numeric rate, and report
+only clearly labelled raw counts, pending inputs, and window-independent diagnostics.
+It must not substitute an agent-selected or retrospective window. A provisional
+baseline is permitted only after a named owner approves a separately versioned policy
+before the affected slices become eligible; provisional and target-policy series are
+never combined.
 
 Each North Star uses a versioned maturity policy fixed when eligibility is admitted.
 For EADPR, `metric_due_at` is `eligibility_at + approved draft-PR evaluation window`.
