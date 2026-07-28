@@ -263,10 +263,10 @@
     }
   ],
   "review": {
-    "status": "ninth_review_corrections_complete_local_rereview_pending",
+    "status": "tenth_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 46,
-    "findings_resolved": 46,
+    "findings_identified": 50,
+    "findings_resolved": 50,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -278,7 +278,8 @@
     "seventh_reviewed_head_sha": "3e5f547b2ec2f9dcd557181c36e2944b887fc7e0",
     "eighth_reviewed_head_sha": "4a7e35548078510dc38d3a8c8a9b4081de7a3676",
     "ninth_reviewed_head_sha": "c557e88489f01f50af5244ef2141b0e75fc1ff72",
-    "latest_reviewed_head_sha": "c557e88489f01f50af5244ef2141b0e75fc1ff72",
+    "tenth_reviewed_head_sha": "7cae6e60eeefce38014cfa3eb304fafc3ec8ab2f",
+    "latest_reviewed_head_sha": "7cae6e60eeefce38014cfa3eb304fafc3ec8ab2f",
     "findings": [
       {
         "id": "P1-01",
@@ -601,6 +602,34 @@
         "summary": "Count each unique contract slice's initial submission once in first-pass validation rate.",
         "location": "docs/METRICS-AND-GATES.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-23",
+        "severity": "high",
+        "summary": "Require active or indeterminate canary/production exposure to fail through verified rollback before entering BLOCKED.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-24",
+        "severity": "high",
+        "summary": "Require freshness-bound active-canary and target revalidation before production, with a safe staging reset when canary proof is absent or stale.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-25",
+        "severity": "high",
+        "summary": "Atomically gate merge on the reviewed head/base/prospective tree through protected-branch merge queue or compare-and-swap admission.",
+        "location": "docs/TARGET-ARCHITECTURE.md and GitHub issue 69",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-25",
+        "severity": "medium",
+        "summary": "Route changed contract or repository inputs out of BLOCKED through explicit evidence-invalidation and re-admission transitions.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -633,7 +662,9 @@
     "seventh_codex_review_completed_at": "2026-07-28T17:06:26Z",
     "eighth_codex_review_completed_at": "2026-07-28T17:16:02Z",
     "ninth_codex_review_completed_at": "2026-07-28T17:22:21Z",
-    "last_updated_at": "2026-07-28T17:22:21Z"
+    "tenth_codex_review_completed_at": "2026-07-28T17:31:31Z",
+    "issue_69_atomic_merge_scope_refined_at": "2026-07-28T17:31:27Z",
+    "last_updated_at": "2026-07-28T17:31:31Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
