@@ -45,7 +45,7 @@
     "threat_modelling": "present_only_as_documentation",
     "requirement_to_test_compilation": "partially_implemented",
     "test_before_code_enforcement": "partially_implemented",
-    "unit_testing": "implemented_and_verified",
+    "unit_testing": "implemented_but_insufficiently_tested",
     "integration_testing": "implemented_and_verified",
     "end_to_end_testing": "implemented_but_insufficiently_tested",
     "migration_testing": "absent",
@@ -79,8 +79,7 @@
       "owner": "repository_owner",
       "summary": "GitHub CLI credential is invalid in this environment; remote claims use the connected GitHub integration.",
       "blocks": [
-        "gh_cli_only_branch_protection_queries",
-        "local_codex_review_if_it_requires_gh_auth"
+        "gh_cli_only_branch_protection_queries"
       ],
       "resume_condition": "Authenticate gh with a valid, least-privilege credential."
     },
@@ -112,6 +111,15 @@
         "local_full_stack_verification"
       ],
       "resume_condition": "Use the supported CI runner or provision the pinned local toolchain."
+    },
+    {
+      "id": "B-005",
+      "owner": "repository_owner",
+      "summary": "GitHub Actions CI run 30377528370 on reviewed head 1e052cee3d269aa830ced3d05c0d626779921fa0 failed before job-step execution: nine jobs failed, one was cancelled, step arrays were empty, and logs were unavailable.",
+      "blocks": [
+        "exact_head_ci_verification"
+      ],
+      "resume_condition": "Restore GitHub Actions runner/account availability and rerun CI on the current exact PR head."
     }
   ],
   "github": {
@@ -214,11 +222,11 @@
     },
     {
       "name": "web_backend_pytest",
-      "command": "pytest -q",
+      "command": "PYTHONPATH=src pytest -q",
       "working_directory": "products/pm-evals-web/backend",
       "environment": "macOS host, Python 3.14",
       "result": "84_passed_1_version_sensitive_json_failure",
-      "notes": "CI declares Python 3.11; Python 3.14 accepts the deeply nested input then the API correctly rejects its non-object shape."
+      "notes": "The backend declares Python >=3.11, so 3.14 is currently supported. Python 3.14 accepts the deeply nested input then the API correctly rejects its non-object shape, producing a different assertion message; CI covers only 3.11."
     },
     {
       "name": "web_backend_mypy",
@@ -244,19 +252,26 @@
       "command": "pip-audit --require-hashes -r requirements.lock --strict",
       "working_directory": "products/pm-evals-web/backend",
       "result": "passed"
+    },
+    {
+      "name": "github_actions_pr_ci",
+      "command": "GitHub Actions ci run 30377528370 for commit 1e052cee3d269aa830ced3d05c0d626779921fa0",
+      "result": "infrastructure_failure_before_steps",
+      "notes": "Nine jobs failed, one was cancelled, no job exposed any steps, and logs were unavailable. PR Review Agent run 30377528156 was skipped because PR #75 remains draft."
     }
   ],
   "review": {
-    "status": "third_review_corrections_complete_rereview_pending",
+    "status": "fourth_review_corrections_complete_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 24,
-    "findings_resolved": 24,
+    "findings_identified": 28,
+    "findings_resolved": 28,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
     "second_reviewed_head_sha": "cf6a75052909647087cbab826ea8d9e0cec4d6a1",
     "third_reviewed_head_sha": "d18cdc02175bf80719c5f1ffbd3f66b82b373f12",
-    "latest_reviewed_head_sha": "d18cdc02175bf80719c5f1ffbd3f66b82b373f12",
+    "fourth_reviewed_head_sha": "1e052cee3d269aa830ced3d05c0d626779921fa0",
+    "latest_reviewed_head_sha": "1e052cee3d269aa830ced3d05c0d626779921fa0",
     "findings": [
       {
         "id": "P1-01",
@@ -425,6 +440,34 @@
         "summary": "Add a disposition-only exit from REVIEW_FAILED without fabricating a no-op repair.",
         "location": "docs/TARGET-ARCHITECTURE.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-14",
+        "severity": "high",
+        "summary": "Add fail-safe canary rollback while production approval is pending.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-12",
+        "severity": "medium",
+        "summary": "Disposition existing draft PRs, issues, branches, and worktrees before resetting product intake.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-13",
+        "severity": "medium",
+        "summary": "Treat Python 3.14 as supported under the backend's current >=3.11 declaration and downgrade unit-test classification.",
+        "location": "docs/CURRENT-CAPABILITY-AUDIT.md and state/loop-state.json",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-14",
+        "severity": "medium",
+        "summary": "Use one named severity scale for escaped defects and define numeric import normalization.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -445,7 +488,10 @@
     "third_codex_review_completed_at": "2026-07-28T16:14:11Z",
     "issues_64_68_70_review_scope_refined_at": "2026-07-28T16:15:25Z",
     "issues_65_72_review_scope_refined_at": "2026-07-28T16:16:02Z",
-    "last_updated_at": "2026-07-28T16:16:02Z"
+    "fourth_codex_review_completed_at": "2026-07-28T16:25:04Z",
+    "issues_65_68_69_72_review_scope_refined_at": "2026-07-28T16:26:39Z",
+    "github_actions_run_30377528370_observed_at": "2026-07-28T16:27:12Z",
+    "last_updated_at": "2026-07-28T16:27:12Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",

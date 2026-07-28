@@ -56,7 +56,7 @@ Numerator conditions:
 4. required SLO and product guardrail window passes;
 5. EvidenceBundle completeness is 100%;
 6. no manual code/test/config modification or unplanned engineering intervention;
-7. no false-DONE event, unplanned rollback, or severity-0/1 escaped defect in the
+7. no false-DONE event, unplanned rollback, or Critical/High escaped defect in the
    observation window.
 
 Product decisions and named approvals are expected human governance and do not count
@@ -217,7 +217,7 @@ false-DONE rate =
   all completion/readiness claims
 ```
 
-Target and hard guardrail: **0%**. Any nonzero result is a severity-0 process defect,
+Target and hard guardrail: **0%**. Any nonzero result is a Critical process defect,
 sets the affected release to `BLOCKED` or rollback flow, and requires a planted
 regression test before the incident can close.
 
@@ -248,9 +248,12 @@ escaped-defect rate =
 ```
 
 Segment by severity, detection source, originating requirement, missing/failed gate,
-and time to detection. Hard guardrails: zero severity-0/1 escaped defects in the
-North-Star observation window and zero known unrecorded escape. Lower-severity target
-requires a baseline.
+and time to detection. The canonical release severity vocabulary is the governance
+scale **Critical, High, Medium, Low**. Imported `Sev-0` records normalize to Critical
+and `Sev-1` to High; other numeric scales require an approved versioned mapping before
+admission. Hard guardrails: zero Critical/High escaped defects in the North-Star
+observation window and zero known unrecorded escape. Lower-severity target requires a
+baseline.
 
 ## Gate sequence
 

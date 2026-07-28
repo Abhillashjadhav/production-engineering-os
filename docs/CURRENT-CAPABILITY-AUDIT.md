@@ -82,7 +82,7 @@ These primitives should be composed and hardened, not rebuilt.
 | Threat modelling | **4 — Present only as documentation** | `docs/v3/threat-model.md` and product-specific threat documents exist; no per-run required/admitted ThreatModel artifact. | #66 |
 | Requirement-to-test compilation | **3 — Partially implemented** | V1 templates map requirements for one stack; V2 plans require only a textual behavioral test. V3 has product-specific suites. | [#67](https://github.com/Abhillashjadhav/production-engineering-os/issues/67) |
 | Test-before-code enforcement | **3 — Partially implemented** | V1 `confirm_red` enforces ordering. V2 ledger emits `task_tests` immediately before `task_implementation` from one submitted result, not an independently admitted generalized test plan. | #67 |
-| Unit testing | **1 — Implemented and verified** | 450 core tests collected; 449 passed locally, with one macOS path-canonicalization failure. Web backend has 85 tests; 84 passed on unsupported Python 3.14. | Reuse |
+| Unit testing | **2 — Implemented but insufficiently tested** | 450 core tests collected; 449 passed locally, with one macOS path-canonicalization failure. The web backend has 85 tests and declares Python `>=3.11`, but only 84 pass on the therefore-supported Python 3.14 target; CI covers only 3.11. | Reuse; supported-version policy/matrix in #69 |
 | Integration testing | **1 — Implemented and verified** | Core integration suite, git/worktree, generated API, run-engine, and full-stack orchestration tests exist; loopback tests passed outside the sandbox. | Reuse/extend #67 |
 | End-to-end testing | **2 — Implemented but insufficiently tested** | Core E2E paths executed in the full suite. Playwright sources cover journeys/a11y/keyboard/responsive, but Node/Chromium were unavailable locally and current-commit CI evidence was not observable. | #67/#69 |
 | Migration testing | **5 — Absent** | No generalized schema/data migration verifier or release gate. | #67/#71/#72 |
@@ -132,7 +132,8 @@ These primitives should be composed and hardened, not rebuilt.
 | Web backend Ruff with current allowed version | FAIL — eight findings, proving the unbounded `ruff>=0.4` lower-bound policy is not reproducible |
 | Web backend hash-locked dependency audit | PASS — no known vulnerabilities |
 | Frontend/unit/build, Playwright, container preview | **Blocked by infrastructure** — Node, npm, Docker, and Chromium are not installed in this environment |
-| Active GitHub branch protection, Actions results at current main SHA | **Blocked by tooling/permissions** — connected app lacks these reads; local `gh` token is invalid |
+| Active GitHub branch protection | **Blocked by tooling/permissions** — the available connector does not expose rulesets/protection and local `gh` authentication is invalid |
+| PR Actions on reviewed head `1e052cee…` | **Infrastructure failure** — `ci` run 30377528370 completed failure: nine jobs failed and one was cancelled before any job step; step arrays were empty and logs were unavailable. Draft-only `PR Review Agent` run 30377528156 was correctly skipped. |
 | Formal reviews on sampled PRs #51/#59 | No formal reviews returned |
 
 ## Key gaps and unsafe assumptions
@@ -175,7 +176,8 @@ These primitives should be composed and hardened, not rebuilt.
   (documented limitation).
 - Five specialist profile names are vocabulary without agent definitions.
 - The 63 pre-existing remote branch refs create active/abandoned-work ambiguity.
-- Product backend declares Python `>=3.11` while CI verifies only 3.11.
+- Product backend declares Python `>=3.11`, fails one test on Python 3.14, and CI
+  verifies only 3.11; support must be capped or the supported-version matrix made green.
 
 ## Blockers requiring human or external input
 
@@ -187,3 +189,6 @@ These primitives should be composed and hardened, not rebuilt.
 - PM Agent OS bundle transport and the approved Guided Mode UX.
 - GitHub branch protection/ruleset and security-feature state until authenticated
   GitHub administration metadata is observable.
+- GitHub Actions runner/account infrastructure: the observed PR CI run failed every
+  started job before step execution and exposed no job logs, so current-head CI cannot
+  be treated as code/test evidence.
