@@ -432,10 +432,10 @@
     }
   ],
   "review": {
-    "status": "thirty_second_review_corrections_complete_local_rereview_pending",
+    "status": "thirty_third_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 123,
-    "findings_resolved": 123,
+    "findings_identified": 125,
+    "findings_resolved": 125,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -470,7 +470,8 @@
     "thirtieth_reviewed_head_sha": "7f467a0d43e6e40d1b197339a845012ac2815475",
     "thirty_first_reviewed_head_sha": "f215e0d370d9d5d20718380fd0a757e1ec2a0843",
     "thirty_second_reviewed_head_sha": "b5b77600697f3b3e284434f646e56d3af9939f6a",
-    "latest_reviewed_head_sha": "b5b77600697f3b3e284434f646e56d3af9939f6a",
+    "thirty_third_reviewed_head_sha": "db65bb9fde7391ba87a3f0eecf7ddaf1b656e740",
+    "latest_reviewed_head_sha": "db65bb9fde7391ba87a3f0eecf7ddaf1b656e740",
     "findings": [
       {
         "id": "P1-01",
@@ -1332,6 +1333,20 @@
         "summary": "Correct the historical secret-scan scope and add a no-ignore scan that covers ignored workspace paths.",
         "location": "state/loop-state.json",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-63",
+        "severity": "high",
+        "summary": "Fence canary authorization through every rollout mutation and final state admission, with mid-rollout invalidation forcing rollback.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-62",
+        "severity": "medium",
+        "summary": "Route deterministic pre-mutation production adapter failures through pre-journaled canary teardown instead of stranding active exposure.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1410,7 +1425,9 @@
     "thirty_second_codex_review_completed_at": "2026-07-28T21:01:16Z",
     "full_workspace_secret_scan_completed_at": "2026-07-28T21:01:16Z",
     "issues_65_68_70_72_thirty_second_review_scope_refined_at": "2026-07-28T21:03:17Z",
-    "last_updated_at": "2026-07-28T21:03:17Z"
+    "thirty_third_codex_review_completed_at": "2026-07-28T21:12:56Z",
+    "issue_72_thirty_third_review_scope_refined_at": "2026-07-28T21:13:29Z",
+    "last_updated_at": "2026-07-28T21:13:29Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
