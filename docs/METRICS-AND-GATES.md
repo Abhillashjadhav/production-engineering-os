@@ -82,8 +82,8 @@ every period while keeping unfinished future cohorts visible.
 > Percentage of eligible approved contract slices that reach production, meet every
 > acceptance criterion and required SLO/guardrail through the approved observation
 > window, carry a complete exact-subject EvidenceBundle, and require no manual code,
-> test, configuration, deployment/environment mutation, or unplanned engineering
-> modification.
+> test, configuration, deployment/environment mutation, technical evidence execution,
+> or other planned or unplanned manual engineering intervention as defined below.
 
 ```text
 VAPDR =

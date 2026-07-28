@@ -419,10 +419,10 @@
     }
   ],
   "review": {
-    "status": "twenty_fifth_review_corrections_complete_local_rereview_pending",
+    "status": "twenty_sixth_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 105,
-    "findings_resolved": 105,
+    "findings_identified": 108,
+    "findings_resolved": 108,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -450,7 +450,8 @@
     "twenty_third_reviewed_head_sha": "89ed67246c25cf910a107673c5941c26225bd035",
     "twenty_fourth_reviewed_head_sha": "ede283835b87d92ef6961040b061d03fd3ae4b8b",
     "twenty_fifth_reviewed_head_sha": "2663a8b92b07ea35137edb6b594bfac30db92e49",
-    "latest_reviewed_head_sha": "2663a8b92b07ea35137edb6b594bfac30db92e49",
+    "twenty_sixth_reviewed_head_sha": "01d6912ddb6a2ee2915056573292197abe329364",
+    "latest_reviewed_head_sha": "01d6912ddb6a2ee2915056573292197abe329364",
     "findings": [
       {
         "id": "P1-01",
@@ -1186,6 +1187,27 @@
         "summary": "Use the complete autonomy-guardrail definition for planned and unplanned manual technical operations in the product-decision record.",
         "location": "docs/PRODUCT-DECISIONS-AND-TRADEOFFS.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-51",
+        "severity": "high",
+        "summary": "Add pre-journaled governance-stop rollback transitions after healthy canary or production exposure without fabricating failure evidence.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-52",
+        "severity": "high",
+        "summary": "Carry no-defect rollback classification through staging cleanup so an unchanged admissible artifact can redeploy from PR_MERGED.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-56",
+        "severity": "medium",
+        "summary": "Scope zero-exposure predicates to candidate-rollout staging, canary, and changed-production resources while preserving the active last-known-good deployment.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1249,7 +1271,9 @@
     "issues_60_65_68_71_72_73_twenty_fourth_review_scope_refined_at": "2026-07-28T19:43:22Z",
     "twenty_fifth_codex_review_completed_at": "2026-07-28T19:51:00Z",
     "issues_65_68_71_72_twenty_fifth_review_scope_refined_at": "2026-07-28T19:51:56Z",
-    "last_updated_at": "2026-07-28T19:51:56Z"
+    "twenty_sixth_codex_review_completed_at": "2026-07-28T19:59:53Z",
+    "issues_65_71_72_twenty_sixth_review_scope_refined_at": "2026-07-28T20:01:02Z",
+    "last_updated_at": "2026-07-28T20:01:02Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
