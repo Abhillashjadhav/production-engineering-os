@@ -197,13 +197,17 @@ the outcome unreviewable, revise the issue boundary before proceeding.
 ## Next issue
 - #...
 
-Closes #<primary-issue>
+Closes #<primary-issue> <!-- only when merge itself satisfies the full definition of done -->
 Tracks #<umbrella-issue>
 ```
 
 The title uses a clear outcome-oriented prefix. PRs start in draft and remain draft until
-all required checks and review corrections pass. `Closes #...` is appropriate only for
-the primary issue; umbrella and related issues use non-closing links.
+all required checks and review corrections pass. Every PR references its primary issue,
+but `Closes #...` is used only when merging that PR satisfies the issue's entire
+definition of done. If staging, canary, production, an observation window, or another
+post-merge gate remains, use a non-closing `Tracks #<primary-issue>`/`Relates to
+#<primary-issue>` reference and keep the issue open. Umbrella and related issues always
+use non-closing links.
 
 ## 8. Verification and evidence
 
@@ -272,8 +276,12 @@ Generic branch protection or a normal maintainer merge is insufficient; any bypa
 blocks deployment even when the resulting tree happens to match. Phase 0 explicitly
 stays draft and unmerged until the user directs otherwise.
 
-Close the primary issue through the merged PR only after its definition of done is
-satisfied. Do not close the umbrella until all child outcomes are complete and the
+Close the primary issue through the merged PR only when merge itself satisfies its
+definition of done. When its definition depends on post-merge staging, canary,
+production, observation, rollback-drill, or feedback evidence, the PR must use a
+non-closing issue reference; keep the issue open until those exact-subject gates pass,
+then an eligible owner or governed automation closes it with the sealed evidence
+reference. Do not close the umbrella until all child outcomes are complete and the
 end-state metrics and evidence support completion. Reopen an issue when its acceptance
 evidence is invalidated or the delivered capability materially fails its definition.
 

@@ -419,10 +419,10 @@
     }
   ],
   "review": {
-    "status": "twenty_third_review_corrections_complete_local_rereview_pending",
+    "status": "twenty_fourth_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 97,
-    "findings_resolved": 97,
+    "findings_identified": 100,
+    "findings_resolved": 100,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -448,7 +448,8 @@
     "twenty_first_reviewed_head_sha": "4d1bc7515e17405e86d37677a36899693e2b7349",
     "twenty_second_reviewed_head_sha": "5b2528322343b09f240f61e16a652139aff0fd0f",
     "twenty_third_reviewed_head_sha": "89ed67246c25cf910a107673c5941c26225bd035",
-    "latest_reviewed_head_sha": "89ed67246c25cf910a107673c5941c26225bd035",
+    "twenty_fourth_reviewed_head_sha": "ede283835b87d92ef6961040b061d03fd3ae4b8b",
+    "latest_reviewed_head_sha": "ede283835b87d92ef6961040b061d03fd3ae4b8b",
     "findings": [
       {
         "id": "P1-01",
@@ -1128,6 +1129,27 @@
         "summary": "Suppress numeric North Star rates until every required cohort window has an approved versioned policy.",
         "location": "docs/METRICS-AND-GATES.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-47",
+        "severity": "high",
+        "summary": "Admit inactive or stale canary approval-revocation evidence and deterministic no-resource reconciliation into the staging-cleanup transition.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-48",
+        "severity": "high",
+        "summary": "Tear down any surviving staging deployment under reserved safety budget before a rolled-back run enters BUDGET_EXCEEDED.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-52",
+        "severity": "medium",
+        "summary": "Use a non-closing primary-issue reference when post-merge gates are required and close only after sealed definition-of-done evidence exists.",
+        "location": "docs/ISSUE-AND-PR-GOVERNANCE.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1187,7 +1209,9 @@
     "issues_65_69_71_72_73_twenty_second_review_scope_refined_at": "2026-07-28T19:22:36Z",
     "twenty_third_codex_review_completed_at": "2026-07-28T19:30:36Z",
     "issues_65_71_72_73_twenty_third_review_scope_refined_at": "2026-07-28T19:31:58Z",
-    "last_updated_at": "2026-07-28T19:31:58Z"
+    "twenty_fourth_codex_review_completed_at": "2026-07-28T19:42:00Z",
+    "issues_60_65_68_71_72_73_twenty_fourth_review_scope_refined_at": "2026-07-28T19:43:22Z",
+    "last_updated_at": "2026-07-28T19:43:22Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
