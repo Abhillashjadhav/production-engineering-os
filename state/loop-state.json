@@ -419,10 +419,10 @@
     }
   ],
   "review": {
-    "status": "twenty_fourth_review_corrections_complete_local_rereview_pending",
+    "status": "twenty_fifth_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 100,
-    "findings_resolved": 100,
+    "findings_identified": 105,
+    "findings_resolved": 105,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -449,7 +449,8 @@
     "twenty_second_reviewed_head_sha": "5b2528322343b09f240f61e16a652139aff0fd0f",
     "twenty_third_reviewed_head_sha": "89ed67246c25cf910a107673c5941c26225bd035",
     "twenty_fourth_reviewed_head_sha": "ede283835b87d92ef6961040b061d03fd3ae4b8b",
-    "latest_reviewed_head_sha": "ede283835b87d92ef6961040b061d03fd3ae4b8b",
+    "twenty_fifth_reviewed_head_sha": "2663a8b92b07ea35137edb6b594bfac30db92e49",
+    "latest_reviewed_head_sha": "2663a8b92b07ea35137edb6b594bfac30db92e49",
     "findings": [
       {
         "id": "P1-01",
@@ -1150,6 +1151,41 @@
         "summary": "Use a non-closing primary-issue reference when post-merge gates are required and close only after sealed definition-of-done evidence exists.",
         "location": "docs/ISSUE-AND-PR-GOVERNANCE.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-49",
+        "severity": "high",
+        "summary": "Resume budget-exceeded runs from their recorded safe post-cleanup or post-rollback state rather than the pre-cleanup interrupted state.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-50",
+        "severity": "high",
+        "summary": "Add a post-cleanup PR_MERGED redeployment path for freshness-only staging expiry with an unchanged admissible artifact.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-53",
+        "severity": "medium",
+        "summary": "Route post-merge product or contract changes from staging failure and verified rollback through PRODUCT_INPUT_REQUIRED and contract intake.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-54",
+        "severity": "medium",
+        "summary": "Scope budget-stop zero-exposure proof to staging, canary, and changed-production resources owned by the failed rollout while the restored last-known-good remains monitored.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-55",
+        "severity": "medium",
+        "summary": "Use the complete autonomy-guardrail definition for planned and unplanned manual technical operations in the product-decision record.",
+        "location": "docs/PRODUCT-DECISIONS-AND-TRADEOFFS.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1211,7 +1247,9 @@
     "issues_65_71_72_73_twenty_third_review_scope_refined_at": "2026-07-28T19:31:58Z",
     "twenty_fourth_codex_review_completed_at": "2026-07-28T19:42:00Z",
     "issues_60_65_68_71_72_73_twenty_fourth_review_scope_refined_at": "2026-07-28T19:43:22Z",
-    "last_updated_at": "2026-07-28T19:43:22Z"
+    "twenty_fifth_codex_review_completed_at": "2026-07-28T19:51:00Z",
+    "issues_65_68_71_72_twenty_fifth_review_scope_refined_at": "2026-07-28T19:51:56Z",
+    "last_updated_at": "2026-07-28T19:51:56Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
