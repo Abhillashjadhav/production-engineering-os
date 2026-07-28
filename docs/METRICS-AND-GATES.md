@@ -171,8 +171,10 @@ values are product/operations inputs and remain unresolved.
 
 - Every run and stage has approved token/credit, elapsed-time, external-compute, and
   repair-attempt budgets.
-- A budget breach transitions to `BUDGET_EXCEEDED`; it cannot be converted to PASS by
-  a model summary.
+- A delivery-budget breach transitions to `BUDGET_EXCEEDED` only when no active
+  production exposure exists. With active canary/production exposure it first consumes
+  the reserved safety budget to monitor, abort, and roll back, then stops; a model
+  summary can never convert a breach to PASS.
 - Fast mode never changes test/review/security/deployment gates.
 - Report cost per eligible slice, qualifying draft PR, verified production slice, and
   failed/blocked terminal outcome.

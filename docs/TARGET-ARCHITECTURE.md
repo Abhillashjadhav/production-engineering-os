@@ -85,7 +85,7 @@ an untrusted proposal until a deterministic admission rule accepts it.
 
 | Component | Responsibility | Existing foundation | Target addition |
 |---|---|---|---|
-| Repository intelligence | Exact-SHA read-only normalized snapshot | arbitrary V2 assessment | deterministic scanners/adapters (#64) |
+| Repository intelligence | Exact-SHA read-only normalized content snapshot plus separately versioned governance observation | arbitrary V2 assessment | deterministic scanners/adapters (#64) |
 | Architecture compiler | Components, boundaries, ADRs, threats, deployment/observe/rollback design | V1 templates, V2 architect | admitted ArchitecturePack (#66) |
 | Test compiler | Requirements/criteria/risks/guardrails to executable evidence nodes | V1 stack templates, executed traceability | generalized TestPlan and meaningful-red gate (#67) |
 | Specialist router | Minimum capable roster | V2 router | five missing profiles and runtime worktree spawning (#68) |
@@ -134,12 +134,14 @@ flowchart TB
     C --> A[ArchitecturePack digest]
     R --> A
     A --> T[TestPlan digest]
-    T --> S[Source commit/tree digest]
-    S --> B[Build artifact + SBOM digest]
+    T --> H[Frozen PR head/source SHA]
+    H --> B[Build artifact + SBOM digest]
     B --> V[Verification result digests]
+    H --> RV[Review/finding digests]
     V --> RV[Review/finding digests]
-    RV --> PR[Draft PR head SHA]
-    PR --> D[Deployment/config/target digests]
+    H --> M[Observed merge event + merge SHA]
+    RV --> M
+    M --> D[Deployment/config/target digests]
     D --> O[Observation/SLO window digest]
     O --> E[Sealed EvidenceBundle]
 ```
@@ -280,26 +282,34 @@ owner; **SO** security/operations owner; **HA** explicit human approval.
 | `REVIEW_REQUIRED → REVIEW_FAILED` | Frozen candidate and required reviewer roster | Read-only proofs, exact candidate reviews, credible findings | Independent reviewers analyze only | Critical/high/credible-medium or integrity failure blocks. No reviewer fix. | Finding decisions by owner |
 | `REVIEW_FAILED → REPAIR_IN_PROGRESS` | Reconciled accepted engineering findings and budget | Decisions/reasons, fixer scope, PCRs for product findings | CP authorizes fixer | Undecided/product findings remain failed/input-required; stale candidate forbidden. | Yes for non-mechanical decisions |
 | `REVIEW_FAILED → PRODUCT_INPUT_REQUIRED` | Product-decision finding | PCR linked to contract/requirements | PM decides; CP does not fix | Superseding contract returns to contract intake and invalidates downstream. | Yes |
+| `REVIEW_FAILED → REVIEW_REQUIRED` | Every blocking finding is dispositioned without a source change | Unchanged candidate digest, authorized `rejected-with-reason` records, independent disposition validation, and no unresolved finding | CP reopens readiness evaluation on the same frozen candidate; reviewers do not create a no-op repair | Missing authority/evidence or any accepted finding stays failed and uses repair/input-required. | Finding owner; independent validation |
 | `REVIEW_REQUIRED → PR_READY` | Existing draft PR, all reviews complete, and blocking findings resolved | Exact-SHA sealed candidate-review EvidenceBundle, atomicity/issue/PR metadata, checks, and formal review when required | CP records readiness on the existing draft; it does not create, approve, undraft, or merge it | Missing review/check/evidence remains review-required; no self-approval/merge. | Formal review if repository policy requires |
 | `PR_READY → PR_MERGED` | Existing draft PR marked ready by an authorized maintainer after all policies pass | GitHub-recorded exact head, required checks/approvals, merge actor/time/method/SHA, and primary issue linkage | Eligible maintainer marks ready and merges; CP only observes and validates | Changed head or missing check/review returns to review-required; rejected/closed PR → `BLOCKED`. | Yes |
 | `PR_MERGED → STAGING_DEPLOYED` | Approved staging action and immutable artifact/config built from merged source | Merge/head/artifact parity plus real environment deployment ID and digest match | Deployment adapter deploys only | Adapter/infrastructure/check failure → `STAGING_FAILED`; teardown/rollback. | Per environment policy |
 | `PR_MERGED → STAGING_FAILED` | Staging attempt using merged artifact | Failed deploy/check and cleanup evidence | CP records failure only | Candidate repair requires a new issue/PR; infrastructure failure blocks; no canary. | No |
-| `STAGING_FAILED → TEST_PLAN_CREATED` | Accepted code/config defect within approved product scope | Failure mechanism, staging teardown, new defect issue, updated coverage matrix, and meaningful-red reproduction requirement | Test compiler creates a superseding TestPlan; validation is mandatory before a new implementation plan/branch/PR | Product change → input-required; architecture change → architecture proposal; infrastructure-only problem → blocked. | Owner for classification |
+| `STAGING_FAILED → REPOSITORY_ANALYSED` | Accepted code/config defect within approved product scope and a new remediation run | Failure mechanism, staging teardown, new defect issue, current target-branch SHA, and fresh exact-SHA RepositorySnapshot | Repository intelligence re-admits the changed upstream repository before architecture and TestPlan generation | Product change → contract input; infrastructure-only problem → blocked. Architecture must be reproposed/re-admitted even when the decision is “unchanged.” | Owner for classification |
 | `STAGING_FAILED → BLOCKED` | Missing/broken infrastructure or failed cleanup | Blocker/owner/environment state | CP stops and protects environment | Human resolves; resume at staging with same exact artifact or reverify changed one. | Often SO |
 | `STAGING_DEPLOYED → CANARY_DEPLOYED` | Staging pass, canary authorization, policy | Staging EvidenceBundle, bounded cohort/traffic/window, rollback readiness | Traffic/deploy adapter exposes canary only | Failure to deploy or any guardrail breach → `CANARY_FAILED`. | Per approved canary policy |
 | `CANARY_DEPLOYED → CANARY_FAILED` | Canary telemetry window | Exact deploy, SLO/guardrail breach and detection evidence | CP aborts promotion and starts rollback | Immediate rollback; no averaging away critical breach. | No |
 | `CANARY_FAILED → ROLLBACK_IN_PROGRESS` | Abort decision and rollback subject | Last-known-good/migration compatibility/runbook | Rollback adapter executes only | Rollback failure → `BLOCKED` with incident escalation. | No; pre-authorized emergency action |
 | `CANARY_DEPLOYED → PRODUCTION_APPROVAL_REQUIRED` | Successful complete canary window | All canary gates, no unresolved findings, exact subjects | CP requests named production approval | No approval means wait/expire; canary remains bounded or is removed by policy. | Yes |
-| `PRODUCTION_APPROVAL_REQUIRED → PRODUCTION_DEPLOYED` | Named approval bound to merged source, artifact/config/migration/target/policy | GitHub merge/head/SHA, approval identity/time/reason/digests, and protected-environment authorization | Production adapter progressively promotes only the merge-bound immutable artifact | Unmerged, stale, mismatched, or expired subject is refused; no deployment. | Yes |
+| `PRODUCTION_APPROVAL_REQUIRED → PRODUCTION_DEPLOYED` | Named approval bound to merged source, artifact/config/migration/target/policy | GitHub merge/head/SHA, approval identity/time/reason/digests, protected-environment authorization, and successful complete DeploymentResult | Production adapter progressively promotes only the merge-bound immutable artifact while CP records each step | Unmerged, stale, mismatched, or expired subject is refused before mutation; after any mutation, adapter failure/interruption must use the rollback transition below. | Yes |
+| `PRODUCTION_APPROVAL_REQUIRED → ROLLBACK_IN_PROGRESS` | Production promotion started but failed or was interrupted after any traffic/instance/config/data mutation | Append-only DeploymentAttempt with completed/unknown steps, exact subjects, last-known-good, and rollback/migration plan | Independent watchdog/CP fails closed and invokes rollback; a missing final adapter response never implies success | Rollback failure → `BLOCKED` plus incident escalation; the run cannot remain approval-required or claim deployment. | No; pre-authorized emergency action |
 | `PRODUCTION_APPROVAL_REQUIRED → BLOCKED` | Rejection/expiry/missing approver | Decision/reason and safe canary teardown | CP stops promotion | No completion; resume needs new exact approval after revalidation. | Yes |
 | `PRODUCTION_DEPLOYED → LIVE_VERIFICATION_FAILED` | Live health/journey/SLO/business/privacy/security window | Runtime telemetry and exact deployment correlation | CP evaluates; no model verdict | Any hard breach/missing required signal starts rollback. | No |
 | `LIVE_VERIFICATION_FAILED → ROLLBACK_IN_PROGRESS` | Failed live gate | Failure, last-known-good, rollback/migration plan | Rollback adapter executes | Rollback failure → blocked/incident; never completed. | No |
 | `ROLLBACK_IN_PROGRESS → ROLLED_BACK` | Completed rollback | Service/data verification, RTO/RPO, traffic/config state, incident link | CP verifies restored state | Verification failure → blocked; continue incident response. | No |
-| `ROLLED_BACK → TEST_PLAN_CREATED` | Approved follow-up within original product scope/budget | Incident finding, new defect issue, updated coverage matrix, and meaningful-red reproduction requirement | Test compiler creates a superseding TestPlan; the new candidate must traverse validation, planning, issue/branch/draft PR, verification, and review | Product/architecture change → new contract/PCR or architecture proposal; merged history is never rewritten. | Owner decision |
+| `ROLLED_BACK → REPOSITORY_ANALYSED` | Approved follow-up within original product scope/budget and a new remediation run | Incident finding, new defect issue, current target-branch SHA, and fresh exact-SHA RepositorySnapshot | Repository intelligence re-admits the changed upstream repository; architecture and TestPlan are then reproposed and revalidated | Product change → new contract/PCR; infrastructure-only follow-up → blocked. Merged history is never rewritten. | Owner decision |
+| `ROLLED_BACK → BUDGET_EXCEEDED` | Rollback restored the last-known-good state but delivery budget is exhausted | Rollback verification, consumption ledger, stopped run, and resume conditions | CP stops non-safety work only | No new implementation/deployment until a named owner extends budget; restored production remains monitored under operations policy. | Budget extension requires named owner |
 | `PRODUCTION_DEPLOYED → COMPLETED` | Full observation window passed | Exact production subjects, acceptance/SLO/guardrail PASS, complete sealed EvidenceBundle, rollback readiness, OutcomeReport | CP alone records terminal completion | Missing/invalid/stale/model-only evidence routes to live-verification-failed or blocked. | Prior production approval already required |
 | `COMPLETED → LIVE_VERIFICATION_FAILED` | Post-completion evidence invalidation leaves active production safety, acceptance, or SLO conformance unproven | Original completion event/bundle, invalid item/subject, detection event, and incident link | Integrity monitor or CP appends revocation evidence and reopens the record; it never erases the original claim | Existing live-failure path starts rollback; no approval is needed to fail safe. | No |
 | `COMPLETED → BLOCKED` | Post-completion evidence invalidation with no active-production safety risk | Original completion event/bundle, invalid item/subject, safety assessment, incident, owner, and recorded resume gate | CP revokes terminal status append-only and blocks; resume must re-run the recorded gate and every downstream proof | Claim stays invalid until exact-subject evidence is rebuilt; no silent return to completed. | Owner for resume |
 
-Any non-terminal state may transition to `BLOCKED` for an external dependency or to
-`BUDGET_EXCEEDED` when its approved budget is exhausted. Both record the exact resume
-state; neither permits implementation, deployment, or completion while unresolved.
+Any non-terminal state may transition to `BLOCKED` for an external dependency. A state
+without active production exposure may transition to `BUDGET_EXCEEDED` when its approved
+delivery budget is exhausted. Mandatory monitoring, abort, rollback, and incident actions
+have a separately reserved safety budget and cannot be stopped by the delivery budget.
+While canary or production exposure is active, budget exhaustion is a hard guardrail
+breach: it routes through `CANARY_FAILED` or `LIVE_VERIFICATION_FAILED`, completes
+rollback, and only then may enter `BUDGET_EXCEEDED`. Both stopped states record the exact
+resume state; neither permits implementation, deployment, or completion while unresolved.

@@ -247,15 +247,16 @@
     }
   ],
   "review": {
-    "status": "corrections_complete_rereview_pending",
+    "status": "third_review_corrections_complete_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 16,
-    "findings_resolved": 16,
+    "findings_identified": 24,
+    "findings_resolved": 24,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
     "second_reviewed_head_sha": "cf6a75052909647087cbab826ea8d9e0cec4d6a1",
-    "latest_reviewed_head_sha": null,
+    "third_reviewed_head_sha": "d18cdc02175bf80719c5f1ffbd3f66b82b373f12",
+    "latest_reviewed_head_sha": "d18cdc02175bf80719c5f1ffbd3f66b82b373f12",
     "findings": [
       {
         "id": "P1-01",
@@ -368,6 +369,62 @@
         "summary": "Require superseding TestPlan creation and validation after staging or rollback defects.",
         "location": "docs/TARGET-ARCHITECTURE.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-08",
+        "severity": "high",
+        "summary": "Align issue 70 with the non-waivable critical/high security and privacy rule.",
+        "location": "docs/METRICS-AND-GATES.md and GitHub issue 70",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-09",
+        "severity": "high",
+        "summary": "Route failed or interrupted progressive production mutations directly into rollback.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-10",
+        "severity": "high",
+        "summary": "Reserve safety actions and roll back active exposure before delivery-budget stop.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-11",
+        "severity": "high",
+        "summary": "Reanalyze changed upstream repository state before post-merge remediation architecture and tests.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-12",
+        "severity": "high",
+        "summary": "Make the frozen PR head a review input and observed merge evidence a deployment prerequisite.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-13",
+        "severity": "high",
+        "summary": "Align issue 68 with draft-PR admission before implementation begins.",
+        "location": "docs/TARGET-ARCHITECTURE.md and GitHub issue 68",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-10",
+        "severity": "medium",
+        "summary": "Separate exact-SHA content snapshots from digest-bound mutable governance observations.",
+        "location": "docs/TARGET-ARCHITECTURE.md and GitHub issue 64",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-11",
+        "severity": "medium",
+        "summary": "Add a disposition-only exit from REVIEW_FAILED without fabricating a no-op repair.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -385,7 +442,10 @@
     "initial_codex_review_completed_at": "2026-07-28T15:53:32Z",
     "second_codex_review_completed_at": "2026-07-28T16:02:06Z",
     "issue_72_observability_scope_refined_at": "2026-07-28T16:03:28Z",
-    "last_updated_at": "2026-07-28T16:03:28Z"
+    "third_codex_review_completed_at": "2026-07-28T16:14:11Z",
+    "issues_64_68_70_review_scope_refined_at": "2026-07-28T16:15:25Z",
+    "issues_65_72_review_scope_refined_at": "2026-07-28T16:16:02Z",
+    "last_updated_at": "2026-07-28T16:16:02Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",

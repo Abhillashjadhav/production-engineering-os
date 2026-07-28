@@ -34,7 +34,7 @@ The classification vocabulary is:
 | Size and shape | 484 tracked files at audited commit: Python package (`src/pmpe`), 450 collected core tests, PM skills/agents, V3 web product, schemas, evals, docs, and two Actions workflows. |
 | Build systems | Root `setuptools`/`pyproject.toml`; web backend `setuptools`; frontend/e2e npm lockfiles; Dockerfiles and Compose preview. |
 | Runtime data | File-based run state, JSON/JSONL artifacts, local generated SQLite products; no PEOS service database. |
-| Remote activity | No open PRs and no pre-existing GitHub issues were returned by the connected GitHub app. Sixty-three remote branch refs other than the symbolic remote ref remain visible locally. |
+| Remote activity | No open PRs and no pre-existing GitHub issues were returned by the connected GitHub app. At audit start, 63 remote branch refs other than the symbolic remote ref were visible locally; the Phase 0 branch adds one. |
 | Divergent work | `origin/feature/github-portfolio-auditor-v1` is 6,158 added lines across 41 files beyond `origin/main`; PRs #53–#59 targeted that feature branch. It is not part of default-branch PEOS capability and was not folded into Phase 0. |
 | Governance history | PRs exist, but sampled PRs #51 and #59 have zero formal GitHub review submissions. “Independent review” was recorded as comments by the repository owner. |
 | Branch protection | Repository documentation recommends it; active GitHub branch-protection/ruleset state was not observable through the available connector, and local `gh` authentication is invalid. Classification: infrastructure/permission blocked. |
@@ -174,7 +174,7 @@ These primitives should be composed and hardened, not rebuilt.
 - Reviewer read-only snapshots do not detect newly created untracked files
   (documented limitation).
 - Five specialist profile names are vocabulary without agent definitions.
-- Sixty-three remote branch refs create active/abandoned-work ambiguity.
+- The 63 pre-existing remote branch refs create active/abandoned-work ambiguity.
 - Product backend declares Python `>=3.11` while CI verifies only 3.11.
 
 ## Blockers requiring human or external input
