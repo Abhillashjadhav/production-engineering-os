@@ -39,7 +39,8 @@ Phase 1 may calculate the metrics but must label target-dependent verdicts
 > Percentage of eligible approved contract slices that reach production, meet every
 > acceptance criterion and required SLO/guardrail through the approved observation
 > window, carry a complete exact-subject EvidenceBundle, and require no manual code,
-> test, configuration, or unplanned engineering modification.
+> test, configuration, deployment/environment mutation, or unplanned engineering
+> modification.
 
 ```text
 VAPDR =
@@ -214,12 +215,19 @@ budget.
 
 ```text
 false-DONE rate =
-  completion/readiness claims later proven to have any missing/invalid required
-  evidence, stale subject, failed gate, unmet criterion/SLO, unapproved action,
-  or unrecorded manual intervention
+  claims invalid when asserted, or left authoritative/used after their invalidation
+  deadline, because of missing/invalid evidence, a stale subject, failed gate,
+  unmet criterion/SLO, unapproved action, or unrecorded manual intervention
   ---------------------------------------------------------------------------
   all completion/readiness claims
 ```
+
+An append-only, fail-closed revocation of a claim that was valid when asserted—such
+as `PR_READY → REVIEW_REQUIRED` after the protected base advances—is correct behavior,
+not false-DONE, provided no downstream action uses the invalidated claim and revocation
+occurs within policy. Track normal readiness supersession/revocation rate and
+invalidation-detection latency separately. A claim used or left active past that
+deadline is false-DONE.
 
 Target and hard guardrail: **0%**. Any nonzero result is a Critical process defect,
 sets the affected release to `BLOCKED` or rollback flow, and requires a planted

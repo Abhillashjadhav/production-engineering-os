@@ -97,17 +97,24 @@ an untrusted proposal until a deterministic admission rule accepts it.
 
 ### Evidence plane
 
-The EvidenceBundle is a content-addressed manifest. Each item records:
+The EvidenceBundle is a content-addressed manifest with two deliberately separate
+layers:
 
-- evidence type and schema version;
-- producer identity and role;
-- command/tool/model/rule-set version;
-- subject commit/tree/artifact/config/environment/deployment digest;
-- input and output digests;
-- start/end time using explicit UTC event timestamps;
-- PASS/FAIL/BLOCKED/NOT_PROVEN result;
-- raw artifact reference, retention class, and redaction status;
-- supersedes/duplicate relationship.
+1. A replay-stable semantic claim records the evidence type/schema, producer role,
+   command/tool/model/rule-set versions, subject and input/output digests,
+   PASS/FAIL/BLOCKED/NOT_PROVEN result, raw-artifact digest, and versioned
+   retention/redaction policy. Its canonical semantic digest excludes run-instance
+   metadata.
+2. An append-only event envelope records producer instance identity, run/attempt ID,
+   explicit UTC start/end timestamps, raw-artifact location, and
+   supersedes/duplicate relationships. The envelope has its own audit digest and
+   references the semantic digest.
+
+A bundle's replay-stable digest is calculated from the sorted semantic member digests
+and stable subject/profile references. Audit envelopes are retained and integrity
+checked but do not change semantic replay equality merely because the same work ran
+later. Deterministic replay compares semantic, subject, input, and output digests;
+run-instance timestamps are expected to differ.
 
 Evidence completeness uses stage-specific profiles. Each checkpoint seals a new
 content-addressed EvidenceBundle that references and supersedes the prior stage bundle:
@@ -289,11 +296,12 @@ owner; **SO** security/operations owner; **HA** explicit human approval.
 | `PR_READY → REVIEW_REQUIRED` | PR head, protected base, or prospective merge tree changes before merge | New head/base/tree digests and invalidated check/review/evidence references | CP revokes readiness and requires verification/review of the new prospective merge result | No merge or staging while stale; unchanged evidence cannot be reused across the new tree. | Formal review when required |
 | `PR_READY → PR_MERGED` | Existing PR marked ready by an authorized maintainer with unchanged reviewed head/base/prospective tree | GitHub-recorded head/base, required checks/approvals, merge actor/time/method/SHA, actual merge-tree digest equal to the verified prospective tree, and primary issue linkage | Eligible maintainer merges; CP only observes and admits the exact merge result | Any pre-merge drift returns to review-required. An observed merge-tree mismatch uses the blocked transition below; it never deploys. | Yes |
 | `PR_READY → BLOCKED` | PR closed/rejected or GitHub records an external merge whose actual tree differs from the admitted prospective merge tree | GitHub event, expected/actual head/base/tree digests, governance incident, and remediation owner | CP blocks staging and records the externally mutated result; it cannot rewrite merged history | A new remediation issue/run must reanalyze the current target branch; no artifact from the mismatched merge is promoted. | Owner for remediation |
-| `PR_MERGED → STAGING_DEPLOYED` | Approved staging action and immutable artifact/config built from the verified prospective merge tree, with observed merge-tree equality | Merge head/base/actual-tree/prospective-tree/artifact parity plus real environment deployment ID and digest match | Deployment adapter deploys only | Adapter/infrastructure/check failure → `STAGING_FAILED`; any tree mismatch → `BLOCKED`; teardown/rollback. | Per environment policy |
-| `PR_MERGED → STAGING_FAILED` | Staging attempt using merged artifact | Failed deploy/check and cleanup evidence | CP records failure only | Candidate repair requires a new issue/PR; infrastructure failure blocks; no canary. | No |
+| `PR_MERGED → STAGING_DEPLOYED` | Approved staging action and immutable artifact/config built from the verified prospective merge tree, with observed merge-tree equality; CP has durably recorded an idempotency key and DeploymentAttempt before any environment mutation | Merge head/base/actual-tree/prospective-tree/artifact parity, pre-mutation attempt/target/step plan, successful DeploymentResult, real environment deployment ID, completed steps, and digest match | CP persists the attempt first; deployment adapter mutates staging idempotently and CP admits only its complete result | Adapter/infrastructure/check failure or missing/indeterminate response → `STAGING_FAILED`; any tree mismatch → `BLOCKED`; teardown/rollback. | Per environment policy |
+| `PR_MERGED → STAGING_FAILED` | Staging attempt failed, was interrupted, or has an indeterminate result before `STAGING_DEPLOYED` admission | Pre-mutation DeploymentAttempt/idempotency key, completed/unknown steps, exact subjects, failed/missing result, and verified cleanup/rollback evidence | Independent watchdog/CP fails closed, invokes idempotent cleanup/rollback for any completed or unknown mutation, then records failure | Candidate repair requires a new issue/PR; infrastructure failure blocks; cleanup that fails or remains indeterminate → `BLOCKED` plus incident escalation; no canary. | No; cleanup is pre-authorized |
 | `STAGING_FAILED → REPOSITORY_ANALYSED` | Accepted code/config defect within approved product scope and a new remediation run | Failure mechanism, staging teardown, new defect issue, current target-branch SHA, and fresh exact-SHA RepositorySnapshot | Repository intelligence re-admits the changed upstream repository before architecture and TestPlan generation | Product change → contract input; infrastructure-only problem → blocked. Architecture must be reproposed/re-admitted even when the decision is “unchanged.” | Owner for classification |
 | `STAGING_FAILED → BLOCKED` | Missing/broken infrastructure or failed cleanup | Blocker/owner/environment state | CP stops and protects environment | Human resolves; resume at staging with same exact artifact or reverify changed one. | Often SO |
-| `STAGING_DEPLOYED → CANARY_DEPLOYED` | Staging pass, canary authorization, policy, and a fully successful canary mutation | Staging EvidenceBundle, bounded cohort/traffic/window, rollback readiness, and append-only DeploymentAttempt/DeploymentResult for every traffic/instance/config/data mutation | Traffic/deploy adapter exposes canary only | A failure before any mutation remains staging-deployed; after any completed or unknown mutation, use the direct rollback transition below. | Per approved canary policy |
+| `STAGING_DEPLOYED → STAGING_FAILED` | Required pre-canary staging revalidation is stale, expired, unavailable, or fails | Versioned freshness policy/max age, current mutable environment/integration/migration/security snapshot, failed or missing revalidation results, and verified staging cleanup evidence | CP refuses canary and invokes the staging teardown/rollback adapter before recording failure | Active/unknown resources or failed cleanup → `BLOCKED`; code/config defect may use the existing remediation path; infrastructure failure uses the blocked path. | No; cleanup is pre-authorized |
+| `STAGING_DEPLOYED → CANARY_DEPLOYED` | Canary authorization and policy plus an immediate staging revalidation PASS within the approved freshness window and a fully successful canary mutation | Current staging EvidenceBundle and environment/integration/migration/security snapshot, freshness policy and evaluation time, bounded cohort/traffic/window, rollback readiness, and append-only DeploymentAttempt/DeploymentResult for every traffic/instance/config/data mutation | CP revalidates mutable staging state first; traffic/deploy adapter then exposes canary only | Failed/stale revalidation → `STAGING_FAILED`; a canary failure before any mutation remains staging-deployed; after any completed or unknown mutation, use the direct rollback transition below. | Per approved canary policy |
 | `STAGING_DEPLOYED → ROLLBACK_IN_PROGRESS` | Canary deployment failed or was interrupted after any traffic/instance/config/data mutation, before `CANARY_DEPLOYED` could be admitted | Append-only DeploymentAttempt with completed/unknown steps, exact subjects, abort decision, last-known-good, and rollback/migration plan | Independent watchdog/CP fails closed and invokes rollback; a missing adapter response never implies zero exposure or success | Rollback failure → `BLOCKED` plus incident escalation; the run cannot remain staging-deployed while exposure is possible. | No; pre-authorized emergency action |
 | `CANARY_DEPLOYED → CANARY_FAILED` | Canary telemetry window | Exact deploy, SLO/guardrail breach and detection evidence | CP aborts promotion and starts rollback | Immediate rollback; no averaging away critical breach. | No |
 | `CANARY_FAILED → ROLLBACK_IN_PROGRESS` | Abort decision and rollback subject | Last-known-good/migration compatibility/runbook | Rollback adapter executes only | Rollback failure → `BLOCKED` with incident escalation. | No; pre-authorized emergency action |
