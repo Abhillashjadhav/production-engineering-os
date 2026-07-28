@@ -47,13 +47,17 @@ Phase 1 may calculate the metrics but must label target-dependent verdicts
 Each North Star uses a versioned maturity policy fixed when eligibility is admitted.
 For EADPR, `metric_due_at` is `eligibility_at + approved draft-PR evaluation window`.
 For VAPDR, it is `eligibility_at + approved production-delivery window + required live
-observation window`. A slice becomes mature for that metric when it qualifies, reaches
-an admitted terminal failure, or its due time passes. Eligible slices whose due time is
-after the reporting cutoff and have no admitted outcome are reported as pending/right-
-censored and are not yet in that metric's denominator. Due times and policy versions
-cannot be changed retrospectively. Every report publishes eligible, mature-success,
-mature-failure, pending/censored, and excluded counts, so late-arriving in-flight work
-cannot temporarily depress the rate or disappear.
+observation window`. A slice enters **both** that metric's numerator opportunity and
+denominator only when its fixed `metric_due_at` is at or before the reporting cutoff.
+Before then, an early success or terminal failure remains provisional and cannot enter
+the reported rate. At the due time, the system seals the outcome-as-of-due: success
+only if every numerator condition was satisfied by then; otherwise failure. A later
+recovery is reported separately and never rewrites the historical due-cohort result
+(except a separately versioned correction for invalid evidence). Due times and policy
+versions cannot be changed retrospectively. Every report publishes due-cohort
+eligible, success-as-of-due, failure-as-of-due, not-yet-due/pending, and excluded
+counts. This fixed due-cohort denominator prevents early successes from producing a
+success-biased rate while also keeping unfinished future cohorts visible.
 
 ## End-state North Star Metric
 

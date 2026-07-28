@@ -419,10 +419,10 @@
     }
   ],
   "review": {
-    "status": "eighteenth_review_corrections_complete_local_rereview_pending",
+    "status": "nineteenth_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 81,
-    "findings_resolved": 81,
+    "findings_identified": 84,
+    "findings_resolved": 84,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -443,7 +443,8 @@
     "sixteenth_reviewed_head_sha": "9ab41bf1c0eb2d2c53d9eb54443a51eaf71f9d18",
     "seventeenth_reviewed_head_sha": "d97b54be34d8916fb1ccfaa39c789690b6492198",
     "eighteenth_reviewed_head_sha": "18bdd4e10045d6d64ac920ba6a15b0cd1c4de5b5",
-    "latest_reviewed_head_sha": "18bdd4e10045d6d64ac920ba6a15b0cd1c4de5b5",
+    "nineteenth_reviewed_head_sha": "f690e8173612842dd64518852cf4a9276211e4f3",
+    "latest_reviewed_head_sha": "f690e8173612842dd64518852cf4a9276211e4f3",
     "findings": [
       {
         "id": "P1-01",
@@ -1011,6 +1012,27 @@
         "summary": "Exempt only shared pre-eligibility provisioning; count slice-specific or post-eligibility infrastructure mutation as manual intervention.",
         "location": "docs/METRICS-AND-GATES.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-41",
+        "severity": "high",
+        "summary": "Quarantine unvalidated input in deletable storage and retain only safe metadata until raw-input admission passes.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-42",
+        "severity": "high",
+        "summary": "Require a corrected same-scope PR to prove an admitted pre-code tree before implementation can resume.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-42",
+        "severity": "medium",
+        "summary": "Use a fixed due cohort so early successes cannot enter the North Star numerator before their denominator cohort.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1060,7 +1082,9 @@
     "issues_63_65_68_76_seventeenth_review_scope_refined_at": "2026-07-28T18:36:45Z",
     "eighteenth_codex_review_completed_at": "2026-07-28T18:44:19Z",
     "issues_65_69_73_76_eighteenth_review_scope_refined_at": "2026-07-28T18:45:45Z",
-    "last_updated_at": "2026-07-28T18:45:45Z"
+    "nineteenth_codex_review_completed_at": "2026-07-28T18:53:07Z",
+    "issues_65_69_73_76_nineteenth_review_scope_refined_at": "2026-07-28T18:54:22Z",
+    "last_updated_at": "2026-07-28T18:54:22Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
