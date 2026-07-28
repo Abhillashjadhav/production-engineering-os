@@ -199,6 +199,24 @@ is insufficient.
 - **Evidence to revisit:** invalid-transition defects, crash recovery, operator
   comprehension, state dwell time, and maintenance cost.
 
+### PD-P0-13 — File-type splitting versus outcome atomicity
+
+- **Chosen direction:** one independently reviewable outcome per issue/primary PR.
+  Split schema, runtime/compiler logic, and narrative documentation when each is a
+  useful outcome; keep the tests, evidence, and generated artifacts needed to prove
+  one outcome with it. Contract intake is therefore #62 schema, #76 compiler/migrations,
+  and #77 documentation.
+- **Reason:** the prior `CLAUDE.md` file-type rule conflicted with outcome-based
+  atomicity and made issue #62 non-executable as written.
+- **Benefit:** repository instructions and the issue graph agree; each PR can be
+  reverted and reviewed independently without artificial test/evidence separation.
+- **Downside:** cross-issue sequencing and temporary incomplete capability states.
+- **Dominant trade-off:** review/revert clarity versus end-to-end delivery latency.
+- **Reversal condition:** evidence shows a split cannot yield independently valid
+  intermediate states or repeatedly causes integration defects.
+- **Evidence to revisit:** cross-PR defect rate, blocked time, review size, rollback
+  isolation, and duplicated coordination work.
+
 ## Contradictions and tensions identified
 
 | Tension | Finding | Resolution in this plan |
@@ -214,6 +232,7 @@ is insufficient.
 | Tests before code versus V2 flow | V1 confirms red before code; V2 accepts specialist results that include both `tests_run` and commits. | Add an independently admitted executable TestPlan and meaningful-red evidence before implementation authorization. |
 | Cost versus current instruction | The run requests GPT-5.6 Sol xhigh and Fast mode but supplies no credit budget. | Use the requested mode for Phase 0; mark budget thresholds as unresolved and require them in the target contract/operator policy. |
 | Atomic PRs versus historical workflow | The GitHub reviewer can commit fixes and audit files into the reviewed PR in one context. | Target flow separates reviewer, approved fixer, verifier, and formal GitHub approver, with fix scope and new exact-SHA review evidence. |
+| File-type versus outcome atomicity | `CLAUDE.md` required all schema, logic, and documentation changes to be separate, while #62 and Phase 0 governance originally treated a complete contract bundle as one PR. | Amend the repository rule to concern-based atomicity and split the independently useful contract schema (#62), compiler (#76), and documentation (#77). Required tests/evidence stay with their concern. |
 | Repository documentation | `CLAUDE.md` says only Discovery is shipped; `README.md` says all five PM stages are shipped. | Treat neither as capability proof; resolve doc consistency under a dedicated issue only if it affects #62/#74 scope. |
 
 ## Unresolved questions requiring human input

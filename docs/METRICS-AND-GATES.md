@@ -55,12 +55,15 @@ Numerator conditions:
 3. all acceptance criteria and binary release gates pass;
 4. required SLO and product guardrail window passes;
 5. EvidenceBundle completeness is 100%;
-6. no manual code/test/config modification or unplanned engineering intervention;
+6. no manual code/test/config/deployment/environment mutation or unplanned engineering
+   intervention;
 7. no false-DONE event, unplanned rollback, or Critical/High escaped defect in the
    observation window.
 
-Product decisions and named approvals are expected human governance and do not count
-as manual engineering modification. A safe product-input request or unsupported
+Product decisions, named approvals, and an authorized merge click are expected human
+governance and do not count as manual engineering modification. A human executing or
+mutating a rollout, traffic shift, environment, artifact, configuration, test, or
+repair does count, even when planned. A safe product-input request or unsupported
 repository before eligibility does not count as failure; it is measured by contract
 validation and repository-admission metrics.
 
@@ -187,8 +190,9 @@ budget.
 
 ## Autonomy guardrails
 
-- Manual modification means a human directly changes code, tests, configuration, or
-  deployment state outside an approved lifecycle action.
+- Manual modification means a human directly changes code, tests, configuration,
+  deployment/environment/traffic state, or a release artifact. Planned operator work
+  still counts as manual for autonomy metrics even when the lifecycle authorizes it.
 - Product answers, approvals, reviewer feedback, and infrastructure provisioning are
   separately categorized human governance, not hidden as autonomy.
 - Zero task/file permission violation, unapproved product change, self-approval,
@@ -268,7 +272,7 @@ baseline.
 | Candidate verification | pinned checks, exact-SHA results, no hard failures | VERIFICATION_FAILED |
 | Independent review | all required lenses; findings reconciled; no self-review | REVIEW_FAILED |
 | PR readiness | existing draft PR, exact-SHA EvidenceBundle, required checks/reviews | REVIEW_REQUIRED or BLOCKED |
-| Merge admission | exact reviewed head, eligible approval, GitHub merge actor/SHA | REVIEW_REQUIRED or BLOCKED |
+| Merge admission | reviewed head/base/prospective tree, eligible approval, observed merge actor/SHA, actual-tree equality | REVIEW_REQUIRED or BLOCKED |
 | Staging | exact artifact/config, all integration/smoke/migration checks | STAGING_FAILED |
 | Canary | bounded exposure and full guardrail window | CANARY_FAILED |
 | Production authorization | named exact-subject approval and rollback readiness | PRODUCTION_APPROVAL_REQUIRED |

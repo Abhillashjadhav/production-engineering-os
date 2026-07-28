@@ -68,7 +68,7 @@ These primitives should be composed and hardened, not rebuilt.
 | Capability | Classification | Repository evidence and limits | Planned issue |
 |---|---|---|---|
 | PM Agent OS contract schema | **3 — Partially implemented** | `schemas/mvp_spec.schema.json`, `product_decision_contract.schema.json`, and `fullstack_product_contract.schema.json` are synchronized with packaged copies. No single schema contains the required end-to-end bundle. | [#62](https://github.com/Abhillashjadhav/production-engineering-os/issues/62) |
-| Contract compiler | **5 — Absent** | Loaders type individual formats; there is no loss-aware compiler or bundle manifest across V1/V2/V3. | #62 |
+| Contract compiler | **5 — Absent** | Loaders type individual formats; there is no loss-aware compiler or canonical runtime bundle across V1/V2/V3. | [#76](https://github.com/Abhillashjadhav/production-engineering-os/issues/76) |
 | Contract validator | **3 — Partially implemented** | Structural validation is tested; V1 semantic checks are useful but do not validate the full target contract. | [#63](https://github.com/Abhillashjadhav/production-engineering-os/issues/63) |
 | Contradiction detection | **3 — Partially implemented** | `RequirementValidator._check_contradictions` catches exact scope/non-goal duplicates. No general hypothesis/solution/metric/guardrail/autonomy contradiction engine exists. | #63 |
 | Open-question blocking | **1 — Implemented and verified** | V2 product-critical questions and V3 blocking questions prevent runnability; contract and full-stack unit tests exercise the behavior. | Reuse in #63 |
@@ -84,7 +84,7 @@ These primitives should be composed and hardened, not rebuilt.
 | Test-before-code enforcement | **3 — Partially implemented** | V1 `confirm_red` enforces ordering. V2 ledger emits `task_tests` immediately before `task_implementation` from one submitted result, not an independently admitted generalized test plan. | #67 |
 | Unit testing | **2 — Implemented but insufficiently tested** | 450 core tests collected; 449 passed locally, with one macOS path-canonicalization failure. The web backend has 85 tests and declares Python `>=3.11`, but only 84 pass on the therefore-supported Python 3.14 target; CI covers only 3.11. | Reuse; supported-version policy/matrix in #69 |
 | Integration testing | **1 — Implemented and verified** | Core integration suite, git/worktree, generated API, run-engine, and full-stack orchestration tests exist; loopback tests passed outside the sandbox. | Reuse/extend #67 |
-| End-to-end testing | **2 — Implemented but insufficiently tested** | Core E2E paths executed in the full suite. Playwright sources cover journeys/a11y/keyboard/responsive, but Node/Chromium were unavailable locally and current-commit CI evidence was not observable. | #67/#69 |
+| End-to-end testing | **2 — Implemented but insufficiently tested** | Core E2E paths executed in the full suite. Playwright sources cover journeys/a11y/keyboard/responsive, but Node/Chromium were unavailable locally and the observed PR CI failed before job-step execution. | #67/#69 |
 | Migration testing | **5 — Absent** | No generalized schema/data migration verifier or release gate. | #67/#71/#72 |
 | Performance testing | **5 — Absent** | No load/performance harness, budget compiler, or promotion gate. | #67 |
 | Accessibility testing | **2 — Implemented but insufficiently tested** | V3 Playwright/axe suites exist; not executable in this environment because Node is absent. They are product-specific, not generalized. | #67 |

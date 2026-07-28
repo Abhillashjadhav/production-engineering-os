@@ -127,8 +127,10 @@
     "phase_0_issue": 61,
     "implementation_issues": [
       62,
+      76,
       63,
       64,
+      77,
       65,
       66,
       67,
@@ -261,17 +263,18 @@
     }
   ],
   "review": {
-    "status": "fourth_review_corrections_complete_rereview_pending",
+    "status": "local_review_corrections_complete_formal_review_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 28,
-    "findings_resolved": 28,
+    "findings_identified": 32,
+    "findings_resolved": 32,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
     "second_reviewed_head_sha": "cf6a75052909647087cbab826ea8d9e0cec4d6a1",
     "third_reviewed_head_sha": "d18cdc02175bf80719c5f1ffbd3f66b82b373f12",
     "fourth_reviewed_head_sha": "1e052cee3d269aa830ced3d05c0d626779921fa0",
-    "latest_reviewed_head_sha": "1e052cee3d269aa830ced3d05c0d626779921fa0",
+    "fifth_reviewed_head_sha": "8a8794c7c0fd87518cb40ed226a4a910d910e5dd",
+    "latest_reviewed_head_sha": "8a8794c7c0fd87518cb40ed226a4a910d910e5dd",
     "findings": [
       {
         "id": "P1-01",
@@ -468,13 +471,41 @@
         "summary": "Use one named severity scale for escaped defects and define numeric import normalization.",
         "location": "docs/METRICS-AND-GATES.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-15",
+        "severity": "high",
+        "summary": "Verify and review the prospective merge tree, then require actual merge-tree equality before staging.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-16",
+        "severity": "high",
+        "summary": "Reconcile repository PR rules by splitting contract schema, compiler logic, and authoring documentation into issues 62, 76, and 77.",
+        "location": "CLAUDE.md, docs/ISSUE-AND-PR-GOVERNANCE.md, and GitHub issues",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-15",
+        "severity": "medium",
+        "summary": "Add an idempotent DRAFT_PR_OPEN path for a same-scope reused draft PR after product input.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-16",
+        "severity": "medium",
+        "summary": "Exclude all manual deployment and environment mutations from the autonomous production-delivery numerator.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
       }
     ]
   },
   "next_recommended_issue": {
     "number": 62,
     "url": "https://github.com/Abhillashjadhav/production-engineering-os/issues/62",
-    "title": "Define a unified, versioned PM Agent OS contract bundle"
+    "title": "Define the canonical PMOS contract bundle schema"
   },
   "timestamps": {
     "strategy": "Explicit UTC instants are written only when an external action is observed; validators preserve values and never inject the wall clock. Canonical JSON uses sorted keys and UTC Z notation.",
@@ -491,7 +522,11 @@
     "fourth_codex_review_completed_at": "2026-07-28T16:25:04Z",
     "issues_65_68_69_72_review_scope_refined_at": "2026-07-28T16:26:39Z",
     "github_actions_run_30377528370_observed_at": "2026-07-28T16:27:12Z",
-    "last_updated_at": "2026-07-28T16:27:12Z"
+    "issues_76_77_created_at": "2026-07-28T16:36:58Z",
+    "issues_60_62_63_review_scope_refined_at": "2026-07-28T16:38:59Z",
+    "issues_65_68_69_71_review_scope_refined_at": "2026-07-28T16:39:47Z",
+    "fifth_codex_review_completed_at": "2026-07-28T16:40:09Z",
+    "last_updated_at": "2026-07-28T16:40:09Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
@@ -502,6 +537,8 @@
     "docs/ISSUE-AND-PR-GOVERNANCE.md",
     "https://github.com/Abhillashjadhav/production-engineering-os/issues/60",
     "https://github.com/Abhillashjadhav/production-engineering-os/issues/61",
+    "https://github.com/Abhillashjadhav/production-engineering-os/issues/76",
+    "https://github.com/Abhillashjadhav/production-engineering-os/issues/77",
     "https://github.com/Abhillashjadhav/production-engineering-os/pull/75"
   ],
   "self_reference_policy": "The state file cannot embed the SHA of the commit that contains itself. The exact final PR head is recorded by immutable GitHub metadata and the PR verification comment; this file records the audited base and observed review subject."

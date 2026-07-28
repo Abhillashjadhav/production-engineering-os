@@ -18,6 +18,13 @@ Scope: all Production Engineering OS product and engineering changes
 - Direct changes to `main`, shared-branch force pushes, fabricated reviews, and
   production implementation inside planning PRs are prohibited.
 
+This Phase 0 policy reconciles the repository instruction surface with concern-based
+atomicity. `CLAUDE.md` now requires separate PRs when schema, runtime/compiler logic,
+and narrative documentation are independently useful outcomes; tests, evidence, and
+generated artifacts required to prove one outcome remain with that outcome. The
+contract work demonstrates the rule: #62 is schema-only, #76 is compiler/migration
+logic, and #77 is authoring/migration documentation.
+
 ## 2. Required issue template
 
 ```markdown
@@ -111,7 +118,7 @@ Use one dedicated branch per issue:
 Examples:
 
 - `docs/phase-0-pmos-peos-plan`
-- `feat/62-unified-contract-bundle`
+- `feat/62-contract-bundle-schema`
 - `fix/123-stale-evidence-rejection`
 
 Branches start from the current protected target branch. Do not reuse a merged branch,

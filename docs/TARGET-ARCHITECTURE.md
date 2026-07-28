@@ -71,7 +71,7 @@ flowchart LR
 
 | Component | Responsibility | Existing foundation | Target addition |
 |---|---|---|---|
-| Contract intake | Load, version, digest, compile formats | `pmpe.contracts`, three schemas | Unified bundle/manifest and loss-aware compiler (#62) |
+| Contract intake | Load, version, digest, compile formats | `pmpe.contracts`, three schemas | Canonical bundle/manifest schema (#62) and loss-aware compiler (#76) |
 | Contract policy | Completeness, contradiction, ownership, approvals | schema validators, V1 `RequirementValidator` | Versioned rule registry and PM-owned blockers (#63) |
 | Lifecycle engine | Legal transitions, actor permissions, resume | V1/V2/V3 state machines | One transition policy, migration, budgets, bounded repair (#65) |
 | Authorization | Human approvals and agent/task/file scope | policy engine, production approval, fixer gate | Exact action/artifact/config/target subjects and expiry |
@@ -116,8 +116,8 @@ content-addressed EvidenceBundle that references and supersedes the prior stage 
 |---|---|
 | Contract admission | contract source/version/digest, validation, approvals, and rule-set digest |
 | Pre-code | repository snapshot, architecture, ADRs, threat model, TestPlan, issue/branch/draft-PR record, and meaningful-red evidence |
-| Candidate review | exact commit/tree, build/SBOM/provenance, deterministic verification, independent reviews, and finding lifecycle |
-| Merge admission | reviewed exact PR head, required checks/approvals, merge actor/time/method/SHA, and primary issue linkage |
+| Candidate review | exact PR head, protected-base SHA, prospective merge-tree digest, build/SBOM/provenance, deterministic verification, independent reviews, and finding lifecycle |
+| Merge admission | reviewed head/base/prospective tree, required checks/approvals, merge actor/time/method/SHA/tree equality, and primary issue linkage |
 | Staging | immutable artifact/config/target, deployment, integration, migration, smoke, security, and teardown/rollback readiness |
 | Canary | bounded cohort/traffic policy, deployment, complete SLO/guardrail window, abort decision, and rollback readiness |
 | Production authorization | named approval bound to merge/artifact/config/migration/target/rollout subjects |
@@ -134,12 +134,14 @@ flowchart TB
     C --> A[ArchitecturePack digest]
     R --> A
     A --> T[TestPlan digest]
-    T --> H[Frozen PR head/source SHA]
-    H --> B[Build artifact + SBOM digest]
+    T --> H[Frozen PR head SHA]
+    P[Protected base SHA] --> MT[Prospective merge tree digest]
+    H --> MT
+    MT --> B[Build artifact + SBOM digest]
     B --> V[Verification result digests]
-    H --> RV[Review/finding digests]
+    MT --> RV[Review/finding digests]
     V --> RV[Review/finding digests]
-    H --> M[Observed merge event + merge SHA]
+    MT --> M[Observed merge event + SHA + equal tree]
     RV --> M
     M --> D[Deployment/config/target digests]
     D --> O[Observation/SLO window digest]
@@ -268,7 +270,7 @@ owner; **SO** security/operations owner; **HA** explicit human approval.
 | `TEST_PLAN_CREATED → TEST_PLAN_VALIDATED` | TestPlan and toolchain inventory | 100% required-ID mapping, applicability rules, planned meaningful-red evidence | CP/test validator admits | Missing/vague evidence mapping returns to created/input-required; no code. | No |
 | `TEST_PLAN_CREATED → PRODUCT_INPUT_REQUIRED` | Missing acceptance oracle/threshold | Named unmapped IDs and questions | CP requests PM truth | Resume with superseding contract; downstream plan invalidated. | Yes |
 | `TEST_PLAN_VALIDATED → IMPLEMENTATION_PLANNED` | Approved issue candidates and architecture/test plan | Ordered atomic tasks, dependencies, file/task scopes, rollback per task | Planner proposes; CP admits | Non-atomic/uncovered task plan refused; remain validated. | EO for plan exceptions |
-| `IMPLEMENTATION_PLANNED → DRAFT_PR_OPEN` | Ready GitHub issue, dedicated branch, admitted atomic plan | GitHub issue/branch, initial planning/test commit, atomic draft PR, base/head, and rollback record | CP creates the draft PR only; never marks ready, approves, or merges | Missing issue, stale base, non-atomic scope, or PR failure → `BLOCKED`; no implementation starts. | No |
+| `IMPLEMENTATION_PLANNED → DRAFT_PR_OPEN` | Ready GitHub issue, dedicated branch, admitted atomic plan, and any prior reuse/supersede disposition | GitHub issue/branch, initial planning/test commit, atomic draft PR, base/head, rollback record, and created-versus-reused decision | CP creates a draft PR when none exists or idempotently re-admits the dispositioned existing primary PR when the atomic outcome/metadata match; it never marks ready, approves, or merges | Missing issue, stale base, non-atomic scope, conflicting primary PR, mismatched reuse metadata, or PR failure → `BLOCKED`; no implementation starts. | No |
 | `DRAFT_PR_OPEN → IMPLEMENTATION_IN_PROGRESS` | Draft PR, isolated worktrees, budgets, validated TestPlan | PR/branch/worktree records; meaningful-red execution where required | CP authorizes minimum specialists | Scope/budget/permission/test-order failure → `BLOCKED`; dispose worktree safely without deleting evidence. | No |
 | `IMPLEMENTATION_IN_PROGRESS → VERIFICATION_FAILED` | Integrated candidate | Exact-SHA verification results | Verification runner executes only | Any required check FAIL/NOT_PROVEN; candidate not publishable. Roll back disposable integration/worktree as needed. | No |
 | `IMPLEMENTATION_IN_PROGRESS → REVIEW_REQUIRED` | Integrated candidate with all deterministic gates pass | Frozen commit/tree/build/SBOM, test results, preliminary EvidenceBundle | CP freezes and opens review stage | Digest drift returns to verification; no PR readiness. | No |
@@ -283,9 +285,11 @@ owner; **SO** security/operations owner; **HA** explicit human approval.
 | `REVIEW_FAILED → REPAIR_IN_PROGRESS` | Reconciled accepted engineering findings and budget | Decisions/reasons, fixer scope, PCRs for product findings | CP authorizes fixer | Undecided/product findings remain failed/input-required; stale candidate forbidden. | Yes for non-mechanical decisions |
 | `REVIEW_FAILED → PRODUCT_INPUT_REQUIRED` | Product-decision finding | PCR linked to contract/requirements, active issue/branch/draft PR, and stopped worktree record | CP halts execution and marks the existing draft PR/issue blocked on product input; PM decides and CP does not fix | Superseding contract returns to intake and invalidates downstream evidence; reuse or supersession must be recorded before another primary PR can exist. | Yes |
 | `REVIEW_FAILED → REVIEW_REQUIRED` | Every blocking finding is dispositioned without a source change | Unchanged candidate digest, authorized `rejected-with-reason` records, independent disposition validation, and no unresolved finding | CP reopens readiness evaluation on the same frozen candidate; reviewers do not create a no-op repair | Missing authority/evidence or any accepted finding stays failed and uses repair/input-required. | Finding owner; independent validation |
-| `REVIEW_REQUIRED → PR_READY` | Existing draft PR, all reviews complete, and blocking findings resolved | Exact-SHA sealed candidate-review EvidenceBundle, atomicity/issue/PR metadata, checks, and formal review when required | CP records readiness on the existing draft; it does not create, approve, undraft, or merge it | Missing review/check/evidence remains review-required; no self-approval/merge. | Formal review if repository policy requires |
-| `PR_READY → PR_MERGED` | Existing draft PR marked ready by an authorized maintainer after all policies pass | GitHub-recorded exact head, required checks/approvals, merge actor/time/method/SHA, and primary issue linkage | Eligible maintainer marks ready and merges; CP only observes and validates | Changed head or missing check/review returns to review-required; rejected/closed PR → `BLOCKED`. | Yes |
-| `PR_MERGED → STAGING_DEPLOYED` | Approved staging action and immutable artifact/config built from merged source | Merge/head/artifact parity plus real environment deployment ID and digest match | Deployment adapter deploys only | Adapter/infrastructure/check failure → `STAGING_FAILED`; teardown/rollback. | Per environment policy |
+| `REVIEW_REQUIRED → PR_READY` | Existing draft PR, all reviews complete, and blocking findings resolved against a frozen protected base | Sealed candidate-review EvidenceBundle for the exact PR head + base + prospective merge-tree digest, atomicity/issue/PR metadata, checks, and formal review when required | CP records readiness on the existing draft; it does not create, approve, undraft, or merge it | Missing review/check/evidence remains review-required; no self-approval/merge. | Formal review if repository policy requires |
+| `PR_READY → REVIEW_REQUIRED` | PR head, protected base, or prospective merge tree changes before merge | New head/base/tree digests and invalidated check/review/evidence references | CP revokes readiness and requires verification/review of the new prospective merge result | No merge or staging while stale; unchanged evidence cannot be reused across the new tree. | Formal review when required |
+| `PR_READY → PR_MERGED` | Existing PR marked ready by an authorized maintainer with unchanged reviewed head/base/prospective tree | GitHub-recorded head/base, required checks/approvals, merge actor/time/method/SHA, actual merge-tree digest equal to the verified prospective tree, and primary issue linkage | Eligible maintainer merges; CP only observes and admits the exact merge result | Any pre-merge drift returns to review-required. An observed merge-tree mismatch uses the blocked transition below; it never deploys. | Yes |
+| `PR_READY → BLOCKED` | PR closed/rejected or GitHub records an external merge whose actual tree differs from the admitted prospective merge tree | GitHub event, expected/actual head/base/tree digests, governance incident, and remediation owner | CP blocks staging and records the externally mutated result; it cannot rewrite merged history | A new remediation issue/run must reanalyze the current target branch; no artifact from the mismatched merge is promoted. | Owner for remediation |
+| `PR_MERGED → STAGING_DEPLOYED` | Approved staging action and immutable artifact/config built from the verified prospective merge tree, with observed merge-tree equality | Merge head/base/actual-tree/prospective-tree/artifact parity plus real environment deployment ID and digest match | Deployment adapter deploys only | Adapter/infrastructure/check failure → `STAGING_FAILED`; any tree mismatch → `BLOCKED`; teardown/rollback. | Per environment policy |
 | `PR_MERGED → STAGING_FAILED` | Staging attempt using merged artifact | Failed deploy/check and cleanup evidence | CP records failure only | Candidate repair requires a new issue/PR; infrastructure failure blocks; no canary. | No |
 | `STAGING_FAILED → REPOSITORY_ANALYSED` | Accepted code/config defect within approved product scope and a new remediation run | Failure mechanism, staging teardown, new defect issue, current target-branch SHA, and fresh exact-SHA RepositorySnapshot | Repository intelligence re-admits the changed upstream repository before architecture and TestPlan generation | Product change → contract input; infrastructure-only problem → blocked. Architecture must be reproposed/re-admitted even when the decision is “unchanged.” | Owner for classification |
 | `STAGING_FAILED → BLOCKED` | Missing/broken infrastructure or failed cleanup | Blocker/owner/environment state | CP stops and protects environment | Human resolves; resume at staging with same exact artifact or reverify changed one. | Often SO |

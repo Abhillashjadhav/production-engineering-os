@@ -84,21 +84,26 @@ Acceptance criteria:
 
 Issues:
 
-1. [#62](https://github.com/Abhillashjadhav/production-engineering-os/issues/62) — unified PMOS contract bundle
-2. [#63](https://github.com/Abhillashjadhav/production-engineering-os/issues/63) — completeness, contradiction, ownership, and approval validation
-3. [#64](https://github.com/Abhillashjadhav/production-engineering-os/issues/64) — deterministic repository intelligence
+1. [#62](https://github.com/Abhillashjadhav/production-engineering-os/issues/62) — canonical PMOS contract bundle schema
+2. [#76](https://github.com/Abhillashjadhav/production-engineering-os/issues/76) — loss-aware compiler and migrations
+3. [#63](https://github.com/Abhillashjadhav/production-engineering-os/issues/63) — completeness, contradiction, ownership, and approval validation
+4. [#64](https://github.com/Abhillashjadhav/production-engineering-os/issues/64) — deterministic repository intelligence
+5. [#77](https://github.com/Abhillashjadhav/production-engineering-os/issues/77) — contract authoring, validation, and migration documentation
 
-The contract bundle is the canonical product input. Validators emit machine-readable
-findings and stop for missing product decisions. Repository intelligence is a
-deterministic, digest-bound fact set, not an unrestricted agent assessment.
+The schema, compiler logic, and narrative authoring documentation are separate atomic
+outcomes under the repository's concern-based rule. The compiled bundle is the
+canonical product input. Validators emit machine-readable findings and stop for
+missing product decisions. Repository intelligence is a deterministic, digest-bound
+fact set, not an unrestricted agent assessment.
 
 Exit criteria:
 
-- versioned schemas and migrations cover all required PMOS fields;
+- versioned schemas and compiler migrations cover all required PMOS fields;
 - invalid, ambiguous, contradictory, or unapproved contracts cannot advance;
 - IDs and source digests are immutable and traceable;
 - repository facts are repeatable, bounded, and proven against fixtures;
-- #62 and #64 may proceed independently; #63 depends on #62.
+- #64 may proceed independently beside #62/#76; #76 depends on #62; #63 depends on
+  #62/#76; documentation #77 depends on #62/#76 and may proceed beside #63/#64.
 
 ### Phase 2 — Architecture and test compilation
 
@@ -206,10 +211,13 @@ Exit criteria:
 
 ```mermaid
 flowchart TD
-  I61["#61 Phase 0"] --> I62["#62 Contract bundle"]
+  I61["#61 Phase 0"] --> I62["#62 Contract schema"]
   I61 --> I64["#64 Repository intelligence"]
-  I62 --> I63["#63 Contract validator"]
-  I62 --> I65["#65 Lifecycle + budgets"]
+  I62 --> I76["#76 Compiler + migrations"]
+  I76 --> I63["#63 Contract validator"]
+  I62 --> I77["#77 Contract docs"]
+  I76 --> I77
+  I76 --> I65["#65 Lifecycle + budgets"]
   I63 --> I65
   I64 --> I65
   I63 --> I66["#66 Architecture + ADR + threat model"]
@@ -230,11 +238,11 @@ flowchart TD
 Recommended execution:
 
 1. close Phase 0 only after formal review and merge by an authorized maintainer;
-2. implement #62 first;
-3. run #64 independently in parallel with #62 when maintainers are available;
-4. implement #63 after #62;
+2. implement schema-only #62 first, then compiler/migration logic #76;
+3. run #64 independently in parallel with #62/#76 when maintainers are available;
+4. implement #63 after #62/#76; documentation-only #77 may run beside #63/#64;
 5. implement #66, then #67;
-6. complete #65 after #62–#64; it may overlap #66/#67 with interface coordination;
+6. complete #65 after #63/#64; it may overlap #66/#67 with interface coordination;
 7. implement #68, #69, and #70 in order;
 8. implement #71, #72, and #73 in order;
 9. implement #74 after trustworthy evidence and feedback interfaces exist.
@@ -334,5 +342,6 @@ implementation or production transition, and PEOS must request them rather than 
 The first implementation issue is
 [#62](https://github.com/Abhillashjadhav/production-engineering-os/issues/62).
 Phase 1 must start from the merged Phase 0 planning baseline, revalidate its issue scope
-against the then-current main branch, create a dedicated branch, and remain contract-only:
-do not start validator or orchestration work in #62's PR.
+against the then-current main branch, create a dedicated branch, and remain schema-only:
+do not start compiler #76, documentation #77, validator, or orchestration work in
+#62's PR.

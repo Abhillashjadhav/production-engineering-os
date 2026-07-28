@@ -7,7 +7,10 @@ An agentic PM operating system for Claude Code. One `/pm` command (`.claude/skil
 - No direct pushes to main. Every change lands through a PR.
 - Every PR is reviewed with `/pr-review` before merge. No APPROVE, no merge.
 - Lint before verdict: the reviewer runs `python3 tests/lint_skill.py <path>` on every changed SKILL.md and reports the result before issuing a verdict. Any lint FAIL is an automatic REQUEST CHANGES.
-- One concern per PR. Schema changes, logic changes, and doc changes are separate PRs.
+- One coherent, independently reviewable concern per PR. Split schema, runtime/compiler
+  logic, and narrative documentation when each is an independently useful outcome;
+  keep the tests, evidence, and generated artifacts required to prove one concern with
+  that concern. Do not split solely by file type or mix unrelated outcomes.
 - PR description must state: what changed, why, and how to test the change.
 
 ## Verification-first skill discipline
