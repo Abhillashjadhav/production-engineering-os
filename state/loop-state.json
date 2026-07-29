@@ -115,7 +115,7 @@
     {
       "id": "B-005",
       "owner": "repository_owner",
-      "summary": "GitHub Actions CI run 30423038717 on reviewed remote head 3b048794985dd1373021fd059ef7bc806c67ddd6 executed all ten jobs: eight passed, product-backend failed at comparison-engine lint, and product-frontend failed at the high-severity dependency audit.",
+      "summary": "GitHub Actions CI run 30423441835 for reviewed PR head 63f58183706493b228d179d4338a6bbe8cd6de60 checked out synthetic merge commit 17d551e75f96aab11e835d052fd2c9761ad5277e and executed all ten jobs: eight passed, product-backend failed at comparison-engine lint, and product-frontend failed at the high-severity dependency audit.",
       "blocks": [
         "exact_head_ci_verification"
       ],
@@ -422,16 +422,18 @@
     },
     {
       "name": "github_actions_pr_ci",
-      "command": "GitHub Actions ci run 30377528370 for commit 1e052cee3d269aa830ced3d05c0d626779921fa0",
+      "command": "GitHub Actions ci run 30377528370 for PR head 1e052cee3d269aa830ced3d05c0d626779921fa0",
       "provenance": {
-        "subject_sha": "1e052cee3d269aa830ced3d05c0d626779921fa0",
+        "subject_sha": "not_recorded",
+        "pr_head_sha": "1e052cee3d269aa830ced3d05c0d626779921fa0",
+        "base_sha": "8ddc4ccfeb88d7efd5531ca9411e5f2229cce0ec",
         "tool_identity": "GitHub Actions run 30377528370 via connected GitHub status API",
         "executed_at": "GitHub_job_timestamps_recorded_remotely; observed_2026-07-28T16:27:12Z",
         "environment_fingerprint": "runner_allocation_failed_before_steps_no_runtime_environment",
         "reusable_for_exact_head_readiness": false
       },
       "result": "infrastructure_failure_before_steps",
-      "notes": "Nine jobs failed, one was cancelled, no job exposed any steps, and logs were unavailable. PR Review Agent run 30377528156 was skipped because PR #75 remains draft."
+      "notes": "Nine jobs failed, one was cancelled, no job exposed any steps, logs were unavailable, and no checked-out execution subject was observed. PR Review Agent run 30377528156 was skipped because PR #75 remains draft."
     },
     {
       "name": "phase_0_exact_head_structural_validation",
@@ -461,9 +463,12 @@
     },
     {
       "name": "github_actions_pr_ci",
-      "command": "GitHub Actions ci run 30419576112 for commit 186249261fe3d8626c9cce87d24effce9ba14ce2",
+      "command": "GitHub Actions ci run 30419576112 for PR head 186249261fe3d8626c9cce87d24effce9ba14ce2",
       "provenance": {
-        "subject_sha": "186249261fe3d8626c9cce87d24effce9ba14ce2",
+        "subject_sha": "4f2d85299f0e0730d674cd4e2c3ed470bc748f29",
+        "pr_head_sha": "186249261fe3d8626c9cce87d24effce9ba14ce2",
+        "base_sha": "8ddc4ccfeb88d7efd5531ca9411e5f2229cce0ec",
+        "checkout_ref": "refs/pull/75/merge",
         "tool_identity": "GitHub Actions run 30419576112 via connected GitHub status API",
         "executed_at": "GitHub_job_timestamps_recorded_remotely; observed_2026-07-29T03:35:45Z",
         "environment_fingerprint": "GitHub-hosted runners; job-level setup/tool versions are recorded in the workflow run",
@@ -474,9 +479,12 @@
     },
     {
       "name": "github_actions_pr_ci",
-      "command": "GitHub Actions ci run 30420149192 for commit 61f99bed3f6eff2b41b5f080f4d71262a263c678",
+      "command": "GitHub Actions ci run 30420149192 for PR head 61f99bed3f6eff2b41b5f080f4d71262a263c678",
       "provenance": {
-        "subject_sha": "61f99bed3f6eff2b41b5f080f4d71262a263c678",
+        "subject_sha": "87096724fc960e377200d05a2633a092ff94da01",
+        "pr_head_sha": "61f99bed3f6eff2b41b5f080f4d71262a263c678",
+        "base_sha": "8ddc4ccfeb88d7efd5531ca9411e5f2229cce0ec",
+        "checkout_ref": "refs/pull/75/merge",
         "tool_identity": "GitHub Actions run 30420149192 via connected GitHub status API",
         "executed_at": "GitHub_job_timestamps_recorded_remotely; observed_2026-07-29T03:56:48Z",
         "environment_fingerprint": "GitHub-hosted runners; job-level setup/tool versions are recorded in the workflow run",
@@ -487,9 +495,12 @@
     },
     {
       "name": "github_actions_pr_ci",
-      "command": "GitHub Actions ci run 30421310105 for commit d5bd1c6c58812002fd8ae451e5b6e8473144de92",
+      "command": "GitHub Actions ci run 30421310105 for PR head d5bd1c6c58812002fd8ae451e5b6e8473144de92",
       "provenance": {
-        "subject_sha": "d5bd1c6c58812002fd8ae451e5b6e8473144de92",
+        "subject_sha": "8058b20581be3ac4d249e4ebfcc497cdc6f16fa1",
+        "pr_head_sha": "d5bd1c6c58812002fd8ae451e5b6e8473144de92",
+        "base_sha": "8ddc4ccfeb88d7efd5531ca9411e5f2229cce0ec",
+        "checkout_ref": "refs/pull/75/merge",
         "tool_identity": "GitHub Actions run 30421310105 via connected GitHub status API",
         "executed_at": "GitHub_job_timestamps_recorded_remotely; observed_2026-07-29T04:15:32Z",
         "environment_fingerprint": "GitHub-hosted runners; job-level setup/tool versions are recorded in the workflow run",
@@ -500,9 +511,12 @@
     },
     {
       "name": "github_actions_pr_ci",
-      "command": "GitHub Actions ci run 30422013042 for commit a10cef2a378fd70fc56553183ae9e615a58ab83f",
+      "command": "GitHub Actions ci run 30422013042 for PR head a10cef2a378fd70fc56553183ae9e615a58ab83f",
       "provenance": {
-        "subject_sha": "a10cef2a378fd70fc56553183ae9e615a58ab83f",
+        "subject_sha": "48a506d9075115e5302f151d304db89e21fbec6f",
+        "pr_head_sha": "a10cef2a378fd70fc56553183ae9e615a58ab83f",
+        "base_sha": "8ddc4ccfeb88d7efd5531ca9411e5f2229cce0ec",
+        "checkout_ref": "refs/pull/75/merge",
         "tool_identity": "GitHub Actions run 30422013042 via connected GitHub status API",
         "executed_at": "GitHub_job_timestamps_recorded_remotely; observed_2026-07-29T04:40:35Z",
         "environment_fingerprint": "GitHub-hosted runners; job-level setup/tool versions are recorded in the workflow run",
@@ -513,9 +527,12 @@
     },
     {
       "name": "github_actions_pr_ci",
-      "command": "GitHub Actions ci run 30423038717 for commit 3b048794985dd1373021fd059ef7bc806c67ddd6",
+      "command": "GitHub Actions ci run 30423038717 for PR head 3b048794985dd1373021fd059ef7bc806c67ddd6",
       "provenance": {
-        "subject_sha": "3b048794985dd1373021fd059ef7bc806c67ddd6",
+        "subject_sha": "005d74846e6cbba864cc1913fce2d53fae30507f",
+        "pr_head_sha": "3b048794985dd1373021fd059ef7bc806c67ddd6",
+        "base_sha": "8ddc4ccfeb88d7efd5531ca9411e5f2229cce0ec",
+        "checkout_ref": "refs/pull/75/merge",
         "tool_identity": "GitHub Actions run 30423038717 via connected GitHub status API",
         "executed_at": "GitHub_job_timestamps_recorded_remotely; observed_2026-07-29T04:50:28Z",
         "environment_fingerprint": "GitHub-hosted runners; job-level setup/tool versions are recorded in the workflow run",
@@ -523,13 +540,29 @@
       },
       "result": "failed_8_jobs_passed_2_gate_failures",
       "notes": "Format/lint, product preview, Python 3.11/3.12 tests, build smoke, types, product E2E, and security passed. Product-backend failed at comparison-engine lint; product-frontend failed at the high-severity dependency audit. Downstream steps in those two jobs were skipped. PR Review Agent run 30423038742 was skipped because PR #75 remains draft."
+    },
+    {
+      "name": "github_actions_pr_ci",
+      "command": "GitHub Actions ci run 30423441835 for PR head 63f58183706493b228d179d4338a6bbe8cd6de60",
+      "provenance": {
+        "subject_sha": "17d551e75f96aab11e835d052fd2c9761ad5277e",
+        "pr_head_sha": "63f58183706493b228d179d4338a6bbe8cd6de60",
+        "base_sha": "8ddc4ccfeb88d7efd5531ca9411e5f2229cce0ec",
+        "checkout_ref": "refs/pull/75/merge",
+        "tool_identity": "GitHub Actions run 30423441835 and checkout log via connected GitHub integration",
+        "executed_at": "GitHub_job_timestamps_recorded_remotely; observed_2026-07-29T05:08:33Z",
+        "environment_fingerprint": "GitHub-hosted runners; job-level setup/tool versions are recorded in the workflow run",
+        "reusable_for_exact_head_readiness": false
+      },
+      "result": "failed_8_jobs_passed_2_gate_failures",
+      "notes": "Format/lint, product preview, Python 3.11/3.12 tests, build smoke, types, product E2E, and security passed. Product-backend failed at comparison-engine lint; product-frontend failed at the high-severity dependency audit. Downstream steps in those two jobs were skipped. PR Review Agent run 30423441796 was skipped because PR #75 remains draft."
     }
   ],
   "review": {
-    "status": "forty_first_review_corrections_complete_rereview_pending",
+    "status": "forty_second_review_corrections_complete_issue_scope_synced_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 152,
-    "findings_resolved": 152,
+    "findings_identified": 154,
+    "findings_resolved": 154,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -573,7 +606,8 @@
     "thirty_ninth_reviewed_head_sha": "d5bd1c6c58812002fd8ae451e5b6e8473144de92",
     "fortieth_reviewed_head_sha": "a10cef2a378fd70fc56553183ae9e615a58ab83f",
     "forty_first_reviewed_head_sha": "3b048794985dd1373021fd059ef7bc806c67ddd6",
-    "latest_reviewed_head_sha": "3b048794985dd1373021fd059ef7bc806c67ddd6",
+    "forty_second_reviewed_head_sha": "63f58183706493b228d179d4338a6bbe8cd6de60",
+    "latest_reviewed_head_sha": "63f58183706493b228d179d4338a6bbe8cd6de60",
     "findings": [
       {
         "id": "P1-01",
@@ -1638,6 +1672,20 @@
         "summary": "Require accepted credible medium findings to be fixed while preserving evidence-backed rejected-with-reason disposition.",
         "location": "docs/ISSUE-AND-PR-GOVERNANCE.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P2-75",
+        "severity": "medium",
+        "summary": "Bind every recorded pull-request CI result to the synthetic merge commit actually checked out while recording the distinct PR head and base subjects.",
+        "location": "state/loop-state.json",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-76",
+        "severity": "medium",
+        "summary": "Route pre-canary contract or publisher invalidation consistently through staging cleanup and product input instead of the unrelated blocked-resume path.",
+        "location": "docs/TARGET-ARCHITECTURE.md and GitHub issue 65",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1744,7 +1792,10 @@
     "issues_65_69_73_fortieth_review_scope_refined_at": "2026-07-29T04:40:17Z",
     "forty_first_codex_review_completed_at": "2026-07-29T04:50:28Z",
     "github_actions_run_30423038717_observed_at": "2026-07-29T04:50:28Z",
-    "last_updated_at": "2026-07-29T04:50:28Z"
+    "forty_second_codex_review_completed_at": "2026-07-29T05:08:33Z",
+    "github_actions_run_30423441835_observed_at": "2026-07-29T05:08:33Z",
+    "issue_65_forty_second_review_scope_refined_at": "2026-07-29T05:17:30Z",
+    "last_updated_at": "2026-07-29T05:17:30Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
