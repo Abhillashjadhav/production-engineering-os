@@ -74,7 +74,7 @@ These primitives should be composed and hardened, not rebuilt.
 | Open-question blocking | **1 — Implemented and verified** | V2 product-critical questions and V3 blocking questions prevent runnability; contract and full-stack unit tests exercise the behavior. | Reuse in #63 |
 | Requirement IDs | **3 — Partially implemented** | V1 enforces `PREFIX-NUMBER`; V2 checks duplicate requirement IDs. Grammar/uniqueness is not uniform across every contract format and bundle member. | #62 |
 | Acceptance-criterion IDs | **3 — Partially implemented** | IDs and requirement links exist; uniform pattern/uniqueness and bundle-wide references are incomplete. | #62/#63 |
-| Risk classification | **1 — Implemented and verified** | `pmpe.policies.PolicyEngine`, named rules, risk tests, and declared contract risks exist for current scopes. Target bundle metadata still needs unification. | Reuse in #62/#65 |
+| Risk classification | **6 — Implemented but unsafe** | `pmpe.policies.PolicyEngine`, named rules, risk tests, and declared contract risks exist for known scopes, but a decision type absent from `_DEFAULT_RULES` falls back to `MEDIUM` and `requires_approval()` blocks only `HIGH`. An unknown operation can therefore proceed with a logged justification instead of failing closed. | Replace the permissive fallback in #65; reuse known-rule metadata in #62 |
 | Approval metadata | **1 — Implemented and verified** | Contract approval and production approval are named/timestamped; production approval is candidate-digest bound and tested. Roles, expiry, target config, and full deployment subjects need extension. | Reuse in #62/#72 |
 | Repository intelligence | **5 — Absent** | `record_assessment` accepts an arbitrary dictionary. No deterministic exact-SHA repository snapshot exists on `main`. | [#64](https://github.com/Abhillashjadhav/production-engineering-os/issues/64) |
 | Architecture generation | **3 — Partially implemented** | V1 is deterministic but single-stack; V2 agent output has structural admission. It is not compiled from a normalized repository snapshot. | [#66](https://github.com/Abhillashjadhav/production-engineering-os/issues/66) |
@@ -189,6 +189,9 @@ These primitives should be composed and hardened, not rebuilt.
 - PM Agent OS bundle transport and the approved Guided Mode UX.
 - GitHub branch protection/ruleset and security-feature state until authenticated
   GitHub administration metadata is observable.
-- GitHub Actions runner/account infrastructure: the observed PR CI run failed every
-  started job before step execution and exposed no job logs, so current-head CI cannot
-  be treated as code/test evidence.
+- The initial GitHub Actions outage, where jobs stopped before exposing steps or logs,
+  was historical. Later exact-head run `30421310105` executed all ten jobs: eight
+  passed, `product-backend` failed comparison-engine lint, and `product-frontend`
+  failed the high-severity dependency audit. Those two concrete implementation gates,
+  not runner availability, now block exact-head CI verification and belong in
+  dedicated implementation issues/PRs rather than this documentation-only Phase 0 PR.

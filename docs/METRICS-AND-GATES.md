@@ -164,9 +164,11 @@ means the pre-code, implementation, exact-head verification, and analysis-review
 completed on that already-open draft before it may become ready for formal approval; it
 does not mean a gate that must precede PR creation.
 
-**Target:** requires a baseline cohort and product approval. Phase 1 only validates the
-required policy inputs; Phase 6/#73 computes the cohort, and no phase may invent a
-percentage.
+**Target:** requires a baseline cohort and product approval. Phase 1 validates the
+required policy inputs. The evidence/metrics work in #69 computes and publishes EADPR
+for the first eligible draft-PR cohorts as soon as their fixed due windows mature;
+Phase 6/#73 consumes that sealed result in production reporting and adds VAPDR and
+production-only outcome/SLO reporting. No phase may invent a percentage.
 
 ## Leading indicators
 
