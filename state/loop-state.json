@@ -130,6 +130,16 @@
         "pr_readiness"
       ],
       "resume_condition": "Produce a content-addressed attestation or immutable CI/check artifact bound to the exact final commit and environment, and use the PR comment only as its pointer."
+    },
+    {
+      "id": "B-007",
+      "owner": "repository_owner",
+      "summary": "The connected GitHub integration rejected further writes because the Codex usage limit was reached, while local gh authentication remains invalid. The latest issue-scope refinements for #65, #70, and #73 and the final PR evidence comment cannot be published in this run.",
+      "blocks": [
+        "latest_remote_issue_scope_sync",
+        "final_pr_evidence_comment"
+      ],
+      "resume_condition": "After connector usage is available again, update issues #65, #70, and #73 from the reviewed planning artifacts and post the exact-head verification/review summary to draft PR #75; do not use an alternate credential to bypass the limit."
     }
   ],
   "github": {
@@ -157,7 +167,13 @@
     "draft_pr_url": "https://github.com/Abhillashjadhav/production-engineering-os/pull/75",
     "initial_draft_pr_head_sha": "df73849cee55af43fea2bc6c260a39cea6946942",
     "formal_review_requested": false,
-    "formal_review_submitted": false
+    "formal_review_submitted": false,
+    "remote_scope_sync_pending": [
+      65,
+      70,
+      73
+    ],
+    "final_pr_evidence_comment_pending": true
   },
   "check_evidence_policy": {
     "readiness_rule": "A check is reusable for exact-head readiness only when its item records a concrete subject SHA/tree or artifact digest, executable/tool version, execution timestamp, and applicable environment fingerprint. 'not_recorded' makes the item audit context only, never reusable PASS evidence.",
@@ -432,10 +448,10 @@
     }
   ],
   "review": {
-    "status": "thirty_fourth_review_corrections_complete_local_rereview_pending",
+    "status": "thirty_fifth_review_corrections_complete_local_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 130,
-    "findings_resolved": 130,
+    "findings_identified": 132,
+    "findings_resolved": 132,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -472,7 +488,8 @@
     "thirty_second_reviewed_head_sha": "b5b77600697f3b3e284434f646e56d3af9939f6a",
     "thirty_third_reviewed_head_sha": "db65bb9fde7391ba87a3f0eecf7ddaf1b656e740",
     "thirty_fourth_reviewed_head_sha": "022faee481b9a51ed90163dc862c83e11ce79023",
-    "latest_reviewed_head_sha": "022faee481b9a51ed90163dc862c83e11ce79023",
+    "thirty_fifth_reviewed_head_sha": "06f56601d9bd5d8375dacd63741d69b53a61f9b3",
+    "latest_reviewed_head_sha": "06f56601d9bd5d8375dacd63741d69b53a61f9b3",
     "findings": [
       {
         "id": "P1-01",
@@ -1383,6 +1400,20 @@
         "summary": "Enforce approved vulnerability-advisory freshness and block stale, unverifiable, or unavailable security intelligence.",
         "location": "docs/METRICS-AND-GATES.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-67",
+        "severity": "high",
+        "summary": "Route stale or unavailable security intelligence through staging cleanup or active-exposure rollback before any blocked state.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-65",
+        "severity": "medium",
+        "summary": "Use PRODUCT_INPUT_REQUIRED with a metric-policy reason code instead of introducing an undefined lifecycle state.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1465,7 +1496,9 @@
     "issue_72_thirty_third_review_scope_refined_at": "2026-07-28T21:13:29Z",
     "thirty_fourth_codex_review_completed_at": "2026-07-28T21:24:30Z",
     "issues_62_63_65_70_72_73_76_thirty_fourth_review_scope_refined_at": "2026-07-28T21:28:36Z",
-    "last_updated_at": "2026-07-28T21:28:36Z"
+    "thirty_fifth_codex_review_completed_at": "2026-07-28T21:34:07Z",
+    "github_connector_write_limit_observed_at": "2026-07-28T21:36:02Z",
+    "last_updated_at": "2026-07-28T21:36:02Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",

@@ -46,18 +46,19 @@ are outcome gates and never remove a slice from the denominator.
 The draft-PR evaluation window, production-delivery window, live observation window,
 reporting window, and product success targets require human approval. A lineage cannot
 become eligible for a North Star until that metric's applicable maturity policy exists;
-otherwise intake records `POLICY_INPUT_REQUIRED`, exposes the pre-policy lineage only
-in first-pass validation and explicitly labelled baseline/exclusion counts, and admits
-no `eligibility_at` or `metric_due_at`. After policy approval, the same lineage may be
-re-evaluated and become eligible prospectively; its due time is fixed from that later
-eligibility instant, never backdated. Phase 1 contract intake records and validates
-these policy inputs but does not compute a fleet rate. The Phase 6/#73 reporting
-component must emit `TARGET_NOT_APPROVED`, omit the numeric rate, and report only
-clearly labelled raw counts, pending-policy lineages, exclusions, and window-independent
-diagnostics. No phase may substitute an agent-selected or retrospective window. A
-provisional baseline is permitted only after a named owner approves a separately
-versioned policy before the affected slices become eligible; provisional and
-target-policy series are never combined.
+otherwise intake enters the defined `PRODUCT_INPUT_REQUIRED` state with reason code
+`metric_maturity_policy_missing`, exposes the pre-policy lineage only in first-pass
+validation and explicitly labelled baseline/exclusion counts, and admits no
+`eligibility_at` or `metric_due_at`. After policy approval, the same lineage returns
+through normal contract intake, may become eligible prospectively, and fixes its due
+time from that later eligibility instant, never backdated. Phase 1 contract intake
+records and validates these policy inputs but does not compute a fleet rate. The Phase
+6/#73 reporting component must emit `TARGET_NOT_APPROVED`, omit the numeric rate, and
+report only clearly labelled raw counts, pending-policy lineages, exclusions, and
+window-independent diagnostics. No phase may substitute an agent-selected or
+retrospective window. A provisional baseline is permitted only after a named owner
+approves a separately versioned policy before the affected slices become eligible;
+provisional and target-policy series are never combined.
 
 Each North Star uses a versioned maturity policy fixed when eligibility is admitted.
 For EADPR, `metric_due_at` is `eligibility_at + approved draft-PR evaluation window`.
@@ -230,9 +231,14 @@ values are product/operations inputs and remain unresolved.
   integrity-verified vulnerability-advisory snapshot that satisfies an approved
   source-specific maximum-age/freshness policy at gate time. The evidence records
   source, snapshot/version/digest, generated/fetched/evaluated times, max age, and
-  freshness result. Missing, unverifiable, stale, or unavailable advisory data is
-  `BLOCKED` with reason `security_intelligence_unavailable_or_stale`; reproducible but
-  stale data never passes.
+  freshness result. Missing, unverifiable, stale, or unavailable advisory data never
+  passes: before rollout or after proven cleanup/rollback it is `BLOCKED` with reason
+  `security_intelligence_unavailable_or_stale`; in `STAGING_DEPLOYED` it enters
+  `STAGING_FAILED` and completes the pre-journaled cleanup; during canary or the
+  production-approval wait it enters `CANARY_FAILED`; and with changed-production
+  exposure it enters `LIVE_VERIFICATION_FAILED`. The latter two paths complete
+  pre-journaled rollback before they may block. A reproducible but stale snapshot never
+  strands active resources or exposure in a direct blocked state.
 - SBOM/provenance covers the exact build artifact.
 - Secrets are referenced through an approved secret manager and never stored in
   contracts, evidence, source, logs, or fixtures.
