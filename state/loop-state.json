@@ -37,7 +37,7 @@
     "open_question_blocking": "implemented_and_verified",
     "requirement_ids": "partially_implemented",
     "acceptance_criterion_ids": "partially_implemented",
-    "risk_classification": "implemented_and_verified",
+    "risk_classification": "implemented_but_unsafe",
     "approval_metadata": "implemented_and_verified",
     "repository_intelligence": "absent",
     "architecture_generation": "partially_implemented",
@@ -115,7 +115,7 @@
     {
       "id": "B-005",
       "owner": "repository_owner",
-      "summary": "GitHub Actions CI run 30422013042 on reviewed remote head a10cef2a378fd70fc56553183ae9e615a58ab83f executed all ten jobs: eight passed, product-backend failed at comparison-engine lint, and product-frontend failed at the high-severity dependency audit.",
+      "summary": "GitHub Actions CI run 30423038717 on reviewed remote head 3b048794985dd1373021fd059ef7bc806c67ddd6 executed all ten jobs: eight passed, product-backend failed at comparison-engine lint, and product-frontend failed at the high-severity dependency audit.",
       "blocks": [
         "exact_head_ci_verification"
       ],
@@ -158,7 +158,7 @@
     "initial_draft_pr_head_sha": "df73849cee55af43fea2bc6c260a39cea6946942",
     "formal_review_requested": false,
     "formal_review_submitted": false,
-    "latest_observed_remote_head_sha": "a10cef2a378fd70fc56553183ae9e615a58ab83f",
+    "latest_observed_remote_head_sha": "3b048794985dd1373021fd059ef7bc806c67ddd6",
     "remote_scope_sync_pending": [],
     "final_pr_evidence_comment_pending": true
   },
@@ -510,13 +510,26 @@
       },
       "result": "failed_8_jobs_passed_2_gate_failures",
       "notes": "Format/lint, product preview, Python 3.11/3.12 tests, build smoke, types, product E2E, and security passed. Product-backend failed at comparison-engine lint; product-frontend failed at the high-severity dependency audit. Downstream steps in those two jobs were skipped. PR Review Agent run 30422013044 was skipped because PR #75 remains draft."
+    },
+    {
+      "name": "github_actions_pr_ci",
+      "command": "GitHub Actions ci run 30423038717 for commit 3b048794985dd1373021fd059ef7bc806c67ddd6",
+      "provenance": {
+        "subject_sha": "3b048794985dd1373021fd059ef7bc806c67ddd6",
+        "tool_identity": "GitHub Actions run 30423038717 via connected GitHub status API",
+        "executed_at": "GitHub_job_timestamps_recorded_remotely; observed_2026-07-29T04:50:28Z",
+        "environment_fingerprint": "GitHub-hosted runners; job-level setup/tool versions are recorded in the workflow run",
+        "reusable_for_exact_head_readiness": false
+      },
+      "result": "failed_8_jobs_passed_2_gate_failures",
+      "notes": "Format/lint, product preview, Python 3.11/3.12 tests, build smoke, types, product E2E, and security passed. Product-backend failed at comparison-engine lint; product-frontend failed at the high-severity dependency audit. Downstream steps in those two jobs were skipped. PR Review Agent run 30423038742 was skipped because PR #75 remains draft."
     }
   ],
   "review": {
-    "status": "fortieth_review_corrections_complete_issue_scope_synced_rereview_pending",
+    "status": "forty_first_review_corrections_complete_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 150,
-    "findings_resolved": 150,
+    "findings_identified": 152,
+    "findings_resolved": 152,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -559,7 +572,8 @@
     "thirty_eighth_reviewed_head_sha": "61f99bed3f6eff2b41b5f080f4d71262a263c678",
     "thirty_ninth_reviewed_head_sha": "d5bd1c6c58812002fd8ae451e5b6e8473144de92",
     "fortieth_reviewed_head_sha": "a10cef2a378fd70fc56553183ae9e615a58ab83f",
-    "latest_reviewed_head_sha": "a10cef2a378fd70fc56553183ae9e615a58ab83f",
+    "forty_first_reviewed_head_sha": "3b048794985dd1373021fd059ef7bc806c67ddd6",
+    "latest_reviewed_head_sha": "3b048794985dd1373021fd059ef7bc806c67ddd6",
     "findings": [
       {
         "id": "P1-01",
@@ -1610,6 +1624,20 @@
         "summary": "Replace the superseded runner-outage blocker in the audit with the current backend-lint and frontend-dependency gate failures.",
         "location": "docs/CURRENT-CAPABILITY-AUDIT.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P2-73",
+        "severity": "medium",
+        "summary": "Align the durable risk-classification capability value with the audit's implemented-but-unsafe classification.",
+        "location": "state/loop-state.json",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-74",
+        "severity": "medium",
+        "summary": "Require accepted credible medium findings to be fixed while preserving evidence-backed rejected-with-reason disposition.",
+        "location": "docs/ISSUE-AND-PR-GOVERNANCE.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1714,7 +1742,9 @@
     "fortieth_codex_review_completed_at": "2026-07-29T04:40:35Z",
     "github_actions_run_30422013042_observed_at": "2026-07-29T04:40:35Z",
     "issues_65_69_73_fortieth_review_scope_refined_at": "2026-07-29T04:40:17Z",
-    "last_updated_at": "2026-07-29T04:40:35Z"
+    "forty_first_codex_review_completed_at": "2026-07-29T04:50:28Z",
+    "github_actions_run_30423038717_observed_at": "2026-07-29T04:50:28Z",
+    "last_updated_at": "2026-07-29T04:50:28Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",

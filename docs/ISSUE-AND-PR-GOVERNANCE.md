@@ -232,7 +232,9 @@ failures and reproduced in the supported CI environment where possible.
 3. Run Codex `/review` or equivalent analysis on the complete diff. It is analysis, not a
    formal GitHub approval.
 4. Record every credible finding with severity, location, reasoning, and disposition.
-5. Fix all critical/high and credible medium findings; record rejected findings and why.
+5. Fix all critical/high findings and every accepted credible medium finding. A medium
+   finding may instead be `rejected-with-reason` only with evidence, named-owner
+   reasoning, and independent disposition validation; record that rejection and why.
 6. Use a separate repair pass; never silently let the reviewer rewrite the candidate.
 7. Re-run the full affected and mandatory suite on the changed head.
 8. After the ready-for-review action is separately authorized and observed, request
