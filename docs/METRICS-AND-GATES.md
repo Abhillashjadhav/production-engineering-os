@@ -232,19 +232,24 @@ values are product/operations inputs and remain unresolved.
   source-specific maximum-age/freshness policy at gate time. The evidence records
   source, snapshot/version/digest, generated/fetched/evaluated times, max age, and
   freshness result. Missing, unverifiable, stale, or unavailable advisory data never
-  passes. Before rollout or after proven cleanup/rollback it is `BLOCKED` with reason
-  `security_intelligence_unavailable_or_stale`. With no completed or unknown canary
-  mutation, `STAGING_DEPLOYED` enters `STAGING_FAILED` and completes pre-journaled
-  cleanup; after any canary mutation while that source state is still nominally active,
-  it uses the explicit direct `STAGING_DEPLOYED → ROLLBACK_IN_PROGRESS` edge. An
+  passes. Before rollout—or after verified rollback **and** pre-journaled cleanup of
+  every surviving rollout staging resource, with proof of zero rollout staging,
+  canary, and changed-production resources/exposure—it is `BLOCKED` with reason
+  `security_intelligence_unavailable_or_stale`. Rollback proof alone is not safe-state
+  proof. With no completed or unknown canary mutation, `STAGING_DEPLOYED` enters
+  `STAGING_FAILED` and completes pre-journaled cleanup; after any canary mutation while
+  that source state is still nominally active, it uses the explicit direct
+  `STAGING_DEPLOYED → ROLLBACK_IN_PROGRESS` edge. An
   admitted canary or production-approval wait with no completed/unknown production
   mutation enters `CANARY_FAILED`; after any production mutation while approval is
   still nominally pending, it uses the direct
   `PRODUCTION_APPROVAL_REQUIRED → ROLLBACK_IN_PROGRESS` edge. Admitted changed
   production enters `LIVE_VERIFICATION_FAILED`. Every active/indeterminate exposure
-  path completes pre-journaled rollback before it may block. Durable mutation-attempt
-  evidence, not the nominal lifecycle label, selects the route; a reproducible but stale
-  snapshot never strands active resources or exposure.
+  path completes pre-journaled rollback and then, when rollout staging exists or is
+  unknown, uses `ROLLED_BACK → STAGING_FAILED` to clean/reconcile it before any block.
+  Durable mutation-attempt and zero-resource evidence, not the nominal lifecycle label,
+  selects the route; a reproducible but stale snapshot never strands active resources
+  or exposure.
 - SBOM/provenance covers the exact build artifact.
 - Secrets are referenced through an approved secret manager and never stored in
   contracts, evidence, source, logs, or fixtures.
