@@ -115,7 +115,7 @@
     {
       "id": "B-005",
       "owner": "repository_owner",
-      "summary": "GitHub Actions CI run 30466127015 for reviewed PR head 5bb55cd3deb868fbd8b0ac1325a25ea8fa895d24 checked out synthetic merge commit bc95b033798131a9d5ae44c4d4b76a6ae4ecceb5 and executed all ten jobs: eight passed, product-backend failed at comparison-engine lint, and product-frontend failed at the high-severity dependency audit.",
+      "summary": "GitHub Actions CI run 30471567031 for reviewed PR head e24fbf3c84d5d7ec87c2291a8df80fabe00b370a checked out synthetic merge commit 0cec017bbe51198b34fa0c4f3000b6f08842b3c3 and executed all ten jobs: eight passed, product-backend failed at comparison-engine lint, and product-frontend failed at the high-severity dependency audit.",
       "blocks": [
         "exact_head_ci_verification"
       ],
@@ -158,9 +158,9 @@
     "initial_draft_pr_head_sha": "df73849cee55af43fea2bc6c260a39cea6946942",
     "formal_review_requested": false,
     "formal_review_submitted": false,
-    "latest_observed_remote_head_sha": "5bb55cd3deb868fbd8b0ac1325a25ea8fa895d24",
+    "latest_observed_remote_head_sha": "e24fbf3c84d5d7ec87c2291a8df80fabe00b370a",
     "remote_scope_sync_pending": [],
-    "final_pr_evidence_comment_pending": true
+    "final_pr_evidence_comment_pending": false
   },
   "check_evidence_policy": {
     "readiness_rule": "A check is reusable for exact-head readiness only when its item records a concrete subject SHA/tree or artifact digest, executable/tool version, execution timestamp, and applicable environment fingerprint. 'not_recorded' makes the item audit context only, never reusable PASS evidence.",
@@ -652,10 +652,26 @@
       },
       "result": "failed_8_jobs_passed_2_gate_failures",
       "notes": "Format/lint, product preview, Python 3.11/3.12 tests, build smoke, types, product E2E, and security passed. Product-backend failed at comparison-engine lint; product-frontend failed at the high-severity dependency audit. Downstream steps in those two jobs were skipped. PR Review Agent run 30466127269 was skipped because PR #75 remains draft."
+    },
+    {
+      "name": "github_actions_pr_ci",
+      "command": "GitHub Actions ci run 30471567031 for PR head e24fbf3c84d5d7ec87c2291a8df80fabe00b370a",
+      "provenance": {
+        "subject_sha": "0cec017bbe51198b34fa0c4f3000b6f08842b3c3",
+        "pr_head_sha": "e24fbf3c84d5d7ec87c2291a8df80fabe00b370a",
+        "base_sha": "8ddc4ccfeb88d7efd5531ca9411e5f2229cce0ec",
+        "checkout_ref": "refs/pull/75/merge",
+        "tool_identity": "GitHub Actions run 30471567031 and checkout log via connected GitHub integration",
+        "executed_at": "GitHub_job_timestamps_recorded_remotely; observed_2026-07-29T16:42:12Z",
+        "environment_fingerprint": "GitHub-hosted runners; job-level setup/tool versions are recorded in the workflow run",
+        "reusable_for_exact_head_readiness": false
+      },
+      "result": "failed_8_jobs_passed_2_gate_failures",
+      "notes": "Format/lint, product preview, Python 3.11/3.12 tests, build smoke, types, product E2E, and security passed. Product-backend failed at comparison-engine lint; product-frontend failed at the high-severity dependency audit. Downstream steps in those two jobs were skipped. PR Review Agent run 30471567034 was skipped because PR #75 remains draft."
     }
   ],
   "review": {
-    "status": "forty_eighth_review_corrections_complete_rereview_pending",
+    "status": "forty_ninth_review_complete_no_blocking_findings",
     "analysis_tool": "Direct read-only Codex review in the current session against main using gpt-5.6-sol xhigh; earlier rounds used Codex CLI review --base main",
     "findings_identified": 170,
     "findings_resolved": 170,
@@ -709,7 +725,8 @@
     "forty_sixth_reviewed_head_sha": "b0afd460eb232eb37de78cb7dd4689ef04101aeb",
     "forty_seventh_reviewed_head_sha": "a4bab092ce8cac3737fadf26889c66dd0a8dfa7d",
     "forty_eighth_reviewed_head_sha": "5bb55cd3deb868fbd8b0ac1325a25ea8fa895d24",
-    "latest_reviewed_head_sha": "5bb55cd3deb868fbd8b0ac1325a25ea8fa895d24",
+    "forty_ninth_reviewed_head_sha": "e24fbf3c84d5d7ec87c2291a8df80fabe00b370a",
+    "latest_reviewed_head_sha": "e24fbf3c84d5d7ec87c2291a8df80fabe00b370a",
     "findings": [
       {
         "id": "P1-01",
@@ -2023,7 +2040,9 @@
     "github_actions_run_30430397266_observed_at": "2026-07-29T07:09:29Z",
     "forty_seventh_codex_review_completed_at": "2026-07-29T07:22:02Z",
     "github_actions_run_30466127015_observed_at": "2026-07-29T15:41:01Z",
-    "last_updated_at": "2026-07-29T15:41:01Z"
+    "github_actions_run_30471567031_observed_at": "2026-07-29T16:42:12Z",
+    "forty_ninth_codex_review_completed_at": "2026-07-29T16:42:12Z",
+    "last_updated_at": "2026-07-29T16:42:12Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
