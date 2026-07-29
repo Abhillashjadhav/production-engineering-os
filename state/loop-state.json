@@ -115,7 +115,7 @@
     {
       "id": "B-005",
       "owner": "repository_owner",
-      "summary": "GitHub Actions CI run 30419576112 on reviewed remote head 186249261fe3d8626c9cce87d24effce9ba14ce2 executed all ten jobs: eight passed, product-backend failed at comparison-engine lint, and product-frontend failed at the high-severity dependency audit.",
+      "summary": "GitHub Actions CI run 30420149192 on reviewed remote head 61f99bed3f6eff2b41b5f080f4d71262a263c678 executed all ten jobs: eight passed, product-backend failed at comparison-engine lint, and product-frontend failed at the high-severity dependency audit.",
       "blocks": [
         "exact_head_ci_verification"
       ],
@@ -158,7 +158,7 @@
     "initial_draft_pr_head_sha": "df73849cee55af43fea2bc6c260a39cea6946942",
     "formal_review_requested": false,
     "formal_review_submitted": false,
-    "latest_observed_remote_head_sha": "186249261fe3d8626c9cce87d24effce9ba14ce2",
+    "latest_observed_remote_head_sha": "61f99bed3f6eff2b41b5f080f4d71262a263c678",
     "remote_scope_sync_pending": [],
     "final_pr_evidence_comment_pending": true
   },
@@ -471,13 +471,26 @@
       },
       "result": "failed_8_jobs_passed_2_gate_failures",
       "notes": "Types, security, build-smoke, format-lint, Python 3.11/3.12 tests, product E2E, and product preview passed. Product-backend failed at comparison-engine lint; product-frontend failed at the high-severity dependency audit. Downstream steps in those two jobs were skipped. PR Review Agent run 30419576102 was skipped because PR #75 remains draft."
+    },
+    {
+      "name": "github_actions_pr_ci",
+      "command": "GitHub Actions ci run 30420149192 for commit 61f99bed3f6eff2b41b5f080f4d71262a263c678",
+      "provenance": {
+        "subject_sha": "61f99bed3f6eff2b41b5f080f4d71262a263c678",
+        "tool_identity": "GitHub Actions run 30420149192 via connected GitHub status API",
+        "executed_at": "GitHub_job_timestamps_recorded_remotely; observed_2026-07-29T03:56:48Z",
+        "environment_fingerprint": "GitHub-hosted runners; job-level setup/tool versions are recorded in the workflow run",
+        "reusable_for_exact_head_readiness": false
+      },
+      "result": "failed_8_jobs_passed_2_gate_failures",
+      "notes": "Format/lint, product preview, Python 3.11/3.12 tests, build smoke, types, product E2E, and security passed. Product-backend failed at comparison-engine lint; product-frontend failed at the high-severity dependency audit. Downstream steps in those two jobs were skipped. PR Review Agent run 30420149183 was skipped because PR #75 remains draft."
     }
   ],
   "review": {
-    "status": "thirty_seventh_review_corrections_complete_issue_scope_synced_rereview_pending",
+    "status": "thirty_eighth_review_corrections_complete_issue_scope_sync_pending_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 140,
-    "findings_resolved": 140,
+    "findings_identified": 142,
+    "findings_resolved": 142,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -517,7 +530,8 @@
     "thirty_fifth_reviewed_head_sha": "06f56601d9bd5d8375dacd63741d69b53a61f9b3",
     "thirty_sixth_reviewed_head_sha": "264f3716511010bb1158982d9397373acf7ffea9",
     "thirty_seventh_reviewed_head_sha": "186249261fe3d8626c9cce87d24effce9ba14ce2",
-    "latest_reviewed_head_sha": "186249261fe3d8626c9cce87d24effce9ba14ce2",
+    "thirty_eighth_reviewed_head_sha": "61f99bed3f6eff2b41b5f080f4d71262a263c678",
+    "latest_reviewed_head_sha": "61f99bed3f6eff2b41b5f080f4d71262a263c678",
     "findings": [
       {
         "id": "P1-01",
@@ -1498,6 +1512,20 @@
         "summary": "Keep integrity monitors evidence-only and require the control plane to admit every completion-revocation state transition.",
         "location": "docs/TARGET-ARCHITECTURE.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-73",
+        "severity": "high",
+        "summary": "Fence the atomic merge decision on a monotonic readiness authorization that binds current product authority and normalized formal-review findings.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-74",
+        "severity": "high",
+        "summary": "Carry contract and publisher authority in conjunctive staging, canary, and production adapter fences through every mutation and final admission.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1593,7 +1621,10 @@
     "thirty_seventh_codex_review_completed_at": "2026-07-29T03:35:45Z",
     "github_actions_run_30419576112_observed_at": "2026-07-29T03:35:45Z",
     "issues_65_69_70_thirty_seventh_review_scope_refined_at": "2026-07-29T03:37:44Z",
-    "last_updated_at": "2026-07-29T03:37:44Z"
+    "thirty_eighth_codex_review_completed_at": "2026-07-29T03:56:48Z",
+    "github_actions_run_30420149192_observed_at": "2026-07-29T03:56:48Z",
+    "issues_65_69_71_72_thirty_eighth_review_scope_refined_at": "2026-07-29T04:04:08Z",
+    "last_updated_at": "2026-07-29T04:04:08Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
