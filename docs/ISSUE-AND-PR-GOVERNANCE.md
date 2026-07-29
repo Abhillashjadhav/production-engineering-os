@@ -241,13 +241,19 @@ failures and reproduced in the supported CI environment where possible.
    formal GitHub review from an eligible collaborator when one exists.
 9. Do not request a fabricated identity, self-approve, or claim a review without GitHub
    evidence.
-10. Any eligible exact-subject formal review that contains a normalized blocking
-    critical, high, or credible medium finding revokes readiness through a governed
-    ready-to-draft action, regardless of whether GitHub labels the submission
-    `COMMENT`, `APPROVE`, or `CHANGES_REQUESTED`. Record and reconcile the findings,
-    then require repair or evidence-backed rejection, exact-head verification, advisory
-    review, readiness, and a new current formal approval.
-11. If corrections change the candidate, earlier approvals and exact-subject evidence
+10. Any exact-subject critical, high, or credible medium finding from an
+    authenticated/traceable reviewer, collaborator, bot, scanner, security team, or
+    other source revokes readiness after independent normalization validates it as
+    blocking. Reviewer eligibility controls approval authority, not finding admission;
+    a GitHub `COMMENT` or `APPROVE` label cannot suppress the finding.
+11. A governed ready-to-draft action must accompany finding or required-check
+    invalidation. Before re-readiness, observably dismiss every invalidated approval
+    that GitHub might otherwise retain for the unchanged head, or prove a GitHub-native
+    freshness rule excludes those exact review IDs from merge.
+12. Record and reconcile the findings, then require repair or evidence-backed
+    rejection, exact-head verification, advisory review, readiness, and a new current
+    formal approval.
+13. If corrections change the candidate, earlier approvals and exact-subject evidence
     are stale unless repository policy explicitly and safely preserves them.
 
 The current automated PR-review workflow must not be treated as independent approval
@@ -278,17 +284,22 @@ A PR may leave draft only when:
 
 Leaving draft makes the PR eligible for formal GitHub review; it is not merge approval.
 After the ready-for-review state is observed, request every policy-required formal
-approval from eligible collaborators. Those approvals, and any still-current required
-checks/evidence, are prerequisites for merge. Protected-environment approvals are
+approval from eligible collaborators. Only fresh approvals obtained after the latest
+readiness/failure invalidation boundary may count. Those approvals, and any
+still-current required checks/evidence, are prerequisites for merge. Protected-environment approvals are
 acquired separately at their staging, canary, and production lifecycle gates, not as a
 prerequisite for leaving PR draft or merging code.
 
 A policy-required formal `CHANGES_REQUESTED` review blocks merge and triggers the
-governed return to draft. So does any normalized blocking finding in an eligible
-exact-subject formal `COMMENT` or `APPROVE`; the submission label cannot override the
-finding policy. Accepted findings follow the fixer-independent repair and verification
-loop; a disposition without source changes still requires fresh advisory
-review/readiness evidence and a new current formal approval.
+governed return to draft. So does any independently validated exact-subject blocking
+finding from an authenticated/traceable source, whether that source is an eligible
+reviewer, non-required collaborator, bot, scanner, or security team; source eligibility
+cannot turn a known blocker into approval. Accepted findings follow the
+fixer-independent repair and verification loop. A disposition without source changes
+still requires observable dismissal/native exclusion of invalidated approvals, fresh
+advisory review/readiness evidence, and a new current formal approval. Required-check
+revocation, rerun, staleness, or failure likewise revokes readiness and returns through
+verification before a fresh review.
 
 Only an authorized maintainer may enqueue or authorize a merge through an enforced
 merge queue or compare-and-swap gate that atomically admits the unchanged reviewed PR

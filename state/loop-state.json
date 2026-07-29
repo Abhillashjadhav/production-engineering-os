@@ -115,7 +115,7 @@
     {
       "id": "B-005",
       "owner": "repository_owner",
-      "summary": "GitHub Actions CI run 30423441835 for reviewed PR head 63f58183706493b228d179d4338a6bbe8cd6de60 checked out synthetic merge commit 17d551e75f96aab11e835d052fd2c9761ad5277e and executed all ten jobs: eight passed, product-backend failed at comparison-engine lint, and product-frontend failed at the high-severity dependency audit.",
+      "summary": "GitHub Actions CI run 30424722100 for reviewed PR head 476a4a5e7a57753e1b5c05b1ad4a2c79b63b2c51 checked out synthetic merge commit ddadc5463ba0519ea6a723339207e4f3f30a303c and executed all ten jobs: eight passed, product-backend failed at comparison-engine lint, and product-frontend failed at the high-severity dependency audit.",
       "blocks": [
         "exact_head_ci_verification"
       ],
@@ -158,7 +158,7 @@
     "initial_draft_pr_head_sha": "df73849cee55af43fea2bc6c260a39cea6946942",
     "formal_review_requested": false,
     "formal_review_submitted": false,
-    "latest_observed_remote_head_sha": "3b048794985dd1373021fd059ef7bc806c67ddd6",
+    "latest_observed_remote_head_sha": "476a4a5e7a57753e1b5c05b1ad4a2c79b63b2c51",
     "remote_scope_sync_pending": [],
     "final_pr_evidence_comment_pending": true
   },
@@ -556,13 +556,29 @@
       },
       "result": "failed_8_jobs_passed_2_gate_failures",
       "notes": "Format/lint, product preview, Python 3.11/3.12 tests, build smoke, types, product E2E, and security passed. Product-backend failed at comparison-engine lint; product-frontend failed at the high-severity dependency audit. Downstream steps in those two jobs were skipped. PR Review Agent run 30423441796 was skipped because PR #75 remains draft."
+    },
+    {
+      "name": "github_actions_pr_ci",
+      "command": "GitHub Actions ci run 30424722100 for PR head 476a4a5e7a57753e1b5c05b1ad4a2c79b63b2c51",
+      "provenance": {
+        "subject_sha": "ddadc5463ba0519ea6a723339207e4f3f30a303c",
+        "pr_head_sha": "476a4a5e7a57753e1b5c05b1ad4a2c79b63b2c51",
+        "base_sha": "8ddc4ccfeb88d7efd5531ca9411e5f2229cce0ec",
+        "checkout_ref": "refs/pull/75/merge",
+        "tool_identity": "GitHub Actions run 30424722100 and checkout log via connected GitHub integration",
+        "executed_at": "GitHub_job_timestamps_recorded_remotely; observed_2026-07-29T05:30:59Z",
+        "environment_fingerprint": "GitHub-hosted runners; job-level setup/tool versions are recorded in the workflow run",
+        "reusable_for_exact_head_readiness": false
+      },
+      "result": "failed_8_jobs_passed_2_gate_failures",
+      "notes": "Format/lint, product preview, Python 3.11/3.12 tests, build smoke, types, product E2E, and security passed. Product-backend failed at comparison-engine lint; product-frontend failed at the high-severity dependency audit. Downstream steps in those two jobs were skipped. PR Review Agent run 30424722125 was skipped because PR #75 remains draft."
     }
   ],
   "review": {
-    "status": "forty_second_review_corrections_complete_issue_scope_synced_rereview_pending",
+    "status": "forty_third_review_corrections_complete_issue_scope_synced_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 154,
-    "findings_resolved": 154,
+    "findings_identified": 159,
+    "findings_resolved": 159,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -607,7 +623,8 @@
     "fortieth_reviewed_head_sha": "a10cef2a378fd70fc56553183ae9e615a58ab83f",
     "forty_first_reviewed_head_sha": "3b048794985dd1373021fd059ef7bc806c67ddd6",
     "forty_second_reviewed_head_sha": "63f58183706493b228d179d4338a6bbe8cd6de60",
-    "latest_reviewed_head_sha": "63f58183706493b228d179d4338a6bbe8cd6de60",
+    "forty_third_reviewed_head_sha": "476a4a5e7a57753e1b5c05b1ad4a2c79b63b2c51",
+    "latest_reviewed_head_sha": "476a4a5e7a57753e1b5c05b1ad4a2c79b63b2c51",
     "findings": [
       {
         "id": "P1-01",
@@ -1686,6 +1703,41 @@
         "summary": "Route pre-canary contract or publisher invalidation consistently through staging cleanup and product input instead of the unrelated blocked-resume path.",
         "location": "docs/TARGET-ARCHITECTURE.md and GitHub issue 65",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-79",
+        "severity": "high",
+        "summary": "Dismiss or natively exclude invalidated unchanged-head approvals before re-readiness so a fresh formal approval is actually required.",
+        "location": "docs/TARGET-ARCHITECTURE.md; docs/ISSUE-AND-PR-GOVERNANCE.md; GitHub issues 65/68/69",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-80",
+        "severity": "high",
+        "summary": "Admit independently validated blocking findings from any authenticated traceable source while reserving approval authority for eligible formal reviewers.",
+        "location": "docs/TARGET-ARCHITECTURE.md; docs/ISSUE-AND-PR-GOVERNANCE.md; GitHub issues 65/68/69",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-77",
+        "severity": "medium",
+        "summary": "Add explicit PR-ready required-check invalidation and unchanged-candidate re-verification transitions.",
+        "location": "docs/TARGET-ARCHITECTURE.md and GitHub issues 65/68/69",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-78",
+        "severity": "medium",
+        "summary": "Route delivery-budget exhaustion before specialist authorization through an evidence-bearing budget-exceeded transition.",
+        "location": "docs/TARGET-ARCHITECTURE.md and GitHub issue 65",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-79",
+        "severity": "medium",
+        "summary": "Advance the durable latest-observed remote-head pointer to the latest already proven remote head while retaining the final-head self-reference blocker.",
+        "location": "state/loop-state.json",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1795,7 +1847,10 @@
     "forty_second_codex_review_completed_at": "2026-07-29T05:08:33Z",
     "github_actions_run_30423441835_observed_at": "2026-07-29T05:08:33Z",
     "issue_65_forty_second_review_scope_refined_at": "2026-07-29T05:17:30Z",
-    "last_updated_at": "2026-07-29T05:17:30Z"
+    "forty_third_codex_review_completed_at": "2026-07-29T05:30:59Z",
+    "github_actions_run_30424722100_observed_at": "2026-07-29T05:30:59Z",
+    "issues_65_68_69_forty_third_review_scope_refined_at": "2026-07-29T05:35:21Z",
+    "last_updated_at": "2026-07-29T05:35:21Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
