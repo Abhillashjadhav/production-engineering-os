@@ -239,10 +239,12 @@ failures and reproduced in the supported CI environment where possible.
    formal GitHub review from an eligible collaborator when one exists.
 9. Do not request a fabricated identity, self-approve, or claim a review without GitHub
    evidence.
-10. A formal `CHANGES_REQUESTED` result revokes readiness through a governed
-    ready-to-draft action, records the formal findings, and re-enters reconciliation,
-    repair, exact-head verification, and advisory review before the PR can become ready
-    and request formal review again.
+10. Any eligible exact-subject formal review that contains a normalized blocking
+    critical, high, or credible medium finding revokes readiness through a governed
+    ready-to-draft action, regardless of whether GitHub labels the submission
+    `COMMENT`, `APPROVE`, or `CHANGES_REQUESTED`. Record and reconcile the findings,
+    then require repair or evidence-backed rejection, exact-head verification, advisory
+    review, readiness, and a new current formal approval.
 11. If corrections change the candidate, earlier approvals and exact-subject evidence
     are stale unless repository policy explicitly and safely preserves them.
 
@@ -280,8 +282,10 @@ acquired separately at their staging, canary, and production lifecycle gates, no
 prerequisite for leaving PR draft or merging code.
 
 A policy-required formal `CHANGES_REQUESTED` review blocks merge and triggers the
-governed return to draft. Accepted findings follow the fixer-independent repair and
-verification loop; a disposition without source changes still requires fresh advisory
+governed return to draft. So does any normalized blocking finding in an eligible
+exact-subject formal `COMMENT` or `APPROVE`; the submission label cannot override the
+finding policy. Accepted findings follow the fixer-independent repair and verification
+loop; a disposition without source changes still requires fresh advisory
 review/readiness evidence and a new current formal approval.
 
 Only an authorized maintainer may enqueue or authorize a merge through an enforced

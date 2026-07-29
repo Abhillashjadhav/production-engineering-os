@@ -213,7 +213,7 @@ invalid-evidence correction.
 
 | Guardrail | Pass/fail rule |
 |---|---|
-| Deterministic replay | Unchanged inputs/toolchain produce the same admitted artifacts/digests |
+| Deterministic replay | Deterministic components reproduce the same result/digest for unchanged exact inputs/toolchain/policy/environment. An admitted model proposal is itself an immutable input: replay reuses its digest and reproduces the admission decision; regeneration creates a new proposal subject, requires fresh admission, and invalidates dependent evidence rather than pretending stochastic bytes must match. |
 | Crash recovery | Resume is idempotent; no authoritative action is double-counted |
 | Staging health | Required health, smoke, integration, migration, and journey checks all pass |
 | Canary/live SLO | Every approved SLO/guardrail stays within threshold for the complete observation window |
@@ -232,13 +232,19 @@ values are product/operations inputs and remain unresolved.
   source-specific maximum-age/freshness policy at gate time. The evidence records
   source, snapshot/version/digest, generated/fetched/evaluated times, max age, and
   freshness result. Missing, unverifiable, stale, or unavailable advisory data never
-  passes: before rollout or after proven cleanup/rollback it is `BLOCKED` with reason
-  `security_intelligence_unavailable_or_stale`; in `STAGING_DEPLOYED` it enters
-  `STAGING_FAILED` and completes the pre-journaled cleanup; during canary or the
-  production-approval wait it enters `CANARY_FAILED`; and with changed-production
-  exposure it enters `LIVE_VERIFICATION_FAILED`. The latter two paths complete
-  pre-journaled rollback before they may block. A reproducible but stale snapshot never
-  strands active resources or exposure in a direct blocked state.
+  passes. Before rollout or after proven cleanup/rollback it is `BLOCKED` with reason
+  `security_intelligence_unavailable_or_stale`. With no completed or unknown canary
+  mutation, `STAGING_DEPLOYED` enters `STAGING_FAILED` and completes pre-journaled
+  cleanup; after any canary mutation while that source state is still nominally active,
+  it uses the explicit direct `STAGING_DEPLOYED → ROLLBACK_IN_PROGRESS` edge. An
+  admitted canary or production-approval wait with no completed/unknown production
+  mutation enters `CANARY_FAILED`; after any production mutation while approval is
+  still nominally pending, it uses the direct
+  `PRODUCTION_APPROVAL_REQUIRED → ROLLBACK_IN_PROGRESS` edge. Admitted changed
+  production enters `LIVE_VERIFICATION_FAILED`. Every active/indeterminate exposure
+  path completes pre-journaled rollback before it may block. Durable mutation-attempt
+  evidence, not the nominal lifecycle label, selects the route; a reproducible but stale
+  snapshot never strands active resources or exposure.
 - SBOM/provenance covers the exact build artifact.
 - Secrets are referenced through an approved secret manager and never stored in
   contracts, evidence, source, logs, or fixtures.

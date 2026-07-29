@@ -115,7 +115,7 @@
     {
       "id": "B-005",
       "owner": "repository_owner",
-      "summary": "GitHub Actions CI run 30418657260 on validated remote head eee57692d5c09f275efaee6ed68c0750621a693f failed before job-step execution: nine jobs failed, one was cancelled, step arrays were empty, and logs were unavailable.",
+      "summary": "GitHub Actions CI run 30418799914 on reviewed remote head 264f3716511010bb1158982d9397373acf7ffea9 failed before job-step execution: nine jobs failed, one was cancelled, step arrays were empty, and logs were unavailable.",
       "blocks": [
         "exact_head_ci_verification"
       ],
@@ -158,7 +158,7 @@
     "initial_draft_pr_head_sha": "df73849cee55af43fea2bc6c260a39cea6946942",
     "formal_review_requested": false,
     "formal_review_submitted": false,
-    "latest_observed_remote_head_sha": "eee57692d5c09f275efaee6ed68c0750621a693f",
+    "latest_observed_remote_head_sha": "264f3716511010bb1158982d9397373acf7ffea9",
     "remote_scope_sync_pending": [],
     "final_pr_evidence_comment_pending": true
   },
@@ -448,36 +448,36 @@
     },
     {
       "name": "full_workspace_credential_shape_scan",
-      "command": "rg --hidden --no-ignore credential-shape path-only scan with explicit .git/.venv/node_modules/build/dist/lockfile exclusions",
+      "command": "rg -l --hidden --no-ignore --glob '!.git/**' --glob '!.venv/**' --glob '!node_modules/**' --glob '!build/**' --glob '!dist/**' '(AKIA[0-9A-Z]{16}|gh[pousr]_[A-Za-z0-9_]{30,}|sk-[A-Za-z0-9_-]{32,}|xox[baprs]-[A-Za-z0-9-]{10,}|npm_[A-Za-z0-9]{36}|pypi-AgEIcHlwaS\\.[A-Za-z0-9_-]{20,}|https?://[^[:space:]/:@]+:[^[:space:]@]+@|-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY-----)' .; scan_status=$?; if [ \"$scan_status\" -eq 1 ]; then echo CREDENTIAL_SHAPE_SCAN_PASS_NO_MATCHING_PATHS; exit 0; fi; if [ \"$scan_status\" -eq 0 ]; then echo CREDENTIAL_SHAPE_SCAN_FAIL_MATCHING_PATHS; exit 1; fi; exit \"$scan_status\"",
       "provenance": {
-        "subject_sha": "eee57692d5c09f275efaee6ed68c0750621a693f",
+        "subject_sha": "264f3716511010bb1158982d9397373acf7ffea9",
         "tool_identity": "ripgrep 15.2.0",
-        "executed_at": "2026-07-29T03:08:24Z",
+        "executed_at": "2026-07-29T03:20:24Z",
         "environment_fingerprint": "macOS 26.5 arm64; Darwin 25.5.0; local workspace",
         "reusable_for_exact_head_readiness": false
       },
       "result": "passed_no_matching_paths",
-      "notes": "Output was restricted to path names; no credential-shaped match was returned. This is a scoped deterministic pattern scan, not proof that no secret exists."
+      "notes": "Output was restricted to path names; no credential-shaped match was returned. Tracked lockfiles were included. Explicit exclusions cover only repository metadata, local virtual environments, dependency vendor trees, and build outputs. This scoped deterministic pattern scan is not proof that no secret exists."
     },
     {
       "name": "github_actions_pr_ci",
-      "command": "GitHub Actions ci run 30418657260 for commit eee57692d5c09f275efaee6ed68c0750621a693f",
+      "command": "GitHub Actions ci run 30418799914 for commit 264f3716511010bb1158982d9397373acf7ffea9",
       "provenance": {
-        "subject_sha": "eee57692d5c09f275efaee6ed68c0750621a693f",
-        "tool_identity": "GitHub Actions run 30418657260 via connected GitHub status API",
-        "executed_at": "GitHub_job_timestamps_recorded_remotely; observed_2026-07-29T03:08:24Z",
+        "subject_sha": "264f3716511010bb1158982d9397373acf7ffea9",
+        "tool_identity": "GitHub Actions run 30418799914 via connected GitHub status API",
+        "executed_at": "GitHub_job_timestamps_recorded_remotely; observed_2026-07-29T03:20:24Z",
         "environment_fingerprint": "runner_allocation_failed_before_steps_no_runtime_environment",
         "reusable_for_exact_head_readiness": false
       },
       "result": "infrastructure_failure_before_steps",
-      "notes": "Nine jobs failed, one was cancelled, no job exposed any steps or logs, and PR Review Agent run 30418657285 was skipped because PR #75 remains draft."
+      "notes": "Nine jobs failed, one was cancelled, no job exposed any steps or logs, and PR Review Agent run 30418799900 was skipped because PR #75 remains draft."
     }
   ],
   "review": {
-    "status": "thirty_sixth_review_pending_exact_head_checks_recorded",
+    "status": "thirty_sixth_review_corrections_complete_issue_scope_synced_rereview_pending",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
-    "findings_identified": 132,
-    "findings_resolved": 132,
+    "findings_identified": 138,
+    "findings_resolved": 138,
     "findings_rejected": 0,
     "formal_github_review_status": "not_requested_no_eligible_collaborator_observed",
     "initial_reviewed_head_sha": "a954f9102d939dfbe4e811047570d2e91b2a4f3d",
@@ -515,7 +515,8 @@
     "thirty_third_reviewed_head_sha": "db65bb9fde7391ba87a3f0eecf7ddaf1b656e740",
     "thirty_fourth_reviewed_head_sha": "022faee481b9a51ed90163dc862c83e11ce79023",
     "thirty_fifth_reviewed_head_sha": "06f56601d9bd5d8375dacd63741d69b53a61f9b3",
-    "latest_reviewed_head_sha": "06f56601d9bd5d8375dacd63741d69b53a61f9b3",
+    "thirty_sixth_reviewed_head_sha": "264f3716511010bb1158982d9397373acf7ffea9",
+    "latest_reviewed_head_sha": "264f3716511010bb1158982d9397373acf7ffea9",
     "findings": [
       {
         "id": "P1-01",
@@ -1440,6 +1441,48 @@
         "summary": "Use PRODUCT_INPUT_REQUIRED with a metric-policy reason code instead of introducing an undefined lifecycle state.",
         "location": "docs/METRICS-AND-GATES.md",
         "disposition": "fixed"
+      },
+      {
+        "id": "P1-68",
+        "severity": "high",
+        "summary": "Route security-intelligence staleness after any in-flight canary or production mutation through the explicit direct rollback edge.",
+        "location": "docs/METRICS-AND-GATES.md; docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-69",
+        "severity": "high",
+        "summary": "Revoke readiness for normalized blocking findings regardless of whether the eligible formal review is COMMENT, APPROVE, or CHANGES_REQUESTED.",
+        "location": "docs/TARGET-ARCHITECTURE.md; docs/ISSUE-AND-PR-GOVERNANCE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P1-70",
+        "severity": "high",
+        "summary": "Pre-journal and observe ready-to-draft revocation before product-authority loss can move PR_READY to product input.",
+        "location": "docs/TARGET-ARCHITECTURE.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-66",
+        "severity": "medium",
+        "summary": "Define deterministic replay over deterministic components and immutable admitted model proposals rather than requiring stochastic regeneration byte equality.",
+        "location": "docs/METRICS-AND-GATES.md",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-67",
+        "severity": "medium",
+        "summary": "Record the full executable exact-head credential-shape scan invocation for independent replay.",
+        "location": "state/loop-state.json",
+        "disposition": "fixed"
+      },
+      {
+        "id": "P2-68",
+        "severity": "medium",
+        "summary": "Include tracked lockfiles in the credential-shape scan instead of excluding a common secret-bearing source artifact.",
+        "location": "state/loop-state.json",
+        "disposition": "fixed"
       }
     ]
   },
@@ -1528,7 +1571,11 @@
     "issues_65_70_73_thirty_fifth_review_scope_refined_at": "2026-07-29T03:04:48Z",
     "exact_head_eee5769_validation_completed_at": "2026-07-29T03:08:24Z",
     "github_actions_run_30418657260_observed_at": "2026-07-29T03:08:24Z",
-    "last_updated_at": "2026-07-29T03:08:24Z"
+    "thirty_sixth_codex_review_completed_at": "2026-07-29T03:20:24Z",
+    "full_workspace_credential_scan_with_lockfiles_completed_at": "2026-07-29T03:20:24Z",
+    "github_actions_run_30418799914_observed_at": "2026-07-29T03:20:24Z",
+    "issues_65_69_70_thirty_sixth_review_scope_refined_at": "2026-07-29T03:25:04Z",
+    "last_updated_at": "2026-07-29T03:25:04Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
