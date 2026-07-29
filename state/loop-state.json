@@ -115,7 +115,7 @@
     {
       "id": "B-005",
       "owner": "repository_owner",
-      "summary": "GitHub Actions CI run 30377528370 on reviewed head 1e052cee3d269aa830ced3d05c0d626779921fa0 failed before job-step execution: nine jobs failed, one was cancelled, step arrays were empty, and logs were unavailable.",
+      "summary": "GitHub Actions CI run 30418657260 on validated remote head eee57692d5c09f275efaee6ed68c0750621a693f failed before job-step execution: nine jobs failed, one was cancelled, step arrays were empty, and logs were unavailable.",
       "blocks": [
         "exact_head_ci_verification"
       ],
@@ -158,6 +158,7 @@
     "initial_draft_pr_head_sha": "df73849cee55af43fea2bc6c260a39cea6946942",
     "formal_review_requested": false,
     "formal_review_submitted": false,
+    "latest_observed_remote_head_sha": "eee57692d5c09f275efaee6ed68c0750621a693f",
     "remote_scope_sync_pending": [],
     "final_pr_evidence_comment_pending": true
   },
@@ -431,10 +432,49 @@
       },
       "result": "infrastructure_failure_before_steps",
       "notes": "Nine jobs failed, one was cancelled, no job exposed any steps, and logs were unavailable. PR Review Agent run 30377528156 was skipped because PR #75 remains draft."
+    },
+    {
+      "name": "phase_0_exact_head_structural_validation",
+      "command": "Clean-tree/exact-head assertion; git diff --check; exact eight-path allowlist; duplicate-key parsing for all tracked JSON with the intentional UTF-16LE fixture decoded accordingly; loop-state, finding-ledger, Markdown fence/local-link, lifecycle-transition, undefined-state, and source/package schema-pair checks",
+      "provenance": {
+        "subject_sha": "eee57692d5c09f275efaee6ed68c0750621a693f",
+        "tool_identity": "git 2.50.1 (Apple Git-155); Python 3.14.6; ripgrep 15.2.0",
+        "executed_at": "2026-07-29T03:08:24Z",
+        "environment_fingerprint": "macOS 26.5 arm64; Darwin 25.5.0; local workspace",
+        "reusable_for_exact_head_readiness": false
+      },
+      "result": "passed",
+      "notes": "Eight planning-only paths, 42 capability classifications, 79 lifecycle transition rows, 132 unique fixed findings, six remaining blockers, and three source/package schema pairs passed. Local evidence is exact-subject but not an immutable attestation."
+    },
+    {
+      "name": "full_workspace_credential_shape_scan",
+      "command": "rg --hidden --no-ignore credential-shape path-only scan with explicit .git/.venv/node_modules/build/dist/lockfile exclusions",
+      "provenance": {
+        "subject_sha": "eee57692d5c09f275efaee6ed68c0750621a693f",
+        "tool_identity": "ripgrep 15.2.0",
+        "executed_at": "2026-07-29T03:08:24Z",
+        "environment_fingerprint": "macOS 26.5 arm64; Darwin 25.5.0; local workspace",
+        "reusable_for_exact_head_readiness": false
+      },
+      "result": "passed_no_matching_paths",
+      "notes": "Output was restricted to path names; no credential-shaped match was returned. This is a scoped deterministic pattern scan, not proof that no secret exists."
+    },
+    {
+      "name": "github_actions_pr_ci",
+      "command": "GitHub Actions ci run 30418657260 for commit eee57692d5c09f275efaee6ed68c0750621a693f",
+      "provenance": {
+        "subject_sha": "eee57692d5c09f275efaee6ed68c0750621a693f",
+        "tool_identity": "GitHub Actions run 30418657260 via connected GitHub status API",
+        "executed_at": "GitHub_job_timestamps_recorded_remotely; observed_2026-07-29T03:08:24Z",
+        "environment_fingerprint": "runner_allocation_failed_before_steps_no_runtime_environment",
+        "reusable_for_exact_head_readiness": false
+      },
+      "result": "infrastructure_failure_before_steps",
+      "notes": "Nine jobs failed, one was cancelled, no job exposed any steps or logs, and PR Review Agent run 30418657285 was skipped because PR #75 remains draft."
     }
   ],
   "review": {
-    "status": "thirty_fifth_review_corrections_pushed_issue_scope_synced_rereview_pending",
+    "status": "thirty_sixth_review_pending_exact_head_checks_recorded",
     "analysis_tool": "Codex CLI review --base main using gpt-5.6-sol xhigh",
     "findings_identified": 132,
     "findings_resolved": 132,
@@ -1486,7 +1526,9 @@
     "github_connector_write_limit_observed_at": "2026-07-28T21:36:02Z",
     "github_connector_access_restored_at": "2026-07-29T03:04:48Z",
     "issues_65_70_73_thirty_fifth_review_scope_refined_at": "2026-07-29T03:04:48Z",
-    "last_updated_at": "2026-07-29T03:04:48Z"
+    "exact_head_eee5769_validation_completed_at": "2026-07-29T03:08:24Z",
+    "github_actions_run_30418657260_observed_at": "2026-07-29T03:08:24Z",
+    "last_updated_at": "2026-07-29T03:08:24Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
