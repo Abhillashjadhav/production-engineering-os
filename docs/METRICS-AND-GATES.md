@@ -234,11 +234,21 @@ values are product/operations inputs and remain unresolved.
   source-specific maximum-age/freshness policy at gate time. The evidence records
   source, snapshot/version/digest, generated/fetched/evaluated times, max age, and
   freshness result. Missing, unverifiable, stale, or unavailable advisory data never
-  passes. Before rollout—or after verified rollback **and** pre-journaled cleanup of
-  every surviving rollout staging resource, with proof of zero rollout staging,
-  canary, and changed-production resources/exposure—it is `BLOCKED` with reason
-  `security_intelligence_unavailable_or_stale`. Rollback proof alone is not safe-state
-  proof. With no completed or unknown canary mutation, `STAGING_DEPLOYED` enters
+  passes, but the failure route is deterministic. When a previously admitted snapshot
+  merely expires with the candidate and upstream policy inputs unchanged and fresh
+  intelligence remains obtainable, it is verification invalidation: from
+  `REVIEW_REQUIRED` or `PR_READY` use the explicit `→ VERIFICATION_FAILED` edge, run
+  the complete affected/mandatory suite against a fresh snapshot, and return only
+  through `VERIFICATION_FAILED → REVIEW_REQUIRED`. Expected fresh queue-created
+  `merge_group` checks may remain pending/in-progress during native admission; stale,
+  failed, cancelled, missing, wrong-subject, or over-time queue checks use the
+  verification-failed edge. If an admissible snapshot cannot be obtained because the
+  scanner/advisory source is missing, unverifiable, or unavailable, then before
+  rollout—or after verified rollback **and** pre-journaled cleanup of every surviving
+  rollout staging resource with proof of zero rollout staging, canary, and
+  changed-production resources/exposure—the state is `BLOCKED` with reason
+  `security_intelligence_unavailable`. Rollback proof alone is not safe-state proof.
+  With no completed or unknown canary mutation, `STAGING_DEPLOYED` enters
   `STAGING_FAILED` and completes pre-journaled cleanup; after any canary mutation while
   that source state is still nominally active, it uses the explicit direct
   `STAGING_DEPLOYED → ROLLBACK_IN_PROGRESS` edge. An
