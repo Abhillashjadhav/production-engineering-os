@@ -13,8 +13,8 @@ from typing import Any
 
 from pm_evals_compare.compare import (
     DEFAULT_MIN_PASS_RATE,
-    Comparison,
     CompareConfig,
+    Comparison,
     GuardrailGovernance,
     check_compatibility,
     compare_runs,
