@@ -42,6 +42,7 @@ _VALIDATION_KEYWORDS = {
     "const",
     "enum",
     "items",
+    "maxProperties",
     "minItems",
     "minLength",
     "minProperties",
@@ -201,9 +202,20 @@ def _validate_fixture(fixture: Path, schema_path: Path) -> list[str]:
     assert isinstance(schema, dict)
     Draft202012Validator.check_schema(schema)
     validator = Draft202012Validator(schema)
+
+    def flatten(error: Any) -> list[Any]:
+        return [error, *(nested for child in error.context for nested in flatten(child))]
+
     return [
         f"{error.json_path}: {error.message}"
-        for error in sorted(validator.iter_errors(instance), key=lambda item: item.json_path)
+        for error in sorted(
+            (
+                nested
+                for top_level in validator.iter_errors(instance)
+                for nested in flatten(top_level)
+            ),
+            key=lambda item: item.json_path,
+        )
     ]
 
 
@@ -529,7 +541,12 @@ def test_schema_declares_duplicate_aware_rfc8785_admission(
 def test_bundle_schema_covers_every_phase_zero_product_truth_section() -> None:
     schema = _load_json(BUNDLE_SCHEMA)
     assert isinstance(schema, dict)
-    required = set(schema["required"])
+    complete_branch = next(
+        branch
+        for branch in schema["oneOf"]
+        if branch["properties"]["unresolved_product_truth"].get("maxProperties") == 0
+    )
+    required = set(complete_branch["required"])
     assert {
         "acceptance_criteria",
         "api_contracts",
@@ -677,6 +694,11 @@ def test_canonical_core_preserves_product_and_delivery_target_truth() -> None:
 def test_canonical_core_preserves_typed_v1_v2_v3_product_truth() -> None:
     schema = _load_json(BUNDLE_SCHEMA)
     properties = schema["properties"]
+    complete_branch = next(
+        branch
+        for branch in schema["oneOf"]
+        if branch["properties"]["unresolved_product_truth"].get("maxProperties") == 0
+    )
 
     assert {
         "api_contracts",
@@ -684,7 +706,7 @@ def test_canonical_core_preserves_typed_v1_v2_v3_product_truth() -> None:
         "dependencies",
         "product_decisions",
         "required_approvals",
-    } <= set(schema["required"])
+    } <= set(complete_branch["required"])
     assert "entities" in properties["data"]["required"]
     assert {
         "evaluation_rubrics",
@@ -698,6 +720,27 @@ def test_canonical_core_preserves_typed_v1_v2_v3_product_truth() -> None:
         "ui_states",
         "user_stories",
     } <= set(properties["ux"]["required"])
+
+
+def test_unresolved_product_truth_is_explicitly_draft_only_and_blocking() -> None:
+    schema = _load_json(BUNDLE_SCHEMA)
+    branches = schema["oneOf"]
+    complete = next(
+        branch
+        for branch in branches
+        if branch["properties"]["unresolved_product_truth"].get("maxProperties") == 0
+    )
+    incomplete = next(
+        branch
+        for branch in branches
+        if branch["properties"]["unresolved_product_truth"].get("minProperties") == 1
+    )
+    assert "product" in complete["required"]
+    assert incomplete["properties"]["contract_status"]["const"] == "DRAFT"
+
+    unresolved = schema["properties"]["unresolved_product_truth"]
+    assert unresolved["additionalProperties"]["properties"]["blocking"]["const"] is True
+    assert _load_json(VALID_BUNDLE)["unresolved_product_truth"] == {}
 
 
 def test_actual_legacy_identity_truth_is_losslessly_representable() -> None:

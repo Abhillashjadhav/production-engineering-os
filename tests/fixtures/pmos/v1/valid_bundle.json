@@ -657,6 +657,7 @@
       "reason": "Provide deterministic, tool-neutral structural validation."
     }
   },
+  "unresolved_product_truth": {},
   "ux": {
     "accessibility": {
       "A11Y-001": {

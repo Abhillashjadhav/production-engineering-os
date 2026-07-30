@@ -60,6 +60,34 @@
       "pattern": "^/(?:[^~/]|~0|~1)+(?:/(?:[^~/]|~0|~1)+)*(?![\\s\\S])",
       "type": "string"
     },
+    "json_value": {
+      "oneOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/json_value"
+          },
+          "type": "array"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/json_value"
+          },
+          "type": "object"
+        },
+        {
+          "type": "string"
+        }
+      ]
+    },
     "metric_id_end_state": {
       "pattern": "^METRIC-NSM-END-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
       "type": "string"
@@ -107,6 +135,11 @@
     "source_id": {
       "description": "Exact identifier supplied by the source contract. Legacy identifiers remain unchanged here even when canonical record keys use namespaced IDs.",
       "minLength": 1,
+      "type": "string"
+    },
+    "source_json_pointer": {
+      "description": "JSON Pointer into the source contract; the empty string names the source root.",
+      "pattern": "^(?:|/(?:[^~/]|~0|~1)+(?:/(?:[^~/]|~0|~1)+)*)(?![\\s\\S])",
       "type": "string"
     },
     "source_version": {
@@ -172,6 +205,76 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
   "description": "Canonical PM Agent OS product-truth bundle consumed by Production Engineering OS. PMOS owns every product value; PEOS validates and executes without inventing missing truth. Existing V1-V3 contracts remain separate inputs until the compiler and migrations in issue #76 map them here.",
+  "oneOf": [
+    {
+      "properties": {
+        "unresolved_product_truth": {
+          "maxProperties": 0
+        }
+      },
+      "required": [
+        "acceptance_criteria",
+        "api_contracts",
+        "approvals",
+        "assumptions",
+        "backend_capabilities",
+        "bundle_id",
+        "bundle_version",
+        "canonical_json_profile",
+        "contract_status",
+        "data",
+        "dependencies",
+        "extensions",
+        "functional_requirements",
+        "guardrails",
+        "integrations",
+        "metrics",
+        "non_functional_requirements",
+        "observability",
+        "open_questions",
+        "privacy",
+        "product",
+        "product_decisions",
+        "provenance",
+        "quality_assurance",
+        "release",
+        "required_approvals",
+        "risks",
+        "rollback",
+        "schema_id",
+        "schema_version",
+        "scope",
+        "security",
+        "source_identity_mappings",
+        "technical_constraints",
+        "unresolved_product_truth",
+        "ux"
+      ],
+      "type": "object"
+    },
+    {
+      "properties": {
+        "contract_status": {
+          "const": "DRAFT"
+        },
+        "unresolved_product_truth": {
+          "minProperties": 1
+        }
+      },
+      "required": [
+        "bundle_id",
+        "bundle_version",
+        "canonical_json_profile",
+        "contract_status",
+        "provenance",
+        "schema_id",
+        "schema_version",
+        "source_identity_mappings",
+        "unresolved_product_truth"
+      ],
+      "type": "object"
+    }
+  ],
   "properties": {
     "acceptance_criteria": {
       "additionalProperties": {
@@ -2148,6 +2251,82 @@
       },
       "type": "object"
     },
+    "unresolved_product_truth": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "oneOf": [
+          {
+            "properties": {
+              "reason_code": {
+                "const": "REQUIRED_PRODUCT_TRUTH_ABSENT"
+              },
+              "source_pointer": false,
+              "source_value": false
+            },
+            "required": [
+              "blocking",
+              "question",
+              "reason_code",
+              "target_pointer"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "reason_code": {
+                "enum": [
+                  "AMBIGUOUS_MAPPING",
+                  "SOURCE_FIELD_UNMAPPED",
+                  "UNSUPPORTED_SOURCE_VALUE"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "blocking",
+              "question",
+              "reason_code",
+              "source_pointer",
+              "source_value"
+            ],
+            "type": "object"
+          }
+        ],
+        "properties": {
+          "blocking": {
+            "const": true
+          },
+          "question": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "reason_code": {
+            "enum": [
+              "AMBIGUOUS_MAPPING",
+              "REQUIRED_PRODUCT_TRUTH_ABSENT",
+              "SOURCE_FIELD_UNMAPPED",
+              "UNSUPPORTED_SOURCE_VALUE"
+            ],
+            "type": "string"
+          },
+          "source_pointer": {
+            "$ref": "#/$defs/source_json_pointer"
+          },
+          "source_value": {
+            "$ref": "#/$defs/json_value"
+          },
+          "target_pointer": {
+            "$ref": "#/$defs/json_pointer"
+          }
+        },
+        "type": "object"
+      },
+      "description": "Blocking, lossless compilation diagnostics. A non-empty registry is valid only on a DRAFT bundle and prevents admission to engineering execution; supplied source values remain exact while PMOS supplies or approves missing canonical truth.",
+      "propertyNames": {
+        "pattern": "^UNRESOLVED-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+        "type": "string"
+      },
+      "type": "object"
+    },
     "ux": {
       "additionalProperties": false,
       "properties": {
@@ -2402,41 +2581,15 @@
     }
   },
   "required": [
-    "acceptance_criteria",
-    "api_contracts",
-    "approvals",
-    "assumptions",
-    "backend_capabilities",
     "bundle_id",
     "bundle_version",
     "canonical_json_profile",
     "contract_status",
-    "data",
-    "dependencies",
-    "extensions",
-    "functional_requirements",
-    "guardrails",
-    "integrations",
-    "metrics",
-    "non_functional_requirements",
-    "observability",
-    "open_questions",
-    "privacy",
-    "product",
-    "product_decisions",
     "provenance",
-    "quality_assurance",
-    "release",
-    "required_approvals",
-    "risks",
-    "rollback",
     "schema_id",
     "schema_version",
-    "scope",
-    "security",
     "source_identity_mappings",
-    "technical_constraints",
-    "ux"
+    "unresolved_product_truth"
   ],
   "title": "Canonical PMOS Contract Bundle",
   "type": "object"
