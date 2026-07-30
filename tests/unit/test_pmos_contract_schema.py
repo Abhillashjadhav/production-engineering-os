@@ -3,10 +3,10 @@
 These tests intentionally exercise schema artifacts only. Runtime model,
 compiler, migration, and semantic cross-reference validation belong to later
 issues. The official Draft 2020-12 validator checks parsed instances. A separate
-loader rejects duplicate keys, unpaired Unicode surrogates, and inadmissible
-numeric tokens before validation; the compiler/admission work in #76 remains
-responsible for general RFC 8785 canonicalization and digesting because JSON
-Schema operates on parsed instances.
+loader rejects duplicate keys, unpaired Unicode surrogates, Unicode
+noncharacters, and inadmissible numeric tokens before validation; the
+compiler/admission work in #76 remains responsible for general RFC 8785
+canonicalization and digesting because JSON Schema operates on parsed instances.
 """
 
 from __future__ import annotations
@@ -111,19 +111,31 @@ def _parse_interoperable_int(value: str) -> int:
     return parsed
 
 
-def _reject_unpaired_surrogates(value: Any) -> None:
+def _admit_unicode_scalars(value: Any) -> Any:
     if isinstance(value, str):
-        if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
-            raise InvalidUnicodeScalarError("unpaired Unicode surrogate code point")
-        return
+        try:
+            normalized = value.encode("utf-16-le", "surrogatepass").decode("utf-16-le")
+        except UnicodeDecodeError as exc:
+            raise InvalidUnicodeScalarError("unpaired Unicode surrogate code point") from exc
+        if any(
+            0xFDD0 <= ord(character) <= 0xFDEF or ord(character) & 0xFFFF in {0xFFFE, 0xFFFF}
+            for character in normalized
+        ):
+            raise InvalidUnicodeScalarError("Unicode noncharacter code point")
+        return normalized
     if isinstance(value, dict):
+        normalized_object: dict[str, Any] = {}
         for key, child in value.items():
-            _reject_unpaired_surrogates(key)
-            _reject_unpaired_surrogates(child)
-        return
+            normalized_key = _admit_unicode_scalars(key)
+            if normalized_key in normalized_object:
+                raise DuplicateKeyError(
+                    f"duplicate object key after Unicode scalar normalization: {normalized_key}"
+                )
+            normalized_object[normalized_key] = _admit_unicode_scalars(child)
+        return normalized_object
     if isinstance(value, list):
-        for child in value:
-            _reject_unpaired_surrogates(child)
+        return [_admit_unicode_scalars(child) for child in value]
+    return value
 
 
 def _load_json(path: Path) -> Any:
@@ -134,8 +146,7 @@ def _load_json(path: Path) -> Any:
         parse_float=_parse_finite_float,
         parse_int=_parse_interoperable_int,
     )
-    _reject_unpaired_surrogates(value)
-    return value
+    return _admit_unicode_scalars(value)
 
 
 def _rfc8785_fixture_bytes(value: Any) -> bytes:
@@ -523,6 +534,30 @@ def test_unpaired_unicode_surrogate_fails_before_schema_validation() -> None:
 
 
 @pytest.mark.parametrize(
+    "fixture_name",
+    [
+        "invalid_bmp_noncharacter.json",
+        "invalid_supplementary_noncharacter.json",
+    ],
+)
+def test_unicode_noncharacter_fails_before_schema_validation(
+    fixture_name: str,
+) -> None:
+    with pytest.raises(
+        InvalidUnicodeScalarError,
+        match="Unicode noncharacter code point",
+    ):
+        _fixture_instance(FIXTURE_DIR / fixture_name)
+
+
+def test_paired_unicode_surrogate_is_admitted_as_scalar() -> None:
+    instance = _fixture_instance(FIXTURE_DIR / "valid_paired_surrogate.json")
+    assert instance["product"]["product_name"] == "\U0001d11e"
+    schema = _load_json(BUNDLE_SCHEMA)
+    assert list(Draft202012Validator(schema).iter_errors(instance)) == []
+
+
+@pytest.mark.parametrize(
     ("schema_path", "fixture_path"),
     [(BUNDLE_SCHEMA, VALID_BUNDLE), (MANIFEST_SCHEMA, VALID_MANIFEST)],
 )
@@ -535,6 +570,7 @@ def test_schema_declares_duplicate_aware_rfc8785_admission(
     assert schema["properties"]["canonical_json_profile"]["const"] == "RFC8785"
     assert "duplicate object member names" in schema["$comment"]
     assert "unpaired Unicode surrogate code points" in schema["$comment"]
+    assert "Unicode noncharacter code points" in schema["$comment"]
     assert fixture["canonical_json_profile"] == "RFC8785"
 
 
