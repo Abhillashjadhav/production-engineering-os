@@ -115,11 +115,13 @@
     {
       "id": "B-005",
       "owner": "repository_owner",
-      "summary": "GitHub Actions CI run 30472051017 for Claude-reviewed substantive PR head 541fdaa1c1bbae792046cfc0930c77376911e4cc checked out synthetic merge commit 7579845abc38036ea0acc175e2f71e686f746308 and executed all ten jobs: eight passed, product-backend failed at comparison-engine lint, and product-frontend failed at the high-severity dependency audit.",
+      "summary": "Backend remediation PR 79 is merged on main at f38bc5628a53181a09a795571bbaabee6ef7b28e. Phase 0 PR 75 remains documentation/state-only at head 985eedb95efb545dbc7e415fe104cd6e0bd21352 with refreshed synthetic merge 6a946bceb6934905254b7ec53f11334a807afb71. The only known unresolved repository gate is the inherited product-frontend high-severity dependency audit tracked by open issue 80; the vulnerability remains active and no exception has been approved.",
       "blocks": [
-        "exact_head_ci_verification"
+        "exact_head_ci_verification",
+        "phase_0_merge_without_explicit_owner_exception",
+        "frontend_runtime_delivery"
       ],
-      "resume_condition": "Resolve or explicitly disposition the backend lint and frontend dependency-audit failures in dedicated implementation issues/PRs, then rerun CI on the current exact PR head; Phase 0 must not implement those fixes."
+      "resume_condition": "Rerun CI against the refreshed exact Phase 0 head/base. For this documentation-only PR, either obtain an explicit repository-owner exception limited to the inherited product-frontend failure or wait for issue 80 remediation; executable implementation PRs may not reuse the exception."
     },
     {
       "id": "B-006",
@@ -158,7 +160,9 @@
     "initial_draft_pr_head_sha": "df73849cee55af43fea2bc6c260a39cea6946942",
     "formal_review_requested": false,
     "formal_review_submitted": false,
-    "latest_observed_remote_head_sha": "e24fbf3c84d5d7ec87c2291a8df80fabe00b370a",
+    "latest_observed_remote_head_sha": "985eedb95efb545dbc7e415fe104cd6e0bd21352",
+    "latest_observed_base_sha": "f38bc5628a53181a09a795571bbaabee6ef7b28e",
+    "latest_observed_synthetic_merge_sha": "6a946bceb6934905254b7ec53f11334a807afb71",
     "remote_scope_sync_pending": [],
     "final_pr_evidence_comment_pending": false
   },
@@ -684,6 +688,21 @@
       },
       "result": "failed_8_jobs_passed_2_gate_failures",
       "notes": "Format/lint, product preview, Python 3.11/3.12 tests, build smoke, types, product E2E, and security passed. Product-backend failed at comparison-engine lint; product-frontend failed at the high-severity dependency audit. Downstream steps in those two jobs were skipped. PR Review Agent run 30472044252 was skipped because PR #75 remains draft."
+    },
+    {
+      "name": "phase_0_refreshed_base_exact_head_structural_validation",
+      "command": "Clean-tree/local-remote-head assertions; exact eight-path allowlist; git diff --check against current main; duplicate-key parsing for all 43 tracked JSON files with the intentional UTF-16LE fixture decoded explicitly; loop-state invariants; Markdown fence balance; source/package schema-pair equality; seven-file blob equality against the Claude-reviewed substantive head",
+      "provenance": {
+        "subject_sha": "985eedb95efb545dbc7e415fe104cd6e0bd21352",
+        "base_sha": "f38bc5628a53181a09a795571bbaabee6ef7b28e",
+        "synthetic_merge_sha": "6a946bceb6934905254b7ec53f11334a807afb71",
+        "tool_identity": "git 2.50.1 (Apple Git-155); Python 3.14.6; jq 1.7.1-apple; ripgrep 15.2.0",
+        "executed_at": "2026-07-30T06:52:41Z",
+        "environment_fingerprint": "macOS 26.5 arm64; Darwin 25.5.0; local workspace",
+        "reusable_for_exact_head_readiness": false
+      },
+      "result": "passed",
+      "notes": "Eight documentation/state-only paths, 43 tracked JSON files, 42 capability classifications, 170 fixed findings, three synchronized schema pairs, and seven planning files byte-identical to Claude-reviewed substantive head 541fdaa1c1bbae792046cfc0930c77376911e4cc passed. This state-only bookkeeping update is outside that Claude-reviewed substantive head."
     }
   ],
   "review": {
@@ -2080,7 +2099,9 @@
     "forty_ninth_codex_review_completed_at": "2026-07-29T16:42:12Z",
     "independent_claude_opus_review_recorded_at": "2026-07-29T17:25:41Z",
     "github_actions_run_30472051017_observed_at": "2026-07-29T17:26:24Z",
-    "last_updated_at": "2026-07-29T17:26:24Z"
+    "phase_0_base_context_refreshed_at": "2026-07-30T06:44:21Z",
+    "phase_0_exact_head_structural_validation_completed_at": "2026-07-30T06:52:41Z",
+    "last_updated_at": "2026-07-30T06:52:41Z"
   },
   "evidence_references": [
     "docs/CURRENT-CAPABILITY-AUDIT.md",
@@ -2093,7 +2114,9 @@
     "https://github.com/Abhillashjadhav/production-engineering-os/issues/61",
     "https://github.com/Abhillashjadhav/production-engineering-os/issues/76",
     "https://github.com/Abhillashjadhav/production-engineering-os/issues/77",
+    "https://github.com/Abhillashjadhav/production-engineering-os/issues/80",
     "https://github.com/Abhillashjadhav/production-engineering-os/pull/75",
+    "https://github.com/Abhillashjadhav/production-engineering-os/pull/79",
     "https://github.com/Abhillashjadhav/production-engineering-os/pull/75#issuecomment-5121273139"
   ],
   "self_reference_policy": "The state file cannot embed the SHA of the commit that contains itself. GitHub PR metadata and the verification comment may point to the live head but are mutable and do not satisfy immutable readiness evidence. A content-addressed append-only attestation or immutable check artifact must bind the exact final commit; B-006 records that it is unavailable."
