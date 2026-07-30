@@ -704,65 +704,103 @@ def test_actual_legacy_identity_truth_is_losslessly_representable() -> None:
     schema = _load_json(BUNDLE_SCHEMA)
     validator = Draft202012Validator(schema)
 
+    def incomplete_bundle(
+        source_path: Path,
+        source: dict[str, Any],
+        source_id: str,
+        source_version: str | int,
+        source_approved_by: str | None = None,
+    ) -> dict[str, Any]:
+        provenance: dict[str, Any] = {
+            "published_at": "2026-07-30T00:00:00Z",
+            "source_digest": f"sha256:{hashlib.sha256(source_path.read_bytes()).hexdigest()}",
+            "source_id": source_id,
+            "source_system": "PM_AGENT_OS",
+            "source_version": source_version,
+        }
+        if source_approved_by is not None:
+            provenance["source_approved_by"] = source_approved_by
+        return {
+            "bundle_id": f"BUNDLE-LEGACY-{source_id.upper().replace('.', '-')}",
+            "bundle_version": "1.0.0",
+            "canonical_json_profile": "RFC8785",
+            "contract_status": "DRAFT",
+            "provenance": provenance,
+            "schema_id": (
+                "https://github.com/Abhillashjadhav/production-engineering-os/"
+                "schemas/pmos_contract_bundle.schema.json"
+            ),
+            "schema_version": "1.0.0",
+            "source_identity_mappings": {},
+            "unresolved_product_truth": {
+                "UNRESOLVED-LEGACY-SOURCE": {
+                    "blocking": True,
+                    "question": (
+                        "Supply or approve the missing canonical product truth before "
+                        "engineering execution."
+                    ),
+                    "reason_code": "SOURCE_FIELD_UNMAPPED",
+                    "source_pointer": "",
+                    "source_value": source,
+                }
+            },
+        }
+
     legacy_v1 = _load_json(LEGACY_V1)
-    v1_bundle = copy.deepcopy(_load_json(VALID_BUNDLE))
-    v1_bundle["provenance"]["source_version"] = legacy_v1["spec_version"]
+    v1_bundle = incomplete_bundle(
+        LEGACY_V1,
+        legacy_v1,
+        "minimal-valid-spec.json",
+        legacy_v1["spec_version"],
+    )
     assert list(validator.iter_errors(v1_bundle)) == []
 
     legacy_v2 = _load_json(LEGACY_V2)
-    v2_bundle = copy.deepcopy(_load_json(VALID_BUNDLE))
-    v2_bundle["provenance"].update(
-        {
-            "source_approved_by": legacy_v2["approved_by"],
-            "source_id": legacy_v2["contract_id"],
-            "source_version": legacy_v2["contract_version"],
-        }
+    v2_bundle = incomplete_bundle(
+        LEGACY_V2,
+        legacy_v2,
+        legacy_v2["contract_id"],
+        legacy_v2["contract_version"],
+        legacy_v2["approved_by"],
     )
-    v2_bundle["source_identity_mappings"] = {
-        "SOURCE-MAP-V2-DECISION": {
-            "canonical_pointer": "/product_decisions/DECISION-CANONICAL-SCHEMA",
-            "source_id": legacy_v2["approved_product_decisions"][0]["id"],
-            "source_pointer": "/approved_product_decisions/0",
-            "source_version": legacy_v2["contract_version"],
-        }
-    }
     assert list(validator.iter_errors(v2_bundle)) == []
 
     legacy_v3 = _load_json(LEGACY_V3)
-    v3_bundle = copy.deepcopy(_load_json(VALID_BUNDLE))
-    v3_bundle["provenance"].update(
-        {
-            "source_approved_by": legacy_v3["approved_by"],
-            "source_id": legacy_v3["contract_id"],
-            "source_version": legacy_v3["contract_version"],
-        }
+    v3_bundle = incomplete_bundle(
+        LEGACY_V3,
+        legacy_v3,
+        legacy_v3["contract_id"],
+        legacy_v3["contract_version"],
+        legacy_v3["approved_by"],
     )
-    v3_bundle["source_identity_mappings"] = {
-        "SOURCE-MAP-V3-BACKEND": {
-            "canonical_pointer": "/backend_capabilities/CAPABILITY-CONTRACT-INTAKE",
-            "source_id": legacy_v3["backend_capabilities"][0]["capability_id"],
-            "source_pointer": "/backend_capabilities/0",
-            "source_version": legacy_v3["contract_version"],
-        },
-        "SOURCE-MAP-V3-JOURNEY": {
-            "canonical_pointer": "/ux/primary_journey/JOURNEY-STEP-PUBLISH",
-            "source_id": legacy_v3["primary_journey"][0]["step_id"],
-            "source_pointer": "/primary_journey/0",
-        },
-        "SOURCE-MAP-V3-SCREEN": {
-            "canonical_pointer": "/ux/screens/SCREEN-CONTRACT-STATUS",
-            "source_id": legacy_v3["screens"][0]["screen_id"],
-            "source_name": legacy_v3["screens"][0]["name"],
-            "source_pointer": "/screens/0",
-        },
-    }
     assert list(validator.iter_errors(v3_bundle)) == []
+
+    assert v1_bundle["provenance"]["source_version"] == "1.0"
+    assert v2_bundle["provenance"]["source_approved_by"] == "abhillash (PM Agent OS)"
     assert v3_bundle["provenance"]["source_id"] == "FSC-PMEVALS-001"
-    assert v3_bundle["source_identity_mappings"]["SOURCE-MAP-V3-BACKEND"]["source_id"] == "BC-1"
-    assert v3_bundle["source_identity_mappings"]["SOURCE-MAP-V3-SCREEN"]["source_id"] == "S-1"
-    assert v3_bundle["source_identity_mappings"]["SOURCE-MAP-V3-JOURNEY"]["source_id"] == "J-1"
-    assert v2_bundle["source_identity_mappings"]["SOURCE-MAP-V2-DECISION"]["source_id"] == (
-        "APD-001"
+    assert (
+        v3_bundle["unresolved_product_truth"]["UNRESOLVED-LEGACY-SOURCE"]["source_value"][
+            "backend_capabilities"
+        ][0]["capability_id"]
+        == "BC-1"
+    )
+    assert (
+        v3_bundle["unresolved_product_truth"]["UNRESOLVED-LEGACY-SOURCE"]["source_value"][
+            "screens"
+        ][0]["screen_id"]
+        == "S-1"
+    )
+    assert (
+        v3_bundle["unresolved_product_truth"]["UNRESOLVED-LEGACY-SOURCE"]["source_value"][
+            "primary_journey"
+        ][0]["step_id"]
+        == "J-1"
+    )
+    assert (
+        v2_bundle["unresolved_product_truth"]["UNRESOLVED-LEGACY-SOURCE"]["source_value"][
+            "approved_product_decisions"
+        ][0]["id"]
+        == "APD-001"
     )
 
 
