@@ -15,6 +15,7 @@ import copy
 import hashlib
 import json
 import math
+from decimal import Decimal
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -30,6 +31,9 @@ BUNDLE_SCHEMA = SCHEMA_DIR / "pmos_contract_bundle.schema.json"
 MANIFEST_SCHEMA = SCHEMA_DIR / "pmos_contract_manifest.schema.json"
 VALID_BUNDLE = FIXTURE_DIR / "valid_bundle.json"
 VALID_MANIFEST = FIXTURE_DIR / "valid_manifest.json"
+LEGACY_V1 = ROOT / "tests" / "fixtures" / "minimal_valid_spec.json"
+LEGACY_V2 = ROOT / "tests" / "fixtures" / "v2" / "contract_approved.json"
+LEGACY_V3 = ROOT / "tests" / "fixtures" / "v3" / "fullstack_contract_approved.json"
 MAX_INTEROPERABLE_INTEGER = 2**53 - 1
 
 _VALIDATION_KEYWORDS = {
@@ -89,13 +93,20 @@ def _parse_finite_float(value: str) -> float:
     parsed = float(value)
     if not math.isfinite(parsed):
         raise NonJsonNumericConstantError(f"non-finite numeric value: {value}")
+    exact = Decimal(value)
+    if exact == exact.to_integral_value() and abs(exact) > MAX_INTEROPERABLE_INTEGER:
+        raise NonJsonNumericConstantError(
+            f"integer-valued numeric token outside interoperable IEEE-754 range: {value}"
+        )
     return parsed
 
 
 def _parse_interoperable_int(value: str) -> int:
     parsed = int(value)
     if abs(parsed) > MAX_INTEROPERABLE_INTEGER:
-        raise NonJsonNumericConstantError(f"integer outside interoperable IEEE-754 range: {value}")
+        raise NonJsonNumericConstantError(
+            f"integer-valued numeric token outside interoperable IEEE-754 range: {value}"
+        )
     return parsed
 
 
@@ -259,6 +270,11 @@ def test_valid_fixtures_are_canonical_json(fixture_path: Path) -> None:
         ("invalid_duration_dangling_day_time.json", BUNDLE_SCHEMA, "does not match"),
         ("invalid_duration_mixed_week.json", BUNDLE_SCHEMA, "does not match"),
         (
+            "invalid_approval_digest_scope.json",
+            MANIFEST_SCHEMA,
+            "'CANONICAL_BUNDLE_APPROVALS_RFC8785' was expected",
+        ),
+        (
             "invalid_manifest_reference.json",
             MANIFEST_SCHEMA,
             "'MEMBER-CANONICAL-BUNDLE' was expected",
@@ -299,7 +315,18 @@ def test_valid_fixtures_are_canonical_json(fixture_path: Path) -> None:
         (
             "invalid_integer_outside_ieee754_range.json",
             BUNDLE_SCHEMA,
-            "integer outside interoperable IEEE-754 range: 9007199254740992",
+            "integer-valued numeric token outside interoperable IEEE-754 range: 9007199254740992",
+        ),
+        (
+            "invalid_integral_float_outside_ieee754_range.json",
+            BUNDLE_SCHEMA,
+            "integer-valued numeric token outside interoperable IEEE-754 range: 9007199254740993.0",
+        ),
+        (
+            "invalid_integral_scientific_outside_ieee754_range.json",
+            BUNDLE_SCHEMA,
+            "integer-valued numeric token outside interoperable IEEE-754 range: "
+            "9.007199254740993e15",
         ),
         (
             "invalid_lone_surrogate.json",
@@ -382,6 +409,11 @@ def test_valid_fixtures_are_canonical_json(fixture_path: Path) -> None:
         ),
         ("missing_success_metrics.json", BUNDLE_SCHEMA, "'success' is a required property"),
         (
+            "missing_source_identity_mappings.json",
+            BUNDLE_SCHEMA,
+            "'source_identity_mappings' is a required property",
+        ),
+        (
             "missing_required_approvals.json",
             BUNDLE_SCHEMA,
             "'required_approvals' is a required property",
@@ -441,9 +473,32 @@ def test_integer_outside_interoperable_range_fails_before_schema_validation() ->
     fixture = FIXTURE_DIR / "invalid_integer_outside_ieee754_range.json"
     with pytest.raises(
         NonJsonNumericConstantError,
-        match="integer outside interoperable IEEE-754 range: 9007199254740992",
+        match=(
+            "integer-valued numeric token outside interoperable IEEE-754 range: 9007199254740992"
+        ),
     ):
         _fixture_instance(fixture)
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "token"),
+    [
+        ("invalid_integral_float_outside_ieee754_range.json", "9007199254740993.0"),
+        (
+            "invalid_integral_scientific_outside_ieee754_range.json",
+            "9.007199254740993e15",
+        ),
+    ],
+)
+def test_integral_float_outside_interoperable_range_fails_before_schema_validation(
+    fixture_name: str,
+    token: str,
+) -> None:
+    with pytest.raises(
+        NonJsonNumericConstantError,
+        match=f"integer-valued numeric token outside interoperable IEEE-754 range: {token}",
+    ):
+        _fixture_instance(FIXTURE_DIR / fixture_name)
 
 
 def test_unpaired_unicode_surrogate_fails_before_schema_validation() -> None:
@@ -508,6 +563,7 @@ def test_bundle_schema_covers_every_phase_zero_product_truth_section() -> None:
         "schema_version",
         "scope",
         "security",
+        "source_identity_mappings",
         "technical_constraints",
         "ux",
     } <= required
@@ -644,6 +700,72 @@ def test_canonical_core_preserves_typed_v1_v2_v3_product_truth() -> None:
     } <= set(properties["ux"]["required"])
 
 
+def test_actual_legacy_identity_truth_is_losslessly_representable() -> None:
+    schema = _load_json(BUNDLE_SCHEMA)
+    validator = Draft202012Validator(schema)
+
+    legacy_v1 = _load_json(LEGACY_V1)
+    v1_bundle = copy.deepcopy(_load_json(VALID_BUNDLE))
+    v1_bundle["provenance"]["source_version"] = legacy_v1["spec_version"]
+    assert list(validator.iter_errors(v1_bundle)) == []
+
+    legacy_v2 = _load_json(LEGACY_V2)
+    v2_bundle = copy.deepcopy(_load_json(VALID_BUNDLE))
+    v2_bundle["provenance"].update(
+        {
+            "source_approved_by": legacy_v2["approved_by"],
+            "source_id": legacy_v2["contract_id"],
+            "source_version": legacy_v2["contract_version"],
+        }
+    )
+    v2_bundle["source_identity_mappings"] = {
+        "SOURCE-MAP-V2-DECISION": {
+            "canonical_pointer": "/product_decisions/DECISION-CANONICAL-SCHEMA",
+            "source_id": legacy_v2["approved_product_decisions"][0]["id"],
+            "source_pointer": "/approved_product_decisions/0",
+            "source_version": legacy_v2["contract_version"],
+        }
+    }
+    assert list(validator.iter_errors(v2_bundle)) == []
+
+    legacy_v3 = _load_json(LEGACY_V3)
+    v3_bundle = copy.deepcopy(_load_json(VALID_BUNDLE))
+    v3_bundle["provenance"].update(
+        {
+            "source_approved_by": legacy_v3["approved_by"],
+            "source_id": legacy_v3["contract_id"],
+            "source_version": legacy_v3["contract_version"],
+        }
+    )
+    v3_bundle["source_identity_mappings"] = {
+        "SOURCE-MAP-V3-BACKEND": {
+            "canonical_pointer": "/backend_capabilities/CAPABILITY-CONTRACT-INTAKE",
+            "source_id": legacy_v3["backend_capabilities"][0]["capability_id"],
+            "source_pointer": "/backend_capabilities/0",
+            "source_version": legacy_v3["contract_version"],
+        },
+        "SOURCE-MAP-V3-JOURNEY": {
+            "canonical_pointer": "/ux/primary_journey/JOURNEY-STEP-PUBLISH",
+            "source_id": legacy_v3["primary_journey"][0]["step_id"],
+            "source_pointer": "/primary_journey/0",
+        },
+        "SOURCE-MAP-V3-SCREEN": {
+            "canonical_pointer": "/ux/screens/SCREEN-CONTRACT-STATUS",
+            "source_id": legacy_v3["screens"][0]["screen_id"],
+            "source_name": legacy_v3["screens"][0]["name"],
+            "source_pointer": "/screens/0",
+        },
+    }
+    assert list(validator.iter_errors(v3_bundle)) == []
+    assert v3_bundle["provenance"]["source_id"] == "FSC-PMEVALS-001"
+    assert v3_bundle["source_identity_mappings"]["SOURCE-MAP-V3-BACKEND"]["source_id"] == "BC-1"
+    assert v3_bundle["source_identity_mappings"]["SOURCE-MAP-V3-SCREEN"]["source_id"] == "S-1"
+    assert v3_bundle["source_identity_mappings"]["SOURCE-MAP-V3-JOURNEY"]["source_id"] == "J-1"
+    assert v2_bundle["source_identity_mappings"]["SOURCE-MAP-V2-DECISION"]["source_id"] == (
+        "APD-001"
+    )
+
+
 def test_approval_lifecycle_variants_forbid_contradictory_evidence() -> None:
     schema = _load_json(BUNDLE_SCHEMA)
     branches = schema["properties"]["approvals"]["additionalProperties"]["oneOf"]
@@ -683,6 +805,7 @@ def test_manifest_binds_bundle_provenance_approvals_and_member_digests() -> None
     required = set(schema["required"])
     assert {
         "approval_digest",
+        "approval_digest_scope",
         "bundle",
         "canonical_json_profile",
         "manifest_digest",
@@ -691,6 +814,10 @@ def test_manifest_binds_bundle_provenance_approvals_and_member_digests() -> None
         "schema_id",
         "schema_version",
     } <= required
+    assert (
+        schema["properties"]["approval_digest_scope"]["const"]
+        == "CANONICAL_BUNDLE_APPROVALS_RFC8785"
+    )
     bundle_required = set(schema["properties"]["bundle"]["required"])
     assert {
         "bundle_id",
@@ -714,6 +841,10 @@ def test_manifest_binds_bundle_provenance_approvals_and_member_digests() -> None
 def test_manifest_fixture_content_digests_bind_canonical_fixture_bytes() -> None:
     manifest = _load_json(VALID_MANIFEST)
     bundle = _load_json(VALID_BUNDLE)
+    expected_approval_digest = (
+        f"sha256:{hashlib.sha256(_rfc8785_fixture_bytes(bundle['approvals'])).hexdigest()}"
+    )
+    assert manifest["approval_digest"] == expected_approval_digest
     expected_bundle_digest = f"sha256:{hashlib.sha256(_rfc8785_fixture_bytes(bundle)).hexdigest()}"
     assert manifest["bundle"]["content_digest"] == expected_bundle_digest
 

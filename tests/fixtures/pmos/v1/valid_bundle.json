@@ -650,6 +650,7 @@
     },
     "secret_handling": "REFERENCES_ONLY_NO_SECRET_VALUES"
   },
+  "source_identity_mappings": {},
   "technical_constraints": {
     "CONSTRAINT-001": {
       "constraint": "Use JSON Schema draft 2020-12 as the normative wire contract.",

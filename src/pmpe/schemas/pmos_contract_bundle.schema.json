@@ -1,5 +1,5 @@
 {
-  "$comment": "Before schema evaluation, issue #76 admission MUST reject duplicate object member names, unpaired Unicode surrogate code points, non-JSON numeric constants, numeric tokens that overflow to non-finite IEEE-754 values, and integer tokens outside the interoperable exact IEEE-754 range, then canonicalize the parsed instance with RFC 8785 for digesting. JSON Schema evaluates parsed instances and cannot observe raw member tokens.",
+  "$comment": "Before schema evaluation, issue #76 admission MUST reject duplicate object member names, unpaired Unicode surrogate code points, non-JSON numeric constants, numeric tokens that overflow to non-finite IEEE-754 values, and numeric tokens representing integral values outside the interoperable exact IEEE-754 range, then canonicalize the parsed instance with RFC 8785 for digesting. JSON Schema evaluates parsed instances and cannot observe raw member tokens.",
   "$defs": {
     "acceptance_criterion_id": {
       "pattern": "^AC-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
@@ -56,6 +56,10 @@
       "pattern": "^https://(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:/(?:[A-Za-z0-9._~!$&'()*+,;=:@-]|%[0-9A-Fa-f]{2})*)*(?![\\s\\S])",
       "type": "string"
     },
+    "json_pointer": {
+      "pattern": "^/(?:[^~/]|~0|~1)+(?:/(?:[^~/]|~0|~1)+)*(?![\\s\\S])",
+      "type": "string"
+    },
     "metric_id_end_state": {
       "pattern": "^METRIC-NSM-END-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
       "type": "string"
@@ -101,8 +105,20 @@
       "type": "string"
     },
     "source_id": {
-      "pattern": "^PMOS-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+      "description": "Exact identifier supplied by the source contract. Legacy identifiers remain unchanged here even when canonical record keys use namespaced IDs.",
+      "minLength": 1,
       "type": "string"
+    },
+    "source_version": {
+      "description": "Exact version supplied by a source contract. Legacy string and integer forms are preserved; canonical schema and bundle versions remain strict semver.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        {
+          "type": "integer"
+        }
+      ]
     },
     "stable_id": {
       "description": "Globally namespaced stable traceability identifier. Each registry applies a narrower type-specific prefix.",
@@ -669,9 +685,8 @@
                       "$ref": "#/$defs/non_empty_string"
                     },
                     "target_pointer": {
-                      "description": "JSON Pointer into the canonical core.",
-                      "pattern": "^/(?:[^~/]|~0|~1)+(?:/(?:[^~/]|~0|~1)+)*(?![\\s\\S])",
-                      "type": "string"
+                      "$ref": "#/$defs/json_pointer",
+                      "description": "JSON Pointer into the canonical core."
                     }
                   },
                   "required": [
@@ -1634,6 +1649,10 @@
         "published_at": {
           "$ref": "#/$defs/date_time"
         },
+        "source_approved_by": {
+          "$ref": "#/$defs/non_empty_string",
+          "description": "Exact named approver supplied by a legacy source. Canonical authority is still represented by the typed approvals registry."
+        },
         "source_digest": {
           "$ref": "#/$defs/digest"
         },
@@ -1645,7 +1664,7 @@
           "description": "PM Agent OS owns the product truth published through this boundary."
         },
         "source_version": {
-          "$ref": "#/$defs/semver"
+          "$ref": "#/$defs/source_version"
         }
       },
       "required": [
@@ -2071,6 +2090,40 @@
       ],
       "type": "object"
     },
+    "source_identity_mappings": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "canonical_pointer": {
+            "$ref": "#/$defs/json_pointer"
+          },
+          "source_id": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "source_name": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "source_pointer": {
+            "$ref": "#/$defs/json_pointer"
+          },
+          "source_version": {
+            "$ref": "#/$defs/source_version"
+          }
+        },
+        "required": [
+          "canonical_pointer",
+          "source_id",
+          "source_pointer"
+        ],
+        "type": "object"
+      },
+      "description": "Lossless compiler map from exact legacy record identities to canonical records. Optional source names and versions preserve supplied metadata; issue #76 verifies pointer existence and one-to-one mapping.",
+      "propertyNames": {
+        "pattern": "^SOURCE-MAP-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+        "type": "string"
+      },
+      "type": "object"
+    },
     "technical_constraints": {
       "additionalProperties": {
         "additionalProperties": false,
@@ -2381,6 +2434,7 @@
     "schema_version",
     "scope",
     "security",
+    "source_identity_mappings",
     "technical_constraints",
     "ux"
   ],

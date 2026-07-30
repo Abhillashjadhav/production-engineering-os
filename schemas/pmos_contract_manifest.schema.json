@@ -1,5 +1,5 @@
 {
-  "$comment": "Before schema evaluation, issue #76 admission MUST reject duplicate object member names, unpaired Unicode surrogate code points, non-JSON numeric constants, numeric tokens that overflow to non-finite IEEE-754 values, and integer tokens outside the interoperable exact IEEE-754 range, then canonicalize the parsed instance with RFC 8785 for digesting. The manifest_digest binds the RFC 8785 projection that excludes manifest_digest itself; issue #76 recomputes and verifies that binding. Member bytes are addressed by content digest and stable member ID; caller-controlled extraction paths are intentionally absent, so duplicate and file/directory-prefix path identities cannot enter the manifest. JSON Schema evaluates parsed instances and cannot observe raw member tokens.",
+  "$comment": "Before schema evaluation, issue #76 admission MUST reject duplicate object member names, unpaired Unicode surrogate code points, non-JSON numeric constants, numeric tokens that overflow to non-finite IEEE-754 values, and numeric tokens representing integral values outside the interoperable exact IEEE-754 range, then canonicalize the parsed instance with RFC 8785 for digesting. The manifest_digest binds the RFC 8785 projection that excludes manifest_digest itself; approval_digest binds the RFC 8785 canonical serialization of the canonical bundle's /approvals registry. Issue #76 recomputes and verifies both bindings. Member bytes are addressed by content digest and stable member ID; caller-controlled extraction paths are intentionally absent, so duplicate and file/directory-prefix path identities cannot enter the manifest. JSON Schema evaluates parsed instances and cannot observe raw member tokens.",
   "$defs": {
     "date_time": {
       "description": "UTC RFC 3339 instant. Calendar validity is rechecked by the semantic validator.",
@@ -29,8 +29,20 @@
       "type": "string"
     },
     "source_id": {
-      "pattern": "^PMOS-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+      "description": "Exact identifier supplied by the source contract.",
+      "minLength": 1,
       "type": "string"
+    },
+    "source_version": {
+      "description": "Exact version supplied by a source contract. Legacy string and integer forms are preserved.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        {
+          "type": "integer"
+        }
+      ]
     }
   },
   "$id": "https://github.com/Abhillashjadhav/production-engineering-os/schemas/pmos_contract_manifest.schema.json",
@@ -39,7 +51,11 @@
   "description": "Content-addressed manifest for a canonical PMOS contract bundle. The canonical bundle is a dedicated member, eliminating independently variable duplicate IDs, versions, digests, and source references.",
   "properties": {
     "approval_digest": {
-      "$ref": "#/$defs/digest"
+      "$ref": "#/$defs/digest",
+      "description": "SHA-256 digest of the RFC 8785 canonical serialization of the canonical bundle's /approvals registry."
+    },
+    "approval_digest_scope": {
+      "const": "CANONICAL_BUNDLE_APPROVALS_RFC8785"
     },
     "bundle": {
       "additionalProperties": false,
@@ -166,6 +182,10 @@
         "published_at": {
           "$ref": "#/$defs/date_time"
         },
+        "source_approved_by": {
+          "$ref": "#/$defs/non_empty_string",
+          "description": "Exact named approver supplied by a legacy source."
+        },
         "source_digest": {
           "$ref": "#/$defs/digest"
         },
@@ -177,7 +197,7 @@
           "description": "PM Agent OS owns the source product truth."
         },
         "source_version": {
-          "$ref": "#/$defs/semver"
+          "$ref": "#/$defs/source_version"
         }
       },
       "required": [
@@ -201,6 +221,7 @@
   },
   "required": [
     "approval_digest",
+    "approval_digest_scope",
     "bundle",
     "canonical_json_profile",
     "created_at",
