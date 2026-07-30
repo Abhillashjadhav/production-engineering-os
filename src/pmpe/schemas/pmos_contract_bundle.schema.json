@@ -1,5 +1,5 @@
 {
-  "$comment": "Before schema evaluation, admission MUST reject duplicate object member names and canonicalize the parsed instance with RFC 8785 for digesting. JSON Schema evaluates parsed instances and cannot observe duplicate raw member tokens.",
+  "$comment": "Before schema evaluation, issue #76 admission MUST reject duplicate object member names and non-JSON numeric constants, then canonicalize the parsed instance with RFC 8785 for digesting. JSON Schema evaluates parsed instances and cannot observe raw member tokens.",
   "$defs": {
     "acceptance_criterion_id": {
       "pattern": "^AC-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
@@ -745,7 +745,63 @@
               },
               "target": {
                 "additionalProperties": false,
+                "description": "Product-owned target state. Baseline-required and retired targets carry no fabricated numeric threshold.",
+                "oneOf": [
+                  {
+                    "properties": {
+                      "status": {
+                        "const": "APPROVED"
+                      }
+                    },
+                    "required": [
+                      "operator",
+                      "status",
+                      "unit",
+                      "value"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "properties": {
+                      "baseline_plan": {
+                        "$ref": "#/$defs/non_empty_string"
+                      },
+                      "operator": false,
+                      "status": {
+                        "const": "BASELINE_REQUIRED"
+                      },
+                      "value": false
+                    },
+                    "required": [
+                      "baseline_plan",
+                      "status",
+                      "unit"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "properties": {
+                      "operator": false,
+                      "retirement_reason": {
+                        "$ref": "#/$defs/non_empty_string"
+                      },
+                      "status": {
+                        "const": "RETIRED"
+                      },
+                      "value": false
+                    },
+                    "required": [
+                      "retirement_reason",
+                      "status",
+                      "unit"
+                    ],
+                    "type": "object"
+                  }
+                ],
                 "properties": {
+                  "baseline_plan": {
+                    "$ref": "#/$defs/non_empty_string"
+                  },
                   "operator": {
                     "enum": [
                       "AT_LEAST",
@@ -753,6 +809,9 @@
                       "EXACT"
                     ],
                     "type": "string"
+                  },
+                  "retirement_reason": {
+                    "$ref": "#/$defs/non_empty_string"
                   },
                   "status": {
                     "enum": [
@@ -769,12 +828,6 @@
                     "type": "number"
                   }
                 },
-                "required": [
-                  "operator",
-                  "status",
-                  "unit",
-                  "value"
-                ],
                 "type": "object"
               }
             },

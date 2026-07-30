@@ -195,10 +195,9 @@
           "time_zone": "UTC"
         },
         "target": {
-          "operator": "AT_LEAST",
-          "status": "APPROVED",
-          "unit": "ratio",
-          "value": 0.8
+          "baseline_plan": "Approve a prospective EADPR target after the first fixed due cohort matures.",
+          "status": "BASELINE_REQUIRED",
+          "unit": "ratio"
         }
       },
       "POLICY-METRIC-FIRST-PASS": {
@@ -232,10 +231,9 @@
           "time_zone": "UTC"
         },
         "target": {
-          "operator": "AT_LEAST",
-          "status": "APPROVED",
-          "unit": "ratio",
-          "value": 0.9
+          "baseline_plan": "Approve a prospective first-pass validation target after the initial intake cohort.",
+          "status": "BASELINE_REQUIRED",
+          "unit": "ratio"
         }
       },
       "POLICY-METRIC-VAPDR": {
@@ -271,10 +269,9 @@
           "time_zone": "UTC"
         },
         "target": {
-          "operator": "AT_LEAST",
-          "status": "APPROVED",
-          "unit": "ratio",
-          "value": 0.8
+          "baseline_plan": "Approve a prospective VAPDR target after the first fixed production due cohort matures.",
+          "status": "BASELINE_REQUIRED",
+          "unit": "ratio"
         }
       }
     },

@@ -3,8 +3,9 @@
 These tests intentionally exercise schema artifacts only. Runtime model,
 compiler, migration, and semantic cross-reference validation belong to later
 issues. The official Draft 2020-12 validator checks parsed instances. A separate
-duplicate-aware loader enforces the declared RFC 8785 transport precondition
-before schema validation because JSON Schema cannot observe duplicate raw keys.
+loader rejects duplicate keys and non-JSON numeric constants before validation;
+the compiler/admission work in #76 remains responsible for RFC 8785
+canonicalization and digesting because JSON Schema operates on parsed instances.
 """
 
 from __future__ import annotations
@@ -12,7 +13,7 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -59,6 +60,10 @@ class DuplicateKeyError(ValueError):
     """Raised when input is not canonical JSON because an object key repeats."""
 
 
+class NonJsonNumericConstantError(ValueError):
+    """Raised when a parser encounters JavaScript-style NaN or infinity tokens."""
+
+
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -68,8 +73,16 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
+def _reject_non_json_numeric_constant(value: str) -> NoReturn:
+    raise NonJsonNumericConstantError(f"non-JSON numeric constant: {value}")
+
+
 def _load_json(path: Path) -> Any:
-    return json.loads(path.read_text(), object_pairs_hook=_reject_duplicate_keys)
+    return json.loads(
+        path.read_text(),
+        object_pairs_hook=_reject_duplicate_keys,
+        parse_constant=_reject_non_json_numeric_constant,
+    )
 
 
 def _fixture_instance(path: Path) -> Any:
@@ -97,7 +110,7 @@ def _fixture_instance(path: Path) -> Any:
 def _validate_fixture(fixture: Path, schema_path: Path) -> list[str]:
     try:
         instance = _fixture_instance(fixture)
-    except (json.JSONDecodeError, DuplicateKeyError) as exc:
+    except (json.JSONDecodeError, DuplicateKeyError, NonJsonNumericConstantError) as exc:
         return [str(exc)]
     schema = _load_json(schema_path)
     assert isinstance(schema, dict)
@@ -188,6 +201,7 @@ def test_valid_canonical_manifest_passes() -> None:
             "Additional properties",
         ),
         ("missing_metric_target.json", BUNDLE_SCHEMA, "'target' is a required property"),
+        ("baseline_target_with_dummy_value.json", BUNDLE_SCHEMA, "not valid under any"),
         (
             "missing_metric_reporting_policy.json",
             BUNDLE_SCHEMA,
@@ -219,6 +233,15 @@ def test_duplicate_object_members_fail_before_schema_validation() -> None:
     duplicate_fixture = FIXTURE_DIR / "duplicate_requirement_id.json"
     with pytest.raises(DuplicateKeyError, match="duplicate object key: FR-001"):
         _fixture_instance(duplicate_fixture)
+
+
+def test_non_json_numeric_constants_fail_before_schema_validation() -> None:
+    fixture = FIXTURE_DIR / "invalid_non_finite_number.json"
+    with pytest.raises(
+        NonJsonNumericConstantError,
+        match="non-JSON numeric constant: NaN",
+    ):
+        _fixture_instance(fixture)
 
 
 @pytest.mark.parametrize(
@@ -299,7 +322,13 @@ def test_leading_metric_target_is_bound_inside_its_approved_maturity_policy() ->
     leading = bundle["metrics"]["leading"]["METRIC-LEAD-001"]
     policy = bundle["metrics"]["maturity_policies"][leading["maturity_policy_ref"]]
     assert policy["metric_ref"] == leading["metric_id"]
-    assert policy["target"]["status"] == "APPROVED"
+    assert policy["target"] == {
+        "baseline_plan": (
+            "Approve a prospective first-pass validation target after the initial intake cohort."
+        ),
+        "status": "BASELINE_REQUIRED",
+        "unit": "ratio",
+    }
     approval = bundle["approvals"][policy["approval_ref"]]
     assert approval["subject"]["id"] == leading["maturity_policy_ref"]
     assert approval["subject"]["digest_scope"] == "NAMED_METRIC_MATURITY_POLICY"
@@ -418,11 +447,18 @@ def test_product_owned_targets_privacy_release_rollback_and_approvals_are_typed(
     schema = _load_json(BUNDLE_SCHEMA)
     properties = schema["properties"]
 
-    assert {"operator", "status", "unit", "value"} <= set(
-        properties["metrics"]["properties"]["maturity_policies"]["additionalProperties"][
-            "properties"
-        ]["target"]["required"]
-    )
+    target = properties["metrics"]["properties"]["maturity_policies"]["additionalProperties"][
+        "properties"
+    ]["target"]
+    assert len(target["oneOf"]) == 3
+    statuses = {
+        branch["properties"]["status"]["const"]: set(branch["required"])
+        for branch in target["oneOf"]
+    }
+    assert {"operator", "status", "unit", "value"} <= statuses["APPROVED"]
+    assert {"baseline_plan", "status", "unit"} <= statuses["BASELINE_REQUIRED"]
+    assert "value" not in statuses["BASELINE_REQUIRED"]
+    assert {"retirement_reason", "status", "unit"} <= statuses["RETIRED"]
     assert {"data_residency", "deletion", "retention", "telemetry"} <= set(
         properties["privacy"]["required"]
     )
