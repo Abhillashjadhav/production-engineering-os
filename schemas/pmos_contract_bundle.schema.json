@@ -1,5 +1,5 @@
 {
-  "$comment": "Before schema evaluation, issue #76 admission MUST reject duplicate object member names, non-JSON numeric constants, and numeric tokens that overflow to non-finite IEEE-754 values, then canonicalize the parsed instance with RFC 8785 for digesting. JSON Schema evaluates parsed instances and cannot observe raw member tokens.",
+  "$comment": "Before schema evaluation, issue #76 admission MUST reject duplicate object member names, non-JSON numeric constants, numeric tokens that overflow to non-finite IEEE-754 values, and integer tokens outside the interoperable exact IEEE-754 range, then canonicalize the parsed instance with RFC 8785 for digesting. JSON Schema evaluates parsed instances and cannot observe raw member tokens.",
   "$defs": {
     "acceptance_criterion_id": {
       "pattern": "^AC-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
@@ -58,6 +58,18 @@
     },
     "metric_id": {
       "pattern": "^METRIC-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+      "type": "string"
+    },
+    "metric_id_end_state": {
+      "pattern": "^METRIC-NSM-END-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+      "type": "string"
+    },
+    "metric_id_leading": {
+      "pattern": "^METRIC-LEAD-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+      "type": "string"
+    },
+    "metric_id_mvp": {
+      "pattern": "^METRIC-NSM-MVP-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
       "type": "string"
     },
     "metric_policy_id": {
@@ -673,9 +685,6 @@
               "maturity_policy_ref": {
                 "$ref": "#/$defs/metric_policy_id"
               },
-              "metric_id": {
-                "$ref": "#/$defs/metric_id"
-              },
               "name": {
                 "$ref": "#/$defs/non_empty_string"
               }
@@ -684,14 +693,13 @@
               "definition",
               "direction",
               "maturity_policy_ref",
-              "metric_id",
               "name"
             ],
             "type": "object"
           },
           "minProperties": 1,
           "propertyNames": {
-            "$ref": "#/$defs/metric_id"
+            "$ref": "#/$defs/metric_id_leading"
           },
           "type": "object"
         },
@@ -875,7 +883,7 @@
                   "$ref": "#/$defs/metric_policy_id"
                 },
                 "metric_id": {
-                  "$ref": "#/$defs/metric_id"
+                  "$ref": "#/$defs/metric_id_end_state"
                 },
                 "name": {
                   "$ref": "#/$defs/non_empty_string"
@@ -912,7 +920,7 @@
                   "$ref": "#/$defs/metric_policy_id"
                 },
                 "metric_id": {
-                  "$ref": "#/$defs/metric_id"
+                  "$ref": "#/$defs/metric_id_mvp"
                 },
                 "name": {
                   "$ref": "#/$defs/non_empty_string"
@@ -1205,6 +1213,12 @@
         "outcome": {
           "additionalProperties": false,
           "properties": {
+            "business_outcome": {
+              "$ref": "#/$defs/non_empty_string"
+            },
+            "customer_outcome": {
+              "$ref": "#/$defs/non_empty_string"
+            },
             "measurable_change": {
               "$ref": "#/$defs/non_empty_string"
             },
@@ -1213,10 +1227,21 @@
             }
           },
           "required": [
+            "business_outcome",
+            "customer_outcome",
             "measurable_change",
             "statement"
           ],
           "type": "object"
+        },
+        "priority": {
+          "enum": [
+            "P0",
+            "P1",
+            "P2",
+            "P3"
+          ],
+          "type": "string"
         },
         "problem": {
           "additionalProperties": false,
@@ -1234,15 +1259,47 @@
           ],
           "type": "object"
         },
+        "product_name": {
+          "$ref": "#/$defs/non_empty_string"
+        },
         "target_customers": {
           "$ref": "#/$defs/string_list"
+        },
+        "target_platform": {
+          "additionalProperties": false,
+          "properties": {
+            "description": {
+              "$ref": "#/$defs/non_empty_string"
+            },
+            "kind": {
+              "enum": [
+                "API",
+                "CLI",
+                "DATA_PIPELINE",
+                "DESKTOP",
+                "LIBRARY",
+                "MOBILE",
+                "OTHER",
+                "WEB"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "description",
+            "kind"
+          ],
+          "type": "object"
         }
       },
       "required": [
         "hypothesis",
         "outcome",
+        "priority",
         "problem",
-        "target_customers"
+        "product_name",
+        "target_customers",
+        "target_platform"
       ],
       "type": "object"
     },
@@ -1344,6 +1401,38 @@
         "approval_refs": {
           "$ref": "#/$defs/approval_reference_list"
         },
+        "deployment_target": {
+          "additionalProperties": false,
+          "properties": {
+            "description": {
+              "$ref": "#/$defs/non_empty_string"
+            },
+            "environment": {
+              "enum": [
+                "CANARY",
+                "LOCAL",
+                "PRODUCTION",
+                "STAGING"
+              ],
+              "type": "string"
+            },
+            "kind": {
+              "enum": [
+                "CLOUD",
+                "CONTAINERIZED_PREVIEW",
+                "LOCAL_PREVIEW",
+                "OTHER"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "description",
+            "environment",
+            "kind"
+          ],
+          "type": "object"
+        },
         "eligible_audiences": {
           "$ref": "#/$defs/string_list"
         },
@@ -1407,6 +1496,7 @@
       },
       "required": [
         "approval_refs",
+        "deployment_target",
         "eligible_audiences",
         "expectations",
         "guardrail_refs",

@@ -159,7 +159,6 @@
         "definition": "Share of received bundles that pass structural validation on first submission.",
         "direction": "INCREASE",
         "maturity_policy_ref": "POLICY-METRIC-FIRST-PASS",
-        "metric_id": "METRIC-LEAD-001",
         "name": "First-pass contract validation rate"
       }
     },
@@ -179,7 +178,7 @@
           "duration": "P7D",
           "time_zone": "America/Argentina/Buenos_Aires"
         },
-        "metric_ref": "METRIC-NSM-EADPR",
+        "metric_ref": "METRIC-NSM-MVP-EADPR",
         "name": "Evidence-backed autonomous draft PR maturity",
         "observation_window": {
           "anchor_event": "PR_READY",
@@ -253,7 +252,7 @@
           "duration": "P30D",
           "time_zone": "UTC"
         },
-        "metric_ref": "METRIC-NSM-VAPDR",
+        "metric_ref": "METRIC-NSM-END-VAPDR",
         "name": "Verified autonomous production delivery maturity",
         "observation_window": {
           "anchor_event": "PRODUCTION_DEPLOYED",
@@ -280,7 +279,7 @@
         "definition": "Percentage of approved contract slices deployed with acceptance, SLO, and evidence gates satisfied without manual code modification.",
         "direction": "INCREASE",
         "maturity_policy_ref": "POLICY-METRIC-VAPDR",
-        "metric_id": "METRIC-NSM-VAPDR",
+        "metric_id": "METRIC-NSM-END-VAPDR",
         "name": "Verified autonomous production delivery rate",
         "outcome_scope": "PRODUCTION"
       },
@@ -288,7 +287,7 @@
         "definition": "Percentage of approved contracts that produce a green, traceable, evidence-backed draft PR without manual engineering handholding.",
         "direction": "INCREASE",
         "maturity_policy_ref": "POLICY-METRIC-EADPR",
-        "metric_id": "METRIC-NSM-EADPR",
+        "metric_id": "METRIC-NSM-MVP-EADPR",
         "name": "Evidence-backed autonomous draft PR rate",
         "outcome_scope": "DRAFT_PR"
       }
@@ -364,17 +363,25 @@
       "statement": "A complete canonical contract will reduce manual engineering handholding."
     },
     "outcome": {
+      "business_outcome": "Engineering delivery becomes faster and more reliable without transferring product decisions to implementers.",
+      "customer_outcome": "Product owners can hand an approved contract to engineering without repeated clarification.",
       "measurable_change": "More approved slices reach evidence-backed draft PRs without manual engineering intervention.",
       "statement": "Engineering can begin from explicit, approved, traceable product truth."
     },
+    "priority": "P0",
     "problem": {
       "affected_customers": "Product owners and engineering teams using PM Agent OS.",
       "statement": "Separate legacy contracts omit required product truth and use incompatible version semantics."
     },
+    "product_name": "Production Engineering OS",
     "target_customers": [
       "Product owners publishing approved PM Agent OS contracts",
       "Engineering teams consuming approved product truth"
-    ]
+    ],
+    "target_platform": {
+      "description": "Repository-integrated agentic engineering control plane and CLI.",
+      "kind": "CLI"
+    }
   },
   "provenance": {
     "published_at": "2026-07-30T00:00:00Z",
@@ -399,6 +406,11 @@
     "approval_refs": [
       "APR-CONTRACT-001"
     ],
+    "deployment_target": {
+      "description": "Documentation and schema verification on the repository draft-PR surface only.",
+      "environment": "LOCAL",
+      "kind": "LOCAL_PREVIEW"
+    },
     "eligible_audiences": [
       "Repository maintainers evaluating the draft contract schema"
     ],

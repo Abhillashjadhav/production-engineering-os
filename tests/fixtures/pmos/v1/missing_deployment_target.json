@@ -1,0 +1,12 @@
+{
+  "$fixture_base": "valid_bundle.json",
+  "$mutations": [
+    {
+      "op": "remove",
+      "path": [
+        "release",
+        "deployment_target"
+      ]
+    }
+  ]
+}

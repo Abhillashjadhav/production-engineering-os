@@ -28,6 +28,7 @@ BUNDLE_SCHEMA = SCHEMA_DIR / "pmos_contract_bundle.schema.json"
 MANIFEST_SCHEMA = SCHEMA_DIR / "pmos_contract_manifest.schema.json"
 VALID_BUNDLE = FIXTURE_DIR / "valid_bundle.json"
 VALID_MANIFEST = FIXTURE_DIR / "valid_manifest.json"
+MAX_INTEROPERABLE_INTEGER = 2**53 - 1
 
 _VALIDATION_KEYWORDS = {
     "$ref",
@@ -85,12 +86,20 @@ def _parse_finite_float(value: str) -> float:
     return parsed
 
 
+def _parse_interoperable_int(value: str) -> int:
+    parsed = int(value)
+    if abs(parsed) > MAX_INTEROPERABLE_INTEGER:
+        raise NonJsonNumericConstantError(f"integer outside interoperable IEEE-754 range: {value}")
+    return parsed
+
+
 def _load_json(path: Path) -> Any:
     return json.loads(
         path.read_text(),
         object_pairs_hook=_reject_duplicate_keys,
         parse_constant=_reject_non_json_numeric_constant,
         parse_float=_parse_finite_float,
+        parse_int=_parse_interoperable_int,
     )
 
 
@@ -171,6 +180,12 @@ def test_valid_canonical_manifest_passes() -> None:
     assert _validate_fixture(VALID_MANIFEST, MANIFEST_SCHEMA) == []
 
 
+@pytest.mark.parametrize("fixture_path", [VALID_BUNDLE, VALID_MANIFEST])
+def test_valid_fixtures_are_canonical_json(fixture_path: Path) -> None:
+    fixture = _load_json(fixture_path)
+    assert fixture_path.read_text() == json.dumps(fixture, indent=2, sort_keys=True) + "\n"
+
+
 @pytest.mark.parametrize(
     ("fixture_name", "schema_path", "expected"),
     [
@@ -226,6 +241,14 @@ def test_valid_canonical_manifest_passes() -> None:
             "non-finite numeric value: 1e999",
         ),
         (
+            "invalid_integer_outside_ieee754_range.json",
+            BUNDLE_SCHEMA,
+            "integer outside interoperable IEEE-754 range: 9007199254740992",
+        ),
+        ("invalid_leading_metric_id_property.json", BUNDLE_SCHEMA, "Additional properties"),
+        ("invalid_leading_north_star_collision.json", BUNDLE_SCHEMA, "does not match"),
+        ("invalid_north_star_namespace_collision.json", BUNDLE_SCHEMA, "does not match"),
+        (
             "mismatched_manifest_binding.json",
             MANIFEST_SCHEMA,
             "Additional properties",
@@ -242,6 +265,28 @@ def test_valid_canonical_manifest_passes() -> None:
         ("revoked_approval_without_evidence.json", BUNDLE_SCHEMA, "not valid under any"),
         ("superseded_approval_without_evidence.json", BUNDLE_SCHEMA, "not valid under any"),
         ("missing_privacy_telemetry.json", BUNDLE_SCHEMA, "'telemetry' is a required property"),
+        (
+            "missing_deployment_target.json",
+            BUNDLE_SCHEMA,
+            "'deployment_target' is a required property",
+        ),
+        (
+            "missing_business_outcome.json",
+            BUNDLE_SCHEMA,
+            "'business_outcome' is a required property",
+        ),
+        (
+            "missing_customer_outcome.json",
+            BUNDLE_SCHEMA,
+            "'customer_outcome' is a required property",
+        ),
+        ("missing_product_name.json", BUNDLE_SCHEMA, "'product_name' is a required property"),
+        ("missing_product_priority.json", BUNDLE_SCHEMA, "'priority' is a required property"),
+        (
+            "missing_target_platform.json",
+            BUNDLE_SCHEMA,
+            "'target_platform' is a required property",
+        ),
         ("missing_release_intent.json", BUNDLE_SCHEMA, "'launch_intent' is a required property"),
         ("missing_rollback_rto.json", BUNDLE_SCHEMA, "'rto' is a required property"),
         ("missing_approval_expiry.json", BUNDLE_SCHEMA, "'expires_at' is a required property"),
@@ -279,6 +324,15 @@ def test_numeric_exponent_overflow_fails_before_schema_validation() -> None:
     with pytest.raises(
         NonJsonNumericConstantError,
         match="non-finite numeric value: 1e999",
+    ):
+        _fixture_instance(fixture)
+
+
+def test_integer_outside_interoperable_range_fails_before_schema_validation() -> None:
+    fixture = FIXTURE_DIR / "invalid_integer_outside_ieee754_range.json"
+    with pytest.raises(
+        NonJsonNumericConstantError,
+        match="integer outside interoperable IEEE-754 range: 9007199254740992",
     ):
         _fixture_instance(fixture)
 
@@ -356,11 +410,25 @@ def test_both_north_stars_and_exact_policy_inputs_are_required_without_defaults(
     assert "default" not in json.dumps(metrics)
 
 
+def test_metric_namespaces_make_stable_ids_structurally_disjoint() -> None:
+    schema = _load_json(BUNDLE_SCHEMA)
+    metrics = schema["properties"]["metrics"]
+    leading = metrics["properties"]["leading"]
+    north_stars = metrics["properties"]["north_stars"]["properties"]
+
+    assert leading["propertyNames"] == {"$ref": "#/$defs/metric_id_leading"}
+    assert "metric_id" not in leading["additionalProperties"]["properties"]
+    assert north_stars["end_state"]["properties"]["metric_id"] == {
+        "$ref": "#/$defs/metric_id_end_state"
+    }
+    assert north_stars["mvp"]["properties"]["metric_id"] == {"$ref": "#/$defs/metric_id_mvp"}
+
+
 def test_leading_metric_target_is_bound_inside_its_approved_maturity_policy() -> None:
     bundle = _load_json(VALID_BUNDLE)
     leading = bundle["metrics"]["leading"]["METRIC-LEAD-001"]
     policy = bundle["metrics"]["maturity_policies"][leading["maturity_policy_ref"]]
-    assert policy["metric_ref"] == leading["metric_id"]
+    assert policy["metric_ref"] == "METRIC-LEAD-001"
     assert policy["target"] == {
         "baseline_plan": (
             "Approve a prospective first-pass validation target after the initial intake cohort."
@@ -371,6 +439,27 @@ def test_leading_metric_target_is_bound_inside_its_approved_maturity_policy() ->
     approval = bundle["approvals"][policy["approval_ref"]]
     assert approval["subject"]["id"] == leading["maturity_policy_ref"]
     assert approval["subject"]["digest_scope"] == "NAMED_METRIC_MATURITY_POLICY"
+
+
+def test_canonical_core_preserves_product_and_delivery_target_truth() -> None:
+    schema = _load_json(BUNDLE_SCHEMA)
+    product = schema["properties"]["product"]
+    release = schema["properties"]["release"]
+
+    assert {"priority", "product_name", "target_platform"} <= set(product["required"])
+    assert {"business_outcome", "customer_outcome"} <= set(
+        product["properties"]["outcome"]["required"]
+    )
+    assert set(product["properties"]["target_platform"]["required"]) == {
+        "description",
+        "kind",
+    }
+    assert "deployment_target" in release["required"]
+    assert set(release["properties"]["deployment_target"]["required"]) == {
+        "description",
+        "environment",
+        "kind",
+    }
 
 
 def test_extensions_can_only_add_constraints() -> None:
