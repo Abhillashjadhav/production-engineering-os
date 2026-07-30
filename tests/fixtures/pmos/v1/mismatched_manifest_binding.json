@@ -4,7 +4,8 @@
     {
       "op": "replace",
       "path": [
-        "bundle_digest"
+        "bundle",
+        "content_digest"
       ],
       "value": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }

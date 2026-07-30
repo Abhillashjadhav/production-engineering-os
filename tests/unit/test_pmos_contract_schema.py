@@ -11,6 +11,7 @@ canonicalization and digesting because JSON Schema operates on parsed instances.
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -247,11 +248,25 @@ def test_valid_fixtures_are_canonical_json(fixture_path: Path) -> None:
         ),
         ("invalid_leading_metric_id_property.json", BUNDLE_SCHEMA, "Additional properties"),
         ("invalid_leading_north_star_collision.json", BUNDLE_SCHEMA, "does not match"),
+        ("invalid_metric_ref_namespace.json", BUNDLE_SCHEMA, "not valid under any"),
         ("invalid_north_star_namespace_collision.json", BUNDLE_SCHEMA, "does not match"),
         (
-            "mismatched_manifest_binding.json",
+            "missing_manifest_digest.json",
             MANIFEST_SCHEMA,
-            "Additional properties",
+            "'manifest_digest' is a required property",
+        ),
+        ("missing_api_contracts.json", BUNDLE_SCHEMA, "'api_contracts' is a required property"),
+        (
+            "missing_backend_capabilities.json",
+            BUNDLE_SCHEMA,
+            "'backend_capabilities' is a required property",
+        ),
+        ("missing_data_entities.json", BUNDLE_SCHEMA, "'entities' is a required property"),
+        ("missing_dependencies.json", BUNDLE_SCHEMA, "'dependencies' is a required property"),
+        (
+            "missing_evaluation_rubrics.json",
+            BUNDLE_SCHEMA,
+            "'evaluation_rubrics' is a required property",
         ),
         ("missing_metric_target.json", BUNDLE_SCHEMA, "'target' is a required property"),
         ("baseline_target_with_dummy_value.json", BUNDLE_SCHEMA, "not valid under any"),
@@ -261,6 +276,7 @@ def test_valid_fixtures_are_canonical_json(fixture_path: Path) -> None:
             "'reporting_policy_ref' is a required property",
         ),
         ("missing_mvp_north_star.json", BUNDLE_SCHEMA, "'mvp' is a required property"),
+        ("active_approval_with_revocation.json", BUNDLE_SCHEMA, "not valid under any"),
         ("invalid_approval_subject_type.json", BUNDLE_SCHEMA, "not valid under any"),
         ("revoked_approval_without_evidence.json", BUNDLE_SCHEMA, "not valid under any"),
         ("superseded_approval_without_evidence.json", BUNDLE_SCHEMA, "not valid under any"),
@@ -283,9 +299,34 @@ def test_valid_fixtures_are_canonical_json(fixture_path: Path) -> None:
         ("missing_product_name.json", BUNDLE_SCHEMA, "'product_name' is a required property"),
         ("missing_product_priority.json", BUNDLE_SCHEMA, "'priority' is a required property"),
         (
+            "missing_primary_journey.json",
+            BUNDLE_SCHEMA,
+            "'primary_journey' is a required property",
+        ),
+        (
+            "missing_product_decisions.json",
+            BUNDLE_SCHEMA,
+            "'product_decisions' is a required property",
+        ),
+        (
+            "missing_reporting_policies.json",
+            BUNDLE_SCHEMA,
+            "'reporting_policies' is a required property",
+        ),
+        (
+            "missing_required_approvals.json",
+            BUNDLE_SCHEMA,
+            "'required_approvals' is a required property",
+        ),
+        (
             "missing_target_platform.json",
             BUNDLE_SCHEMA,
             "'target_platform' is a required property",
+        ),
+        (
+            "missing_ux_user_stories.json",
+            BUNDLE_SCHEMA,
+            "'user_stories' is a required property",
         ),
         ("missing_release_intent.json", BUNDLE_SCHEMA, "'launch_intent' is a required property"),
         ("missing_rollback_rto.json", BUNDLE_SCHEMA, "'rto' is a required property"),
@@ -358,13 +399,16 @@ def test_bundle_schema_covers_every_phase_zero_product_truth_section() -> None:
     required = set(schema["required"])
     assert {
         "acceptance_criteria",
+        "api_contracts",
         "approvals",
         "assumptions",
+        "backend_capabilities",
         "bundle_id",
         "bundle_version",
         "canonical_json_profile",
         "contract_status",
         "data",
+        "dependencies",
         "extensions",
         "functional_requirements",
         "guardrails",
@@ -375,9 +419,11 @@ def test_bundle_schema_covers_every_phase_zero_product_truth_section() -> None:
         "open_questions",
         "privacy",
         "product",
+        "product_decisions",
         "provenance",
         "quality_assurance",
         "release",
+        "required_approvals",
         "risks",
         "rollback",
         "schema_id",
@@ -407,6 +453,17 @@ def test_both_north_stars_and_exact_policy_inputs_are_required_without_defaults(
         "reporting_window",
         "target",
     } <= required
+    assert "reporting_policies" in metrics["required"]
+    reporting = metrics["properties"]["reporting_policies"]["additionalProperties"]
+    assert {
+        "approval_ref",
+        "calculation",
+        "denominator",
+        "exclusions",
+        "inclusion_criteria",
+        "owner_ref",
+        "policy_version",
+    } <= set(reporting["required"])
     assert "default" not in json.dumps(metrics)
 
 
@@ -462,6 +519,43 @@ def test_canonical_core_preserves_product_and_delivery_target_truth() -> None:
     }
 
 
+def test_canonical_core_preserves_typed_v1_v2_v3_product_truth() -> None:
+    schema = _load_json(BUNDLE_SCHEMA)
+    properties = schema["properties"]
+
+    assert {
+        "api_contracts",
+        "backend_capabilities",
+        "dependencies",
+        "product_decisions",
+        "required_approvals",
+    } <= set(schema["required"])
+    assert "entities" in properties["data"]["required"]
+    assert {
+        "evaluation_rubrics",
+        "golden_cases",
+        "release_gates",
+    } <= set(properties["quality_assurance"]["required"])
+    assert {
+        "responsive_requirements",
+        "primary_journey",
+        "screens",
+        "ui_states",
+        "user_stories",
+    } <= set(properties["ux"]["required"])
+
+
+def test_approval_lifecycle_variants_forbid_contradictory_evidence() -> None:
+    schema = _load_json(BUNDLE_SCHEMA)
+    branches = schema["properties"]["approvals"]["additionalProperties"]["oneOf"]
+    by_status = {branch["properties"]["status"]["const"]: branch for branch in branches}
+
+    assert by_status["ACTIVE"]["properties"]["revoked_at"] is False
+    assert by_status["ACTIVE"]["properties"]["superseded_by_approval_ref"] is False
+    assert by_status["REVOKED"]["properties"]["superseded_by_approval_ref"] is False
+    assert by_status["SUPERSEDED"]["properties"]["revoked_at"] is False
+
+
 def test_extensions_can_only_add_constraints() -> None:
     schema = _load_json(BUNDLE_SCHEMA)
     extension = schema["properties"]["extensions"]["additionalProperties"]
@@ -492,6 +586,7 @@ def test_manifest_binds_bundle_provenance_approvals_and_member_digests() -> None
         "approval_digest",
         "bundle",
         "canonical_json_profile",
+        "manifest_digest",
         "members",
         "provenance",
         "schema_id",
@@ -515,6 +610,27 @@ def test_manifest_binds_bundle_provenance_approvals_and_member_digests() -> None
     member_required = set(members["additionalProperties"]["required"])
     assert {"content_digest", "schema_id", "schema_version"} <= member_required
     assert "path" not in members["additionalProperties"]["properties"]
+
+
+def test_manifest_fixture_content_digests_bind_exact_fixture_bytes() -> None:
+    manifest = _load_json(VALID_MANIFEST)
+    expected_bundle_digest = f"sha256:{hashlib.sha256(VALID_BUNDLE.read_bytes()).hexdigest()}"
+    assert manifest["bundle"]["content_digest"] == expected_bundle_digest
+
+    projection = copy.deepcopy(manifest)
+    manifest_digest = projection.pop("manifest_digest")
+    projection_bytes = json.dumps(
+        projection,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
+    assert manifest_digest == f"sha256:{hashlib.sha256(projection_bytes).hexdigest()}"
+
+    mismatched = _fixture_instance(FIXTURE_DIR / "mismatched_manifest_binding.json")
+    schema = _load_json(MANIFEST_SCHEMA)
+    assert list(Draft202012Validator(schema).iter_errors(mismatched)) == []
+    assert mismatched["bundle"]["content_digest"] != expected_bundle_digest
 
 
 @pytest.mark.parametrize(
@@ -610,10 +726,11 @@ def test_product_owned_targets_privacy_release_rollback_and_approvals_are_typed(
         "valid_from",
     } <= approval_required
     subject = properties["approvals"]["additionalProperties"]["properties"]["subject"]
-    assert len(subject["oneOf"]) == 2
+    assert len(subject["oneOf"]) == 3
     assert {branch["properties"]["digest_scope"]["const"] for branch in subject["oneOf"]} == {
         "CANONICAL_BUNDLE_EXCLUDING_APPROVALS",
         "NAMED_METRIC_MATURITY_POLICY",
+        "NAMED_METRIC_REPORTING_POLICY",
     }
     assert len(properties["approvals"]["additionalProperties"]["oneOf"]) == 3
 

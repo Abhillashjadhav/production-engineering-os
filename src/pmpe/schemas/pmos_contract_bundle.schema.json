@@ -56,10 +56,6 @@
       "pattern": "^https://(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:/(?:[A-Za-z0-9._~!$&'()*+,;=:@-]|%[0-9A-Fa-f]{2})*)*(?![\\s\\S])",
       "type": "string"
     },
-    "metric_id": {
-      "pattern": "^METRIC-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
-      "type": "string"
-    },
     "metric_id_end_state": {
       "pattern": "^METRIC-NSM-END-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
       "type": "string"
@@ -185,15 +181,59 @@
       },
       "type": "object"
     },
+    "api_contracts": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "method": {
+            "enum": [
+              "DELETE",
+              "GET",
+              "PATCH",
+              "POST",
+              "PUT"
+            ],
+            "type": "string"
+          },
+          "path": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "purpose": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "request_schema_ref": {
+            "$ref": "#/$defs/https_uri"
+          },
+          "response_schema_ref": {
+            "$ref": "#/$defs/https_uri"
+          }
+        },
+        "required": [
+          "method",
+          "path",
+          "purpose"
+        ],
+        "type": "object"
+      },
+      "description": "Typed product-owned API contracts. Request and response schema references are omitted rather than inferred when a legacy source did not provide them.",
+      "propertyNames": {
+        "pattern": "^API-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+        "type": "string"
+      },
+      "type": "object"
+    },
     "approvals": {
       "additionalProperties": {
         "additionalProperties": false,
         "oneOf": [
           {
             "properties": {
+              "revocation_reason": false,
+              "revoked_at": false,
               "status": {
                 "const": "ACTIVE"
-              }
+              },
+              "superseded_by_approval_ref": false
             },
             "required": [
               "status"
@@ -204,7 +244,8 @@
             "properties": {
               "status": {
                 "const": "REVOKED"
-              }
+              },
+              "superseded_by_approval_ref": false
             },
             "required": [
               "revocation_reason",
@@ -215,6 +256,8 @@
           },
           {
             "properties": {
+              "revocation_reason": false,
+              "revoked_at": false,
               "status": {
                 "const": "SUPERSEDED"
               }
@@ -302,6 +345,21 @@
                   "id"
                 ],
                 "type": "object"
+              },
+              {
+                "properties": {
+                  "digest_scope": {
+                    "const": "NAMED_METRIC_REPORTING_POLICY"
+                  },
+                  "id": {
+                    "$ref": "#/$defs/reporting_policy_id"
+                  }
+                },
+                "required": [
+                  "digest_scope",
+                  "id"
+                ],
+                "type": "object"
               }
             ],
             "properties": {
@@ -311,7 +369,8 @@
               "digest_scope": {
                 "enum": [
                   "CANONICAL_BUNDLE_EXCLUDING_APPROVALS",
-                  "NAMED_METRIC_MATURITY_POLICY"
+                  "NAMED_METRIC_MATURITY_POLICY",
+                  "NAMED_METRIC_REPORTING_POLICY"
                 ],
                 "type": "string"
               },
@@ -391,6 +450,26 @@
       },
       "type": "object"
     },
+    "backend_capabilities": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "$ref": "#/$defs/non_empty_string"
+          }
+        },
+        "required": [
+          "description"
+        ],
+        "type": "object"
+      },
+      "description": "Typed product-owned backend capabilities keyed by their stable capability ID.",
+      "propertyNames": {
+        "pattern": "^CAPABILITY-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+        "type": "string"
+      },
+      "type": "object"
+    },
     "bundle_id": {
       "$ref": "#/$defs/bundle_id"
     },
@@ -413,6 +492,66 @@
     "data": {
       "additionalProperties": false,
       "properties": {
+        "entities": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "fields": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "default": {
+                      "type": [
+                        "boolean",
+                        "integer",
+                        "null",
+                        "string"
+                      ]
+                    },
+                    "required": {
+                      "type": "boolean"
+                    },
+                    "type": {
+                      "$ref": "#/$defs/non_empty_string"
+                    }
+                  },
+                  "required": [
+                    "required",
+                    "type"
+                  ],
+                  "type": "object"
+                },
+                "propertyNames": {
+                  "pattern": "^[A-Za-z][A-Za-z0-9_]*(?![\\s\\S])",
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              "name": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "persistence": {
+                "enum": [
+                  "EPHEMERAL_SESSION",
+                  "NONE",
+                  "PERMANENT"
+                ],
+                "type": "string"
+              }
+            },
+            "required": [
+              "fields",
+              "name"
+            ],
+            "type": "object"
+          },
+          "description": "Typed product data entities. Persistence is omitted rather than inferred when a legacy source did not decide it.",
+          "propertyNames": {
+            "pattern": "^ENTITY-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+            "type": "string"
+          },
+          "type": "object"
+        },
         "requirements": {
           "additionalProperties": {
             "additionalProperties": false,
@@ -453,8 +592,43 @@
         }
       },
       "required": [
+        "entities",
         "requirements"
       ],
+      "type": "object"
+    },
+    "dependencies": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "kind": {
+            "enum": [
+              "DATA",
+              "OTHER",
+              "PACKAGE",
+              "REGULATORY",
+              "SERVICE",
+              "TEAM"
+            ],
+            "type": "string"
+          },
+          "owner_ref": {
+            "$ref": "#/$defs/actor_id"
+          }
+        },
+        "required": [
+          "description"
+        ],
+        "type": "object"
+      },
+      "description": "Product-owned external dependencies. Kind and owner are omitted rather than inferred when absent in a legacy source.",
+      "propertyNames": {
+        "pattern": "^DEP-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+        "type": "string"
+      },
       "type": "object"
     },
     "extensions": {
@@ -553,6 +727,13 @@
         "properties": {
           "acceptance_criterion_refs": {
             "$ref": "#/$defs/acceptance_reference_list"
+          },
+          "capability": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "entity_ref": {
+            "pattern": "^ENTITY-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+            "type": "string"
           },
           "priority": {
             "enum": [
@@ -731,7 +912,17 @@
                 "$ref": "#/$defs/window"
               },
               "metric_ref": {
-                "$ref": "#/$defs/metric_id"
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/metric_id_end_state"
+                  },
+                  {
+                    "$ref": "#/$defs/metric_id_leading"
+                  },
+                  {
+                    "$ref": "#/$defs/metric_id_mvp"
+                  }
+                ]
               },
               "name": {
                 "$ref": "#/$defs/non_empty_string"
@@ -945,12 +1136,61 @@
             "mvp"
           ],
           "type": "object"
+        },
+        "reporting_policies": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "approval_ref": {
+                "$ref": "#/$defs/approval_id"
+              },
+              "calculation": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "denominator": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "exclusions": {
+                "items": {
+                  "$ref": "#/$defs/non_empty_string"
+                },
+                "type": "array",
+                "uniqueItems": true
+              },
+              "inclusion_criteria": {
+                "$ref": "#/$defs/string_list"
+              },
+              "owner_ref": {
+                "$ref": "#/$defs/actor_id"
+              },
+              "policy_version": {
+                "$ref": "#/$defs/semver"
+              }
+            },
+            "required": [
+              "approval_ref",
+              "calculation",
+              "denominator",
+              "exclusions",
+              "inclusion_criteria",
+              "owner_ref",
+              "policy_version"
+            ],
+            "type": "object"
+          },
+          "description": "Named, versioned, owner-approved reporting policies. Each policy fixes calculation, denominator, inclusions, and exclusions; maturity-policy references are checked for existence by issue #63.",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/reporting_policy_id"
+          },
+          "type": "object"
         }
       },
       "required": [
         "leading",
         "maturity_policies",
-        "north_stars"
+        "north_stars",
+        "reporting_policies"
       ],
       "type": "object"
     },
@@ -1303,6 +1543,33 @@
       ],
       "type": "object"
     },
+    "product_decisions": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "approval_ref": {
+            "$ref": "#/$defs/approval_id"
+          },
+          "decision": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "rationale": {
+            "$ref": "#/$defs/non_empty_string"
+          }
+        },
+        "required": [
+          "approval_ref",
+          "decision"
+        ],
+        "type": "object"
+      },
+      "description": "Registry of explicit approved product decisions, separate from the approval evidence that authorizes them.",
+      "propertyNames": {
+        "pattern": "^DECISION-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+        "type": "string"
+      },
+      "type": "object"
+    },
     "provenance": {
       "additionalProperties": false,
       "properties": {
@@ -1356,6 +1623,28 @@
     "quality_assurance": {
       "additionalProperties": false,
       "properties": {
+        "evaluation_rubrics": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "criterion": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "scale": {
+                "$ref": "#/$defs/non_empty_string"
+              }
+            },
+            "required": [
+              "criterion"
+            ],
+            "type": "object"
+          },
+          "propertyNames": {
+            "pattern": "^EVAL-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+            "type": "string"
+          },
+          "type": "object"
+        },
         "expectations": {
           "additionalProperties": {
             "additionalProperties": false,
@@ -1388,10 +1677,57 @@
             "type": "string"
           },
           "type": "object"
+        },
+        "golden_cases": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "expected_outcome": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "scenario": {
+                "$ref": "#/$defs/non_empty_string"
+              }
+            },
+            "required": [
+              "scenario"
+            ],
+            "type": "object"
+          },
+          "propertyNames": {
+            "pattern": "^GOLDEN-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "release_gates": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "description": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "evidence_expectation": {
+                "$ref": "#/$defs/non_empty_string"
+              }
+            },
+            "required": [
+              "description"
+            ],
+            "type": "object"
+          },
+          "propertyNames": {
+            "pattern": "^GATE-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+            "type": "string"
+          },
+          "type": "object"
         }
       },
       "required": [
-        "expectations"
+        "evaluation_rubrics",
+        "expectations",
+        "golden_cases",
+        "release_gates"
       ],
       "type": "object"
     },
@@ -1503,6 +1839,40 @@
         "launch_intent",
         "requested_autonomy_stage"
       ],
+      "type": "object"
+    },
+    "required_approvals": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "purpose": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "required_before": {
+            "enum": [
+              "CANARY",
+              "CONTRACT_APPROVAL",
+              "DRAFT_PR",
+              "PRODUCTION",
+              "STAGING"
+            ],
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/$defs/non_empty_string"
+          }
+        },
+        "required": [
+          "purpose",
+          "role"
+        ],
+        "type": "object"
+      },
+      "description": "Approvals PMOS requires but which may not yet be granted. Granted or rejected evidence is recorded separately in approvals.",
+      "propertyNames": {
+        "pattern": "^APPROVAL-REQ-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+        "type": "string"
+      },
       "type": "object"
     },
     "risks": {
@@ -1800,25 +2170,159 @@
             "type": "string"
           },
           "type": "object"
+        },
+        "primary_journey": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "description": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "screen_ref": {
+                "pattern": "^SCREEN-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+                "type": "string"
+              },
+              "sequence": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "description",
+              "screen_ref",
+              "sequence"
+            ],
+            "type": "object"
+          },
+          "propertyNames": {
+            "pattern": "^JOURNEY-STEP-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "responsive_requirements": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "requirement": {
+                "$ref": "#/$defs/non_empty_string"
+              }
+            },
+            "required": [
+              "requirement"
+            ],
+            "type": "object"
+          },
+          "propertyNames": {
+            "pattern": "^RESP-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "screens": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "purpose": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "state_refs": {
+                "items": {
+                  "pattern": "^UI-STATE-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "name",
+              "purpose",
+              "state_refs"
+            ],
+            "type": "object"
+          },
+          "propertyNames": {
+            "pattern": "^SCREEN-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "ui_states": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "description": {
+                "$ref": "#/$defs/non_empty_string"
+              }
+            },
+            "required": [
+              "description"
+            ],
+            "type": "object"
+          },
+          "propertyNames": {
+            "pattern": "^UI-STATE-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "user_stories": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "as_a": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "i_want": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "so_that": {
+                "$ref": "#/$defs/non_empty_string"
+              }
+            },
+            "required": [
+              "as_a",
+              "i_want",
+              "so_that"
+            ],
+            "type": "object"
+          },
+          "propertyNames": {
+            "pattern": "^US-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+            "type": "string"
+          },
+          "type": "object"
         }
       },
       "required": [
         "accessibility",
         "edge_cases",
-        "flows"
+        "flows",
+        "primary_journey",
+        "responsive_requirements",
+        "screens",
+        "ui_states",
+        "user_stories"
       ],
       "type": "object"
     }
   },
   "required": [
     "acceptance_criteria",
+    "api_contracts",
     "approvals",
     "assumptions",
+    "backend_capabilities",
     "bundle_id",
     "bundle_version",
     "canonical_json_profile",
     "contract_status",
     "data",
+    "dependencies",
     "extensions",
     "functional_requirements",
     "guardrails",
@@ -1829,9 +2333,11 @@
     "open_questions",
     "privacy",
     "product",
+    "product_decisions",
     "provenance",
     "quality_assurance",
     "release",
+    "required_approvals",
     "risks",
     "rollback",
     "schema_id",

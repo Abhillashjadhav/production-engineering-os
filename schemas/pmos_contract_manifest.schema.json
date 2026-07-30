@@ -1,5 +1,5 @@
 {
-  "$comment": "Before schema evaluation, issue #76 admission MUST reject duplicate object member names, non-JSON numeric constants, numeric tokens that overflow to non-finite IEEE-754 values, and integer tokens outside the interoperable exact IEEE-754 range, then canonicalize the parsed instance with RFC 8785 for digesting. Member bytes are addressed by content digest and stable member ID; caller-controlled extraction paths are intentionally absent, so duplicate and file/directory-prefix path identities cannot enter the manifest. JSON Schema evaluates parsed instances and cannot observe raw member tokens.",
+  "$comment": "Before schema evaluation, issue #76 admission MUST reject duplicate object member names, non-JSON numeric constants, numeric tokens that overflow to non-finite IEEE-754 values, and integer tokens outside the interoperable exact IEEE-754 range, then canonicalize the parsed instance with RFC 8785 for digesting. The manifest_digest binds the RFC 8785 projection that excludes manifest_digest itself; issue #76 recomputes and verifies that binding. Member bytes are addressed by content digest and stable member ID; caller-controlled extraction paths are intentionally absent, so duplicate and file/directory-prefix path identities cannot enter the manifest. JSON Schema evaluates parsed instances and cannot observe raw member tokens.",
   "$defs": {
     "date_time": {
       "description": "UTC RFC 3339 instant. Calendar validity is rechecked by the semantic validator.",
@@ -88,7 +88,12 @@
     "created_at": {
       "$ref": "#/$defs/date_time"
     },
+    "manifest_digest": {
+      "$ref": "#/$defs/digest",
+      "description": "SHA-256 of the RFC 8785 manifest projection excluding this self-referential field."
+    },
     "manifest_id": {
+      "description": "Stable logical lineage ID. Content identity and immutability are established by manifest_digest, not by this caller-selected label.",
       "pattern": "^MANIFEST-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
       "type": "string"
     },
@@ -199,6 +204,7 @@
     "bundle",
     "canonical_json_profile",
     "created_at",
+    "manifest_digest",
     "manifest_id",
     "manifest_version",
     "members",
