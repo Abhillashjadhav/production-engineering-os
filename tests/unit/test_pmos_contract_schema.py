@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -61,7 +62,7 @@ class DuplicateKeyError(ValueError):
 
 
 class NonJsonNumericConstantError(ValueError):
-    """Raised when a parser encounters JavaScript-style NaN or infinity tokens."""
+    """Raised when a numeric token cannot enter the RFC 8785 admission path."""
 
 
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -77,11 +78,19 @@ def _reject_non_json_numeric_constant(value: str) -> NoReturn:
     raise NonJsonNumericConstantError(f"non-JSON numeric constant: {value}")
 
 
+def _parse_finite_float(value: str) -> float:
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        raise NonJsonNumericConstantError(f"non-finite numeric value: {value}")
+    return parsed
+
+
 def _load_json(path: Path) -> Any:
     return json.loads(
         path.read_text(),
         object_pairs_hook=_reject_duplicate_keys,
         parse_constant=_reject_non_json_numeric_constant,
+        parse_float=_parse_finite_float,
     )
 
 
@@ -183,18 +192,39 @@ def test_valid_canonical_manifest_passes() -> None:
             MANIFEST_SCHEMA,
             "'MEMBER-CANONICAL-BUNDLE' was expected",
         ),
-        ("invalid_manifest_device_path.json", MANIFEST_SCHEMA, "does not match"),
-        ("invalid_manifest_parent_path.json", MANIFEST_SCHEMA, "does not match"),
-        ("invalid_manifest_trailing_period_path.json", MANIFEST_SCHEMA, "does not match"),
-        ("invalid_manifest_unc_path.json", MANIFEST_SCHEMA, "does not match"),
-        ("invalid_manifest_windows_drive_path.json", MANIFEST_SCHEMA, "does not match"),
-        ("invalid_manifest_windows_traversal_path.json", MANIFEST_SCHEMA, "does not match"),
+        ("invalid_manifest_device_path.json", MANIFEST_SCHEMA, "Additional properties"),
+        ("invalid_manifest_parent_path.json", MANIFEST_SCHEMA, "Additional properties"),
+        (
+            "invalid_manifest_trailing_period_path.json",
+            MANIFEST_SCHEMA,
+            "Additional properties",
+        ),
+        ("invalid_manifest_unc_path.json", MANIFEST_SCHEMA, "Additional properties"),
+        (
+            "invalid_manifest_windows_drive_path.json",
+            MANIFEST_SCHEMA,
+            "Additional properties",
+        ),
+        (
+            "invalid_manifest_windows_traversal_path.json",
+            MANIFEST_SCHEMA,
+            "Additional properties",
+        ),
         ("duplicate_manifest_member_id.json", MANIFEST_SCHEMA, "does not match"),
         ("invalid_trailing_newline_bundle_id.json", BUNDLE_SCHEMA, "does not match"),
         ("invalid_trailing_newline_digest.json", BUNDLE_SCHEMA, "does not match"),
         ("invalid_trailing_newline_duration.json", BUNDLE_SCHEMA, "does not match"),
-        ("invalid_trailing_newline_manifest_path.json", MANIFEST_SCHEMA, "does not match"),
+        (
+            "invalid_trailing_newline_manifest_path.json",
+            MANIFEST_SCHEMA,
+            "Additional properties",
+        ),
         ("invalid_trailing_newline_uri.json", BUNDLE_SCHEMA, "does not match"),
+        (
+            "invalid_exponent_overflow.json",
+            BUNDLE_SCHEMA,
+            "non-finite numeric value: 1e999",
+        ),
         (
             "mismatched_manifest_binding.json",
             MANIFEST_SCHEMA,
@@ -240,6 +270,15 @@ def test_non_json_numeric_constants_fail_before_schema_validation() -> None:
     with pytest.raises(
         NonJsonNumericConstantError,
         match="non-JSON numeric constant: NaN",
+    ):
+        _fixture_instance(fixture)
+
+
+def test_numeric_exponent_overflow_fails_before_schema_validation() -> None:
+    fixture = FIXTURE_DIR / "invalid_exponent_overflow.json"
+    with pytest.raises(
+        NonJsonNumericConstantError,
+        match="non-finite numeric value: 1e999",
     ):
         _fixture_instance(fixture)
 
@@ -381,10 +420,12 @@ def test_manifest_binds_bundle_provenance_approvals_and_member_digests() -> None
     assert schema["properties"]["bundle"]["properties"]["member_id"] == {
         "const": "MEMBER-CANONICAL-BUNDLE"
     }
+    assert "path" not in schema["properties"]["bundle"]["properties"]
     members = schema["properties"]["members"]
     assert members["propertyNames"] == {"$ref": "#/$defs/member_id"}
     member_required = set(members["additionalProperties"]["required"])
     assert {"content_digest", "schema_id", "schema_version"} <= member_required
+    assert "path" not in members["additionalProperties"]["properties"]
 
 
 @pytest.mark.parametrize(
@@ -406,7 +447,7 @@ def test_manifest_binds_bundle_provenance_approvals_and_member_digests() -> None
         "member.json.",
     ],
 )
-def test_manifest_paths_reject_cross_platform_escape_forms(unsafe_path: str) -> None:
+def test_manifest_rejects_caller_controlled_paths(unsafe_path: str) -> None:
     manifest = copy.deepcopy(_load_json(VALID_MANIFEST))
     manifest["bundle"]["path"] = unsafe_path
     schema = _load_json(MANIFEST_SCHEMA)

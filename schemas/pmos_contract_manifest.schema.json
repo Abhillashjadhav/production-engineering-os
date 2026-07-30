@@ -1,5 +1,5 @@
 {
-  "$comment": "Before schema evaluation, issue #76 admission MUST reject duplicate object member names and non-JSON numeric constants, then canonicalize the parsed instance with RFC 8785 for digesting. JSON Schema evaluates parsed instances and cannot observe raw member tokens.",
+  "$comment": "Before schema evaluation, issue #76 admission MUST reject duplicate object member names, non-JSON numeric constants, and numeric tokens that overflow to non-finite IEEE-754 values, then canonicalize the parsed instance with RFC 8785 for digesting. Member bytes are addressed by content digest and stable member ID; caller-controlled extraction paths are intentionally absent, so duplicate and file/directory-prefix path identities cannot enter the manifest. JSON Schema evaluates parsed instances and cannot observe raw member tokens.",
   "$defs": {
     "date_time": {
       "description": "UTC RFC 3339 instant. Calendar validity is rechecked by the semantic validator.",
@@ -22,12 +22,6 @@
     },
     "non_empty_string": {
       "minLength": 1,
-      "type": "string"
-    },
-    "relative_path": {
-      "description": "Portable lowercase bundle-relative POSIX path. Absolute, drive-qualified, UNC, backslash, dot-segment, Windows device-name, and trailing-period alias forms are forbidden.",
-      "minLength": 1,
-      "pattern": "^(?:(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|/|(?![\\s\\S])))[a-z0-9](?:[a-z0-9._-]*[a-z0-9_-])?/)*(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|(?![\\s\\S])))[a-z0-9](?:[a-z0-9._-]*[a-z0-9_-])?(?![\\s\\S])",
       "type": "string"
     },
     "semver": {
@@ -66,9 +60,6 @@
         "member_id": {
           "const": "MEMBER-CANONICAL-BUNDLE"
         },
-        "path": {
-          "$ref": "#/$defs/relative_path"
-        },
         "schema_id": {
           "const": "https://github.com/Abhillashjadhav/production-engineering-os/schemas/pmos_contract_bundle.schema.json"
         },
@@ -85,7 +76,6 @@
         "content_digest",
         "media_type",
         "member_id",
-        "path",
         "schema_id",
         "schema_version"
       ],
@@ -122,9 +112,6 @@
           "media_type": {
             "$ref": "#/$defs/non_empty_string"
           },
-          "path": {
-            "$ref": "#/$defs/relative_path"
-          },
           "schema_id": {
             "$ref": "#/$defs/https_uri"
           },
@@ -136,13 +123,12 @@
           "content_digest",
           "kind",
           "media_type",
-          "path",
           "schema_id",
           "schema_version"
         ],
         "type": "object"
       },
-      "description": "Registry of non-bundle members keyed by stable member ID. It may be empty when the canonical bundle is the only member.",
+      "description": "Registry of content-addressed non-bundle members keyed by stable member ID. Caller-controlled storage or extraction paths are forbidden; issue #76 materialization must derive any local layout from the admitted ID/digest inventory. It may be empty when the canonical bundle is the only member.",
       "propertyNames": {
         "$ref": "#/$defs/member_id"
       },
