@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -250,8 +250,8 @@ def create_app() -> FastAPI:
 
     @app.post("/api/compare", response_model=CompareResponse, responses=validation_responses)
     async def compare(
-        baseline: UploadFile = File(...),
-        candidate: UploadFile = File(...),
+        baseline: Annotated[UploadFile, File()],
+        candidate: Annotated[UploadFile, File()],
         min_matched_traces: int | None = Form(default=None),
     ) -> CompareResponse:
         base_run, cand_run, base_digest, cand_digest = await _parse_pair(baseline, candidate)
@@ -279,8 +279,8 @@ def create_app() -> FastAPI:
         },
     )
     async def report(
-        baseline: UploadFile = File(...),
-        candidate: UploadFile = File(...),
+        baseline: Annotated[UploadFile, File()],
+        candidate: Annotated[UploadFile, File()],
         format: Literal["markdown", "json"] = Form(default="markdown"),
         min_matched_traces: int | None = Form(default=None),
     ) -> Response:

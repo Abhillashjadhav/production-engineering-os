@@ -62,11 +62,15 @@ def render_markdown(comparison: Comparison, *, generated_at: str | None = None) 
         "",
         "| | Baseline | Candidate | Net change |",
         "|---|---|---|---|",
-        f"| Pass rate | {_pct(c.baseline_pass_rate)} | {_pct(c.candidate_pass_rate)} "
-        f"| {_pct(c.net_change)} |",
+        (
+            f"| Pass rate | {_pct(c.baseline_pass_rate)} | {_pct(c.candidate_pass_rate)} "
+            f"| {_pct(c.net_change)} |"
+        ),
         "",
-        f"Matched traces: {c.matched_traces} · baseline-only: "
-        f"{len(c.baseline_only_traces)} · candidate-only: {len(c.candidate_only_traces)}",
+        (
+            f"Matched traces: {c.matched_traces} · baseline-only: "
+            f"{len(c.baseline_only_traces)} · candidate-only: {len(c.candidate_only_traces)}"
+        ),
         "",
         "## Criteria",
         "",
@@ -83,9 +87,11 @@ def render_markdown(comparison: Comparison, *, generated_at: str | None = None) 
         "",
         "## Guardrails",
         "",
-        "Policy: **baseline-authoritative** — the baseline governs each "
-        "`min_pass_rate` guardrail; a candidate may strengthen a threshold but "
-        "never weaken it.",
+        (
+            "Policy: **baseline-authoritative** — the baseline governs each "
+            "`min_pass_rate` guardrail; a candidate may strengthen a threshold but "
+            "never weaken it."
+        ),
         "",
         "| Criterion | Baseline | Candidate | Effective | Candidate effect |",
         "|---|---|---|---|---|",
