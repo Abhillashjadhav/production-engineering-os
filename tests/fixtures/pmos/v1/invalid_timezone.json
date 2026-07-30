@@ -1,0 +1,15 @@
+{
+  "$fixture_base": "valid_bundle.json",
+  "$mutations": [
+    {
+      "op": "replace",
+      "path": [
+        "metrics",
+        "north_star",
+        "evaluation_window",
+        "time_zone"
+      ],
+      "value": "somewhere nearby"
+    }
+  ]
+}

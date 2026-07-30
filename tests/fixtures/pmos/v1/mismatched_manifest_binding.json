@@ -4,10 +4,9 @@
     {
       "op": "replace",
       "path": [
-        "bundle",
-        "member_id"
+        "bundle_digest"
       ],
-      "value": "invalid member reference"
+      "value": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }
   ]
 }

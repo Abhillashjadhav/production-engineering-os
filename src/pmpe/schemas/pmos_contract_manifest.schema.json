@@ -1,53 +1,100 @@
 {
   "$defs": {
     "date_time": {
-      "format": "date-time",
-      "minLength": 1,
+      "description": "UTC RFC 3339 instant. Calendar validity is rechecked by the semantic validator.",
+      "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]+)?Z$",
       "type": "string"
     },
     "digest": {
       "pattern": "^sha256:[0-9a-f]{64}$",
       "type": "string"
     },
+    "https_uri": {
+      "description": "Absolute HTTPS schema identifier.",
+      "pattern": "^https://(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\\.)*[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:/[^\\s]*)?$",
+      "type": "string"
+    },
+    "member_id": {
+      "pattern": "^MEMBER-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+      "type": "string"
+    },
     "non_empty_string": {
       "minLength": 1,
+      "type": "string"
+    },
+    "relative_path": {
+      "description": "Bundle-relative path. Path traversal is forbidden.",
+      "minLength": 1,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
       "type": "string"
     },
     "semver": {
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
       "type": "string"
     },
-    "stable_id": {
-      "description": "Stable uppercase traceability identifier.",
-      "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$",
+    "source_id": {
+      "pattern": "^PMOS-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
       "type": "string"
     }
   },
   "$id": "https://github.com/Abhillashjadhav/production-engineering-os/schemas/pmos_contract_manifest.schema.json",
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "additionalProperties": false,
-  "description": "Content-addressed manifest for a canonical PMOS contract bundle. It binds the bundle subject, every member, source provenance, and approval evidence without embedding credentials or product data.",
+  "description": "Content-addressed manifest for a canonical PMOS contract bundle. The canonical bundle is a dedicated member, eliminating independently variable duplicate IDs, versions, digests, and source references.",
   "properties": {
     "approval_digest": {
       "$ref": "#/$defs/digest"
     },
-    "bundle_digest": {
-      "$ref": "#/$defs/digest"
-    },
-    "bundle_id": {
-      "$ref": "#/$defs/stable_id"
-    },
-    "bundle_member_ref": {
-      "$ref": "#/$defs/stable_id"
-    },
-    "bundle_version": {
-      "$ref": "#/$defs/semver"
+    "bundle": {
+      "additionalProperties": false,
+      "properties": {
+        "bundle_id": {
+          "pattern": "^BUNDLE-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+          "type": "string"
+        },
+        "bundle_version": {
+          "$ref": "#/$defs/semver"
+        },
+        "content_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "media_type": {
+          "const": "application/json"
+        },
+        "member_id": {
+          "$ref": "#/$defs/member_id"
+        },
+        "path": {
+          "$ref": "#/$defs/relative_path"
+        },
+        "schema_id": {
+          "const": "https://github.com/Abhillashjadhav/production-engineering-os/schemas/pmos_contract_bundle.schema.json"
+        },
+        "schema_version": {
+          "enum": [
+            "1.0.0"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "bundle_id",
+        "bundle_version",
+        "content_digest",
+        "media_type",
+        "member_id",
+        "path",
+        "schema_id",
+        "schema_version"
+      ],
+      "type": "object"
     },
     "created_at": {
       "$ref": "#/$defs/date_time"
     },
     "manifest_id": {
-      "$ref": "#/$defs/stable_id"
+      "pattern": "^MANIFEST-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+      "type": "string"
     },
     "manifest_version": {
       "$ref": "#/$defs/semver"
@@ -62,7 +109,6 @@
           "kind": {
             "enum": [
               "ATTACHMENT",
-              "CONTRACT_BUNDLE",
               "EXTENSION_SCHEMA"
             ],
             "type": "string"
@@ -71,20 +117,13 @@
             "$ref": "#/$defs/non_empty_string"
           },
           "path": {
-            "description": "Bundle-relative path. Path traversal and member-reference existence are enforced during compiler admission.",
-            "minLength": 1,
-            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
-            "type": "string"
+            "$ref": "#/$defs/relative_path"
           },
           "schema_id": {
-            "$ref": "#/$defs/non_empty_string",
-            "format": "uri"
+            "$ref": "#/$defs/https_uri"
           },
           "schema_version": {
             "$ref": "#/$defs/semver"
-          },
-          "source_ref": {
-            "$ref": "#/$defs/stable_id"
           }
         },
         "required": [
@@ -93,15 +132,13 @@
           "media_type",
           "path",
           "schema_id",
-          "schema_version",
-          "source_ref"
+          "schema_version"
         ],
         "type": "object"
       },
-      "description": "Registry keyed by stable bundle-member ID, which makes duplicate member IDs structurally impossible in canonical JSON.",
-      "minProperties": 1,
+      "description": "Registry of non-bundle members keyed by stable member ID. It may be empty when the canonical bundle is the only member.",
       "propertyNames": {
-        "$ref": "#/$defs/stable_id"
+        "$ref": "#/$defs/member_id"
       },
       "type": "object"
     },
@@ -136,7 +173,7 @@
           "$ref": "#/$defs/digest"
         },
         "source_id": {
-          "$ref": "#/$defs/stable_id"
+          "$ref": "#/$defs/source_id"
         },
         "source_system": {
           "const": "PM_AGENT_OS",
@@ -167,10 +204,7 @@
   },
   "required": [
     "approval_digest",
-    "bundle_digest",
-    "bundle_id",
-    "bundle_member_ref",
-    "bundle_version",
+    "bundle",
     "created_at",
     "manifest_id",
     "manifest_version",

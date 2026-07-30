@@ -1,0 +1,13 @@
+{
+  "$fixture_base": "valid_bundle.json",
+  "$mutations": [
+    {
+      "op": "remove",
+      "path": [
+        "metrics",
+        "north_star",
+        "target"
+      ]
+    }
+  ]
+}

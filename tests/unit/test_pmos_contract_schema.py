@@ -244,8 +244,25 @@ def test_valid_canonical_manifest_passes() -> None:
         ("duplicate_requirement_id.json", BUNDLE_SCHEMA, "duplicate object key: FR-001"),
         ("unknown_schema_version.json", BUNDLE_SCHEMA, "unsupported value '2.0.0'"),
         ("invalid_reference.json", BUNDLE_SCHEMA, "does not match"),
+        ("wrong_reference_type.json", BUNDLE_SCHEMA, "does not match"),
+        ("duplicate_namespace_collision.json", BUNDLE_SCHEMA, "does not match"),
         ("weakening_extension.json", BUNDLE_SCHEMA, "ADD_CONSTRAINTS_ONLY"),
+        ("weakening_extension_payload.json", BUNDLE_SCHEMA, "unexpected field"),
+        ("invalid_timestamp.json", BUNDLE_SCHEMA, "does not match"),
+        ("invalid_uri.json", BUNDLE_SCHEMA, "does not match"),
+        ("invalid_timezone.json", BUNDLE_SCHEMA, "does not match"),
+        ("invalid_duration.json", BUNDLE_SCHEMA, "does not match"),
         ("invalid_manifest_reference.json", MANIFEST_SCHEMA, "does not match"),
+        (
+            "mismatched_manifest_binding.json",
+            MANIFEST_SCHEMA,
+            "unexpected field 'bundle_digest'",
+        ),
+        ("missing_metric_target.json", BUNDLE_SCHEMA, "missing required field 'target'"),
+        ("missing_privacy_telemetry.json", BUNDLE_SCHEMA, "missing required field 'telemetry'"),
+        ("missing_release_intent.json", BUNDLE_SCHEMA, "missing required field 'launch_intent'"),
+        ("missing_rollback_rto.json", BUNDLE_SCHEMA, "missing required field 'rto'"),
+        ("missing_approval_expiry.json", BUNDLE_SCHEMA, "missing required field 'expires_at'"),
     ],
 )
 def test_invalid_fixtures_fail_closed(
@@ -304,6 +321,7 @@ def test_north_star_policy_and_windows_are_required_without_defaults() -> None:
         "delivery_window",
         "observation_window",
         "reporting_window",
+        "target",
     } <= required
     assert "default" not in json.dumps(north_star)
 
@@ -316,6 +334,19 @@ def test_extensions_can_only_add_constraints() -> None:
         "const": "ADD_CONSTRAINTS_ONLY",
         "description": "Extensions may add constraints but can never weaken or replace core truth.",
     }
+    payload = extension["properties"]["payload"]
+    assert payload["additionalProperties"] is False
+    operators = payload["properties"]["constraints"]["additionalProperties"]["properties"][
+        "operator"
+    ]["enum"]
+    assert set(operators) == {
+        "FORBID_VALUE",
+        "LIMIT_ALLOWED_VALUES",
+        "MATCH_PATTERN",
+        "REQUIRE_PRESENT",
+        "SET_MAXIMUM",
+        "SET_MINIMUM",
+    }
 
 
 def test_manifest_binds_bundle_provenance_approvals_and_member_digests() -> None:
@@ -323,16 +354,57 @@ def test_manifest_binds_bundle_provenance_approvals_and_member_digests() -> None
     required = set(schema["required"])
     assert {
         "approval_digest",
-        "bundle_digest",
-        "bundle_id",
-        "bundle_member_ref",
-        "bundle_version",
+        "bundle",
         "members",
         "provenance",
         "schema_id",
         "schema_version",
     } <= required
+    bundle_required = set(schema["properties"]["bundle"]["required"])
+    assert {
+        "bundle_id",
+        "bundle_version",
+        "content_digest",
+        "member_id",
+        "schema_id",
+        "schema_version",
+    } <= bundle_required
     members = schema["properties"]["members"]
-    assert members["propertyNames"] == {"$ref": "#/$defs/stable_id"}
+    assert members["propertyNames"] == {"$ref": "#/$defs/member_id"}
     member_required = set(members["additionalProperties"]["required"])
     assert {"content_digest", "schema_id", "schema_version"} <= member_required
+
+
+def test_product_owned_targets_privacy_release_rollback_and_approvals_are_typed() -> None:
+    schema = _load_json(BUNDLE_SCHEMA)
+    properties = schema["properties"]
+
+    assert {"operator", "status", "unit", "value"} <= set(
+        properties["metrics"]["properties"]["north_star"]["properties"]["target"]["required"]
+    )
+    assert {"data_residency", "deletion", "retention", "telemetry"} <= set(
+        properties["privacy"]["required"]
+    )
+    assert {"eligible_audiences", "guardrail_refs", "launch_intent"} <= set(
+        properties["release"]["required"]
+    )
+    assert {"customer_communication_intent", "data_loss_tolerance", "rpo", "rto"} <= set(
+        properties["rollback"]["required"]
+    )
+    approval_required = set(properties["approvals"]["additionalProperties"]["required"])
+    assert {
+        "approval_version",
+        "authority_policy_ref",
+        "authority_policy_version",
+        "expires_at",
+        "status",
+        "subject",
+        "supersedes_approval_refs",
+        "valid_from",
+    } <= approval_required
+
+
+def test_portable_patterns_replace_non_asserting_format_annotations() -> None:
+    for schema_path in (BUNDLE_SCHEMA, MANIFEST_SCHEMA):
+        schema = _load_json(schema_path)
+        assert "format" not in _schema_keywords(schema)

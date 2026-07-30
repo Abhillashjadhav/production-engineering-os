@@ -1,21 +1,75 @@
 {
   "$defs": {
+    "acceptance_criterion_id": {
+      "pattern": "^AC-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+      "type": "string"
+    },
+    "acceptance_reference_list": {
+      "items": {
+        "$ref": "#/$defs/acceptance_criterion_id"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "actor_id": {
+      "pattern": "^(?:ACTOR|OWNER)-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+      "type": "string"
+    },
+    "approval_id": {
+      "pattern": "^APR-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+      "type": "string"
+    },
+    "approval_reference_list": {
+      "items": {
+        "$ref": "#/$defs/approval_id"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "authority_policy_id": {
+      "pattern": "^AUTH-POLICY-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+      "type": "string"
+    },
+    "bundle_id": {
+      "pattern": "^BUNDLE-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+      "type": "string"
+    },
     "date_time": {
-      "format": "date-time",
-      "minLength": 1,
+      "description": "UTC RFC 3339 instant. Calendar validity is rechecked by the semantic validator.",
+      "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]+)?Z$",
       "type": "string"
     },
     "digest": {
       "pattern": "^sha256:[0-9a-f]{64}$",
       "type": "string"
     },
+    "duration": {
+      "description": "ISO-8601 duration containing at least one numeric component.",
+      "pattern": "^P(?=.*[0-9])(?:[0-9]+Y)?(?:[0-9]+M)?(?:[0-9]+W)?(?:[0-9]+D)?(?:T(?:[0-9]+H)?(?:[0-9]+M)?(?:[0-9]+(?:\\.[0-9]+)?S)?)?$",
+      "type": "string"
+    },
+    "https_uri": {
+      "description": "Absolute HTTPS schema identifier.",
+      "pattern": "^https://(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\\.)*[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:/[^\\s]*)?$",
+      "type": "string"
+    },
+    "metric_policy_id": {
+      "pattern": "^POLICY-METRIC-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+      "type": "string"
+    },
     "non_empty_string": {
       "minLength": 1,
       "type": "string"
     },
-    "reference_list": {
+    "requirement_id": {
+      "pattern": "^(?:FR|NFR)-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+      "type": "string"
+    },
+    "requirement_reference_list": {
       "items": {
-        "$ref": "#/$defs/stable_id"
+        "$ref": "#/$defs/requirement_id"
       },
       "minItems": 1,
       "type": "array",
@@ -25,9 +79,13 @@
       "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
       "type": "string"
     },
+    "source_id": {
+      "pattern": "^PMOS-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+      "type": "string"
+    },
     "stable_id": {
-      "description": "Stable uppercase traceability identifier. Registry keys are the canonical IDs; cross-registry existence is validated by the semantic validator.",
-      "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$",
+      "description": "Globally namespaced stable traceability identifier. Each registry applies a narrower type-specific prefix.",
+      "pattern": "^(?:AC|A11Y|APR|ASM|AUTH-POLICY|BUNDLE|CONSTRAINT|DATA|EDGE|EXT|FR|GUARD|INT|MEMBER|METRIC|NFR|OBS|OWNER|PMOS|POLICY|PRIV|QA|QUESTION|REL|RISK|ROLLBACK|SEC|UX-FLOW)-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
       "type": "string"
     },
     "string_list": {
@@ -38,6 +96,19 @@
       "type": "array",
       "uniqueItems": true
     },
+    "subject_reference_list": {
+      "items": {
+        "$ref": "#/$defs/stable_id"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "time_zone": {
+      "description": "UTC or an IANA-style region/location identifier.",
+      "pattern": "^(?:UTC|[A-Za-z_]+/[A-Za-z0-9_+\\-]+)$",
+      "type": "string"
+    },
     "window": {
       "additionalProperties": false,
       "description": "Product-owned window rule. It defines how a later controller assigns due times; the schema supplies no default.",
@@ -46,12 +117,10 @@
           "$ref": "#/$defs/non_empty_string"
         },
         "duration": {
-          "description": "ISO-8601 duration selected by the product owner.",
-          "pattern": "^P(?!$).+$",
-          "type": "string"
+          "$ref": "#/$defs/duration"
         },
         "time_zone": {
-          "$ref": "#/$defs/non_empty_string"
+          "$ref": "#/$defs/time_zone"
         }
       },
       "required": [
@@ -75,7 +144,7 @@
             "$ref": "#/$defs/non_empty_string"
           },
           "requirement_refs": {
-            "$ref": "#/$defs/reference_list"
+            "$ref": "#/$defs/requirement_reference_list"
           },
           "verification_method": {
             "$ref": "#/$defs/non_empty_string"
@@ -91,7 +160,7 @@
       "description": "Registry keyed by stable acceptance-criterion ID.",
       "minProperties": 1,
       "propertyNames": {
-        "$ref": "#/$defs/stable_id"
+        "$ref": "#/$defs/acceptance_criterion_id"
       },
       "type": "object"
     },
@@ -100,10 +169,19 @@
         "additionalProperties": false,
         "properties": {
           "actor_id": {
-            "$ref": "#/$defs/stable_id"
+            "$ref": "#/$defs/actor_id"
+          },
+          "approval_version": {
+            "$ref": "#/$defs/semver"
           },
           "approved_at": {
             "$ref": "#/$defs/date_time"
+          },
+          "authority_policy_ref": {
+            "$ref": "#/$defs/authority_policy_id"
+          },
+          "authority_policy_version": {
+            "$ref": "#/$defs/semver"
           },
           "decision": {
             "enum": [
@@ -112,26 +190,86 @@
             ],
             "type": "string"
           },
+          "expires_at": {
+            "$ref": "#/$defs/date_time"
+          },
+          "revocation_reason": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "revoked_at": {
+            "$ref": "#/$defs/date_time"
+          },
           "role": {
             "$ref": "#/$defs/non_empty_string"
           },
-          "subject_refs": {
-            "$ref": "#/$defs/reference_list"
+          "status": {
+            "enum": [
+              "ACTIVE",
+              "REVOKED",
+              "SUPERSEDED"
+            ],
+            "type": "string"
+          },
+          "subject": {
+            "additionalProperties": false,
+            "description": "Exact immutable approval subject. Bundle approvals bind a projection that excludes approvals to avoid a self-referential digest.",
+            "properties": {
+              "digest": {
+                "$ref": "#/$defs/digest"
+              },
+              "digest_scope": {
+                "enum": [
+                  "CANONICAL_BUNDLE_EXCLUDING_APPROVALS",
+                  "NAMED_POLICY"
+                ],
+                "type": "string"
+              },
+              "id": {
+                "$ref": "#/$defs/stable_id"
+              },
+              "version": {
+                "$ref": "#/$defs/semver"
+              }
+            },
+            "required": [
+              "digest",
+              "digest_scope",
+              "id",
+              "version"
+            ],
+            "type": "object"
+          },
+          "supersedes_approval_refs": {
+            "items": {
+              "$ref": "#/$defs/approval_id"
+            },
+            "type": "array",
+            "uniqueItems": true
+          },
+          "valid_from": {
+            "$ref": "#/$defs/date_time"
           }
         },
         "required": [
           "actor_id",
+          "approval_version",
           "approved_at",
+          "authority_policy_ref",
+          "authority_policy_version",
           "decision",
+          "expires_at",
           "role",
-          "subject_refs"
+          "status",
+          "subject",
+          "supersedes_approval_refs",
+          "valid_from"
         ],
         "type": "object"
       },
       "description": "Registry keyed by stable approval ID. Approval authority and freshness are semantic policy, not inferred by this schema.",
       "minProperties": 1,
       "propertyNames": {
-        "$ref": "#/$defs/stable_id"
+        "$ref": "#/$defs/approval_id"
       },
       "type": "object"
     },
@@ -154,12 +292,13 @@
       },
       "description": "Registry keyed by stable assumption ID. An empty object explicitly means PMOS approved no assumptions.",
       "propertyNames": {
-        "$ref": "#/$defs/stable_id"
+        "pattern": "^ASM-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+        "type": "string"
       },
       "type": "object"
     },
     "bundle_id": {
-      "$ref": "#/$defs/stable_id"
+      "$ref": "#/$defs/bundle_id"
     },
     "bundle_version": {
       "$ref": "#/$defs/semver"
@@ -209,7 +348,8 @@
           },
           "minProperties": 1,
           "propertyNames": {
-            "$ref": "#/$defs/stable_id"
+            "pattern": "^DATA-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+            "type": "string"
           },
           "type": "object"
         }
@@ -228,22 +368,68 @@
             "description": "Extensions may add constraints but can never weaken or replace core truth."
           },
           "payload": {
-            "additionalProperties": true,
-            "description": "Repository-specific data interpreted only through the named extension schema.",
+            "additionalProperties": false,
+            "description": "Bounded conjunctive constraint vocabulary. It can only require, forbid, limit, or further constrain values; override and removal operations are not representable.",
+            "properties": {
+              "constraints": {
+                "additionalProperties": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "constraint_value": {
+                      "$ref": "#/$defs/non_empty_string"
+                    },
+                    "operator": {
+                      "enum": [
+                        "FORBID_VALUE",
+                        "LIMIT_ALLOWED_VALUES",
+                        "MATCH_PATTERN",
+                        "REQUIRE_PRESENT",
+                        "SET_MAXIMUM",
+                        "SET_MINIMUM"
+                      ],
+                      "type": "string"
+                    },
+                    "rationale": {
+                      "$ref": "#/$defs/non_empty_string"
+                    },
+                    "target_pointer": {
+                      "description": "JSON Pointer into the canonical core.",
+                      "pattern": "^/(?:[^~/]|~0|~1)+(?:/(?:[^~/]|~0|~1)+)*$",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "constraint_value",
+                    "operator",
+                    "rationale",
+                    "target_pointer"
+                  ],
+                  "type": "object"
+                },
+                "minProperties": 1,
+                "propertyNames": {
+                  "pattern": "^EXT-CONSTRAINT-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+                  "type": "string"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "constraints"
+            ],
             "type": "object"
           },
           "payload_digest": {
             "$ref": "#/$defs/digest"
           },
           "schema_id": {
-            "$ref": "#/$defs/non_empty_string",
-            "format": "uri"
+            "$ref": "#/$defs/https_uri"
           },
           "schema_version": {
             "$ref": "#/$defs/semver"
           },
           "target_refs": {
-            "$ref": "#/$defs/reference_list"
+            "$ref": "#/$defs/subject_reference_list"
           }
         },
         "required": [
@@ -258,7 +444,8 @@
       },
       "description": "Typed repository-specific extension registry. Unknown extension schemas fail during compiler admission in issue #76.",
       "propertyNames": {
-        "$ref": "#/$defs/stable_id"
+        "pattern": "^EXT-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+        "type": "string"
       },
       "type": "object"
     },
@@ -267,7 +454,7 @@
         "additionalProperties": false,
         "properties": {
           "acceptance_criterion_refs": {
-            "$ref": "#/$defs/reference_list"
+            "$ref": "#/$defs/acceptance_reference_list"
           },
           "priority": {
             "enum": [
@@ -295,7 +482,8 @@
       "description": "Registry keyed by stable functional-requirement ID.",
       "minProperties": 1,
       "propertyNames": {
-        "$ref": "#/$defs/stable_id"
+        "pattern": "^FR-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+        "type": "string"
       },
       "type": "object"
     },
@@ -336,7 +524,8 @@
       "description": "Registry keyed by stable guardrail ID.",
       "minProperties": 1,
       "propertyNames": {
-        "$ref": "#/$defs/stable_id"
+        "pattern": "^GUARD-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+        "type": "string"
       },
       "type": "object"
     },
@@ -372,7 +561,8 @@
       },
       "description": "Registry keyed by stable integration ID. Credentials are never embedded.",
       "propertyNames": {
-        "$ref": "#/$defs/stable_id"
+        "pattern": "^INT-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+        "type": "string"
       },
       "type": "object"
     },
@@ -395,7 +585,7 @@
                 "type": "string"
               },
               "maturity_policy_ref": {
-                "$ref": "#/$defs/stable_id"
+                "$ref": "#/$defs/metric_policy_id"
               },
               "name": {
                 "$ref": "#/$defs/non_empty_string"
@@ -411,7 +601,8 @@
           },
           "minProperties": 1,
           "propertyNames": {
-            "$ref": "#/$defs/stable_id"
+            "pattern": "^METRIC-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+            "type": "string"
           },
           "type": "object"
         },
@@ -434,13 +625,13 @@
                 "uniqueItems": true
               },
               "approval_ref": {
-                "$ref": "#/$defs/stable_id"
+                "$ref": "#/$defs/approval_id"
               },
               "name": {
                 "$ref": "#/$defs/non_empty_string"
               },
               "owner_ref": {
-                "$ref": "#/$defs/stable_id"
+                "$ref": "#/$defs/actor_id"
               },
               "policy_version": {
                 "$ref": "#/$defs/semver"
@@ -458,7 +649,7 @@
           "description": "Named, versioned, owner-approved metric maturity policies.",
           "minProperties": 1,
           "propertyNames": {
-            "$ref": "#/$defs/stable_id"
+            "$ref": "#/$defs/metric_policy_id"
           },
           "type": "object"
         },
@@ -483,10 +674,11 @@
               "$ref": "#/$defs/window"
             },
             "maturity_policy_ref": {
-              "$ref": "#/$defs/stable_id"
+              "$ref": "#/$defs/metric_policy_id"
             },
             "metric_id": {
-              "$ref": "#/$defs/stable_id"
+              "pattern": "^METRIC-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+              "type": "string"
             },
             "name": {
               "$ref": "#/$defs/non_empty_string"
@@ -496,6 +688,44 @@
             },
             "reporting_window": {
               "$ref": "#/$defs/window"
+            },
+            "target": {
+              "additionalProperties": false,
+              "properties": {
+                "approval_ref": {
+                  "$ref": "#/$defs/approval_id"
+                },
+                "operator": {
+                  "enum": [
+                    "AT_LEAST",
+                    "AT_MOST",
+                    "EXACT"
+                  ],
+                  "type": "string"
+                },
+                "status": {
+                  "enum": [
+                    "APPROVED",
+                    "BASELINE_REQUIRED",
+                    "RETIRED"
+                  ],
+                  "type": "string"
+                },
+                "unit": {
+                  "$ref": "#/$defs/non_empty_string"
+                },
+                "value": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "approval_ref",
+                "operator",
+                "status",
+                "unit",
+                "value"
+              ],
+              "type": "object"
             }
           },
           "required": [
@@ -507,7 +737,8 @@
             "metric_id",
             "name",
             "observation_window",
-            "reporting_window"
+            "reporting_window",
+            "target"
           ],
           "type": "object"
         }
@@ -558,7 +789,8 @@
       "description": "Registry keyed by stable non-functional-requirement ID.",
       "minProperties": 1,
       "propertyNames": {
-        "$ref": "#/$defs/stable_id"
+        "pattern": "^NFR-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+        "type": "string"
       },
       "type": "object"
     },
@@ -588,7 +820,8 @@
           },
           "minProperties": 1,
           "propertyNames": {
-            "$ref": "#/$defs/stable_id"
+            "pattern": "^OBS-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+            "type": "string"
           },
           "type": "object"
         }
@@ -606,7 +839,7 @@
             "type": "boolean"
           },
           "owner_ref": {
-            "$ref": "#/$defs/stable_id"
+            "$ref": "#/$defs/actor_id"
           },
           "question": {
             "$ref": "#/$defs/non_empty_string"
@@ -624,7 +857,8 @@
       },
       "description": "Registry keyed by stable question ID. Blocking/resolution consistency is semantic policy in issue #63.",
       "propertyNames": {
-        "$ref": "#/$defs/stable_id"
+        "pattern": "^QUESTION-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+        "type": "string"
       },
       "type": "object"
     },
@@ -633,6 +867,42 @@
       "properties": {
         "contract_data_policy": {
           "const": "CLASSIFICATION_AND_PURPOSE_ONLY_NO_PERSONAL_RECORDS"
+        },
+        "data_residency": {
+          "additionalProperties": false,
+          "properties": {
+            "allowed_regions": {
+              "$ref": "#/$defs/string_list"
+            },
+            "cross_border_transfer_policy": {
+              "$ref": "#/$defs/non_empty_string"
+            }
+          },
+          "required": [
+            "allowed_regions",
+            "cross_border_transfer_policy"
+          ],
+          "type": "object"
+        },
+        "deletion": {
+          "additionalProperties": false,
+          "properties": {
+            "deadline": {
+              "$ref": "#/$defs/duration"
+            },
+            "trigger": {
+              "$ref": "#/$defs/non_empty_string"
+            },
+            "verification": {
+              "$ref": "#/$defs/non_empty_string"
+            }
+          },
+          "required": [
+            "deadline",
+            "trigger",
+            "verification"
+          ],
+          "type": "object"
         },
         "requirements": {
           "additionalProperties": {
@@ -657,14 +927,63 @@
           },
           "minProperties": 1,
           "propertyNames": {
-            "$ref": "#/$defs/stable_id"
+            "pattern": "^PRIV-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+            "type": "string"
           },
+          "type": "object"
+        },
+        "retention": {
+          "additionalProperties": false,
+          "properties": {
+            "duration": {
+              "$ref": "#/$defs/duration"
+            },
+            "owner_ref": {
+              "$ref": "#/$defs/actor_id"
+            },
+            "policy": {
+              "$ref": "#/$defs/non_empty_string"
+            }
+          },
+          "required": [
+            "duration",
+            "owner_ref",
+            "policy"
+          ],
+          "type": "object"
+        },
+        "telemetry": {
+          "additionalProperties": false,
+          "properties": {
+            "allowed_fields": {
+              "$ref": "#/$defs/string_list"
+            },
+            "prohibited_fields": {
+              "$ref": "#/$defs/string_list"
+            },
+            "purpose": {
+              "$ref": "#/$defs/non_empty_string"
+            },
+            "retention_duration": {
+              "$ref": "#/$defs/duration"
+            }
+          },
+          "required": [
+            "allowed_fields",
+            "prohibited_fields",
+            "purpose",
+            "retention_duration"
+          ],
           "type": "object"
         }
       },
       "required": [
         "contract_data_policy",
-        "requirements"
+        "data_residency",
+        "deletion",
+        "requirements",
+        "retention",
+        "telemetry"
       ],
       "type": "object"
     },
@@ -762,7 +1081,7 @@
           "$ref": "#/$defs/digest"
         },
         "source_id": {
-          "$ref": "#/$defs/stable_id"
+          "$ref": "#/$defs/source_id"
         },
         "source_system": {
           "const": "PM_AGENT_OS",
@@ -800,7 +1119,7 @@
                 "$ref": "#/$defs/non_empty_string"
               },
               "requirement_refs": {
-                "$ref": "#/$defs/reference_list"
+                "$ref": "#/$defs/requirement_reference_list"
               }
             },
             "required": [
@@ -812,7 +1131,8 @@
           },
           "minProperties": 1,
           "propertyNames": {
-            "$ref": "#/$defs/stable_id"
+            "pattern": "^QA-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+            "type": "string"
           },
           "type": "object"
         }
@@ -826,7 +1146,10 @@
       "additionalProperties": false,
       "properties": {
         "approval_refs": {
-          "$ref": "#/$defs/reference_list"
+          "$ref": "#/$defs/approval_reference_list"
+        },
+        "eligible_audiences": {
+          "$ref": "#/$defs/string_list"
         },
         "expectations": {
           "additionalProperties": {
@@ -853,9 +1176,28 @@
           },
           "minProperties": 1,
           "propertyNames": {
-            "$ref": "#/$defs/stable_id"
+            "pattern": "^REL-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+            "type": "string"
           },
           "type": "object"
+        },
+        "guardrail_refs": {
+          "items": {
+            "pattern": "^GUARD-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "launch_intent": {
+          "enum": [
+            "DO_NOT_LAUNCH",
+            "GENERAL_AVAILABILITY",
+            "INTERNAL_PREVIEW",
+            "LIMITED_AVAILABILITY"
+          ],
+          "type": "string"
         },
         "requested_autonomy_stage": {
           "enum": [
@@ -869,7 +1211,10 @@
       },
       "required": [
         "approval_refs",
+        "eligible_audiences",
         "expectations",
+        "guardrail_refs",
+        "launch_intent",
         "requested_autonomy_stage"
       ],
       "type": "object"
@@ -903,13 +1248,26 @@
       },
       "description": "Registry keyed by stable risk ID.",
       "propertyNames": {
-        "$ref": "#/$defs/stable_id"
+        "pattern": "^RISK-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+        "type": "string"
       },
       "type": "object"
     },
     "rollback": {
       "additionalProperties": false,
       "properties": {
+        "customer_communication_intent": {
+          "enum": [
+            "BOTH",
+            "DIRECT_NOTIFICATION",
+            "NONE",
+            "STATUS_PAGE"
+          ],
+          "type": "string"
+        },
+        "data_loss_tolerance": {
+          "$ref": "#/$defs/non_empty_string"
+        },
         "requirements": {
           "additionalProperties": {
             "additionalProperties": false,
@@ -933,13 +1291,24 @@
           },
           "minProperties": 1,
           "propertyNames": {
-            "$ref": "#/$defs/stable_id"
+            "pattern": "^ROLLBACK-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+            "type": "string"
           },
           "type": "object"
+        },
+        "rpo": {
+          "$ref": "#/$defs/duration"
+        },
+        "rto": {
+          "$ref": "#/$defs/duration"
         }
       },
       "required": [
-        "requirements"
+        "customer_communication_intent",
+        "data_loss_tolerance",
+        "requirements",
+        "rpo",
+        "rto"
       ],
       "type": "object"
     },
@@ -994,7 +1363,8 @@
           },
           "minProperties": 1,
           "propertyNames": {
-            "$ref": "#/$defs/stable_id"
+            "pattern": "^SEC-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+            "type": "string"
           },
           "type": "object"
         },
@@ -1027,7 +1397,8 @@
       },
       "description": "Registry keyed by stable technical-constraint ID.",
       "propertyNames": {
-        "$ref": "#/$defs/stable_id"
+        "pattern": "^CONSTRAINT-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+        "type": "string"
       },
       "type": "object"
     },
@@ -1061,7 +1432,8 @@
           },
           "minProperties": 1,
           "propertyNames": {
-            "$ref": "#/$defs/stable_id"
+            "pattern": "^A11Y-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+            "type": "string"
           },
           "type": "object"
         },
@@ -1076,7 +1448,7 @@
                 "$ref": "#/$defs/non_empty_string"
               },
               "requirement_refs": {
-                "$ref": "#/$defs/reference_list"
+                "$ref": "#/$defs/requirement_reference_list"
               }
             },
             "required": [
@@ -1088,7 +1460,8 @@
           },
           "minProperties": 1,
           "propertyNames": {
-            "$ref": "#/$defs/stable_id"
+            "pattern": "^EDGE-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+            "type": "string"
           },
           "type": "object"
         },
@@ -1137,7 +1510,8 @@
           },
           "minProperties": 1,
           "propertyNames": {
-            "$ref": "#/$defs/stable_id"
+            "pattern": "^UX-FLOW-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+            "type": "string"
           },
           "type": "object"
         }
