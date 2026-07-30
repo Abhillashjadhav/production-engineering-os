@@ -3,21 +3,21 @@
   "$defs": {
     "date_time": {
       "description": "UTC RFC 3339 instant. Calendar validity is rechecked by the semantic validator.",
-      "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]+)?Z$",
+      "pattern": "^[0-9]{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12][0-9]|3[01])T(?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\\.[0-9]+)?Z(?![\\s\\S])",
       "type": "string"
     },
     "digest": {
-      "pattern": "^sha256:[0-9a-f]{64}$",
+      "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])",
       "type": "string"
     },
     "https_uri": {
       "description": "Absolute HTTPS schema identifier without credentials, query, fragment, or non-standard port; percent escapes must be valid.",
-      "pattern": "^https://(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:/(?:[A-Za-z0-9._~!$&'()*+,;=:@-]|%[0-9A-Fa-f]{2})*)*$",
+      "pattern": "^https://(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:/(?:[A-Za-z0-9._~!$&'()*+,;=:@-]|%[0-9A-Fa-f]{2})*)*(?![\\s\\S])",
       "type": "string"
     },
     "member_id": {
       "description": "Non-bundle member ID. The reserved canonical bundle member ID cannot reappear in this registry.",
-      "pattern": "^(?!MEMBER-CANONICAL-BUNDLE$)MEMBER-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+      "pattern": "^(?!MEMBER-CANONICAL-BUNDLE(?![\\s\\S]))MEMBER-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
       "type": "string"
     },
     "non_empty_string": {
@@ -25,17 +25,17 @@
       "type": "string"
     },
     "relative_path": {
-      "description": "Portable bundle-relative POSIX path. Absolute, drive-qualified, UNC, backslash, dot-segment, and traversal forms are forbidden.",
+      "description": "Portable lowercase bundle-relative POSIX path. Absolute, drive-qualified, UNC, backslash, dot-segment, Windows device-name, and trailing-period alias forms are forbidden.",
       "minLength": 1,
-      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+$",
+      "pattern": "^(?:(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|/|(?![\\s\\S])))[a-z0-9](?:[a-z0-9._-]*[a-z0-9_-])?/)*(?!(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\\.|(?![\\s\\S])))[a-z0-9](?:[a-z0-9._-]*[a-z0-9_-])?(?![\\s\\S])",
       "type": "string"
     },
     "semver": {
-      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)(?![\\s\\S])",
       "type": "string"
     },
     "source_id": {
-      "pattern": "^PMOS-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+      "pattern": "^PMOS-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
       "type": "string"
     }
   },
@@ -51,7 +51,7 @@
       "additionalProperties": false,
       "properties": {
         "bundle_id": {
-          "pattern": "^BUNDLE-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+          "pattern": "^BUNDLE-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
           "type": "string"
         },
         "bundle_version": {
@@ -99,7 +99,7 @@
       "$ref": "#/$defs/date_time"
     },
     "manifest_id": {
-      "pattern": "^MANIFEST-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+      "pattern": "^MANIFEST-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
       "type": "string"
     },
     "manifest_version": {

@@ -177,7 +177,7 @@
         "evaluation_window": {
           "anchor_event": "CONTRACT_APPROVED",
           "duration": "P7D",
-          "time_zone": "UTC"
+          "time_zone": "America/Argentina/Buenos_Aires"
         },
         "metric_ref": "METRIC-NSM-EADPR",
         "name": "Evidence-backed autonomous draft PR maturity",

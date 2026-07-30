@@ -170,11 +170,18 @@ def test_valid_canonical_manifest_passes() -> None:
             MANIFEST_SCHEMA,
             "'MEMBER-CANONICAL-BUNDLE' was expected",
         ),
+        ("invalid_manifest_device_path.json", MANIFEST_SCHEMA, "does not match"),
         ("invalid_manifest_parent_path.json", MANIFEST_SCHEMA, "does not match"),
+        ("invalid_manifest_trailing_period_path.json", MANIFEST_SCHEMA, "does not match"),
         ("invalid_manifest_unc_path.json", MANIFEST_SCHEMA, "does not match"),
         ("invalid_manifest_windows_drive_path.json", MANIFEST_SCHEMA, "does not match"),
         ("invalid_manifest_windows_traversal_path.json", MANIFEST_SCHEMA, "does not match"),
         ("duplicate_manifest_member_id.json", MANIFEST_SCHEMA, "does not match"),
+        ("invalid_trailing_newline_bundle_id.json", BUNDLE_SCHEMA, "does not match"),
+        ("invalid_trailing_newline_digest.json", BUNDLE_SCHEMA, "does not match"),
+        ("invalid_trailing_newline_duration.json", BUNDLE_SCHEMA, "does not match"),
+        ("invalid_trailing_newline_manifest_path.json", MANIFEST_SCHEMA, "does not match"),
+        ("invalid_trailing_newline_uri.json", BUNDLE_SCHEMA, "does not match"),
         (
             "mismatched_manifest_binding.json",
             MANIFEST_SCHEMA,
@@ -362,6 +369,12 @@ def test_manifest_binds_bundle_provenance_approvals_and_member_digests() -> None
         "..\\secret.json",
         "\\\\server\\share\\secret.json",
         "/absolute/secret.json",
+        "CON",
+        "nul.json",
+        "dir/PRN.txt",
+        "dir/prn.txt",
+        "dir./member.json",
+        "member.json.",
     ],
 )
 def test_manifest_paths_reject_cross_platform_escape_forms(unsafe_path: str) -> None:
@@ -369,6 +382,36 @@ def test_manifest_paths_reject_cross_platform_escape_forms(unsafe_path: str) -> 
     manifest["bundle"]["path"] = unsafe_path
     schema = _load_json(MANIFEST_SCHEMA)
     assert list(Draft202012Validator(schema).iter_errors(manifest))
+
+
+def _schema_patterns(node: Any) -> list[str]:
+    patterns: list[str] = []
+    if isinstance(node, dict):
+        pattern = node.get("pattern")
+        if isinstance(pattern, str):
+            patterns.append(pattern)
+        for value in node.values():
+            patterns.extend(_schema_patterns(value))
+    elif isinstance(node, list):
+        for value in node:
+            patterns.extend(_schema_patterns(value))
+    return patterns
+
+
+@pytest.mark.parametrize("schema_path", [BUNDLE_SCHEMA, MANIFEST_SCHEMA])
+def test_every_exact_pattern_requires_true_end_of_string(schema_path: Path) -> None:
+    schema = _load_json(schema_path)
+    patterns = _schema_patterns(schema)
+    assert patterns
+    assert all(pattern.endswith(r"(?![\s\S])") for pattern in patterns)
+
+
+def test_multi_level_iana_time_zone_is_representable() -> None:
+    bundle = _load_json(VALID_BUNDLE)
+    policy = bundle["metrics"]["maturity_policies"]["POLICY-METRIC-EADPR"]
+    assert policy["evaluation_window"]["time_zone"] == "America/Argentina/Buenos_Aires"
+    schema = _load_json(BUNDLE_SCHEMA)
+    assert list(Draft202012Validator(schema).iter_errors(bundle)) == []
 
 
 def test_product_owned_targets_privacy_release_rollback_and_approvals_are_typed() -> None:
