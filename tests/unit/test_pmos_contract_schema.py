@@ -170,6 +170,10 @@ def test_valid_canonical_manifest_passes() -> None:
             MANIFEST_SCHEMA,
             "'MEMBER-CANONICAL-BUNDLE' was expected",
         ),
+        ("invalid_manifest_parent_path.json", MANIFEST_SCHEMA, "does not match"),
+        ("invalid_manifest_unc_path.json", MANIFEST_SCHEMA, "does not match"),
+        ("invalid_manifest_windows_drive_path.json", MANIFEST_SCHEMA, "does not match"),
+        ("invalid_manifest_windows_traversal_path.json", MANIFEST_SCHEMA, "does not match"),
         ("duplicate_manifest_member_id.json", MANIFEST_SCHEMA, "does not match"),
         (
             "mismatched_manifest_binding.json",
@@ -345,6 +349,26 @@ def test_manifest_binds_bundle_provenance_approvals_and_member_digests() -> None
     assert members["propertyNames"] == {"$ref": "#/$defs/member_id"}
     member_required = set(members["additionalProperties"]["required"])
     assert {"content_digest", "schema_id", "schema_version"} <= member_required
+
+
+@pytest.mark.parametrize(
+    "unsafe_path",
+    [
+        "../secret.json",
+        "nested/../secret.json",
+        "./contract.json",
+        "C:/secret.json",
+        "C:\\secret.json",
+        "..\\secret.json",
+        "\\\\server\\share\\secret.json",
+        "/absolute/secret.json",
+    ],
+)
+def test_manifest_paths_reject_cross_platform_escape_forms(unsafe_path: str) -> None:
+    manifest = copy.deepcopy(_load_json(VALID_MANIFEST))
+    manifest["bundle"]["path"] = unsafe_path
+    schema = _load_json(MANIFEST_SCHEMA)
+    assert list(Draft202012Validator(schema).iter_errors(manifest))
 
 
 def test_product_owned_targets_privacy_release_rollback_and_approvals_are_typed() -> None:

@@ -25,9 +25,9 @@
       "type": "string"
     },
     "relative_path": {
-      "description": "Bundle-relative path. Path traversal is forbidden.",
+      "description": "Portable bundle-relative POSIX path. Absolute, drive-qualified, UNC, backslash, dot-segment, and traversal forms are forbidden.",
       "minLength": 1,
-      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+      "pattern": "^(?!/)(?![A-Za-z]:)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?:[A-Za-z0-9._-]+/)*[A-Za-z0-9._-]+$",
       "type": "string"
     },
     "semver": {
