@@ -28,7 +28,45 @@
       "supersedes_approval_refs": [],
       "valid_from": "2026-07-30T00:00:00Z"
     },
-    "APR-METRIC-001": {
+    "APR-METRIC-EADPR": {
+      "actor_id": "OWNER-PRODUCT-001",
+      "approval_version": "1.0.0",
+      "approved_at": "2026-07-30T00:00:00Z",
+      "authority_policy_ref": "AUTH-POLICY-METRIC-001",
+      "authority_policy_version": "1.0.0",
+      "decision": "APPROVED",
+      "expires_at": "2027-07-30T00:00:00Z",
+      "role": "METRIC_POLICY_OWNER",
+      "status": "ACTIVE",
+      "subject": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "digest_scope": "NAMED_METRIC_MATURITY_POLICY",
+        "id": "POLICY-METRIC-EADPR",
+        "version": "1.0.0"
+      },
+      "supersedes_approval_refs": [],
+      "valid_from": "2026-07-30T00:00:00Z"
+    },
+    "APR-METRIC-FIRST-PASS": {
+      "actor_id": "OWNER-PRODUCT-001",
+      "approval_version": "1.0.0",
+      "approved_at": "2026-07-30T00:00:00Z",
+      "authority_policy_ref": "AUTH-POLICY-METRIC-001",
+      "authority_policy_version": "1.0.0",
+      "decision": "APPROVED",
+      "expires_at": "2027-07-30T00:00:00Z",
+      "role": "METRIC_POLICY_OWNER",
+      "status": "ACTIVE",
+      "subject": {
+        "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "digest_scope": "NAMED_METRIC_MATURITY_POLICY",
+        "id": "POLICY-METRIC-FIRST-PASS",
+        "version": "1.0.0"
+      },
+      "supersedes_approval_refs": [],
+      "valid_from": "2026-07-30T00:00:00Z"
+    },
+    "APR-METRIC-VAPDR": {
       "actor_id": "OWNER-PRODUCT-001",
       "approval_version": "1.0.0",
       "approved_at": "2026-07-30T00:00:00Z",
@@ -40,8 +78,8 @@
       "status": "ACTIVE",
       "subject": {
         "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-        "digest_scope": "NAMED_POLICY",
-        "id": "POLICY-METRIC-001",
+        "digest_scope": "NAMED_METRIC_MATURITY_POLICY",
+        "id": "POLICY-METRIC-VAPDR",
         "version": "1.0.0"
       },
       "supersedes_approval_refs": [],
@@ -56,6 +94,7 @@
   },
   "bundle_id": "BUNDLE-TASKFLOW-001",
   "bundle_version": "1.0.0",
+  "canonical_json_profile": "RFC8785",
   "contract_status": "APPROVED",
   "data": {
     "requirements": {
@@ -119,56 +158,142 @@
       "METRIC-LEAD-001": {
         "definition": "Share of received bundles that pass structural validation on first submission.",
         "direction": "INCREASE",
-        "maturity_policy_ref": "POLICY-METRIC-001",
+        "maturity_policy_ref": "POLICY-METRIC-FIRST-PASS",
+        "metric_id": "METRIC-LEAD-001",
         "name": "First-pass contract validation rate"
       }
     },
     "maturity_policies": {
-      "POLICY-METRIC-001": {
+      "POLICY-METRIC-EADPR": {
         "applicable_autonomy_stages": [
-          "DRAFT_PR",
+          "DRAFT_PR"
+        ],
+        "approval_ref": "APR-METRIC-EADPR",
+        "delivery_window": {
+          "anchor_event": "CONTRACT_APPROVED",
+          "duration": "P7D",
+          "time_zone": "UTC"
+        },
+        "evaluation_window": {
+          "anchor_event": "CONTRACT_APPROVED",
+          "duration": "P7D",
+          "time_zone": "UTC"
+        },
+        "metric_ref": "METRIC-NSM-EADPR",
+        "name": "Evidence-backed autonomous draft PR maturity",
+        "observation_window": {
+          "anchor_event": "PR_READY",
+          "duration": "P1D",
+          "time_zone": "UTC"
+        },
+        "owner_ref": "OWNER-PRODUCT-001",
+        "policy_version": "1.0.0",
+        "reporting_policy_ref": "POLICY-REPORTING-MVP",
+        "reporting_window": {
+          "anchor_event": "EVALUATION_WINDOW_CLOSED",
+          "duration": "P1D",
+          "time_zone": "UTC"
+        },
+        "target": {
+          "operator": "AT_LEAST",
+          "status": "APPROVED",
+          "unit": "ratio",
+          "value": 0.8
+        }
+      },
+      "POLICY-METRIC-FIRST-PASS": {
+        "applicable_autonomy_stages": [
+          "DRAFT_PR"
+        ],
+        "approval_ref": "APR-METRIC-FIRST-PASS",
+        "delivery_window": {
+          "anchor_event": "CONTRACT_RECEIVED",
+          "duration": "P1D",
+          "time_zone": "UTC"
+        },
+        "evaluation_window": {
+          "anchor_event": "CONTRACT_RECEIVED",
+          "duration": "P1D",
+          "time_zone": "UTC"
+        },
+        "metric_ref": "METRIC-LEAD-001",
+        "name": "First-pass contract validation maturity",
+        "observation_window": {
+          "anchor_event": "CONTRACT_VALIDATION_COMPLETED",
+          "duration": "P1D",
+          "time_zone": "UTC"
+        },
+        "owner_ref": "OWNER-PRODUCT-001",
+        "policy_version": "1.0.0",
+        "reporting_policy_ref": "POLICY-REPORTING-LEADING",
+        "reporting_window": {
+          "anchor_event": "OBSERVATION_WINDOW_CLOSED",
+          "duration": "P1D",
+          "time_zone": "UTC"
+        },
+        "target": {
+          "operator": "AT_LEAST",
+          "status": "APPROVED",
+          "unit": "ratio",
+          "value": 0.9
+        }
+      },
+      "POLICY-METRIC-VAPDR": {
+        "applicable_autonomy_stages": [
           "STAGING",
           "CANARY",
           "PRODUCTION"
         ],
-        "approval_ref": "APR-METRIC-001",
-        "name": "Verified delivery metric maturity",
+        "approval_ref": "APR-METRIC-VAPDR",
+        "delivery_window": {
+          "anchor_event": "CONTRACT_APPROVED",
+          "duration": "P30D",
+          "time_zone": "UTC"
+        },
+        "evaluation_window": {
+          "anchor_event": "CONTRACT_APPROVED",
+          "duration": "P30D",
+          "time_zone": "UTC"
+        },
+        "metric_ref": "METRIC-NSM-VAPDR",
+        "name": "Verified autonomous production delivery maturity",
+        "observation_window": {
+          "anchor_event": "PRODUCTION_DEPLOYED",
+          "duration": "P7D",
+          "time_zone": "UTC"
+        },
         "owner_ref": "OWNER-PRODUCT-001",
-        "policy_version": "1.0.0"
+        "policy_version": "1.0.0",
+        "reporting_policy_ref": "POLICY-REPORTING-END-STATE",
+        "reporting_window": {
+          "anchor_event": "OBSERVATION_WINDOW_CLOSED",
+          "duration": "P1D",
+          "time_zone": "UTC"
+        },
+        "target": {
+          "operator": "AT_LEAST",
+          "status": "APPROVED",
+          "unit": "ratio",
+          "value": 0.8
+        }
       }
     },
-    "north_star": {
-      "definition": "Percentage of approved contract slices deployed with acceptance, SLO, and evidence gates satisfied without manual code modification.",
-      "delivery_window": {
-        "anchor_event": "CONTRACT_APPROVED",
-        "duration": "P30D",
-        "time_zone": "UTC"
+    "north_stars": {
+      "end_state": {
+        "definition": "Percentage of approved contract slices deployed with acceptance, SLO, and evidence gates satisfied without manual code modification.",
+        "direction": "INCREASE",
+        "maturity_policy_ref": "POLICY-METRIC-VAPDR",
+        "metric_id": "METRIC-NSM-VAPDR",
+        "name": "Verified autonomous production delivery rate",
+        "outcome_scope": "PRODUCTION"
       },
-      "direction": "INCREASE",
-      "evaluation_window": {
-        "anchor_event": "CONTRACT_APPROVED",
-        "duration": "P30D",
-        "time_zone": "UTC"
-      },
-      "maturity_policy_ref": "POLICY-METRIC-001",
-      "metric_id": "METRIC-NSM-001",
-      "name": "Verified autonomous production delivery rate",
-      "observation_window": {
-        "anchor_event": "PRODUCTION_DEPLOYED",
-        "duration": "P7D",
-        "time_zone": "UTC"
-      },
-      "reporting_window": {
-        "anchor_event": "OBSERVATION_WINDOW_CLOSED",
-        "duration": "P1D",
-        "time_zone": "UTC"
-      },
-      "target": {
-        "approval_ref": "APR-METRIC-001",
-        "operator": "AT_LEAST",
-        "status": "APPROVED",
-        "unit": "ratio",
-        "value": 0.8
+      "mvp": {
+        "definition": "Percentage of approved contracts that produce a green, traceable, evidence-backed draft PR without manual engineering handholding.",
+        "direction": "INCREASE",
+        "maturity_policy_ref": "POLICY-METRIC-EADPR",
+        "metric_id": "METRIC-NSM-EADPR",
+        "name": "Evidence-backed autonomous draft PR rate",
+        "outcome_scope": "DRAFT_PR"
       }
     }
   },

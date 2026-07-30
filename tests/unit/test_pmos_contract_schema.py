@@ -2,20 +2,20 @@
 
 These tests intentionally exercise schema artifacts only. Runtime model,
 compiler, migration, and semantic cross-reference validation belong to later
-issues. The small evaluator below covers every validation keyword used by the
-two schemas so CI can verify the normative wire contract without adding a
-runtime dependency.
+issues. The official Draft 2020-12 validator checks parsed instances. A separate
+duplicate-aware loader enforces the declared RFC 8785 transport precondition
+before schema validation because JSON Schema cannot observe duplicate raw keys.
 """
 
 from __future__ import annotations
 
 import copy
 import json
-import re
 from pathlib import Path
 from typing import Any
 
 import pytest
+from jsonschema import Draft202012Validator
 
 ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_DIR = ROOT / "schemas"
@@ -42,22 +42,16 @@ _VALIDATION_KEYWORDS = {
     "required",
     "type",
     "uniqueItems",
+    "oneOf",
 }
 _ANNOTATION_KEYWORDS = {
+    "$comment",
     "$defs",
     "$id",
     "$schema",
     "description",
     "format",
     "title",
-}
-_TYPE_CHECKS: dict[str, type | tuple[type, ...]] = {
-    "array": list,
-    "boolean": bool,
-    "integer": int,
-    "number": (int, float),
-    "object": dict,
-    "string": str,
 }
 
 
@@ -100,93 +94,6 @@ def _fixture_instance(path: Path) -> Any:
     return base
 
 
-def _resolve_ref(root: dict[str, Any], reference: str) -> dict[str, Any]:
-    assert reference.startswith("#/"), f"only local references are permitted: {reference}"
-    node: Any = root
-    for part in reference[2:].split("/"):
-        node = node[part.replace("~1", "/").replace("~0", "~")]
-    assert isinstance(node, dict)
-    return node
-
-
-def _validation_errors(
-    value: Any,
-    schema: dict[str, Any],
-    root: dict[str, Any],
-    path: str = "$",
-) -> list[str]:
-    """Evaluate the deliberately bounded JSON Schema vocabulary used here."""
-
-    if "$ref" in schema:
-        referenced = _resolve_ref(root, schema["$ref"])
-        siblings = {key: item for key, item in schema.items() if key != "$ref"}
-        errors = _validation_errors(value, referenced, root, path)
-        if siblings:
-            errors.extend(_validation_errors(value, siblings, root, path))
-        return errors
-
-    errors: list[str] = []
-    expected = schema.get("type")
-    if expected is not None:
-        expected_type = _TYPE_CHECKS[expected]
-        if expected == "integer" and isinstance(value, bool):
-            return [f"{path}: expected integer, got boolean"]
-        if not isinstance(value, expected_type):
-            return [f"{path}: expected {expected}, got {type(value).__name__}"]
-
-    if "const" in schema and value != schema["const"]:
-        errors.append(f"{path}: expected constant {schema['const']!r}")
-    if "enum" in schema and value not in schema["enum"]:
-        errors.append(f"{path}: unsupported value {value!r}")
-
-    if isinstance(value, str):
-        if len(value) < int(schema.get("minLength", 0)):
-            errors.append(f"{path}: shorter than minLength")
-        pattern = schema.get("pattern")
-        if pattern is not None and re.fullmatch(pattern, value) is None:
-            errors.append(f"{path}: does not match {pattern!r}")
-
-    if isinstance(value, list):
-        if len(value) < int(schema.get("minItems", 0)):
-            errors.append(f"{path}: fewer than minItems")
-        if schema.get("uniqueItems"):
-            canonical = [json.dumps(item, sort_keys=True, separators=(",", ":")) for item in value]
-            if len(canonical) != len(set(canonical)):
-                errors.append(f"{path}: duplicate array item")
-        item_schema = schema.get("items")
-        if isinstance(item_schema, dict):
-            for index, item in enumerate(value):
-                errors.extend(_validation_errors(item, item_schema, root, f"{path}[{index}]"))
-
-    if isinstance(value, dict):
-        if len(value) < int(schema.get("minProperties", 0)):
-            errors.append(f"{path}: fewer than minProperties")
-        for required in schema.get("required", []):
-            if required not in value:
-                errors.append(f"{path}: missing required field {required!r}")
-
-        property_names = schema.get("propertyNames")
-        if isinstance(property_names, dict):
-            for key in value:
-                errors.extend(
-                    _validation_errors(key, property_names, root, f"{path}.<property:{key}>")
-                )
-
-        properties = schema.get("properties", {})
-        for key, child_schema in properties.items():
-            if key in value:
-                errors.extend(_validation_errors(value[key], child_schema, root, f"{path}.{key}"))
-
-        extra_schema = schema.get("additionalProperties", True)
-        for key in value.keys() - properties.keys():
-            if extra_schema is False:
-                errors.append(f"{path}: unexpected field {key!r}")
-            elif isinstance(extra_schema, dict):
-                errors.extend(_validation_errors(value[key], extra_schema, root, f"{path}.{key}"))
-
-    return errors
-
-
 def _validate_fixture(fixture: Path, schema_path: Path) -> list[str]:
     try:
         instance = _fixture_instance(fixture)
@@ -194,7 +101,12 @@ def _validate_fixture(fixture: Path, schema_path: Path) -> list[str]:
         return [str(exc)]
     schema = _load_json(schema_path)
     assert isinstance(schema, dict)
-    return _validation_errors(instance, schema, schema)
+    Draft202012Validator.check_schema(schema)
+    validator = Draft202012Validator(schema)
+    return [
+        f"{error.json_path}: {error.message}"
+        for error in sorted(validator.iter_errors(instance), key=lambda item: item.json_path)
+    ]
 
 
 def _schema_keywords(node: Any) -> set[str]:
@@ -240,29 +152,44 @@ def test_valid_canonical_manifest_passes() -> None:
 @pytest.mark.parametrize(
     ("fixture_name", "schema_path", "expected"),
     [
-        ("missing_security.json", BUNDLE_SCHEMA, "missing required field 'security'"),
-        ("duplicate_requirement_id.json", BUNDLE_SCHEMA, "duplicate object key: FR-001"),
-        ("unknown_schema_version.json", BUNDLE_SCHEMA, "unsupported value '2.0.0'"),
+        ("missing_security.json", BUNDLE_SCHEMA, "'security' is a required property"),
+        ("unknown_schema_version.json", BUNDLE_SCHEMA, "'2.0.0' is not one of"),
         ("invalid_reference.json", BUNDLE_SCHEMA, "does not match"),
         ("wrong_reference_type.json", BUNDLE_SCHEMA, "does not match"),
         ("duplicate_namespace_collision.json", BUNDLE_SCHEMA, "does not match"),
-        ("weakening_extension.json", BUNDLE_SCHEMA, "ADD_CONSTRAINTS_ONLY"),
-        ("weakening_extension_payload.json", BUNDLE_SCHEMA, "unexpected field"),
+        ("weakening_extension.json", BUNDLE_SCHEMA, "'ADD_CONSTRAINTS_ONLY' was expected"),
+        ("weakening_extension_payload.json", BUNDLE_SCHEMA, "Additional properties"),
         ("invalid_timestamp.json", BUNDLE_SCHEMA, "does not match"),
         ("invalid_uri.json", BUNDLE_SCHEMA, "does not match"),
         ("invalid_timezone.json", BUNDLE_SCHEMA, "does not match"),
         ("invalid_duration.json", BUNDLE_SCHEMA, "does not match"),
-        ("invalid_manifest_reference.json", MANIFEST_SCHEMA, "does not match"),
+        ("invalid_duration_dangling_day_time.json", BUNDLE_SCHEMA, "does not match"),
+        ("invalid_duration_mixed_week.json", BUNDLE_SCHEMA, "does not match"),
+        (
+            "invalid_manifest_reference.json",
+            MANIFEST_SCHEMA,
+            "'MEMBER-CANONICAL-BUNDLE' was expected",
+        ),
+        ("duplicate_manifest_member_id.json", MANIFEST_SCHEMA, "does not match"),
         (
             "mismatched_manifest_binding.json",
             MANIFEST_SCHEMA,
-            "unexpected field 'bundle_digest'",
+            "Additional properties",
         ),
-        ("missing_metric_target.json", BUNDLE_SCHEMA, "missing required field 'target'"),
-        ("missing_privacy_telemetry.json", BUNDLE_SCHEMA, "missing required field 'telemetry'"),
-        ("missing_release_intent.json", BUNDLE_SCHEMA, "missing required field 'launch_intent'"),
-        ("missing_rollback_rto.json", BUNDLE_SCHEMA, "missing required field 'rto'"),
-        ("missing_approval_expiry.json", BUNDLE_SCHEMA, "missing required field 'expires_at'"),
+        ("missing_metric_target.json", BUNDLE_SCHEMA, "'target' is a required property"),
+        (
+            "missing_metric_reporting_policy.json",
+            BUNDLE_SCHEMA,
+            "'reporting_policy_ref' is a required property",
+        ),
+        ("missing_mvp_north_star.json", BUNDLE_SCHEMA, "'mvp' is a required property"),
+        ("invalid_approval_subject_type.json", BUNDLE_SCHEMA, "not valid under any"),
+        ("revoked_approval_without_evidence.json", BUNDLE_SCHEMA, "not valid under any"),
+        ("superseded_approval_without_evidence.json", BUNDLE_SCHEMA, "not valid under any"),
+        ("missing_privacy_telemetry.json", BUNDLE_SCHEMA, "'telemetry' is a required property"),
+        ("missing_release_intent.json", BUNDLE_SCHEMA, "'launch_intent' is a required property"),
+        ("missing_rollback_rto.json", BUNDLE_SCHEMA, "'rto' is a required property"),
+        ("missing_approval_expiry.json", BUNDLE_SCHEMA, "'expires_at' is a required property"),
     ],
 )
 def test_invalid_fixtures_fail_closed(
@@ -275,6 +202,29 @@ def test_invalid_fixtures_fail_closed(
     assert any(expected in error for error in errors), errors
 
 
+def test_duplicate_object_members_fail_before_schema_validation() -> None:
+    """RFC 8785/I-JSON duplicate rejection is a transport gate, not a schema claim."""
+
+    duplicate_fixture = FIXTURE_DIR / "duplicate_requirement_id.json"
+    with pytest.raises(DuplicateKeyError, match="duplicate object key: FR-001"):
+        _fixture_instance(duplicate_fixture)
+
+
+@pytest.mark.parametrize(
+    ("schema_path", "fixture_path"),
+    [(BUNDLE_SCHEMA, VALID_BUNDLE), (MANIFEST_SCHEMA, VALID_MANIFEST)],
+)
+def test_schema_declares_duplicate_aware_rfc8785_admission(
+    schema_path: Path,
+    fixture_path: Path,
+) -> None:
+    schema = _load_json(schema_path)
+    fixture = _load_json(fixture_path)
+    assert schema["properties"]["canonical_json_profile"]["const"] == "RFC8785"
+    assert "duplicate object member names" in schema["$comment"]
+    assert fixture["canonical_json_profile"] == "RFC8785"
+
+
 def test_bundle_schema_covers_every_phase_zero_product_truth_section() -> None:
     schema = _load_json(BUNDLE_SCHEMA)
     assert isinstance(schema, dict)
@@ -285,6 +235,7 @@ def test_bundle_schema_covers_every_phase_zero_product_truth_section() -> None:
         "assumptions",
         "bundle_id",
         "bundle_version",
+        "canonical_json_profile",
         "contract_status",
         "data",
         "extensions",
@@ -311,19 +262,36 @@ def test_bundle_schema_covers_every_phase_zero_product_truth_section() -> None:
     } <= required
 
 
-def test_north_star_policy_and_windows_are_required_without_defaults() -> None:
+def test_both_north_stars_and_exact_policy_inputs_are_required_without_defaults() -> None:
     schema = _load_json(BUNDLE_SCHEMA)
-    north_star = schema["properties"]["metrics"]["properties"]["north_star"]
-    required = set(north_star["required"])
+    metrics = schema["properties"]["metrics"]
+    north_stars = metrics["properties"]["north_stars"]
+    assert {"end_state", "mvp"} <= set(north_stars["required"])
+
+    policy = metrics["properties"]["maturity_policies"]["additionalProperties"]
+    required = set(policy["required"])
     assert {
-        "maturity_policy_ref",
-        "evaluation_window",
+        "approval_ref",
         "delivery_window",
+        "evaluation_window",
+        "metric_ref",
         "observation_window",
+        "reporting_policy_ref",
         "reporting_window",
         "target",
     } <= required
-    assert "default" not in json.dumps(north_star)
+    assert "default" not in json.dumps(metrics)
+
+
+def test_leading_metric_target_is_bound_inside_its_approved_maturity_policy() -> None:
+    bundle = _load_json(VALID_BUNDLE)
+    leading = bundle["metrics"]["leading"]["METRIC-LEAD-001"]
+    policy = bundle["metrics"]["maturity_policies"][leading["maturity_policy_ref"]]
+    assert policy["metric_ref"] == leading["metric_id"]
+    assert policy["target"]["status"] == "APPROVED"
+    approval = bundle["approvals"][policy["approval_ref"]]
+    assert approval["subject"]["id"] == leading["maturity_policy_ref"]
+    assert approval["subject"]["digest_scope"] == "NAMED_METRIC_MATURITY_POLICY"
 
 
 def test_extensions_can_only_add_constraints() -> None:
@@ -355,6 +323,7 @@ def test_manifest_binds_bundle_provenance_approvals_and_member_digests() -> None
     assert {
         "approval_digest",
         "bundle",
+        "canonical_json_profile",
         "members",
         "provenance",
         "schema_id",
@@ -369,6 +338,9 @@ def test_manifest_binds_bundle_provenance_approvals_and_member_digests() -> None
         "schema_id",
         "schema_version",
     } <= bundle_required
+    assert schema["properties"]["bundle"]["properties"]["member_id"] == {
+        "const": "MEMBER-CANONICAL-BUNDLE"
+    }
     members = schema["properties"]["members"]
     assert members["propertyNames"] == {"$ref": "#/$defs/member_id"}
     member_required = set(members["additionalProperties"]["required"])
@@ -380,7 +352,9 @@ def test_product_owned_targets_privacy_release_rollback_and_approvals_are_typed(
     properties = schema["properties"]
 
     assert {"operator", "status", "unit", "value"} <= set(
-        properties["metrics"]["properties"]["north_star"]["properties"]["target"]["required"]
+        properties["metrics"]["properties"]["maturity_policies"]["additionalProperties"][
+            "properties"
+        ]["target"]["required"]
     )
     assert {"data_residency", "deletion", "retention", "telemetry"} <= set(
         properties["privacy"]["required"]
@@ -402,9 +376,24 @@ def test_product_owned_targets_privacy_release_rollback_and_approvals_are_typed(
         "supersedes_approval_refs",
         "valid_from",
     } <= approval_required
+    subject = properties["approvals"]["additionalProperties"]["properties"]["subject"]
+    assert len(subject["oneOf"]) == 2
+    assert {branch["properties"]["digest_scope"]["const"] for branch in subject["oneOf"]} == {
+        "CANONICAL_BUNDLE_EXCLUDING_APPROVALS",
+        "NAMED_METRIC_MATURITY_POLICY",
+    }
+    assert len(properties["approvals"]["additionalProperties"]["oneOf"]) == 3
 
 
 def test_portable_patterns_replace_non_asserting_format_annotations() -> None:
     for schema_path in (BUNDLE_SCHEMA, MANIFEST_SCHEMA):
         schema = _load_json(schema_path)
         assert "format" not in _schema_keywords(schema)
+
+
+def test_official_validator_does_not_treat_boolean_as_number() -> None:
+    schema = {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "number",
+    }
+    assert list(Draft202012Validator(schema).iter_errors(True))

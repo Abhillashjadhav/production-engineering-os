@@ -4,11 +4,11 @@
     {
       "op": "replace",
       "path": [
-        "extensions",
-        "EXT-REPOSITORY-001",
-        "schema_id"
+        "approvals",
+        "APR-CONTRACT-001",
+        "status"
       ],
-    "value": "https://example.invalid/%zz"
+      "value": "SUPERSEDED"
     }
   ]
 }

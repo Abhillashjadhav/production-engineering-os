@@ -5,9 +5,8 @@
       "op": "remove",
       "path": [
         "metrics",
-      "maturity_policies",
-      "POLICY-METRIC-VAPDR",
-      "target"
+        "north_stars",
+        "mvp"
       ]
     }
   ]

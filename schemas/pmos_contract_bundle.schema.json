@@ -1,4 +1,5 @@
 {
+  "$comment": "Before schema evaluation, admission MUST reject duplicate object member names and canonicalize the parsed instance with RFC 8785 for digesting. JSON Schema evaluates parsed instances and cannot observe duplicate raw member tokens.",
   "$defs": {
     "acceptance_criterion_id": {
       "pattern": "^AC-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
@@ -46,13 +47,17 @@
       "type": "string"
     },
     "duration": {
-      "description": "ISO-8601 duration containing at least one numeric component.",
-      "pattern": "^P(?=.*[0-9])(?:[0-9]+Y)?(?:[0-9]+M)?(?:[0-9]+W)?(?:[0-9]+D)?(?:T(?:[0-9]+H)?(?:[0-9]+M)?(?:[0-9]+(?:\\.[0-9]+)?S)?)?$",
+      "description": "Supported ISO-8601 duration subset. Week form cannot be mixed with calendar components, and T must introduce a time component.",
+      "pattern": "^P(?:[0-9]+W|(?=[0-9T])(?:[0-9]+Y)?(?:[0-9]+M)?(?:[0-9]+D)?(?:T(?=[0-9])(?:[0-9]+H)?(?:[0-9]+M)?(?:[0-9]+(?:\\.[0-9]+)?S)?)?)$",
       "type": "string"
     },
     "https_uri": {
-      "description": "Absolute HTTPS schema identifier.",
-      "pattern": "^https://(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\\.)*[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:/[^\\s]*)?$",
+      "description": "Absolute HTTPS schema identifier without credentials, query, fragment, or non-standard port; percent escapes must be valid.",
+      "pattern": "^https://(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:/(?:[A-Za-z0-9._~!$&'()*+,;=:@-]|%[0-9A-Fa-f]{2})*)*$",
+      "type": "string"
+    },
+    "metric_id": {
+      "pattern": "^METRIC-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
       "type": "string"
     },
     "metric_policy_id": {
@@ -61,6 +66,10 @@
     },
     "non_empty_string": {
       "minLength": 1,
+      "type": "string"
+    },
+    "reporting_policy_id": {
+      "pattern": "^POLICY-REPORTING-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
       "type": "string"
     },
     "requirement_id": {
@@ -167,6 +176,44 @@
     "approvals": {
       "additionalProperties": {
         "additionalProperties": false,
+        "oneOf": [
+          {
+            "properties": {
+              "status": {
+                "const": "ACTIVE"
+              }
+            },
+            "required": [
+              "status"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "status": {
+                "const": "REVOKED"
+              }
+            },
+            "required": [
+              "revocation_reason",
+              "revoked_at",
+              "status"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "status": {
+                "const": "SUPERSEDED"
+              }
+            },
+            "required": [
+              "status",
+              "superseded_by_approval_ref"
+            ],
+            "type": "object"
+          }
+        ],
         "properties": {
           "actor_id": {
             "$ref": "#/$defs/actor_id"
@@ -213,6 +260,38 @@
           "subject": {
             "additionalProperties": false,
             "description": "Exact immutable approval subject. Bundle approvals bind a projection that excludes approvals to avoid a self-referential digest.",
+            "oneOf": [
+              {
+                "properties": {
+                  "digest_scope": {
+                    "const": "CANONICAL_BUNDLE_EXCLUDING_APPROVALS"
+                  },
+                  "id": {
+                    "$ref": "#/$defs/bundle_id"
+                  }
+                },
+                "required": [
+                  "digest_scope",
+                  "id"
+                ],
+                "type": "object"
+              },
+              {
+                "properties": {
+                  "digest_scope": {
+                    "const": "NAMED_METRIC_MATURITY_POLICY"
+                  },
+                  "id": {
+                    "$ref": "#/$defs/metric_policy_id"
+                  }
+                },
+                "required": [
+                  "digest_scope",
+                  "id"
+                ],
+                "type": "object"
+              }
+            ],
             "properties": {
               "digest": {
                 "$ref": "#/$defs/digest"
@@ -220,12 +299,12 @@
               "digest_scope": {
                 "enum": [
                   "CANONICAL_BUNDLE_EXCLUDING_APPROVALS",
-                  "NAMED_POLICY"
+                  "NAMED_METRIC_MATURITY_POLICY"
                 ],
                 "type": "string"
               },
               "id": {
-                "$ref": "#/$defs/stable_id"
+                "description": "Type is selected by digest_scope through oneOf."
               },
               "version": {
                 "$ref": "#/$defs/semver"
@@ -238,6 +317,9 @@
               "version"
             ],
             "type": "object"
+          },
+          "superseded_by_approval_ref": {
+            "$ref": "#/$defs/approval_id"
           },
           "supersedes_approval_refs": {
             "items": {
@@ -302,6 +384,10 @@
     },
     "bundle_version": {
       "$ref": "#/$defs/semver"
+    },
+    "canonical_json_profile": {
+      "const": "RFC8785",
+      "description": "Declares the canonicalization profile used after duplicate-aware parsing and before content digesting."
     },
     "contract_status": {
       "enum": [
@@ -587,6 +673,9 @@
               "maturity_policy_ref": {
                 "$ref": "#/$defs/metric_policy_id"
               },
+              "metric_id": {
+                "$ref": "#/$defs/metric_id"
+              },
               "name": {
                 "$ref": "#/$defs/non_empty_string"
               }
@@ -595,14 +684,14 @@
               "definition",
               "direction",
               "maturity_policy_ref",
+              "metric_id",
               "name"
             ],
             "type": "object"
           },
           "minProperties": 1,
           "propertyNames": {
-            "pattern": "^METRIC-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
-            "type": "string"
+            "$ref": "#/$defs/metric_id"
           },
           "type": "object"
         },
@@ -627,118 +716,172 @@
               "approval_ref": {
                 "$ref": "#/$defs/approval_id"
               },
+              "delivery_window": {
+                "$ref": "#/$defs/window"
+              },
+              "evaluation_window": {
+                "$ref": "#/$defs/window"
+              },
+              "metric_ref": {
+                "$ref": "#/$defs/metric_id"
+              },
               "name": {
                 "$ref": "#/$defs/non_empty_string"
+              },
+              "observation_window": {
+                "$ref": "#/$defs/window"
               },
               "owner_ref": {
                 "$ref": "#/$defs/actor_id"
               },
               "policy_version": {
                 "$ref": "#/$defs/semver"
+              },
+              "reporting_policy_ref": {
+                "$ref": "#/$defs/reporting_policy_id"
+              },
+              "reporting_window": {
+                "$ref": "#/$defs/window"
+              },
+              "target": {
+                "additionalProperties": false,
+                "properties": {
+                  "operator": {
+                    "enum": [
+                      "AT_LEAST",
+                      "AT_MOST",
+                      "EXACT"
+                    ],
+                    "type": "string"
+                  },
+                  "status": {
+                    "enum": [
+                      "APPROVED",
+                      "BASELINE_REQUIRED",
+                      "RETIRED"
+                    ],
+                    "type": "string"
+                  },
+                  "unit": {
+                    "$ref": "#/$defs/non_empty_string"
+                  },
+                  "value": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "operator",
+                  "status",
+                  "unit",
+                  "value"
+                ],
+                "type": "object"
               }
             },
             "required": [
               "applicable_autonomy_stages",
               "approval_ref",
+              "delivery_window",
+              "evaluation_window",
+              "metric_ref",
               "name",
+              "observation_window",
               "owner_ref",
-              "policy_version"
+              "policy_version",
+              "reporting_policy_ref",
+              "reporting_window",
+              "target"
             ],
             "type": "object"
           },
-          "description": "Named, versioned, owner-approved metric maturity policies.",
-          "minProperties": 1,
+          "description": "Named, versioned, owner-approved metric maturity policies. The exact policy subject contains the metric target and every timing/reporting rule, so its approval digest binds all eligibility inputs.",
+          "minProperties": 3,
           "propertyNames": {
             "$ref": "#/$defs/metric_policy_id"
           },
           "type": "object"
         },
-        "north_star": {
+        "north_stars": {
           "additionalProperties": false,
           "properties": {
-            "definition": {
-              "$ref": "#/$defs/non_empty_string"
-            },
-            "delivery_window": {
-              "$ref": "#/$defs/window"
-            },
-            "direction": {
-              "enum": [
-                "DECREASE",
-                "INCREASE",
-                "MAINTAIN"
-              ],
-              "type": "string"
-            },
-            "evaluation_window": {
-              "$ref": "#/$defs/window"
-            },
-            "maturity_policy_ref": {
-              "$ref": "#/$defs/metric_policy_id"
-            },
-            "metric_id": {
-              "pattern": "^METRIC-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
-              "type": "string"
-            },
-            "name": {
-              "$ref": "#/$defs/non_empty_string"
-            },
-            "observation_window": {
-              "$ref": "#/$defs/window"
-            },
-            "reporting_window": {
-              "$ref": "#/$defs/window"
-            },
-            "target": {
+            "end_state": {
               "additionalProperties": false,
               "properties": {
-                "approval_ref": {
-                  "$ref": "#/$defs/approval_id"
-                },
-                "operator": {
-                  "enum": [
-                    "AT_LEAST",
-                    "AT_MOST",
-                    "EXACT"
-                  ],
-                  "type": "string"
-                },
-                "status": {
-                  "enum": [
-                    "APPROVED",
-                    "BASELINE_REQUIRED",
-                    "RETIRED"
-                  ],
-                  "type": "string"
-                },
-                "unit": {
+                "definition": {
                   "$ref": "#/$defs/non_empty_string"
                 },
-                "value": {
-                  "type": "number"
+                "direction": {
+                  "enum": [
+                    "DECREASE",
+                    "INCREASE",
+                    "MAINTAIN"
+                  ],
+                  "type": "string"
+                },
+                "maturity_policy_ref": {
+                  "$ref": "#/$defs/metric_policy_id"
+                },
+                "metric_id": {
+                  "$ref": "#/$defs/metric_id"
+                },
+                "name": {
+                  "$ref": "#/$defs/non_empty_string"
+                },
+                "outcome_scope": {
+                  "const": "PRODUCTION"
                 }
               },
               "required": [
-                "approval_ref",
-                "operator",
-                "status",
-                "unit",
-                "value"
+                "definition",
+                "direction",
+                "maturity_policy_ref",
+                "metric_id",
+                "name",
+                "outcome_scope"
+              ],
+              "type": "object"
+            },
+            "mvp": {
+              "additionalProperties": false,
+              "properties": {
+                "definition": {
+                  "$ref": "#/$defs/non_empty_string"
+                },
+                "direction": {
+                  "enum": [
+                    "DECREASE",
+                    "INCREASE",
+                    "MAINTAIN"
+                  ],
+                  "type": "string"
+                },
+                "maturity_policy_ref": {
+                  "$ref": "#/$defs/metric_policy_id"
+                },
+                "metric_id": {
+                  "$ref": "#/$defs/metric_id"
+                },
+                "name": {
+                  "$ref": "#/$defs/non_empty_string"
+                },
+                "outcome_scope": {
+                  "const": "DRAFT_PR"
+                }
+              },
+              "required": [
+                "definition",
+                "direction",
+                "maturity_policy_ref",
+                "metric_id",
+                "name",
+                "outcome_scope"
               ],
               "type": "object"
             }
           },
           "required": [
-            "definition",
-            "delivery_window",
-            "direction",
-            "evaluation_window",
-            "maturity_policy_ref",
-            "metric_id",
-            "name",
-            "observation_window",
-            "reporting_window",
-            "target"
+            "end_state",
+            "mvp"
           ],
           "type": "object"
         }
@@ -746,7 +889,7 @@
       "required": [
         "leading",
         "maturity_policies",
-        "north_star"
+        "north_stars"
       ],
       "type": "object"
     },
@@ -1530,6 +1673,7 @@
     "assumptions",
     "bundle_id",
     "bundle_version",
+    "canonical_json_profile",
     "contract_status",
     "data",
     "extensions",

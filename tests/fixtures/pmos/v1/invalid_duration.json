@@ -5,11 +5,12 @@
       "op": "replace",
       "path": [
         "metrics",
-        "north_star",
-        "evaluation_window",
-        "duration"
-      ],
-      "value": "Pnot-a-duration"
+      "maturity_policies",
+      "POLICY-METRIC-VAPDR",
+      "evaluation_window",
+      "duration"
+    ],
+    "value": "P1YT"
     }
   ]
 }

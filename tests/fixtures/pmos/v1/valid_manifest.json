@@ -5,11 +5,12 @@
     "bundle_version": "1.0.0",
     "content_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
     "media_type": "application/json",
-    "member_id": "MEMBER-CONTRACT-001",
+    "member_id": "MEMBER-CANONICAL-BUNDLE",
     "path": "contract-bundle.json",
     "schema_id": "https://github.com/Abhillashjadhav/production-engineering-os/schemas/pmos_contract_bundle.schema.json",
     "schema_version": "1.0.0"
   },
+  "canonical_json_profile": "RFC8785",
   "created_at": "2026-07-30T00:00:00Z",
   "manifest_id": "MANIFEST-TASKFLOW-001",
   "manifest_version": "1.0.0",

@@ -1,4 +1,5 @@
 {
+  "$comment": "Before schema evaluation, admission MUST reject duplicate object member names and canonicalize the parsed instance with RFC 8785 for digesting. JSON Schema evaluates parsed instances and cannot observe duplicate raw member tokens.",
   "$defs": {
     "date_time": {
       "description": "UTC RFC 3339 instant. Calendar validity is rechecked by the semantic validator.",
@@ -10,12 +11,13 @@
       "type": "string"
     },
     "https_uri": {
-      "description": "Absolute HTTPS schema identifier.",
-      "pattern": "^https://(?:[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?\\.)*[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?::[0-9]{1,5})?(?:/[^\\s]*)?$",
+      "description": "Absolute HTTPS schema identifier without credentials, query, fragment, or non-standard port; percent escapes must be valid.",
+      "pattern": "^https://(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:/(?:[A-Za-z0-9._~!$&'()*+,;=:@-]|%[0-9A-Fa-f]{2})*)*$",
       "type": "string"
     },
     "member_id": {
-      "pattern": "^MEMBER-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
+      "description": "Non-bundle member ID. The reserved canonical bundle member ID cannot reappear in this registry.",
+      "pattern": "^(?!MEMBER-CANONICAL-BUNDLE$)MEMBER-[A-Z0-9]+(?:-[A-Z0-9]+)*$",
       "type": "string"
     },
     "non_empty_string": {
@@ -62,7 +64,7 @@
           "const": "application/json"
         },
         "member_id": {
-          "$ref": "#/$defs/member_id"
+          "const": "MEMBER-CANONICAL-BUNDLE"
         },
         "path": {
           "$ref": "#/$defs/relative_path"
@@ -88,6 +90,10 @@
         "schema_version"
       ],
       "type": "object"
+    },
+    "canonical_json_profile": {
+      "const": "RFC8785",
+      "description": "Declares the canonicalization profile used after duplicate-aware parsing and before content digesting."
     },
     "created_at": {
       "$ref": "#/$defs/date_time"
@@ -205,6 +211,7 @@
   "required": [
     "approval_digest",
     "bundle",
+    "canonical_json_profile",
     "created_at",
     "manifest_id",
     "manifest_version",
