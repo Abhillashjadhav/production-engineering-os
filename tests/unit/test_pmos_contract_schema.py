@@ -3,9 +3,10 @@
 These tests intentionally exercise schema artifacts only. Runtime model,
 compiler, migration, and semantic cross-reference validation belong to later
 issues. The official Draft 2020-12 validator checks parsed instances. A separate
-loader rejects duplicate keys and non-JSON numeric constants before validation;
-the compiler/admission work in #76 remains responsible for RFC 8785
-canonicalization and digesting because JSON Schema operates on parsed instances.
+loader rejects duplicate keys, unpaired Unicode surrogates, and inadmissible
+numeric tokens before validation; the compiler/admission work in #76 remains
+responsible for general RFC 8785 canonicalization and digesting because JSON
+Schema operates on parsed instances.
 """
 
 from __future__ import annotations
@@ -67,6 +68,10 @@ class NonJsonNumericConstantError(ValueError):
     """Raised when a numeric token cannot enter the RFC 8785 admission path."""
 
 
+class InvalidUnicodeScalarError(ValueError):
+    """Raised when input contains a code point RFC 8785 cannot serialize."""
+
+
 def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -94,14 +99,59 @@ def _parse_interoperable_int(value: str) -> int:
     return parsed
 
 
+def _reject_unpaired_surrogates(value: Any) -> None:
+    if isinstance(value, str):
+        if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+            raise InvalidUnicodeScalarError("unpaired Unicode surrogate code point")
+        return
+    if isinstance(value, dict):
+        for key, child in value.items():
+            _reject_unpaired_surrogates(key)
+            _reject_unpaired_surrogates(child)
+        return
+    if isinstance(value, list):
+        for child in value:
+            _reject_unpaired_surrogates(child)
+
+
 def _load_json(path: Path) -> Any:
-    return json.loads(
+    value = json.loads(
         path.read_text(),
         object_pairs_hook=_reject_duplicate_keys,
         parse_constant=_reject_non_json_numeric_constant,
         parse_float=_parse_finite_float,
         parse_int=_parse_interoperable_int,
     )
+    _reject_unpaired_surrogates(value)
+    return value
+
+
+def _rfc8785_fixture_bytes(value: Any) -> bytes:
+    """Serialize the fixture-domain subset exactly as RFC 8785 requires.
+
+    The fixtures intentionally use ASCII object keys, safe integers, and no
+    floating-point values. Within that domain, Python's compact sorted JSON
+    serialization is byte-identical to RFC 8785; issue #76 owns the general
+    ECMAScript-number and UTF-16-key-order implementation.
+    """
+
+    if isinstance(value, float):
+        raise AssertionError("fixture digest helper does not admit floating-point values")
+    if isinstance(value, dict):
+        if any(not key.isascii() for key in value):
+            raise AssertionError("fixture digest helper requires ASCII object keys")
+        for child in value.values():
+            _rfc8785_fixture_bytes(child)
+    elif isinstance(value, list):
+        for child in value:
+            _rfc8785_fixture_bytes(child)
+    return json.dumps(
+        value,
+        allow_nan=False,
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode()
 
 
 def _fixture_instance(path: Path) -> Any:
@@ -129,7 +179,12 @@ def _fixture_instance(path: Path) -> Any:
 def _validate_fixture(fixture: Path, schema_path: Path) -> list[str]:
     try:
         instance = _fixture_instance(fixture)
-    except (json.JSONDecodeError, DuplicateKeyError, NonJsonNumericConstantError) as exc:
+    except (
+        json.JSONDecodeError,
+        DuplicateKeyError,
+        InvalidUnicodeScalarError,
+        NonJsonNumericConstantError,
+    ) as exc:
         return [str(exc)]
     schema = _load_json(schema_path)
     assert isinstance(schema, dict)
@@ -246,6 +301,11 @@ def test_valid_fixtures_are_canonical_json(fixture_path: Path) -> None:
             BUNDLE_SCHEMA,
             "integer outside interoperable IEEE-754 range: 9007199254740992",
         ),
+        (
+            "invalid_lone_surrogate.json",
+            BUNDLE_SCHEMA,
+            "unpaired Unicode surrogate code point",
+        ),
         ("invalid_leading_metric_id_property.json", BUNDLE_SCHEMA, "Additional properties"),
         ("invalid_leading_north_star_collision.json", BUNDLE_SCHEMA, "does not match"),
         ("invalid_metric_ref_namespace.json", BUNDLE_SCHEMA, "not valid under any"),
@@ -270,6 +330,13 @@ def test_valid_fixtures_are_canonical_json(fixture_path: Path) -> None:
         ),
         ("missing_metric_target.json", BUNDLE_SCHEMA, "'target' is a required property"),
         ("baseline_target_with_dummy_value.json", BUNDLE_SCHEMA, "not valid under any"),
+        ("approved_target_with_baseline_plan.json", BUNDLE_SCHEMA, "not valid under any"),
+        (
+            "baseline_target_with_retirement_reason.json",
+            BUNDLE_SCHEMA,
+            "not valid under any",
+        ),
+        ("retired_target_with_baseline_plan.json", BUNDLE_SCHEMA, "not valid under any"),
         (
             "missing_metric_reporting_policy.json",
             BUNDLE_SCHEMA,
@@ -313,6 +380,7 @@ def test_valid_fixtures_are_canonical_json(fixture_path: Path) -> None:
             BUNDLE_SCHEMA,
             "'reporting_policies' is a required property",
         ),
+        ("missing_success_metrics.json", BUNDLE_SCHEMA, "'success' is a required property"),
         (
             "missing_required_approvals.json",
             BUNDLE_SCHEMA,
@@ -378,6 +446,15 @@ def test_integer_outside_interoperable_range_fails_before_schema_validation() ->
         _fixture_instance(fixture)
 
 
+def test_unpaired_unicode_surrogate_fails_before_schema_validation() -> None:
+    fixture = FIXTURE_DIR / "invalid_lone_surrogate.json"
+    with pytest.raises(
+        InvalidUnicodeScalarError,
+        match="unpaired Unicode surrogate code point",
+    ):
+        _fixture_instance(fixture)
+
+
 @pytest.mark.parametrize(
     ("schema_path", "fixture_path"),
     [(BUNDLE_SCHEMA, VALID_BUNDLE), (MANIFEST_SCHEMA, VALID_MANIFEST)],
@@ -390,6 +467,7 @@ def test_schema_declares_duplicate_aware_rfc8785_admission(
     fixture = _load_json(fixture_path)
     assert schema["properties"]["canonical_json_profile"]["const"] == "RFC8785"
     assert "duplicate object member names" in schema["$comment"]
+    assert "unpaired Unicode surrogate code points" in schema["$comment"]
     assert fixture["canonical_json_profile"] == "RFC8785"
 
 
@@ -454,6 +532,7 @@ def test_both_north_stars_and_exact_policy_inputs_are_required_without_defaults(
         "target",
     } <= required
     assert "reporting_policies" in metrics["required"]
+    assert "success" in metrics["required"]
     reporting = metrics["properties"]["reporting_policies"]["additionalProperties"]
     assert {
         "approval_ref",
@@ -465,6 +544,26 @@ def test_both_north_stars_and_exact_policy_inputs_are_required_without_defaults(
         "policy_version",
     } <= set(reporting["required"])
     assert "default" not in json.dumps(metrics)
+
+
+def test_legacy_success_metrics_and_nfr_categories_are_losslessly_representable() -> None:
+    schema = _load_json(BUNDLE_SCHEMA)
+    metrics = schema["properties"]["metrics"]
+    success = metrics["properties"]["success"]
+    assert success["propertyNames"] == {"$ref": "#/$defs/metric_id_success"}
+    assert set(success["additionalProperties"]["required"]) == {"definition"}
+
+    nfr = schema["properties"]["non_functional_requirements"]["additionalProperties"]
+    categories = set(nfr["properties"]["category"]["enum"])
+    assert {"COMPLIANCE", "OTHER"} <= categories
+    assert "source_category" in nfr["properties"]
+
+    bundle = _load_json(VALID_BUNDLE)
+    assert bundle["metrics"]["success"]["METRIC-SUCCESS-001"]["definition"]
+    assert (
+        bundle["non_functional_requirements"]["NFR-LEGACY-CATEGORY"]["source_category"]
+        == "operability"
+    )
 
 
 def test_metric_namespaces_make_stable_ids_structurally_disjoint() -> None:
@@ -612,19 +711,15 @@ def test_manifest_binds_bundle_provenance_approvals_and_member_digests() -> None
     assert "path" not in members["additionalProperties"]["properties"]
 
 
-def test_manifest_fixture_content_digests_bind_exact_fixture_bytes() -> None:
+def test_manifest_fixture_content_digests_bind_canonical_fixture_bytes() -> None:
     manifest = _load_json(VALID_MANIFEST)
-    expected_bundle_digest = f"sha256:{hashlib.sha256(VALID_BUNDLE.read_bytes()).hexdigest()}"
+    bundle = _load_json(VALID_BUNDLE)
+    expected_bundle_digest = f"sha256:{hashlib.sha256(_rfc8785_fixture_bytes(bundle)).hexdigest()}"
     assert manifest["bundle"]["content_digest"] == expected_bundle_digest
 
     projection = copy.deepcopy(manifest)
     manifest_digest = projection.pop("manifest_digest")
-    projection_bytes = json.dumps(
-        projection,
-        ensure_ascii=False,
-        separators=(",", ":"),
-        sort_keys=True,
-    ).encode()
+    projection_bytes = _rfc8785_fixture_bytes(projection)
     assert manifest_digest == f"sha256:{hashlib.sha256(projection_bytes).hexdigest()}"
 
     mismatched = _fixture_instance(FIXTURE_DIR / "mismatched_manifest_binding.json")
@@ -697,14 +792,16 @@ def test_product_owned_targets_privacy_release_rollback_and_approvals_are_typed(
         "properties"
     ]["target"]
     assert len(target["oneOf"]) == 3
-    statuses = {
-        branch["properties"]["status"]["const"]: set(branch["required"])
-        for branch in target["oneOf"]
-    }
+    branches = {branch["properties"]["status"]["const"]: branch for branch in target["oneOf"]}
+    statuses = {status: set(branch["required"]) for status, branch in branches.items()}
     assert {"operator", "status", "unit", "value"} <= statuses["APPROVED"]
+    assert branches["APPROVED"]["properties"]["baseline_plan"] is False
+    assert branches["APPROVED"]["properties"]["retirement_reason"] is False
     assert {"baseline_plan", "status", "unit"} <= statuses["BASELINE_REQUIRED"]
+    assert branches["BASELINE_REQUIRED"]["properties"]["retirement_reason"] is False
     assert "value" not in statuses["BASELINE_REQUIRED"]
     assert {"retirement_reason", "status", "unit"} <= statuses["RETIRED"]
+    assert branches["RETIRED"]["properties"]["baseline_plan"] is False
     assert {"data_residency", "deletion", "retention", "telemetry"} <= set(
         properties["privacy"]["required"]
     )

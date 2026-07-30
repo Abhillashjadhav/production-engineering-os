@@ -426,6 +426,12 @@
         "owner_ref": "OWNER-PRODUCT-001",
         "policy_version": "1.0.0"
       }
+    },
+    "success": {
+      "METRIC-SUCCESS-001": {
+        "definition": "Approved product truth is admitted without loss or invented decisions.",
+        "name": "Lossless contract admission"
+      }
     }
   },
   "non_functional_requirements": {
@@ -434,6 +440,13 @@
       "evidence_expectation": "Deterministic schema and fixture checks pass at the exact commit.",
       "requirement": "The same canonical bytes must produce the same validation result.",
       "target": "100 percent deterministic"
+    },
+    "NFR-LEGACY-CATEGORY": {
+      "category": "OTHER",
+      "evidence_expectation": "The exact source category remains machine-readable after canonical compilation.",
+      "requirement": "Preserve valid legacy non-functional-requirement categories without reinterpretation.",
+      "source_category": "operability",
+      "target": "No source category is discarded"
     }
   },
   "observability": {

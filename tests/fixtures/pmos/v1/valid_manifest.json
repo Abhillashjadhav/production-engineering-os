@@ -3,7 +3,7 @@
   "bundle": {
     "bundle_id": "BUNDLE-TASKFLOW-001",
     "bundle_version": "1.0.0",
-    "content_digest": "sha256:850e5126d6e6634962ad15603f73125b94f40a57bed9bbf2521a863a58973473",
+    "content_digest": "sha256:de9fe01d22dd2b6f904995a921f25436ac6db4ef710924af1c0285f695c722f4",
     "media_type": "application/json",
     "member_id": "MEMBER-CANONICAL-BUNDLE",
     "schema_id": "https://github.com/Abhillashjadhav/production-engineering-os/schemas/pmos_contract_bundle.schema.json",
@@ -11,7 +11,7 @@
   },
   "canonical_json_profile": "RFC8785",
   "created_at": "2026-07-30T00:00:00Z",
-  "manifest_digest": "sha256:aee45ff9c903a785b5edfb9ab6700165e2e0d93e44f6cf2a578b8906b99a8eed",
+  "manifest_digest": "sha256:54c7804a08deb8a3f5a20c43398a9ca9f7669fc1134f167c0cbd11f54280f472",
   "manifest_id": "MANIFEST-TASKFLOW-001",
   "manifest_version": "1.0.0",
   "members": {

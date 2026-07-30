@@ -1,5 +1,5 @@
 {
-  "$comment": "Before schema evaluation, issue #76 admission MUST reject duplicate object member names, non-JSON numeric constants, numeric tokens that overflow to non-finite IEEE-754 values, and integer tokens outside the interoperable exact IEEE-754 range, then canonicalize the parsed instance with RFC 8785 for digesting. JSON Schema evaluates parsed instances and cannot observe raw member tokens.",
+  "$comment": "Before schema evaluation, issue #76 admission MUST reject duplicate object member names, unpaired Unicode surrogate code points, non-JSON numeric constants, numeric tokens that overflow to non-finite IEEE-754 values, and integer tokens outside the interoperable exact IEEE-754 range, then canonicalize the parsed instance with RFC 8785 for digesting. JSON Schema evaluates parsed instances and cannot observe raw member tokens.",
   "$defs": {
     "acceptance_criterion_id": {
       "pattern": "^AC-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
@@ -66,6 +66,10 @@
     },
     "metric_id_mvp": {
       "pattern": "^METRIC-NSM-MVP-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
+      "type": "string"
+    },
+    "metric_id_success": {
+      "pattern": "^METRIC-SUCCESS-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
       "type": "string"
     },
     "metric_policy_id": {
@@ -948,6 +952,8 @@
                 "oneOf": [
                   {
                     "properties": {
+                      "baseline_plan": false,
+                      "retirement_reason": false,
                       "status": {
                         "const": "APPROVED"
                       }
@@ -966,6 +972,7 @@
                         "$ref": "#/$defs/non_empty_string"
                       },
                       "operator": false,
+                      "retirement_reason": false,
                       "status": {
                         "const": "BASELINE_REQUIRED"
                       },
@@ -980,6 +987,7 @@
                   },
                   {
                     "properties": {
+                      "baseline_plan": false,
                       "operator": false,
                       "retirement_reason": {
                         "$ref": "#/$defs/non_empty_string"
@@ -1184,13 +1192,36 @@
             "$ref": "#/$defs/reporting_policy_id"
           },
           "type": "object"
+        },
+        "success": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "definition": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "name": {
+                "$ref": "#/$defs/non_empty_string"
+              }
+            },
+            "required": [
+              "definition"
+            ],
+            "type": "object"
+          },
+          "description": "Distinct product success metrics that are neither leading metrics nor North Stars. A definition-only record losslessly represents a legacy success-metric statement without inventing a display name.",
+          "propertyNames": {
+            "$ref": "#/$defs/metric_id_success"
+          },
+          "type": "object"
         }
       },
       "required": [
         "leading",
         "maturity_policies",
         "north_stars",
-        "reporting_policies"
+        "reporting_policies",
+        "success"
       ],
       "type": "object"
     },
@@ -1201,8 +1232,10 @@
           "category": {
             "enum": [
               "ACCESSIBILITY",
+              "COMPLIANCE",
               "COST",
               "MAINTAINABILITY",
+              "OTHER",
               "PERFORMANCE",
               "PRIVACY",
               "RELIABILITY",
@@ -1217,6 +1250,10 @@
           },
           "requirement": {
             "$ref": "#/$defs/non_empty_string"
+          },
+          "source_category": {
+            "$ref": "#/$defs/non_empty_string",
+            "description": "Exact source category when category is OTHER. Issue #63 enforces that coupling without discarding a legacy category."
           },
           "target": {
             "$ref": "#/$defs/non_empty_string"
