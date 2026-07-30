@@ -1,0 +1,307 @@
+{
+  "acceptance_criteria": {
+    "AC-001": {
+      "criterion": "Given an approved contract, when intake runs, then every required product-truth section is admitted without loss.",
+      "requirement_refs": [
+        "FR-001"
+      ],
+      "verification_method": "Automated schema fixture"
+    }
+  },
+  "approvals": {
+    "APR-CONTRACT-001": {
+      "actor_id": "OWNER-PRODUCT-001",
+      "approved_at": "2026-07-30T00:00:00Z",
+      "decision": "APPROVED",
+      "role": "PRODUCT_OWNER",
+      "subject_refs": [
+        "BUNDLE-TASKFLOW-001"
+      ]
+    },
+    "APR-METRIC-001": {
+      "actor_id": "OWNER-PRODUCT-001",
+      "approved_at": "2026-07-30T00:00:00Z",
+      "decision": "APPROVED",
+      "role": "METRIC_POLICY_OWNER",
+      "subject_refs": [
+        "POLICY-METRIC-001"
+      ]
+    }
+  },
+  "assumptions": {
+    "ASM-001": {
+      "statement": "Approved PMOS contracts contain no credentials or customer records.",
+      "validation_plan": "Reject raw secret values and accept only governed references."
+    }
+  },
+  "bundle_id": "BUNDLE-TASKFLOW-001",
+  "bundle_version": "1.0.0",
+  "contract_status": "APPROVED",
+  "data": {
+    "requirements": {
+      "DATA-001": {
+        "classification": "INTERNAL",
+        "purpose": "Trace approved product intent through engineering evidence.",
+        "requirement": "Retain contract metadata and digests without embedding customer records.",
+        "retention": "PROJECT_LIFETIME"
+      }
+    }
+  },
+  "extensions": {
+    "EXT-REPOSITORY-001": {
+      "effect": "ADD_CONSTRAINTS_ONLY",
+      "payload": {
+        "repository_family": "python"
+      },
+      "payload_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "schema_id": "https://example.invalid/schemas/repository-extension.schema.json",
+      "schema_version": "1.0.0",
+      "target_refs": [
+        "FR-001"
+      ]
+    }
+  },
+  "functional_requirements": {
+    "FR-001": {
+      "acceptance_criterion_refs": [
+        "AC-001"
+      ],
+      "priority": "MUST",
+      "statement": "Accept one canonical PMOS contract bundle without inventing missing product truth.",
+      "title": "Canonical contract intake"
+    }
+  },
+  "guardrails": {
+    "GUARD-SECURITY-001": {
+      "category": "SECURITY",
+      "description": "Contracts must contain references to secrets, never secret values.",
+      "response": "BLOCK",
+      "threshold": "Zero embedded credentials"
+    }
+  },
+  "integrations": {
+    "INT-PMOS-001": {
+      "authentication": "GOVERNED_REFERENCE_ONLY",
+      "direction": "INBOUND",
+      "name": "PM Agent OS",
+      "purpose": "Publish approved product truth bundles."
+    }
+  },
+  "metrics": {
+    "leading": {
+      "METRIC-LEAD-001": {
+        "definition": "Share of received bundles that pass structural validation on first submission.",
+        "direction": "INCREASE",
+        "maturity_policy_ref": "POLICY-METRIC-001",
+        "name": "First-pass contract validation rate"
+      }
+    },
+    "maturity_policies": {
+      "POLICY-METRIC-001": {
+        "applicable_autonomy_stages": [
+          "DRAFT_PR",
+          "STAGING",
+          "CANARY",
+          "PRODUCTION"
+        ],
+        "approval_ref": "APR-METRIC-001",
+        "name": "Verified delivery metric maturity",
+        "owner_ref": "OWNER-PRODUCT-001",
+        "policy_version": "1.0.0"
+      }
+    },
+    "north_star": {
+      "definition": "Percentage of approved contract slices deployed with acceptance, SLO, and evidence gates satisfied without manual code modification.",
+      "delivery_window": {
+        "anchor_event": "CONTRACT_APPROVED",
+        "duration": "P30D",
+        "time_zone": "UTC"
+      },
+      "direction": "INCREASE",
+      "evaluation_window": {
+        "anchor_event": "CONTRACT_APPROVED",
+        "duration": "P30D",
+        "time_zone": "UTC"
+      },
+      "maturity_policy_ref": "POLICY-METRIC-001",
+      "metric_id": "METRIC-NSM-001",
+      "name": "Verified autonomous production delivery rate",
+      "observation_window": {
+        "anchor_event": "PRODUCTION_DEPLOYED",
+        "duration": "P7D",
+        "time_zone": "UTC"
+      },
+      "reporting_window": {
+        "anchor_event": "OBSERVATION_WINDOW_CLOSED",
+        "duration": "P1D",
+        "time_zone": "UTC"
+      }
+    }
+  },
+  "non_functional_requirements": {
+    "NFR-001": {
+      "category": "RELIABILITY",
+      "evidence_expectation": "Deterministic schema and fixture checks pass at the exact commit.",
+      "requirement": "The same canonical bytes must produce the same validation result.",
+      "target": "100 percent deterministic"
+    }
+  },
+  "observability": {
+    "requirements": {
+      "OBS-001": {
+        "alert_condition": "Any admitted bundle lacks a required evidence reference.",
+        "requirement": "Record contract admission outcomes and stable subject identifiers.",
+        "signal": "contract_admission_total"
+      }
+    }
+  },
+  "open_questions": {
+    "QUESTION-001": {
+      "blocking": false,
+      "owner_ref": "OWNER-PRODUCT-001",
+      "question": "Which optional repository extensions will be standardized after MVP?",
+      "resolution": "Defer until extension usage evidence exists."
+    }
+  },
+  "privacy": {
+    "contract_data_policy": "CLASSIFICATION_AND_PURPOSE_ONLY_NO_PERSONAL_RECORDS",
+    "requirements": {
+      "PRIV-001": {
+        "data_category": "CONTRACT_METADATA",
+        "lawful_purpose": "Product-to-engineering traceability",
+        "requirement": "Do not embed personal records in the contract bundle."
+      }
+    }
+  },
+  "product": {
+    "hypothesis": {
+      "falsification_condition": "Approved bundles still require engineers to infer material product decisions.",
+      "statement": "A complete canonical contract will reduce manual engineering handholding."
+    },
+    "outcome": {
+      "measurable_change": "More approved slices reach evidence-backed draft PRs without manual engineering intervention.",
+      "statement": "Engineering can begin from explicit, approved, traceable product truth."
+    },
+    "problem": {
+      "affected_customers": "Product owners and engineering teams using PM Agent OS.",
+      "statement": "Separate legacy contracts omit required product truth and use incompatible version semantics."
+    },
+    "target_customers": [
+      "Product owners publishing approved PM Agent OS contracts",
+      "Engineering teams consuming approved product truth"
+    ]
+  },
+  "provenance": {
+    "published_at": "2026-07-30T00:00:00Z",
+    "source_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "source_id": "PMOS-CONTRACT-001",
+    "source_system": "PM_AGENT_OS",
+    "source_version": "1.0.0"
+  },
+  "quality_assurance": {
+    "expectations": {
+      "QA-001": {
+        "evidence_type": "AUTOMATED_TEST",
+        "expectation": "Valid and invalid canonical fixtures produce deterministic outcomes.",
+        "requirement_refs": [
+          "FR-001",
+          "NFR-001"
+        ]
+      }
+    }
+  },
+  "release": {
+    "approval_refs": [
+      "APR-CONTRACT-001"
+    ],
+    "expectations": {
+      "REL-001": {
+        "environment": "DRAFT_PR",
+        "expectation": "Open one focused draft PR with exact-head evidence."
+      }
+    },
+    "requested_autonomy_stage": "DRAFT_PR"
+  },
+  "risks": {
+    "RISK-001": {
+      "description": "An incomplete schema could falsely admit missing product truth.",
+      "mitigation": "Require every Phase 0 section and exercise planted invalid fixtures.",
+      "severity": "HIGH"
+    }
+  },
+  "rollback": {
+    "requirements": {
+      "ROLLBACK-001": {
+        "recovery_evidence": "Prior schema remains addressable and registered contracts remain unchanged.",
+        "requirement": "Revert the schema PR without rewriting previously registered contracts.",
+        "trigger": "Canonical schema admits invalid product truth or breaks declared compatibility."
+      }
+    }
+  },
+  "schema_id": "https://github.com/Abhillashjadhav/production-engineering-os/schemas/pmos_contract_bundle.schema.json",
+  "schema_version": "1.0.0",
+  "scope": {
+    "in_scope": [
+      "Canonical PMOS contract bundle schema",
+      "Canonical bundle manifest schema",
+      "Schema-only fixtures and tests"
+    ],
+    "non_goals": [
+      "Runtime compiler or migrations",
+      "Semantic contradiction detection",
+      "Implementation or deployment"
+    ]
+  },
+  "security": {
+    "requirements": {
+      "SEC-001": {
+        "requirement": "Reject embedded credentials and preserve only governed secret references.",
+        "threat": "Credential disclosure through contract content",
+        "verification": "Secret-scanning and schema-policy evidence"
+      }
+    },
+    "secret_handling": "REFERENCES_ONLY_NO_SECRET_VALUES"
+  },
+  "technical_constraints": {
+    "CONSTRAINT-001": {
+      "constraint": "Use JSON Schema draft 2020-12 as the normative wire contract.",
+      "reason": "Provide deterministic, tool-neutral structural validation."
+    }
+  },
+  "ux": {
+    "accessibility": {
+      "A11Y-001": {
+        "evidence_expectation": "Automated and manual accessibility evidence",
+        "level": "AA",
+        "requirement": "Generated user experiences must satisfy WCAG 2.2 AA.",
+        "standard": "WCAG-2.2"
+      }
+    },
+    "edge_cases": {
+      "EDGE-001": {
+        "condition": "A required product decision is absent.",
+        "expected_behavior": "Stop with PRODUCT_INPUT_REQUIRED rather than inventing a value.",
+        "requirement_refs": [
+          "FR-001"
+        ]
+      }
+    },
+    "flows": {
+      "UX-FLOW-001": {
+        "actor": "Product owner",
+        "goal": "Publish an approved contract for engineering intake.",
+        "name": "Approve and publish contract",
+        "steps": [
+          {
+            "action": "Approve explicit product truth",
+            "expected_outcome": "Approval metadata binds the contract subject."
+          },
+          {
+            "action": "Publish the canonical bundle",
+            "expected_outcome": "PEOS receives versioned canonical bytes and provenance."
+          }
+        ]
+      }
+    }
+  }
+}

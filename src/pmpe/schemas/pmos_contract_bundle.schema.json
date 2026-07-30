@@ -1,0 +1,1185 @@
+{
+  "$defs": {
+    "date_time": {
+      "format": "date-time",
+      "minLength": 1,
+      "type": "string"
+    },
+    "digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "non_empty_string": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "reference_list": {
+      "items": {
+        "$ref": "#/$defs/stable_id"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "semver": {
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "type": "string"
+    },
+    "stable_id": {
+      "description": "Stable uppercase traceability identifier. Registry keys are the canonical IDs; cross-registry existence is validated by the semantic validator.",
+      "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$",
+      "type": "string"
+    },
+    "string_list": {
+      "items": {
+        "$ref": "#/$defs/non_empty_string"
+      },
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "window": {
+      "additionalProperties": false,
+      "description": "Product-owned window rule. It defines how a later controller assigns due times; the schema supplies no default.",
+      "properties": {
+        "anchor_event": {
+          "$ref": "#/$defs/non_empty_string"
+        },
+        "duration": {
+          "description": "ISO-8601 duration selected by the product owner.",
+          "pattern": "^P(?!$).+$",
+          "type": "string"
+        },
+        "time_zone": {
+          "$ref": "#/$defs/non_empty_string"
+        }
+      },
+      "required": [
+        "anchor_event",
+        "duration",
+        "time_zone"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/Abhillashjadhav/production-engineering-os/schemas/pmos_contract_bundle.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Canonical PM Agent OS product-truth bundle consumed by Production Engineering OS. PMOS owns every product value; PEOS validates and executes without inventing missing truth. Existing V1-V3 contracts remain separate inputs until the compiler and migrations in issue #76 map them here.",
+  "properties": {
+    "acceptance_criteria": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "criterion": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "requirement_refs": {
+            "$ref": "#/$defs/reference_list"
+          },
+          "verification_method": {
+            "$ref": "#/$defs/non_empty_string"
+          }
+        },
+        "required": [
+          "criterion",
+          "requirement_refs",
+          "verification_method"
+        ],
+        "type": "object"
+      },
+      "description": "Registry keyed by stable acceptance-criterion ID.",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/stable_id"
+      },
+      "type": "object"
+    },
+    "approvals": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "$ref": "#/$defs/stable_id"
+          },
+          "approved_at": {
+            "$ref": "#/$defs/date_time"
+          },
+          "decision": {
+            "enum": [
+              "APPROVED",
+              "REJECTED"
+            ],
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "subject_refs": {
+            "$ref": "#/$defs/reference_list"
+          }
+        },
+        "required": [
+          "actor_id",
+          "approved_at",
+          "decision",
+          "role",
+          "subject_refs"
+        ],
+        "type": "object"
+      },
+      "description": "Registry keyed by stable approval ID. Approval authority and freshness are semantic policy, not inferred by this schema.",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/stable_id"
+      },
+      "type": "object"
+    },
+    "assumptions": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "statement": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "validation_plan": {
+            "$ref": "#/$defs/non_empty_string"
+          }
+        },
+        "required": [
+          "statement",
+          "validation_plan"
+        ],
+        "type": "object"
+      },
+      "description": "Registry keyed by stable assumption ID. An empty object explicitly means PMOS approved no assumptions.",
+      "propertyNames": {
+        "$ref": "#/$defs/stable_id"
+      },
+      "type": "object"
+    },
+    "bundle_id": {
+      "$ref": "#/$defs/stable_id"
+    },
+    "bundle_version": {
+      "$ref": "#/$defs/semver"
+    },
+    "contract_status": {
+      "enum": [
+        "DRAFT",
+        "APPROVED",
+        "SUPERSEDED",
+        "REJECTED"
+      ],
+      "type": "string"
+    },
+    "data": {
+      "additionalProperties": false,
+      "properties": {
+        "requirements": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "classification": {
+                "enum": [
+                  "PUBLIC",
+                  "INTERNAL",
+                  "CONFIDENTIAL",
+                  "RESTRICTED"
+                ],
+                "type": "string"
+              },
+              "purpose": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "requirement": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "retention": {
+                "$ref": "#/$defs/non_empty_string"
+              }
+            },
+            "required": [
+              "classification",
+              "purpose",
+              "requirement",
+              "retention"
+            ],
+            "type": "object"
+          },
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/stable_id"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "requirements"
+      ],
+      "type": "object"
+    },
+    "extensions": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "effect": {
+            "const": "ADD_CONSTRAINTS_ONLY",
+            "description": "Extensions may add constraints but can never weaken or replace core truth."
+          },
+          "payload": {
+            "additionalProperties": true,
+            "description": "Repository-specific data interpreted only through the named extension schema.",
+            "type": "object"
+          },
+          "payload_digest": {
+            "$ref": "#/$defs/digest"
+          },
+          "schema_id": {
+            "$ref": "#/$defs/non_empty_string",
+            "format": "uri"
+          },
+          "schema_version": {
+            "$ref": "#/$defs/semver"
+          },
+          "target_refs": {
+            "$ref": "#/$defs/reference_list"
+          }
+        },
+        "required": [
+          "effect",
+          "payload",
+          "payload_digest",
+          "schema_id",
+          "schema_version",
+          "target_refs"
+        ],
+        "type": "object"
+      },
+      "description": "Typed repository-specific extension registry. Unknown extension schemas fail during compiler admission in issue #76.",
+      "propertyNames": {
+        "$ref": "#/$defs/stable_id"
+      },
+      "type": "object"
+    },
+    "functional_requirements": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "acceptance_criterion_refs": {
+            "$ref": "#/$defs/reference_list"
+          },
+          "priority": {
+            "enum": [
+              "MUST",
+              "SHOULD",
+              "COULD"
+            ],
+            "type": "string"
+          },
+          "statement": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "title": {
+            "$ref": "#/$defs/non_empty_string"
+          }
+        },
+        "required": [
+          "acceptance_criterion_refs",
+          "priority",
+          "statement",
+          "title"
+        ],
+        "type": "object"
+      },
+      "description": "Registry keyed by stable functional-requirement ID.",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/stable_id"
+      },
+      "type": "object"
+    },
+    "guardrails": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "enum": [
+              "AUTONOMY",
+              "COST",
+              "DEVELOPER_EXPERIENCE",
+              "PRIVACY",
+              "QUALITY",
+              "RELIABILITY",
+              "SECURITY"
+            ],
+            "type": "string"
+          },
+          "description": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "response": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "threshold": {
+            "$ref": "#/$defs/non_empty_string"
+          }
+        },
+        "required": [
+          "category",
+          "description",
+          "response",
+          "threshold"
+        ],
+        "type": "object"
+      },
+      "description": "Registry keyed by stable guardrail ID.",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/stable_id"
+      },
+      "type": "object"
+    },
+    "integrations": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "authentication": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "direction": {
+            "enum": [
+              "INBOUND",
+              "OUTBOUND",
+              "BIDIRECTIONAL"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "purpose": {
+            "$ref": "#/$defs/non_empty_string"
+          }
+        },
+        "required": [
+          "authentication",
+          "direction",
+          "name",
+          "purpose"
+        ],
+        "type": "object"
+      },
+      "description": "Registry keyed by stable integration ID. Credentials are never embedded.",
+      "propertyNames": {
+        "$ref": "#/$defs/stable_id"
+      },
+      "type": "object"
+    },
+    "metrics": {
+      "additionalProperties": false,
+      "properties": {
+        "leading": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "definition": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "direction": {
+                "enum": [
+                  "DECREASE",
+                  "INCREASE",
+                  "MAINTAIN"
+                ],
+                "type": "string"
+              },
+              "maturity_policy_ref": {
+                "$ref": "#/$defs/stable_id"
+              },
+              "name": {
+                "$ref": "#/$defs/non_empty_string"
+              }
+            },
+            "required": [
+              "definition",
+              "direction",
+              "maturity_policy_ref",
+              "name"
+            ],
+            "type": "object"
+          },
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/stable_id"
+          },
+          "type": "object"
+        },
+        "maturity_policies": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "applicable_autonomy_stages": {
+                "items": {
+                  "enum": [
+                    "DRAFT_PR",
+                    "STAGING",
+                    "CANARY",
+                    "PRODUCTION"
+                  ],
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              },
+              "approval_ref": {
+                "$ref": "#/$defs/stable_id"
+              },
+              "name": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "owner_ref": {
+                "$ref": "#/$defs/stable_id"
+              },
+              "policy_version": {
+                "$ref": "#/$defs/semver"
+              }
+            },
+            "required": [
+              "applicable_autonomy_stages",
+              "approval_ref",
+              "name",
+              "owner_ref",
+              "policy_version"
+            ],
+            "type": "object"
+          },
+          "description": "Named, versioned, owner-approved metric maturity policies.",
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/stable_id"
+          },
+          "type": "object"
+        },
+        "north_star": {
+          "additionalProperties": false,
+          "properties": {
+            "definition": {
+              "$ref": "#/$defs/non_empty_string"
+            },
+            "delivery_window": {
+              "$ref": "#/$defs/window"
+            },
+            "direction": {
+              "enum": [
+                "DECREASE",
+                "INCREASE",
+                "MAINTAIN"
+              ],
+              "type": "string"
+            },
+            "evaluation_window": {
+              "$ref": "#/$defs/window"
+            },
+            "maturity_policy_ref": {
+              "$ref": "#/$defs/stable_id"
+            },
+            "metric_id": {
+              "$ref": "#/$defs/stable_id"
+            },
+            "name": {
+              "$ref": "#/$defs/non_empty_string"
+            },
+            "observation_window": {
+              "$ref": "#/$defs/window"
+            },
+            "reporting_window": {
+              "$ref": "#/$defs/window"
+            }
+          },
+          "required": [
+            "definition",
+            "delivery_window",
+            "direction",
+            "evaluation_window",
+            "maturity_policy_ref",
+            "metric_id",
+            "name",
+            "observation_window",
+            "reporting_window"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "leading",
+        "maturity_policies",
+        "north_star"
+      ],
+      "type": "object"
+    },
+    "non_functional_requirements": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "enum": [
+              "ACCESSIBILITY",
+              "COST",
+              "MAINTAINABILITY",
+              "PERFORMANCE",
+              "PRIVACY",
+              "RELIABILITY",
+              "SCALABILITY",
+              "SECURITY",
+              "USABILITY"
+            ],
+            "type": "string"
+          },
+          "evidence_expectation": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "requirement": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "target": {
+            "$ref": "#/$defs/non_empty_string"
+          }
+        },
+        "required": [
+          "category",
+          "evidence_expectation",
+          "requirement",
+          "target"
+        ],
+        "type": "object"
+      },
+      "description": "Registry keyed by stable non-functional-requirement ID.",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/stable_id"
+      },
+      "type": "object"
+    },
+    "observability": {
+      "additionalProperties": false,
+      "properties": {
+        "requirements": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "alert_condition": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "requirement": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "signal": {
+                "$ref": "#/$defs/non_empty_string"
+              }
+            },
+            "required": [
+              "alert_condition",
+              "requirement",
+              "signal"
+            ],
+            "type": "object"
+          },
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/stable_id"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "requirements"
+      ],
+      "type": "object"
+    },
+    "open_questions": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "blocking": {
+            "type": "boolean"
+          },
+          "owner_ref": {
+            "$ref": "#/$defs/stable_id"
+          },
+          "question": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "resolution": {
+            "$ref": "#/$defs/non_empty_string"
+          }
+        },
+        "required": [
+          "blocking",
+          "owner_ref",
+          "question"
+        ],
+        "type": "object"
+      },
+      "description": "Registry keyed by stable question ID. Blocking/resolution consistency is semantic policy in issue #63.",
+      "propertyNames": {
+        "$ref": "#/$defs/stable_id"
+      },
+      "type": "object"
+    },
+    "privacy": {
+      "additionalProperties": false,
+      "properties": {
+        "contract_data_policy": {
+          "const": "CLASSIFICATION_AND_PURPOSE_ONLY_NO_PERSONAL_RECORDS"
+        },
+        "requirements": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "data_category": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "lawful_purpose": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "requirement": {
+                "$ref": "#/$defs/non_empty_string"
+              }
+            },
+            "required": [
+              "data_category",
+              "lawful_purpose",
+              "requirement"
+            ],
+            "type": "object"
+          },
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/stable_id"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "contract_data_policy",
+        "requirements"
+      ],
+      "type": "object"
+    },
+    "product": {
+      "additionalProperties": false,
+      "properties": {
+        "hypothesis": {
+          "additionalProperties": false,
+          "properties": {
+            "falsification_condition": {
+              "$ref": "#/$defs/non_empty_string"
+            },
+            "statement": {
+              "$ref": "#/$defs/non_empty_string"
+            }
+          },
+          "required": [
+            "falsification_condition",
+            "statement"
+          ],
+          "type": "object"
+        },
+        "outcome": {
+          "additionalProperties": false,
+          "properties": {
+            "measurable_change": {
+              "$ref": "#/$defs/non_empty_string"
+            },
+            "statement": {
+              "$ref": "#/$defs/non_empty_string"
+            }
+          },
+          "required": [
+            "measurable_change",
+            "statement"
+          ],
+          "type": "object"
+        },
+        "problem": {
+          "additionalProperties": false,
+          "properties": {
+            "affected_customers": {
+              "$ref": "#/$defs/non_empty_string"
+            },
+            "statement": {
+              "$ref": "#/$defs/non_empty_string"
+            }
+          },
+          "required": [
+            "affected_customers",
+            "statement"
+          ],
+          "type": "object"
+        },
+        "target_customers": {
+          "$ref": "#/$defs/string_list"
+        }
+      },
+      "required": [
+        "hypothesis",
+        "outcome",
+        "problem",
+        "target_customers"
+      ],
+      "type": "object"
+    },
+    "provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "compiler_provenance": {
+          "additionalProperties": false,
+          "description": "Reserved for issue #76. Omit for a natively authored canonical bundle; never fabricate compiler values.",
+          "properties": {
+            "compiler_id": {
+              "$ref": "#/$defs/non_empty_string"
+            },
+            "compiler_version": {
+              "$ref": "#/$defs/semver"
+            },
+            "input_digest": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "compiler_id",
+            "compiler_version",
+            "input_digest"
+          ],
+          "type": "object"
+        },
+        "published_at": {
+          "$ref": "#/$defs/date_time"
+        },
+        "source_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "source_id": {
+          "$ref": "#/$defs/stable_id"
+        },
+        "source_system": {
+          "const": "PM_AGENT_OS",
+          "description": "PM Agent OS owns the product truth published through this boundary."
+        },
+        "source_version": {
+          "$ref": "#/$defs/semver"
+        }
+      },
+      "required": [
+        "published_at",
+        "source_digest",
+        "source_id",
+        "source_system",
+        "source_version"
+      ],
+      "type": "object"
+    },
+    "quality_assurance": {
+      "additionalProperties": false,
+      "properties": {
+        "expectations": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "evidence_type": {
+                "enum": [
+                  "AUTOMATED_TEST",
+                  "MANUAL_EVIDENCE",
+                  "OBSERVATION"
+                ],
+                "type": "string"
+              },
+              "expectation": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "requirement_refs": {
+                "$ref": "#/$defs/reference_list"
+              }
+            },
+            "required": [
+              "evidence_type",
+              "expectation",
+              "requirement_refs"
+            ],
+            "type": "object"
+          },
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/stable_id"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "expectations"
+      ],
+      "type": "object"
+    },
+    "release": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_refs": {
+          "$ref": "#/$defs/reference_list"
+        },
+        "expectations": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "environment": {
+                "enum": [
+                  "DRAFT_PR",
+                  "STAGING",
+                  "CANARY",
+                  "PRODUCTION"
+                ],
+                "type": "string"
+              },
+              "expectation": {
+                "$ref": "#/$defs/non_empty_string"
+              }
+            },
+            "required": [
+              "environment",
+              "expectation"
+            ],
+            "type": "object"
+          },
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/stable_id"
+          },
+          "type": "object"
+        },
+        "requested_autonomy_stage": {
+          "enum": [
+            "DRAFT_PR",
+            "STAGING",
+            "CANARY",
+            "PRODUCTION"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "approval_refs",
+        "expectations",
+        "requested_autonomy_stage"
+      ],
+      "type": "object"
+    },
+    "risks": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "mitigation": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "severity": {
+            "enum": [
+              "LOW",
+              "MEDIUM",
+              "HIGH",
+              "CRITICAL"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "mitigation",
+          "severity"
+        ],
+        "type": "object"
+      },
+      "description": "Registry keyed by stable risk ID.",
+      "propertyNames": {
+        "$ref": "#/$defs/stable_id"
+      },
+      "type": "object"
+    },
+    "rollback": {
+      "additionalProperties": false,
+      "properties": {
+        "requirements": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "recovery_evidence": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "requirement": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "trigger": {
+                "$ref": "#/$defs/non_empty_string"
+              }
+            },
+            "required": [
+              "recovery_evidence",
+              "requirement",
+              "trigger"
+            ],
+            "type": "object"
+          },
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/stable_id"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "requirements"
+      ],
+      "type": "object"
+    },
+    "schema_id": {
+      "const": "https://github.com/Abhillashjadhav/production-engineering-os/schemas/pmos_contract_bundle.schema.json"
+    },
+    "schema_version": {
+      "enum": [
+        "1.0.0"
+      ],
+      "type": "string"
+    },
+    "scope": {
+      "additionalProperties": false,
+      "properties": {
+        "in_scope": {
+          "$ref": "#/$defs/string_list"
+        },
+        "non_goals": {
+          "$ref": "#/$defs/string_list"
+        }
+      },
+      "required": [
+        "in_scope",
+        "non_goals"
+      ],
+      "type": "object"
+    },
+    "security": {
+      "additionalProperties": false,
+      "properties": {
+        "requirements": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "requirement": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "threat": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "verification": {
+                "$ref": "#/$defs/non_empty_string"
+              }
+            },
+            "required": [
+              "requirement",
+              "threat",
+              "verification"
+            ],
+            "type": "object"
+          },
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/stable_id"
+          },
+          "type": "object"
+        },
+        "secret_handling": {
+          "const": "REFERENCES_ONLY_NO_SECRET_VALUES"
+        }
+      },
+      "required": [
+        "requirements",
+        "secret_handling"
+      ],
+      "type": "object"
+    },
+    "technical_constraints": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "constraint": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "reason": {
+            "$ref": "#/$defs/non_empty_string"
+          }
+        },
+        "required": [
+          "constraint",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "description": "Registry keyed by stable technical-constraint ID.",
+      "propertyNames": {
+        "$ref": "#/$defs/stable_id"
+      },
+      "type": "object"
+    },
+    "ux": {
+      "additionalProperties": false,
+      "properties": {
+        "accessibility": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "evidence_expectation": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "level": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "requirement": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "standard": {
+                "$ref": "#/$defs/non_empty_string"
+              }
+            },
+            "required": [
+              "evidence_expectation",
+              "level",
+              "requirement",
+              "standard"
+            ],
+            "type": "object"
+          },
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/stable_id"
+          },
+          "type": "object"
+        },
+        "edge_cases": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "condition": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "expected_behavior": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "requirement_refs": {
+                "$ref": "#/$defs/reference_list"
+              }
+            },
+            "required": [
+              "condition",
+              "expected_behavior",
+              "requirement_refs"
+            ],
+            "type": "object"
+          },
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/stable_id"
+          },
+          "type": "object"
+        },
+        "flows": {
+          "additionalProperties": {
+            "additionalProperties": false,
+            "properties": {
+              "actor": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "goal": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "name": {
+                "$ref": "#/$defs/non_empty_string"
+              },
+              "steps": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "action": {
+                      "$ref": "#/$defs/non_empty_string"
+                    },
+                    "expected_outcome": {
+                      "$ref": "#/$defs/non_empty_string"
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "expected_outcome"
+                  ],
+                  "type": "object"
+                },
+                "minItems": 1,
+                "type": "array",
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "actor",
+              "goal",
+              "name",
+              "steps"
+            ],
+            "type": "object"
+          },
+          "minProperties": 1,
+          "propertyNames": {
+            "$ref": "#/$defs/stable_id"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "accessibility",
+        "edge_cases",
+        "flows"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "acceptance_criteria",
+    "approvals",
+    "assumptions",
+    "bundle_id",
+    "bundle_version",
+    "contract_status",
+    "data",
+    "extensions",
+    "functional_requirements",
+    "guardrails",
+    "integrations",
+    "metrics",
+    "non_functional_requirements",
+    "observability",
+    "open_questions",
+    "privacy",
+    "product",
+    "provenance",
+    "quality_assurance",
+    "release",
+    "risks",
+    "rollback",
+    "schema_id",
+    "schema_version",
+    "scope",
+    "security",
+    "technical_constraints",
+    "ux"
+  ],
+  "title": "Canonical PMOS Contract Bundle",
+  "type": "object"
+}

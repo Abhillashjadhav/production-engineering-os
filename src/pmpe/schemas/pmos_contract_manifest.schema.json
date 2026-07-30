@@ -1,0 +1,184 @@
+{
+  "$defs": {
+    "date_time": {
+      "format": "date-time",
+      "minLength": 1,
+      "type": "string"
+    },
+    "digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "non_empty_string": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "semver": {
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$",
+      "type": "string"
+    },
+    "stable_id": {
+      "description": "Stable uppercase traceability identifier.",
+      "pattern": "^[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)+$",
+      "type": "string"
+    }
+  },
+  "$id": "https://github.com/Abhillashjadhav/production-engineering-os/schemas/pmos_contract_manifest.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "Content-addressed manifest for a canonical PMOS contract bundle. It binds the bundle subject, every member, source provenance, and approval evidence without embedding credentials or product data.",
+  "properties": {
+    "approval_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "bundle_digest": {
+      "$ref": "#/$defs/digest"
+    },
+    "bundle_id": {
+      "$ref": "#/$defs/stable_id"
+    },
+    "bundle_member_ref": {
+      "$ref": "#/$defs/stable_id"
+    },
+    "bundle_version": {
+      "$ref": "#/$defs/semver"
+    },
+    "created_at": {
+      "$ref": "#/$defs/date_time"
+    },
+    "manifest_id": {
+      "$ref": "#/$defs/stable_id"
+    },
+    "manifest_version": {
+      "$ref": "#/$defs/semver"
+    },
+    "members": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "content_digest": {
+            "$ref": "#/$defs/digest"
+          },
+          "kind": {
+            "enum": [
+              "ATTACHMENT",
+              "CONTRACT_BUNDLE",
+              "EXTENSION_SCHEMA"
+            ],
+            "type": "string"
+          },
+          "media_type": {
+            "$ref": "#/$defs/non_empty_string"
+          },
+          "path": {
+            "description": "Bundle-relative path. Path traversal and member-reference existence are enforced during compiler admission.",
+            "minLength": 1,
+            "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$)).+$",
+            "type": "string"
+          },
+          "schema_id": {
+            "$ref": "#/$defs/non_empty_string",
+            "format": "uri"
+          },
+          "schema_version": {
+            "$ref": "#/$defs/semver"
+          },
+          "source_ref": {
+            "$ref": "#/$defs/stable_id"
+          }
+        },
+        "required": [
+          "content_digest",
+          "kind",
+          "media_type",
+          "path",
+          "schema_id",
+          "schema_version",
+          "source_ref"
+        ],
+        "type": "object"
+      },
+      "description": "Registry keyed by stable bundle-member ID, which makes duplicate member IDs structurally impossible in canonical JSON.",
+      "minProperties": 1,
+      "propertyNames": {
+        "$ref": "#/$defs/stable_id"
+      },
+      "type": "object"
+    },
+    "provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "compiler_provenance": {
+          "additionalProperties": false,
+          "description": "Reserved for issue #76. Omit for a natively authored canonical bundle.",
+          "properties": {
+            "compiler_id": {
+              "$ref": "#/$defs/non_empty_string"
+            },
+            "compiler_version": {
+              "$ref": "#/$defs/semver"
+            },
+            "input_digest": {
+              "$ref": "#/$defs/digest"
+            }
+          },
+          "required": [
+            "compiler_id",
+            "compiler_version",
+            "input_digest"
+          ],
+          "type": "object"
+        },
+        "published_at": {
+          "$ref": "#/$defs/date_time"
+        },
+        "source_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "source_id": {
+          "$ref": "#/$defs/stable_id"
+        },
+        "source_system": {
+          "const": "PM_AGENT_OS",
+          "description": "PM Agent OS owns the source product truth."
+        },
+        "source_version": {
+          "$ref": "#/$defs/semver"
+        }
+      },
+      "required": [
+        "published_at",
+        "source_digest",
+        "source_id",
+        "source_system",
+        "source_version"
+      ],
+      "type": "object"
+    },
+    "schema_id": {
+      "const": "https://github.com/Abhillashjadhav/production-engineering-os/schemas/pmos_contract_manifest.schema.json"
+    },
+    "schema_version": {
+      "enum": [
+        "1.0.0"
+      ],
+      "type": "string"
+    }
+  },
+  "required": [
+    "approval_digest",
+    "bundle_digest",
+    "bundle_id",
+    "bundle_member_ref",
+    "bundle_version",
+    "created_at",
+    "manifest_id",
+    "manifest_version",
+    "members",
+    "provenance",
+    "schema_id",
+    "schema_version"
+  ],
+  "title": "Canonical PMOS Contract Manifest",
+  "type": "object"
+}

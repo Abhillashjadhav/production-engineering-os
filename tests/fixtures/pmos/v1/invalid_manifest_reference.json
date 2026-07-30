@@ -1,0 +1,12 @@
+{
+  "$fixture_base": "valid_manifest.json",
+  "$mutations": [
+    {
+      "op": "replace",
+      "path": [
+        "bundle_member_ref"
+      ],
+      "value": "invalid member reference"
+    }
+  ]
+}

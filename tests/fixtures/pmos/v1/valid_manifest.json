@@ -1,0 +1,30 @@
+{
+  "approval_digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "bundle_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+  "bundle_id": "BUNDLE-TASKFLOW-001",
+  "bundle_member_ref": "MEMBER-CONTRACT-001",
+  "bundle_version": "1.0.0",
+  "created_at": "2026-07-30T00:00:00Z",
+  "manifest_id": "MANIFEST-TASKFLOW-001",
+  "manifest_version": "1.0.0",
+  "members": {
+    "MEMBER-CONTRACT-001": {
+      "content_digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "kind": "CONTRACT_BUNDLE",
+      "media_type": "application/json",
+      "path": "contract-bundle.json",
+      "schema_id": "https://github.com/Abhillashjadhav/production-engineering-os/schemas/pmos_contract_bundle.schema.json",
+      "schema_version": "1.0.0",
+      "source_ref": "PMOS-CONTRACT-001"
+    }
+  },
+  "provenance": {
+    "published_at": "2026-07-30T00:00:00Z",
+    "source_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "source_id": "PMOS-CONTRACT-001",
+    "source_system": "PM_AGENT_OS",
+    "source_version": "1.0.0"
+  },
+  "schema_id": "https://github.com/Abhillashjadhav/production-engineering-os/schemas/pmos_contract_manifest.schema.json",
+  "schema_version": "1.0.0"
+}
