@@ -54,6 +54,7 @@ def _commit(repo: Path, path: str, content: str) -> str:
         "products/pm-evals-web/frontend/src/lib/api-types.gen.ts",
         "products/pm-evals-web/frontend/Dockerfile",
         "products/pm-evals-web/e2e/tests/journey.spec.ts",
+        "products/pm-evals-web/fixtures/baseline.json",
         "products/pm-evals-web/backend/openapi.json",
         "products/pm-evals-web/backend/scripts/export_openapi.py",
         "products/pm-evals-web/docker-compose.yml",
