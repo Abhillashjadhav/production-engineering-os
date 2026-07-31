@@ -53,8 +53,15 @@ _SECRET_PATTERNS = (
 )
 _PERSONAL_PATTERNS = (re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"),)
 _INTAKE_EVIDENCE_PROFILE = "PMPE-VALIDATION-INTAKE-EVIDENCE-1"
+_AUTHORITY_EVIDENCE_PROFILE = "PMPE-VALIDATION-AUTHORITY-EVIDENCE-1"
+_STORE_EVIDENCE_PROFILE = "PMPE-VALIDATION-STORE-EVIDENCE-1"
 _OWNERSHIP_PATTERNS = (
     re.compile(r"(?i)\b(?:engineering|peos)\s+(?:will\s+)?decide\b"),
+    re.compile(
+        r"(?i)\b(?:engineering|peos)\s+(?:is|are)\s+responsible\s+for\s+"
+        r"(?:choosing|deciding|defining|selecting)\b"
+    ),
+    re.compile(r"(?i)\b(?:leave|delegate|defer)\b.{0,40}\b(?:to|for)\s+(?:engineering|peos)\b"),
     re.compile(r"(?i)\bto be decided by (?:engineering|peos)\b"),
     re.compile(r"(?i)\btbd by (?:engineering|peos)\b"),
     re.compile(r"(?i)\bunnamed future engineering decision\b"),
@@ -185,6 +192,99 @@ class ApprovalAuthorityGrant:
 
 
 @dataclass(frozen=True)
+class ApprovalRequirementGrant:
+    requirement_id: str
+    approval_id: str
+
+    def as_dict(self) -> dict[str, str]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class ApprovalAuthorityEvidence:
+    authority_grants: tuple[dict[str, str], ...]
+    requirement_grants: tuple[dict[str, str], ...]
+    evidence_digest: str
+    key_version: str
+    fingerprint: str
+    profile: str = _AUTHORITY_EVIDENCE_PROFILE
+
+    @classmethod
+    def create(
+        cls,
+        authority_grants: Sequence[ApprovalAuthorityGrant],
+        requirement_grants: Sequence[ApprovalRequirementGrant],
+        fingerprint_provider: KeyedFingerprintProvider,
+    ) -> ApprovalAuthorityEvidence:
+        grants = tuple(
+            sorted(
+                (item.as_dict() for item in authority_grants),
+                key=canonical_json_bytes,
+            )
+        )
+        requirements = tuple(
+            sorted(
+                (item.as_dict() for item in requirement_grants),
+                key=canonical_json_bytes,
+            )
+        )
+        payload = {
+            "authority_grants": list(grants),
+            "profile": _AUTHORITY_EVIDENCE_PROFILE,
+            "requirement_grants": list(requirements),
+        }
+        return cls(
+            authority_grants=copy.deepcopy(grants),
+            requirement_grants=copy.deepcopy(requirements),
+            evidence_digest=canonical_digest(payload),
+            key_version=fingerprint_provider.key_version,
+            fingerprint=fingerprint_provider.fingerprint(
+                "validation-authority-evidence",
+                canonical_json_bytes(payload),
+            ),
+        )
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "authority_grants": copy.deepcopy(list(self.authority_grants)),
+            "evidence_digest": self.evidence_digest,
+            "fingerprint": self.fingerprint,
+            "key_version": self.key_version,
+            "profile": self.profile,
+            "requirement_grants": copy.deepcopy(list(self.requirement_grants)),
+        }
+
+    def verify(self, fingerprint_provider: KeyedFingerprintProvider) -> bool:
+        payload = {
+            "authority_grants": list(self.authority_grants),
+            "profile": self.profile,
+            "requirement_grants": list(self.requirement_grants),
+        }
+        try:
+            payload_bytes = canonical_json_bytes(payload)
+            digest = canonical_digest(payload)
+        except (TypeError, ValueError):
+            return False
+        if (
+            self.profile != _AUTHORITY_EVIDENCE_PROFILE
+            or self.evidence_digest != digest
+            or not re.fullmatch(r"[0-9a-fA-F]{32,}", self.fingerprint)
+        ):
+            return False
+        candidate = next(
+            (
+                item
+                for item in fingerprint_provider.candidate_fingerprints(
+                    "validation-authority-evidence", payload_bytes
+                )
+                if item.key_version == self.key_version
+            ),
+            None,
+        )
+        return candidate is not None and hmac.compare_digest(candidate.value, self.fingerprint)
+
+
+@dataclass(frozen=True)
 class IntakeIdentityEvidence:
     receipt: dict[str, Any]
     receipt_digest: str
@@ -257,7 +357,9 @@ class ValidationContext:
     correction_reference: CorrectionReference | None = None
     possible_duplicate: bool = False
     authority_grants: tuple[ApprovalAuthorityGrant, ...] = ()
+    approval_requirement_grants: tuple[ApprovalRequirementGrant, ...] = ()
     intake_identity: IntakeIdentityEvidence | None = None
+    authority_identity: ApprovalAuthorityEvidence | None = None
 
     @classmethod
     def from_intake_receipt(
@@ -269,6 +371,7 @@ class ValidationContext:
         lineage_received_at: str | None = None,
         possible_duplicate: bool = False,
         authority_grants: tuple[ApprovalAuthorityGrant, ...] = (),
+        approval_requirement_grants: tuple[ApprovalRequirementGrant, ...] = (),
         fingerprint_provider: KeyedFingerprintProvider,
     ) -> ValidationContext:
         if receipt.correction_reference is not None and lineage_received_at is None:
@@ -284,7 +387,13 @@ class ValidationContext:
             correction_reference=receipt.correction_reference,
             possible_duplicate=possible_duplicate,
             authority_grants=authority_grants,
+            approval_requirement_grants=approval_requirement_grants,
             intake_identity=IntakeIdentityEvidence.create(receipt, fingerprint_provider),
+            authority_identity=ApprovalAuthorityEvidence.create(
+                authority_grants,
+                approval_requirement_grants,
+                fingerprint_provider,
+            ),
         )
 
 
@@ -777,7 +886,9 @@ class ContractSemanticValidator:
                 else canonical_digest({"status": "MISSING"})
             ),
             authority_evidence_digest=canonical_digest(
-                [grant.as_dict() for grant in context.authority_grants]
+                context.authority_identity.as_dict()
+                if context.authority_identity is not None
+                else {"status": "MISSING"}
             ),
             disposition=disposition,
             rule_outcomes=tuple(outcomes),
@@ -1058,10 +1169,13 @@ def _valid_context(
         evaluated_at = _parse_time(context.evaluated_at)
         lineage_received_at = _parse_time(context.lineage_received_at)
         evidence = context.intake_identity
+        authority_evidence = context.authority_identity
         if (
             evidence is None
+            or authority_evidence is None
             or fingerprint_provider is None
             or not evidence.verify(fingerprint_provider)
+            or not authority_evidence.verify(fingerprint_provider)
         ):
             return False
         receipt = evidence.receipt
@@ -1078,6 +1192,16 @@ def _valid_context(
         and receipt.get("lineage_id") == context.lineage_id
         and receipt.get("attempt_id") == context.ingestion_attempt_id
         and receipt.get("correction_reference") == expected_correction
+        and list(authority_evidence.authority_grants)
+        == sorted(
+            (grant.as_dict() for grant in context.authority_grants),
+            key=canonical_json_bytes,
+        )
+        and list(authority_evidence.requirement_grants)
+        == sorted(
+            (grant.as_dict() for grant in context.approval_requirement_grants),
+            key=canonical_json_bytes,
+        )
         and lineage_received_at <= receipt_received_at <= evaluated_at
         and (context.correction_reference is not None or lineage_received_at == receipt_received_at)
     )
@@ -1718,16 +1842,8 @@ def _ref_source_identity(
 
 
 def _approval_required(
-    bundle: Mapping[str, Any], _context: ValidationContext
+    bundle: Mapping[str, Any], context: ValidationContext
 ) -> tuple[Finding, ...]:
-    approvals = _mapping(bundle.get("approvals"))
-    active_roles = {
-        str(item.get("role"))
-        for item in approvals.values()
-        if isinstance(item, Mapping)
-        and item.get("status") == "ACTIVE"
-        and item.get("decision") == "APPROVED"
-    }
     findings: list[Finding] = []
     if bundle.get("contract_status") != "APPROVED":
         findings.append(
@@ -1737,18 +1853,98 @@ def _approval_required(
                 "PMOS must publish an exact approved candidate.",
             )
         )
-    for requirement_id, requirement in sorted(_mapping(bundle.get("required_approvals")).items()):
-        role = str(_mapping(requirement).get("role", ""))
-        if role not in active_roles:
+    applicable = _applicable_required_approval_ids(bundle)
+    granted_approval_ids: list[str] = []
+    for requirement_id in applicable:
+        grant = _requirement_grant(context, requirement_id)
+        if grant is not None:
+            granted_approval_ids.append(grant.approval_id)
+        if grant is None or not _requirement_grant_valid(bundle, context, requirement_id):
             findings.append(
                 _finding(
                     f"/required_approvals/{requirement_id}",
-                    "A required product approval has no active matching authority.",
-                    "PMOS must provide active approval evidence from the required role.",
+                    "A required product approval has no distinct exact governed grant.",
+                    (
+                        "The named authority must grant this requirement against an active "
+                        "exact-subject approval and publish attested evidence."
+                    ),
                     requirement_id,
                 )
             )
+    duplicate_approvals = {
+        approval_id
+        for approval_id in granted_approval_ids
+        if granted_approval_ids.count(approval_id) > 1
+    }
+    for approval_id in sorted(duplicate_approvals):
+        findings.append(
+            _finding(
+                "/approval_requirement_grants",
+                "One approval is reused to grant multiple distinct required gates.",
+                "The authority source must provide one distinct exact grant per requirement.",
+                approval_id,
+            )
+        )
     return tuple(findings)
+
+
+_APPROVAL_STAGE_ORDER = {
+    "CONTRACT_APPROVAL": 0,
+    "DRAFT_PR": 1,
+    "STAGING": 2,
+    "CANARY": 3,
+    "PRODUCTION": 4,
+}
+
+
+def _applicable_required_approval_ids(bundle: Mapping[str, Any]) -> tuple[str, ...]:
+    requested = str(_get(bundle, "/release/requested_autonomy_stage") or "")
+    requested_order = _APPROVAL_STAGE_ORDER.get(requested, -1)
+    return tuple(
+        requirement_id
+        for requirement_id, requirement in sorted(
+            _mapping(bundle.get("required_approvals")).items()
+        )
+        if (
+            (required_before := _mapping(requirement).get("required_before")) is None
+            or _APPROVAL_STAGE_ORDER.get(str(required_before), requested_order) <= requested_order
+        )
+    )
+
+
+def _requirement_grant(
+    context: ValidationContext, requirement_id: str
+) -> ApprovalRequirementGrant | None:
+    matches = tuple(
+        grant
+        for grant in context.approval_requirement_grants
+        if grant.requirement_id == requirement_id
+    )
+    return matches[0] if len(matches) == 1 else None
+
+
+def _requirement_grant_valid(
+    bundle: Mapping[str, Any], context: ValidationContext, requirement_id: str
+) -> bool:
+    grant = _requirement_grant(context, requirement_id)
+    requirement = _mapping(_mapping(bundle.get("required_approvals")).get(requirement_id))
+    if grant is None or not requirement:
+        return False
+    approval = _mapping(_mapping(bundle.get("approvals")).get(grant.approval_id))
+    subject = _mapping(approval.get("subject"))
+    projection = copy.deepcopy(dict(bundle))
+    projection.pop("approvals", None)
+    release_approval_refs = _sequence(_get(bundle, "/release/approval_refs"))
+    return (
+        grant.approval_id in release_approval_refs
+        and approval.get("status") == "ACTIVE"
+        and approval.get("decision") == "APPROVED"
+        and approval.get("role") == requirement.get("role")
+        and subject.get("digest_scope") == "CANONICAL_BUNDLE_EXCLUDING_APPROVALS"
+        and subject.get("id") == bundle.get("bundle_id")
+        and subject.get("version") == bundle.get("bundle_version")
+        and subject.get("digest") == canonical_digest(projection)
+    )
 
 
 def _approval_active(bundle: Mapping[str, Any], _context: ValidationContext) -> tuple[Finding, ...]:
@@ -1985,6 +2181,23 @@ def _approval_subject(
                     str(approval_ref),
                 )
             )
+    for decision_id, decision in sorted(_mapping(bundle.get("product_decisions")).items()):
+        approval_ref = str(_mapping(decision).get("approval_ref", ""))
+        subject = _mapping(_mapping(approvals.get(approval_ref)).get("subject"))
+        if (
+            subject.get("digest_scope") != "CANONICAL_BUNDLE_EXCLUDING_APPROVALS"
+            or subject.get("id") != bundle.get("bundle_id")
+            or subject.get("version") != bundle.get("bundle_version")
+            or subject.get("digest") != expected_bundle_digest
+        ):
+            findings.append(
+                _finding(
+                    f"/product_decisions/{decision_id}/approval_ref",
+                    "A product decision references approval for a different exact subject.",
+                    "PMOS must bind the decision to the current exact bundle approval.",
+                    f"{decision_id}->{approval_ref}",
+                )
+            )
     return tuple(findings)
 
 
@@ -2033,8 +2246,13 @@ def _norm(value: Any) -> str:
 
 
 def _scope_non_goal(bundle: Mapping[str, Any], _context: ValidationContext) -> tuple[Finding, ...]:
-    scope = {_norm(item) for item in _sequence(_get(bundle, "/scope/in_scope"))}
-    non_goals = {_norm(item) for item in _sequence(_get(bundle, "/scope/non_goals"))}
+    scope = tuple(str(item) for item in _sequence(_get(bundle, "/scope/in_scope")))
+    non_goals = tuple(str(item) for item in _sequence(_get(bundle, "/scope/non_goals")))
+    contradiction = any(
+        _norm(left) == _norm(right) or _contradictory_text(left, right)
+        for left in scope
+        for right in non_goals
+    )
     return (
         (
             _finding(
@@ -2043,7 +2261,7 @@ def _scope_non_goal(bundle: Mapping[str, Any], _context: ValidationContext) -> t
                 "PMOS must choose one scope disposition.",
             ),
         )
-        if scope & non_goals
+        if contradiction
         else ()
     )
 
@@ -2306,29 +2524,25 @@ def _alignment_autonomy(
     return tuple(findings)
 
 
-def _release_approval(
-    bundle: Mapping[str, Any], _context: ValidationContext
-) -> tuple[Finding, ...]:
+def _release_approval(bundle: Mapping[str, Any], context: ValidationContext) -> tuple[Finding, ...]:
     stage = str(_get(bundle, "/release/requested_autonomy_stage") or "")
-    required_before = {
-        str(_mapping(item).get("required_before", ""))
-        for item in _mapping(bundle.get("required_approvals")).values()
-    }
-    required = {
-        "DRAFT_PR": {"CONTRACT_APPROVAL", "DRAFT_PR"},
-        "STAGING": {"STAGING"},
-        "CANARY": {"CANARY"},
-        "PRODUCTION": {"PRODUCTION"},
-    }.get(stage, set())
-    if stage == "DRAFT_PR" and required_before & required:
-        return ()
-    if stage != "DRAFT_PR" and stage in required_before:
+    requirements = _mapping(bundle.get("required_approvals"))
+    eligible_stages = {"CONTRACT_APPROVAL", "DRAFT_PR"} if stage == "DRAFT_PR" else {stage}
+    stage_requirements = tuple(
+        requirement_id
+        for requirement_id, requirement in sorted(requirements.items())
+        if str(_mapping(requirement).get("required_before", "")) in eligible_stages
+    )
+    if stage_requirements and all(
+        _requirement_grant_valid(bundle, context, requirement_id)
+        for requirement_id in stage_requirements
+    ):
         return ()
     return (
         _finding(
             "/required_approvals",
-            "Release intent lacks the human approval gate required for its autonomy stage.",
-            "PMOS must declare and bind the stage-specific human approval.",
+            "Release intent lacks an attested granted approval for its exact autonomy stage.",
+            "PMOS must declare the gate and the authority source must grant its exact subject.",
             stage,
         ),
     )
@@ -2834,12 +3048,75 @@ class FileValidationEvidenceStore:
     attempt artifacts after an interrupted index write.
     """
 
-    def __init__(self, root: Path) -> None:
+    def __init__(
+        self,
+        root: Path,
+        *,
+        fingerprint_provider: KeyedFingerprintProvider,
+    ) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self.artifacts = ArtifactStore(self.root)
+        self.fingerprint_provider = fingerprint_provider
         self._lock_path = self.root / ".validation-evidence.lock"
         self._lock_path.touch(mode=0o600, exist_ok=True)
+
+    def _write_verified(self, name: str, kind: str, payload: Mapping[str, Any]) -> None:
+        signed = {
+            "artifact_name": name,
+            "kind": kind,
+            "payload": copy.deepcopy(dict(payload)),
+            "profile": _STORE_EVIDENCE_PROFILE,
+        }
+        envelope = {
+            **signed,
+            "fingerprint": self.fingerprint_provider.fingerprint(
+                "validation-store-evidence",
+                canonical_json_bytes(signed),
+            ),
+            "key_version": self.fingerprint_provider.key_version,
+        }
+        self.artifacts.write_json(name, envelope)
+
+    def _read_verified(self, name: str, kind: str) -> dict[str, Any]:
+        envelope = self.artifacts.read_json(name)
+        if not isinstance(envelope, dict):
+            raise ValidationEvidenceError("stored evidence envelope is malformed")
+        payload = envelope.get("payload")
+        signed = {
+            "artifact_name": envelope.get("artifact_name"),
+            "kind": envelope.get("kind"),
+            "payload": payload,
+            "profile": envelope.get("profile"),
+        }
+        fingerprint = envelope.get("fingerprint")
+        key_version = envelope.get("key_version")
+        if (
+            signed["artifact_name"] != name
+            or signed["kind"] != kind
+            or signed["profile"] != _STORE_EVIDENCE_PROFILE
+            or not isinstance(payload, dict)
+            or not isinstance(fingerprint, str)
+            or not isinstance(key_version, str)
+        ):
+            raise ValidationEvidenceError("stored evidence envelope is malformed")
+        try:
+            signed_bytes = canonical_json_bytes(signed)
+        except (TypeError, ValueError) as exc:
+            raise ValidationEvidenceError("stored evidence is not canonical") from exc
+        candidate = next(
+            (
+                item
+                for item in self.fingerprint_provider.candidate_fingerprints(
+                    "validation-store-evidence", signed_bytes
+                )
+                if item.key_version == key_version
+            ),
+            None,
+        )
+        if candidate is None or not hmac.compare_digest(candidate.value, fingerprint):
+            raise ValidationEvidenceError("stored evidence attestation is invalid")
+        return copy.deepcopy(payload)
 
     def record(self, result: ValidationResult) -> None:
         _safe_evidence_id(result.ingestion_attempt_id, "ingestion attempt ID")
@@ -2864,19 +3141,21 @@ class FileValidationEvidenceStore:
         attempt_name = f"attempts/{attempt_id}.json"
         payload = result.as_dict()
         if self.artifacts.exists(attempt_name):
-            if self.artifacts.read_json(attempt_name) != payload:
+            if self._read_verified(attempt_name, "ATTEMPT") != payload:
                 raise ValidationEvidenceError("attempt already contains different evidence")
             lineage_name = f"lineages/{lineage_id}.json"
-            if not self.artifacts.exists(
-                lineage_name
-            ) or attempt_id not in self.artifacts.read_json(lineage_name).get("attempt_ids", []):
+            if not self.artifacts.exists(lineage_name) or attempt_id not in self._read_verified(
+                lineage_name, "LINEAGE"
+            ).get("attempt_ids", []):
                 self._reconcile_locked()
             return
         lineage_name = f"lineages/{lineage_id}.json"
         if not self.artifacts.exists(lineage_name):
             self._reconcile_locked()
         existing = (
-            self.artifacts.read_json(lineage_name) if self.artifacts.exists(lineage_name) else None
+            self._read_verified(lineage_name, "LINEAGE")
+            if self.artifacts.exists(lineage_name)
+            else None
         )
         if correction is not None:
             if correction.lineage_id != lineage_id:
@@ -2884,7 +3163,7 @@ class FileValidationEvidenceStore:
             original_name = f"attempts/{correction.attempt_id}.json"
             if not self.artifacts.exists(original_name):
                 raise ValidationEvidenceError("correction references unknown original attempt")
-            original = self.artifacts.read_json(original_name)
+            original = self._read_verified(original_name, "ATTEMPT")
             if original.get("lineage_id") != result.lineage_id:
                 raise ValidationEvidenceError("correction references another lineage")
             if original.get("lineage_received_at") != result.lineage_received_at:
@@ -2904,7 +3183,7 @@ class FileValidationEvidenceStore:
             raise ValidationEvidenceError(
                 "new attempt in an existing lineage requires correction evidence"
             )
-        self.artifacts.write_json(attempt_name, payload)
+        self._write_verified(attempt_name, "ATTEMPT", payload)
         if existing is None:
             lineage = {
                 "attempt_ids": [result.ingestion_attempt_id],
@@ -2924,29 +3203,62 @@ class FileValidationEvidenceStore:
                 raise ValidationEvidenceError("stored lineage attempt index is malformed")
             lineage["attempt_ids"] = [*attempt_ids, result.ingestion_attempt_id]
             lineage["latest_disposition"] = result.disposition.value
-        self.artifacts.write_json(lineage_name, lineage)
+        self._write_verified(lineage_name, "LINEAGE", lineage)
 
     def load_attempt(self, attempt_id: str) -> dict[str, Any]:
         safe_attempt_id = _safe_evidence_id(attempt_id, "ingestion attempt ID")
-        value = self.artifacts.read_json(f"attempts/{safe_attempt_id}.json")
-        if not isinstance(value, dict):
-            raise ValidationEvidenceError("stored attempt evidence is malformed")
-        return value
+        return self._read_verified(f"attempts/{safe_attempt_id}.json", "ATTEMPT")
 
     def lineage_summary(self, lineage_id: str) -> dict[str, Any]:
         safe_lineage_id = _safe_evidence_id(lineage_id, "lineage ID")
-        value = self.artifacts.read_json(f"lineages/{safe_lineage_id}.json")
-        if not isinstance(value, dict):
-            raise ValidationEvidenceError("stored lineage evidence is malformed")
-        return value
+        summary = self._read_verified(f"lineages/{safe_lineage_id}.json", "LINEAGE")
+        attempt_ids = summary.get("attempt_ids")
+        if (
+            not isinstance(attempt_ids, list)
+            or not attempt_ids
+            or not all(isinstance(item, str) for item in attempt_ids)
+        ):
+            raise ValidationEvidenceError("stored lineage attempt index is malformed")
+        attempts = [
+            self._read_verified(
+                f"attempts/{_safe_evidence_id(item, 'stored ingestion attempt ID')}.json",
+                "ATTEMPT",
+            )
+            for item in attempt_ids
+        ]
+        for index, attempt in enumerate(attempts):
+            expected_correction = (
+                None
+                if index == 0
+                else {
+                    "attempt_id": attempt_ids[index - 1],
+                    "lineage_id": safe_lineage_id,
+                }
+            )
+            if (
+                attempt.get("lineage_id") != safe_lineage_id
+                or attempt.get("ingestion_attempt_id") != attempt_ids[index]
+                or attempt.get("lineage_received_at") != summary.get("lineage_received_at")
+                or attempt.get("correction_reference") != expected_correction
+            ):
+                raise ValidationEvidenceError("stored lineage evidence is inconsistent")
+        if (
+            summary.get("denominator_entries") != 1
+            or summary.get("first_pass_attempt_id") != attempt_ids[0]
+            or summary.get("first_pass_disposition") != attempts[0].get("disposition")
+            or summary.get("latest_disposition") != attempts[-1].get("disposition")
+            or summary.get("lineage_id") != safe_lineage_id
+        ):
+            raise ValidationEvidenceError("stored lineage evidence is inconsistent")
+        return summary
 
     def metric_summary(self) -> dict[str, int]:
         lineages = self.artifacts.root / "lineages"
-        summaries = (
-            [json.loads(path.read_text()) for path in sorted(lineages.glob("*.json"))]
-            if lineages.exists()
-            else []
-        )
+        summaries = []
+        if lineages.exists():
+            for path in sorted(lineages.glob("*.json")):
+                lineage_id = _safe_evidence_id(path.stem, "stored lineage ID")
+                summaries.append(self.lineage_summary(lineage_id))
         return {
             "first_pass_denominator": sum(int(item["denominator_entries"]) for item in summaries),
             "first_pass_passed": sum(
@@ -2968,9 +3280,8 @@ class FileValidationEvidenceStore:
             return
         grouped: dict[str, list[dict[str, Any]]] = {}
         for path in sorted(attempts.glob("*.json")):
-            record = json.loads(path.read_text())
-            if not isinstance(record, dict):
-                raise ValidationEvidenceError("stored attempt evidence is malformed")
+            path_attempt_id = _safe_evidence_id(path.stem, "stored attempt filename")
+            record = self._read_verified(f"attempts/{path_attempt_id}.json", "ATTEMPT")
             attempt_id = _safe_evidence_id(
                 record.get("ingestion_attempt_id"), "stored ingestion attempt ID"
             )
@@ -3012,14 +3323,14 @@ class FileValidationEvidenceStore:
                 "lineage_id": lineage_id,
                 "lineage_received_at": first["lineage_received_at"],
             }
-            self.artifacts.write_json(f"lineages/{lineage_id}.json", summary)
+            self._write_verified(f"lineages/{lineage_id}.json", "LINEAGE", summary)
 
     def _write_attempt_for_test(self, attempt_id: str, payload: dict[str, Any]) -> None:
         safe_attempt_id = _safe_evidence_id(attempt_id, "ingestion attempt ID")
         name = f"attempts/{safe_attempt_id}.json"
-        if self.artifacts.exists(name) and self.artifacts.read_json(name) != payload:
+        if self.artifacts.exists(name) and self._read_verified(name, "ATTEMPT") != payload:
             raise ValidationEvidenceError("attempt already contains different evidence")
-        self.artifacts.write_json(name, payload)
+        self._write_verified(name, "ATTEMPT", payload)
 
 
 _MANDATORY_RULE_METADATA.update(

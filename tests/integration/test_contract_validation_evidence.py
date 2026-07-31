@@ -81,6 +81,30 @@ def _context(
     correction: CorrectionReference | None = None,
 ) -> Any:
     api = _api()
+    authority_grants = (
+        api.ApprovalAuthorityGrant(
+            actor_id="OWNER-PRODUCT-001",
+            role="PRODUCT_OWNER",
+            authority_policy_id="AUTH-POLICY-CONTRACT-001",
+            authority_policy_version="1.0.0",
+            valid_from="2026-01-01T00:00:00Z",
+            expires_at="2027-01-01T00:00:00Z",
+        ),
+        api.ApprovalAuthorityGrant(
+            actor_id="OWNER-PRODUCT-001",
+            role="METRIC_POLICY_OWNER",
+            authority_policy_id="AUTH-POLICY-METRIC-001",
+            authority_policy_version="1.0.0",
+            valid_from="2026-01-01T00:00:00Z",
+            expires_at="2027-01-01T00:00:00Z",
+        ),
+    )
+    requirement_grants = (
+        api.ApprovalRequirementGrant(
+            requirement_id="APPROVAL-REQ-CONTRACT",
+            approval_id="APR-CONTRACT-001",
+        ),
+    )
     receipt = IntakeReceipt(
         lineage_id=lineage,
         attempt_id=attempt,
@@ -100,25 +124,14 @@ def _context(
         evaluated_at="2026-07-31T00:00:00Z",
         lineage_received_at="2026-07-30T12:00:00Z",
         correction_reference=correction,
-        authority_grants=(
-            api.ApprovalAuthorityGrant(
-                actor_id="OWNER-PRODUCT-001",
-                role="PRODUCT_OWNER",
-                authority_policy_id="AUTH-POLICY-CONTRACT-001",
-                authority_policy_version="1.0.0",
-                valid_from="2026-01-01T00:00:00Z",
-                expires_at="2027-01-01T00:00:00Z",
-            ),
-            api.ApprovalAuthorityGrant(
-                actor_id="OWNER-PRODUCT-001",
-                role="METRIC_POLICY_OWNER",
-                authority_policy_id="AUTH-POLICY-METRIC-001",
-                authority_policy_version="1.0.0",
-                valid_from="2026-01-01T00:00:00Z",
-                expires_at="2027-01-01T00:00:00Z",
-            ),
-        ),
+        authority_grants=authority_grants,
+        approval_requirement_grants=requirement_grants,
         intake_identity=api.IntakeIdentityEvidence.create(receipt, FINGERPRINTS),
+        authority_identity=api.ApprovalAuthorityEvidence.create(
+            authority_grants,
+            requirement_grants,
+            FINGERPRINTS,
+        ),
     )
 
 
@@ -131,7 +144,9 @@ def _validator(*, evidence_lookup: Any = None) -> Any:
 
 def test_first_attempt_is_counted_once_and_correction_cannot_erase_it(tmp_path: Path) -> None:
     api = _api()
-    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    store = api.FileValidationEvidenceStore(
+        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
+    )
     validator = _validator(evidence_lookup=store)
     first_bundle = _bundle()
     del first_bundle["product"]
@@ -170,7 +185,9 @@ def test_evidence_is_write_once_and_replay_is_idempotent(tmp_path: Path) -> None
         bundle,
         _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
     )
-    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    store = api.FileValidationEvidenceStore(
+        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
+    )
     store.record(result)
     store.record(result)
     loaded = store.load_attempt("ATTEMPT-000001")
@@ -182,10 +199,38 @@ def test_evidence_is_write_once_and_replay_is_idempotent(tmp_path: Path) -> None
         store._write_attempt_for_test("ATTEMPT-000001", changed)
 
 
+def test_persisted_first_pass_tampering_cannot_rewrite_metrics(tmp_path: Path) -> None:
+    api = _api()
+    bundle = _bundle()
+    del bundle["product"]
+    store = api.FileValidationEvidenceStore(
+        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
+    )
+    result = _validator().validate(
+        bundle,
+        _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
+    )
+    store.record(result)
+    assert store.metric_summary()["first_pass_passed"] == 0
+
+    attempt_name = "attempts/ATTEMPT-000001.json"
+    envelope = store.artifacts.read_json(attempt_name)
+    envelope["payload"]["disposition"] = "ADMITTED"
+    store.artifacts.write_json(attempt_name, envelope)
+    with pytest.raises(api.ValidationEvidenceError, match="attestation is invalid"):
+        store.load_attempt("ATTEMPT-000001")
+    with pytest.raises(api.ValidationEvidenceError, match="attestation is invalid"):
+        store.metric_summary()
+    with pytest.raises(api.ValidationEvidenceError, match="attestation is invalid"):
+        store.reconcile()
+
+
 def test_correction_requires_stored_original_attempt(tmp_path: Path) -> None:
     api = _api()
     bundle = _bundle()
-    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    store = api.FileValidationEvidenceStore(
+        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
+    )
     result = _validator(evidence_lookup=store).validate(
         bundle,
         _context(
@@ -207,7 +252,9 @@ def test_missing_lineage_index_is_reconciled_before_recording_correction(
     tmp_path: Path,
 ) -> None:
     api = _api()
-    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    store = api.FileValidationEvidenceStore(
+        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
+    )
     validator = _validator(evidence_lookup=store)
     first_bundle = _bundle()
     del first_bundle["product"]
@@ -244,7 +291,9 @@ def test_missing_lineage_index_is_reconciled_before_recording_correction(
 def test_missing_lineage_index_cannot_admit_second_first_pass(tmp_path: Path) -> None:
     api = _api()
     bundle = _bundle()
-    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    store = api.FileValidationEvidenceStore(
+        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
+    )
     first = _validator().validate(
         bundle,
         _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
@@ -263,7 +312,9 @@ def test_missing_lineage_index_cannot_admit_second_first_pass(tmp_path: Path) ->
 def test_reconciliation_rejects_multiple_first_pass_roots(tmp_path: Path) -> None:
     api = _api()
     bundle = _bundle()
-    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    store = api.FileValidationEvidenceStore(
+        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
+    )
     first = _validator().validate(
         bundle,
         _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
@@ -281,7 +332,9 @@ def test_reconciliation_rejects_multiple_first_pass_roots(tmp_path: Path) -> Non
 def test_evidence_identifiers_cannot_escape_store_root(tmp_path: Path) -> None:
     api = _api()
     bundle = _bundle()
-    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    store = api.FileValidationEvidenceStore(
+        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
+    )
     result = _validator().validate(
         bundle,
         _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
@@ -306,7 +359,9 @@ def test_evidence_identifiers_cannot_escape_store_root(tmp_path: Path) -> None:
 def test_correction_validation_requires_latest_persisted_attempt(tmp_path: Path) -> None:
     api = _api()
     bundle = _bundle()
-    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    store = api.FileValidationEvidenceStore(
+        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
+    )
     validator = _validator(evidence_lookup=store)
     first = validator.validate(
         bundle,
@@ -345,7 +400,9 @@ def test_correction_validation_requires_latest_persisted_attempt(tmp_path: Path)
 def test_correction_cannot_shift_original_lineage_eligibility_anchor(tmp_path: Path) -> None:
     api = _api()
     bundle = _bundle()
-    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    store = api.FileValidationEvidenceStore(
+        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
+    )
     validator = _validator(evidence_lookup=store)
     first = validator.validate(
         bundle,
@@ -371,7 +428,9 @@ def test_correction_cannot_shift_original_lineage_eligibility_anchor(tmp_path: P
 
 def test_publisher_source_id_never_coalesces_immutable_lineages(tmp_path: Path) -> None:
     api = _api()
-    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    store = api.FileValidationEvidenceStore(
+        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
+    )
     bundle = _bundle()
     first = _validator().validate(
         bundle,
@@ -400,7 +459,9 @@ def test_evidence_artifact_contains_no_raw_payload_or_secret(tmp_path: Path) -> 
         bundle,
         _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
     )
-    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    store = api.FileValidationEvidenceStore(
+        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
+    )
     store.record(result)
     materialized = b"".join(path.read_bytes() for path in (tmp_path / "evidence").rglob("*json"))
     assert secret.encode() not in materialized

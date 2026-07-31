@@ -90,6 +90,30 @@ def _context(
     possible_duplicate: bool = False,
 ) -> Any:
     api = _api()
+    authority_grants = (
+        api.ApprovalAuthorityGrant(
+            actor_id="OWNER-PRODUCT-001",
+            role="PRODUCT_OWNER",
+            authority_policy_id="AUTH-POLICY-CONTRACT-001",
+            authority_policy_version="1.0.0",
+            valid_from="2026-01-01T00:00:00Z",
+            expires_at="2027-01-01T00:00:00Z",
+        ),
+        api.ApprovalAuthorityGrant(
+            actor_id="OWNER-PRODUCT-001",
+            role="METRIC_POLICY_OWNER",
+            authority_policy_id="AUTH-POLICY-METRIC-001",
+            authority_policy_version="1.0.0",
+            valid_from="2026-01-01T00:00:00Z",
+            expires_at="2027-01-01T00:00:00Z",
+        ),
+    )
+    requirement_grants = (
+        api.ApprovalRequirementGrant(
+            requirement_id="APPROVAL-REQ-CONTRACT",
+            approval_id="APR-CONTRACT-001",
+        ),
+    )
     receipt = IntakeReceipt(
         lineage_id=lineage_id,
         attempt_id=attempt_id,
@@ -110,25 +134,41 @@ def _context(
         lineage_received_at=RECEIVED_AT,
         correction_reference=correction_reference,
         possible_duplicate=possible_duplicate,
-        authority_grants=(
-            api.ApprovalAuthorityGrant(
-                actor_id="OWNER-PRODUCT-001",
-                role="PRODUCT_OWNER",
-                authority_policy_id="AUTH-POLICY-CONTRACT-001",
-                authority_policy_version="1.0.0",
-                valid_from="2026-01-01T00:00:00Z",
-                expires_at="2027-01-01T00:00:00Z",
-            ),
-            api.ApprovalAuthorityGrant(
-                actor_id="OWNER-PRODUCT-001",
-                role="METRIC_POLICY_OWNER",
-                authority_policy_id="AUTH-POLICY-METRIC-001",
-                authority_policy_version="1.0.0",
-                valid_from="2026-01-01T00:00:00Z",
-                expires_at="2027-01-01T00:00:00Z",
-            ),
-        ),
+        authority_grants=authority_grants,
+        approval_requirement_grants=requirement_grants,
         intake_identity=api.IntakeIdentityEvidence.create(receipt, FINGERPRINTS),
+        authority_identity=api.ApprovalAuthorityEvidence.create(
+            authority_grants,
+            requirement_grants,
+            FINGERPRINTS,
+        ),
+    )
+
+
+def _with_authority_evidence(
+    context: Any,
+    *,
+    authority_grants: tuple[Any, ...] | None = None,
+    requirement_grants: tuple[Any, ...] | None = None,
+) -> Any:
+    api = _api()
+    selected_authority = (
+        authority_grants if authority_grants is not None else context.authority_grants
+    )
+    selected_requirements = (
+        requirement_grants
+        if requirement_grants is not None
+        else context.approval_requirement_grants
+    )
+    return replace(
+        context,
+        authority_grants=selected_authority,
+        approval_requirement_grants=selected_requirements,
+        authority_identity=api.ApprovalAuthorityEvidence.create(
+            selected_authority,
+            selected_requirements,
+            FINGERPRINTS,
+        ),
     )
 
 
@@ -164,9 +204,9 @@ def _reseal(bundle: dict[str, Any]) -> None:
                 subject["digest"] = canonical_digest(policy)
     projection = copy.deepcopy(bundle)
     projection.pop("approvals", None)
-    contract = bundle.get("approvals", {}).get("APR-CONTRACT-001")
-    if contract is not None:
-        contract["subject"]["digest"] = canonical_digest(projection)
+    for approval in bundle.get("approvals", {}).values():
+        if approval["subject"]["digest_scope"] == "CANONICAL_BUNDLE_EXCLUDING_APPROVALS":
+            approval["subject"]["digest"] = canonical_digest(projection)
 
 
 def test_complete_exactly_approved_bundle_is_admitted() -> None:
@@ -431,10 +471,19 @@ def test_policy_and_release_approval_references_bind_their_exact_subjects() -> N
     assert "APPROVAL.SUBJECT" in _codes(result)
 
 
+def test_product_decision_requires_exact_bundle_approval_subject() -> None:
+    bundle = _ready_bundle()
+    bundle["product_decisions"]["DECISION-CANONICAL-SCHEMA"]["approval_ref"] = "APR-METRIC-EADPR"
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "APPROVAL.SUBJECT" in _codes(result)
+
+
 def test_approval_authority_requires_external_governed_grant_evidence() -> None:
     api = _api()
     bundle = _ready_bundle()
-    context = replace(_context(bundle), authority_grants=())
+    context = _with_authority_evidence(_context(bundle), authority_grants=())
     result = _validator().validate(bundle, context)
     assert result.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
     assert "APPROVAL.AUTHORITY" in _codes(result)
@@ -444,6 +493,47 @@ def test_approval_authority_requires_external_governed_grant_evidence() -> None:
     )
 
 
+def test_caller_cannot_append_a_fabricated_unsigned_authority_grant() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    bundle["approvals"]["APR-CONTRACT-001"]["actor_id"] = "OWNER-FABRICATED-001"
+    fabricated = api.ApprovalAuthorityGrant(
+        actor_id="OWNER-FABRICATED-001",
+        role="PRODUCT_OWNER",
+        authority_policy_id="AUTH-POLICY-CONTRACT-001",
+        authority_policy_version="1.0.0",
+        valid_from="2026-01-01T00:00:00Z",
+        expires_at="2027-01-01T00:00:00Z",
+    )
+    context = _context(bundle)
+    tampered = replace(
+        context,
+        authority_grants=(*context.authority_grants, fabricated),
+    )
+    result = _validator().validate(bundle, tampered)
+    assert result.disposition is api.Disposition.ERROR
+    assert "CORE.EVIDENCE_BINDING" in _codes(result)
+
+
+def test_declared_production_gate_is_not_a_granted_production_approval() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    bundle["release"]["requested_autonomy_stage"] = "PRODUCTION"
+    bundle["release"]["deployment_target"]["environment"] = "PRODUCTION"
+    bundle["release"]["deployment_target"]["kind"] = "CLOUD"
+    bundle["release"]["launch_intent"] = "GENERAL_AVAILABILITY"
+    bundle["release"]["expectations"]["REL-001"]["environment"] = "PRODUCTION"
+    bundle["required_approvals"]["APPROVAL-REQ-PRODUCTION"] = {
+        "purpose": "Approve production promotion",
+        "required_before": "PRODUCTION",
+        "role": "PRODUCT_OWNER",
+    }
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
+    assert {"APPROVAL.REQUIRED", "ALIGN.RELEASE_APPROVAL"} <= _codes(result)
+
+
 def test_approval_authority_grant_must_cover_the_approval_instant() -> None:
     api = _api()
     bundle = _ready_bundle()
@@ -451,7 +541,10 @@ def test_approval_authority_grant_must_cover_the_approval_instant() -> None:
     grants = tuple(
         replace(grant, valid_from="2026-07-30T12:00:00Z") for grant in context.authority_grants
     )
-    result = _validator().validate(bundle, replace(context, authority_grants=grants))
+    result = _validator().validate(
+        bundle,
+        _with_authority_evidence(context, authority_grants=grants),
+    )
     assert result.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
     assert "APPROVAL.AUTHORITY" in _codes(result)
 
@@ -472,7 +565,10 @@ def test_metric_policy_requires_metric_owner_role_and_named_owner_actor() -> Non
     )
     result = _validator().validate(
         bundle,
-        replace(context, authority_grants=(*context.authority_grants, wrong_role_grant)),
+        _with_authority_evidence(
+            context,
+            authority_grants=(*context.authority_grants, wrong_role_grant),
+        ),
     )
     assert result.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
     assert "APPROVAL.AUTHORITY" in _codes(result)
@@ -660,6 +756,27 @@ def test_hypothesis_and_requirement_direct_obligations_cannot_conflict() -> None
     result = _validate(bundle)
     assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
     assert "ALIGN.CROSS_CHANNEL" in _codes(result)
+
+
+def test_scope_and_non_goal_direct_obligations_cannot_conflict() -> None:
+    bundle = _ready_bundle()
+    bundle["scope"]["in_scope"] = ["The system must retain customer records"]
+    bundle["scope"]["non_goals"] = ["The system must not retain customer records"]
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.SCOPE_NON_GOAL" in _codes(result)
+
+
+def test_product_truth_cannot_delegate_choice_by_responsibility_wording() -> None:
+    bundle = _ready_bundle()
+    bundle["product_decisions"]["DECISION-CANONICAL-SCHEMA"]["decision"] = (
+        "Engineering is responsible for choosing the deployment target"
+    )
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "OWNERSHIP.PRODUCT_TRUTH" in _codes(result)
 
 
 def test_hypothesis_and_outcome_direct_obligations_cannot_conflict() -> None:
@@ -1104,15 +1221,32 @@ def test_production_autonomy_uses_end_state_policy_and_exact_environment() -> No
         "required_before": "PRODUCTION",
         "role": "PRODUCT_OWNER",
     }
+    bundle["approvals"]["APR-PRODUCTION-001"] = copy.deepcopy(
+        bundle["approvals"]["APR-CONTRACT-001"]
+    )
+    release["approval_refs"].append("APR-PRODUCTION-001")
     _reseal(bundle)
-    assert _validate(bundle).disposition.value == "ADMITTED"
+    context = _context(bundle)
+    production_grant = _api().ApprovalRequirementGrant(
+        requirement_id="APPROVAL-REQ-PRODUCTION",
+        approval_id="APR-PRODUCTION-001",
+    )
+    context = _with_authority_evidence(
+        context,
+        requirement_grants=(*context.approval_requirement_grants, production_grant),
+    )
+    assert _validator().validate(bundle, context).disposition.value == "ADMITTED"
 
     policies = bundle["metrics"]["maturity_policies"]
     policies["POLICY-METRIC-VAPDR"]["applicable_autonomy_stages"] = ["DRAFT_PR"]
     policies["POLICY-METRIC-FIRST-PASS"]["applicable_autonomy_stages"] = ["PRODUCTION"]
     release["deployment_target"]["environment"] = "LOCAL"
     _reseal(bundle)
-    result = _validate(bundle)
+    context = _with_authority_evidence(
+        _context(bundle),
+        requirement_grants=(*_context(bundle).approval_requirement_grants, production_grant),
+    )
+    result = _validator().validate(bundle, context)
     assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
     assert "ALIGN.AUTONOMY" in _codes(result)
 
