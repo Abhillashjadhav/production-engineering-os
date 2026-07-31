@@ -199,12 +199,13 @@ def _validator(*, evidence_lookup: Any = None) -> Any:
 def _store(
     root: Path,
     high_watermarks: DeterministicValidationHighWatermarkStore | None = None,
+    ledger_id: str = "VALIDATION-LEDGER-TEST",
 ) -> Any:
     return _api().FileValidationEvidenceStore(
         root,
         fingerprint_provider=FINGERPRINTS,
         high_watermark_store=high_watermarks or DeterministicValidationHighWatermarkStore(),
-        ledger_id="VALIDATION-LEDGER-TEST",
+        ledger_id=ledger_id,
     )
 
 
@@ -427,7 +428,7 @@ def test_restoring_an_older_signed_lineage_summary_cannot_branch_history(
     store.record(second)
     lineage_path.write_bytes(old_signed_summary)
 
-    with pytest.raises(api.ValidationEvidenceError, match="omits"):
+    with pytest.raises(api.ValidationEvidenceError, match="does not bind"):
         store.lineage_summary("LINEAGE-000001")
     third = validator.validate(
         bundle,
@@ -440,9 +441,9 @@ def test_restoring_an_older_signed_lineage_summary_cannot_branch_history(
     )
     assert third.disposition is api.Disposition.ERROR
     assert "CORE.EVIDENCE_BINDING" in {item.rule_id for item in third.diagnostics}
-    with pytest.raises(api.ValidationEvidenceError, match="omits"):
+    with pytest.raises(api.ValidationEvidenceError, match="does not bind"):
         store.record(third)
-    with pytest.raises(api.ValidationEvidenceError, match="omits"):
+    with pytest.raises(api.ValidationEvidenceError, match="does not bind"):
         store.metric_summary()
 
 
@@ -518,6 +519,82 @@ def test_deleting_monotonic_high_watermark_fails_closed(tmp_path: Path) -> None:
 
     with pytest.raises(api.ValidationEvidenceError, match="anchor is missing"):
         _store(root, high_watermarks)
+
+
+def test_signed_evidence_root_cannot_be_replayed_across_ledgers(tmp_path: Path) -> None:
+    api = _api()
+    high_watermarks = DeterministicValidationHighWatermarkStore()
+    admitted_root = tmp_path / "admitted"
+    failed_root = tmp_path / "failed"
+    admitted_store = _store(
+        admitted_root,
+        high_watermarks,
+        "VALIDATION-LEDGER-ADMITTED",
+    )
+    failed_store = _store(
+        failed_root,
+        high_watermarks,
+        "VALIDATION-LEDGER-FAILED",
+    )
+    admitted_bundle = _bundle()
+    failed_bundle = _bundle()
+    del failed_bundle["product"]
+    admitted_store.record(
+        _validator().validate(
+            admitted_bundle,
+            _context(admitted_bundle, "LINEAGE-000001", "ATTEMPT-000001"),
+        )
+    )
+    failed_store.record(
+        _validator().validate(
+            failed_bundle,
+            _context(failed_bundle, "LINEAGE-000001", "ATTEMPT-000001"),
+        )
+    )
+    assert failed_store.metric_summary()["first_pass_passed"] == 0
+
+    shutil.rmtree(failed_root)
+    shutil.copytree(admitted_root, failed_root)
+
+    with pytest.raises(api.ValidationEvidenceError, match="ledger"):
+        _store(
+            failed_root,
+            high_watermarks,
+            "VALIDATION-LEDGER-FAILED",
+        )
+
+
+def test_signed_evidence_content_cannot_be_replayed_within_a_ledger(tmp_path: Path) -> None:
+    api = _api()
+    admitted_root = tmp_path / "admitted"
+    failed_root = tmp_path / "failed"
+    admitted_store = _store(
+        admitted_root,
+        DeterministicValidationHighWatermarkStore(),
+    )
+    failed_high_watermarks = DeterministicValidationHighWatermarkStore()
+    failed_store = _store(failed_root, failed_high_watermarks)
+    admitted_bundle = _bundle()
+    failed_bundle = _bundle()
+    del failed_bundle["product"]
+    admitted_store.record(
+        _validator().validate(
+            admitted_bundle,
+            _context(admitted_bundle, "LINEAGE-000001", "ATTEMPT-000001"),
+        )
+    )
+    failed_store.record(
+        _validator().validate(
+            failed_bundle,
+            _context(failed_bundle, "LINEAGE-000001", "ATTEMPT-000001"),
+        )
+    )
+
+    shutil.rmtree(failed_root)
+    shutil.copytree(admitted_root, failed_root)
+
+    with pytest.raises(api.ValidationEvidenceError, match="exact ledger content"):
+        _store(failed_root, failed_high_watermarks)
 
 
 def test_reconciliation_rejects_multiple_first_pass_roots(tmp_path: Path) -> None:

@@ -385,6 +385,22 @@ def test_publisher_cannot_self_downgrade_unresolved_product_truth_to_warning() -
     assert diagnostic.remediation is not None
 
 
+@pytest.mark.parametrize("blocking", [False, True])
+@pytest.mark.parametrize("resolution", ["TBD", "to be determined", "pending", "unknown"])
+def test_placeholder_question_resolution_remains_blocking(
+    blocking: bool,
+    resolution: str,
+) -> None:
+    bundle = _ready_bundle()
+    question = bundle["open_questions"]["QUESTION-001"]
+    question["blocking"] = blocking
+    question["resolution"] = resolution
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "QUESTION.UNRESOLVED" in _codes(result)
+
+
 def test_compiler_unresolved_product_truth_blocks() -> None:
     api = _api()
     bundle = _ready_bundle()
@@ -761,7 +777,9 @@ def test_named_contradiction_classes_block(case: str, expected_rule: str) -> Non
             "success"
         ]["METRIC-SUCCESS-001"]["definition"]
     elif case == "target_guardrail":
-        bundle["guardrails"]["GUARD-SECURITY-001"]["description"] = "Bound POLICY-METRIC-EADPR"
+        bundle["guardrails"]["GUARD-SECURITY-001"]["description"] = (
+            "Applies to POLICY-METRIC-EADPR."
+        )
         bundle["guardrails"]["GUARD-SECURITY-001"]["threshold"] = "At most 0.5 ratio"
     elif case == "scope_non_goal":
         bundle["scope"]["non_goals"].append(bundle["scope"]["in_scope"][0])
@@ -807,7 +825,7 @@ def test_metric_target_interval_must_intersect_guardrail(
     target = bundle["metrics"]["maturity_policies"]["POLICY-METRIC-EADPR"]["target"]
     target["operator"] = operator
     target["value"] = value
-    bundle["guardrails"]["GUARD-SECURITY-001"]["description"] = "Bound POLICY-METRIC-EADPR"
+    bundle["guardrails"]["GUARD-SECURITY-001"]["description"] = "Applies to POLICY-METRIC-EADPR."
     bundle["guardrails"]["GUARD-SECURITY-001"]["threshold"] = threshold
     _reseal(bundle)
     result = _validate(bundle)
@@ -817,7 +835,7 @@ def test_metric_target_interval_must_intersect_guardrail(
 
 def test_guardrail_with_different_unit_does_not_constrain_metric_target() -> None:
     bundle = _ready_bundle()
-    bundle["guardrails"]["GUARD-SECURITY-001"]["description"] = "Bound POLICY-METRIC-EADPR"
+    bundle["guardrails"]["GUARD-SECURITY-001"]["description"] = "Applies to POLICY-METRIC-EADPR."
     bundle["guardrails"]["GUARD-SECURITY-001"]["threshold"] = "At most 0.5 seconds"
     _reseal(bundle)
     assert "ALIGN.TARGET_GUARDRAIL" not in _codes(_validate(bundle))
@@ -869,6 +887,16 @@ def test_requirement_cannot_implement_a_lexically_nonidentical_non_goal() -> Non
     assert "ALIGN.SOLUTION_NON_GOAL" in _codes(result)
 
 
+def test_short_exact_subject_scope_contradiction_blocks() -> None:
+    bundle = _ready_bundle()
+    bundle["scope"]["in_scope"].append("Enable SSO")
+    bundle["scope"]["non_goals"].append("SSO is excluded")
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.SCOPE_NON_GOAL" in _codes(result)
+
+
 def test_ux_retention_and_data_prohibition_are_cross_channel_contradictions() -> None:
     bundle = _ready_bundle()
     bundle["ux"]["user_stories"]["US-001"]["i_want"] = "retain customer records"
@@ -881,11 +909,21 @@ def test_ux_retention_and_data_prohibition_are_cross_channel_contradictions() ->
     assert "ALIGN.CROSS_CHANNEL" in _codes(result)
 
 
+def test_should_not_negation_is_a_cross_channel_contradiction() -> None:
+    bundle = _ready_bundle()
+    bundle["ux"]["user_stories"]["US-001"]["i_want"] = "retain customer records"
+    bundle["data"]["requirements"]["DATA-001"]["requirement"] = "should not retain customer records"
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.CROSS_CHANNEL" in _codes(result)
+
+
 def test_natural_language_upper_bound_conflicts_with_metric_target() -> None:
     bundle = _ready_bundle()
     bundle["guardrails"]["GUARD-QUALITY-002"] = {
         "category": "QUALITY",
-        "description": "Bound POLICY-METRIC-EADPR wallpaper rate",
+        "description": "Applies to POLICY-METRIC-EADPR. Bound wallpaper rate.",
         "response": "BLOCK",
         "threshold": "Must remain below 50 percent",
     }
@@ -893,6 +931,41 @@ def test_natural_language_upper_bound_conflicts_with_metric_target() -> None:
     result = _validate(bundle)
     assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
     assert "ALIGN.TARGET_GUARDRAIL" in _codes(result)
+
+
+@pytest.mark.parametrize("threshold", ["Less than 0.8 ratio", "At most 5e-1 ratio"])
+def test_guardrail_strictness_and_scientific_notation_fail_closed(threshold: str) -> None:
+    bundle = _ready_bundle()
+    bundle["guardrails"]["GUARD-QUALITY-002"] = {
+        "category": "QUALITY",
+        "description": "Applies to POLICY-METRIC-EADPR.",
+        "response": "BLOCK",
+        "threshold": threshold,
+    }
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.TARGET_GUARDRAIL" in _codes(result)
+
+
+def test_guardrail_exclusion_text_does_not_bind_an_unrelated_policy() -> None:
+    bundle = _ready_bundle()
+    bundle["guardrails"]["GUARD-QUALITY-002"] = {
+        "category": "QUALITY",
+        "description": (
+            "Applies to POLICY-METRIC-EADPR. POLICY-METRIC-VAPDR is explicitly excluded."
+        ),
+        "response": "BLOCK",
+        "threshold": "At most 0.9 ratio",
+    }
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert "ALIGN.TARGET_GUARDRAIL" not in _codes(result)
+    assert not any(
+        item.rule_id == "ALIGN.TARGET_GUARDRAIL"
+        and item.relationship == "POLICY-METRIC-VAPDR->GUARD-QUALITY-002"
+        for item in result.diagnostics
+    )
 
 
 def test_numeric_guardrail_without_exact_subject_fails_closed_as_ambiguous() -> None:
@@ -912,7 +985,7 @@ def test_numeric_guardrail_without_exact_subject_fails_closed_as_ambiguous() -> 
         and item.field_path == "/guardrails/GUARD-QUALITY-002/threshold"
     )
     assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
-    assert "exact metric or maturity-policy reference" in diagnostic.explanation
+    assert "exact applies-to subject" in diagnostic.explanation
 
 
 def test_unknown_or_tampered_extension_fails_closed() -> None:
@@ -1314,6 +1387,22 @@ def test_context_digest_lineage_and_attempt_binding_is_mandatory() -> None:
     result = _validator().validate(bundle, context)
     assert result.disposition is api.Disposition.ERROR
     assert "CORE.EVIDENCE_BINDING" in _codes(result)
+
+
+def test_invalid_control_plane_identifiers_are_redacted_from_error_evidence() -> None:
+    bundle = _ready_bundle()
+    secret = "ghp_0123456789abcdefghijklmnop"
+    context = replace(
+        _context(bundle),
+        lineage_id=secret,
+        ingestion_attempt_id=f"{secret}-attempt",
+    )
+    result = _validator().validate(bundle, context)
+    payload = result.canonical_bytes().decode()
+    assert result.disposition.value == "ERROR"
+    assert secret not in payload
+    assert result.lineage_id.startswith("INVALID-LINEAGE-")
+    assert result.ingestion_attempt_id.startswith("INVALID-ATTEMPT-")
 
 
 def test_intake_identity_attestation_is_mandatory_and_tamper_evident() -> None:

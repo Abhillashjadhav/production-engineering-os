@@ -52,6 +52,8 @@ class DeterministicValidationHighWatermarkStore:
         current_fingerprint = None if current is None else current.get("fingerprint")
         if current_fingerprint != expected_fingerprint:
             return False
+        if envelope.get("ledger_id") != ledger_id:
+            raise ValueError("test high watermark must bind the exact ledger")
         if current is not None and (
             not set(current["attempt_ids"]) <= set(envelope["attempt_ids"])
             or not set(current["lineage_ids"]) <= set(envelope["lineage_ids"])

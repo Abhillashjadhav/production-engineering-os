@@ -59,6 +59,24 @@ _INTAKE_EVIDENCE_PROFILE = "PMPE-VALIDATION-INTAKE-EVIDENCE-1"
 _AUTHORITY_EVIDENCE_PROFILE = "PMPE-VALIDATION-AUTHORITY-EVIDENCE-1"
 _STORE_EVIDENCE_PROFILE = "PMPE-VALIDATION-STORE-EVIDENCE-1"
 _STORE_ANCHOR_PROFILE = "PMPE-VALIDATION-STORE-ANCHOR-1"
+_UNRESOLVED_ANSWER_SENTINELS = frozenset(
+    {
+        "-",
+        "?",
+        "later",
+        "n/a",
+        "na",
+        "none",
+        "not decided",
+        "pending",
+        "tbd",
+        "todo",
+        "to be decided",
+        "to be determined",
+        "unknown",
+        "unresolved",
+    }
+)
 _OWNERSHIP_PATTERNS = (
     re.compile(r"(?i)\b(?:engineering|peos)\s+(?:will\s+)?decide\b"),
     re.compile(
@@ -820,10 +838,12 @@ class ContractSemanticValidator:
             actual_bundle_digest: str | None = canonical_digest(bundle)
         except Exception:
             actual_bundle_digest = None
+        evidence_context = _evidence_safe_context(context, actual_bundle_digest)
         core_findings = self._preflight(bundle, context, actual_bundle_digest)
         outcomes: list[RuleOutcome] = []
         diagnostics: list[ValidationDiagnostic] = [
-            self._core_diagnostic(finding, context, rule_set_digest) for finding in core_findings
+            self._core_diagnostic(finding, evidence_context, rule_set_digest)
+            for finding in core_findings
         ]
         integrity_errors = self.registry.integrity_errors()
         if integrity_errors:
@@ -837,7 +857,7 @@ class ContractSemanticValidator:
             diagnostics.append(
                 self._core_diagnostic(
                     finding,
-                    context,
+                    evidence_context,
                     rule_set_digest,
                     rule_id="CORE.RULE_SET_INTEGRITY",
                 )
@@ -860,7 +880,7 @@ class ContractSemanticValidator:
                     diagnostics.append(
                         self._core_diagnostic(
                             finding,
-                            context,
+                            evidence_context,
                             rule_set_digest,
                             rule_id="CORE.RULE_EVALUATION",
                             relationship=rule.rule_id,
@@ -879,7 +899,7 @@ class ContractSemanticValidator:
                     )
                 )
                 diagnostics.extend(
-                    self._diagnostic(rule, finding, context, rule_set_digest)
+                    self._diagnostic(rule, finding, evidence_context, rule_set_digest)
                     for finding in findings
                 )
         diagnostics.sort(key=lambda item: (item.rule_id, item.field_path, item.relationship or ""))
@@ -908,7 +928,7 @@ class ContractSemanticValidator:
                             owner=Owner.PEOS,
                             disposition=Disposition.ERROR,
                         ),
-                        context,
+                        evidence_context,
                         rule_set_digest,
                         rule_id="CORE.METRIC_EVIDENCE",
                     )
@@ -923,15 +943,15 @@ class ContractSemanticValidator:
             }
         sanitized_suggestions = tuple(item.sanitized() for item in advisory_suggestions)
         return ValidationResult(
-            lineage_id=context.lineage_id,
-            ingestion_attempt_id=context.ingestion_attempt_id,
-            correction_reference=context.correction_reference,
-            bundle_digest=actual_bundle_digest or context.bundle_digest,
+            lineage_id=evidence_context.lineage_id,
+            ingestion_attempt_id=evidence_context.ingestion_attempt_id,
+            correction_reference=evidence_context.correction_reference,
+            bundle_digest=evidence_context.bundle_digest,
             validator_version=VALIDATOR_VERSION,
             rule_set_version=self.registry.version,
             rule_set_digest=rule_set_digest,
-            evaluated_at=context.evaluated_at,
-            lineage_received_at=context.lineage_received_at,
+            evaluated_at=evidence_context.evaluated_at,
+            lineage_received_at=evidence_context.lineage_received_at,
             intake_evidence_digest=(
                 context.intake_identity.receipt_digest
                 if context.intake_identity is not None
@@ -1216,6 +1236,49 @@ def _sanitize_path(value: str) -> str:
     if not value.startswith("/") or len(value) > 512:
         return "/"
     return _sanitize(value)
+
+
+def _safe_control_plane_id(value: str, kind: str) -> str:
+    if _SAFE_ID.fullmatch(value) is not None:
+        return value
+    token = hashlib.sha256(value.encode()).hexdigest()[:16].upper()
+    return f"INVALID-{kind}-{token}"
+
+
+def _safe_evidence_time(value: str) -> str:
+    try:
+        _parse_time(value)
+    except (OverflowError, TypeError, ValueError):
+        return "1970-01-01T00:00:00Z"
+    return value if len(value) <= 64 else "1970-01-01T00:00:00Z"
+
+
+def _evidence_safe_context(
+    context: ValidationContext,
+    actual_bundle_digest: str | None,
+) -> ValidationContext:
+    correction = context.correction_reference
+    safe_correction = (
+        None
+        if correction is None
+        else CorrectionReference(
+            lineage_id=_safe_control_plane_id(str(correction.lineage_id), "LINEAGE"),
+            attempt_id=_safe_control_plane_id(str(correction.attempt_id), "ATTEMPT"),
+        )
+    )
+    return replace(
+        context,
+        lineage_id=_safe_control_plane_id(str(context.lineage_id), "LINEAGE"),
+        ingestion_attempt_id=_safe_control_plane_id(str(context.ingestion_attempt_id), "ATTEMPT"),
+        bundle_digest=(
+            actual_bundle_digest
+            if actual_bundle_digest is not None
+            else canonical_digest({"status": "UNREADABLE_CANONICAL_BUNDLE"})
+        ),
+        evaluated_at=_safe_evidence_time(str(context.evaluated_at)),
+        lineage_received_at=_safe_evidence_time(str(context.lineage_received_at)),
+        correction_reference=safe_correction,
+    )
 
 
 def _valid_context(
@@ -1598,7 +1661,19 @@ def _open_questions(bundle: Mapping[str, Any], _context: ValidationContext) -> t
             Disposition.PRODUCT_INPUT_REQUIRED,
         )
         for question_id, question in sorted(questions.items())
-        if isinstance(question, Mapping) and not _present(question.get("resolution"))
+        if isinstance(question, Mapping)
+        and not _resolved_product_answer(question.get("resolution"))
+    )
+
+
+def _resolved_product_answer(value: Any) -> bool:
+    if not _present(value):
+        return False
+    normalized = _norm(value).strip(" .:;!?")
+    return normalized not in _UNRESOLVED_ANSWER_SENTINELS and not any(
+        normalized.startswith(f"{sentinel} ")
+        for sentinel in _UNRESOLVED_ANSWER_SENTINELS
+        if len(sentinel) > 1
     )
 
 
@@ -2552,68 +2627,73 @@ def _target_guardrail(
         str(_mapping(policy).get("metric_ref")): str(policy_id)
         for policy_id, policy in policies.items()
     }
-    bounds: list[tuple[str, str, Decimal, str, tuple[str, ...]]] = []
+    bounds: list[tuple[str, str, Decimal, str, str]] = []
     findings: list[Finding] = []
+    number = r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?"
+    bound_pattern = re.compile(
+        r"(?i)^\s*(at\s+most|no\s+more\s+than|maximum(?:\s+of)?|"
+        r"(?:must|shall)\s+not\s+exceed|"
+        r"(?:must|shall)\s+(?:remain|stay|be)\s+(?:below|under)|"
+        r"below|under|less\s+than|"
+        r"at\s+least|no\s+less\s+than|minimum(?:\s+of)?|"
+        r"(?:must|shall)\s+(?:remain|stay|be)\s+(?:above|over)|"
+        r"above|over|greater\s+than)\s+"
+        rf"({number})\s+(.+?)\s*$"
+    )
+    numeric_pattern = re.compile(rf"(?i)(?<![A-Z0-9-]){number}(?![A-Z0-9-])")
+    association_pattern = re.compile(
+        r"(?i)\bapplies\s+to\s+((?:POLICY-METRIC|METRIC)-[A-Z0-9-]+)\b"
+    )
     for guardrail_id, guardrail in sorted(_mapping(bundle.get("guardrails")).items()):
         guardrail_record = _mapping(guardrail)
-        match = re.search(
-            (
-                r"(?i)^\s*(at\s+most|no\s+more\s+than|maximum(?:\s+of)?|"
-                r"(?:must|shall)\s+not\s+exceed|"
-                r"(?:must|shall)\s+(?:remain|stay|be)\s+(?:below|under)|"
-                r"below|under|less\s+than|"
-                r"at\s+least|no\s+less\s+than|minimum(?:\s+of)?|"
-                r"(?:must|shall)\s+(?:remain|stay|be)\s+(?:above|over)|"
-                r"above|over|greater\s+than)\s+"
-                r"([+-]?[0-9]+(?:\.[0-9]+)?)\s+(.+?)\s*$"
-            ),
-            str(guardrail_record.get("threshold", "")),
-        )
-        if match:
-            phrase = re.sub(r"\s+", " ", match.group(1).casefold())
-            direction = (
-                "least"
-                if any(
-                    token in phrase
-                    for token in ("at least", "no less", "minimum", "above", "over", "greater")
-                )
-                else "most"
-            )
-            boundary, unit = _canonical_quantity(Decimal(match.group(2)), match.group(3))
-            reference_text = " ".join(
-                (
-                    str(guardrail_record.get("description", "")),
-                    str(guardrail_record.get("threshold", "")),
-                )
-            )
-            references = set(re.findall(r"\b(?:POLICY-METRIC|METRIC)-[A-Z0-9-]+\b", reference_text))
-            policy_refs = {reference for reference in references if reference in policies} | {
-                policy_by_metric[reference]
-                for reference in references
-                if reference in policy_by_metric
-            }
-            if not policy_refs:
+        threshold = str(guardrail_record.get("threshold", ""))
+        match = bound_pattern.fullmatch(threshold)
+        if match is None:
+            if numeric_pattern.search(threshold):
                 findings.append(
                     _finding(
                         f"/guardrails/{guardrail_id}/threshold",
-                        "A numeric guardrail lacks an exact metric or maturity-policy reference.",
+                        "A numeric guardrail does not use a supported exact comparator grammar.",
                         (
-                            "PMOS must identify the exact METRIC-* or POLICY-METRIC-* subject "
-                            "before the guardrail can be compared without ambiguity."
+                            "PMOS must use a named inclusive or exclusive comparator, numeric "
+                            "value, canonical unit, and exact applies-to subject."
                         ),
                         str(guardrail_id),
                     )
                 )
-                continue
-            bounds.append(
-                (
+            continue
+        phrase = re.sub(r"\s+", " ", match.group(1).casefold())
+        if any(token in phrase for token in ("at least", "no less", "minimum")):
+            comparator = "MIN_INCLUSIVE"
+        elif any(token in phrase for token in ("above", "over", "greater")):
+            comparator = "MIN_EXCLUSIVE"
+        elif any(token in phrase for token in ("at most", "no more", "maximum", "not exceed")):
+            comparator = "MAX_INCLUSIVE"
+        else:
+            comparator = "MAX_EXCLUSIVE"
+        boundary, unit = _canonical_quantity(Decimal(match.group(2)), match.group(3))
+        associations = set(
+            association_pattern.findall(str(guardrail_record.get("description", "")))
+        )
+        policy_refs = {reference for reference in associations if reference in policies} | {
+            policy_by_metric[reference]
+            for reference in associations
+            if reference in policy_by_metric
+        }
+        if len(associations) != 1 or len(policy_refs) != 1:
+            findings.append(
+                _finding(
+                    f"/guardrails/{guardrail_id}/threshold",
+                    "A numeric guardrail lacks one unambiguous exact applies-to subject.",
+                    (
+                        "PMOS must state exactly 'Applies to METRIC-*' or 'Applies to "
+                        "POLICY-METRIC-*' in the guardrail description."
+                    ),
                     str(guardrail_id),
-                    direction,
-                    boundary,
-                    unit,
-                    tuple(sorted(policy_refs)),
                 )
             )
+            continue
+        bounds.append((str(guardrail_id), comparator, boundary, unit, next(iter(policy_refs))))
     for policy_id, policy in sorted(policies.items()):
         target = _mapping(_mapping(policy).get("target"))
         value = target.get("value")
@@ -2621,19 +2701,32 @@ def _target_guardrail(
             continue
         target_value, unit = _canonical_quantity(Decimal(str(value)), target.get("unit", ""))
         operator = str(target.get("operator", ""))
-        for guardrail_id, direction, boundary, guardrail_unit, bound_policy_refs in bounds:
-            if policy_id not in bound_policy_refs:
+        for guardrail_id, comparator, boundary, guardrail_unit, bound_policy_ref in bounds:
+            if policy_id != bound_policy_ref:
                 continue
             if unit != guardrail_unit:
                 continue
             conflict = (
-                direction == "most"
-                and operator in {"AT_LEAST", "EXACT"}
-                and target_value > boundary
-            ) or (
-                direction == "least"
-                and operator in {"AT_MOST", "EXACT"}
-                and target_value < boundary
+                (
+                    comparator == "MAX_INCLUSIVE"
+                    and operator in {"AT_LEAST", "EXACT"}
+                    and target_value > boundary
+                )
+                or (
+                    comparator == "MAX_EXCLUSIVE"
+                    and operator in {"AT_LEAST", "EXACT"}
+                    and target_value >= boundary
+                )
+                or (
+                    comparator == "MIN_INCLUSIVE"
+                    and operator in {"AT_MOST", "EXACT"}
+                    and target_value < boundary
+                )
+                or (
+                    comparator == "MIN_EXCLUSIVE"
+                    and operator in {"AT_MOST", "EXACT"}
+                    and target_value <= boundary
+                )
             )
             if conflict:
                 findings.append(
@@ -2862,14 +2955,17 @@ def _observability_reporting(
 
 def _contradictory_text(left: str, right: str) -> bool:
     negative = re.compile(
-        r"(?i)\b(?:cannot|do\s+not|must\s+(?:never|not)|shall\s+(?:never|not)|"
+        r"(?i)\b(?:cannot|do(?:es)?\s+not|is\s+not|are\s+not|will\s+not|"
+        r"should\s+(?:never|not)|must\s+(?:never|not)|shall\s+(?:never|not)|"
         r"prohibit(?:ed|s)?|forbid(?:den|s)?|excluded?|unsupported|out\s+of\s+scope)\b"
     )
     left_negative = negative.search(left) is not None
     right_negative = negative.search(right) is not None
     if left_negative == right_negative:
         return False
-    return len(_concepts(left) & _concepts(right)) >= 2
+    shared = _concepts(left) & _concepts(right)
+    generic = {"capability", "customer", "feature", "product", "service", "support", "system"}
+    return len(shared) >= 2 or bool(shared - generic)
 
 
 def _alignment_cross_channel(
@@ -3416,6 +3512,7 @@ class FileValidationEvidenceStore:
         signed = {
             "artifact_name": name,
             "kind": kind,
+            "ledger_id": self._ledger_id,
             "payload": copy.deepcopy(dict(payload)),
             "profile": _STORE_EVIDENCE_PROFILE,
         }
@@ -3437,11 +3534,14 @@ class FileValidationEvidenceStore:
         signed = {
             "artifact_name": envelope.get("artifact_name"),
             "kind": envelope.get("kind"),
+            "ledger_id": envelope.get("ledger_id"),
             "payload": payload,
             "profile": envelope.get("profile"),
         }
         fingerprint = envelope.get("fingerprint")
         key_version = envelope.get("key_version")
+        if signed["ledger_id"] != self._ledger_id:
+            raise ValidationEvidenceError("stored evidence belongs to another validation ledger")
         if (
             signed["artifact_name"] != name
             or signed["kind"] != kind
@@ -3513,7 +3613,32 @@ class FileValidationEvidenceStore:
             raise ValidationEvidenceError("evidence high-watermark anchor is malformed")
         return copy.deepcopy(dict(envelope))
 
-    def _read_anchor(self) -> dict[str, list[str]]:
+    def _evidence_root(
+        self,
+        attempt_ids: Sequence[str],
+        lineage_ids: Sequence[str],
+    ) -> str:
+        try:
+            payload = {
+                "attempts": {
+                    attempt_id: canonical_digest(
+                        self._read_verified(f"attempts/{attempt_id}.json", "ATTEMPT")
+                    )
+                    for attempt_id in sorted(attempt_ids)
+                },
+                "ledger_id": self._ledger_id,
+                "lineages": {
+                    lineage_id: canonical_digest(
+                        self._read_verified(f"lineages/{lineage_id}.json", "LINEAGE")
+                    )
+                    for lineage_id in sorted(lineage_ids)
+                },
+            }
+        except OSError as exc:
+            raise ValidationEvidenceError("cataloged validation evidence was deleted") from exc
+        return canonical_digest(payload)
+
+    def _read_anchor(self) -> dict[str, Any]:
         envelope = self._load_anchor_envelope()
         if envelope is None:
             raise ValidationEvidenceError("evidence high-watermark anchor is missing")
@@ -3521,7 +3646,9 @@ class FileValidationEvidenceStore:
         lineage_ids = envelope.get("lineage_ids")
         signed = {
             "attempt_ids": attempt_ids,
+            "evidence_root": envelope.get("evidence_root"),
             "high_watermark": envelope.get("high_watermark"),
+            "ledger_id": envelope.get("ledger_id"),
             "lineage_ids": lineage_ids,
             "profile": envelope.get("profile"),
         }
@@ -3529,6 +3656,8 @@ class FileValidationEvidenceStore:
         key_version = envelope.get("key_version")
         if (
             signed["profile"] != _STORE_ANCHOR_PROFILE
+            or signed["ledger_id"] != self._ledger_id
+            or not isinstance(signed["evidence_root"], str)
             or not isinstance(attempt_ids, list)
             or not isinstance(lineage_ids, list)
             or signed["high_watermark"] != len(attempt_ids)
@@ -3560,7 +3689,12 @@ class FileValidationEvidenceStore:
         )
         if candidate is None or not hmac.compare_digest(candidate.value, fingerprint):
             raise ValidationEvidenceError("evidence high-watermark anchor is invalid")
-        return {"attempt_ids": attempt_ids, "lineage_ids": lineage_ids}
+        return {
+            "attempt_ids": attempt_ids,
+            "evidence_root": signed["evidence_root"],
+            "ledger_id": self._ledger_id,
+            "lineage_ids": lineage_ids,
+        }
 
     def _write_anchor(
         self,
@@ -3583,7 +3717,12 @@ class FileValidationEvidenceStore:
             expected_fingerprint = fingerprint
         signed = {
             "attempt_ids": normalized_attempts,
+            "evidence_root": self._evidence_root(
+                normalized_attempts,
+                normalized_lineages,
+            ),
             "high_watermark": len(normalized_attempts),
+            "ledger_id": self._ledger_id,
             "lineage_ids": normalized_lineages,
             "profile": _STORE_ANCHOR_PROFILE,
         }
@@ -3605,10 +3744,10 @@ class FileValidationEvidenceStore:
         if not advanced:
             raise ValidationEvidenceError("evidence high-watermark changed concurrently")
 
-    @staticmethod
     def _validate_anchor(
+        self,
         catalog: Mapping[str, Sequence[str]],
-        anchor: Mapping[str, Sequence[str]],
+        anchor: Mapping[str, Any],
         *,
         allow_catalog_ahead: bool = False,
     ) -> None:
@@ -3618,6 +3757,15 @@ class FileValidationEvidenceStore:
         anchor_lineages = set(anchor["lineage_ids"])
         if not anchor_attempts <= catalog_attempts or not anchor_lineages <= catalog_lineages:
             raise ValidationEvidenceError("evidence catalog regressed below its high watermark")
+        if anchor.get("ledger_id") != self._ledger_id or anchor.get(
+            "evidence_root"
+        ) != self._evidence_root(
+            sorted(anchor_attempts),
+            sorted(anchor_lineages),
+        ):
+            raise ValidationEvidenceError(
+                "evidence high watermark does not bind the exact ledger content"
+            )
         if not allow_catalog_ahead and (
             catalog_attempts != anchor_attempts or catalog_lineages != anchor_lineages
         ):
