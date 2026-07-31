@@ -120,6 +120,15 @@ def test_exact_sha_snapshot_is_byte_deterministic_and_has_no_timestamp(tmp_path:
     assert "pull_requests" not in first.as_dict()
 
 
+def test_equivalent_ref_and_exact_sha_produce_same_snapshot(tmp_path: Path) -> None:
+    api = _api()
+    repo = _init_repo(tmp_path)
+    commit_sha = _git(repo, "rev-parse", "HEAD")
+    from_ref = api.RepositoryScanner(config=_config()).scan(repo, commit="HEAD")
+    from_sha = api.RepositoryScanner(config=_config()).scan(repo, commit=commit_sha)
+    assert from_ref.canonical_bytes() == from_sha.canonical_bytes()
+
+
 def test_dirty_tracked_content_does_not_change_exact_commit_snapshot(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     before = _scan(repo)
@@ -289,6 +298,7 @@ def test_adapter_failure_is_visible_and_cannot_remove_categories(tmp_path: Path)
     ("config_change", "expected_code"),
     [
         ({"max_files": 2}, "BUDGET.FILE_COUNT"),
+        ({"max_directories": 1}, "BUDGET.DIRECTORY_COUNT"),
         ({"max_total_bytes": 16}, "BUDGET.TOTAL_BYTES"),
         ({"max_file_bytes": 8}, "BUDGET.FILE_BYTES"),
         ({"max_path_depth": 1}, "BUDGET.PATH_DEPTH"),
@@ -316,6 +326,15 @@ def test_binary_files_are_structural_evidence_but_never_decoded(tmp_path: Path) 
     assert any(
         item.kind == "BINARY_FILE" for item in snapshot.inventory["repository_topology"].items
     )
+
+
+def test_submodule_gitlink_is_inventory_only_and_never_executed(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    commit_sha = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "update-index", "--add", "--cacheinfo", f"160000,{commit_sha},vendor/example")
+    _git(repo, "commit", "-q", "-m", "gitlink")
+    snapshot = _scan(repo)
+    assert any(item.kind == "SUBMODULE" for item in snapshot.inventory["repository_topology"].items)
 
 
 def test_symlink_escape_is_refused_without_following_target(tmp_path: Path) -> None:
