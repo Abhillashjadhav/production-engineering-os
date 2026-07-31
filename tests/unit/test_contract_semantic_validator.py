@@ -815,6 +815,54 @@ def test_guardrail_with_different_unit_does_not_constrain_metric_target() -> Non
     assert "ALIGN.TARGET_GUARDRAIL" not in _codes(_validate(bundle))
 
 
+def test_generic_engineering_delivery_words_do_not_prove_metric_outcome_alignment() -> None:
+    bundle = _ready_bundle()
+    for metric in bundle["metrics"]["success"].values():
+        metric["definition"] = "Engineering delivery wallpaper pixels rendered."
+    for metric in bundle["metrics"]["north_stars"].values():
+        metric["definition"] = "Engineering delivery wallpaper pixels rendered."
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.METRIC_OUTCOME" in _codes(result)
+
+
+def test_scope_non_goal_support_negation_is_a_contradiction() -> None:
+    bundle = _ready_bundle()
+    bundle["scope"]["in_scope"].append("Customer data export")
+    bundle["scope"]["non_goals"].append("Do not support customer data export")
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.SCOPE_NON_GOAL" in _codes(result)
+
+
+def test_ux_retention_and_data_prohibition_are_cross_channel_contradictions() -> None:
+    bundle = _ready_bundle()
+    bundle["ux"]["user_stories"]["US-001"]["i_want"] = "retain customer records"
+    bundle["data"]["requirements"]["DATA-001"]["requirement"] = (
+        "customer records are prohibited from retention"
+    )
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.CROSS_CHANNEL" in _codes(result)
+
+
+def test_natural_language_upper_bound_conflicts_with_metric_target() -> None:
+    bundle = _ready_bundle()
+    bundle["guardrails"]["GUARD-QUALITY-002"] = {
+        "category": "QUALITY",
+        "description": "Bound wallpaper rate",
+        "response": "BLOCK",
+        "threshold": "Must remain below 50 percent",
+    }
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.TARGET_GUARDRAIL" in _codes(result)
+
+
 def test_unknown_or_tampered_extension_fails_closed() -> None:
     api = _api()
     bundle = _ready_bundle()
@@ -1513,6 +1561,22 @@ def test_metric_policy_duration_semantics_are_explicit_and_deterministic(
     assert result.metric_eligibility["POLICY-METRIC-EADPR"]["due_at"] == expected_due
     if expected_due is None:
         assert "COMP.TEMPORAL" in _codes(result)
+
+
+def test_metric_eligibility_evaluation_failure_is_an_error_not_admission() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    bundle["metrics"]["maturity_policies"]["POLICY-METRIC-EADPR"]["delivery_window"]["duration"] = (
+        "P3000000D"
+    )
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition is api.Disposition.ERROR
+    assert "CORE.METRIC_EVIDENCE" in _codes(result)
+    assert all(
+        evidence == {"due_at": None, "eligible_at": None}
+        for evidence in result.metric_eligibility.values()
+    )
 
 
 def test_invalid_calendar_timestamp_and_evaluation_before_receipt_fail_closed() -> None:

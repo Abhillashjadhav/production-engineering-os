@@ -29,6 +29,7 @@ from jsonschema import Draft202012Validator
 from pmpe.artifacts.store import ArtifactStore
 from pmpe.config import packaged_schema_dir
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
+from pmpe.contracts.compiler import CompilationResult
 from pmpe.contracts.intake import (
     Clock,
     CorrectionReference,
@@ -116,11 +117,23 @@ _CONCEPT_ALIASES = {
     "preserve": "retain",
     "preserved": "retain",
     "records": "record",
+    "retention": "retain",
     "store": "retain",
     "stored": "retain",
     "stores": "retain",
 }
 _CONCEPT_STOP_WORDS = _STOP_WORDS | frozenset({"cannot", "never", "not", "shall", "will"})
+_METRIC_GENERIC_CONCEPTS = frozenset(
+    {
+        "contract",
+        "delivery",
+        "engineering",
+        "metric",
+        "outcome",
+        "product",
+        "system",
+    }
+)
 _SEMANTIC_TOP_LEVEL_SECTIONS = frozenset(
     {
         "acceptance_criteria",
@@ -402,6 +415,23 @@ class ValidationAuthorityProvider(Protocol):
         self,
         bundle: Mapping[str, Any],
     ) -> ValidationAuthority: ...
+
+
+class AdmittedIntakeVerifier(Protocol):
+    """Verifies issue #76 terminal intake state against its durable stores."""
+
+    def verify_admitted_outcome(self, outcome: IntakeOutcome) -> bool: ...
+
+
+class CompilationEvidenceVerifier(Protocol):
+    """Verifies the exact issue #76 compiler artifact and intake binding."""
+
+    def verify_compilation(
+        self,
+        attempt_id: str,
+        expected: CompilationResult,
+        intake_binding: dict[str, Any],
+    ) -> CompilationResult: ...
 
 
 @dataclass(frozen=True)
@@ -862,6 +892,29 @@ class ContractSemanticValidator:
                 metric_eligibility = {
                     policy_id: {"due_at": None, "eligible_at": None} for policy_id in policy_ids
                 }
+                diagnostics.append(
+                    self._core_diagnostic(
+                        Finding(
+                            field_path="/metrics/maturity_policies",
+                            explanation=(
+                                "Required metric eligibility evidence could not be evaluated."
+                            ),
+                            next_action=(
+                                "Correct the policy window or evaluator failure and rerun the "
+                                "complete rule set."
+                            ),
+                            owner=Owner.PEOS,
+                            disposition=Disposition.ERROR,
+                        ),
+                        context,
+                        rule_set_digest,
+                        rule_id="CORE.METRIC_EVIDENCE",
+                    )
+                )
+                diagnostics.sort(
+                    key=lambda item: (item.rule_id, item.field_path, item.relationship or "")
+                )
+                disposition = _overall_disposition(diagnostics)
         else:
             metric_eligibility = {
                 policy_id: {"due_at": None, "eligible_at": None} for policy_id in policy_ids
@@ -2307,6 +2360,10 @@ def _has_explicit_concept_link(left: set[str], right: set[str]) -> bool:
     return len(left & right) >= 2
 
 
+def _has_metric_outcome_link(metric: set[str], outcome: set[str]) -> bool:
+    return len((metric & outcome) - _METRIC_GENERIC_CONCEPTS) >= 2
+
+
 def _outcome_hypothesis(
     bundle: Mapping[str, Any], _context: ValidationContext
 ) -> tuple[Finding, ...]:
@@ -2414,7 +2471,7 @@ def _metric_outcome(bundle: Mapping[str, Any], _context: ValidationContext) -> t
         if (
             metric_words
             and outcome_words
-            and not _has_explicit_concept_link(metric_words, outcome_words)
+            and not _has_metric_outcome_link(metric_words, outcome_words)
         ):
             findings.append(
                 _finding(
@@ -2496,7 +2553,11 @@ def _target_guardrail(
         match = re.search(
             (
                 r"(?i)^\s*(at\s+most|no\s+more\s+than|maximum(?:\s+of)?|"
-                r"at\s+least|no\s+less\s+than|minimum(?:\s+of)?)\s+"
+                r"(?:must|shall)\s+(?:remain|stay|be)\s+(?:below|under)|"
+                r"below|under|less\s+than|"
+                r"at\s+least|no\s+less\s+than|minimum(?:\s+of)?|"
+                r"(?:must|shall)\s+(?:remain|stay|be)\s+(?:above|over)|"
+                r"above|over|greater\s+than)\s+"
                 r"([+-]?[0-9]+(?:\.[0-9]+)?)\s+(.+?)\s*$"
             ),
             str(_mapping(guardrail).get("threshold", "")),
@@ -2504,9 +2565,12 @@ def _target_guardrail(
         if match:
             phrase = re.sub(r"\s+", " ", match.group(1).casefold())
             direction = (
-                "most"
-                if phrase in {"at most", "no more than", "maximum", "maximum of"}
-                else "least"
+                "least"
+                if any(
+                    token in phrase
+                    for token in ("at least", "no less", "minimum", "above", "over", "greater")
+                )
+                else "most"
             )
             boundary, unit = _canonical_quantity(Decimal(match.group(2)), match.group(3))
             bounds.append(
@@ -2765,7 +2829,10 @@ def _observability_reporting(
 
 
 def _contradictory_text(left: str, right: str) -> bool:
-    negative = re.compile(r"(?i)\b(?:cannot|must\s+(?:never|not)|shall\s+(?:never|not))\b")
+    negative = re.compile(
+        r"(?i)\b(?:cannot|do\s+not|must\s+(?:never|not)|shall\s+(?:never|not)|"
+        r"prohibit(?:ed|s)?|forbid(?:den|s)?|excluded?|unsupported|out\s+of\s+scope)\b"
+    )
     left_negative = negative.search(left) is not None
     right_negative = negative.search(right) is not None
     if left_negative == right_negative:
@@ -3490,15 +3557,12 @@ class FileValidationEvidenceStore:
                 or attempt_id not in catalog["attempt_ids"]
             ):
                 self._reconcile_locked()
+            self.lineage_summary(lineage_id)
             return
         lineage_name = f"lineages/{lineage_id}.json"
         if not self.artifacts.exists(lineage_name):
             self._reconcile_locked()
-        existing = (
-            self._read_verified(lineage_name, "LINEAGE")
-            if self.artifacts.exists(lineage_name)
-            else None
-        )
+        existing = self.lineage_summary(lineage_id) if self.artifacts.exists(lineage_name) else None
         if correction is not None:
             if correction.lineage_id != lineage_id:
                 raise ValidationEvidenceError("correction changes immutable lineage")
@@ -3586,6 +3650,18 @@ class FileValidationEvidenceStore:
             )
             for item in attempt_ids
         ]
+        catalogued_lineage_attempt_ids: set[str] = set()
+        for catalogued_attempt_id in catalog["attempt_ids"]:
+            catalogued_attempt = self._read_verified(
+                f"attempts/{_safe_evidence_id(catalogued_attempt_id, 'catalog attempt ID')}.json",
+                "ATTEMPT",
+            )
+            if catalogued_attempt.get("lineage_id") == safe_lineage_id:
+                catalogued_lineage_attempt_ids.add(catalogued_attempt_id)
+        if catalogued_lineage_attempt_ids != set(attempt_ids):
+            raise ValidationEvidenceError(
+                "stored lineage summary omits or invents a catalogued attempt"
+            )
         for index, attempt in enumerate(attempts):
             expected_correction = (
                 None
@@ -3757,23 +3833,40 @@ class CanonicalContractAdmission:
         validator: ContractSemanticValidator,
         evidence_store: FileValidationEvidenceStore,
         authority_provider: ValidationAuthorityProvider,
+        intake_verifier: AdmittedIntakeVerifier,
+        compilation_evidence: CompilationEvidenceVerifier,
         fingerprint_provider: KeyedFingerprintProvider,
         clock: Clock,
     ) -> None:
         self.validator = validator
         self.evidence_store = evidence_store
         self.authority_provider = authority_provider
+        self.intake_verifier = intake_verifier
+        self.compilation_evidence = compilation_evidence
         self.fingerprint_provider = fingerprint_provider
         self.clock = clock
 
     def admit(
         self,
-        bundle: Mapping[str, Any],
+        compilation: CompilationResult,
         intake: IntakeOutcome,
     ) -> ValidationResult:
         receipt = intake.receipt
-        if receipt is None:
-            raise ValidationEvidenceError("semantic admission requires a durable intake receipt")
+        if receipt is None or not self.intake_verifier.verify_admitted_outcome(intake):
+            raise ValidationEvidenceError(
+                "semantic admission requires a durably finalized, quarantine-free intake"
+            )
+        try:
+            verified_compilation = self.compilation_evidence.verify_compilation(
+                receipt.attempt_id,
+                compilation,
+                receipt.as_dict(),
+            )
+        except Exception as exc:
+            raise ValidationEvidenceError(
+                "semantic admission requires exact durable compiler evidence"
+            ) from exc
+        bundle = verified_compilation.bundle
         attempt_id = _safe_evidence_id(receipt.attempt_id, "ingestion attempt ID")
         lineage_id = _safe_evidence_id(receipt.lineage_id, "lineage ID")
         correction = receipt.correction_reference

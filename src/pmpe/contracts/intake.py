@@ -1285,6 +1285,51 @@ class IntakeCoordinator:
             admitted_payload=None,
         )
 
+    def verify_admitted_outcome(self, outcome: IntakeOutcome) -> bool:
+        """Verify that an admitted handoff is durably terminal and quarantine-free."""
+
+        receipt = outcome.receipt
+        deletion = outcome.deletion_attestation
+        if receipt is None or deletion is None:
+            return False
+        try:
+            stored_reservation = self.ledger.reservation_by_attempt(receipt.attempt_id)
+            stored_receipt = self.ledger.receipt(receipt.attempt_id)
+            stored_disposition = self.ledger.disposition(receipt.attempt_id)
+            stored_deletion = self.ledger.deletion_attestation(receipt.attempt_id)
+            quarantine_exists = self.quarantine.exists(receipt.quarantine_handle)
+        except Exception:
+            return False
+        identity_matches = all(
+            (
+                receipt.lineage_id == outcome.reservation.lineage_id,
+                receipt.attempt_id == outcome.reservation.attempt_id,
+                receipt.quarantine_handle == outcome.reservation.quarantine_handle,
+                deletion.lineage_id == receipt.lineage_id,
+                deletion.attempt_id == receipt.attempt_id,
+                deletion.quarantine_handle == receipt.quarantine_handle,
+                outcome.disposition.lineage_id == receipt.lineage_id,
+                outcome.disposition.attempt_id == receipt.attempt_id,
+            )
+        )
+        return bool(
+            outcome.status == "ADMITTED"
+            and outcome.disposition.status == "ADMITTED"
+            and outcome.disposition.terminal
+            and outcome.admitted_payload is None
+            and not outcome.quarantine_retained
+            and deletion.deleted
+            and not quarantine_exists
+            and not outcome.reservation.reconciliation_required
+            and outcome.reservation.pending_receipt is None
+            and outcome.reservation.pending_disposition is None
+            and identity_matches
+            and stored_reservation == outcome.reservation
+            and stored_receipt == receipt
+            and stored_disposition == outcome.disposition
+            and stored_deletion == deletion
+        )
+
     def _receipt(
         self,
         reservation: IntakeReservation,

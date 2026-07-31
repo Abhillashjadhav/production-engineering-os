@@ -388,6 +388,56 @@ def test_deleting_latest_correction_cannot_resurrect_prior_admission(tmp_path: P
         store.metric_summary()
 
 
+def test_restoring_an_older_signed_lineage_summary_cannot_branch_history(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    store = _store(tmp_path / "evidence")
+    validator = _validator(evidence_lookup=store)
+    bundle = _bundle()
+    first = validator.validate(
+        bundle,
+        _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
+    )
+    store.record(first)
+    lineage_path = store.artifacts.root / "lineages" / "LINEAGE-000001.json"
+    old_signed_summary = lineage_path.read_bytes()
+
+    second_reference = CorrectionReference(
+        lineage_id="LINEAGE-000001",
+        attempt_id="ATTEMPT-000001",
+    )
+    second = validator.validate(
+        bundle,
+        _context(
+            bundle,
+            "LINEAGE-000001",
+            "ATTEMPT-000002",
+            correction=second_reference,
+        ),
+    )
+    store.record(second)
+    lineage_path.write_bytes(old_signed_summary)
+
+    with pytest.raises(api.ValidationEvidenceError, match="omits"):
+        store.lineage_summary("LINEAGE-000001")
+    third = validator.validate(
+        bundle,
+        _context(
+            bundle,
+            "LINEAGE-000001",
+            "ATTEMPT-000003",
+            correction=second_reference,
+        ),
+    )
+    assert third.disposition is api.Disposition.ERROR
+    assert "CORE.EVIDENCE_BINDING" in {item.rule_id for item in third.diagnostics}
+    with pytest.raises(api.ValidationEvidenceError, match="omits"):
+        store.record(third)
+    with pytest.raises(api.ValidationEvidenceError, match="omits"):
+        store.metric_summary()
+
+
 def test_deleting_all_signed_evidence_cannot_reinitialize_an_empty_ledger(
     tmp_path: Path,
 ) -> None:

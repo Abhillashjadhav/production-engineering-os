@@ -145,20 +145,23 @@ def _service(tmp_path: Path) -> Any:
         authority_evidence_verifier=PIPELINE_AUTHORITY,
         evidence_lookup=validation_store,
     )
+    compilation_evidence = pipeline.FileCompilationEvidenceStore(
+        tmp_path / "evidence",
+        fingerprint_provider=fingerprints,
+    )
     admission = validation.CanonicalContractAdmission(
         validator=semantic_validator,
         evidence_store=validation_store,
         authority_provider=PipelineValidationAuthorityProvider(),
+        intake_verifier=coordinator,
+        compilation_evidence=compilation_evidence,
         fingerprint_provider=validation_fingerprints,
         clock=clock,
     )
     return pipeline.PmosCompilationService(
         intake=coordinator,
         compiler=compiler.CanonicalCompiler(),
-        evidence_store=pipeline.FileCompilationEvidenceStore(
-            tmp_path / "evidence",
-            fingerprint_provider=fingerprints,
-        ),
+        evidence_store=compilation_evidence,
         admission_boundary=admission,
     )
 
@@ -232,6 +235,28 @@ def test_semantic_admission_boundary_is_a_required_pipeline_dependency(
             compiler=compiler.CanonicalCompiler(),
             evidence_store=service.evidence_store,
         )
+
+
+def test_semantic_admission_rejects_an_unfinalized_secure_intake(
+    tmp_path: Path,
+) -> None:
+    validation = _module("pmpe.validation.contracts")
+    service = _service(tmp_path)
+    request = _request(FIXTURES / "minimal_valid_spec.json", "unfinalized-semantic-intake")
+    pending = service.intake.receive(request)
+    assert pending.receipt is not None
+    compiled = service.compiler.compile(
+        service.intake.load_validated_payload(pending),
+        content_type=pending.receipt.content_type,
+        received_at=pending.receipt.received_at,
+        source_name=pending.receipt.attempt_id,
+    )
+    with pytest.raises(validation.ValidationEvidenceError, match="quarantine-free"):
+        service.admission_boundary.admit(compiled, pending)
+    assert pending.status == "VALIDATED_PENDING_COMPILATION"
+    assert not pending.disposition.terminal
+    assert pending.quarantine_retained
+    assert pending.deletion_attestation is None
 
 
 def test_semantic_admission_failure_never_returns_an_admissible_outcome(

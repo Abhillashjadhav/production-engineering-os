@@ -1,12 +1,14 @@
 """Deterministic semantic validation for legacy and canonical contracts."""
 
 from pmpe.validation.contracts import (
+    AdmittedIntakeVerifier,
     AdvisorySuggestion,
     ApprovalAuthorityEvidence,
     ApprovalAuthorityGrant,
     ApprovalAuthorityVerifier,
     ApprovalRequirementGrant,
     CanonicalContractAdmission,
+    CompilationEvidenceVerifier,
     ContractSemanticValidator,
     Disposition,
     FileValidationEvidenceStore,
@@ -25,11 +27,13 @@ from pmpe.validation.validator import RequirementValidator
 
 __all__ = [
     "AdvisorySuggestion",
+    "AdmittedIntakeVerifier",
     "ApprovalAuthorityEvidence",
     "ApprovalAuthorityGrant",
     "ApprovalAuthorityVerifier",
     "ApprovalRequirementGrant",
     "CanonicalContractAdmission",
+    "CompilationEvidenceVerifier",
     "ContractSemanticValidator",
     "Disposition",
     "FileValidationEvidenceStore",

@@ -8,7 +8,7 @@ import hmac
 import os
 import re
 import tempfile
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
@@ -78,7 +78,7 @@ class PmosCompilationOutcome:
 class CanonicalAdmissionBoundary(Protocol):
     def admit(
         self,
-        bundle: Mapping[str, Any],
+        compilation: CompilationResult,
         intake: IntakeOutcome,
     ) -> ValidationResult: ...
 
@@ -711,7 +711,7 @@ class PmosCompilationService:
         replayed: bool = False,
     ) -> PmosCompilationOutcome:
         try:
-            validation = self.admission_boundary.admit(compilation.bundle, intake_outcome)
+            validation = self.admission_boundary.admit(compilation, intake_outcome)
         except Exception:
             return PmosCompilationOutcome(
                 status="VALIDATION_SECURITY_BLOCKED",
