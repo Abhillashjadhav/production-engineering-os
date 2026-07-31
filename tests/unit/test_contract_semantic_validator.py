@@ -1426,6 +1426,36 @@ def test_rule_exception_fails_closed_and_never_admits() -> None:
     assert "CORE.RULE_SET_INTEGRITY" in _codes(result)
 
 
+def test_extra_rule_cannot_mutate_product_truth_seen_by_mandatory_rules() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    question = bundle["open_questions"]["QUESTION-001"]
+    question["blocking"] = True
+    question.pop("resolution")
+    _reseal(bundle)
+    before = copy.deepcopy(bundle)
+
+    def mutate(candidate: Any, _context: Any) -> tuple[Any, ...]:
+        candidate["open_questions"]["QUESTION-001"]["resolution"] = "Invented answer"
+        _reseal(candidate)
+        return ()
+
+    registry = api.default_rule_registry()
+    extra = replace(
+        registry.rules[0],
+        rule_id="AAA.EXTRA.MUTATOR",
+        evaluator=mutate,
+    )
+    extended = api.RuleRegistry((*registry.rules, extra), version=registry.version)
+    result = _validator(extended).validate(bundle, _context(bundle))
+    assert bundle == before
+    assert result.disposition is api.Disposition.ERROR
+    assert any(
+        item.rule_id == "CORE.RULE_EVALUATION" and item.relationship == "AAA.EXTRA.MUTATOR"
+        for item in result.diagnostics
+    )
+
+
 def test_approval_evaluator_bypass_is_not_an_approved_rule_implementation() -> None:
     api = _api()
     bundle = _ready_bundle()

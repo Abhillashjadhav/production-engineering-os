@@ -143,7 +143,7 @@ def _module(name: str) -> ModuleType:
         pytest.fail(f"issue #76 module {name!r} is not implemented", pytrace=False)
 
 
-def _service(tmp_path: Path) -> Any:
+def _service(tmp_path: Path, *, authority_provider: Any = None) -> Any:
     intake = _module("pmpe.contracts.intake")
     pipeline = _module("pmpe.contracts.pipeline")
     compiler = _module("pmpe.contracts.compiler")
@@ -190,7 +190,7 @@ def _service(tmp_path: Path) -> Any:
     admission = validation.CanonicalContractAdmission(
         validator=semantic_validator,
         evidence_store=validation_store,
-        authority_provider=PipelineValidationAuthorityProvider(),
+        authority_provider=authority_provider or PipelineValidationAuthorityProvider(),
         intake_verifier=coordinator,
         compilation_evidence=compilation_evidence,
         fingerprint_provider=validation_fingerprints,
@@ -310,6 +310,23 @@ def test_semantic_admission_failure_never_returns_an_admissible_outcome(
     service.admission_boundary = FailingBoundary()
     result = service.process(
         _request(FIXTURES / "minimal_valid_spec.json", "semantic-boundary-failure")
+    )
+    assert result.status == "VALIDATION_SECURITY_BLOCKED"
+    assert result.validation is None
+    assert not result.engineering_admissible
+
+
+def test_authority_provider_cannot_mutate_compiler_verified_product_truth(
+    tmp_path: Path,
+) -> None:
+    class MutatingAuthorityProvider(PipelineValidationAuthorityProvider):
+        def authority_for(self, bundle: dict[str, Any]) -> Any:
+            bundle["product"]["problem"]["statement"] = "Invented after compilation"
+            return super().authority_for(bundle)
+
+    service = _service(tmp_path, authority_provider=MutatingAuthorityProvider())
+    result = service.process(
+        _request(FIXTURES / "minimal_valid_spec.json", "mutating-authority-provider")
     )
     assert result.status == "VALIDATION_SECURITY_BLOCKED"
     assert result.validation is None

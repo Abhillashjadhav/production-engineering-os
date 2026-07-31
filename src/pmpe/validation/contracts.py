@@ -836,11 +836,17 @@ class ContractSemanticValidator:
     ) -> ValidationResult:
         rule_set_digest = self.registry.digest
         try:
-            actual_bundle_digest: str | None = canonical_digest(bundle)
+            canonical_bundle_bytes = canonical_json_bytes(bundle)
+            actual_bundle_digest: str | None = (
+                "sha256:" + hashlib.sha256(canonical_bundle_bytes).hexdigest()
+            )
+            evaluation_bundle: Mapping[str, Any] = json.loads(canonical_bundle_bytes)
         except Exception:
             actual_bundle_digest = None
+            canonical_bundle_bytes = b"{}"
+            evaluation_bundle = {}
         evidence_context = _evidence_safe_context(context, actual_bundle_digest)
-        core_findings = self._preflight(bundle, context, actual_bundle_digest)
+        core_findings = self._preflight(evaluation_bundle, context, actual_bundle_digest)
         outcomes: list[RuleOutcome] = []
         diagnostics: list[ValidationDiagnostic] = [
             self._core_diagnostic(finding, evidence_context, rule_set_digest)
@@ -864,12 +870,16 @@ class ContractSemanticValidator:
                 )
             )
         if not core_findings and not integrity_errors:
-            schema_version = str(bundle.get("schema_version", ""))
+            schema_version = str(evaluation_bundle.get("schema_version", ""))
             for rule in self.registry.rules:
                 if schema_version not in rule.applicable_schema_versions:
                     continue
                 try:
-                    findings = rule.evaluator(bundle, context)
+                    rule_bundle = json.loads(canonical_bundle_bytes)
+                    rule_context = copy.deepcopy(context)
+                    findings = rule.evaluator(rule_bundle, rule_context)
+                    if canonical_json_bytes(rule_bundle) != canonical_bundle_bytes:
+                        raise ValueError("validation rule mutated its isolated bundle snapshot")
                 except Exception:
                     finding = Finding(
                         field_path="/",
@@ -905,11 +915,13 @@ class ContractSemanticValidator:
                 )
         diagnostics.sort(key=lambda item: (item.rule_id, item.field_path, item.relationship or ""))
         disposition = _overall_disposition(diagnostics)
-        policy_ids = sorted(_mapping(_get(bundle, "/metrics/maturity_policies")))
+        policy_ids = sorted(_mapping(_get(evaluation_bundle, "/metrics/maturity_policies")))
         if disposition in {Disposition.ADMITTED, Disposition.WARNING}:
             try:
                 metric_eligibility = (
-                    _metric_eligibility(bundle, context) if actual_bundle_digest is not None else {}
+                    _metric_eligibility(evaluation_bundle, context)
+                    if actual_bundle_digest is not None
+                    else {}
                 )
             except Exception:
                 metric_eligibility = {
@@ -4183,7 +4195,23 @@ class CanonicalContractAdmission:
             raise ValidationEvidenceError(
                 "semantic admission requires exact durable compiler evidence"
             ) from exc
-        bundle = verified_compilation.bundle
+        try:
+            verified_bundle_bytes = canonical_json_bytes(verified_compilation.bundle)
+            if (
+                verified_bundle_bytes != verified_compilation.bundle_bytes
+                or canonical_digest(verified_compilation.bundle)
+                != verified_compilation.bundle_digest
+            ):
+                raise ValidationEvidenceError(
+                    "verified compiler result is not internally digest consistent"
+                )
+            bundle = json.loads(verified_bundle_bytes)
+        except ValidationEvidenceError:
+            raise
+        except Exception as exc:
+            raise ValidationEvidenceError(
+                "verified compiler result is not canonical admission input"
+            ) from exc
         attempt_id = _safe_evidence_id(receipt.attempt_id, "ingestion attempt ID")
         lineage_id = _safe_evidence_id(receipt.lineage_id, "lineage ID")
         correction = receipt.correction_reference
@@ -4212,10 +4240,22 @@ class CanonicalContractAdmission:
                         "correction evidence does not preserve the immutable lineage"
                     )
                 lineage_received_at = str(predecessor.get("lineage_received_at", ""))
-        authority = self.authority_provider.authority_for(bundle)
+        authority_input = json.loads(verified_bundle_bytes)
+        try:
+            authority = self.authority_provider.authority_for(authority_input)
+            if canonical_json_bytes(authority_input) != verified_bundle_bytes:
+                raise ValidationEvidenceError(
+                    "authority lookup mutated immutable compiler-verified product truth"
+                )
+        except ValidationEvidenceError:
+            raise
+        except Exception as exc:
+            raise ValidationEvidenceError(
+                "semantic admission requires immutable authority evidence"
+            ) from exc
         context = ValidationContext.from_intake_receipt(
             receipt,
-            bundle_digest=canonical_digest(bundle),
+            bundle_digest=verified_compilation.bundle_digest,
             evaluated_at=evaluated_at,
             lineage_received_at=lineage_received_at,
             possible_duplicate=intake.reservation.possible_duplicate,
