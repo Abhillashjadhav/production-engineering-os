@@ -30,7 +30,9 @@ from pmpe.artifacts.store import ArtifactStore
 from pmpe.config import packaged_schema_dir
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from pmpe.contracts.intake import (
+    Clock,
     CorrectionReference,
+    IntakeOutcome,
     IntakeReceipt,
     KeyedFingerprintProvider,
 )
@@ -384,6 +386,22 @@ class ValidationEvidenceLookup(Protocol):
     def load_attempt(self, attempt_id: str) -> dict[str, Any]: ...
 
     def lineage_summary(self, lineage_id: str) -> dict[str, Any]: ...
+
+
+@dataclass(frozen=True)
+class ValidationAuthority:
+    authority_grants: tuple[ApprovalAuthorityGrant, ...]
+    approval_requirement_grants: tuple[ApprovalRequirementGrant, ...]
+    authority_identity: ApprovalAuthorityEvidence
+
+
+class ValidationAuthorityProvider(Protocol):
+    """Supplies only externally governed approval authority evidence."""
+
+    def authority_for(
+        self,
+        bundle: Mapping[str, Any],
+    ) -> ValidationAuthority: ...
 
 
 @dataclass(frozen=True)
@@ -1799,7 +1817,7 @@ def _ref_source_identity(
                     "/source_identity_mappings",
                     "Compiler-produced approved truth lacks its root source identity mapping.",
                     "PEOS must reconcile compiler provenance before semantic admission.",
-                    str(provenance.get("source_id", "")),
+                    None,
                     Owner.PEOS,
                     Disposition.ERROR,
                 )
@@ -1972,16 +1990,39 @@ def _approval_active(bundle: Mapping[str, Any], _context: ValidationContext) -> 
         superseded_by = record.get("superseded_by_approval_ref")
         if status == "SUPERSEDED":
             replacement = _mapping(approvals.get(str(superseded_by)))
+            predecessor_subject = _mapping(record.get("subject"))
+            replacement_subject = _mapping(replacement.get("subject"))
+            try:
+                predecessor_approved_at = _parse_time(str(record.get("approved_at", "")))
+                replacement_approved_at = _parse_time(str(replacement.get("approved_at", "")))
+                predecessor_version = _semantic_version_tuple(
+                    str(record.get("approval_version", ""))
+                )
+                replacement_version = _semantic_version_tuple(
+                    str(replacement.get("approval_version", ""))
+                )
+            except ValueError:
+                supersession_continuity = False
+            else:
+                supersession_continuity = (
+                    replacement_subject == predecessor_subject
+                    and replacement_approved_at > predecessor_approved_at
+                    and replacement_version > predecessor_version
+                )
             if (
                 not superseded_by
                 or replacement.get("status") != "ACTIVE"
                 or approval_id not in _sequence(replacement.get("supersedes_approval_refs"))
+                or not supersession_continuity
             ):
                 findings.append(
                     _finding(
                         f"/approvals/{approval_id}/superseded_by_approval_ref",
-                        "Superseded approval evidence has no consistent active replacement.",
-                        "PMOS must provide the reciprocal exact supersession relationship.",
+                        "Superseded approval evidence has no continuous active replacement.",
+                        (
+                            "PMOS must provide reciprocal, same-subject, chronological, "
+                            "version-monotonic supersession evidence."
+                        ),
                         approval_id,
                     )
                 )
@@ -2000,6 +2041,23 @@ def _approval_active(bundle: Mapping[str, Any], _context: ValidationContext) -> 
                     )
                 )
     return tuple(findings)
+
+
+def _semantic_version_tuple(value: str) -> tuple[int, int, int]:
+    match = re.fullmatch(
+        r"(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+        r"(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?",
+        value,
+    )
+    if match is None:
+        raise ValueError("invalid semantic version")
+    if match.group(4) is not None:
+        raise ValueError("approval supersession requires stable semantic versions")
+    return (
+        int(match.group(1)),
+        int(match.group(2)),
+        int(match.group(3)),
+    )
 
 
 def _approval_freshness(
@@ -2339,7 +2397,19 @@ def _metric_outcome(bundle: Mapping[str, Any], _context: ValidationContext) -> t
     for value in _mapping(_get(bundle, "/product/outcome")).values():
         outcome_words |= _concepts(value)
     findings: list[Finding] = []
-    for metric_id, metric in sorted(_mapping(_get(bundle, "/metrics/success")).items()):
+    metrics: list[tuple[str, str, Mapping[str, Any]]] = [
+        (f"/metrics/success/{metric_id}", str(metric_id), _mapping(metric))
+        for metric_id, metric in sorted(_mapping(_get(bundle, "/metrics/success")).items())
+    ]
+    metrics.extend(
+        (
+            f"/metrics/north_stars/{slot}",
+            str(_mapping(metric).get("metric_id", slot)),
+            _mapping(metric),
+        )
+        for slot, metric in sorted(_mapping(_get(bundle, "/metrics/north_stars")).items())
+    )
+    for path, metric_id, metric in metrics:
         metric_words = _concepts(_mapping(metric).get("definition"))
         if (
             metric_words
@@ -2348,8 +2418,8 @@ def _metric_outcome(bundle: Mapping[str, Any], _context: ValidationContext) -> t
         ):
             findings.append(
                 _finding(
-                    f"/metrics/success/{metric_id}",
-                    "A success metric has no deterministic concept link to the stated outcome.",
+                    path,
+                    "A required outcome metric has no deterministic concept link to the outcome.",
                     "PMOS must define how the metric measures the customer or business outcome.",
                     metric_id,
                 )
@@ -2424,16 +2494,27 @@ def _target_guardrail(
     bounds: list[tuple[str, str, Decimal, str]] = []
     for guardrail_id, guardrail in sorted(_mapping(bundle.get("guardrails")).items()):
         match = re.search(
-            r"(?i)^\s*at\s+(most|least)\s+([+-]?[0-9]+(?:\.[0-9]+)?)\s+(.+?)\s*$",
+            (
+                r"(?i)^\s*(at\s+most|no\s+more\s+than|maximum(?:\s+of)?|"
+                r"at\s+least|no\s+less\s+than|minimum(?:\s+of)?)\s+"
+                r"([+-]?[0-9]+(?:\.[0-9]+)?)\s+(.+?)\s*$"
+            ),
             str(_mapping(guardrail).get("threshold", "")),
         )
         if match:
+            phrase = re.sub(r"\s+", " ", match.group(1).casefold())
+            direction = (
+                "most"
+                if phrase in {"at most", "no more than", "maximum", "maximum of"}
+                else "least"
+            )
+            boundary, unit = _canonical_quantity(Decimal(match.group(2)), match.group(3))
             bounds.append(
                 (
                     str(guardrail_id),
-                    match.group(1).casefold(),
-                    Decimal(match.group(2)),
-                    _norm(match.group(3)),
+                    direction,
+                    boundary,
+                    unit,
                 )
             )
     if not bounds:
@@ -2444,9 +2525,8 @@ def _target_guardrail(
         value = target.get("value")
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             continue
-        target_value = Decimal(str(value))
+        target_value, unit = _canonical_quantity(Decimal(str(value)), target.get("unit", ""))
         operator = str(target.get("operator", ""))
-        unit = _norm(target.get("unit", ""))
         for guardrail_id, direction, boundary, guardrail_unit in bounds:
             if unit != guardrail_unit:
                 continue
@@ -2469,6 +2549,17 @@ def _target_guardrail(
                     )
                 )
     return tuple(findings)
+
+
+def _canonical_quantity(value: Decimal, unit: Any) -> tuple[Decimal, str]:
+    normalized = _norm(unit).rstrip(".")
+    if normalized in {"%", "percent", "percentage", "percentage point", "percentage points"}:
+        return value / Decimal(100), "ratio"
+    if normalized in {"fraction", "ratio"}:
+        return value, "ratio"
+    if len(normalized) > 4 and normalized.endswith("s"):
+        normalized = normalized[:-1]
+    return value, normalized
 
 
 def _alignment_dependency(
@@ -3115,17 +3206,21 @@ class FileValidationEvidenceStore:
         root: Path,
         *,
         fingerprint_provider: KeyedFingerprintProvider,
+        anchor_path: Path,
     ) -> None:
         self.root = Path(root)
         root_preexisting = self.root.exists()
         self.root.mkdir(parents=True, exist_ok=True)
         self.artifacts = ArtifactStore(self.root)
         self.fingerprint_provider = fingerprint_provider
+        self._anchor_path = Path(anchor_path)
+        if self._anchor_path.resolve().is_relative_to(self.root.resolve()):
+            raise ValueError("the validation high-watermark anchor must be outside the ledger root")
+        self._anchor_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self._lock_path = self.root / ".validation-evidence.lock"
         lock_preexisting = self._lock_path.exists()
         self._lock_path.touch(mode=0o600, exist_ok=True)
         self._catalog_name = "catalog.json"
-        self._anchor_path = self.root / ".validation-evidence-anchor.json"
         if self.artifacts.exists(self._catalog_name):
             if not self._anchor_path.exists():
                 raise ValidationEvidenceError("evidence high-watermark anchor is missing")
@@ -3158,18 +3253,19 @@ class FileValidationEvidenceStore:
                 if directory.exists()
                 for path in directory.iterdir()
             )
-            if (
-                materialized
-                or indexed_evidence
-                or lock_preexisting
-                or self._anchor_path.exists()
-                or root_preexisting
-            ):
+            if materialized or indexed_evidence or lock_preexisting or root_preexisting:
                 raise ValidationEvidenceError(
                     "evidence catalog is missing for a materialized store"
                 )
+            if self._anchor_path.exists():
+                anchor = self._read_anchor()
+                if anchor["attempt_ids"] or anchor["lineage_ids"]:
+                    raise ValidationEvidenceError(
+                        "evidence catalog is missing below its external high watermark"
+                    )
             self._write_catalog((), ())
-            self._write_anchor((), ())
+            if not self._anchor_path.exists():
+                self._write_anchor((), ())
 
     def _write_verified(self, name: str, kind: str, payload: Mapping[str, Any]) -> None:
         signed = {
@@ -3318,6 +3414,12 @@ class FileValidationEvidenceStore:
     ) -> None:
         normalized_attempts = sorted(set(attempt_ids))
         normalized_lineages = sorted(set(lineage_ids))
+        if self._anchor_path.exists():
+            current = self._read_anchor()
+            if not set(current["attempt_ids"]) <= set(normalized_attempts) or not set(
+                current["lineage_ids"]
+            ) <= set(normalized_lineages):
+                raise ValidationEvidenceError("evidence high-watermark anchor cannot regress")
         signed = {
             "attempt_ids": normalized_attempts,
             "high_watermark": len(normalized_attempts),
@@ -3456,6 +3558,12 @@ class FileValidationEvidenceStore:
     def load_attempt(self, attempt_id: str) -> dict[str, Any]:
         safe_attempt_id = _safe_evidence_id(attempt_id, "ingestion attempt ID")
         return self._read_verified(f"attempts/{safe_attempt_id}.json", "ATTEMPT")
+
+    def has_attempt(self, attempt_id: str) -> bool:
+        safe_attempt_id = _safe_evidence_id(attempt_id, "ingestion attempt ID")
+        catalog = self._read_catalog()
+        self._validate_anchor(catalog, self._read_anchor())
+        return safe_attempt_id in catalog["attempt_ids"]
 
     def lineage_summary(self, lineage_id: str) -> dict[str, Any]:
         safe_lineage_id = _safe_evidence_id(lineage_id, "lineage ID")
@@ -3633,6 +3741,91 @@ class FileValidationEvidenceStore:
         if self.artifacts.exists(name) and self._read_verified(name, "ATTEMPT") != payload:
             raise ValidationEvidenceError("attempt already contains different evidence")
         self._write_verified(name, "ATTEMPT", payload)
+
+
+class CanonicalContractAdmission:
+    """Mandatory compiler-to-engineering semantic admission boundary.
+
+    Evaluation remains pure.  This boundary binds trusted intake and authority
+    evidence, persists the exact result, and verifies idempotent replays before
+    a caller can observe an engineering-admissible outcome.
+    """
+
+    def __init__(
+        self,
+        *,
+        validator: ContractSemanticValidator,
+        evidence_store: FileValidationEvidenceStore,
+        authority_provider: ValidationAuthorityProvider,
+        fingerprint_provider: KeyedFingerprintProvider,
+        clock: Clock,
+    ) -> None:
+        self.validator = validator
+        self.evidence_store = evidence_store
+        self.authority_provider = authority_provider
+        self.fingerprint_provider = fingerprint_provider
+        self.clock = clock
+
+    def admit(
+        self,
+        bundle: Mapping[str, Any],
+        intake: IntakeOutcome,
+    ) -> ValidationResult:
+        receipt = intake.receipt
+        if receipt is None:
+            raise ValidationEvidenceError("semantic admission requires a durable intake receipt")
+        attempt_id = _safe_evidence_id(receipt.attempt_id, "ingestion attempt ID")
+        lineage_id = _safe_evidence_id(receipt.lineage_id, "lineage ID")
+        correction = receipt.correction_reference
+        stored: dict[str, Any] | None = None
+        if self.evidence_store.has_attempt(attempt_id):
+            stored = self.evidence_store.load_attempt(attempt_id)
+            if (
+                stored.get("lineage_id") != lineage_id
+                or stored.get("ingestion_attempt_id") != attempt_id
+            ):
+                raise ValidationEvidenceError(
+                    "stored validation evidence has a different immutable intake identity"
+                )
+            evaluated_at = str(stored.get("evaluated_at", ""))
+            lineage_received_at = str(stored.get("lineage_received_at", ""))
+        else:
+            evaluated_at = self.clock.now()
+            lineage_received_at = receipt.received_at
+            if correction is not None:
+                predecessor = self.evidence_store.load_attempt(correction.attempt_id)
+                if (
+                    predecessor.get("lineage_id") != lineage_id
+                    or correction.lineage_id != lineage_id
+                ):
+                    raise ValidationEvidenceError(
+                        "correction evidence does not preserve the immutable lineage"
+                    )
+                lineage_received_at = str(predecessor.get("lineage_received_at", ""))
+        authority = self.authority_provider.authority_for(bundle)
+        context = ValidationContext.from_intake_receipt(
+            receipt,
+            bundle_digest=canonical_digest(bundle),
+            evaluated_at=evaluated_at,
+            lineage_received_at=lineage_received_at,
+            possible_duplicate=intake.reservation.possible_duplicate,
+            authority_grants=authority.authority_grants,
+            approval_requirement_grants=authority.approval_requirement_grants,
+            authority_identity=authority.authority_identity,
+            fingerprint_provider=self.fingerprint_provider,
+        )
+        result = self.validator.validate(bundle, context)
+        if stored is not None and result.as_dict() != stored:
+            raise ValidationEvidenceError(
+                "semantic replay differs from the immutable validation result"
+            )
+        self.evidence_store.record(result)
+        persisted = self.evidence_store.load_attempt(attempt_id)
+        if persisted != result.as_dict():
+            raise ValidationEvidenceError(
+                "persisted semantic decision differs from the evaluated result"
+            )
+        return result
 
 
 _MANDATORY_RULE_METADATA.update(

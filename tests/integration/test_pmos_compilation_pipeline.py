@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import importlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -11,6 +14,7 @@ from typing import Any
 import pytest
 from jsonschema import Draft202012Validator
 
+from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from tests.unit.test_pmos_intake import (
     CleanMalwareScanner,
     FixedClock,
@@ -23,6 +27,76 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests" / "fixtures"
 BUNDLE_SCHEMA = json.loads((ROOT / "schemas" / "pmos_contract_bundle.schema.json").read_text())
 MANIFEST_SCHEMA = json.loads((ROOT / "schemas" / "pmos_contract_manifest.schema.json").read_text())
+
+
+class PipelineAuthorityVerifier:
+    """Test-only authority issuer; production admission exposes verification only."""
+
+    issuer_id = "TEST-PIPELINE-AUTHORITY-001"
+    key_version = "TEST-PIPELINE-AUTHORITY-KEY-V1"
+    _key = b"issue-63-pipeline-authority-test-key"
+
+    def issue(self, bundle: dict[str, Any]) -> Any:
+        validation = _module("pmpe.validation.contracts")
+        evidence = validation.ApprovalAuthorityEvidence(
+            bundle_digest=canonical_digest(bundle),
+            approvals_digest=canonical_digest(bundle.get("approvals", {})),
+            authority_grants=(),
+            requirement_grants=(),
+            issuer_id=self.issuer_id,
+            key_version=self.key_version,
+            attestation="",
+        )
+        attestation = hmac.new(
+            self._key,
+            b"validation-authority-attestation\x00"
+            + canonical_json_bytes(evidence.signed_payload()),
+            hashlib.sha256,
+        ).hexdigest()
+        return replace(evidence, attestation=attestation)
+
+    def verify(self, evidence: Any) -> bool:
+        if evidence.issuer_id != self.issuer_id or evidence.key_version != self.key_version:
+            return False
+        expected = hmac.new(
+            self._key,
+            b"validation-authority-attestation\x00"
+            + canonical_json_bytes(evidence.signed_payload()),
+            hashlib.sha256,
+        ).hexdigest()
+        return hmac.compare_digest(expected, evidence.attestation)
+
+
+PIPELINE_AUTHORITY = PipelineAuthorityVerifier()
+
+
+class PipelineValidationFingerprintProvider:
+    key_version = "TEST-PIPELINE-VALIDATION-KEY-V1"
+    _key = b"issue-63-pipeline-validation-test-key"
+
+    def fingerprint(self, domain: str, payload: bytes) -> str:
+        return hmac.new(
+            self._key,
+            domain.encode() + b"\x00" + payload,
+            hashlib.sha256,
+        ).hexdigest()
+
+    def candidate_fingerprints(self, domain: str, payload: bytes) -> tuple[Any, ...]:
+        intake = _module("pmpe.contracts.intake")
+        return (intake.KeyedFingerprint(self.key_version, self.fingerprint(domain, payload)),)
+
+
+class PipelineValidationAuthorityProvider:
+    def authority_for(
+        self,
+        bundle: dict[str, Any],
+    ) -> Any:
+        validation = _module("pmpe.validation.contracts")
+        return validation.ValidationAuthority(
+            authority_grants=(),
+            approval_requirement_grants=(),
+            authority_identity=PIPELINE_AUTHORITY.issue(bundle),
+        )
 
 
 def _module(name: str) -> ModuleType:
@@ -39,6 +113,8 @@ def _service(tmp_path: Path) -> Any:
     clock = FixedClock()
     ids = SequenceIds()
     fingerprints = TestFingerprintProvider()
+    validation_fingerprints = PipelineValidationFingerprintProvider()
+    validation = _module("pmpe.validation.contracts")
     ledger = intake.FileIntakeLedger(
         tmp_path / "ledger",
         clock=clock,
@@ -59,6 +135,23 @@ def _service(tmp_path: Path) -> Any:
         max_bytes=2_000_000,
         allowed_content_types={"application/json", "application/yaml"},
     )
+    validation_store = validation.FileValidationEvidenceStore(
+        tmp_path / "validation-evidence",
+        fingerprint_provider=validation_fingerprints,
+        anchor_path=tmp_path / ".validation-high-watermark.json",
+    )
+    semantic_validator = validation.ContractSemanticValidator(
+        fingerprint_provider=validation_fingerprints,
+        authority_evidence_verifier=PIPELINE_AUTHORITY,
+        evidence_lookup=validation_store,
+    )
+    admission = validation.CanonicalContractAdmission(
+        validator=semantic_validator,
+        evidence_store=validation_store,
+        authority_provider=PipelineValidationAuthorityProvider(),
+        fingerprint_provider=validation_fingerprints,
+        clock=clock,
+    )
     return pipeline.PmosCompilationService(
         intake=coordinator,
         compiler=compiler.CanonicalCompiler(),
@@ -66,6 +159,7 @@ def _service(tmp_path: Path) -> Any:
             tmp_path / "evidence",
             fingerprint_provider=fingerprints,
         ),
+        admission_boundary=admission,
     )
 
 
@@ -97,6 +191,9 @@ def test_supported_input_produces_durable_schema_valid_evidence(
     result = _service(tmp_path).process(_request(fixture, retry_key))
     assert result.status == "COMPILED_BLOCKED"
     assert result.compilation.blocked
+    assert result.validation is not None
+    assert result.validation.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert not result.engineering_admissible
     assert list(Draft202012Validator(BUNDLE_SCHEMA).iter_errors(result.compilation.bundle)) == []
     assert (
         list(Draft202012Validator(MANIFEST_SCHEMA).iter_errors(result.compilation.manifest)) == []
@@ -112,7 +209,71 @@ def test_supported_input_produces_durable_schema_valid_evidence(
     assert evidence["intake"] == result.intake.receipt.as_dict()
     assert "payload" not in evidence["intake"]
     assert (attempt_dir / "evidence-attestation.json").exists()
+    validation_attempt = (
+        tmp_path
+        / "validation-evidence"
+        / "artifacts"
+        / "attempts"
+        / f"{result.intake.receipt.attempt_id}.json"
+    )
+    assert validation_attempt.exists()
     assert not result.intake.quarantine_retained
+
+
+def test_semantic_admission_boundary_is_a_required_pipeline_dependency(
+    tmp_path: Path,
+) -> None:
+    pipeline = _module("pmpe.contracts.pipeline")
+    compiler = _module("pmpe.contracts.compiler")
+    service = _service(tmp_path)
+    with pytest.raises(TypeError, match="admission_boundary"):
+        pipeline.PmosCompilationService(
+            intake=service.intake,
+            compiler=compiler.CanonicalCompiler(),
+            evidence_store=service.evidence_store,
+        )
+
+
+def test_semantic_admission_failure_never_returns_an_admissible_outcome(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+
+    class FailingBoundary:
+        @staticmethod
+        def admit(_bundle: dict[str, Any], _intake: Any) -> Any:
+            raise RuntimeError("simulated validation evidence failure")
+
+    service.admission_boundary = FailingBoundary()
+    result = service.process(
+        _request(FIXTURES / "minimal_valid_spec.json", "semantic-boundary-failure")
+    )
+    assert result.status == "VALIDATION_SECURITY_BLOCKED"
+    assert result.validation is None
+    assert not result.engineering_admissible
+
+
+def test_tampered_semantic_evidence_fails_closed_on_pipeline_replay(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    request = _request(FIXTURES / "minimal_valid_spec.json", "semantic-evidence-tamper")
+    first = service.process(request)
+    assert first.intake.receipt is not None
+    evidence_path = (
+        tmp_path
+        / "validation-evidence"
+        / "artifacts"
+        / "attempts"
+        / f"{first.intake.receipt.attempt_id}.json"
+    )
+    envelope = json.loads(evidence_path.read_text())
+    envelope["payload"]["disposition"] = "ADMITTED"
+    evidence_path.write_text(json.dumps(envelope))
+    replay = service.process(request)
+    assert replay.status == "VALIDATION_SECURITY_BLOCKED"
+    assert replay.validation is None
+    assert not replay.engineering_admissible
 
 
 def test_acknowledgement_retry_returns_same_compilation_without_new_object(

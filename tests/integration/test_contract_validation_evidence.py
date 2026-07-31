@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import importlib
 import json
+import shutil
 from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
@@ -191,11 +192,16 @@ def _validator(*, evidence_lookup: Any = None) -> Any:
     )
 
 
-def test_first_attempt_is_counted_once_and_correction_cannot_erase_it(tmp_path: Path) -> None:
-    api = _api()
-    store = api.FileValidationEvidenceStore(
-        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
+def _store(root: Path) -> Any:
+    return _api().FileValidationEvidenceStore(
+        root,
+        fingerprint_provider=FINGERPRINTS,
+        anchor_path=root.parent / f".{root.name}-validation-high-watermark.json",
     )
+
+
+def test_first_attempt_is_counted_once_and_correction_cannot_erase_it(tmp_path: Path) -> None:
+    store = _store(tmp_path / "evidence")
     validator = _validator(evidence_lookup=store)
     first_bundle = _bundle()
     del first_bundle["product"]
@@ -234,9 +240,7 @@ def test_evidence_is_write_once_and_replay_is_idempotent(tmp_path: Path) -> None
         bundle,
         _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
     )
-    store = api.FileValidationEvidenceStore(
-        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
-    )
+    store = _store(tmp_path / "evidence")
     store.record(result)
     store.record(result)
     loaded = store.load_attempt("ATTEMPT-000001")
@@ -252,9 +256,7 @@ def test_persisted_first_pass_tampering_cannot_rewrite_metrics(tmp_path: Path) -
     api = _api()
     bundle = _bundle()
     del bundle["product"]
-    store = api.FileValidationEvidenceStore(
-        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
-    )
+    store = _store(tmp_path / "evidence")
     result = _validator().validate(
         bundle,
         _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
@@ -277,9 +279,7 @@ def test_persisted_first_pass_tampering_cannot_rewrite_metrics(tmp_path: Path) -
 def test_correction_requires_stored_original_attempt(tmp_path: Path) -> None:
     api = _api()
     bundle = _bundle()
-    store = api.FileValidationEvidenceStore(
-        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
-    )
+    store = _store(tmp_path / "evidence")
     result = _validator(evidence_lookup=store).validate(
         bundle,
         _context(
@@ -300,10 +300,7 @@ def test_correction_requires_stored_original_attempt(tmp_path: Path) -> None:
 def test_missing_lineage_index_is_reconciled_before_recording_correction(
     tmp_path: Path,
 ) -> None:
-    api = _api()
-    store = api.FileValidationEvidenceStore(
-        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
-    )
+    store = _store(tmp_path / "evidence")
     validator = _validator(evidence_lookup=store)
     first_bundle = _bundle()
     del first_bundle["product"]
@@ -341,9 +338,7 @@ def test_missing_lineage_index_is_reconciled_before_recording_correction(
 def test_deleting_cataloged_lineage_cannot_rewrite_metric_denominator(tmp_path: Path) -> None:
     api = _api()
     bundle = _bundle()
-    store = api.FileValidationEvidenceStore(
-        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
-    )
+    store = _store(tmp_path / "evidence")
     first = _validator().validate(
         bundle,
         _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
@@ -358,9 +353,7 @@ def test_deleting_cataloged_lineage_cannot_rewrite_metric_denominator(tmp_path: 
 
 def test_deleting_latest_correction_cannot_resurrect_prior_admission(tmp_path: Path) -> None:
     api = _api()
-    store = api.FileValidationEvidenceStore(
-        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
-    )
+    store = _store(tmp_path / "evidence")
     validator = _validator(evidence_lookup=store)
     first_bundle = _bundle()
     first = validator.validate(
@@ -400,7 +393,7 @@ def test_deleting_all_signed_evidence_cannot_reinitialize_an_empty_ledger(
 ) -> None:
     api = _api()
     root = tmp_path / "evidence"
-    store = api.FileValidationEvidenceStore(root, fingerprint_provider=FINGERPRINTS)
+    store = _store(root)
     bundle = _bundle()
     store.record(
         _validator().validate(
@@ -408,17 +401,51 @@ def test_deleting_all_signed_evidence_cannot_reinitialize_an_empty_ledger(
             _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
         )
     )
-    for path in store.artifacts.root.rglob("*.json"):
-        path.unlink()
+    shutil.rmtree(root)
 
-    with pytest.raises(api.ValidationEvidenceError, match="catalog is missing"):
-        api.FileValidationEvidenceStore(root, fingerprint_provider=FINGERPRINTS)
+    with pytest.raises(api.ValidationEvidenceError, match="external high watermark"):
+        _store(root)
+
+
+def test_restoring_older_signed_snapshot_cannot_roll_back_high_watermark(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    root = tmp_path / "evidence"
+    snapshot = tmp_path / "snapshot"
+    store = _store(root)
+    bundle = _bundle()
+    first = _validator().validate(
+        bundle,
+        _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
+    )
+    store.record(first)
+    shutil.copytree(root, snapshot)
+
+    correction = _validator(evidence_lookup=store).validate(
+        bundle,
+        _context(
+            bundle,
+            "LINEAGE-000001",
+            "ATTEMPT-000002",
+            correction=CorrectionReference(
+                lineage_id="LINEAGE-000001",
+                attempt_id="ATTEMPT-000001",
+            ),
+        ),
+    )
+    store.record(correction)
+    shutil.rmtree(root)
+    shutil.copytree(snapshot, root)
+
+    with pytest.raises(api.ValidationEvidenceError, match="regressed"):
+        _store(root)
 
 
 def test_deleting_high_watermark_anchor_fails_closed(tmp_path: Path) -> None:
     api = _api()
     root = tmp_path / "evidence"
-    store = api.FileValidationEvidenceStore(root, fingerprint_provider=FINGERPRINTS)
+    store = _store(root)
     bundle = _bundle()
     store.record(
         _validator().validate(
@@ -429,15 +456,13 @@ def test_deleting_high_watermark_anchor_fails_closed(tmp_path: Path) -> None:
     store._anchor_path.unlink()
 
     with pytest.raises(api.ValidationEvidenceError, match="anchor is missing"):
-        api.FileValidationEvidenceStore(root, fingerprint_provider=FINGERPRINTS)
+        _store(root)
 
 
 def test_reconciliation_rejects_multiple_first_pass_roots(tmp_path: Path) -> None:
     api = _api()
     bundle = _bundle()
-    store = api.FileValidationEvidenceStore(
-        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
-    )
+    store = _store(tmp_path / "evidence")
     first = _validator().validate(
         bundle,
         _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
@@ -455,9 +480,7 @@ def test_reconciliation_rejects_multiple_first_pass_roots(tmp_path: Path) -> Non
 def test_evidence_identifiers_cannot_escape_store_root(tmp_path: Path) -> None:
     api = _api()
     bundle = _bundle()
-    store = api.FileValidationEvidenceStore(
-        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
-    )
+    store = _store(tmp_path / "evidence")
     result = _validator().validate(
         bundle,
         _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
@@ -482,9 +505,7 @@ def test_evidence_identifiers_cannot_escape_store_root(tmp_path: Path) -> None:
 def test_correction_validation_requires_latest_persisted_attempt(tmp_path: Path) -> None:
     api = _api()
     bundle = _bundle()
-    store = api.FileValidationEvidenceStore(
-        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
-    )
+    store = _store(tmp_path / "evidence")
     validator = _validator(evidence_lookup=store)
     first = validator.validate(
         bundle,
@@ -523,9 +544,7 @@ def test_correction_validation_requires_latest_persisted_attempt(tmp_path: Path)
 def test_correction_cannot_shift_original_lineage_eligibility_anchor(tmp_path: Path) -> None:
     api = _api()
     bundle = _bundle()
-    store = api.FileValidationEvidenceStore(
-        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
-    )
+    store = _store(tmp_path / "evidence")
     validator = _validator(evidence_lookup=store)
     first = validator.validate(
         bundle,
@@ -550,10 +569,7 @@ def test_correction_cannot_shift_original_lineage_eligibility_anchor(tmp_path: P
 
 
 def test_publisher_source_id_never_coalesces_immutable_lineages(tmp_path: Path) -> None:
-    api = _api()
-    store = api.FileValidationEvidenceStore(
-        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
-    )
+    store = _store(tmp_path / "evidence")
     bundle = _bundle()
     first = _validator().validate(
         bundle,
@@ -571,7 +587,6 @@ def test_publisher_source_id_never_coalesces_immutable_lineages(tmp_path: Path) 
 
 
 def test_evidence_artifact_contains_no_raw_payload_or_secret(tmp_path: Path) -> None:
-    api = _api()
     bundle = _bundle()
     secret = "ghp_0123456789abcdefghijklmnop"
     bundle["product"]["outcome"]["customer_outcome"] = f"Engineering decides {secret}"
@@ -582,9 +597,7 @@ def test_evidence_artifact_contains_no_raw_payload_or_secret(tmp_path: Path) -> 
         bundle,
         _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
     )
-    store = api.FileValidationEvidenceStore(
-        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
-    )
+    store = _store(tmp_path / "evidence")
     store.record(result)
     materialized = b"".join(path.read_bytes() for path in (tmp_path / "evidence").rglob("*json"))
     assert secret.encode() not in materialized

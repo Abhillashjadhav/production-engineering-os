@@ -661,8 +661,12 @@ def test_expired_historical_approval_can_be_validly_superseded() -> None:
     api = _api()
     bundle = _ready_bundle()
     current = bundle["approvals"]["APR-CONTRACT-001"]
+    current["approval_version"] = "2.0.0"
     predecessor = copy.deepcopy(current)
+    predecessor["approval_version"] = "1.0.0"
     predecessor["status"] = "SUPERSEDED"
+    predecessor["approved_at"] = "2026-07-29T00:00:00Z"
+    predecessor["valid_from"] = "2026-07-01T00:00:00Z"
     predecessor["expires_at"] = "2026-07-30T12:00:00Z"
     predecessor["superseded_by_approval_ref"] = "APR-CONTRACT-001"
     predecessor["supersedes_approval_refs"] = []
@@ -679,6 +683,43 @@ def test_expired_historical_approval_can_be_validly_superseded() -> None:
     stale_reference = _validate(bundle)
     assert stale_reference.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
     assert "APPROVAL.ACTIVE" in _codes(stale_reference)
+
+
+def test_supersession_cannot_cross_exact_subject_scope() -> None:
+    bundle = _ready_bundle()
+    predecessor = bundle["approvals"]["APR-METRIC-EADPR"]
+    predecessor["status"] = "SUPERSEDED"
+    predecessor["approval_version"] = "1.0.0"
+    predecessor["approved_at"] = "2026-07-29T00:00:00Z"
+    predecessor["superseded_by_approval_ref"] = "APR-CONTRACT-001"
+    successor = bundle["approvals"]["APR-CONTRACT-001"]
+    successor["approval_version"] = "2.0.0"
+    successor["supersedes_approval_refs"] = ["APR-METRIC-EADPR"]
+    _reseal(bundle)
+
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "APPROVAL.ACTIVE" in _codes(result)
+
+
+def test_supersession_cannot_cross_an_exact_subject_digest() -> None:
+    bundle = _ready_bundle()
+    current = bundle["approvals"]["APR-CONTRACT-001"]
+    current["approval_version"] = "2.0.0"
+    predecessor = copy.deepcopy(current)
+    predecessor["approval_version"] = "1.0.0"
+    predecessor["status"] = "SUPERSEDED"
+    predecessor["approved_at"] = "2026-07-29T00:00:00Z"
+    predecessor["superseded_by_approval_ref"] = "APR-CONTRACT-001"
+    predecessor["supersedes_approval_refs"] = []
+    bundle["approvals"]["APR-CONTRACT-OLD"] = predecessor
+    current["supersedes_approval_refs"] = ["APR-CONTRACT-OLD"]
+    _reseal(bundle)
+    predecessor["subject"]["digest"] = "sha256:" + "d" * 64
+
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "APPROVAL.ACTIVE" in _codes(result)
 
 
 @pytest.mark.parametrize(
@@ -744,6 +785,8 @@ def test_named_contradiction_classes_block(case: str, expected_rule: str) -> Non
     ("operator", "value", "threshold"),
     [
         ("AT_LEAST", 0.8, "At most 0.5 ratio"),
+        ("AT_LEAST", 0.8, "No more than 0.5 ratio"),
+        ("AT_LEAST", 0.8, "At most 50 percent"),
         ("EXACT", 0.8, "At most 0.5 ratio"),
         ("AT_MOST", 0.2, "At least 0.5 ratio"),
         ("EXACT", 0.2, "At least 0.5 ratio"),
@@ -1366,6 +1409,22 @@ def test_one_generic_shared_word_does_not_prove_metric_outcome_alignment() -> No
     assert "ALIGN.METRIC_OUTCOME" in _codes(result)
 
 
+def test_every_north_star_requires_deterministic_outcome_alignment() -> None:
+    bundle = _ready_bundle()
+    for north_star in bundle["metrics"]["north_stars"].values():
+        north_star["definition"] = "Orbital catering and wallpaper color impression count."
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.METRIC_OUTCOME" in _codes(result)
+    paths = {
+        diagnostic.field_path
+        for diagnostic in result.diagnostics
+        if diagnostic.rule_id == "ALIGN.METRIC_OUTCOME"
+    }
+    assert paths == {"/metrics/north_stars/end_state", "/metrics/north_stars/mvp"}
+
+
 def test_production_autonomy_uses_end_state_policy_and_exact_environment() -> None:
     bundle = _ready_bundle()
     release = bundle["release"]
@@ -1489,6 +1548,21 @@ def test_secret_values_never_appear_in_diagnostics_or_advisories() -> None:
             ),
         ),
     )
+    assert secret not in result.canonical_bytes().decode()
+
+
+def test_unrestricted_source_identity_never_appears_in_diagnostics() -> None:
+    bundle = _ready_bundle()
+    secret = "opaque-source-credential-Z9x4Q7n2L8m5"
+    bundle["provenance"]["source_id"] = secret
+    bundle["provenance"]["compiler_provenance"] = {
+        "compiler_id": "PMPE-CANONICAL-COMPILER",
+        "compiler_version": "1.0.0",
+        "input_digest": "sha256:" + "c" * 64,
+    }
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert "REF.SOURCE_IDENTITY" in _codes(result)
     assert secret not in result.canonical_bytes().decode()
 
 
