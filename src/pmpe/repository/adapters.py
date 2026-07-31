@@ -5,6 +5,7 @@ from __future__ import annotations
 import fnmatch
 import json
 import re
+import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import PurePosixPath
@@ -81,13 +82,21 @@ def repository_adapter(
     return decorate
 
 
-def _item(file: TrackedFile, kind: str, detector: str, version: str = "1.0.0") -> EvidenceItem:
+def _item(
+    file: TrackedFile,
+    kind: str,
+    detector: str,
+    version: str = "1.0.0",
+    *,
+    confidence: str = "HIGH",
+) -> EvidenceItem:
     return EvidenceItem(
         kind=kind,
         path=file.path,
         file_digest=file.digest,
         detector_id=detector,
         detector_version=version,
+        confidence=confidence,
     )
 
 
@@ -184,6 +193,45 @@ def _topology(context: AdapterContext) -> AdapterResult:
                     _item(file, "PR_TEMPLATE", "core.repository-topology"),
                 )
             )
+        if any(token in lowered for token in ("/alerts", "/slo", "/metrics", "/traces")):
+            items.append(
+                (
+                    "observability_operations",
+                    _item(
+                        file,
+                        "OBSERVABILITY_CONFIG_SIGNAL",
+                        "core.repository-topology",
+                        confidence="MEDIUM",
+                    ),
+                )
+            )
+        if any(
+            token in lowered
+            for token in ("security", "dependabot", "codeql", "secret-scan", "permissions")
+        ):
+            items.append(
+                (
+                    "security_privacy",
+                    _item(
+                        file,
+                        "SECURITY_CONTROL_SIGNAL",
+                        "core.repository-topology",
+                        confidence="MEDIUM",
+                    ),
+                )
+            )
+        if any(token in lowered for token in ("terraform", "kubernetes", "helm", "/deploy")):
+            items.append(
+                (
+                    "delivery_environments",
+                    _item(
+                        file,
+                        "DEPLOYMENT_DEFINITION_SIGNAL",
+                        "core.repository-topology",
+                        confidence="MEDIUM",
+                    ),
+                )
+            )
 
     roots: dict[tuple[str, str], set[str]] = {}
     for file in context.files:
@@ -230,6 +278,7 @@ def _topology(context: AdapterContext) -> AdapterResult:
 )
 def _python(context: AdapterContext) -> AdapterResult:
     items: list[tuple[str, EvidenceItem]] = []
+    findings: list[Finding] = []
     for file in context.files:
         if file.path.endswith(".py"):
             category = (
@@ -239,15 +288,34 @@ def _python(context: AdapterContext) -> AdapterResult:
             )
             kind = "PYTHON_TEST" if category == "tests_quality" else "PYTHON_SOURCE"
             items.append((category, _item(file, kind, "stack.python")))
-        elif file.path == "pyproject.toml" or file.path.endswith("requirements.txt"):
+        elif PurePosixPath(file.path).name == "pyproject.toml" or file.path.endswith(
+            "requirements.txt"
+        ):
             items.append(
                 ("languages_build_ecosystems", _item(file, "PYTHON_MANIFEST", "stack.python"))
             )
+            if PurePosixPath(file.path).name == "pyproject.toml" and file.content is not None:
+                try:
+                    parsed = tomllib.loads(file.content.decode("utf-8"))
+                    if not isinstance(parsed, dict):
+                        raise ValueError
+                except (tomllib.TOMLDecodeError, UnicodeDecodeError, ValueError):
+                    findings.append(
+                        _finding(
+                            "MANIFEST.MALFORMED",
+                            "languages_build_ecosystems",
+                            "A tracked Python manifest cannot be parsed deterministically.",
+                            (file.path,),
+                            "stack.python",
+                            severity="HIGH",
+                            blocking=True,
+                        )
+                    )
         elif file.path == ".python-version":
             items.append(
                 ("languages_build_ecosystems", _item(file, "RUNTIME_VERSION", "stack.python"))
             )
-    return AdapterResult(items=tuple(items))
+    return AdapterResult(items=tuple(items), findings=tuple(findings))
 
 
 @repository_adapter(
@@ -343,6 +411,7 @@ def _node(context: AdapterContext) -> AdapterResult:
 )
 def _containers(context: AdapterContext) -> AdapterResult:
     items: list[tuple[str, EvidenceItem]] = []
+    findings: list[Finding] = []
     for file in context.files:
         name = PurePosixPath(file.path).name.lower()
         if "dockerfile" in name:
@@ -369,7 +438,24 @@ def _containers(context: AdapterContext) -> AdapterResult:
             items.append(
                 ("delivery_environments", _item(file, "LOCAL_COMPOSE", "stack.docker-compose"))
             )
-    return AdapterResult(items=tuple(items))
+            if file.content is not None:
+                try:
+                    parsed = yaml.safe_load(file.content)
+                    if not isinstance(parsed, dict):
+                        raise ValueError
+                except (yaml.YAMLError, UnicodeDecodeError, ValueError):
+                    findings.append(
+                        _finding(
+                            "MANIFEST.MALFORMED",
+                            "delivery_environments",
+                            "A tracked Compose manifest cannot be parsed deterministically.",
+                            (file.path,),
+                            "stack.docker-compose",
+                            severity="HIGH",
+                            blocking=True,
+                        )
+                    )
+    return AdapterResult(items=tuple(items), findings=tuple(findings))
 
 
 @repository_adapter(
@@ -394,7 +480,10 @@ def _github_actions(context: AdapterContext) -> AdapterResult:
                 _item(file, workflow_kind, "delivery.github-actions"),
             )
         )
-        items.append(("tests_quality", _item(file, "CI_TEST_MAPPING", "delivery.github-actions")))
+        if file.content and re.search(rb"\b(pytest|vitest|playwright|test)\b", file.content, re.I):
+            items.append(
+                ("tests_quality", _item(file, "CI_TEST_MAPPING", "delivery.github-actions"))
+            )
         if file.content is not None:
             try:
                 parsed = yaml.safe_load(file.content)
@@ -441,6 +530,11 @@ def _github_actions(context: AdapterContext) -> AdapterResult:
     version="1.0.0",
     file_patterns=(
         "**/*openapi*",
+        "**/*asyncapi*",
+        "**/*.proto",
+        "**/*.graphql",
+        "**/*.gql",
+        "**/*.gen.*",
         "**/schemas/**",
         "**/migrations/**",
         "**/generate*",
@@ -454,10 +548,16 @@ def _interfaces(context: AdapterContext) -> AdapterResult:
         lowered = file.path.lower()
         if "openapi" in lowered:
             kind = "OPENAPI"
+        elif "asyncapi" in lowered:
+            kind = "EVENT_CONTRACT"
+        elif lowered.endswith((".proto", ".graphql", ".gql")):
+            kind = "INTERFACE_DEFINITION"
         elif "/migrations/" in f"/{lowered}":
             kind = "MIGRATION"
         elif "generate" in PurePosixPath(lowered).name:
             kind = "CODE_GENERATOR"
+        elif ".gen." in lowered or "generated_client" in lowered:
+            kind = "GENERATED_CLIENT"
         elif "/schemas/" in f"/{lowered}" or lowered.endswith(".schema.json"):
             kind = "SCHEMA"
         else:

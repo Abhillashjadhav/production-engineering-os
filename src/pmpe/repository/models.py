@@ -115,6 +115,7 @@ class RepositorySnapshot:
     commit_sha: str
     tree_sha: str
     default_branch: str | None
+    default_branch_source: str
     scanner_version: str
     scan_configuration_digest: str
     adapter_set_digest: str

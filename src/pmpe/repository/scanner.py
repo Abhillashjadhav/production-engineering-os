@@ -165,6 +165,7 @@ def _snapshot_from_dict(value: dict[str, Any]) -> RepositorySnapshot:
         commit_sha=str(value["commit_sha"]),
         tree_sha=str(value["tree_sha"]),
         default_branch=cast(str | None, value["default_branch"]),
+        default_branch_source=str(value["default_branch_source"]),
         scanner_version=str(value["scanner_version"]),
         scan_configuration_digest=str(value["scan_configuration_digest"]),
         adapter_set_digest=str(value["adapter_set_digest"]),
@@ -652,19 +653,26 @@ class RepositoryScanner:
             ".py",
             ".pyi",
             ".json",
+            ".jsonl",
             ".yaml",
             ".yml",
             ".toml",
             ".lock",
             ".js",
+            ".mjs",
+            ".cjs",
             ".jsx",
             ".ts",
             ".tsx",
+            ".css",
+            ".html",
+            ".svg",
             ".sql",
             ".sh",
             ".ini",
             ".cfg",
             ".dockerignore",
+            ".typed",
         }
         unknown = [
             file.path
@@ -673,16 +681,67 @@ class RepositoryScanner:
             and PurePosixPath(file.path).suffix.lower() not in known_suffixes
             and not file.binary
         ]
-        if unknown and not inventory["languages_build_ecosystems"]:
+        if unknown:
             findings.append(
                 _finding(
-                    "STACK.UNSUPPORTED",
+                    "STACK.UNSUPPORTED_FILE_TYPE",
                     "languages_build_ecosystems",
-                    "Tracked source belongs to an unsupported ecosystem; no stack was inferred.",
+                    "A tracked file type has no deterministic stack adapter; no ecosystem was "
+                    "inferred for it.",
                     tuple(sorted(unknown)),
                     blocking=True,
                 )
             )
+        unsupported_manifests = sorted(
+            file.path
+            for file in files
+            if PurePosixPath(file.path).name
+            in {"Cargo.toml", "go.mod", "pom.xml", "build.gradle", "Gemfile"}
+        )
+        if unsupported_manifests:
+            findings.append(
+                _finding(
+                    "STACK.UNSUPPORTED_ECOSYSTEM",
+                    "languages_build_ecosystems",
+                    "A tracked ecosystem manifest has no versioned adapter; its stack was not "
+                    "guessed.",
+                    tuple(unsupported_manifests),
+                    blocking=True,
+                )
+            )
+        by_name: dict[str, list[str]] = {}
+        for file in files:
+            name = PurePosixPath(file.path).name
+            if name.endswith((".schema.json", ".config.json", ".config.yaml", ".config.yml")):
+                by_name.setdefault(name, []).append(file.path)
+        for paths in sorted(by_name.values()):
+            if len(paths) > 1:
+                findings.append(
+                    _finding(
+                        "CONFIG.DUPLICATE_PATH_SIGNAL",
+                        "debt_risk",
+                        "The same configuration basename appears in multiple tracked locations; "
+                        "this is a duplication signal, not proof of drift.",
+                        tuple(sorted(paths)),
+                        severity="MEDIUM",
+                    )
+                )
+        for file in files:
+            if not file.path.startswith(".github/workflows/") or not file.content:
+                continue
+            if re.search(
+                rb"\bpip\s+install\s+(?:[^\n]*\s)?(?:ruff|mypy|bandit|build)\s*(?:\n|$)",
+                file.content,
+            ):
+                findings.append(
+                    _finding(
+                        "TOOL.UNPINNED_INSTALL_SIGNAL",
+                        "debt_risk",
+                        "A CI tool install appears unbounded; exact resolver behavior may drift.",
+                        (file.path,),
+                        severity="MEDIUM",
+                    )
+                )
         for file in files:
             if file.mode == "120000" and _symlink_escapes(file.path, file.content):
                 findings.append(
@@ -731,6 +790,7 @@ class RepositoryScanner:
             commit_sha=commit_sha,
             tree_sha=tree_sha,
             default_branch=self.config.default_branch,
+            default_branch_source="SCAN_CONFIGURATION_NOT_OBSERVED",
             scanner_version=SCANNER_VERSION,
             scan_configuration_digest=config_digest,
             adapter_set_digest=adapter_digest,
@@ -819,7 +879,7 @@ class RepositoryScanner:
             "Mutable branch, worktree, PR, issue, and governance facts belong only in "
             "GovernanceObservation."
         )
-        if any(item.code == "STACK.UNSUPPORTED" for item in findings):
+        if any(item.code.startswith("STACK.UNSUPPORTED") for item in findings):
             statuses["languages_build_ecosystems"] = "UNSUPPORTED"
             reasons["languages_build_ecosystems"] = (
                 "The tracked ecosystem has no deterministic adapter."
