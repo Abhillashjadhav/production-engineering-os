@@ -12,8 +12,9 @@ from __future__ import annotations
 import copy
 import importlib
 import json
+from dataclasses import replace
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 from typing import Any
 
 import pytest
@@ -81,6 +82,24 @@ def _context(
         lineage_received_at=RECEIVED_AT,
         correction_reference=correction_reference,
         possible_duplicate=possible_duplicate,
+        authority_grants=(
+            api.ApprovalAuthorityGrant(
+                actor_id="OWNER-PRODUCT-001",
+                role="PRODUCT_OWNER",
+                authority_policy_id="AUTH-POLICY-CONTRACT-001",
+                authority_policy_version="1.0.0",
+                valid_from="2026-01-01T00:00:00Z",
+                expires_at="2027-01-01T00:00:00Z",
+            ),
+            api.ApprovalAuthorityGrant(
+                actor_id="OWNER-PRODUCT-001",
+                role="METRIC_POLICY_OWNER",
+                authority_policy_id="AUTH-POLICY-METRIC-001",
+                authority_policy_version="1.0.0",
+                valid_from="2026-01-01T00:00:00Z",
+                expires_at="2027-01-01T00:00:00Z",
+            ),
+        ),
     )
 
 
@@ -128,12 +147,23 @@ def test_complete_exactly_approved_bundle_is_admitted() -> None:
     [
         "product",
         "metrics",
+        "guardrails",
         "scope",
         "functional_requirements",
         "acceptance_criteria",
         "ux",
         "data",
         "dependencies",
+        "integrations",
+        "api_contracts",
+        "assumptions",
+        "backend_capabilities",
+        "extensions",
+        "non_functional_requirements",
+        "open_questions",
+        "quality_assurance",
+        "risks",
+        "technical_constraints",
         "release",
         "rollback",
         "observability",
@@ -162,6 +192,28 @@ def test_schema_or_runtime_failure_is_error_not_product_input() -> None:
     assert "CORE.STRUCTURE" in _codes(result)
 
 
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("functional_requirements", "FR-001", "statement"), ""),
+        (("product", "problem", "affected_customers"), ""),
+        (("release", "approval_refs"), []),
+    ],
+)
+def test_empty_required_product_truth_never_falls_through_schema_validation(
+    path: tuple[str, ...], value: Any
+) -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    parent = bundle
+    for part in path[:-1]:
+        parent = parent[part]
+    parent[path[-1]] = value
+    result = _validate(bundle)
+    assert result.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
+    assert "COMP.COMPLETENESS" in _codes(result)
+
+
 def test_stage_specific_optionality_does_not_require_production_approval_for_draft_pr() -> None:
     api = _api()
     bundle = _ready_bundle()
@@ -170,6 +222,16 @@ def test_stage_specific_optionality_does_not_require_production_approval_for_dra
         requirement.get("required_before") != "PRODUCTION"
         for requirement in bundle["required_approvals"].values()
     )
+    assert _validate(bundle).disposition is api.Disposition.ADMITTED
+
+
+def test_nonapplicable_integrations_and_dependencies_may_be_explicitly_empty() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    bundle["functional_requirements"]["FR-001"]["capability"] = "contract.validation"
+    bundle["dependencies"] = {}
+    bundle["integrations"] = {}
+    _reseal(bundle)
     assert _validate(bundle).disposition is api.Disposition.ADMITTED
 
 
@@ -183,6 +245,18 @@ def test_blocking_open_question_requires_product_input() -> None:
     assert result.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
     assert "QUESTION.UNRESOLVED" in _codes(result)
     assert result.diagnostics[0].remediation is not None
+
+
+def test_unresolved_noncritical_question_is_visible_as_warning() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    bundle["open_questions"]["QUESTION-001"].pop("resolution")
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition is api.Disposition.WARNING
+    diagnostic = next(item for item in result.diagnostics if item.rule_id == "QUESTION.UNRESOLVED")
+    assert diagnostic.disposition == "WARNING"
+    assert diagnostic.remediation is None
 
 
 def test_compiler_unresolved_product_truth_blocks() -> None:
@@ -213,6 +287,10 @@ def test_compiler_unresolved_product_truth_blocks() -> None:
         ("missing_reporting_policy", "REF.REPORTING_POLICY"),
         ("missing_approval", "REF.APPROVAL"),
         ("missing_screen", "REF.UX"),
+        ("edge_requirement", "REF.REQUIREMENT"),
+        ("qa_requirement", "REF.REQUIREMENT"),
+        ("release_guardrail", "REF.GUARDRAIL"),
+        ("policy_metric", "REF.METRIC"),
         ("bad_source_mapping", "REF.SOURCE_IDENTITY"),
     ],
 )
@@ -235,6 +313,16 @@ def test_reference_and_identity_failures_block(mutation: str, expected_rule: str
         bundle["release"]["approval_refs"] = ["APR-MISSING"]
     elif mutation == "missing_screen":
         bundle["ux"]["primary_journey"]["JOURNEY-STEP-PUBLISH"]["screen_ref"] = "SCREEN-MISSING"
+    elif mutation == "edge_requirement":
+        bundle["ux"]["edge_cases"]["EDGE-001"]["requirement_refs"] = ["FR-MISSING"]
+    elif mutation == "qa_requirement":
+        bundle["quality_assurance"]["expectations"]["QA-001"]["requirement_refs"] = ["FR-MISSING"]
+    elif mutation == "release_guardrail":
+        bundle["release"]["guardrail_refs"] = ["GUARD-MISSING"]
+    elif mutation == "policy_metric":
+        bundle["metrics"]["maturity_policies"]["POLICY-METRIC-EADPR"]["metric_ref"] = (
+            "METRIC-NSM-MVP-MISSING"
+        )
     else:
         bundle["source_identity_mappings"] = {
             "SOURCE-MAP-A": {
@@ -257,6 +345,7 @@ def test_reference_and_identity_failures_block(mutation: str, expected_rule: str
         ("superseded", "APPROVAL.ACTIVE"),
         ("expired", "APPROVAL.FRESHNESS"),
         ("wrong_authority", "APPROVAL.AUTHORITY"),
+        ("fabricated_actor", "APPROVAL.AUTHORITY"),
         ("stale_subject", "APPROVAL.SUBJECT"),
     ],
 )
@@ -277,6 +366,8 @@ def test_required_approval_failures_block(case: str, expected_rule: str) -> None
         approval["expires_at"] = "2026-07-30T23:59:59Z"
     elif case == "wrong_authority":
         approval["role"] = "ENGINEER"
+    elif case == "fabricated_actor":
+        approval["actor_id"] = "OWNER-FABRICATED-001"
     else:
         approval["subject"]["digest"] = "sha256:" + "0" * 64
     result = _validate(bundle)
@@ -289,6 +380,31 @@ def test_approval_subject_binds_exact_bundle_version_and_id() -> None:
     bundle["approvals"]["APR-CONTRACT-001"]["subject"]["version"] = "2.0.0"
     result = _validate(bundle)
     assert "APPROVAL.SUBJECT" in _codes(result)
+
+
+def test_policy_and_release_approval_references_bind_their_exact_subjects() -> None:
+    bundle = _ready_bundle()
+    bundle["metrics"]["maturity_policies"]["POLICY-METRIC-EADPR"]["approval_ref"] = (
+        "APR-METRIC-VAPDR"
+    )
+    bundle["release"]["approval_refs"] = ["APR-METRIC-EADPR"]
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "APPROVAL.SUBJECT" in _codes(result)
+
+
+def test_approval_authority_requires_external_governed_grant_evidence() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    context = replace(_context(bundle), authority_grants=())
+    result = api.ContractSemanticValidator().validate(bundle, context)
+    assert result.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
+    assert "APPROVAL.AUTHORITY" in _codes(result)
+    assert all(
+        evidence["eligible_at"] is None and evidence["due_at"] is None
+        for evidence in result.metric_eligibility.values()
+    )
 
 
 @pytest.mark.parametrize(
@@ -375,6 +491,73 @@ def test_extension_payload_digest_and_target_are_verified() -> None:
     assert "EXTENSION.CONSTRAINT" in _codes(result)
 
 
+def test_supported_extension_cannot_contradict_approved_core_truth() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    extension = bundle["extensions"]["EXT-REPOSITORY-001"]
+    constraint = extension["payload"]["constraints"]["EXT-CONSTRAINT-001"]
+    constraint.update(
+        {
+            "constraint_value": "DRAFT_PR",
+            "operator": "FORBID_VALUE",
+            "target_pointer": "/release/requested_autonomy_stage",
+        }
+    )
+    extension["payload_digest"] = canonical_digest(extension["payload"])
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition is api.Disposition.UNSUPPORTED_REPOSITORY_EXTENSION
+    assert "EXTENSION.CONSTRAINT" in _codes(result)
+
+
+def test_hypothesis_and_requirement_direct_obligations_cannot_conflict() -> None:
+    bundle = _ready_bundle()
+    bundle["product"]["hypothesis"]["statement"] = "Customers must retain customer records"
+    bundle["functional_requirements"]["FR-001"]["statement"] = (
+        "Customers must not retain customer records"
+    )
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.CROSS_CHANNEL" in _codes(result)
+
+
+def test_functional_requirement_and_data_obligations_cannot_conflict() -> None:
+    bundle = _ready_bundle()
+    bundle["functional_requirements"]["FR-001"]["statement"] = (
+        "The system must accept canonical contracts"
+    )
+    bundle["data"]["requirements"]["DATA-001"]["requirement"] = (
+        "The system must not accept canonical contracts"
+    )
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.CROSS_CHANNEL" in _codes(result)
+
+
+def test_mandatory_requirement_outside_declared_scope_blocks() -> None:
+    bundle = _ready_bundle()
+    requirement = bundle["functional_requirements"]["FR-001"]
+    requirement["title"] = "Orbital catering telemetry"
+    requirement["statement"] = "Provide orbital catering telemetry"
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.REQUIREMENT_SCOPE" in _codes(result)
+
+
+def test_same_metric_cannot_have_incompatible_target_or_window_policies() -> None:
+    bundle = _ready_bundle()
+    policies = bundle["metrics"]["maturity_policies"]
+    policies["POLICY-METRIC-EADPR-ALT"] = copy.deepcopy(policies["POLICY-METRIC-EADPR"])
+    policies["POLICY-METRIC-EADPR-ALT"]["target"]["value"] = 0.95
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.POLICY_CONSISTENCY" in _codes(result)
+
+
 def test_advisory_model_suggestions_cannot_block_or_admit() -> None:
     api = _api()
     bundle = _ready_bundle()
@@ -417,7 +600,11 @@ def test_rule_set_digest_and_input_binding_change_independently() -> None:
     mutated_evaluator = api.default_rule_registry().with_evaluator(
         "ALIGN.SCOPE_NON_GOAL", lambda _bundle, _context: ()
     )
-    assert mutated_evaluator.digest != registry.digest
+    assert mutated_evaluator.digest != api.default_rule_registry().digest
+    changed_rule_version = api.default_rule_registry().with_rule_metadata(
+        "ALIGN.SCOPE_NON_GOAL", version="1.0.1"
+    )
+    assert changed_rule_version.digest != api.default_rule_registry().digest
 
 
 def test_missing_or_weakened_mandatory_rule_fails_closed() -> None:
@@ -446,7 +633,19 @@ def test_rule_exception_fails_closed_and_never_admits() -> None:
     registry = api.default_rule_registry().with_evaluator("ALIGN.SCOPE_NON_GOAL", explode)
     result = api.ContractSemanticValidator(registry).validate(bundle, _context(bundle))
     assert result.disposition is api.Disposition.ERROR
-    assert "CORE.RULE_EVALUATION" in _codes(result)
+    assert "CORE.RULE_SET_INTEGRITY" in _codes(result)
+
+
+def test_approval_evaluator_bypass_is_not_an_approved_rule_implementation() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    bundle["approvals"]["APR-CONTRACT-001"]["subject"]["digest"] = "sha256:" + "0" * 64
+    bypass = api.default_rule_registry().with_evaluator(
+        "APPROVAL.SUBJECT", lambda _bundle, _context: ()
+    )
+    result = api.ContractSemanticValidator(bypass).validate(bundle, _context(bundle))
+    assert result.disposition is api.Disposition.ERROR
+    assert "CORE.RULE_SET_INTEGRITY" in _codes(result)
 
 
 def test_noncanonical_runtime_value_fails_closed_without_raising() -> None:
@@ -488,6 +687,12 @@ def test_unsupported_schema_or_rule_set_version_fails_closed() -> None:
     assert result.disposition is api.Disposition.ERROR
     assert "CORE.UNSUPPORTED_VERSION" in _codes(result)
 
+    bundle = _ready_bundle()
+    unsupported = api.default_rule_registry(rule_set_version="9.0.0")
+    result = api.ContractSemanticValidator(unsupported).validate(bundle, _context(bundle))
+    assert result.disposition is api.Disposition.ERROR
+    assert "CORE.UNSUPPORTED_VERSION" in _codes(result)
+
 
 def test_context_digest_lineage_and_attempt_binding_is_mandatory() -> None:
     api = _api()
@@ -518,6 +723,25 @@ def test_correction_lineage_mismatch_blocks() -> None:
     )
     assert result.disposition is api.Disposition.ERROR
     assert "LINEAGE.CORRECTION_BINDING" in _codes(result)
+
+
+def test_correction_context_requires_original_durable_lineage_time() -> None:
+    api = _api()
+    receipt = SimpleNamespace(
+        lineage_id="LINEAGE-000001",
+        attempt_id="ATTEMPT-000002",
+        received_at="2026-07-31T00:00:00Z",
+        correction_reference=CorrectionReference(
+            lineage_id="LINEAGE-000001",
+            attempt_id="ATTEMPT-000001",
+        ),
+    )
+    with pytest.raises(ValueError, match="original lineage receipt time"):
+        api.ValidationContext.from_intake_receipt(
+            receipt,
+            bundle_digest="sha256:" + "0" * 64,
+            evaluated_at=EVALUATED_AT,
+        )
 
 
 def test_possible_duplicate_is_visible_but_does_not_coalesce_lineage() -> None:

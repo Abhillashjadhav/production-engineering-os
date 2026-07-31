@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import importlib
 import json
+from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -71,6 +72,24 @@ def _context(
         evaluated_at="2026-07-31T00:00:00Z",
         lineage_received_at="2026-07-30T12:00:00Z",
         correction_reference=correction,
+        authority_grants=(
+            api.ApprovalAuthorityGrant(
+                actor_id="OWNER-PRODUCT-001",
+                role="PRODUCT_OWNER",
+                authority_policy_id="AUTH-POLICY-CONTRACT-001",
+                authority_policy_version="1.0.0",
+                valid_from="2026-01-01T00:00:00Z",
+                expires_at="2027-01-01T00:00:00Z",
+            ),
+            api.ApprovalAuthorityGrant(
+                actor_id="OWNER-PRODUCT-001",
+                role="METRIC_POLICY_OWNER",
+                authority_policy_id="AUTH-POLICY-METRIC-001",
+                authority_policy_version="1.0.0",
+                valid_from="2026-01-01T00:00:00Z",
+                expires_at="2027-01-01T00:00:00Z",
+            ),
+        ),
     )
 
 
@@ -145,6 +164,70 @@ def test_correction_requires_stored_original_attempt(tmp_path: Path) -> None:
     store = api.FileValidationEvidenceStore(tmp_path / "evidence")
     with pytest.raises(api.ValidationEvidenceError, match="correction"):
         store.record(result)
+
+
+def test_missing_lineage_index_is_reconciled_before_recording_correction(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    validator = api.ContractSemanticValidator()
+    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    first_bundle = _bundle()
+    del first_bundle["product"]
+    first = validator.validate(
+        first_bundle,
+        _context(first_bundle, "LINEAGE-000001", "ATTEMPT-000001"),
+    )
+    store.record(first)
+    (store.artifacts.root / "lineages" / "LINEAGE-000001.json").unlink()
+
+    corrected_bundle = _bundle()
+    correction = validator.validate(
+        corrected_bundle,
+        _context(
+            corrected_bundle,
+            "LINEAGE-000001",
+            "ATTEMPT-000002",
+            correction=CorrectionReference(
+                lineage_id="LINEAGE-000001",
+                attempt_id="ATTEMPT-000001",
+            ),
+        ),
+    )
+    store.record(correction)
+
+    summary = store.lineage_summary("LINEAGE-000001")
+    assert summary["denominator_entries"] == 1
+    assert summary["first_pass_attempt_id"] == "ATTEMPT-000001"
+    assert summary["first_pass_disposition"] == "PRODUCT_INPUT_REQUIRED"
+    assert summary["latest_disposition"] == "ADMITTED"
+
+
+def test_correction_cannot_shift_original_lineage_eligibility_anchor(tmp_path: Path) -> None:
+    api = _api()
+    bundle = _bundle()
+    validator = api.ContractSemanticValidator()
+    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    first = validator.validate(
+        bundle,
+        _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
+    )
+    store.record(first)
+    correction_context = _context(
+        bundle,
+        "LINEAGE-000001",
+        "ATTEMPT-000002",
+        correction=CorrectionReference(
+            lineage_id="LINEAGE-000001",
+            attempt_id="ATTEMPT-000001",
+        ),
+    )
+    correction = validator.validate(
+        bundle,
+        replace(correction_context, lineage_received_at="2026-07-31T12:00:00Z"),
+    )
+    with pytest.raises(api.ValidationEvidenceError, match="receipt time"):
+        store.record(correction)
 
 
 def test_publisher_source_id_never_coalesces_immutable_lineages(tmp_path: Path) -> None:

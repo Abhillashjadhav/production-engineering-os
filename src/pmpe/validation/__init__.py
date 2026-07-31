@@ -2,6 +2,7 @@
 
 from pmpe.validation.contracts import (
     AdvisorySuggestion,
+    ApprovalAuthorityGrant,
     ContractSemanticValidator,
     Disposition,
     FileValidationEvidenceStore,
@@ -16,6 +17,7 @@ from pmpe.validation.validator import RequirementValidator
 
 __all__ = [
     "AdvisorySuggestion",
+    "ApprovalAuthorityGrant",
     "ContractSemanticValidator",
     "Disposition",
     "FileValidationEvidenceStore",

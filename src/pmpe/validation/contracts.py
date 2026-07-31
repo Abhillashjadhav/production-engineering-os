@@ -86,21 +86,31 @@ _STOP_WORDS = frozenset(
 _SEMANTIC_TOP_LEVEL_SECTIONS = frozenset(
     {
         "acceptance_criteria",
+        "api_contracts",
         "approvals",
+        "assumptions",
+        "backend_capabilities",
         "data",
         "dependencies",
+        "extensions",
         "functional_requirements",
         "guardrails",
+        "integrations",
         "metrics",
+        "non_functional_requirements",
         "observability",
+        "open_questions",
         "privacy",
         "product",
         "product_decisions",
+        "quality_assurance",
         "release",
         "required_approvals",
+        "risks",
         "rollback",
         "scope",
         "security",
+        "technical_constraints",
         "ux",
     }
 )
@@ -153,6 +163,20 @@ class AdvisorySuggestion:
 
 
 @dataclass(frozen=True)
+class ApprovalAuthorityGrant:
+    actor_id: str
+    role: str
+    authority_policy_id: str
+    authority_policy_version: str
+    valid_from: str
+    expires_at: str
+    status: str = "ACTIVE"
+
+    def as_dict(self) -> dict[str, str]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class ValidationContext:
     lineage_id: str
     ingestion_attempt_id: str
@@ -161,6 +185,7 @@ class ValidationContext:
     lineage_received_at: str
     correction_reference: CorrectionReference | None = None
     possible_duplicate: bool = False
+    authority_grants: tuple[ApprovalAuthorityGrant, ...] = ()
 
     @classmethod
     def from_intake_receipt(
@@ -171,7 +196,12 @@ class ValidationContext:
         evaluated_at: str,
         lineage_received_at: str | None = None,
         possible_duplicate: bool = False,
+        authority_grants: tuple[ApprovalAuthorityGrant, ...] = (),
     ) -> ValidationContext:
+        if receipt.correction_reference is not None and lineage_received_at is None:
+            raise ValueError(
+                "correction validation requires the durable original lineage receipt time"
+            )
         return cls(
             lineage_id=str(receipt.lineage_id),
             ingestion_attempt_id=str(receipt.attempt_id),
@@ -180,6 +210,7 @@ class ValidationContext:
             lineage_received_at=lineage_received_at or str(receipt.received_at),
             correction_reference=receipt.correction_reference,
             possible_duplicate=possible_duplicate,
+            authority_grants=authority_grants,
         )
 
 
@@ -267,6 +298,8 @@ class ValidationResult:
     rule_set_version: str
     rule_set_digest: str
     evaluated_at: str
+    lineage_received_at: str
+    authority_evidence_digest: str
     disposition: Disposition
     rule_outcomes: tuple[RuleOutcome, ...]
     diagnostics: tuple[ValidationDiagnostic, ...]
@@ -281,6 +314,7 @@ class ValidationResult:
         return {
             "advisory_suggestions": [item.as_dict() for item in self.advisory_suggestions],
             "bundle_digest": self.bundle_digest,
+            "authority_evidence_digest": self.authority_evidence_digest,
             "correction_reference": (
                 self.correction_reference.as_dict() if self.correction_reference else None
             ),
@@ -289,6 +323,7 @@ class ValidationResult:
             "evaluated_at": self.evaluated_at,
             "ingestion_attempt_id": self.ingestion_attempt_id,
             "lineage_id": self.lineage_id,
+            "lineage_received_at": self.lineage_received_at,
             "metric_eligibility": self.metric_eligibility,
             "rule_outcomes": [item.as_dict() for item in self.rule_outcomes],
             "rule_set_digest": self.rule_set_digest,
@@ -345,8 +380,8 @@ class RuleRegistry:
             if rule is None:
                 errors.append(f"missing mandatory rule {rule_id}")
                 continue
-            if (rule.blocking, rule.severity, rule.disposition) != expected:
-                errors.append(f"weakened mandatory rule {rule_id}")
+            if rule.digest_metadata() != expected:
+                errors.append(f"changed mandatory rule implementation or metadata {rule_id}")
         return tuple(errors)
 
 
@@ -389,6 +424,12 @@ def default_rule_registry(*, rule_set_version: str = RULE_SET_VERSION) -> RuleRe
             _rule("ALIGN.LEADING_DISTINCT", RuleCategory.ALIGNMENT, Owner.PMOS, _leading_distinct),
             _rule("ALIGN.METRIC_OUTCOME", RuleCategory.ALIGNMENT, Owner.PMOS, _metric_outcome),
             _rule(
+                "ALIGN.POLICY_CONSISTENCY",
+                RuleCategory.ALIGNMENT,
+                Owner.PMOS,
+                _policy_consistency,
+            ),
+            _rule(
                 "ALIGN.OBSERVABILITY_REPORTING",
                 RuleCategory.ALIGNMENT,
                 Owner.PMOS,
@@ -411,6 +452,12 @@ def default_rule_registry(*, rule_set_version: str = RULE_SET_VERSION) -> RuleRe
                 RuleCategory.ALIGNMENT,
                 Owner.PMOS,
                 _release_rollback,
+            ),
+            _rule(
+                "ALIGN.REQUIREMENT_SCOPE",
+                RuleCategory.ALIGNMENT,
+                Owner.PMOS,
+                _requirement_scope,
             ),
             _rule("ALIGN.SCOPE_NON_GOAL", RuleCategory.ALIGNMENT, Owner.PMOS, _scope_non_goal),
             _rule(
@@ -489,6 +536,8 @@ def default_rule_registry(*, rule_set_version: str = RULE_SET_VERSION) -> RuleRe
             _rule("REF.ACCEPTANCE", RuleCategory.REFERENCE, Owner.PMOS, _ref_acceptance),
             _rule("REF.APPROVAL", RuleCategory.REFERENCE, Owner.PMOS, _ref_approval),
             _rule("REF.ENTITY", RuleCategory.REFERENCE, Owner.PMOS, _ref_entity),
+            _rule("REF.GUARDRAIL", RuleCategory.REFERENCE, Owner.PMOS, _ref_guardrail),
+            _rule("REF.METRIC", RuleCategory.REFERENCE, Owner.PMOS, _ref_metric),
             _rule("REF.METRIC_POLICY", RuleCategory.REFERENCE, Owner.PMOS, _ref_metric_policy),
             _rule(
                 "REF.REPORTING_POLICY",
@@ -509,7 +558,7 @@ def default_rule_registry(*, rule_set_version: str = RULE_SET_VERSION) -> RuleRe
     )
 
 
-_MANDATORY_RULE_METADATA: dict[str, tuple[bool, str, Disposition]] = {}
+_MANDATORY_RULE_METADATA: dict[str, dict[str, Any]] = {}
 
 
 class ContractSemanticValidator:
@@ -612,6 +661,10 @@ class ContractSemanticValidator:
             rule_set_version=self.registry.version,
             rule_set_digest=rule_set_digest,
             evaluated_at=context.evaluated_at,
+            lineage_received_at=context.lineage_received_at,
+            authority_evidence_digest=canonical_digest(
+                [grant.as_dict() for grant in context.authority_grants]
+            ),
             disposition=disposition,
             rule_outcomes=tuple(outcomes),
             diagnostics=tuple(diagnostics),
@@ -654,19 +707,42 @@ class ContractSemanticValidator:
                     disposition=Disposition.ERROR,
                 )
             )
+        if self.registry.version != RULE_SET_VERSION:
+            findings.append(
+                Finding(
+                    field_path="/rule-set/version",
+                    explanation="The requested semantic rule-set version is not supported.",
+                    next_action="Use the registered rule-set version or add a reviewed migration.",
+                    owner=Owner.PEOS,
+                    disposition=Disposition.ERROR,
+                )
+            )
         try:
             structural_errors = sorted(
-                (
-                    error
-                    for error in self._schema_validator.iter_errors(bundle)
-                    if not _missing_product_truth_schema_error(error)
-                ),
+                self._schema_validator.iter_errors(bundle),
                 key=lambda error: tuple(str(part) for part in error.absolute_path),
             )
         except Exception:
             structural_errors = [None]
-        if structural_errors:
-            first_error = structural_errors[0]
+        product_truth_errors = [
+            error
+            for error in structural_errors
+            if error is not None and _missing_product_truth_schema_error(error)
+        ]
+        runtime_errors = [error for error in structural_errors if error not in product_truth_errors]
+        if product_truth_errors:
+            first_product_error = product_truth_errors[0]
+            findings.append(
+                Finding(
+                    field_path=_semantic_error_path(first_product_error, bundle),
+                    explanation="Required product truth is absent or empty.",
+                    next_action="PMOS must supply and approve the missing canonical field.",
+                    owner=Owner.PMOS,
+                    disposition=Disposition.PRODUCT_INPUT_REQUIRED,
+                )
+            )
+        if runtime_errors:
+            first_error = runtime_errors[0]
             path = (
                 _json_pointer(list(first_error.absolute_path)) if first_error is not None else "/"
             )
@@ -693,26 +769,42 @@ class ContractSemanticValidator:
         relationship: str | None = None,
     ) -> ValidationDiagnostic:
         selected = rule_id or (
-            "CORE.EVIDENCE_BINDING"
-            if finding.field_path == "/evidence-binding"
+            "COMP.COMPLETENESS"
+            if finding.disposition is Disposition.PRODUCT_INPUT_REQUIRED
             else (
-                "CORE.UNSUPPORTED_VERSION"
-                if finding.field_path == "/schema_version"
-                else "CORE.STRUCTURE"
+                "CORE.EVIDENCE_BINDING"
+                if finding.field_path == "/evidence-binding"
+                else (
+                    "CORE.UNSUPPORTED_VERSION"
+                    if finding.field_path in {"/schema_version", "/rule-set/version"}
+                    else "CORE.STRUCTURE"
+                )
             )
+        )
+        product_input = finding.disposition is Disposition.PRODUCT_INPUT_REQUIRED
+        completeness_rule = next(
+            rule for rule in default_rule_registry().rules if rule.rule_id == "COMP.COMPLETENESS"
         )
         return ValidationDiagnostic(
             rule_id=selected,
             rule_version="1.0.0",
-            category=RuleCategory.CORE.value,
+            category=(
+                RuleCategory.COMPLETENESS.value if product_input else RuleCategory.CORE.value
+            ),
             severity="ERROR",
-            disposition=Disposition.ERROR.value,
+            disposition=(
+                Disposition.PRODUCT_INPUT_REQUIRED.value
+                if product_input
+                else Disposition.ERROR.value
+            ),
             field_path=_sanitize_path(finding.field_path),
             relationship=relationship,
             owner=(finding.owner or Owner.PEOS).value,
             explanation=_sanitize(finding.explanation),
             next_action=_sanitize(finding.next_action),
-            remediation=None,
+            remediation=(
+                _remediation(completeness_rule, finding, context) if product_input else None
+            ),
             input_digest=context.bundle_digest,
             lineage_id=context.lineage_id,
             ingestion_attempt_id=context.ingestion_attempt_id,
@@ -831,6 +923,14 @@ def _missing_product_truth_schema_error(error: Any) -> bool:
     )
 
 
+def _semantic_error_path(error: Any, bundle: Mapping[str, Any]) -> str:
+    path = list(error.absolute_path)
+    if path:
+        return _json_pointer(path)
+    missing = sorted(_SEMANTIC_TOP_LEVEL_SECTIONS - set(bundle))
+    return f"/{missing[0]}" if missing else "/"
+
+
 def _overall_disposition(diagnostics: Sequence[ValidationDiagnostic]) -> Disposition:
     order = (
         Disposition.ERROR,
@@ -903,9 +1003,6 @@ def _completeness(bundle: Mapping[str, Any], _context: ValidationContext) -> tup
         "/ux/flows": "UX flows",
         "/ux/edge_cases": "UX edge cases",
         "/ux/accessibility": "accessibility intent",
-        "/data": "data truth",
-        "/data/requirements": "data requirements",
-        "/dependencies": "declared dependencies",
         "/release": "rollout and release intent",
         "/release/launch_intent": "launch intent",
         "/rollback": "rollback expectations",
@@ -913,11 +1010,10 @@ def _completeness(bundle: Mapping[str, Any], _context: ValidationContext) -> tup
         "/rollback/rto": "rollback recovery-time objective",
         "/observability": "observability and reporting intent",
         "/observability/requirements": "observability requirements",
-        "/security": "security intent",
-        "/security/requirements": "security requirements",
-        "/privacy": "privacy and telemetry intent",
-        "/privacy/requirements": "privacy requirements",
-        "/privacy/telemetry": "telemetry intent",
+        "/quality_assurance": "quality-assurance expectations and release gates",
+        "/quality_assurance/expectations": "quality-assurance expectations",
+        "/quality_assurance/release_gates": "quality-assurance release gates",
+        "/non_functional_requirements": "non-functional requirements",
         "/approvals": "approval evidence",
         "/required_approvals": "required approval policy",
         "/product_decisions": "product decisions and trade-offs",
@@ -931,6 +1027,55 @@ def _completeness(bundle: Mapping[str, Any], _context: ValidationContext) -> tup
         for path, label in required_paths.items()
         if not _present(_get(bundle, path))
     ]
+    risk_requires_controls = any(
+        _mapping(risk).get("severity") in {"HIGH", "CRITICAL"}
+        for risk in _mapping(bundle.get("risks")).values()
+    )
+    data_is_applicable = risk_requires_controls or any(
+        _present(_mapping(requirement).get("entity_ref"))
+        for requirement in _mapping(bundle.get("functional_requirements")).values()
+    )
+    integration_is_applicable = bool(_mapping(bundle.get("integrations"))) or any(
+        str(_mapping(requirement).get("capability", "")).startswith("integration.")
+        for requirement in _mapping(bundle.get("functional_requirements")).values()
+    )
+    platform = str(_get(bundle, "/product/target_platform/kind") or "")
+    applicable_paths: dict[str, str] = {}
+    if data_is_applicable:
+        applicable_paths.update(
+            {
+                "/data": "data truth",
+                "/data/requirements": "data requirements",
+                "/security": "security intent for the declared risk/data class",
+                "/security/requirements": "security requirements",
+                "/privacy": "privacy and telemetry intent for the declared risk/data class",
+                "/privacy/requirements": "privacy requirements",
+                "/privacy/telemetry": "telemetry intent",
+            }
+        )
+    if integration_is_applicable:
+        applicable_paths.update(
+            {
+                "/dependencies": "declared dependencies for integrations",
+                "/integrations": "integration product truth",
+            }
+        )
+    if platform in {"API", "WEB", "MOBILE"}:
+        applicable_paths["/api_contracts"] = "API contract truth for the selected platform"
+    stage = str(_get(bundle, "/release/requested_autonomy_stage") or "")
+    if stage in {"STAGING", "CANARY", "PRODUCTION"}:
+        applicable_paths["/technical_constraints"] = (
+            "technical constraints for deployment-capable autonomy"
+        )
+    findings.extend(
+        _finding(
+            path,
+            f"Applicable {label} is absent from the canonical product truth.",
+            f"PMOS must supply and approve {label}.",
+        )
+        for path, label in applicable_paths.items()
+        if not _present(_get(bundle, path))
+    )
     for policy_id, policy in sorted(_mapping(_get(bundle, "/metrics/maturity_policies")).items()):
         record = _mapping(policy)
         for field in (
@@ -973,7 +1118,6 @@ def _completeness(bundle: Mapping[str, Any], _context: ValidationContext) -> tup
                         policy_id,
                     )
                 )
-    platform = str(_get(bundle, "/product/target_platform/kind") or "")
     if platform in {"WEB", "MOBILE", "DESKTOP"}:
         for path, label in (
             ("/ux/screens", "screen truth"),
@@ -1009,31 +1153,66 @@ def _unresolved_product_truth(
 def _open_questions(bundle: Mapping[str, Any], _context: ValidationContext) -> tuple[Finding, ...]:
     questions = _mapping(bundle.get("open_questions"))
     return tuple(
-        _finding(
+        Finding(
             f"/open_questions/{question_id}",
-            "A product-critical question remains unresolved.",
-            "The named PMOS owner must resolve and approve the question.",
+            (
+                "A product-critical question remains unresolved."
+                if bool(question.get("blocking"))
+                else "A non-blocking product question remains unresolved."
+            ),
+            (
+                "The named PMOS owner must resolve and approve the question."
+                if bool(question.get("blocking"))
+                else "The named PMOS owner should resolve the advisory question."
+            ),
             question_id,
+            Owner.PMOS,
+            (
+                Disposition.PRODUCT_INPUT_REQUIRED
+                if bool(question.get("blocking"))
+                else Disposition.WARNING
+            ),
         )
         for question_id, question in sorted(questions.items())
-        if isinstance(question, Mapping)
-        and bool(question.get("blocking"))
-        and not _present(question.get("resolution"))
+        if isinstance(question, Mapping) and not _present(question.get("resolution"))
     )
 
 
 def _ref_requirement(bundle: Mapping[str, Any], _context: ValidationContext) -> tuple[Finding, ...]:
-    requirements = set(_mapping(bundle.get("functional_requirements")))
+    functional_requirements = set(_mapping(bundle.get("functional_requirements")))
+    non_functional_requirements = set(_mapping(bundle.get("non_functional_requirements")))
     findings: list[Finding] = []
-    for criterion_id, criterion in sorted(_mapping(bundle.get("acceptance_criteria")).items()):
-        for reference in _sequence(_mapping(criterion).get("requirement_refs")):
-            if reference not in requirements:
+    reference_registries = (
+        (
+            "/acceptance_criteria",
+            _mapping(bundle.get("acceptance_criteria")),
+            functional_requirements,
+            "FR",
+        ),
+        (
+            "/ux/edge_cases",
+            _mapping(_get(bundle, "/ux/edge_cases")),
+            functional_requirements,
+            "FR",
+        ),
+        (
+            "/quality_assurance/expectations",
+            _mapping(_get(bundle, "/quality_assurance/expectations")),
+            functional_requirements | non_functional_requirements,
+            "FR or NFR",
+        ),
+    )
+    for base_path, registry, allowed_requirements, expected_namespace in reference_registries:
+        for record_id, record in sorted(registry.items()):
+            for reference in _sequence(_mapping(record).get("requirement_refs")):
+                if reference in allowed_requirements:
+                    continue
                 findings.append(
                     _finding(
-                        f"/acceptance_criteria/{criterion_id}/requirement_refs",
-                        "An acceptance criterion references a missing or wrong-type requirement.",
-                        "PMOS must reference an existing FR identifier.",
-                        f"{criterion_id}->{reference}",
+                        f"{base_path}/{record_id}/requirement_refs",
+                        "A record references a missing or wrong-type requirement.",
+                        f"PMOS must reference an existing {expected_namespace} identifier.",
+                        f"{record_id}->{reference}",
                     )
                 )
     return tuple(findings)
@@ -1072,6 +1251,40 @@ def _ref_entity(bundle: Mapping[str, Any], _context: ValidationContext) -> tuple
         )
         if (reference := _mapping(requirement).get("entity_ref")) is not None
         and reference not in entities
+    )
+
+
+def _ref_guardrail(bundle: Mapping[str, Any], _context: ValidationContext) -> tuple[Finding, ...]:
+    guardrails = set(_mapping(bundle.get("guardrails")))
+    return tuple(
+        _finding(
+            f"/release/guardrail_refs/{index}",
+            "Release intent references a missing or wrong-type guardrail.",
+            "PMOS must reference an existing GUARD identifier.",
+            str(reference),
+        )
+        for index, reference in enumerate(_sequence(_get(bundle, "/release/guardrail_refs")))
+        if reference not in guardrails
+    )
+
+
+def _ref_metric(bundle: Mapping[str, Any], _context: ValidationContext) -> tuple[Finding, ...]:
+    metrics = _mapping(bundle.get("metrics"))
+    metric_ids = set(_mapping(metrics.get("leading")))
+    metric_ids.update(
+        str(_mapping(item).get("metric_id"))
+        for item in _mapping(metrics.get("north_stars")).values()
+    )
+    metric_ids.update(_mapping(metrics.get("success")))
+    return tuple(
+        _finding(
+            f"/metrics/maturity_policies/{policy_id}/metric_ref",
+            "A maturity policy references a missing or wrong-type metric.",
+            "PMOS must reference an existing named metric identifier.",
+            f"{policy_id}->{reference}",
+        )
+        for policy_id, policy in sorted(_mapping(metrics.get("maturity_policies")).items())
+        if (reference := _mapping(policy).get("metric_ref")) not in metric_ids
     )
 
 
@@ -1299,32 +1512,44 @@ def _approval_freshness(
 
 
 def _approval_authority(
-    bundle: Mapping[str, Any], _context: ValidationContext
+    bundle: Mapping[str, Any], context: ValidationContext
 ) -> tuple[Finding, ...]:
     findings: list[Finding] = []
+    evaluated = _parse_time(context.evaluated_at)
     for approval_id, approval in sorted(_mapping(bundle.get("approvals")).items()):
         record = _mapping(approval)
-        subject = _mapping(record.get("subject"))
-        expected_role = (
-            "PRODUCT_OWNER"
-            if subject.get("digest_scope") == "CANONICAL_BUNDLE_EXCLUDING_APPROVALS"
-            else "METRIC_POLICY_OWNER"
-        )
-        if (
-            record.get("role") != expected_role
-            or not _present(record.get("actor_id"))
-            or not _present(record.get("authority_policy_ref"))
-            or not _present(record.get("authority_policy_version"))
-        ):
+        if not _has_active_authority_grant(record, context.authority_grants, evaluated):
             findings.append(
                 _finding(
                     f"/approvals/{approval_id}",
-                    "Approval authority is absent or inconsistent with its exact subject.",
-                    "PMOS must attach approval from the required governed authority.",
+                    "Approval authority is not backed by an exact active governed grant.",
+                    "Attach exact actor-role-policy grant evidence from the authority source.",
                     approval_id,
                 )
             )
     return tuple(findings)
+
+
+def _has_active_authority_grant(
+    approval: Mapping[str, Any],
+    grants: Sequence[ApprovalAuthorityGrant],
+    evaluated: datetime,
+) -> bool:
+    for grant in grants:
+        if not (
+            grant.actor_id == approval.get("actor_id")
+            and grant.role == approval.get("role")
+            and grant.authority_policy_id == approval.get("authority_policy_ref")
+            and grant.authority_policy_version == approval.get("authority_policy_version")
+            and grant.status == "ACTIVE"
+        ):
+            continue
+        try:
+            if _parse_time(grant.valid_from) <= evaluated < _parse_time(grant.expires_at):
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def _approval_subject(
@@ -1368,6 +1593,54 @@ def _approval_subject(
                     "Approval evidence does not bind the exact current canonical subject.",
                     "PMOS must approve the exact ID, version, scope, and canonical digest.",
                     approval_id,
+                )
+            )
+    subject_bindings = (
+        (
+            "/metrics/maturity_policies",
+            maturity,
+            "NAMED_METRIC_MATURITY_POLICY",
+        ),
+        (
+            "/metrics/reporting_policies",
+            reporting,
+            "NAMED_METRIC_REPORTING_POLICY",
+        ),
+    )
+    approvals = _mapping(bundle.get("approvals"))
+    for base_path, registry, expected_scope in subject_bindings:
+        for subject_id, subject_record in sorted(registry.items()):
+            record = _mapping(subject_record)
+            approval_ref = str(record.get("approval_ref", ""))
+            approval_subject = _mapping(_mapping(approvals.get(approval_ref)).get("subject"))
+            if (
+                approval_subject.get("digest_scope") != expected_scope
+                or approval_subject.get("id") != subject_id
+                or approval_subject.get("version") != record.get("policy_version")
+                or approval_subject.get("digest") != canonical_digest(record)
+            ):
+                findings.append(
+                    _finding(
+                        f"{base_path}/{subject_id}/approval_ref",
+                        "A policy references approval evidence for a different exact subject.",
+                        "PMOS must bind the policy to its own exact active approval subject.",
+                        f"{subject_id}->{approval_ref}",
+                    )
+                )
+    for index, approval_ref in enumerate(_sequence(_get(bundle, "/release/approval_refs"))):
+        subject = _mapping(_mapping(approvals.get(str(approval_ref))).get("subject"))
+        if (
+            subject.get("digest_scope") != "CANONICAL_BUNDLE_EXCLUDING_APPROVALS"
+            or subject.get("id") != bundle.get("bundle_id")
+            or subject.get("version") != bundle.get("bundle_version")
+            or subject.get("digest") != expected_bundle_digest
+        ):
+            findings.append(
+                _finding(
+                    f"/release/approval_refs/{index}",
+                    "Release intent references approval for a different exact candidate.",
+                    "PMOS must bind release intent to exact canonical bundle approval.",
+                    str(approval_ref),
                 )
             )
     return tuple(findings)
@@ -1482,6 +1755,40 @@ def _metric_outcome(bundle: Mapping[str, Any], _context: ValidationContext) -> t
     return tuple(findings)
 
 
+def _policy_consistency(
+    bundle: Mapping[str, Any], _context: ValidationContext
+) -> tuple[Finding, ...]:
+    by_metric: dict[str, list[tuple[str, Mapping[str, Any]]]] = {}
+    for policy_id, policy in sorted(_mapping(_get(bundle, "/metrics/maturity_policies")).items()):
+        record = _mapping(policy)
+        by_metric.setdefault(str(record.get("metric_ref", "")), []).append((policy_id, record))
+    findings: list[Finding] = []
+    for metric_id, policies in by_metric.items():
+        if len(policies) < 2:
+            continue
+        canonical_policies = {
+            canonical_digest(
+                {
+                    "delivery_window": policy.get("delivery_window"),
+                    "evaluation_window": policy.get("evaluation_window"),
+                    "reporting_window": policy.get("reporting_window"),
+                    "target": policy.get("target"),
+                }
+            )
+            for _policy_id, policy in policies
+        }
+        if len(canonical_policies) > 1:
+            findings.append(
+                _finding(
+                    "/metrics/maturity_policies",
+                    "The same metric has incompatible approved target or window definitions.",
+                    "PMOS must select one prospective policy definition for the metric.",
+                    metric_id,
+                )
+            )
+    return tuple(findings)
+
+
 def _leading_distinct(
     bundle: Mapping[str, Any], _context: ValidationContext
 ) -> tuple[Finding, ...]:
@@ -1558,6 +1865,32 @@ def _alignment_dependency(
                         requirement_id,
                     )
                 )
+    return tuple(findings)
+
+
+def _requirement_scope(
+    bundle: Mapping[str, Any], _context: ValidationContext
+) -> tuple[Finding, ...]:
+    scope_words: set[str] = set()
+    for item in _sequence(_get(bundle, "/scope/in_scope")):
+        scope_words |= _words(item)
+    findings: list[Finding] = []
+    for requirement_id, requirement in sorted(
+        _mapping(bundle.get("functional_requirements")).items()
+    ):
+        record = _mapping(requirement)
+        if record.get("priority") != "MUST":
+            continue
+        requirement_words = _words(record.get("title")) | _words(record.get("statement"))
+        if requirement_words and scope_words and not requirement_words & scope_words:
+            findings.append(
+                _finding(
+                    f"/functional_requirements/{requirement_id}",
+                    "A mandatory requirement has no deterministic relationship to declared scope.",
+                    "PMOS must explicitly connect the requirement to scope or remove it.",
+                    requirement_id,
+                )
+            )
     return tuple(findings)
 
 
@@ -1686,20 +2019,34 @@ def _contradictory_text(left: str, right: str) -> bool:
 def _alignment_cross_channel(
     bundle: Mapping[str, Any], _context: ValidationContext
 ) -> tuple[Finding, ...]:
-    ux_text = [value for _path, value in _walk_strings(bundle.get("ux"), "/ux")]
+    ux_text = list(_walk_strings(bundle.get("ux"), "/ux"))
     technical_text = [
-        value
+        (path, value)
         for section in ("api_contracts", "data")
-        for _path, value in _walk_strings(bundle.get(section), f"/{section}")
+        for path, value in _walk_strings(bundle.get(section), f"/{section}")
     ]
-    if any(_contradictory_text(left, right) for left in ux_text for right in technical_text):
-        return (
-            _finding(
-                "/ux",
-                "UX truth conflicts with API or data expectations.",
-                "PMOS must reconcile the exact cross-channel behavior.",
-            ),
-        )
+    hypothesis_text = list(
+        _walk_strings(_get(bundle, "/product/hypothesis"), "/product/hypothesis")
+    )
+    requirement_text = list(
+        _walk_strings(bundle.get("functional_requirements"), "/functional_requirements")
+    )
+    pairs = [(left, right) for left in ux_text for right in technical_text]
+    pairs.extend((left, right) for left in hypothesis_text for right in requirement_text)
+    pairs.extend((left, right) for left in requirement_text for right in technical_text)
+    for (left_path, left), (right_path, right) in pairs:
+        if _contradictory_text(left, right):
+            return (
+                _finding(
+                    left_path,
+                    "Canonical product channels contain directly contradictory obligations.",
+                    (
+                        "PMOS must reconcile the exact hypothesis, requirement, UX, API, "
+                        "or data truth."
+                    ),
+                    right_path,
+                ),
+            )
     return ()
 
 
@@ -1794,11 +2141,13 @@ def _extension_constraint(
                 )
         constraints = _mapping(_get(record, "/payload/constraints"))
         for constraint_id, constraint in sorted(constraints.items()):
-            pointer = str(_mapping(constraint).get("target_pointer", ""))
+            constraint_record = _mapping(constraint)
+            pointer = str(constraint_record.get("target_pointer", ""))
             if (
                 not _pointer_exists(bundle, pointer)
                 or pointer.startswith("/extensions")
                 or pointer.startswith("/approvals")
+                or not _constraint_satisfied(bundle, constraint_record)
             ):
                 findings.append(
                     Finding(
@@ -1811,6 +2160,39 @@ def _extension_constraint(
                     )
                 )
     return tuple(findings)
+
+
+def _constraint_satisfied(bundle: Mapping[str, Any], constraint: Mapping[str, Any]) -> bool:
+    pointer = str(constraint.get("target_pointer", ""))
+    exists, target = _resolve_pointer(bundle, pointer)
+    if not exists:
+        return False
+    operator = str(constraint.get("operator", ""))
+    raw_value = str(constraint.get("constraint_value", ""))
+    if operator == "REQUIRE_PRESENT":
+        return True
+    if operator == "FORBID_VALUE":
+        return _norm(target) != _norm(raw_value)
+    if operator == "MATCH_PATTERN":
+        try:
+            return re.fullmatch(raw_value, str(target)) is not None
+        except re.error:
+            return False
+    if operator == "LIMIT_ALLOWED_VALUES":
+        try:
+            allowed = json.loads(raw_value)
+        except json.JSONDecodeError:
+            return False
+        return isinstance(allowed, list) and target in allowed
+    if operator in {"SET_MAXIMUM", "SET_MINIMUM"}:
+        if not isinstance(target, (int, float)) or isinstance(target, bool):
+            return False
+        try:
+            boundary = float(raw_value)
+        except ValueError:
+            return False
+        return target <= boundary if operator == "SET_MAXIMUM" else target >= boundary
+    return False
 
 
 def _metric_maturity_policy(
@@ -1885,16 +2267,32 @@ def _metric_eligibility(
 ) -> dict[str, dict[str, str | None]]:
     result: dict[str, dict[str, str | None]] = {}
     approvals = _mapping(bundle.get("approvals"))
+    evaluated = _parse_time(context.evaluated_at)
     for policy_id, policy in sorted(_mapping(_get(bundle, "/metrics/maturity_policies")).items()):
         record = _mapping(policy)
         approval = _mapping(approvals.get(str(record.get("approval_ref", ""))))
         target = _mapping(record.get("target"))
-        exact = _mapping(approval.get("subject")).get("digest") == canonical_digest(record)
-        ready = (
-            target.get("status") == "APPROVED"
-            and approval.get("status") == "ACTIVE"
-            and approval.get("decision") == "APPROVED"
-            and exact
+        subject = _mapping(approval.get("subject"))
+        try:
+            temporally_active = _parse_time(
+                str(approval.get("approved_at"))
+            ) <= evaluated and _parse_time(
+                str(approval.get("valid_from"))
+            ) <= evaluated < _parse_time(str(approval.get("expires_at")))
+        except ValueError:
+            temporally_active = False
+        ready = all(
+            (
+                target.get("status") == "APPROVED",
+                approval.get("status") == "ACTIVE",
+                approval.get("decision") == "APPROVED",
+                subject.get("digest_scope") == "NAMED_METRIC_MATURITY_POLICY",
+                subject.get("id") == policy_id,
+                subject.get("version") == record.get("policy_version"),
+                subject.get("digest") == canonical_digest(record),
+                temporally_active,
+                _has_active_authority_grant(approval, context.authority_grants, evaluated),
+            )
         )
         if not ready:
             result[policy_id] = {"due_at": None, "eligible_at": None}
@@ -1958,10 +2356,15 @@ def _json_pointer(parts: Sequence[Any]) -> str:
 
 
 def _pointer_exists(value: Any, pointer: str) -> bool:
+    exists, _resolved = _resolve_pointer(value, pointer)
+    return exists
+
+
+def _resolve_pointer(value: Any, pointer: str) -> tuple[bool, Any]:
     if pointer == "":
-        return True
+        return True, value
     if not pointer.startswith("/"):
-        return False
+        return False, None
     current = value
     for raw in pointer[1:].split("/"):
         part = raw.replace("~1", "/").replace("~0", "~")
@@ -1975,8 +2378,8 @@ def _pointer_exists(value: Any, pointer: str) -> bool:
         ):
             current = current[int(part)]
         else:
-            return False
-    return True
+            return False, None
+    return True, current
 
 
 def _all_registry_ids(bundle: Mapping[str, Any]) -> set[str]:
@@ -2034,6 +2437,8 @@ class FileValidationEvidenceStore:
             return
         correction = result.correction_reference
         lineage_name = f"lineages/{result.lineage_id}.json"
+        if correction is not None and not self.artifacts.exists(lineage_name):
+            self._reconcile_locked()
         existing = (
             self.artifacts.read_json(lineage_name) if self.artifacts.exists(lineage_name) else None
         )
@@ -2046,6 +2451,10 @@ class FileValidationEvidenceStore:
             original = self.artifacts.read_json(original_name)
             if original.get("lineage_id") != result.lineage_id:
                 raise ValidationEvidenceError("correction references another lineage")
+            if original.get("lineage_received_at") != result.lineage_received_at:
+                raise ValidationEvidenceError(
+                    "correction changes the immutable original lineage receipt time"
+                )
         elif existing is not None:
             raise ValidationEvidenceError(
                 "new attempt in an existing lineage requires correction evidence"
@@ -2059,6 +2468,7 @@ class FileValidationEvidenceStore:
                 "first_pass_disposition": result.disposition.value,
                 "latest_disposition": result.disposition.value,
                 "lineage_id": result.lineage_id,
+                "lineage_received_at": result.lineage_received_at,
             }
         else:
             lineage = dict(existing)
@@ -2125,6 +2535,7 @@ class FileValidationEvidenceStore:
                 "first_pass_disposition": first["disposition"],
                 "latest_disposition": records[-1]["disposition"],
                 "lineage_id": lineage_id,
+                "lineage_received_at": first["lineage_received_at"],
             }
             self.artifacts.write_json(f"lineages/{lineage_id}.json", summary)
 
@@ -2136,8 +2547,5 @@ class FileValidationEvidenceStore:
 
 
 _MANDATORY_RULE_METADATA.update(
-    {
-        rule.rule_id: (rule.blocking, rule.severity, rule.disposition)
-        for rule in default_rule_registry().rules
-    }
+    {rule.rule_id: rule.digest_metadata() for rule in default_rule_registry().rules}
 )
