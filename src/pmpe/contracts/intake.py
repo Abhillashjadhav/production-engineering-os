@@ -27,6 +27,9 @@ from pmpe.contracts.canonical import CanonicalInputError, strict_loads
 
 _SAFE_HANDLE = re.compile(r"^[A-Z][A-Z0-9-]{0,127}$")
 _SAFE_METADATA = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$")
+_SAFE_CONTENT_TYPE = re.compile(
+    r"^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$"
+)
 _SECRET_PATTERNS = (
     re.compile(rb"\bgh[pousr]_[A-Za-z0-9_]{20,}\b"),
     re.compile(rb"\bAKIA[0-9A-Z]{16}\b"),
@@ -132,6 +135,7 @@ class IntakeReservation:
     retry_fingerprint: str
     retry_key_version: str
     expires_at: str
+    content_type: str | None = None
     correction_reference: CorrectionReference | None = None
     correction_state: str = "NONE"
     possible_duplicate: bool = False
@@ -157,6 +161,7 @@ class IntakeReceipt:
     received_at: str
     publisher: str
     channel: str
+    content_type: str
     quarantine_handle: str
     key_version: str
     fingerprint: str
@@ -244,6 +249,12 @@ def _safe_metadata(value: str, label: str) -> str:
         or any(pattern.search(encoded) for pattern in _PRIVACY_PATTERNS)
     ):
         raise ValueError(f"{label} must be a bounded safe metadata identifier")
+    return value
+
+
+def _safe_content_type(value: str) -> str:
+    if not _SAFE_CONTENT_TYPE.fullmatch(value):
+        raise ValueError("content type must be bounded canonical media-type metadata")
     return value
 
 
@@ -450,6 +461,7 @@ class FileIntakeLedger:
             retry_fingerprint=value["retry_fingerprint"],
             retry_key_version=value["retry_key_version"],
             expires_at=value["expires_at"],
+            content_type=value.get("content_type"),
             correction_reference=_decode_correction(value.get("correction_reference")),
             correction_state=value.get("correction_state", "NONE"),
             possible_duplicate=bool(value.get("possible_duplicate", False)),
@@ -469,6 +481,7 @@ class FileIntakeLedger:
             received_at=value["received_at"],
             publisher=value["publisher"],
             channel=value["channel"],
+            content_type=value["content_type"],
             quarantine_handle=value["quarantine_handle"],
             key_version=value["key_version"],
             fingerprint=value["fingerprint"],
@@ -696,11 +709,13 @@ class FileIntakeLedger:
         *,
         fingerprint: str,
         key_version: str,
+        content_type: str,
     ) -> IntakeReservation:
         if not re.fullmatch(r"[0-9a-fA-F]{32,}", fingerprint) or not _SAFE_METADATA.fullmatch(
             key_version
         ):
             raise ValueError("payload fingerprint metadata is unsafe")
+        content_type = _safe_content_type(content_type)
         with self._locked():
             reservation = self.reservation_by_attempt(attempt_id)
             if reservation is None:
@@ -712,13 +727,17 @@ class FileIntakeLedger:
                         fingerprint,
                     )
                     or reservation.fingerprint_key_version != key_version
+                    or reservation.content_type != content_type
                 ):
-                    raise IntakeConflictError("retry key is already bound to a different payload")
+                    raise IntakeConflictError(
+                        "retry key is already bound to a different payload or media type"
+                    )
                 return reservation
             updated = replace(
                 reservation,
                 payload_fingerprint=fingerprint,
                 fingerprint_key_version=key_version,
+                content_type=content_type,
             )
             self._update_reservation(updated)
             return updated
@@ -972,6 +991,7 @@ class IntakeCoordinator:
                 reservation.attempt_id,
                 fingerprint=payload_fingerprint,
                 key_version=payload_key_version,
+                content_type=request.content_type,
             )
         except IntakeConflictError:
             finding = _finding(
@@ -1271,12 +1291,15 @@ class IntakeCoordinator:
         payload_fingerprint: str,
         payload_key_version: str,
     ) -> IntakeReceipt:
+        if reservation.content_type is None:
+            raise RuntimeError("payload media type is not durably bound")
         return IntakeReceipt(
             lineage_id=reservation.lineage_id,
             attempt_id=reservation.attempt_id,
             received_at=self.clock.now(),
             publisher=reservation.publisher,
             channel=reservation.channel,
+            content_type=reservation.content_type,
             correction_reference=reservation.correction_reference,
             quarantine_handle=reservation.quarantine_handle,
             key_version=payload_key_version,
@@ -1512,12 +1535,15 @@ class IntakeReconciler:
                     and reservation.payload_fingerprint is not None
                     and reservation.fingerprint_key_version is not None
                 ):
+                    if reservation.content_type is None:
+                        raise RuntimeError("payload media type binding is missing")
                     recovered_receipt = IntakeReceipt(
                         lineage_id=reservation.lineage_id,
                         attempt_id=reservation.attempt_id,
                         received_at=reservation.reserved_at,
                         publisher=reservation.publisher,
                         channel=reservation.channel,
+                        content_type=reservation.content_type,
                         quarantine_handle=reservation.quarantine_handle,
                         key_version=reservation.fingerprint_key_version,
                         fingerprint=reservation.payload_fingerprint,

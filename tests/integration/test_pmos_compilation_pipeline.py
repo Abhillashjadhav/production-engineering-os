@@ -62,7 +62,10 @@ def _service(tmp_path: Path) -> Any:
     return pipeline.PmosCompilationService(
         intake=coordinator,
         compiler=compiler.CanonicalCompiler(),
-        evidence_store=pipeline.FileCompilationEvidenceStore(tmp_path / "evidence"),
+        evidence_store=pipeline.FileCompilationEvidenceStore(
+            tmp_path / "evidence",
+            fingerprint_provider=fingerprints,
+        ),
     )
 
 
@@ -106,7 +109,9 @@ def test_supported_input_produces_durable_schema_valid_evidence(
     assert evidence["manifest_digest"] == result.compilation.manifest_digest
     assert evidence["intake"]["lineage_id"] == result.intake.receipt.lineage_id
     assert evidence["intake"]["attempt_id"] == result.intake.receipt.attempt_id
+    assert evidence["intake"] == result.intake.receipt.as_dict()
     assert "payload" not in evidence["intake"]
+    assert (attempt_dir / "evidence-attestation.json").exists()
     assert not result.intake.quarantine_retained
 
 
@@ -184,6 +189,26 @@ def test_forged_compilation_intake_binding_cannot_finalize_retained_source(
     assert replay.compilation is None
     assert replay.intake.quarantine_retained
     assert replay.intake.deletion_attestation is None
+
+
+def test_self_consistent_compiler_provenance_forgery_fails_keyed_attestation(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    request = _request(FIXTURES / "minimal_valid_spec.json", "forged-provenance")
+    first = service.process(request)
+    evidence_path = (
+        tmp_path / "evidence" / first.intake.receipt.attempt_id / "compiler-evidence.json"
+    )
+    evidence = json.loads(evidence_path.read_text())
+    evidence["source_format"] = "PMOS_V3"
+    evidence["source_version"] = "1"
+    evidence_path.write_bytes(
+        _module("pmpe.contracts.canonical").canonical_json_bytes(evidence) + b"\n"
+    )
+    replay = service.process(request)
+    assert replay.status == "EVIDENCE_SECURITY_BLOCKED"
+    assert replay.compilation is None
 
 
 def test_forged_blocked_intake_binding_cannot_finalize_retained_source(
@@ -273,10 +298,8 @@ def test_compiler_evidence_is_bound_to_exact_intake_receipt(tmp_path: Path) -> N
         tmp_path / "evidence" / result.intake.receipt.attempt_id / "compiler-evidence.json"
     )
     evidence = json.loads(evidence_path.read_text())
-    assert evidence["intake"] == {
-        "attempt_id": result.intake.receipt.attempt_id,
-        "fingerprint": result.intake.receipt.fingerprint,
-        "key_version": result.intake.receipt.key_version,
-        "lineage_id": result.intake.receipt.lineage_id,
-        "received_at": result.intake.receipt.received_at,
-    }
+    assert evidence["intake"] == result.intake.receipt.as_dict()
+    assert evidence["intake"]["content_type"] == "application/json"
+    assert evidence["intake"]["publisher"] == "pm-agent-os"
+    assert evidence["intake"]["channel"] == "contract-api"
+    assert evidence["intake"]["quarantine_handle"] == result.intake.receipt.quarantine_handle

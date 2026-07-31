@@ -63,7 +63,7 @@ class TestFingerprintProvider:
 
     @staticmethod
     def _fingerprint_for_key(key: bytes, domain: str, payload: bytes) -> str:
-        assert domain in {"payload", "retry-key"}
+        assert domain in {"compiler-evidence", "payload", "retry-key"}
         return hmac.new(
             key,
             b"pmpe-intake:" + domain.encode() + b"\x00" + payload,
@@ -198,6 +198,19 @@ def test_retry_key_cannot_be_rebound_to_different_payload(tmp_path: Path) -> Non
     assert mismatch.reservation == first.reservation
     assert any(finding.code == "RETRY_KEY_PAYLOAD_MISMATCH" for finding in mismatch.findings)
     assert len(list((tmp_path / "quarantine").glob("*.sealed"))) == 0
+
+
+def test_retry_key_cannot_change_immutable_payload_media_type(
+    tmp_path: Path,
+) -> None:
+    coordinator = _coordinator(tmp_path)
+    first = coordinator.finalize_admission(coordinator.receive(_request()))
+    changed = coordinator.receive(_request(content_type="application/yaml"))
+    assert changed.status == "SECURITY_BLOCKED"
+    assert changed.reservation == first.reservation
+    assert changed.receipt == first.receipt
+    assert changed.receipt.content_type == "application/json"
+    assert changed.admitted_payload is None
 
 
 def test_retry_key_resolves_across_governed_key_rotation(tmp_path: Path) -> None:
