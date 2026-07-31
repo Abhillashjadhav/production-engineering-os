@@ -69,6 +69,7 @@ _UNRESOLVED_ANSWER_SENTINELS = frozenset(
         "none",
         "not decided",
         "pending",
+        "tbc",
         "tbd",
         "todo",
         "to be decided",
@@ -140,7 +141,7 @@ _CONCEPT_ALIASES = {
     "stored": "retain",
     "stores": "retain",
 }
-_CONCEPT_STOP_WORDS = _STOP_WORDS | frozenset({"cannot", "never", "not", "shall", "will"})
+_CONCEPT_STOP_WORDS = _STOP_WORDS | frozenset({"cannot", "never", "no", "not", "shall", "will"})
 _METRIC_GENERIC_CONCEPTS = frozenset(
     {
         "contract",
@@ -952,10 +953,9 @@ class ContractSemanticValidator:
             rule_set_digest=rule_set_digest,
             evaluated_at=evidence_context.evaluated_at,
             lineage_received_at=evidence_context.lineage_received_at,
-            intake_evidence_digest=(
-                context.intake_identity.receipt_digest
-                if context.intake_identity is not None
-                else canonical_digest({"status": "MISSING"})
+            intake_evidence_digest=_safe_intake_evidence_digest(
+                context,
+                self.fingerprint_provider,
             ),
             authority_evidence_digest=canonical_digest(
                 context.authority_identity.as_dict()
@@ -1253,6 +1253,28 @@ def _safe_evidence_time(value: str) -> str:
     return value if len(value) <= 64 else "1970-01-01T00:00:00Z"
 
 
+def _safe_intake_evidence_digest(
+    context: ValidationContext,
+    fingerprint_provider: KeyedFingerprintProvider | None,
+) -> str:
+    """Expose a receipt digest only after its keyed evidence verifies.
+
+    Intake evidence is caller-supplied at this boundary.  Even a field named
+    ``receipt_digest`` is untrusted data until the issue #76 fingerprint is
+    verified, so an invalid value is replaced with a deterministic sentinel
+    digest rather than copied into validation evidence.
+    """
+
+    evidence = context.intake_identity
+    if evidence is not None and fingerprint_provider is not None:
+        try:
+            if evidence.verify(fingerprint_provider):
+                return evidence.receipt_digest
+        except Exception:
+            pass
+    return canonical_digest({"status": "INVALID_OR_MISSING_INTAKE_EVIDENCE"})
+
+
 def _evidence_safe_context(
     context: ValidationContext,
     actual_bundle_digest: str | None,
@@ -1307,7 +1329,7 @@ def _valid_context(
         expected_correction = (
             context.correction_reference.as_dict() if context.correction_reference else None
         )
-    except (TypeError, ValueError):
+    except Exception:
         return False
     return (
         bool(_SAFE_ID.fullmatch(context.lineage_id))
@@ -1670,9 +1692,13 @@ def _resolved_product_answer(value: Any) -> bool:
     if not _present(value):
         return False
     normalized = _norm(value).strip(" .:;!?")
-    return normalized not in _UNRESOLVED_ANSWER_SENTINELS and not any(
-        normalized.startswith(f"{sentinel} ")
-        for sentinel in _UNRESOLVED_ANSWER_SENTINELS
+    normalized_marker = re.sub(r"[._/:-]+", "", normalized)
+    normalized_sentinels = {
+        re.sub(r"[._/:-]+", "", sentinel) for sentinel in _UNRESOLVED_ANSWER_SENTINELS
+    }
+    return normalized_marker not in normalized_sentinels and not any(
+        normalized_marker.startswith(f"{sentinel} ")
+        for sentinel in normalized_sentinels
         if len(sentinel) > 1
     )
 
@@ -2623,10 +2649,10 @@ def _target_guardrail(
     bundle: Mapping[str, Any], _context: ValidationContext
 ) -> tuple[Finding, ...]:
     policies = _mapping(_get(bundle, "/metrics/maturity_policies"))
-    policy_by_metric = {
-        str(_mapping(policy).get("metric_ref")): str(policy_id)
-        for policy_id, policy in policies.items()
-    }
+    policy_by_metric: dict[str, set[str]] = {}
+    for policy_id, policy in sorted(policies.items()):
+        metric_ref = str(_mapping(policy).get("metric_ref"))
+        policy_by_metric.setdefault(metric_ref, set()).add(str(policy_id))
     bounds: list[tuple[str, str, Decimal, str, str]] = []
     findings: list[Finding] = []
     number = r"[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?"
@@ -2642,7 +2668,8 @@ def _target_guardrail(
     )
     numeric_pattern = re.compile(rf"(?i)(?<![A-Z0-9-]){number}(?![A-Z0-9-])")
     association_pattern = re.compile(
-        r"(?i)\bapplies\s+to\s+((?:POLICY-METRIC|METRIC)-[A-Z0-9-]+)\b"
+        r"(?i)(?:^|[.!?]\s+)applies\s+to\s+"
+        r"((?:POLICY-METRIC|METRIC)-[A-Z0-9-]+)\b"
     )
     for guardrail_id, guardrail in sorted(_mapping(bundle.get("guardrails")).items()):
         guardrail_record = _mapping(guardrail)
@@ -2675,11 +2702,11 @@ def _target_guardrail(
         associations = set(
             association_pattern.findall(str(guardrail_record.get("description", "")))
         )
-        policy_refs = {reference for reference in associations if reference in policies} | {
-            policy_by_metric[reference]
-            for reference in associations
-            if reference in policy_by_metric
-        }
+        policy_refs: set[str] = set()
+        for reference in associations:
+            if reference in policies:
+                policy_refs.add(reference)
+            policy_refs.update(policy_by_metric.get(reference, set()))
         if len(associations) != 1 or len(policy_refs) != 1:
             findings.append(
                 _finding(
@@ -2955,7 +2982,7 @@ def _observability_reporting(
 
 def _contradictory_text(left: str, right: str) -> bool:
     negative = re.compile(
-        r"(?i)\b(?:cannot|do(?:es)?\s+not|is\s+not|are\s+not|will\s+not|"
+        r"(?i)\b(?:cannot|no|never|do(?:es)?\s+not|is\s+not|are\s+not|will\s+not|"
         r"should\s+(?:never|not)|must\s+(?:never|not)|shall\s+(?:never|not)|"
         r"prohibit(?:ed|s)?|forbid(?:den|s)?|excluded?|unsupported|out\s+of\s+scope)\b"
     )
@@ -3133,18 +3160,59 @@ def _constraint_satisfied(bundle: Mapping[str, Any], constraint: Mapping[str, An
         return _safe_extension_pattern_matches(raw_value, target)
     if operator == "LIMIT_ALLOWED_VALUES":
         try:
-            allowed = json.loads(raw_value)
-        except json.JSONDecodeError:
+            allowed = json.loads(
+                raw_value,
+                parse_float=Decimal,
+                parse_int=Decimal,
+            )
+        except (InvalidOperation, json.JSONDecodeError):
             return False
-        return isinstance(allowed, list) and target in allowed
+        return isinstance(allowed, list) and any(
+            _json_constraint_equal(target, candidate) for candidate in allowed
+        )
     if operator in {"SET_MAXIMUM", "SET_MINIMUM"}:
         if not isinstance(target, (int, float)) or isinstance(target, bool):
             return False
         try:
-            boundary = float(raw_value)
-        except ValueError:
+            target_number = Decimal(str(target))
+            boundary = Decimal(raw_value)
+        except (InvalidOperation, ValueError):
             return False
-        return target <= boundary if operator == "SET_MAXIMUM" else target >= boundary
+        if not target_number.is_finite() or not boundary.is_finite():
+            return False
+        return target_number <= boundary if operator == "SET_MAXIMUM" else target_number >= boundary
+    return False
+
+
+def _json_constraint_equal(target: Any, candidate: Any) -> bool:
+    """Compare parsed constraint JSON without Python's bool/int aliasing."""
+
+    if isinstance(candidate, Decimal):
+        return (
+            isinstance(target, (int, float))
+            and not isinstance(target, bool)
+            and Decimal(str(target)).is_finite()
+            and Decimal(str(target)) == candidate
+        )
+    if candidate is None or isinstance(candidate, (bool, str)):
+        return type(target) is type(candidate) and target == candidate
+    if isinstance(candidate, list):
+        return (
+            isinstance(target, list)
+            and len(target) == len(candidate)
+            and all(
+                _json_constraint_equal(target_item, candidate_item)
+                for target_item, candidate_item in zip(target, candidate, strict=True)
+            )
+        )
+    if isinstance(candidate, Mapping):
+        return (
+            isinstance(target, Mapping)
+            and set(target) == set(candidate)
+            and all(
+                _json_constraint_equal(target[key], candidate[key]) for key in sorted(candidate)
+            )
+        )
     return False
 
 

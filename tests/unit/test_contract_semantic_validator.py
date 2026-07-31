@@ -386,7 +386,10 @@ def test_publisher_cannot_self_downgrade_unresolved_product_truth_to_warning() -
 
 
 @pytest.mark.parametrize("blocking", [False, True])
-@pytest.mark.parametrize("resolution", ["TBD", "to be determined", "pending", "unknown"])
+@pytest.mark.parametrize(
+    "resolution",
+    ["TBD", "T.B.D.", "TBC", "to be determined", "pending", "unknown"],
+)
 def test_placeholder_question_resolution_remains_blocking(
     blocking: bool,
     resolution: str,
@@ -897,6 +900,16 @@ def test_short_exact_subject_scope_contradiction_blocks() -> None:
     assert "ALIGN.SCOPE_NON_GOAL" in _codes(result)
 
 
+def test_short_exact_subject_no_scope_contradiction_blocks() -> None:
+    bundle = _ready_bundle()
+    bundle["scope"]["in_scope"].append("Enable SSO")
+    bundle["scope"]["non_goals"].append("No SSO")
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.SCOPE_NON_GOAL" in _codes(result)
+
+
 def test_ux_retention_and_data_prohibition_are_cross_channel_contradictions() -> None:
     bundle = _ready_bundle()
     bundle["ux"]["user_stories"]["US-001"]["i_want"] = "retain customer records"
@@ -913,6 +926,16 @@ def test_should_not_negation_is_a_cross_channel_contradiction() -> None:
     bundle = _ready_bundle()
     bundle["ux"]["user_stories"]["US-001"]["i_want"] = "retain customer records"
     bundle["data"]["requirements"]["DATA-001"]["requirement"] = "should not retain customer records"
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.CROSS_CHANNEL" in _codes(result)
+
+
+def test_never_negation_is_a_cross_channel_contradiction() -> None:
+    bundle = _ready_bundle()
+    bundle["ux"]["user_stories"]["US-001"]["i_want"] = "retain customer records"
+    bundle["data"]["requirements"]["DATA-001"]["requirement"] = "Never retain customer records"
     _reseal(bundle)
     result = _validate(bundle)
     assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
@@ -986,6 +1009,53 @@ def test_numeric_guardrail_without_exact_subject_fails_closed_as_ambiguous() -> 
     )
     assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
     assert "exact applies-to subject" in diagnostic.explanation
+
+
+def test_negated_applies_to_clause_does_not_bind_a_numeric_guardrail() -> None:
+    bundle = _ready_bundle()
+    bundle["guardrails"]["GUARD-QUALITY-002"] = {
+        "category": "QUALITY",
+        "description": "This guardrail never applies to POLICY-METRIC-EADPR.",
+        "response": "BLOCK",
+        "threshold": "At most 0.9 ratio",
+    }
+    _reseal(bundle)
+    result = _validate(bundle)
+    diagnostic = next(
+        item
+        for item in result.diagnostics
+        if item.rule_id == "ALIGN.TARGET_GUARDRAIL"
+        and item.field_path == "/guardrails/GUARD-QUALITY-002/threshold"
+    )
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "exact applies-to subject" in diagnostic.explanation
+
+
+def test_duplicate_metric_policy_binding_is_order_independent_and_ambiguous() -> None:
+    first = _ready_bundle()
+    policies = first["metrics"]["maturity_policies"]
+    policies["POLICY-METRIC-EADPR-ALT"] = copy.deepcopy(policies["POLICY-METRIC-EADPR"])
+    first["guardrails"]["GUARD-QUALITY-002"] = {
+        "category": "QUALITY",
+        "description": "Applies to METRIC-EADPR.",
+        "response": "BLOCK",
+        "threshold": "At most 0.9 ratio",
+    }
+    second = copy.deepcopy(first)
+    second["metrics"]["maturity_policies"] = dict(
+        reversed(list(second["metrics"]["maturity_policies"].items()))
+    )
+    for bundle in (first, second):
+        _reseal(bundle)
+    assert canonical_digest(first) == canonical_digest(second)
+    first_result = _validate(first)
+    second_result = _validate(second)
+    assert first_result.canonical_bytes() == second_result.canonical_bytes()
+    assert any(
+        item.rule_id == "ALIGN.TARGET_GUARDRAIL"
+        and item.field_path == "/guardrails/GUARD-QUALITY-002/threshold"
+        for item in first_result.diagnostics
+    )
 
 
 def test_unknown_or_tampered_extension_fails_closed() -> None:
@@ -1085,6 +1155,46 @@ def test_extension_mapping_values_fail_closed_independent_of_insertion_order() -
     second_result = _validate(second)
     assert first_result.disposition is api.Disposition.ERROR
     assert first_result.canonical_bytes() == second_result.canonical_bytes()
+
+
+def test_extension_allowed_values_do_not_alias_json_boolean_and_number() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    extension = bundle["extensions"]["EXT-REPOSITORY-001"]
+    constraint = extension["payload"]["constraints"]["EXT-CONSTRAINT-001"]
+    constraint.update(
+        {
+            "constraint_value": "[1]",
+            "operator": "LIMIT_ALLOWED_VALUES",
+            "target_pointer": "/open_questions/QUESTION-001/blocking",
+        }
+    )
+    extension["payload_digest"] = canonical_digest(extension["payload"])
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition is api.Disposition.UNSUPPORTED_REPOSITORY_EXTENSION
+    assert "EXTENSION.CONSTRAINT" in _codes(result)
+
+
+def test_extension_numeric_bound_preserves_decimal_boundary() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    target = bundle["metrics"]["maturity_policies"]["POLICY-METRIC-EADPR"]["target"]
+    target["value"] = 0.30000000000000004
+    extension = bundle["extensions"]["EXT-REPOSITORY-001"]
+    constraint = extension["payload"]["constraints"]["EXT-CONSTRAINT-001"]
+    constraint.update(
+        {
+            "constraint_value": "0.30000000000000003",
+            "operator": "SET_MAXIMUM",
+            "target_pointer": "/metrics/maturity_policies/POLICY-METRIC-EADPR/target/value",
+        }
+    )
+    extension["payload_digest"] = canonical_digest(extension["payload"])
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition is api.Disposition.UNSUPPORTED_REPOSITORY_EXTENSION
+    assert "EXTENSION.CONSTRAINT" in _codes(result)
 
 
 def test_pmos_owned_extension_blocker_keeps_pmos_remediation_owner() -> None:
@@ -1421,6 +1531,44 @@ def test_intake_identity_attestation_is_mandatory_and_tamper_evident() -> None:
     )
     assert tampered.disposition is api.Disposition.ERROR
     assert "CORE.EVIDENCE_BINDING" in _codes(tampered)
+
+
+def test_invalid_intake_receipt_digest_is_not_copied_into_error_evidence() -> None:
+    bundle = _ready_bundle()
+    secret = "ghp_0123456789abcdefghijklmnop"
+    context = _context(bundle)
+    assert context.intake_identity is not None
+    tampered_identity = replace(context.intake_identity, receipt_digest=secret)
+    result = _validator().validate(
+        bundle,
+        replace(context, intake_identity=tampered_identity),
+    )
+    assert result.disposition.value == "ERROR"
+    assert secret not in result.canonical_bytes().decode()
+    assert result.intake_evidence_digest == canonical_digest(
+        {"status": "INVALID_OR_MISSING_INTAKE_EVIDENCE"}
+    )
+
+
+def test_intake_evidence_provider_failure_fails_closed_without_raising() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+
+    class ExplodingFingerprintProvider:
+        key_version = "BROKEN-KEY"
+
+        def candidate_fingerprints(self, _domain: str, _payload: bytes) -> Any:
+            raise RuntimeError("trust provider unavailable")
+
+    result = api.ContractSemanticValidator(
+        fingerprint_provider=ExplodingFingerprintProvider(),
+        authority_evidence_verifier=AUTHORITY,
+    ).validate(bundle, _context(bundle))
+    assert result.disposition is api.Disposition.ERROR
+    assert "CORE.EVIDENCE_BINDING" in _codes(result)
+    assert result.intake_evidence_digest == canonical_digest(
+        {"status": "INVALID_OR_MISSING_INTAKE_EVIDENCE"}
+    )
 
 
 def test_same_lineage_correction_requires_latest_persisted_predecessor() -> None:
