@@ -25,6 +25,8 @@ def test_packaged_schema_stays_in_sync_with_repo_contract(repo_root: Path) -> No
         "mvp_spec.schema.json",
         "product_decision_contract.schema.json",
         "fullstack_product_contract.schema.json",
+        "pmos_contract_bundle.schema.json",
+        "pmos_contract_manifest.schema.json",
     ):
         contract = (repo_root / "schemas" / name).read_bytes()
         assert (packaged_schema_dir() / name).read_bytes() == contract, name

@@ -1,0 +1,20 @@
+{
+  "$fixture_base": "valid_bundle.json",
+  "$mutations": [
+    {
+      "op": "replace",
+      "path": [
+        "metrics",
+        "maturity_policies",
+        "POLICY-METRIC-VAPDR",
+        "target"
+      ],
+      "value": {
+        "baseline_plan": "Approve a threshold after the first fixed cohort matures.",
+        "retirement_reason": "This evidence belongs only to a retired target.",
+        "status": "BASELINE_REQUIRED",
+        "unit": "ratio"
+      }
+    }
+  ]
+}

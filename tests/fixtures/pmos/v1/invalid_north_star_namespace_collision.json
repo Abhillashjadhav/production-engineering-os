@@ -1,0 +1,15 @@
+{
+  "$fixture_base": "valid_bundle.json",
+  "$mutations": [
+    {
+      "op": "replace",
+      "path": [
+        "metrics",
+        "north_stars",
+        "mvp",
+        "metric_id"
+      ],
+      "value": "METRIC-NSM-END-VAPDR"
+    }
+  ]
+}

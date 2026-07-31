@@ -1,0 +1,15 @@
+{
+  "$fixture_base": "valid_bundle.json",
+  "$mutations": [
+    {
+      "op": "replace",
+      "path": [
+        "acceptance_criteria",
+        "AC-001",
+        "requirement_refs",
+        0
+      ],
+      "value": "APR-CONTRACT-001"
+    }
+  ]
+}

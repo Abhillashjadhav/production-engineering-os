@@ -1,0 +1,13 @@
+{
+  "$fixture_base": "valid_bundle.json",
+  "$mutations": [
+    {
+      "op": "replace",
+      "path": [
+        "product",
+        "product_name"
+      ],
+      "value": "\ud834\udd1e"
+    }
+  ]
+}
