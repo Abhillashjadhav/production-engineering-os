@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import fcntl
-import json
 import os
 import tempfile
 from collections.abc import Iterator
@@ -12,7 +11,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
+from pmpe.contracts.canonical import (
+    CanonicalInputError,
+    canonical_digest,
+    canonical_json_bytes,
+    strict_loads,
+)
 from pmpe.contracts.compiler import (
     CanonicalCompiler,
     CompilationBlocked,
@@ -133,35 +137,134 @@ class FileCompilationEvidenceStore:
                 canonical_json_bytes(evidence) + b"\n",
             )
 
-    def load_compilation(self, attempt_id: str) -> CompilationResult | None:
+    @staticmethod
+    def _load_canonical_object(path: Path) -> dict[str, Any]:
+        try:
+            payload = path.read_bytes()
+            value = strict_loads(payload, "application/json")
+            if payload != canonical_json_bytes(value) + b"\n":
+                raise CompilationEvidenceError("stored compiler evidence is not byte-canonical")
+            return value
+        except CompilationEvidenceError:
+            raise
+        except (CanonicalInputError, OSError, ValueError) as exc:
+            raise CompilationEvidenceError("stored compiler evidence is malformed") from exc
+
+    @staticmethod
+    def _validate_intake_binding(
+        evidence: dict[str, Any],
+        expected_intake_binding: dict[str, str],
+    ) -> None:
+        if evidence.get("intake") != expected_intake_binding:
+            raise CompilationEvidenceError(
+                "stored compiler evidence does not match the exact intake receipt"
+            )
+
+    def load_compilation(
+        self,
+        attempt_id: str,
+        expected_intake_binding: dict[str, str],
+    ) -> CompilationResult | None:
         target = self.root / attempt_id
         paths = (
             target / "bundle.json",
             target / "manifest.json",
             target / "compiler-evidence.json",
         )
-        if not all(path.exists() for path in paths):
+        present = tuple(path.exists() for path in paths)
+        if not any(present):
             return None
-        bundle: dict[str, Any] = json.loads(paths[0].read_text())
-        manifest: dict[str, Any] = json.loads(paths[1].read_text())
-        evidence: dict[str, Any] = json.loads(paths[2].read_text())
-        bundle_digest = canonical_digest(bundle)
-        manifest_projection = dict(manifest)
-        manifest_digest = manifest_projection.pop("manifest_digest", None)
-        recomputed_manifest_digest = canonical_digest(manifest_projection)
-        if (
-            evidence.get("bundle_digest") != bundle_digest
-            or manifest.get("bundle", {}).get("content_digest") != bundle_digest
-            or evidence.get("manifest_digest") != manifest_digest
-            or manifest_digest != recomputed_manifest_digest
-        ):
-            raise CompilationEvidenceError(
-                "stored compiler artifacts fail their canonical digest bindings"
+        if present in {(True, False, False), (True, True, False)}:
+            return None
+        if not all(present) or (target / "compiler-diagnostics.json").exists():
+            raise CompilationEvidenceError("stored compiler evidence set is inconsistent")
+        try:
+            bundle = self._load_canonical_object(paths[0])
+            manifest = self._load_canonical_object(paths[1])
+            evidence = self._load_canonical_object(paths[2])
+            self._validate_intake_binding(evidence, expected_intake_binding)
+            bundle_digest = canonical_digest(bundle)
+            manifest_projection = dict(manifest)
+            manifest_digest = manifest_projection.pop("manifest_digest", None)
+            recomputed_manifest_digest = canonical_digest(manifest_projection)
+            bundle_provenance = bundle.get("provenance")
+            manifest_provenance = manifest.get("provenance")
+            compiler_provenance = (
+                bundle_provenance.get("compiler_provenance")
+                if isinstance(bundle_provenance, dict)
+                else None
             )
-        return CompilationResult.from_artifacts(bundle, manifest, evidence)
+            manifest_bundle = manifest.get("bundle")
+            if (
+                evidence.get("bundle_digest") != bundle_digest
+                or not isinstance(manifest_bundle, dict)
+                or manifest_bundle.get("content_digest") != bundle_digest
+                or manifest_bundle.get("bundle_id") != bundle.get("bundle_id")
+                or manifest_bundle.get("bundle_version") != bundle.get("bundle_version")
+                or evidence.get("manifest_digest") != manifest_digest
+                or manifest_digest != recomputed_manifest_digest
+                or not isinstance(bundle_provenance, dict)
+                or manifest_provenance != bundle_provenance
+                or evidence.get("source_digest") != bundle_provenance.get("source_digest")
+                or evidence.get("source_version_value") != bundle_provenance.get("source_version")
+                or not isinstance(compiler_provenance, dict)
+                or evidence.get("compiler_id") != compiler_provenance.get("compiler_id")
+                or evidence.get("compiler_version") != compiler_provenance.get("compiler_version")
+                or not isinstance(evidence.get("diagnostics"), list)
+            ):
+                raise CompilationEvidenceError(
+                    "stored compiler artifacts fail their provenance bindings"
+                )
+            return CompilationResult.from_artifacts(bundle, manifest, evidence)
+        except CompilationEvidenceError:
+            raise
+        except (KeyError, TypeError, ValueError) as exc:
+            raise CompilationEvidenceError(
+                "stored compiler evidence is structurally invalid"
+            ) from exc
 
-    def blocked_exists(self, attempt_id: str) -> bool:
-        return (self.root / attempt_id / "compiler-diagnostics.json").exists()
+    def load_blocked(
+        self,
+        attempt_id: str,
+        expected_intake_binding: dict[str, str],
+    ) -> bool:
+        target = self.root / attempt_id
+        path = target / "compiler-diagnostics.json"
+        if not path.exists():
+            return False
+        if any(
+            (target / name).exists()
+            for name in ("bundle.json", "manifest.json", "compiler-evidence.json")
+        ):
+            raise CompilationEvidenceError("blocked and compiled evidence cannot coexist")
+        evidence = self._load_canonical_object(path)
+        self._validate_intake_binding(evidence, expected_intake_binding)
+        diagnostics = evidence.get("diagnostics")
+        expected_fields = {
+            "blocking",
+            "code",
+            "message",
+            "source_path",
+            "target_path",
+        }
+        if (
+            set(evidence) != {"diagnostics", "intake", "status"}
+            or evidence.get("status") != "COMPILATION_BLOCKED"
+            or not isinstance(diagnostics, list)
+            or not diagnostics
+            or any(
+                not isinstance(item, dict)
+                or set(item) != expected_fields
+                or item.get("blocking") is not True
+                or any(
+                    not isinstance(item.get(field), str)
+                    for field in ("code", "message", "source_path", "target_path")
+                )
+                for item in diagnostics
+            )
+        ):
+            raise CompilationEvidenceError("stored compiler diagnostics are structurally invalid")
+        return True
 
 
 class PmosCompilationService:
@@ -193,9 +296,23 @@ class PmosCompilationService:
                 compilation=None,
                 replayed=intake_outcome.replayed,
             )
+        binding = {
+            "attempt_id": receipt.attempt_id,
+            "fingerprint": receipt.fingerprint,
+            "key_version": receipt.key_version,
+            "lineage_id": receipt.lineage_id,
+            "received_at": receipt.received_at,
+        }
         if intake_outcome.status == "ADMITTED":
             try:
-                compiled = self.evidence_store.load_compilation(receipt.attempt_id)
+                compiled = self.evidence_store.load_compilation(
+                    receipt.attempt_id,
+                    binding,
+                )
+                blocked_evidence = self.evidence_store.load_blocked(
+                    receipt.attempt_id,
+                    binding,
+                )
             except CompilationEvidenceError:
                 return PmosCompilationOutcome(
                     status="EVIDENCE_SECURITY_BLOCKED",
@@ -210,11 +327,7 @@ class PmosCompilationService:
                     compilation=compiled,
                     replayed=True,
                 )
-            status = (
-                "COMPILATION_BLOCKED"
-                if self.evidence_store.blocked_exists(receipt.attempt_id)
-                else "EVIDENCE_SECURITY_BLOCKED"
-            )
+            status = "COMPILATION_BLOCKED" if blocked_evidence else "EVIDENCE_SECURITY_BLOCKED"
             return PmosCompilationOutcome(
                 status=status,
                 intake=intake_outcome,
@@ -228,15 +341,15 @@ class PmosCompilationService:
                 compilation=None,
             )
 
-        binding = {
-            "attempt_id": receipt.attempt_id,
-            "fingerprint": receipt.fingerprint,
-            "key_version": receipt.key_version,
-            "lineage_id": receipt.lineage_id,
-            "received_at": receipt.received_at,
-        }
         try:
-            existing = self.evidence_store.load_compilation(receipt.attempt_id)
+            existing = self.evidence_store.load_compilation(
+                receipt.attempt_id,
+                binding,
+            )
+            blocked_evidence = self.evidence_store.load_blocked(
+                receipt.attempt_id,
+                binding,
+            )
         except CompilationEvidenceError:
             return PmosCompilationOutcome(
                 status="EVIDENCE_SECURITY_BLOCKED",
@@ -244,7 +357,7 @@ class PmosCompilationService:
                 compilation=None,
                 replayed=True,
             )
-        if existing is not None or self.evidence_store.blocked_exists(receipt.attempt_id):
+        if existing is not None or blocked_evidence:
             finalized = self._finalize_intake(intake_outcome)
             if finalized.status != "ADMITTED":
                 return PmosCompilationOutcome(

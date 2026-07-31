@@ -160,6 +160,66 @@ def test_tampered_compilation_evidence_fails_closed_on_retry(tmp_path: Path) -> 
     assert replay.replayed
 
 
+def test_forged_compilation_intake_binding_cannot_finalize_retained_source(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    request = _request(FIXTURES / "minimal_valid_spec.json", "forged-compilation-binding")
+    real_finalize = service._finalize_intake
+    service._finalize_intake = lambda outcome: outcome
+    first = service.process(request)
+    assert first.status == "INTAKE_SECURITY_BLOCKED"
+    assert first.intake.quarantine_retained
+    evidence_path = (
+        tmp_path / "evidence" / first.intake.receipt.attempt_id / "compiler-evidence.json"
+    )
+    evidence = json.loads(evidence_path.read_text())
+    evidence["intake"]["attempt_id"] = "ATTEMPT-999999"
+    evidence_path.write_bytes(
+        _module("pmpe.contracts.canonical").canonical_json_bytes(evidence) + b"\n"
+    )
+    service._finalize_intake = real_finalize
+    replay = service.process(request)
+    assert replay.status == "EVIDENCE_SECURITY_BLOCKED"
+    assert replay.compilation is None
+    assert replay.intake.quarantine_retained
+    assert replay.intake.deletion_attestation is None
+
+
+def test_forged_blocked_intake_binding_cannot_finalize_retained_source(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    intake = _module("pmpe.contracts.intake")
+    request = intake.IntakeRequest(
+        retry_key="forged-blocked-binding",
+        payload=b'{"spec_version":"9.9","product_name":"Unsupported"}',
+        content_type="application/json",
+        publisher="pm-agent-os",
+        channel="contract-api",
+        correction_reference=None,
+    )
+    real_finalize = service._finalize_intake
+    service._finalize_intake = lambda outcome: outcome
+    first = service.process(request)
+    assert first.status == "INTAKE_SECURITY_BLOCKED"
+    assert first.intake.quarantine_retained
+    evidence_path = (
+        tmp_path / "evidence" / first.intake.receipt.attempt_id / "compiler-diagnostics.json"
+    )
+    evidence = json.loads(evidence_path.read_text())
+    evidence["intake"]["attempt_id"] = "ATTEMPT-999999"
+    evidence_path.write_bytes(
+        _module("pmpe.contracts.canonical").canonical_json_bytes(evidence) + b"\n"
+    )
+    service._finalize_intake = real_finalize
+    replay = service.process(request)
+    assert replay.status == "EVIDENCE_SECURITY_BLOCKED"
+    assert replay.compilation is None
+    assert replay.intake.quarantine_retained
+    assert replay.intake.deletion_attestation is None
+
+
 def test_unsupported_source_is_deleted_and_emits_no_bundle_or_manifest(
     tmp_path: Path,
 ) -> None:
