@@ -409,10 +409,26 @@ def test_deleting_all_signed_evidence_cannot_reinitialize_an_empty_ledger(
         )
     )
     for path in store.artifacts.root.rglob("*.json"):
-        if path.name != "index.json":
-            path.unlink()
+        path.unlink()
 
     with pytest.raises(api.ValidationEvidenceError, match="catalog is missing"):
+        api.FileValidationEvidenceStore(root, fingerprint_provider=FINGERPRINTS)
+
+
+def test_deleting_high_watermark_anchor_fails_closed(tmp_path: Path) -> None:
+    api = _api()
+    root = tmp_path / "evidence"
+    store = api.FileValidationEvidenceStore(root, fingerprint_provider=FINGERPRINTS)
+    bundle = _bundle()
+    store.record(
+        _validator().validate(
+            bundle,
+            _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
+        )
+    )
+    store._anchor_path.unlink()
+
+    with pytest.raises(api.ValidationEvidenceError, match="anchor is missing"):
         api.FileValidationEvidenceStore(root, fingerprint_provider=FINGERPRINTS)
 
 

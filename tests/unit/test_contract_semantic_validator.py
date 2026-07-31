@@ -740,6 +740,38 @@ def test_named_contradiction_classes_block(case: str, expected_rule: str) -> Non
     assert expected_rule in _codes(result)
 
 
+@pytest.mark.parametrize(
+    ("operator", "value", "threshold"),
+    [
+        ("AT_LEAST", 0.8, "At most 0.5 ratio"),
+        ("EXACT", 0.8, "At most 0.5 ratio"),
+        ("AT_MOST", 0.2, "At least 0.5 ratio"),
+        ("EXACT", 0.2, "At least 0.5 ratio"),
+    ],
+)
+def test_metric_target_interval_must_intersect_guardrail(
+    operator: str,
+    value: float,
+    threshold: str,
+) -> None:
+    bundle = _ready_bundle()
+    target = bundle["metrics"]["maturity_policies"]["POLICY-METRIC-EADPR"]["target"]
+    target["operator"] = operator
+    target["value"] = value
+    bundle["guardrails"]["GUARD-SECURITY-001"]["threshold"] = threshold
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.TARGET_GUARDRAIL" in _codes(result)
+
+
+def test_guardrail_with_different_unit_does_not_constrain_metric_target() -> None:
+    bundle = _ready_bundle()
+    bundle["guardrails"]["GUARD-SECURITY-001"]["threshold"] = "At most 0.5 seconds"
+    _reseal(bundle)
+    assert "ALIGN.TARGET_GUARDRAIL" not in _codes(_validate(bundle))
+
+
 def test_unknown_or_tampered_extension_fails_closed() -> None:
     api = _api()
     bundle = _ready_bundle()
@@ -1314,6 +1346,24 @@ def test_direct_paraphrased_ownership_and_prohibition_conflicts_block() -> None:
     _reseal(bundle)
     contradiction_result = _validate(bundle)
     assert "ALIGN.CROSS_CHANNEL" in _codes(contradiction_result)
+
+    bundle = _ready_bundle()
+    bundle["ux"]["user_stories"]["US-001"]["i_want"] = "shall retain customer records"
+    bundle["data"]["requirements"]["DATA-001"]["requirement"] = "must not store customer records"
+    _reseal(bundle)
+    paraphrased_result = _validate(bundle)
+    assert "ALIGN.CROSS_CHANNEL" in _codes(paraphrased_result)
+
+
+def test_one_generic_shared_word_does_not_prove_metric_outcome_alignment() -> None:
+    bundle = _ready_bundle()
+    bundle["metrics"]["success"]["METRIC-SUCCESS-001"]["definition"] = (
+        "Contract logo impression count."
+    )
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.METRIC_OUTCOME" in _codes(result)
 
 
 def test_production_autonomy_uses_end_state_policy_and_exact_environment() -> None:

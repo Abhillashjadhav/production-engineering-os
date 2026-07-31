@@ -55,6 +55,7 @@ _PERSONAL_PATTERNS = (re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b
 _INTAKE_EVIDENCE_PROFILE = "PMPE-VALIDATION-INTAKE-EVIDENCE-1"
 _AUTHORITY_EVIDENCE_PROFILE = "PMPE-VALIDATION-AUTHORITY-EVIDENCE-1"
 _STORE_EVIDENCE_PROFILE = "PMPE-VALIDATION-STORE-EVIDENCE-1"
+_STORE_ANCHOR_PROFILE = "PMPE-VALIDATION-STORE-ANCHOR-1"
 _OWNERSHIP_PATTERNS = (
     re.compile(r"(?i)\b(?:engineering|peos)\s+(?:will\s+)?decide\b"),
     re.compile(
@@ -102,6 +103,22 @@ _STOP_WORDS = frozenset(
         "would",
     }
 )
+_CONCEPT_ALIASES = {
+    "approved": "approve",
+    "approval": "approve",
+    "approvals": "approve",
+    "contractual": "contract",
+    "contracts": "contract",
+    "engineer": "engineering",
+    "engineers": "engineering",
+    "preserve": "retain",
+    "preserved": "retain",
+    "records": "record",
+    "store": "retain",
+    "stored": "retain",
+    "stores": "retain",
+}
+_CONCEPT_STOP_WORDS = _STOP_WORDS | frozenset({"cannot", "never", "not", "shall", "will"})
 _SEMANTIC_TOP_LEVEL_SECTIONS = frozenset(
     {
         "acceptance_criteria",
@@ -2213,18 +2230,37 @@ def _words(value: Any) -> set[str]:
     }
 
 
+def _concepts(value: Any) -> set[str]:
+    if not isinstance(value, str):
+        return set()
+    concepts: set[str] = set()
+    for token in re.findall(r"[a-z0-9]+", value.casefold()):
+        if len(token) < 3 or token in _CONCEPT_STOP_WORDS:
+            continue
+        normalized = _CONCEPT_ALIASES.get(token, token)
+        if normalized == token and len(token) > 4 and token.endswith("s"):
+            normalized = token[:-1]
+        concepts.add(_CONCEPT_ALIASES.get(normalized, normalized))
+    return concepts
+
+
+def _has_explicit_concept_link(left: set[str], right: set[str]) -> bool:
+    # One generic shared noun is not deterministic evidence of an outcome link.
+    return len(left & right) >= 2
+
+
 def _outcome_hypothesis(
     bundle: Mapping[str, Any], _context: ValidationContext
 ) -> tuple[Finding, ...]:
-    problem = _words(_get(bundle, "/product/problem/statement"))
-    hypothesis = _words(_get(bundle, "/product/hypothesis/statement")) | _words(
+    problem = _concepts(_get(bundle, "/product/problem/statement"))
+    hypothesis = _concepts(_get(bundle, "/product/hypothesis/statement")) | _concepts(
         _get(bundle, "/product/hypothesis/falsification_condition")
     )
     outcome = set()
     for key in ("statement", "customer_outcome", "business_outcome", "measurable_change"):
-        outcome |= _words(_get(bundle, f"/product/outcome/{key}"))
+        outcome |= _concepts(_get(bundle, f"/product/outcome/{key}"))
     findings: list[Finding] = []
-    if problem and hypothesis and not problem & hypothesis:
+    if problem and hypothesis and not _has_explicit_concept_link(problem, hypothesis):
         findings.append(
             _finding(
                 "/product/hypothesis",
@@ -2232,7 +2268,7 @@ def _outcome_hypothesis(
                 "PMOS must state the explicit problem-to-hypothesis relationship.",
             )
         )
-    if hypothesis and outcome and not hypothesis & outcome:
+    if hypothesis and outcome and not _has_explicit_concept_link(hypothesis, outcome):
         findings.append(
             _finding(
                 "/product/outcome",
@@ -2301,11 +2337,15 @@ def _solution_non_goal(
 def _metric_outcome(bundle: Mapping[str, Any], _context: ValidationContext) -> tuple[Finding, ...]:
     outcome_words: set[str] = set()
     for value in _mapping(_get(bundle, "/product/outcome")).values():
-        outcome_words |= _words(value)
+        outcome_words |= _concepts(value)
     findings: list[Finding] = []
     for metric_id, metric in sorted(_mapping(_get(bundle, "/metrics/success")).items()):
-        metric_words = _words(_mapping(metric).get("definition"))
-        if metric_words and outcome_words and not metric_words & outcome_words:
+        metric_words = _concepts(_mapping(metric).get("definition"))
+        if (
+            metric_words
+            and outcome_words
+            and not _has_explicit_concept_link(metric_words, outcome_words)
+        ):
             findings.append(
                 _finding(
                     f"/metrics/success/{metric_id}",
@@ -2381,32 +2421,54 @@ def _leading_distinct(
 def _target_guardrail(
     bundle: Mapping[str, Any], _context: ValidationContext
 ) -> tuple[Finding, ...]:
-    upper_bounds: list[float] = []
-    for guardrail in _mapping(bundle.get("guardrails")).values():
+    bounds: list[tuple[str, str, Decimal, str]] = []
+    for guardrail_id, guardrail in sorted(_mapping(bundle.get("guardrails")).items()):
         match = re.search(
-            r"(?i)at most\s+([0-9]+(?:\.[0-9]+)?)", str(_mapping(guardrail).get("threshold", ""))
+            r"(?i)^\s*at\s+(most|least)\s+([+-]?[0-9]+(?:\.[0-9]+)?)\s+(.+?)\s*$",
+            str(_mapping(guardrail).get("threshold", "")),
         )
         if match:
-            upper_bounds.append(float(match.group(1)))
-    if not upper_bounds:
+            bounds.append(
+                (
+                    str(guardrail_id),
+                    match.group(1).casefold(),
+                    Decimal(match.group(2)),
+                    _norm(match.group(3)),
+                )
+            )
+    if not bounds:
         return ()
+    findings: list[Finding] = []
     for policy_id, policy in sorted(_mapping(_get(bundle, "/metrics/maturity_policies")).items()):
         target = _mapping(_mapping(policy).get("target"))
         value = target.get("value")
-        if (
-            target.get("operator") == "AT_LEAST"
-            and isinstance(value, (int, float))
-            and value > min(upper_bounds)
-        ):
-            return (
-                _finding(
-                    f"/metrics/maturity_policies/{policy_id}/target",
-                    "An approved metric target exceeds a declared guardrail upper bound.",
-                    "PMOS must reconcile the target and guardrail threshold.",
-                    policy_id,
-                ),
+        if not isinstance(value, (int, float)) or isinstance(value, bool):
+            continue
+        target_value = Decimal(str(value))
+        operator = str(target.get("operator", ""))
+        unit = _norm(target.get("unit", ""))
+        for guardrail_id, direction, boundary, guardrail_unit in bounds:
+            if unit != guardrail_unit:
+                continue
+            conflict = (
+                direction == "most"
+                and operator in {"AT_LEAST", "EXACT"}
+                and target_value > boundary
+            ) or (
+                direction == "least"
+                and operator in {"AT_MOST", "EXACT"}
+                and target_value < boundary
             )
-    return ()
+            if conflict:
+                findings.append(
+                    _finding(
+                        f"/metrics/maturity_policies/{policy_id}/target",
+                        "An approved metric target has no feasible value under a guardrail.",
+                        "PMOS must reconcile the target operator, unit, and guardrail threshold.",
+                        f"{policy_id}->{guardrail_id}",
+                    )
+                )
+    return tuple(findings)
 
 
 def _alignment_dependency(
@@ -2612,21 +2674,12 @@ def _observability_reporting(
 
 
 def _contradictory_text(left: str, right: str) -> bool:
-    first = _norm(left)
-    second = _norm(right)
-    negative_phrases = ("must not ", "must never ", "shall not ", "cannot ")
-    for positive, negative in ((first, second), (second, first)):
-        for phrase in negative_phrases:
-            if phrase not in negative:
-                continue
-            subject = negative.partition(phrase)[2]
-            if subject and (
-                f"must {subject}" in positive
-                or f"shall {subject}" in positive
-                or positive == subject
-            ):
-                return True
-    return False
+    negative = re.compile(r"(?i)\b(?:cannot|must\s+(?:never|not)|shall\s+(?:never|not))\b")
+    left_negative = negative.search(left) is not None
+    right_negative = negative.search(right) is not None
+    if left_negative == right_negative:
+        return False
+    return len(_concepts(left) & _concepts(right)) >= 2
 
 
 def _alignment_cross_channel(
@@ -3064,14 +3117,23 @@ class FileValidationEvidenceStore:
         fingerprint_provider: KeyedFingerprintProvider,
     ) -> None:
         self.root = Path(root)
+        root_preexisting = self.root.exists()
         self.root.mkdir(parents=True, exist_ok=True)
         self.artifacts = ArtifactStore(self.root)
         self.fingerprint_provider = fingerprint_provider
         self._lock_path = self.root / ".validation-evidence.lock"
+        lock_preexisting = self._lock_path.exists()
         self._lock_path.touch(mode=0o600, exist_ok=True)
         self._catalog_name = "catalog.json"
+        self._anchor_path = self.root / ".validation-evidence-anchor.json"
         if self.artifacts.exists(self._catalog_name):
-            self._read_catalog()
+            if not self._anchor_path.exists():
+                raise ValidationEvidenceError("evidence high-watermark anchor is missing")
+            catalog = self._read_catalog()
+            anchor = self._read_anchor()
+            self._validate_anchor(catalog, anchor, allow_catalog_ahead=True)
+            if catalog != anchor:
+                self.reconcile()
         else:
             index_path = self.artifacts.root / "index.json"
             indexed_evidence = False
@@ -3096,11 +3158,18 @@ class FileValidationEvidenceStore:
                 if directory.exists()
                 for path in directory.iterdir()
             )
-            if materialized or indexed_evidence:
+            if (
+                materialized
+                or indexed_evidence
+                or lock_preexisting
+                or self._anchor_path.exists()
+                or root_preexisting
+            ):
                 raise ValidationEvidenceError(
                     "evidence catalog is missing for a materialized store"
                 )
             self._write_catalog((), ())
+            self._write_anchor((), ())
 
     def _write_verified(self, name: str, kind: str, payload: Mapping[str, Any]) -> None:
         signed = {
@@ -3190,6 +3259,100 @@ class FileValidationEvidenceStore:
             },
         )
 
+    def _read_anchor(self) -> dict[str, list[str]]:
+        try:
+            envelope = json.loads(self._anchor_path.read_text())
+        except (json.JSONDecodeError, OSError) as exc:
+            raise ValidationEvidenceError("evidence high-watermark anchor is unreadable") from exc
+        if not isinstance(envelope, dict):
+            raise ValidationEvidenceError("evidence high-watermark anchor is malformed")
+        attempt_ids = envelope.get("attempt_ids")
+        lineage_ids = envelope.get("lineage_ids")
+        signed = {
+            "attempt_ids": attempt_ids,
+            "high_watermark": envelope.get("high_watermark"),
+            "lineage_ids": lineage_ids,
+            "profile": envelope.get("profile"),
+        }
+        fingerprint = envelope.get("fingerprint")
+        key_version = envelope.get("key_version")
+        if (
+            signed["profile"] != _STORE_ANCHOR_PROFILE
+            or not isinstance(attempt_ids, list)
+            or not isinstance(lineage_ids, list)
+            or signed["high_watermark"] != len(attempt_ids)
+            or len(set(attempt_ids)) != len(attempt_ids)
+            or len(set(lineage_ids)) != len(lineage_ids)
+            or not isinstance(fingerprint, str)
+            or not isinstance(key_version, str)
+        ):
+            raise ValidationEvidenceError("evidence high-watermark anchor is malformed")
+        for attempt_id in attempt_ids:
+            _safe_evidence_id(attempt_id, "anchor ingestion attempt ID")
+        for lineage_id in lineage_ids:
+            _safe_evidence_id(lineage_id, "anchor lineage ID")
+        try:
+            signed_bytes = canonical_json_bytes(signed)
+        except (TypeError, ValueError) as exc:
+            raise ValidationEvidenceError(
+                "evidence high-watermark anchor is not canonical"
+            ) from exc
+        candidate = next(
+            (
+                item
+                for item in self.fingerprint_provider.candidate_fingerprints(
+                    "validation-store-anchor", signed_bytes
+                )
+                if item.key_version == key_version
+            ),
+            None,
+        )
+        if candidate is None or not hmac.compare_digest(candidate.value, fingerprint):
+            raise ValidationEvidenceError("evidence high-watermark anchor is invalid")
+        return {"attempt_ids": attempt_ids, "lineage_ids": lineage_ids}
+
+    def _write_anchor(
+        self,
+        attempt_ids: Sequence[str],
+        lineage_ids: Sequence[str],
+    ) -> None:
+        normalized_attempts = sorted(set(attempt_ids))
+        normalized_lineages = sorted(set(lineage_ids))
+        signed = {
+            "attempt_ids": normalized_attempts,
+            "high_watermark": len(normalized_attempts),
+            "lineage_ids": normalized_lineages,
+            "profile": _STORE_ANCHOR_PROFILE,
+        }
+        envelope = {
+            **signed,
+            "fingerprint": self.fingerprint_provider.fingerprint(
+                "validation-store-anchor", canonical_json_bytes(signed)
+            ),
+            "key_version": self.fingerprint_provider.key_version,
+        }
+        temporary = self._anchor_path.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(envelope, indent=2, sort_keys=True) + "\n")
+        temporary.replace(self._anchor_path)
+
+    @staticmethod
+    def _validate_anchor(
+        catalog: Mapping[str, Sequence[str]],
+        anchor: Mapping[str, Sequence[str]],
+        *,
+        allow_catalog_ahead: bool = False,
+    ) -> None:
+        catalog_attempts = set(catalog["attempt_ids"])
+        catalog_lineages = set(catalog["lineage_ids"])
+        anchor_attempts = set(anchor["attempt_ids"])
+        anchor_lineages = set(anchor["lineage_ids"])
+        if not anchor_attempts <= catalog_attempts or not anchor_lineages <= catalog_lineages:
+            raise ValidationEvidenceError("evidence catalog regressed below its high watermark")
+        if not allow_catalog_ahead and (
+            catalog_attempts != anchor_attempts or catalog_lineages != anchor_lineages
+        ):
+            raise ValidationEvidenceError("evidence catalog and high watermark disagree")
+
     def record(self, result: ValidationResult) -> None:
         _safe_evidence_id(result.ingestion_attempt_id, "ingestion attempt ID")
         _safe_evidence_id(result.lineage_id, "lineage ID")
@@ -3205,6 +3368,7 @@ class FileValidationEvidenceStore:
 
     def _record_locked(self, result: ValidationResult) -> None:
         catalog = self._read_catalog()
+        self._validate_anchor(catalog, self._read_anchor())
         attempt_id = _safe_evidence_id(result.ingestion_attempt_id, "ingestion attempt ID")
         lineage_id = _safe_evidence_id(result.lineage_id, "lineage ID")
         correction = result.correction_reference
@@ -3284,6 +3448,10 @@ class FileValidationEvidenceStore:
             (*catalog["attempt_ids"], result.ingestion_attempt_id),
             (*catalog["lineage_ids"], result.lineage_id),
         )
+        self._write_anchor(
+            (*catalog["attempt_ids"], result.ingestion_attempt_id),
+            (*catalog["lineage_ids"], result.lineage_id),
+        )
 
     def load_attempt(self, attempt_id: str) -> dict[str, Any]:
         safe_attempt_id = _safe_evidence_id(attempt_id, "ingestion attempt ID")
@@ -3292,6 +3460,7 @@ class FileValidationEvidenceStore:
     def lineage_summary(self, lineage_id: str) -> dict[str, Any]:
         safe_lineage_id = _safe_evidence_id(lineage_id, "lineage ID")
         catalog = self._read_catalog()
+        self._validate_anchor(catalog, self._read_anchor())
         if safe_lineage_id not in catalog["lineage_ids"]:
             raise ValidationEvidenceError("lineage is absent from the evidence catalog")
         summary = self._read_verified(f"lineages/{safe_lineage_id}.json", "LINEAGE")
@@ -3337,6 +3506,7 @@ class FileValidationEvidenceStore:
 
     def metric_summary(self) -> dict[str, int]:
         catalog = self._read_catalog()
+        self._validate_anchor(catalog, self._read_anchor())
         lineages = self.artifacts.root / "lineages"
         attempts = self.artifacts.root / "attempts"
         materialized_lineages = (
@@ -3378,6 +3548,7 @@ class FileValidationEvidenceStore:
 
     def _reconcile_locked(self) -> None:
         catalog = self._read_catalog()
+        self._validate_anchor(catalog, self._read_anchor(), allow_catalog_ahead=True)
         attempts = self.artifacts.root / "attempts"
         if not attempts.exists():
             if catalog["attempt_ids"] or catalog["lineage_ids"]:
@@ -3448,6 +3619,10 @@ class FileValidationEvidenceStore:
             }
             self._write_verified(f"lineages/{lineage_id}.json", "LINEAGE", summary)
         self._write_catalog(
+            sorted(available_attempt_ids),
+            sorted(grouped),
+        )
+        self._write_anchor(
             sorted(available_attempt_ids),
             sorted(grouped),
         )
