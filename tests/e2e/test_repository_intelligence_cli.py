@@ -90,3 +90,26 @@ def test_repository_scan_cli_refuses_to_write_inside_scanned_repository(
     )
     assert code != 0
     assert not (repo / "snapshot.json").exists()
+
+
+def test_repository_scan_cli_uses_actual_git_root_for_output_containment(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    nested = repo / "packages" / "component"
+    nested.mkdir(parents=True)
+    output = repo / "root-level-snapshot.json"
+    code = main(
+        [
+            "repository",
+            "scan",
+            "--repo",
+            str(nested),
+            "--repository",
+            "example/cli-fixture",
+            "--snapshot-out",
+            str(output),
+        ]
+    )
+    assert code != 0
+    assert not output.exists()

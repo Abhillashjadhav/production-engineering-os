@@ -69,6 +69,7 @@ class GovernanceCommandRunner:
             "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_CONFIG_SYSTEM": os.devnull,
             "GIT_TERMINAL_PROMPT": "0",
+            "GIT_OPTIONAL_LOCKS": "0",
             "LC_ALL": "C",
         }
         try:
@@ -313,6 +314,8 @@ class GovernanceCollector:
                         query=str(item["query"]),
                         cursor=cast(str | None, item.get("cursor")),
                         page=cast(int | None, item.get("page")),
+                        has_next_page=bool(item.get("has_next_page", True)),
+                        result_count=cast(int | None, item.get("result_count")),
                     )
                     for item in sanitized_remote.get("query_provenance", [])
                 )
@@ -326,6 +329,24 @@ class GovernanceCollector:
                 )
                 if any(item.status == "BLOCKED" for item in unknowns):
                     disposition = "BLOCKED"
+                pagination_complete = (
+                    sanitized_remote.get("complete") is True
+                    and bool(provenance)
+                    and all(not item.has_next_page for item in provenance)
+                )
+                if not pagination_complete:
+                    disposition = "BLOCKED"
+                    unknowns = (
+                        *unknowns,
+                        UnknownFact(
+                            fact="remote_metadata_completeness",
+                            status="BLOCKED",
+                            reason=(
+                                "Remote query coverage or pagination completion was not proven; "
+                                "the returned subset is not represented as complete."
+                            ),
+                        ),
+                    )
             except (PermissionError, OSError):
                 disposition = "BLOCKED"
                 unknowns = (

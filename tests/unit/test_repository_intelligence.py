@@ -129,6 +129,18 @@ def test_equivalent_ref_and_exact_sha_produce_same_snapshot(tmp_path: Path) -> N
     assert from_ref.canonical_bytes() == from_sha.canonical_bytes()
 
 
+def test_scoped_scan_is_explicitly_partial_and_keeps_full_tree_binding(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    full = _scan(repo)
+    scoped = _scan(repo, include_paths=("src",))
+    assert scoped.scan_scope == "INCLUDED_PATHS"
+    assert scoped.included_paths == ("src",)
+    assert scoped.disposition == "PARTIAL"
+    assert scoped.tracked_tree_digest == full.tracked_tree_digest
+    assert scoped.scanned_content_digest != full.scanned_content_digest
+    assert any(item.code == "SCAN.SCOPED_PARTIAL" for item in scoped.findings)
+
+
 def test_dirty_tracked_content_does_not_change_exact_commit_snapshot(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     before = _scan(repo)
@@ -261,6 +273,33 @@ def test_unknown_ecosystem_is_explicitly_unsupported(tmp_path: Path) -> None:
     assert category.reason
 
 
+def test_shell_source_without_adapter_is_blocked_not_reported_absent(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "deploy.sh", "#!/bin/sh\necho deploy\n")
+    _commit(repo, "unsupported shell stack")
+    snapshot = _scan(repo)
+    assert snapshot.disposition == "BLOCKED"
+    assert snapshot.inventory["languages_build_ecosystems"].status == "UNSUPPORTED"
+    assert any(item.code == "STACK.UNSUPPORTED_FILE_TYPE" for item in snapshot.findings)
+
+
+def test_source_names_containing_test_are_not_high_confidence_test_evidence(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "src/testimonial.py", "VALUE = 'not a test'\n")
+    _write(repo, "packages/latest.ts", "export const value = 'not a test';\n")
+    _commit(repo, "ordinary source names")
+    snapshot = _scan(repo)
+    test_paths = {
+        item.path
+        for item in snapshot.inventory["tests_quality"].items
+        if item.kind.endswith("TEST_FILE_SIGNAL")
+    }
+    assert "src/testimonial.py" not in test_paths
+    assert "packages/latest.ts" not in test_paths
+
+
 def test_malformed_manifest_and_workflow_are_visible_findings(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     _write(repo, "packages/web/package.json", "{not-json")
@@ -301,6 +340,7 @@ def test_adapter_failure_is_visible_and_cannot_remove_categories(tmp_path: Path)
         ({"max_directories": 1}, "BUDGET.DIRECTORY_COUNT"),
         ({"max_total_bytes": 16}, "BUDGET.TOTAL_BYTES"),
         ({"max_file_bytes": 8}, "BUDGET.FILE_BYTES"),
+        ({"max_tree_output_bytes": 32}, "BUDGET.TREE_OUTPUT_BYTES"),
         ({"max_path_depth": 1}, "BUDGET.PATH_DEPTH"),
         ({"max_commands": 2}, "BUDGET.COMMAND_COUNT"),
     ],
@@ -314,6 +354,14 @@ def test_budget_exhaustion_is_explicit_partial_result(
     assert snapshot.disposition in {"PARTIAL", "BLOCKED"}
     assert any(item.code == expected_code for item in snapshot.findings)
     assert set(snapshot.inventory) == set(_api().AUDIT_CATEGORIES)
+
+
+def test_bounded_tree_enumeration_is_byte_deterministic(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    first = _scan(repo, max_tree_output_bytes=64)
+    second = _scan(repo, max_tree_output_bytes=64)
+    assert first.canonical_bytes() == second.canonical_bytes()
+    assert any(item.code == "BUDGET.TREE_OUTPUT_BYTES" for item in first.findings)
 
 
 def test_binary_files_are_structural_evidence_but_never_decoded(tmp_path: Path) -> None:
@@ -401,6 +449,7 @@ class _FakeRemote:
     def collect(self, repository: str, ref: str) -> dict[str, Any]:
         assert repository == "example/fixture"
         return {
+            "complete": True,
             "remote_branches": [{"name": "origin/feature", "sha": "a" * 40}],
             "pull_requests": [{"number": 7, "draft": True, "head": "a" * 40}],
             "issues": [{"number": 8, "state": "OPEN"}],
@@ -410,13 +459,16 @@ class _FakeRemote:
                     "query": "branches,pulls,issues,protection",
                     "cursor": "cursor-2",
                     "page": 2,
+                    "has_next_page": False,
+                    "result_count": 3,
                 }
             ],
             "unknowns": [
                 {"fact": "secret_scanning", "status": "BLOCKED", "reason": "permission denied"}
             ],
             "safe_url": "https://user:password@example.invalid/repo?token=secret-value",
-            "authorization": "Bearer ghp_0123456789abcdefghijklmnop",
+            "authorization": "Basic dXNlcjpwYXNzd29yZA==",
+            "x-api-key": "unstructured-bare-secret",
         }
 
 
@@ -426,6 +478,14 @@ class _DeniedRemote:
 
     def collect(self, _repository: str, _ref: str) -> dict[str, Any]:
         raise PermissionError("token ghp_0123456789abcdefghijklmnop denied")
+
+
+class _PartialRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str) -> dict[str, Any]:
+        payload = super().collect(repository, ref)
+        payload.pop("complete")
+        payload["query_provenance"][0]["has_next_page"] = True
+        return payload
 
 
 def _observe(repo: Path, remote: Any = None) -> Any:
@@ -484,9 +544,17 @@ def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path:
     assert observation.observation_input_digest.startswith("sha256:")
     assert observation.observation_output_digest.startswith("sha256:")
     assert "ghp_0123456789abcdefghijklmnop" not in payload
+    assert "dXNlcjpwYXNzd29yZA==" not in payload
     assert "password" not in payload
     assert "secret-value" not in payload
+    assert "unstructured-bare-secret" not in payload
     assert "[REDACTED]" in payload
+
+
+def test_unproven_remote_pagination_is_blocked_not_complete(tmp_path: Path) -> None:
+    observation = _observe(_init_repo(tmp_path), _PartialRemote())
+    assert observation.disposition == "BLOCKED"
+    assert any(item.fact == "remote_metadata_completeness" for item in observation.unknowns)
 
 
 def test_remote_permission_denial_is_blocked_unknown_not_inferred(tmp_path: Path) -> None:
@@ -520,6 +588,16 @@ def test_scan_and_observation_never_create_branches_commits_or_remote_mutations(
     assert _git(repo, "rev-parse", "HEAD") == before_head
     assert _git(repo, "for-each-ref", "--format=%(refname)", "refs/heads") == before_branches
     assert _git(repo, "status", "--porcelain=v1", "--untracked-files=all") == before_status
+
+
+def test_governance_observation_does_not_refresh_index_bytes_or_mtime(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    index = repo / ".git" / "index"
+    before_bytes = index.read_bytes()
+    before_mtime = index.stat().st_mtime_ns
+    _observe(repo)
+    assert index.read_bytes() == before_bytes
+    assert index.stat().st_mtime_ns == before_mtime
 
 
 def test_scanner_does_not_execute_tracked_project_code(tmp_path: Path) -> None:

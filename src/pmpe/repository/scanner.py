@@ -6,9 +6,11 @@ import hashlib
 import os
 import posixpath
 import re
+import selectors
 import subprocess
+import time
 from collections.abc import Sequence
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol, cast
 
@@ -55,22 +57,33 @@ class Cancellation(Protocol):
     def cancelled(self) -> bool: ...
 
 
+@dataclass(frozen=True)
+class TreeListingResult:
+    result: CommandResult
+    record_limit_exceeded: bool
+    byte_limit_exceeded: bool
+
+
 class SubprocessCommandRunner:
     """Allowlisted local Git reader; it never invokes shells or project code."""
 
     identity = "git-readonly-subprocess/1.0.0"
     _allowed = {"rev-parse", "ls-tree", "cat-file"}
 
-    def run(self, args: tuple[str, ...], cwd: Path, timeout: int) -> CommandResult:
-        if len(args) < 2 or args[0] != "git" or args[1] not in self._allowed:
-            raise RepositorySecurityError("command is outside the read-only Git allowlist")
-        safe_environment = {
+    @staticmethod
+    def _environment() -> dict[str, str]:
+        return {
             "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
             "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_CONFIG_SYSTEM": os.devnull,
             "GIT_TERMINAL_PROMPT": "0",
+            "GIT_OPTIONAL_LOCKS": "0",
             "LC_ALL": "C",
         }
+
+    def run(self, args: tuple[str, ...], cwd: Path, timeout: int) -> CommandResult:
+        if len(args) < 2 or args[0] != "git" or args[1] not in self._allowed:
+            raise RepositorySecurityError("command is outside the read-only Git allowlist")
         try:
             result = subprocess.run(
                 args,
@@ -78,7 +91,7 @@ class SubprocessCommandRunner:
                 capture_output=True,
                 check=False,
                 timeout=timeout,
-                env=safe_environment,
+                env=self._environment(),
             )
         except subprocess.TimeoutExpired:
             return CommandResult(args=args, returncode=124, stdout=b"", stderr=b"", timed_out=True)
@@ -87,6 +100,92 @@ class SubprocessCommandRunner:
             returncode=result.returncode,
             stdout=result.stdout,
             stderr=result.stderr,
+        )
+
+    def list_tree(
+        self,
+        args: tuple[str, ...],
+        cwd: Path,
+        timeout: int,
+        *,
+        max_records: int,
+        max_output_bytes: int,
+    ) -> TreeListingResult:
+        """Stream NUL-delimited tree records and stop before unbounded buffering."""
+
+        if len(args) < 2 or args[0:2] != ("git", "ls-tree"):
+            raise RepositorySecurityError("bounded tree reader only accepts git ls-tree")
+        process = subprocess.Popen(
+            args,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env=self._environment(),
+        )
+        if process.stdout is None:
+            process.kill()
+            raise RepositoryIntelligenceError("bounded tree reader did not expose output")
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ)
+        payload = bytearray()
+        record_limit = False
+        record_count = 0
+        byte_limit = False
+        timed_out = False
+        deadline = time.monotonic() + timeout
+        try:
+            while True:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    process.kill()
+                    break
+                events = selector.select(remaining)
+                if not events:
+                    timed_out = True
+                    process.kill()
+                    break
+                chunk = os.read(process.stdout.fileno(), 65_536)
+                if not chunk:
+                    break
+                payload.extend(chunk)
+                record_count += chunk.count(0)
+                if len(payload) > max_output_bytes:
+                    byte_limit = True
+                    process.terminate()
+                    break
+                if record_count >= max_records:
+                    record_limit = True
+                    process.terminate()
+                    break
+        finally:
+            selector.close()
+            process.stdout.close()
+        try:
+            returncode = process.wait(timeout=max(0.1, deadline - time.monotonic()))
+        except subprocess.TimeoutExpired:
+            process.kill()
+            returncode = process.wait()
+            timed_out = True
+        complete_records = bytes(payload[:max_output_bytes]).split(b"\0")
+        if complete_records and complete_records[-1]:
+            complete_records = complete_records[:-1]
+        complete_records = complete_records[:max_records]
+        bounded_payload = b"\0".join(complete_records)
+        if complete_records:
+            bounded_payload += b"\0"
+        return TreeListingResult(
+            result=CommandResult(
+                args=args,
+                # A deliberate budget stop is represented by the finding flags, not
+                # by the platform-dependent SIGTERM status in canonical provenance.
+                returncode=0 if record_limit or byte_limit else returncode,
+                stdout=bounded_payload,
+                stderr=b"",
+                timed_out=timed_out,
+            ),
+            record_limit_exceeded=record_limit,
+            byte_limit_exceeded=byte_limit,
         )
 
 
@@ -101,6 +200,23 @@ def _text(value: str | bytes) -> str:
 def _safe_relative_path(value: str) -> bool:
     path = PurePosixPath(value)
     return not path.is_absolute() and ".." not in path.parts and value not in {"", "."}
+
+
+def resolve_repository_root(repository_root: Path | str) -> Path:
+    """Resolve a Git root with the same non-locking read-only policy as scans."""
+
+    requested = Path(repository_root).resolve()
+    runner = SubprocessCommandRunner()
+    result = runner.run(("git", "rev-parse", "--show-toplevel"), requested, 20)
+    if result.timed_out or result.returncode != 0:
+        raise RepositoryIntelligenceError("path is not an accessible Git repository")
+    try:
+        root = Path(_text(result.stdout).strip()).resolve(strict=True)
+    except (UnicodeDecodeError, OSError) as exc:
+        raise RepositoryIntelligenceError("Git repository root is malformed") from exc
+    if root != requested and root not in requested.parents:
+        raise RepositorySecurityError("resolved Git repository root is outside the requested path")
+    return root
 
 
 def _symlink_escapes(path: str, target: bytes | None) -> bool:
@@ -170,6 +286,9 @@ def _snapshot_from_dict(value: dict[str, Any]) -> RepositorySnapshot:
         scan_configuration_digest=str(value["scan_configuration_digest"]),
         adapter_set_digest=str(value["adapter_set_digest"]),
         tracked_tree_digest=str(value["tracked_tree_digest"]),
+        scanned_content_digest=str(value["scanned_content_digest"]),
+        scan_scope=str(value["scan_scope"]),
+        included_paths=tuple(value["included_paths"]),
         tooling_digest=str(value["tooling_digest"]),
         adapters=tuple(AdapterMetadata(**item) for item in value["adapters"]),
         command_provenance=tuple(
@@ -244,6 +363,44 @@ class RepositoryScanner:
             raise RepositoryIntelligenceError("an immutable Git object could not be read")
         return result
 
+    def _list_tree(self, args: tuple[str, ...], root: Path) -> TreeListingResult | None:
+        if self._commands >= self.config.max_commands:
+            return None
+        self._commands += 1
+        try:
+            if isinstance(self.runner, SubprocessCommandRunner):
+                listing = self.runner.list_tree(
+                    args,
+                    root,
+                    self.config.command_timeout_seconds,
+                    max_records=self.config.max_files + 1,
+                    max_output_bytes=self.config.max_tree_output_bytes,
+                )
+            else:
+                listing = TreeListingResult(
+                    result=self.runner.run(args, root, self.config.command_timeout_seconds),
+                    record_limit_exceeded=False,
+                    byte_limit_exceeded=False,
+                )
+        except (FileNotFoundError, OSError) as exc:
+            raise RepositoryIntelligenceError("read-only Git command is unavailable") from exc
+        result = listing.result
+        self._command_provenance.append(
+            CommandProvenance(
+                args=args,
+                tool_identity=self.runner.identity,
+                exit_status=result.returncode,
+                timed_out=result.timed_out,
+            )
+        )
+        if result.timed_out:
+            raise RepositoryIntelligenceError("bounded tracked-tree enumeration timed out")
+        if result.returncode != 0 and not (
+            listing.record_limit_exceeded or listing.byte_limit_exceeded
+        ):
+            raise RepositoryIntelligenceError("the immutable Git tree could not be read")
+        return listing
+
     def _validate_config(self) -> None:
         if not self.config.repository.strip():
             raise RepositoryIntelligenceError("repository identity is required")
@@ -252,6 +409,7 @@ class RepositoryScanner:
             self.config.max_directories,
             self.config.max_total_bytes,
             self.config.max_file_bytes,
+            self.config.max_tree_output_bytes,
             self.config.max_commands,
             self.config.command_timeout_seconds,
             self.config.max_path_depth,
@@ -343,8 +501,9 @@ class RepositoryScanner:
 
     def _list_files(
         self, root: Path, commit_sha: str, tree_sha: str
-    ) -> tuple[list[TrackedFile], list[Finding], str]:
+    ) -> tuple[list[TrackedFile], list[Finding], str, str]:
         findings: list[Finding] = []
+        tracked_tree_digest = canonical_digest({"git_object_format": "sha1", "tree_sha": tree_sha})
         if tree_sha == "0" * 40:
             findings.append(
                 _finding(
@@ -354,9 +513,11 @@ class RepositoryScanner:
                     ("repository:scan-budget",),
                 )
             )
-            return [], findings, canonical_digest([])
-        listing = self._run(("git", "ls-tree", "-r", "-z", "-l", "--full-tree", commit_sha), root)
-        if listing is None:
+            return [], findings, tracked_tree_digest, canonical_digest([])
+        bounded_listing = self._list_tree(
+            ("git", "ls-tree", "-r", "-z", "-l", "--full-tree", commit_sha), root
+        )
+        if bounded_listing is None:
             findings.append(
                 _finding(
                     "BUDGET.COMMAND_COUNT",
@@ -365,7 +526,18 @@ class RepositoryScanner:
                     ("repository:scan-budget",),
                 )
             )
-            return [], findings, canonical_digest([])
+            return [], findings, tracked_tree_digest, canonical_digest([])
+        listing = bounded_listing.result
+        if bounded_listing.byte_limit_exceeded:
+            findings.append(
+                _finding(
+                    "BUDGET.TREE_OUTPUT_BYTES",
+                    "repository_topology",
+                    "Tracked-tree enumeration exceeded its byte budget; results are explicitly "
+                    "partial.",
+                    ("repository:tracked-tree",),
+                )
+            )
         raw = listing.stdout if isinstance(listing.stdout, bytes) else listing.stdout.encode()
         entries: list[tuple[str, str, str, str, int]] = []
         for record in raw.split(b"\0"):
@@ -391,19 +563,7 @@ class RepositoryScanner:
                 continue
             entries.append((mode, object_type, object_id, path, size))
         entries.sort(key=lambda item: item[3])
-        tracked_tree_digest = canonical_digest(
-            [
-                {
-                    "mode": mode,
-                    "object_type": object_type,
-                    "object_id": object_id,
-                    "path": path,
-                    "size": size,
-                }
-                for mode, object_type, object_id, path, size in entries
-            ]
-        )
-        if len(entries) > self.config.max_files:
+        if bounded_listing.record_limit_exceeded or len(entries) > self.config.max_files:
             findings.append(
                 _finding(
                     "BUDGET.FILE_COUNT",
@@ -523,7 +683,19 @@ class RepositoryScanner:
                     binary=b"\0" in content,
                 )
             )
-        return files, findings, tracked_tree_digest
+        scanned_content_digest = canonical_digest(
+            [
+                {
+                    "path": file.path,
+                    "mode": file.mode,
+                    "object_id": file.object_id,
+                    "file_digest": file.digest,
+                    "oversized": file.oversized,
+                }
+                for file in files
+            ]
+        )
+        return files, findings, tracked_tree_digest, scanned_content_digest
 
     def _apply_adapters(
         self, files: tuple[TrackedFile, ...]
@@ -574,12 +746,26 @@ class RepositoryScanner:
         self, files: tuple[TrackedFile, ...], inventory: dict[str, list[EvidenceItem]]
     ) -> list[Finding]:
         findings: list[Finding] = []
-        if not inventory["tests_quality"]:
+        expected_test_kinds = {
+            "unit": "UNIT_TEST_FILE_SIGNAL",
+            "integration": "INTEGRATION_TEST_FILE_SIGNAL",
+            "e2e": "E2E_TEST_FILE_SIGNAL",
+            "contract": "CONTRACT_TEST_FILE_SIGNAL",
+            "security": "SECURITY_TEST_FILE_SIGNAL",
+            "performance": "PERFORMANCE_TEST_FILE_SIGNAL",
+            "mutation": "MUTATION_TEST_FILE_SIGNAL",
+        }
+        observed_test_kinds = {item.kind for item in inventory["tests_quality"]}
+        missing_test_categories = tuple(
+            name for name, kind in expected_test_kinds.items() if kind not in observed_test_kinds
+        )
+        if missing_test_categories:
             findings.append(
                 _finding(
                     "QUALITY.TEST_CATEGORY_ABSENT",
                     "tests_quality",
-                    "No deterministic tracked evidence of a test category was observed.",
+                    "No deterministic tracked configuration or conventional file signal was "
+                    f"observed for these test categories: {', '.join(missing_test_categories)}.",
                     ("repository:tracked-tree",),
                     severity="MEDIUM",
                 )
@@ -626,17 +812,17 @@ class RepositoryScanner:
                     severity="MEDIUM",
                 )
             )
-        python_versions: set[str] = set()
+        python_versions: dict[str, str] = {}
         for file in files:
             if file.content is None or file.binary:
                 continue
             if file.path == ".python-version":
-                python_versions.add(file.content.decode("utf-8", errors="ignore").strip())
+                python_versions[file.path] = file.content.decode("utf-8", errors="ignore").strip()
             if "dockerfile" in PurePosixPath(file.path).name.lower():
                 match = re.search(rb"\bpython:([0-9]+(?:\.[0-9]+)?)", file.content)
                 if match:
-                    python_versions.add(match.group(1).decode())
-        if len(python_versions) > 1:
+                    python_versions[file.path] = match.group(1).decode()
+        if len(set(python_versions.values())) > 1:
             findings.append(
                 _finding(
                     "RUNTIME.VERSION_DRIFT_SIGNAL",
@@ -681,14 +867,41 @@ class RepositoryScanner:
             and PurePosixPath(file.path).suffix.lower() not in known_suffixes
             and not file.binary
         ]
-        if unknown:
+        unsupported_source_suffixes = {
+            ".sh",
+            ".bash",
+            ".zsh",
+            ".rb",
+            ".go",
+            ".rs",
+            ".java",
+            ".kt",
+            ".php",
+            ".swift",
+            ".c",
+            ".cc",
+            ".cpp",
+            ".cs",
+        }
+        unsupported_sources = sorted(
+            {
+                *unknown,
+                *(
+                    file.path
+                    for file in files
+                    if PurePosixPath(file.path).suffix.lower() in unsupported_source_suffixes
+                    and not file.binary
+                ),
+            }
+        )
+        if unsupported_sources:
             findings.append(
                 _finding(
                     "STACK.UNSUPPORTED_FILE_TYPE",
                     "languages_build_ecosystems",
                     "A tracked file type has no deterministic stack adapter; no ecosystem was "
                     "inferred for it.",
-                    tuple(sorted(unknown)),
+                    tuple(unsupported_sources),
                     blocking=True,
                 )
             )
@@ -771,6 +984,7 @@ class RepositoryScanner:
         reasons: dict[str, str],
         disposition: str,
         tracked_tree_digest: str | None = None,
+        scanned_content_digest: str | None = None,
     ) -> RepositorySnapshot:
         inventory = {
             name: InventoryCategory(
@@ -795,6 +1009,9 @@ class RepositoryScanner:
             scan_configuration_digest=config_digest,
             adapter_set_digest=adapter_digest,
             tracked_tree_digest=tracked_tree_digest or canonical_digest([]),
+            scanned_content_digest=scanned_content_digest or canonical_digest([]),
+            scan_scope=("INCLUDED_PATHS" if self.config.include_paths else "FULL_REPOSITORY"),
+            included_paths=tuple(sorted(self.config.include_paths)),
             tooling_digest=canonical_digest(
                 {
                     "scanner_version": SCANNER_VERSION,
@@ -855,9 +1072,22 @@ class RepositoryScanner:
             return self._cancelled_snapshot(
                 root, commit_sha, tree_sha, config_digest, adapter_digest
             )
-        files, budget_findings, tree_digest = self._list_files(root, commit_sha, tree_sha)
+        files, budget_findings, tree_digest, scanned_digest = self._list_files(
+            root, commit_sha, tree_sha
+        )
         inventory, adapter_findings, boundaries, supported = self._apply_adapters(tuple(files))
         findings = budget_findings + adapter_findings
+        if self.config.include_paths:
+            findings.append(
+                _finding(
+                    "SCAN.SCOPED_PARTIAL",
+                    "repository_topology",
+                    "Only explicitly included paths were inspected; the artifact is not a "
+                    "whole-repository inventory.",
+                    tuple(sorted(self.config.include_paths)),
+                    severity="MEDIUM",
+                )
+            )
         findings.extend(self._cross_cutting_findings(tuple(files), inventory))
         statuses = {
             name: (
@@ -895,10 +1125,12 @@ class RepositoryScanner:
             "BUDGET.DIRECTORY_COUNT",
             "BUDGET.TOTAL_BYTES",
             "BUDGET.FILE_BYTES",
+            "BUDGET.TREE_OUTPUT_BYTES",
             "BUDGET.PATH_DEPTH",
             "BUDGET.COMMAND_COUNT",
             "MANIFEST.MALFORMED",
             "WORKFLOW.MALFORMED",
+            "SCAN.SCOPED_PARTIAL",
         }
         partial = any(item.code in partial_codes for item in findings)
         if partial:
@@ -913,6 +1145,7 @@ class RepositoryScanner:
             config_digest=config_digest,
             adapter_digest=adapter_digest,
             tracked_tree_digest=tree_digest,
+            scanned_content_digest=scanned_digest,
             inventory_items=inventory,
             findings=findings,
             boundaries=boundaries,

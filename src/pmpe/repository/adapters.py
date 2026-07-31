@@ -124,6 +124,37 @@ def _finding(
     )
 
 
+def _test_signal_kind(path: str) -> str | None:
+    """Classify conventional test paths/names as medium-confidence signals only."""
+
+    pure = PurePosixPath(path)
+    lowered_parts = tuple(part.lower() for part in pure.parts)
+    name = pure.name.lower()
+    in_test_area = any(part in {"test", "tests", "__tests__"} for part in lowered_parts[:-1])
+    named_test = (
+        name.startswith("test_")
+        or name.endswith("_test.py")
+        or any(marker in name for marker in (".test.", ".spec."))
+    )
+    if not (in_test_area or named_test):
+        return None
+    if "unit" in lowered_parts:
+        return "UNIT_TEST_FILE_SIGNAL"
+    if "integration" in lowered_parts:
+        return "INTEGRATION_TEST_FILE_SIGNAL"
+    if "e2e" in lowered_parts or "end_to_end" in lowered_parts:
+        return "E2E_TEST_FILE_SIGNAL"
+    if "contract" in lowered_parts or "contract" in name:
+        return "CONTRACT_TEST_FILE_SIGNAL"
+    if "security" in lowered_parts or "security" in name:
+        return "SECURITY_TEST_FILE_SIGNAL"
+    if any(token in lowered_parts for token in ("performance", "perf", "benchmarks")):
+        return "PERFORMANCE_TEST_FILE_SIGNAL"
+    if "mutation" in lowered_parts or "mutation" in name:
+        return "MUTATION_TEST_FILE_SIGNAL"
+    return "TEST_FILE_SIGNAL"
+
+
 @repository_adapter(
     adapter_id="core.repository-topology",
     version="1.0.0",
@@ -281,13 +312,26 @@ def _python(context: AdapterContext) -> AdapterResult:
     findings: list[Finding] = []
     for file in context.files:
         if file.path.endswith(".py"):
-            category = (
-                "tests_quality"
-                if "/test" in f"/{file.path}" or file.path.startswith("tests/")
-                else "languages_build_ecosystems"
-            )
-            kind = "PYTHON_TEST" if category == "tests_quality" else "PYTHON_SOURCE"
-            items.append((category, _item(file, kind, "stack.python")))
+            test_kind = _test_signal_kind(file.path)
+            if test_kind is None:
+                items.append(
+                    (
+                        "languages_build_ecosystems",
+                        _item(file, "PYTHON_SOURCE", "stack.python"),
+                    )
+                )
+            else:
+                items.append(
+                    (
+                        "tests_quality",
+                        _item(
+                            file,
+                            test_kind,
+                            "stack.python",
+                            confidence="MEDIUM",
+                        ),
+                    )
+                )
         elif PurePosixPath(file.path).name == "pyproject.toml" or file.path.endswith(
             "requirements.txt"
         ):
@@ -336,8 +380,8 @@ def _python(context: AdapterContext) -> AdapterResult:
 def _node(context: AdapterContext) -> AdapterResult:
     items: list[tuple[str, EvidenceItem]] = []
     findings: list[Finding] = []
-    lock_types: set[str] = set()
-    runtime_versions: set[str] = set()
+    lock_paths: dict[str, list[str]] = {}
+    runtime_declarations: dict[str, str] = {}
     for file in context.files:
         name = PurePosixPath(file.path).name
         if name == "package.json":
@@ -349,7 +393,7 @@ def _node(context: AdapterContext) -> AdapterResult:
                     package = json.loads(file.content)
                     engine = package.get("engines", {}).get("node")
                     if isinstance(engine, str):
-                        runtime_versions.add(engine)
+                        runtime_declarations[file.path] = engine
                 except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
                     findings.append(
                         _finding(
@@ -363,35 +407,48 @@ def _node(context: AdapterContext) -> AdapterResult:
                         )
                     )
         elif name in {"package-lock.json", "yarn.lock", "pnpm-lock.yaml"}:
-            lock_types.add(name)
+            lock_paths.setdefault(name, []).append(file.path)
             items.append(("languages_build_ecosystems", _item(file, "LOCKFILE", "stack.node-web")))
         elif file.path.endswith((".js", ".jsx", ".ts", ".tsx")):
-            category = (
-                "tests_quality"
-                if "test" in name or "spec" in name
-                else "languages_build_ecosystems"
-            )
-            kind = "NODE_TEST" if category == "tests_quality" else "NODE_SOURCE"
-            items.append((category, _item(file, kind, "stack.node-web")))
-    if len(lock_types) > 1:
+            test_kind = _test_signal_kind(file.path)
+            if test_kind is None:
+                items.append(
+                    (
+                        "languages_build_ecosystems",
+                        _item(file, "NODE_SOURCE", "stack.node-web"),
+                    )
+                )
+            else:
+                items.append(
+                    (
+                        "tests_quality",
+                        _item(
+                            file,
+                            test_kind,
+                            "stack.node-web",
+                            confidence="MEDIUM",
+                        ),
+                    )
+                )
+    if len(lock_paths) > 1:
         findings.append(
             _finding(
                 "DEPENDENCY.MULTIPLE_LOCK_ECOSYSTEMS",
                 "debt_risk",
                 "Multiple Node lockfile ecosystems are tracked; this is a drift signal, "
                 "not proof of a defect.",
-                tuple(sorted(lock_types)),
+                tuple(sorted(path for paths in lock_paths.values() for path in paths)),
                 "stack.node-web",
                 confidence="MEDIUM",
             )
         )
-    if len(runtime_versions) > 1:
+    if len(set(runtime_declarations.values())) > 1:
         findings.append(
             _finding(
                 "RUNTIME.VERSION_DRIFT_SIGNAL",
                 "debt_risk",
                 "Multiple declared Node runtime constraints were observed.",
-                tuple(sorted(runtime_versions)),
+                tuple(sorted(runtime_declarations)),
                 "stack.node-web",
                 confidence="MEDIUM",
             )

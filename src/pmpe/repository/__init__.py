@@ -7,6 +7,7 @@ from pmpe.repository.scanner import (
     RepositoryIntelligenceError,
     RepositoryScanner,
     RepositorySecurityError,
+    resolve_repository_root,
     scan_repository,
 )
 
@@ -22,5 +23,6 @@ __all__ = [
     "default_adapters",
     "observe_governance",
     "repository_adapter",
+    "resolve_repository_root",
     "scan_repository",
 ]

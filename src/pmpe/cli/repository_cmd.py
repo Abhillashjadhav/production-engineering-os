@@ -14,6 +14,7 @@ from pmpe.repository import (
     RepositorySecurityError,
     ScanConfig,
     observe_governance,
+    resolve_repository_root,
     scan_repository,
 )
 
@@ -61,14 +62,15 @@ def _atomic_write(path: Path, payload: bytes) -> None:
 
 
 def _cmd_scan(args: argparse.Namespace) -> int:
-    root = Path(args.repo)
+    requested = Path(args.repo)
     try:
+        root = resolve_repository_root(requested)
         snapshot_path = _outside_repository(Path(args.snapshot_out), root)
         governance_path = (
             _outside_repository(Path(args.governance_out), root) if args.governance_out else None
         )
         snapshot = scan_repository(
-            root,
+            requested,
             commit=args.commit,
             config=ScanConfig(
                 repository=args.repository,
@@ -80,7 +82,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
             clock = _ArgumentClock(args.observed_at) if args.observed_at else None
             ids = _ArgumentIds(args.observation_id) if args.observation_id else None
             observation = observe_governance(
-                root,
+                requested,
                 repository=args.repository,
                 ref=args.default_branch or args.commit,
                 clock=clock,

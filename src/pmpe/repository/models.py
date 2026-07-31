@@ -32,6 +32,7 @@ class ScanConfig:
     max_directories: int = 5_000
     max_total_bytes: int = 250_000_000
     max_file_bytes: int = 5_000_000
+    max_tree_output_bytes: int = 32_000_000
     max_commands: int = 50_000
     command_timeout_seconds: int = 20
     max_path_depth: int = 64
@@ -120,6 +121,9 @@ class RepositorySnapshot:
     scan_configuration_digest: str
     adapter_set_digest: str
     tracked_tree_digest: str
+    scanned_content_digest: str
+    scan_scope: str
+    included_paths: tuple[str, ...]
     tooling_digest: str
     adapters: tuple[AdapterMetadata, ...]
     command_provenance: tuple[CommandProvenance, ...]
@@ -197,6 +201,8 @@ class QueryProvenance:
     query: str
     cursor: str | None
     page: int | None
+    has_next_page: bool
+    result_count: int | None
 
 
 @dataclass(frozen=True)
