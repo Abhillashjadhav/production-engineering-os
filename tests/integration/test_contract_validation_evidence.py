@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import hmac
 import importlib
 import json
 from dataclasses import replace
@@ -13,11 +15,25 @@ from typing import Any
 import pytest
 
 from pmpe.contracts.canonical import canonical_digest
-from pmpe.contracts.intake import CorrectionReference
+from pmpe.contracts.intake import CorrectionReference, IntakeReceipt, KeyedFingerprint
 from tests.integration.test_pmos_compilation_pipeline import _request, _service
 
 ROOT = Path(__file__).resolve().parents[2]
 VALID_BUNDLE = ROOT / "tests" / "fixtures" / "pmos" / "v1" / "valid_bundle.json"
+
+
+class TestFingerprintProvider:
+    key_version = "TEST-KEY-V1"
+    _key = b"issue-63-deterministic-test-key"
+
+    def fingerprint(self, domain: str, payload: bytes) -> str:
+        return hmac.new(self._key, domain.encode() + b"\x00" + payload, hashlib.sha256).hexdigest()
+
+    def candidate_fingerprints(self, domain: str, payload: bytes) -> tuple[KeyedFingerprint, ...]:
+        return (KeyedFingerprint(self.key_version, self.fingerprint(domain, payload)),)
+
+
+FINGERPRINTS = TestFingerprintProvider()
 
 
 def _api() -> ModuleType:
@@ -65,6 +81,18 @@ def _context(
     correction: CorrectionReference | None = None,
 ) -> Any:
     api = _api()
+    receipt = IntakeReceipt(
+        lineage_id=lineage,
+        attempt_id=attempt,
+        received_at=("2026-07-30T13:00:00Z" if correction else "2026-07-30T12:00:00Z"),
+        publisher="PMOS",
+        channel="TEST",
+        content_type="application/json",
+        quarantine_handle=f"QUARANTINE-{attempt}",
+        key_version="TEST-PAYLOAD-KEY-V1",
+        fingerprint="a" * 64,
+        correction_reference=correction,
+    )
     return api.ValidationContext(
         lineage_id=lineage,
         ingestion_attempt_id=attempt,
@@ -90,13 +118,21 @@ def _context(
                 expires_at="2027-01-01T00:00:00Z",
             ),
         ),
+        intake_identity=api.IntakeIdentityEvidence.create(receipt, FINGERPRINTS),
+    )
+
+
+def _validator(*, evidence_lookup: Any = None) -> Any:
+    return _api().ContractSemanticValidator(
+        fingerprint_provider=FINGERPRINTS,
+        evidence_lookup=evidence_lookup,
     )
 
 
 def test_first_attempt_is_counted_once_and_correction_cannot_erase_it(tmp_path: Path) -> None:
     api = _api()
-    validator = api.ContractSemanticValidator()
     store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    validator = _validator(evidence_lookup=store)
     first_bundle = _bundle()
     del first_bundle["product"]
     first = validator.validate(
@@ -130,7 +166,7 @@ def test_first_attempt_is_counted_once_and_correction_cannot_erase_it(tmp_path: 
 def test_evidence_is_write_once_and_replay_is_idempotent(tmp_path: Path) -> None:
     api = _api()
     bundle = _bundle()
-    result = api.ContractSemanticValidator().validate(
+    result = _validator().validate(
         bundle,
         _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
     )
@@ -149,7 +185,8 @@ def test_evidence_is_write_once_and_replay_is_idempotent(tmp_path: Path) -> None
 def test_correction_requires_stored_original_attempt(tmp_path: Path) -> None:
     api = _api()
     bundle = _bundle()
-    result = api.ContractSemanticValidator().validate(
+    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    result = _validator(evidence_lookup=store).validate(
         bundle,
         _context(
             bundle,
@@ -161,7 +198,7 @@ def test_correction_requires_stored_original_attempt(tmp_path: Path) -> None:
             ),
         ),
     )
-    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    assert result.disposition is api.Disposition.ERROR
     with pytest.raises(api.ValidationEvidenceError, match="correction"):
         store.record(result)
 
@@ -170,8 +207,8 @@ def test_missing_lineage_index_is_reconciled_before_recording_correction(
     tmp_path: Path,
 ) -> None:
     api = _api()
-    validator = api.ContractSemanticValidator()
     store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    validator = _validator(evidence_lookup=store)
     first_bundle = _bundle()
     del first_bundle["product"]
     first = validator.validate(
@@ -180,6 +217,7 @@ def test_missing_lineage_index_is_reconciled_before_recording_correction(
     )
     store.record(first)
     (store.artifacts.root / "lineages" / "LINEAGE-000001.json").unlink()
+    store.reconcile()
 
     corrected_bundle = _bundle()
     correction = validator.validate(
@@ -203,11 +241,112 @@ def test_missing_lineage_index_is_reconciled_before_recording_correction(
     assert summary["latest_disposition"] == "ADMITTED"
 
 
+def test_missing_lineage_index_cannot_admit_second_first_pass(tmp_path: Path) -> None:
+    api = _api()
+    bundle = _bundle()
+    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    first = _validator().validate(
+        bundle,
+        _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
+    )
+    store.record(first)
+    (store.artifacts.root / "lineages" / "LINEAGE-000001.json").unlink()
+    second = _validator().validate(
+        bundle,
+        _context(bundle, "LINEAGE-000001", "ATTEMPT-000002"),
+    )
+    with pytest.raises(api.ValidationEvidenceError, match="requires correction evidence"):
+        store.record(second)
+    assert store.lineage_summary("LINEAGE-000001")["attempt_ids"] == ["ATTEMPT-000001"]
+
+
+def test_reconciliation_rejects_multiple_first_pass_roots(tmp_path: Path) -> None:
+    api = _api()
+    bundle = _bundle()
+    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    first = _validator().validate(
+        bundle,
+        _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
+    )
+    second = _validator().validate(
+        bundle,
+        _context(bundle, "LINEAGE-000001", "ATTEMPT-000002"),
+    )
+    store._write_attempt_for_test("ATTEMPT-000001", first.as_dict())
+    store._write_attempt_for_test("ATTEMPT-000002", second.as_dict())
+    with pytest.raises(api.ValidationEvidenceError, match="exactly one first-pass"):
+        store.reconcile()
+
+
+def test_evidence_identifiers_cannot_escape_store_root(tmp_path: Path) -> None:
+    api = _api()
+    bundle = _bundle()
+    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    result = _validator().validate(
+        bundle,
+        _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
+    )
+    unsafe = replace(result, ingestion_attempt_id="../../PWNED")
+    with pytest.raises(api.ValidationEvidenceError, match="safe opaque identifier"):
+        store.record(unsafe)
+    with pytest.raises(api.ValidationEvidenceError, match="safe opaque identifier"):
+        store.load_attempt("../../PWNED")
+    with pytest.raises(api.ValidationEvidenceError, match="safe opaque identifier"):
+        store.lineage_summary("../../PWNED")
+    assert not (tmp_path / "PWNED").exists()
+
+    malicious = result.as_dict()
+    malicious["lineage_id"] = "../../PWNED"
+    store._write_attempt_for_test("ATTEMPT-000001", malicious)
+    with pytest.raises(api.ValidationEvidenceError, match="safe opaque identifier"):
+        store.reconcile()
+    assert not (tmp_path / "PWNED").exists()
+
+
+def test_correction_validation_requires_latest_persisted_attempt(tmp_path: Path) -> None:
+    api = _api()
+    bundle = _bundle()
+    store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    validator = _validator(evidence_lookup=store)
+    first = validator.validate(
+        bundle,
+        _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
+    )
+    store.record(first)
+    second = validator.validate(
+        bundle,
+        _context(
+            bundle,
+            "LINEAGE-000001",
+            "ATTEMPT-000002",
+            correction=CorrectionReference(
+                lineage_id="LINEAGE-000001",
+                attempt_id="ATTEMPT-000001",
+            ),
+        ),
+    )
+    store.record(second)
+    stale = validator.validate(
+        bundle,
+        _context(
+            bundle,
+            "LINEAGE-000001",
+            "ATTEMPT-000003",
+            correction=CorrectionReference(
+                lineage_id="LINEAGE-000001",
+                attempt_id="ATTEMPT-000001",
+            ),
+        ),
+    )
+    assert stale.disposition is api.Disposition.ERROR
+    assert "CORE.EVIDENCE_BINDING" in {item.rule_id for item in stale.diagnostics}
+
+
 def test_correction_cannot_shift_original_lineage_eligibility_anchor(tmp_path: Path) -> None:
     api = _api()
     bundle = _bundle()
-    validator = api.ContractSemanticValidator()
     store = api.FileValidationEvidenceStore(tmp_path / "evidence")
+    validator = _validator(evidence_lookup=store)
     first = validator.validate(
         bundle,
         _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
@@ -234,11 +373,11 @@ def test_publisher_source_id_never_coalesces_immutable_lineages(tmp_path: Path) 
     api = _api()
     store = api.FileValidationEvidenceStore(tmp_path / "evidence")
     bundle = _bundle()
-    first = api.ContractSemanticValidator().validate(
+    first = _validator().validate(
         bundle,
         _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
     )
-    second = api.ContractSemanticValidator().validate(
+    second = _validator().validate(
         bundle,
         _context(bundle, "LINEAGE-000002", "ATTEMPT-000002"),
     )
@@ -257,7 +396,7 @@ def test_evidence_artifact_contains_no_raw_payload_or_secret(tmp_path: Path) -> 
     projection = copy.deepcopy(bundle)
     projection.pop("approvals")
     bundle["approvals"]["APR-CONTRACT-001"]["subject"]["digest"] = canonical_digest(projection)
-    result = api.ContractSemanticValidator().validate(
+    result = _validator().validate(
         bundle,
         _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
     )
@@ -278,9 +417,10 @@ def test_compiler_output_binds_validation_to_issue_76_intake_identity(tmp_path: 
     context = api.ValidationContext.from_intake_receipt(
         compiled.intake.receipt,
         bundle_digest=compiled.compilation.bundle_digest,
-        evaluated_at="2026-07-31T00:00:00Z",
+        evaluated_at="2026-07-31T09:00:00Z",
+        fingerprint_provider=FINGERPRINTS,
     )
-    result = api.ContractSemanticValidator().validate(compiled.compilation.bundle, context)
+    result = _validator().validate(compiled.compilation.bundle, context)
     assert result.lineage_id == compiled.intake.receipt.lineage_id
     assert result.ingestion_attempt_id == compiled.intake.receipt.attempt_id
     assert result.bundle_digest == compiled.compilation.bundle_digest

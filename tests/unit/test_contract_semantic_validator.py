@@ -10,6 +10,8 @@ syntax error.
 from __future__ import annotations
 
 import copy
+import hashlib
+import hmac
 import importlib
 import json
 from dataclasses import replace
@@ -20,12 +22,26 @@ from typing import Any
 import pytest
 
 from pmpe.contracts.canonical import canonical_digest
-from pmpe.contracts.intake import CorrectionReference
+from pmpe.contracts.intake import CorrectionReference, IntakeReceipt, KeyedFingerprint
 
 ROOT = Path(__file__).resolve().parents[2]
 VALID_BUNDLE = ROOT / "tests" / "fixtures" / "pmos" / "v1" / "valid_bundle.json"
 EVALUATED_AT = "2026-07-31T00:00:00Z"
 RECEIVED_AT = "2026-07-30T12:00:00Z"
+
+
+class TestFingerprintProvider:
+    key_version = "TEST-KEY-V1"
+    _key = b"issue-63-deterministic-test-key"
+
+    def fingerprint(self, domain: str, payload: bytes) -> str:
+        return hmac.new(self._key, domain.encode() + b"\x00" + payload, hashlib.sha256).hexdigest()
+
+    def candidate_fingerprints(self, domain: str, payload: bytes) -> tuple[KeyedFingerprint, ...]:
+        return (KeyedFingerprint(self.key_version, self.fingerprint(domain, payload)),)
+
+
+FINGERPRINTS = TestFingerprintProvider()
 
 
 def _api() -> ModuleType:
@@ -74,6 +90,18 @@ def _context(
     possible_duplicate: bool = False,
 ) -> Any:
     api = _api()
+    receipt = IntakeReceipt(
+        lineage_id=lineage_id,
+        attempt_id=attempt_id,
+        received_at=("2026-07-30T13:00:00Z" if correction_reference else RECEIVED_AT),
+        publisher="PMOS",
+        channel="TEST",
+        content_type="application/json",
+        quarantine_handle=f"QUARANTINE-{attempt_id}",
+        key_version="TEST-PAYLOAD-KEY-V1",
+        fingerprint="a" * 64,
+        correction_reference=correction_reference,
+    )
     return api.ValidationContext(
         lineage_id=lineage_id,
         ingestion_attempt_id=attempt_id,
@@ -100,12 +128,20 @@ def _context(
                 expires_at="2027-01-01T00:00:00Z",
             ),
         ),
+        intake_identity=api.IntakeIdentityEvidence.create(receipt, FINGERPRINTS),
+    )
+
+
+def _validator(registry: Any = None, *, evidence_lookup: Any = None) -> Any:
+    return _api().ContractSemanticValidator(
+        registry,
+        fingerprint_provider=FINGERPRINTS,
+        evidence_lookup=evidence_lookup,
     )
 
 
 def _validate(bundle: dict[str, Any], **context: Any) -> Any:
-    api = _api()
-    return api.ContractSemanticValidator().validate(
+    return _validator().validate(
         bundle,
         _context(bundle, **context),
     )
@@ -256,6 +292,7 @@ def test_unresolved_noncritical_question_is_visible_as_warning() -> None:
     assert result.disposition is api.Disposition.WARNING
     diagnostic = next(item for item in result.diagnostics if item.rule_id == "QUESTION.UNRESOLVED")
     assert diagnostic.disposition == "WARNING"
+    assert diagnostic.severity == "WARNING"
     assert diagnostic.remediation is None
 
 
@@ -398,13 +435,68 @@ def test_approval_authority_requires_external_governed_grant_evidence() -> None:
     api = _api()
     bundle = _ready_bundle()
     context = replace(_context(bundle), authority_grants=())
-    result = api.ContractSemanticValidator().validate(bundle, context)
+    result = _validator().validate(bundle, context)
     assert result.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
     assert "APPROVAL.AUTHORITY" in _codes(result)
     assert all(
         evidence["eligible_at"] is None and evidence["due_at"] is None
         for evidence in result.metric_eligibility.values()
     )
+
+
+def test_approval_authority_grant_must_cover_the_approval_instant() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    context = _context(bundle)
+    grants = tuple(
+        replace(grant, valid_from="2026-07-30T12:00:00Z") for grant in context.authority_grants
+    )
+    result = _validator().validate(bundle, replace(context, authority_grants=grants))
+    assert result.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
+    assert "APPROVAL.AUTHORITY" in _codes(result)
+
+
+def test_metric_policy_requires_metric_owner_role_and_named_owner_actor() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    approval = bundle["approvals"]["APR-METRIC-EADPR"]
+    approval["role"] = "PRODUCT_OWNER"
+    context = _context(bundle)
+    wrong_role_grant = api.ApprovalAuthorityGrant(
+        actor_id="OWNER-PRODUCT-001",
+        role="PRODUCT_OWNER",
+        authority_policy_id="AUTH-POLICY-METRIC-001",
+        authority_policy_version="1.0.0",
+        valid_from="2026-01-01T00:00:00Z",
+        expires_at="2027-01-01T00:00:00Z",
+    )
+    result = _validator().validate(
+        bundle,
+        replace(context, authority_grants=(*context.authority_grants, wrong_role_grant)),
+    )
+    assert result.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
+    assert "APPROVAL.AUTHORITY" in _codes(result)
+
+    bundle = _ready_bundle()
+    bundle["metrics"]["maturity_policies"]["POLICY-METRIC-EADPR"]["owner_ref"] = "OWNER-OTHER-001"
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
+    assert "APPROVAL.AUTHORITY" in _codes(result)
+
+
+def test_approval_supersession_references_must_exist_and_be_reciprocal() -> None:
+    bundle = _ready_bundle()
+    bundle["approvals"]["APR-CONTRACT-001"]["supersedes_approval_refs"] = ["APR-MISSING"]
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "REF.APPROVAL" in _codes(result)
+
+    bundle = _ready_bundle()
+    bundle["approvals"]["APR-CONTRACT-001"]["supersedes_approval_refs"] = ["APR-METRIC-EADPR"]
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "APPROVAL.ACTIVE" in _codes(result)
 
 
 @pytest.mark.parametrize(
@@ -510,12 +602,70 @@ def test_supported_extension_cannot_contradict_approved_core_truth() -> None:
     assert "EXTENSION.CONSTRAINT" in _codes(result)
 
 
+def test_extension_mapping_values_fail_closed_independent_of_insertion_order() -> None:
+    api = _api()
+    first = _ready_bundle()
+    second = copy.deepcopy(first)
+    first_constraint = first["extensions"]["EXT-REPOSITORY-001"]["payload"]["constraints"][
+        "EXT-CONSTRAINT-001"
+    ]
+    second_constraint = second["extensions"]["EXT-REPOSITORY-001"]["payload"]["constraints"][
+        "EXT-CONSTRAINT-001"
+    ]
+    first_constraint.update(
+        {
+            "constraint_value": {"first": 1, "second": 2},
+            "operator": "FORBID_VALUE",
+            "target_pointer": "/product/hypothesis",
+        }
+    )
+    second_constraint.update(
+        {
+            "constraint_value": {"second": 2, "first": 1},
+            "operator": "FORBID_VALUE",
+            "target_pointer": "/product/hypothesis",
+        }
+    )
+    for bundle in (first, second):
+        extension = bundle["extensions"]["EXT-REPOSITORY-001"]
+        extension["payload_digest"] = canonical_digest(extension["payload"])
+        _reseal(bundle)
+    assert canonical_digest(first) == canonical_digest(second)
+    first_result = _validate(first)
+    second_result = _validate(second)
+    assert first_result.disposition is api.Disposition.ERROR
+    assert first_result.canonical_bytes() == second_result.canonical_bytes()
+
+
+def test_pmos_owned_extension_blocker_keeps_pmos_remediation_owner() -> None:
+    bundle = _ready_bundle()
+    extension = bundle["extensions"]["EXT-REPOSITORY-001"]
+    extension["target_refs"] = ["FR-MISSING"]
+    extension["payload_digest"] = canonical_digest(extension["payload"])
+    _reseal(bundle)
+    result = _validate(bundle)
+    diagnostic = next(item for item in result.diagnostics if item.rule_id == "EXTENSION.CONSTRAINT")
+    assert diagnostic.owner == "PMOS"
+    assert diagnostic.remediation is not None
+    assert diagnostic.remediation["decision_owner"] == "PMOS"
+
+
 def test_hypothesis_and_requirement_direct_obligations_cannot_conflict() -> None:
     bundle = _ready_bundle()
     bundle["product"]["hypothesis"]["statement"] = "Customers must retain customer records"
     bundle["functional_requirements"]["FR-001"]["statement"] = (
         "Customers must not retain customer records"
     )
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.CROSS_CHANNEL" in _codes(result)
+
+
+def test_hypothesis_and_outcome_direct_obligations_cannot_conflict() -> None:
+    bundle = _ready_bundle()
+    bundle["product"]["hypothesis"]["statement"] = "Customers must retain customer records"
+    bundle["product"]["outcome"]["customer_outcome"] = "Customers must not retain customer records"
     _reseal(bundle)
     result = _validate(bundle)
     assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
@@ -558,6 +708,40 @@ def test_same_metric_cannot_have_incompatible_target_or_window_policies() -> Non
     assert "ALIGN.POLICY_CONSISTENCY" in _codes(result)
 
 
+def test_same_metric_policy_cannot_conflict_only_by_reporting_policy() -> None:
+    bundle = _ready_bundle()
+    policies = bundle["metrics"]["maturity_policies"]
+    policies["POLICY-METRIC-EADPR-ALT"] = copy.deepcopy(policies["POLICY-METRIC-EADPR"])
+    policies["POLICY-METRIC-EADPR-ALT"]["reporting_policy_ref"] = "POLICY-REPORTING-END-STATE"
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.POLICY_CONSISTENCY" in _codes(result)
+
+
+def test_other_nonfunctional_category_requires_exact_source_category() -> None:
+    bundle = _ready_bundle()
+    del bundle["non_functional_requirements"]["NFR-LEGACY-CATEGORY"]["source_category"]
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "COMP.COMPLETENESS" in _codes(result)
+
+
+def test_approved_compiler_output_requires_root_source_identity_mapping() -> None:
+    bundle = _ready_bundle()
+    bundle["provenance"]["compiler_provenance"] = {
+        "compiler_id": "PMPE-PMOS-COMPILER",
+        "compiler_version": "1.0.0",
+        "input_digest": "sha256:" + "1" * 64,
+    }
+    bundle["source_identity_mappings"] = {}
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "ERROR"
+    assert "REF.SOURCE_IDENTITY" in _codes(result)
+
+
 def test_advisory_model_suggestions_cannot_block_or_admit() -> None:
     api = _api()
     bundle = _ready_bundle()
@@ -566,13 +750,18 @@ def test_advisory_model_suggestions_cannot_block_or_admit() -> None:
         field_path="/product/hypothesis",
         explanation="Possible contradiction",
     )
-    result = api.ContractSemanticValidator().validate(
+    result = _validator().validate(
         bundle,
         _context(bundle),
         advisory_suggestions=(suggestion,),
     )
     assert result.disposition is api.Disposition.ADMITTED
-    assert result.advisory_suggestions == (suggestion,)
+    assert result.advisory_suggestions[0].suggestion_id == suggestion.suggestion_id
+    assert result.advisory_suggestions[0].field_path == suggestion.field_path
+    assert (
+        result.advisory_suggestions[0].explanation
+        == "ADVISORY_TEXT_WITHHELD_REQUIRES_NAMED_HUMAN_REVIEW"
+    )
 
 
 def test_validation_is_pure_repeatable_and_byte_deterministic() -> None:
@@ -587,9 +776,9 @@ def test_validation_is_pure_repeatable_and_byte_deterministic() -> None:
 def test_rule_set_digest_and_input_binding_change_independently() -> None:
     api = _api()
     bundle = _ready_bundle()
-    default = api.ContractSemanticValidator().validate(bundle, _context(bundle))
+    default = _validator().validate(bundle, _context(bundle))
     registry = api.default_rule_registry(rule_set_version="1.0.1")
-    changed_rules = api.ContractSemanticValidator(registry).validate(bundle, _context(bundle))
+    changed_rules = _validator(registry).validate(bundle, _context(bundle))
     assert changed_rules.rule_set_digest != default.rule_set_digest
     changed_bundle = copy.deepcopy(bundle)
     changed_bundle["assumptions"]["ASM-001"]["statement"] += " Clarified."
@@ -607,18 +796,38 @@ def test_rule_set_digest_and_input_binding_change_independently() -> None:
     assert changed_rule_version.digest != api.default_rule_registry().digest
 
 
+def test_evaluator_identity_cannot_be_spoofed_with_module_and_qualname() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    bundle["approvals"]["APR-CONTRACT-001"]["subject"]["digest"] = "sha256:" + "0" * 64
+    original = next(
+        rule for rule in api.default_rule_registry().rules if rule.rule_id == "APPROVAL.SUBJECT"
+    ).evaluator
+
+    def bypass(_bundle: Any, _context: Any) -> tuple[Any, ...]:
+        return ()
+
+    bypass.__module__ = original.__module__
+    bypass.__qualname__ = original.__qualname__
+    registry = api.default_rule_registry().with_evaluator("APPROVAL.SUBJECT", bypass)
+    assert registry.digest != api.default_rule_registry().digest
+    result = _validator(registry).validate(bundle, _context(bundle))
+    assert result.disposition is api.Disposition.ERROR
+    assert "CORE.RULE_SET_INTEGRITY" in _codes(result)
+
+
 def test_missing_or_weakened_mandatory_rule_fails_closed() -> None:
     api = _api()
     bundle = _ready_bundle()
     missing = api.default_rule_registry().without("APPROVAL.SUBJECT")
-    result = api.ContractSemanticValidator(missing).validate(bundle, _context(bundle))
+    result = _validator(missing).validate(bundle, _context(bundle))
     assert result.disposition is api.Disposition.ERROR
     assert "CORE.RULE_SET_INTEGRITY" in _codes(result)
 
     weakened = api.default_rule_registry().with_rule_metadata(
         "APPROVAL.SUBJECT", blocking=False, severity="WARNING"
     )
-    result = api.ContractSemanticValidator(weakened).validate(bundle, _context(bundle))
+    result = _validator(weakened).validate(bundle, _context(bundle))
     assert result.disposition is api.Disposition.ERROR
     assert "CORE.RULE_SET_INTEGRITY" in _codes(result)
 
@@ -631,7 +840,7 @@ def test_rule_exception_fails_closed_and_never_admits() -> None:
         raise RuntimeError("planted evaluator failure")
 
     registry = api.default_rule_registry().with_evaluator("ALIGN.SCOPE_NON_GOAL", explode)
-    result = api.ContractSemanticValidator(registry).validate(bundle, _context(bundle))
+    result = _validator(registry).validate(bundle, _context(bundle))
     assert result.disposition is api.Disposition.ERROR
     assert "CORE.RULE_SET_INTEGRITY" in _codes(result)
 
@@ -643,7 +852,7 @@ def test_approval_evaluator_bypass_is_not_an_approved_rule_implementation() -> N
     bypass = api.default_rule_registry().with_evaluator(
         "APPROVAL.SUBJECT", lambda _bundle, _context: ()
     )
-    result = api.ContractSemanticValidator(bypass).validate(bundle, _context(bundle))
+    result = _validator(bypass).validate(bundle, _context(bundle))
     assert result.disposition is api.Disposition.ERROR
     assert "CORE.RULE_SET_INTEGRITY" in _codes(result)
 
@@ -659,7 +868,7 @@ def test_noncanonical_runtime_value_fails_closed_without_raising() -> None:
         evaluated_at=EVALUATED_AT,
         lineage_received_at=RECEIVED_AT,
     )
-    result = api.ContractSemanticValidator().validate(bundle, context)
+    result = _validator().validate(bundle, context)
     assert result.disposition is api.Disposition.ERROR
     assert "CORE.EVIDENCE_BINDING" in _codes(result)
 
@@ -689,7 +898,7 @@ def test_unsupported_schema_or_rule_set_version_fails_closed() -> None:
 
     bundle = _ready_bundle()
     unsupported = api.default_rule_registry(rule_set_version="9.0.0")
-    result = api.ContractSemanticValidator(unsupported).validate(bundle, _context(bundle))
+    result = _validator(unsupported).validate(bundle, _context(bundle))
     assert result.disposition is api.Disposition.ERROR
     assert "CORE.UNSUPPORTED_VERSION" in _codes(result)
 
@@ -704,7 +913,40 @@ def test_context_digest_lineage_and_attempt_binding_is_mandatory() -> None:
         evaluated_at=EVALUATED_AT,
         lineage_received_at=RECEIVED_AT,
     )
-    result = api.ContractSemanticValidator().validate(bundle, context)
+    result = _validator().validate(bundle, context)
+    assert result.disposition is api.Disposition.ERROR
+    assert "CORE.EVIDENCE_BINDING" in _codes(result)
+
+
+def test_intake_identity_attestation_is_mandatory_and_tamper_evident() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    context = _context(bundle)
+    missing = _validator().validate(bundle, replace(context, intake_identity=None))
+    assert missing.disposition is api.Disposition.ERROR
+    assert "CORE.EVIDENCE_BINDING" in _codes(missing)
+
+    assert context.intake_identity is not None
+    tampered_identity = replace(context.intake_identity, fingerprint="0" * 64)
+    tampered = _validator().validate(
+        bundle,
+        replace(context, intake_identity=tampered_identity),
+    )
+    assert tampered.disposition is api.Disposition.ERROR
+    assert "CORE.EVIDENCE_BINDING" in _codes(tampered)
+
+
+def test_same_lineage_correction_requires_latest_persisted_predecessor() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    result = _validate(
+        bundle,
+        attempt_id="ATTEMPT-000002",
+        correction_reference=CorrectionReference(
+            lineage_id="LINEAGE-000001",
+            attempt_id="ATTEMPT-000001",
+        ),
+    )
     assert result.disposition is api.Disposition.ERROR
     assert "CORE.EVIDENCE_BINDING" in _codes(result)
 
@@ -741,6 +983,7 @@ def test_correction_context_requires_original_durable_lineage_time() -> None:
             receipt,
             bundle_digest="sha256:" + "0" * 64,
             evaluated_at=EVALUATED_AT,
+            fingerprint_provider=FINGERPRINTS,
         )
 
 
@@ -840,6 +1083,40 @@ def test_cross_section_contradictions_block(case: str, expected_rule: str) -> No
     assert expected_rule in _codes(result)
 
 
+def test_production_autonomy_uses_end_state_policy_and_exact_environment() -> None:
+    bundle = _ready_bundle()
+    release = bundle["release"]
+    release["requested_autonomy_stage"] = "PRODUCTION"
+    release["deployment_target"] = {
+        "description": "Approved production delivery target.",
+        "environment": "PRODUCTION",
+        "kind": "CLOUD",
+    }
+    release["expectations"] = {
+        "REL-001": {
+            "environment": "PRODUCTION",
+            "expectation": "Promote only with exact production admission evidence.",
+        }
+    }
+    release["launch_intent"] = "GENERAL_AVAILABILITY"
+    bundle["required_approvals"]["APPROVAL-REQ-PRODUCTION"] = {
+        "purpose": "Approve production promotion",
+        "required_before": "PRODUCTION",
+        "role": "PRODUCT_OWNER",
+    }
+    _reseal(bundle)
+    assert _validate(bundle).disposition.value == "ADMITTED"
+
+    policies = bundle["metrics"]["maturity_policies"]
+    policies["POLICY-METRIC-VAPDR"]["applicable_autonomy_stages"] = ["DRAFT_PR"]
+    policies["POLICY-METRIC-FIRST-PASS"]["applicable_autonomy_stages"] = ["PRODUCTION"]
+    release["deployment_target"]["environment"] = "LOCAL"
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.AUTONOMY" in _codes(result)
+
+
 def test_retrospective_policy_approval_never_backdates_eligibility() -> None:
     bundle = _ready_bundle()
     approval = bundle["approvals"]["APR-METRIC-EADPR"]
@@ -852,13 +1129,54 @@ def test_retrospective_policy_approval_never_backdates_eligibility() -> None:
     assert evidence["eligible_at"] != RECEIVED_AT
 
 
+@pytest.mark.parametrize(
+    ("duration", "expected_disposition", "expected_due"),
+    [
+        ("P1W", "ADMITTED", "2026-08-06T12:00:00Z"),
+        ("PT0.5S", "ADMITTED", "2026-07-30T12:00:00.500000Z"),
+        ("P1M", "PRODUCT_INPUT_REQUIRED", None),
+    ],
+)
+def test_metric_policy_duration_semantics_are_explicit_and_deterministic(
+    duration: str,
+    expected_disposition: str,
+    expected_due: str | None,
+) -> None:
+    bundle = _ready_bundle()
+    bundle["metrics"]["maturity_policies"]["POLICY-METRIC-EADPR"]["delivery_window"]["duration"] = (
+        duration
+    )
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == expected_disposition
+    assert result.metric_eligibility["POLICY-METRIC-EADPR"]["due_at"] == expected_due
+    if expected_due is None:
+        assert "COMP.TEMPORAL" in _codes(result)
+
+
+def test_invalid_calendar_timestamp_and_evaluation_before_receipt_fail_closed() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    bundle["provenance"]["published_at"] = "2026-02-31T00:00:00Z"
+    _reseal(bundle)
+    invalid_date = _validate(bundle)
+    assert invalid_date.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
+    assert "COMP.TEMPORAL" in _codes(invalid_date)
+
+    bundle = _ready_bundle()
+    context = replace(_context(bundle), evaluated_at="2026-07-30T11:59:59Z")
+    before_receipt = _validator().validate(bundle, context)
+    assert before_receipt.disposition is api.Disposition.ERROR
+    assert "CORE.EVIDENCE_BINDING" in _codes(before_receipt)
+
+
 def test_secret_values_never_appear_in_diagnostics_or_advisories() -> None:
     api = _api()
     secret = "ghp_0123456789abcdefghijklmnop"
     bundle = _ready_bundle()
     bundle["product"]["outcome"]["customer_outcome"] = f"Engineering decides {secret}"
     _reseal(bundle)
-    result = api.ContractSemanticValidator().validate(
+    result = _validator().validate(
         bundle,
         _context(bundle),
         advisory_suggestions=(
