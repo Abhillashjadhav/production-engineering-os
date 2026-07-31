@@ -13,6 +13,7 @@ import pytest
 
 from pmpe.contracts.canonical import canonical_digest
 from pmpe.contracts.intake import CorrectionReference
+from tests.integration.test_pmos_compilation_pipeline import _request, _service
 
 ROOT = Path(__file__).resolve().parents[2]
 VALID_BUNDLE = ROOT / "tests" / "fixtures" / "pmos" / "v1" / "valid_bundle.json"
@@ -182,3 +183,25 @@ def test_evidence_artifact_contains_no_raw_payload_or_secret(tmp_path: Path) -> 
     materialized = b"".join(path.read_bytes() for path in (tmp_path / "evidence").rglob("*json"))
     assert secret.encode() not in materialized
     assert b"quarantined" not in materialized
+
+
+def test_compiler_output_binds_validation_to_issue_76_intake_identity(tmp_path: Path) -> None:
+    api = _api()
+    compiled = _service(tmp_path / "compilation").process(
+        _request(ROOT / "tests" / "fixtures" / "minimal_valid_spec.json", "semantic-binding")
+    )
+    assert compiled.intake.receipt is not None
+    assert compiled.compilation is not None
+    context = api.ValidationContext.from_intake_receipt(
+        compiled.intake.receipt,
+        bundle_digest=compiled.compilation.bundle_digest,
+        evaluated_at="2026-07-31T00:00:00Z",
+    )
+    result = api.ContractSemanticValidator().validate(compiled.compilation.bundle, context)
+    assert result.lineage_id == compiled.intake.receipt.lineage_id
+    assert result.ingestion_attempt_id == compiled.intake.receipt.attempt_id
+    assert result.bundle_digest == compiled.compilation.bundle_digest
+    assert result.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
+    assert "COMP.UNRESOLVED_PRODUCT_TRUTH" in {
+        diagnostic.rule_id for diagnostic in result.diagnostics
+    }

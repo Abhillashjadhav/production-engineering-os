@@ -162,13 +162,14 @@ def test_schema_or_runtime_failure_is_error_not_product_input() -> None:
     assert "CORE.STRUCTURE" in _codes(result)
 
 
-def test_stage_specific_optionality_does_not_require_browser_screens_for_cli() -> None:
+def test_stage_specific_optionality_does_not_require_production_approval_for_draft_pr() -> None:
     api = _api()
     bundle = _ready_bundle()
-    bundle["ux"]["screens"] = {}
-    bundle["ux"]["ui_states"] = {}
-    bundle["ux"]["primary_journey"]["JOURNEY-STEP-PUBLISH"].pop("screen_ref")
-    _reseal(bundle)
+    assert bundle["release"]["requested_autonomy_stage"] == "DRAFT_PR"
+    assert all(
+        requirement.get("required_before") != "PRODUCTION"
+        for requirement in bundle["required_approvals"].values()
+    )
     assert _validate(bundle).disposition is api.Disposition.ADMITTED
 
 
@@ -413,6 +414,11 @@ def test_rule_set_digest_and_input_binding_change_independently() -> None:
     changed_input = _validate(changed_bundle)
     assert changed_input.bundle_digest != default.bundle_digest
 
+    mutated_evaluator = api.default_rule_registry().with_evaluator(
+        "ALIGN.SCOPE_NON_GOAL", lambda _bundle, _context: ()
+    )
+    assert mutated_evaluator.digest != registry.digest
+
 
 def test_missing_or_weakened_mandatory_rule_fails_closed() -> None:
     api = _api()
@@ -441,6 +447,37 @@ def test_rule_exception_fails_closed_and_never_admits() -> None:
     result = api.ContractSemanticValidator(registry).validate(bundle, _context(bundle))
     assert result.disposition is api.Disposition.ERROR
     assert "CORE.RULE_EVALUATION" in _codes(result)
+
+
+def test_noncanonical_runtime_value_fails_closed_without_raising() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    bundle["assumptions"]["ASM-001"]["statement"] = {"not-json"}
+    context = api.ValidationContext(
+        lineage_id="LINEAGE-000001",
+        ingestion_attempt_id="ATTEMPT-000001",
+        bundle_digest="sha256:" + "0" * 64,
+        evaluated_at=EVALUATED_AT,
+        lineage_received_at=RECEIVED_AT,
+    )
+    result = api.ContractSemanticValidator().validate(bundle, context)
+    assert result.disposition is api.Disposition.ERROR
+    assert "CORE.EVIDENCE_BINDING" in _codes(result)
+
+
+def test_validator_never_fabricates_a_missing_product_default() -> None:
+    bundle = _ready_bundle()
+    del bundle["product"]
+    before = copy.deepcopy(bundle)
+    result = _validate(bundle)
+    assert bundle == before
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert all(
+        item.remediation["recommended_technical_default"]
+        == "NO_DEFAULT_ENGINEERING_MUST_NOT_INVENT_PRODUCT_TRUTH"
+        for item in result.diagnostics
+        if item.remediation is not None
+    )
 
 
 def test_unsupported_schema_or_rule_set_version_fails_closed() -> None:
@@ -511,6 +548,72 @@ def test_pending_policy_has_no_eligibility_or_due_time() -> None:
     evidence = result.metric_eligibility["POLICY-METRIC-EADPR"]
     assert evidence["eligible_at"] is None
     assert evidence["due_at"] is None
+
+
+@pytest.mark.parametrize(
+    ("section", "record", "field"),
+    [
+        ("maturity_policies", "POLICY-METRIC-EADPR", "target"),
+        ("maturity_policies", "POLICY-METRIC-EADPR", "delivery_window"),
+        ("maturity_policies", "POLICY-METRIC-EADPR", "reporting_window"),
+        ("reporting_policies", "POLICY-REPORTING-MVP", "denominator"),
+        ("reporting_policies", "POLICY-REPORTING-MVP", "calculation"),
+    ],
+)
+def test_missing_metric_target_window_or_denominator_requires_product_input(
+    section: str,
+    record: str,
+    field: str,
+) -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    del bundle["metrics"][section][record][field]
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
+    assert "COMP.COMPLETENESS" in _codes(result)
+
+
+def test_invalid_semantic_field_type_is_a_structural_error() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    bundle["metrics"]["success"] = ["not", "a", "registry"]
+    result = _validate(bundle)
+    assert result.disposition is api.Disposition.ERROR
+    assert "CORE.STRUCTURE" in _codes(result)
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_rule"),
+    [
+        ("ux_api", "ALIGN.CROSS_CHANNEL"),
+        ("release_rollback", "ALIGN.RELEASE_ROLLBACK"),
+        ("observability_privacy", "ALIGN.OBSERVABILITY_REPORTING"),
+    ],
+)
+def test_cross_section_contradictions_block(case: str, expected_rule: str) -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    if case == "ux_api":
+        bundle["ux"]["user_stories"]["US-001"]["i_want"] = "must retain customer records"
+        bundle["data"]["requirements"]["DATA-001"]["requirement"] = (
+            "must not retain customer records"
+        )
+    elif case == "release_rollback":
+        bundle["release"]["requested_autonomy_stage"] = "PRODUCTION"
+        bundle["rollback"]["data_loss_tolerance"] = "No data loss"
+        bundle["rollback"]["rpo"] = "P1D"
+        bundle["required_approvals"]["APPROVAL-REQ-PRODUCTION"] = {
+            "purpose": "Approve production promotion",
+            "required_before": "PRODUCTION",
+            "role": "PRODUCT_OWNER",
+        }
+    else:
+        bundle["observability"]["requirements"]["OBS-001"]["signal"] = "customer_records"
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
+    assert expected_rule in _codes(result)
 
 
 def test_retrospective_policy_approval_never_backdates_eligibility() -> None:
