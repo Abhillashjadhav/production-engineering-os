@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import fcntl
 import hashlib
+import hmac
 import json
 import os
 import re
@@ -18,12 +19,14 @@ import tempfile
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from pmpe.contracts.canonical import CanonicalInputError, strict_loads
 
 _SAFE_HANDLE = re.compile(r"^[A-Z][A-Z0-9-]{0,127}$")
+_SAFE_METADATA = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$")
 _SECRET_PATTERNS = (
     re.compile(rb"\bgh[pousr]_[A-Za-z0-9_]{20,}\b"),
     re.compile(rb"\bAKIA[0-9A-Z]{16}\b"),
@@ -43,6 +46,12 @@ class IdProvider(Protocol):
     def new_id(self, kind: str) -> str: ...
 
 
+@dataclass(frozen=True)
+class KeyedFingerprint:
+    key_version: str
+    value: str
+
+
 @runtime_checkable
 class KeyedFingerprintProvider(Protocol):
     """Provider boundary for a non-exportable, versioned keyed digest."""
@@ -50,6 +59,12 @@ class KeyedFingerprintProvider(Protocol):
     key_version: str
 
     def fingerprint(self, domain: str, payload: bytes) -> str: ...
+
+    def candidate_fingerprints(
+        self,
+        domain: str,
+        payload: bytes,
+    ) -> tuple[KeyedFingerprint, ...]: ...
 
 
 @dataclass(frozen=True)
@@ -115,6 +130,8 @@ class IntakeReservation:
     publisher: str
     channel: str
     retry_fingerprint: str
+    retry_key_version: str
+    expires_at: str
     correction_reference: CorrectionReference | None = None
     correction_state: str = "NONE"
     possible_duplicate: bool = False
@@ -209,10 +226,44 @@ class ReconciliationReport:
     blocked_attempt_ids: tuple[str, ...]
 
 
+class IntakeConflictError(RuntimeError):
+    """A retry attempts to change an immutable intake identity."""
+
+
 def _safe_id(value: str, label: str) -> str:
     if not _SAFE_HANDLE.fullmatch(value):
         raise ValueError(f"{label} must be an opaque uppercase identifier")
     return value
+
+
+def _safe_metadata(value: str, label: str) -> str:
+    encoded = value.encode("utf-8", errors="strict")
+    if (
+        not _SAFE_METADATA.fullmatch(value)
+        or any(pattern.search(encoded) for pattern in _SECRET_PATTERNS)
+        or any(pattern.search(encoded) for pattern in _PRIVACY_PATTERNS)
+    ):
+        raise ValueError(f"{label} must be a bounded safe metadata identifier")
+    return value
+
+
+def _parse_utc(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+        raise ValueError("clock must return an RFC 3339 UTC instant")
+    return parsed.astimezone(UTC)
+
+
+def _after(value: str, seconds: int) -> str:
+    return (
+        (_parse_utc(value) + timedelta(seconds=seconds))
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z")
+    )
+
+
+def _expired(expires_at: str, now: str) -> bool:
+    return _parse_utc(now) >= _parse_utc(expires_at)
 
 
 def _decode_correction(value: Any) -> CorrectionReference | None:
@@ -275,12 +326,13 @@ class FileQuarantineStore:
         path = self._path(handle)
         if path.exists():
             raise FileExistsError(f"quarantine object already exists for {handle}")
-        ordinary_digest = str(
-            metadata.get("ordinary_digest") or hashlib.sha256(payload).hexdigest()
-        )
+        ordinary_digest = hashlib.sha256(payload).hexdigest()
         envelope = {
             "cipher_key_version": self.cipher.key_version,
-            "metadata": {**metadata, "ordinary_digest": ordinary_digest},
+            "metadata": {
+                **{key: value for key, value in metadata.items() if key != "ordinary_digest"},
+                "ordinary_digest": ordinary_digest,
+            },
             "payload": base64.b64encode(payload).decode("ascii"),
         }
         cleartext = json.dumps(envelope, sort_keys=True, separators=(",", ":")).encode()
@@ -292,7 +344,14 @@ class FileQuarantineStore:
         encoded = envelope.get("payload")
         if not isinstance(encoded, str):
             raise ValueError("quarantine envelope is malformed")
-        return base64.b64decode(encoded, validate=True)
+        payload = base64.b64decode(encoded, validate=True)
+        ordinary_digest = envelope.get("metadata", {}).get("ordinary_digest")
+        if not isinstance(ordinary_digest, str) or not hmac.compare_digest(
+            ordinary_digest,
+            hashlib.sha256(payload).hexdigest(),
+        ):
+            raise ValueError("quarantine envelope failed its digest binding")
+        return payload
 
     def delete(self, handle: str) -> bool:
         path = self._path(handle)
@@ -320,11 +379,15 @@ class FileIntakeLedger:
         clock: Clock,
         id_provider: IdProvider,
         fingerprint_provider: KeyedFingerprintProvider,
+        reservation_ttl_seconds: int = 300,
     ) -> None:
+        if reservation_ttl_seconds <= 0:
+            raise ValueError("reservation_ttl_seconds must be positive")
         self.root = Path(root)
         self.clock = clock
         self.id_provider = id_provider
         self.fingerprint_provider = fingerprint_provider
+        self.reservation_ttl_seconds = reservation_ttl_seconds
         for name in (
             "reservations",
             "receipts",
@@ -350,14 +413,30 @@ class FileIntakeLedger:
     def _path(self, collection: str, identifier: str) -> Path:
         return self.root / collection / f"{_safe_id(identifier, collection)}.json"
 
-    def _retry_id(self, retry_key: str) -> str:
-        fingerprint = self.fingerprint_provider.fingerprint(
+    def _retry_candidates(
+        self,
+        retry_key: str,
+    ) -> tuple[tuple[KeyedFingerprint, str], ...]:
+        candidates = self.fingerprint_provider.candidate_fingerprints(
             "retry-key",
             retry_key.encode("utf-8"),
         )
-        if not re.fullmatch(r"[0-9a-fA-F]{32,}", fingerprint):
-            raise ValueError("retry-key fingerprint provider returned an unsafe identifier")
-        return f"RETRY-{fingerprint.upper()}"
+        if not candidates:
+            raise ValueError("fingerprint provider returned no governed key versions")
+        values: list[tuple[KeyedFingerprint, str]] = []
+        seen_versions: set[str] = set()
+        for candidate in candidates:
+            if candidate.key_version in seen_versions:
+                raise ValueError("fingerprint provider returned a duplicate key version")
+            if not _SAFE_METADATA.fullmatch(candidate.key_version) or not re.fullmatch(
+                r"[0-9a-fA-F]{32,}", candidate.value
+            ):
+                raise ValueError("fingerprint provider returned unsafe metadata")
+            seen_versions.add(candidate.key_version)
+            values.append((candidate, f"RETRY-{candidate.value.upper()}"))
+        if self.fingerprint_provider.key_version not in seen_versions:
+            raise ValueError("current fingerprint key version is not governed")
+        return tuple(values)
 
     @staticmethod
     def _reservation_from_dict(value: dict[str, Any]) -> IntakeReservation:
@@ -369,6 +448,8 @@ class FileIntakeLedger:
             publisher=value["publisher"],
             channel=value["channel"],
             retry_fingerprint=value["retry_fingerprint"],
+            retry_key_version=value["retry_key_version"],
+            expires_at=value["expires_at"],
             correction_reference=_decode_correction(value.get("correction_reference")),
             correction_state=value.get("correction_state", "NONE"),
             possible_duplicate=bool(value.get("possible_duplicate", False)),
@@ -434,26 +515,53 @@ class FileIntakeLedger:
         channel: str,
         correction_reference: CorrectionReference | None,
     ) -> IntakeReservation:
-        if not retry_key or not publisher or not channel:
-            raise ValueError("retry key, publisher, and channel are required")
-        retry_fingerprint = self._retry_id(retry_key)
-        retry_path = self._path("retry-index", retry_fingerprint)
+        if not retry_key or len(retry_key.encode("utf-8")) > 512:
+            raise ValueError("retry key must be non-empty and bounded")
+        publisher = _safe_metadata(publisher, "publisher safe metadata")
+        channel = _safe_metadata(channel, "channel safe metadata")
+        candidates = self._retry_candidates(retry_key)
+        current_candidate, retry_fingerprint = next(
+            item
+            for item in candidates
+            if item[0].key_version == self.fingerprint_provider.key_version
+        )
         with self._locked():
-            if retry_path.exists():
-                index = json.loads(retry_path.read_text())
-                existing = self.reservation_by_attempt(index["attempt_id"])
+            indexed_attempt_ids = {
+                json.loads(self._path("retry-index", identifier).read_text())["attempt_id"]
+                for _candidate, identifier in candidates
+                if self._path("retry-index", identifier).exists()
+            }
+            if len(indexed_attempt_ids) > 1:
+                raise RuntimeError("retry fingerprints resolve to multiple reservations")
+            if indexed_attempt_ids:
+                existing = self.reservation_by_attempt(indexed_attempt_ids.pop())
                 if existing is None:
                     raise RuntimeError("retry index references a missing reservation")
+                for _candidate, identifier in candidates:
+                    path = self._path("retry-index", identifier)
+                    if not path.exists():
+                        _atomic_json(path, {"attempt_id": existing.attempt_id})
                 return existing
             recovered = [
                 reservation
                 for reservation in self.reservations()
-                if reservation.retry_fingerprint == retry_fingerprint
+                if any(
+                    reservation.retry_key_version == candidate.key_version
+                    and hmac.compare_digest(
+                        reservation.retry_fingerprint,
+                        identifier,
+                    )
+                    for candidate, identifier in candidates
+                )
             ]
             if len(recovered) > 1:
                 raise RuntimeError("retry fingerprint resolves to multiple reservations")
             if recovered:
-                _atomic_json(retry_path, {"attempt_id": recovered[0].attempt_id})
+                for _candidate, identifier in candidates:
+                    _atomic_json(
+                        self._path("retry-index", identifier),
+                        {"attempt_id": recovered[0].attempt_id},
+                    )
                 return recovered[0]
 
             lineage_id: str
@@ -503,11 +611,13 @@ class FileIntakeLedger:
                         and predecessor_disposition.terminal
                         and predecessor_deletion is not None
                         and predecessor_deletion.deleted
+                        and not predecessor.reconciliation_required
                     ):
                         correction_state = "VALID"
                     else:
                         correction_state = "BLOCKED"
 
+            reserved_at = self.clock.now()
             reservation = IntakeReservation(
                 lineage_id=lineage_id,
                 attempt_id=_safe_id(
@@ -518,10 +628,15 @@ class FileIntakeLedger:
                     self.id_provider.new_id("quarantine"),
                     "quarantine handle",
                 ),
-                reserved_at=self.clock.now(),
+                reserved_at=reserved_at,
                 publisher=publisher,
                 channel=channel,
                 retry_fingerprint=retry_fingerprint,
+                retry_key_version=current_candidate.key_version,
+                expires_at=_after(
+                    reserved_at,
+                    self.reservation_ttl_seconds,
+                ),
                 correction_reference=safe_correction_reference,
                 correction_state=correction_state,
                 possible_duplicate=possible_duplicate,
@@ -535,15 +650,20 @@ class FileIntakeLedger:
                 reservation_path,
                 reservation.as_dict(),
             )
-            _atomic_json(retry_path, {"attempt_id": reservation.attempt_id})
+            for _candidate, identifier in candidates:
+                _atomic_json(
+                    self._path("retry-index", identifier),
+                    {"attempt_id": reservation.attempt_id},
+                )
             return reservation
 
     def reservation_for_retry_key(self, retry_key: str) -> IntakeReservation | None:
-        retry_path = self._path("retry-index", self._retry_id(retry_key))
-        if not retry_path.exists():
-            return None
-        value = json.loads(retry_path.read_text())
-        return self.reservation_by_attempt(value["attempt_id"])
+        for _candidate, identifier in self._retry_candidates(retry_key):
+            retry_path = self._path("retry-index", identifier)
+            if retry_path.exists():
+                value = json.loads(retry_path.read_text())
+                return self.reservation_by_attempt(value["attempt_id"])
+        return None
 
     def reservation_by_attempt(self, attempt_id: str) -> IntakeReservation | None:
         path = self._path("reservations", attempt_id)
@@ -577,40 +697,54 @@ class FileIntakeLedger:
         fingerprint: str,
         key_version: str,
     ) -> IntakeReservation:
-        reservation = self.reservation_by_attempt(attempt_id)
-        if reservation is None:
-            raise KeyError(attempt_id)
-        if reservation.payload_fingerprint is not None:
-            if (
-                reservation.payload_fingerprint != fingerprint
-                or reservation.fingerprint_key_version != key_version
-            ):
-                raise RuntimeError("retry key is already bound to a different payload")
-            return reservation
-        updated = replace(
-            reservation,
-            payload_fingerprint=fingerprint,
-            fingerprint_key_version=key_version,
-        )
-        self._update_reservation(updated)
-        return updated
+        if not re.fullmatch(r"[0-9a-fA-F]{32,}", fingerprint) or not _SAFE_METADATA.fullmatch(
+            key_version
+        ):
+            raise ValueError("payload fingerprint metadata is unsafe")
+        with self._locked():
+            reservation = self.reservation_by_attempt(attempt_id)
+            if reservation is None:
+                raise KeyError(attempt_id)
+            if reservation.payload_fingerprint is not None:
+                if (
+                    not hmac.compare_digest(
+                        reservation.payload_fingerprint,
+                        fingerprint,
+                    )
+                    or reservation.fingerprint_key_version != key_version
+                ):
+                    raise IntakeConflictError("retry key is already bound to a different payload")
+                return reservation
+            updated = replace(
+                reservation,
+                payload_fingerprint=fingerprint,
+                fingerprint_key_version=key_version,
+            )
+            self._update_reservation(updated)
+            return updated
 
     def prepare_receipt(self, receipt: IntakeReceipt) -> None:
-        reservation = self.reservation_by_attempt(receipt.attempt_id)
-        if reservation is None:
-            raise KeyError(receipt.attempt_id)
-        self._update_reservation(replace(reservation, pending_receipt=receipt.as_dict()))
+        with self._locked():
+            reservation = self.reservation_by_attempt(receipt.attempt_id)
+            if reservation is None:
+                raise KeyError(receipt.attempt_id)
+            self._update_reservation(replace(reservation, pending_receipt=receipt.as_dict()))
 
     def finalize_receipt(self, receipt: IntakeReceipt) -> None:
-        path = self._path("receipts", receipt.attempt_id)
-        if path.exists():
-            existing = self._receipt_from_dict(json.loads(path.read_text()))
-            if existing != receipt:
-                raise RuntimeError("attempt already has a different intake receipt")
-            return
-        _atomic_json(path, receipt.as_dict())
-        reservation = self.reservation_by_attempt(receipt.attempt_id)
-        if reservation is not None:
+        with self._locked():
+            path = self._path("receipts", receipt.attempt_id)
+            if path.exists():
+                existing = self._receipt_from_dict(json.loads(path.read_text()))
+                if existing != receipt:
+                    raise RuntimeError("attempt already has a different intake receipt")
+                reservation = self.reservation_by_attempt(receipt.attempt_id)
+                if reservation is not None and reservation.pending_receipt is not None:
+                    self._update_reservation(replace(reservation, pending_receipt=None))
+                return
+            reservation = self.reservation_by_attempt(receipt.attempt_id)
+            if reservation is None or reservation.pending_receipt != receipt.as_dict():
+                raise RuntimeError("receipt was not prepared under its reservation")
+            _atomic_json(path, receipt.as_dict())
             self._update_reservation(replace(reservation, pending_receipt=None))
 
     def receipt(self, attempt_id: str) -> IntakeReceipt | None:
@@ -620,21 +754,37 @@ class FileIntakeLedger:
         return self._receipt_from_dict(json.loads(path.read_text()))
 
     def prepare_disposition(self, disposition: IntakeDisposition) -> None:
-        reservation = self.reservation_by_attempt(disposition.attempt_id)
-        if reservation is None:
-            raise KeyError(disposition.attempt_id)
-        self._update_reservation(replace(reservation, pending_disposition=disposition.as_dict()))
+        with self._locked():
+            reservation = self.reservation_by_attempt(disposition.attempt_id)
+            if reservation is None:
+                raise KeyError(disposition.attempt_id)
+            self._update_reservation(
+                replace(
+                    reservation,
+                    pending_disposition=disposition.as_dict(),
+                )
+            )
 
     def write_disposition(self, disposition: IntakeDisposition) -> None:
-        path = self._path("dispositions", disposition.attempt_id)
-        if path.exists():
-            existing = self._disposition_from_dict(json.loads(path.read_text()))
-            if existing != disposition:
-                raise RuntimeError("attempt already has a different terminal disposition")
-            return
-        _atomic_json(path, disposition.as_dict())
-        reservation = self.reservation_by_attempt(disposition.attempt_id)
-        if reservation is not None:
+        with self._locked():
+            path = self._path("dispositions", disposition.attempt_id)
+            if path.exists():
+                existing = self._disposition_from_dict(json.loads(path.read_text()))
+                if existing != disposition:
+                    raise RuntimeError("attempt already has a different terminal disposition")
+                reservation = self.reservation_by_attempt(disposition.attempt_id)
+                if reservation is not None and reservation.pending_disposition is not None:
+                    self._update_reservation(replace(reservation, pending_disposition=None))
+                return
+            reservation = self.reservation_by_attempt(disposition.attempt_id)
+            if reservation is None:
+                raise KeyError(disposition.attempt_id)
+            if (
+                reservation.payload_fingerprint is not None
+                and self.receipt(disposition.attempt_id) is None
+            ):
+                raise RuntimeError("terminal disposition requires a durable intake receipt")
+            _atomic_json(path, disposition.as_dict())
             self._update_reservation(replace(reservation, pending_disposition=None))
 
     def disposition(self, attempt_id: str) -> IntakeDisposition | None:
@@ -644,13 +794,14 @@ class FileIntakeLedger:
         return self._disposition_from_dict(json.loads(path.read_text()))
 
     def write_deletion_attestation(self, attestation: DeletionAttestation) -> None:
-        path = self._path("deletions", attestation.attempt_id)
-        if path.exists():
-            existing = self._deletion_from_dict(json.loads(path.read_text()))
-            if existing != attestation:
-                raise RuntimeError("attempt already has a different deletion attestation")
-            return
-        _atomic_json(path, attestation.as_dict())
+        with self._locked():
+            path = self._path("deletions", attestation.attempt_id)
+            if path.exists():
+                existing = self._deletion_from_dict(json.loads(path.read_text()))
+                if existing != attestation:
+                    raise RuntimeError("attempt already has a different deletion attestation")
+                return
+            _atomic_json(path, attestation.as_dict())
 
     def deletion_attestation(self, attempt_id: str) -> DeletionAttestation | None:
         path = self._path("deletions", attempt_id)
@@ -659,34 +810,49 @@ class FileIntakeLedger:
         return self._deletion_from_dict(json.loads(path.read_text()))
 
     def mark_reconciliation(self, attempt_id: str, reason: str) -> IntakeReservation:
-        reservation = self.reservation_by_attempt(attempt_id)
-        if reservation is None:
-            raise KeyError(attempt_id)
-        updated = replace(
-            reservation,
-            reconciliation_required=True,
-            reconciliation_reason=reason,
-        )
-        self._update_reservation(updated)
-        return updated
+        with self._locked():
+            reservation = self.reservation_by_attempt(attempt_id)
+            if reservation is None:
+                raise KeyError(attempt_id)
+            updated = replace(
+                reservation,
+                reconciliation_required=True,
+                reconciliation_reason=reason,
+            )
+            self._update_reservation(updated)
+            return updated
 
     def clear_reconciliation(self, attempt_id: str) -> IntakeReservation:
-        reservation = self.reservation_by_attempt(attempt_id)
-        if reservation is None:
-            raise KeyError(attempt_id)
-        updated = replace(
-            reservation,
-            reconciliation_required=False,
-            reconciliation_reason=None,
-            pending_receipt=None,
-            pending_disposition=None,
-        )
-        self._update_reservation(updated)
-        return updated
+        with self._locked():
+            reservation = self.reservation_by_attempt(attempt_id)
+            if reservation is None:
+                raise KeyError(attempt_id)
+            updated = replace(
+                reservation,
+                reconciliation_required=False,
+                reconciliation_reason=None,
+                pending_receipt=None,
+                pending_disposition=None,
+            )
+            self._update_reservation(updated)
+            return updated
 
 
 def _finding(code: str, message: str) -> IntakeFinding:
     return IntakeFinding(code=code, message=message)
+
+
+def _contains_pattern(value: Any, patterns: tuple[re.Pattern[bytes], ...]) -> bool:
+    if isinstance(value, str):
+        return any(pattern.search(value.encode("utf-8")) for pattern in patterns)
+    if isinstance(value, dict):
+        return any(
+            _contains_pattern(key, patterns) or _contains_pattern(child, patterns)
+            for key, child in value.items()
+        )
+    if isinstance(value, list):
+        return any(_contains_pattern(child, patterns) for child in value)
+    return False
 
 
 class IntakeCoordinator:
@@ -718,17 +884,73 @@ class IntakeCoordinator:
             channel=request.channel,
             correction_reference=request.correction_reference,
         )
-        payload_fingerprint = self.fingerprint_provider.fingerprint(
+        fingerprint_candidates = self.fingerprint_provider.candidate_fingerprints(
             "payload",
             request.payload,
         )
-        if reservation.payload_fingerprint is not None and (
-            reservation.payload_fingerprint != payload_fingerprint
-            or reservation.fingerprint_key_version != self.fingerprint_provider.key_version
-        ):
+        by_key_version = {
+            candidate.key_version: candidate.value for candidate in fingerprint_candidates
+        }
+        if reservation.payload_fingerprint is None:
+            payload_key_version = self.fingerprint_provider.key_version
+            payload_fingerprint = by_key_version[payload_key_version]
+        else:
+            payload_key_version = reservation.fingerprint_key_version or ""
+            candidate_value = by_key_version.get(payload_key_version)
+            payload_fingerprint = reservation.payload_fingerprint
+            if candidate_value is None or not hmac.compare_digest(
+                payload_fingerprint,
+                candidate_value,
+            ):
+                finding = _finding(
+                    "RETRY_KEY_PAYLOAD_MISMATCH",
+                    "retry key is already bound to different contract bytes",
+                )
+                return IntakeOutcome(
+                    status="SECURITY_BLOCKED",
+                    reservation=reservation,
+                    receipt=self.ledger.receipt(reservation.attempt_id),
+                    disposition=self._disposition(
+                        reservation,
+                        "SECURITY_BLOCKED",
+                        (finding,),
+                    ),
+                    deletion_attestation=self.ledger.deletion_attestation(reservation.attempt_id),
+                    findings=(finding,),
+                    admitted_payload=None,
+                    quarantine_retained=self.quarantine.exists(reservation.quarantine_handle),
+                    replayed=True,
+                )
+        if reservation.reconciliation_required:
             finding = _finding(
-                "RETRY_KEY_PAYLOAD_MISMATCH",
-                "retry key is already bound to different contract bytes",
+                "INTAKE_RECONCILIATION_REQUIRED",
+                "intake cannot resume until reconciliation completes",
+            )
+            return IntakeOutcome(
+                status="SECURITY_BLOCKED",
+                reservation=reservation,
+                receipt=self.ledger.receipt(reservation.attempt_id),
+                disposition=self._disposition(
+                    reservation,
+                    "SECURITY_BLOCKED",
+                    (finding,),
+                ),
+                deletion_attestation=self.ledger.deletion_attestation(reservation.attempt_id),
+                findings=(finding,),
+                admitted_payload=None,
+                quarantine_retained=self.quarantine.exists(reservation.quarantine_handle),
+                replayed=True,
+            )
+        deletion = self.ledger.deletion_attestation(reservation.attempt_id)
+        existing_disposition = self.ledger.disposition(reservation.attempt_id)
+        if deletion is not None and existing_disposition is None:
+            finding = _finding(
+                "TERMINAL_DISPOSITION_MISSING",
+                "deletion completed without a durable terminal disposition",
+            )
+            reservation = self.ledger.mark_reconciliation(
+                reservation.attempt_id,
+                finding.code,
             )
             return IntakeOutcome(
                 status="SECURITY_BLOCKED",
@@ -749,7 +971,28 @@ class IntakeCoordinator:
             reservation = self.ledger.bind_payload(
                 reservation.attempt_id,
                 fingerprint=payload_fingerprint,
-                key_version=self.fingerprint_provider.key_version,
+                key_version=payload_key_version,
+            )
+        except IntakeConflictError:
+            finding = _finding(
+                "RETRY_KEY_PAYLOAD_MISMATCH",
+                "retry key is already bound to different contract bytes",
+            )
+            current = self.ledger.reservation_by_attempt(reservation.attempt_id) or reservation
+            return IntakeOutcome(
+                status="SECURITY_BLOCKED",
+                reservation=current,
+                receipt=self.ledger.receipt(current.attempt_id),
+                disposition=self._disposition(
+                    current,
+                    "SECURITY_BLOCKED",
+                    (finding,),
+                ),
+                deletion_attestation=self.ledger.deletion_attestation(current.attempt_id),
+                findings=(finding,),
+                admitted_payload=None,
+                quarantine_retained=self.quarantine.exists(current.quarantine_handle),
+                replayed=True,
             )
         except Exception:
             return self._block_before_receipt(
@@ -759,14 +1002,43 @@ class IntakeCoordinator:
                     "durable retry-key payload binding failed and requires reconciliation",
                 ),
             )
-        existing_disposition = self.ledger.disposition(reservation.attempt_id)
         if existing_disposition is not None and existing_disposition.terminal:
+            durable_receipt = self.ledger.receipt(reservation.attempt_id)
+            durable_deletion = self.ledger.deletion_attestation(reservation.attempt_id)
+            if (
+                (reservation.payload_fingerprint is not None and durable_receipt is None)
+                or durable_deletion is None
+                or not durable_deletion.deleted
+            ):
+                finding = _finding(
+                    "TERMINAL_EVIDENCE_INCOMPLETE",
+                    "terminal intake evidence requires reconciliation",
+                )
+                reservation = self.ledger.mark_reconciliation(
+                    reservation.attempt_id,
+                    finding.code,
+                )
+                return IntakeOutcome(
+                    status="SECURITY_BLOCKED",
+                    reservation=reservation,
+                    receipt=durable_receipt,
+                    disposition=self._disposition(
+                        reservation,
+                        "SECURITY_BLOCKED",
+                        (finding,),
+                    ),
+                    deletion_attestation=durable_deletion,
+                    findings=(finding,),
+                    admitted_payload=None,
+                    quarantine_retained=self.quarantine.exists(reservation.quarantine_handle),
+                    replayed=True,
+                )
             return IntakeOutcome(
                 status=existing_disposition.status,
                 reservation=reservation,
-                receipt=self.ledger.receipt(reservation.attempt_id),
+                receipt=durable_receipt,
                 disposition=existing_disposition,
-                deletion_attestation=self.ledger.deletion_attestation(reservation.attempt_id),
+                deletion_attestation=durable_deletion,
                 findings=existing_disposition.findings,
                 admitted_payload=None,
                 quarantine_retained=self.quarantine.exists(reservation.quarantine_handle),
@@ -789,10 +1061,10 @@ class IntakeCoordinator:
                     "correction predecessor lacks proven deletion and terminal disposition",
                 ),
             )
-            receipt = self._receipt(
-                request,
+            receipt = self.ledger.receipt(reservation.attempt_id) or self._receipt(
                 reservation,
                 payload_fingerprint,
+                payload_key_version,
             )
             return self._complete_without_payload(
                 reservation,
@@ -821,14 +1093,15 @@ class IntakeCoordinator:
                     ),
                 )
 
-        receipt = self._receipt(
-            request,
+        receipt = self.ledger.receipt(reservation.attempt_id) or self._receipt(
             reservation,
             payload_fingerprint,
+            payload_key_version,
         )
         try:
-            self.ledger.prepare_receipt(receipt)
-            self.ledger.finalize_receipt(receipt)
+            if self.ledger.receipt(reservation.attempt_id) is None:
+                self.ledger.prepare_receipt(receipt)
+                self.ledger.finalize_receipt(receipt)
         except Exception:
             blocked = _finding(
                 "RECEIPT_FINALIZATION_FAILED",
@@ -901,7 +1174,7 @@ class IntakeCoordinator:
                     )
             if not findings:
                 try:
-                    strict_loads(request.payload, request.content_type)
+                    parsed = strict_loads(request.payload, request.content_type)
                 except CanonicalInputError:
                     findings.append(
                         _finding(
@@ -909,31 +1182,104 @@ class IntakeCoordinator:
                             "input failed strict structural admission",
                         )
                     )
+                else:
+                    if _contains_pattern(parsed, _SECRET_PATTERNS):
+                        findings.append(
+                            _finding(
+                                "SECRET_DETECTED",
+                                "decoded input matched a prohibited secret pattern",
+                            )
+                        )
+                    elif _contains_pattern(parsed, _PRIVACY_PATTERNS):
+                        findings.append(
+                            _finding(
+                                "PRIVACY_PATTERN_DETECTED",
+                                "decoded input matched a privacy-sensitive pattern",
+                            )
+                        )
 
-        status = "REJECTED" if findings else "ADMITTED"
-        return self._finalize(
+        if findings:
+            return self._finalize(
+                reservation,
+                receipt,
+                "REJECTED",
+                tuple(findings),
+                admitted_payload=None,
+            )
+        pending_disposition = self._disposition(
             reservation,
-            receipt,
-            status,
-            tuple(findings),
-            admitted_payload=request.payload if status == "ADMITTED" else None,
+            "VALIDATED_PENDING_COMPILATION",
+            (),
+            terminal=False,
+        )
+        return IntakeOutcome(
+            status="VALIDATED_PENDING_COMPILATION",
+            reservation=reservation,
+            receipt=receipt,
+            disposition=pending_disposition,
+            deletion_attestation=None,
+            findings=(),
+            admitted_payload=request.payload,
+            quarantine_retained=True,
+        )
+
+    def load_validated_payload(self, outcome: IntakeOutcome) -> bytes:
+        if (
+            outcome.status != "VALIDATED_PENDING_COMPILATION"
+            or outcome.receipt is None
+            or self.ledger.receipt(outcome.reservation.attempt_id) != outcome.receipt
+        ):
+            raise RuntimeError("intake outcome is not a durable validated handoff")
+        payload = self.quarantine.read(outcome.reservation.quarantine_handle)
+        candidates = self.fingerprint_provider.candidate_fingerprints(
+            "payload",
+            payload,
+        )
+        candidate = next(
+            (item for item in candidates if item.key_version == outcome.receipt.key_version),
+            None,
+        )
+        if candidate is None or not hmac.compare_digest(
+            candidate.value,
+            outcome.receipt.fingerprint,
+        ):
+            self.ledger.mark_reconciliation(
+                outcome.reservation.attempt_id,
+                "QUARANTINE_FINGERPRINT_MISMATCH",
+            )
+            raise RuntimeError("validated quarantine handoff failed fingerprint binding")
+        return payload
+
+    def finalize_admission(self, outcome: IntakeOutcome) -> IntakeOutcome:
+        if (
+            outcome.status != "VALIDATED_PENDING_COMPILATION"
+            or outcome.receipt is None
+            or self.ledger.receipt(outcome.reservation.attempt_id) != outcome.receipt
+        ):
+            raise RuntimeError("only a durable validated handoff can be admitted")
+        return self._finalize(
+            outcome.reservation,
+            outcome.receipt,
+            "ADMITTED",
+            (),
+            admitted_payload=None,
         )
 
     def _receipt(
         self,
-        request: IntakeRequest,
         reservation: IntakeReservation,
         payload_fingerprint: str,
+        payload_key_version: str,
     ) -> IntakeReceipt:
         return IntakeReceipt(
             lineage_id=reservation.lineage_id,
             attempt_id=reservation.attempt_id,
             received_at=self.clock.now(),
-            publisher=request.publisher,
-            channel=request.channel,
+            publisher=reservation.publisher,
+            channel=reservation.channel,
             correction_reference=reservation.correction_reference,
             quarantine_handle=reservation.quarantine_handle,
-            key_version=self.fingerprint_provider.key_version,
+            key_version=payload_key_version,
             fingerprint=payload_fingerprint,
         )
 
@@ -942,6 +1288,8 @@ class IntakeCoordinator:
         reservation: IntakeReservation,
         status: str,
         findings: tuple[IntakeFinding, ...],
+        *,
+        terminal: bool = True,
     ) -> IntakeDisposition:
         return IntakeDisposition(
             lineage_id=reservation.lineage_id,
@@ -949,6 +1297,7 @@ class IntakeCoordinator:
             status=status,
             recorded_at=self.clock.now(),
             findings=findings,
+            terminal=terminal,
         )
 
     def _complete_without_payload(
@@ -959,8 +1308,9 @@ class IntakeCoordinator:
         findings: tuple[IntakeFinding, ...],
     ) -> IntakeOutcome:
         try:
-            self.ledger.prepare_receipt(receipt)
-            self.ledger.finalize_receipt(receipt)
+            if self.ledger.receipt(reservation.attempt_id) is None:
+                self.ledger.prepare_receipt(receipt)
+                self.ledger.finalize_receipt(receipt)
         except Exception:
             blocked = _finding(
                 "RECEIPT_FINALIZATION_FAILED",
@@ -970,6 +1320,21 @@ class IntakeCoordinator:
             reservation = self.ledger.mark_reconciliation(
                 reservation.attempt_id,
                 blocked.code,
+            )
+            return IntakeOutcome(
+                status="SECURITY_BLOCKED",
+                reservation=reservation,
+                receipt=receipt,
+                disposition=self._disposition(
+                    reservation,
+                    "SECURITY_BLOCKED",
+                    findings,
+                    terminal=False,
+                ),
+                deletion_attestation=None,
+                findings=findings,
+                admitted_payload=None,
+                quarantine_retained=self.quarantine.exists(reservation.quarantine_handle),
             )
         return self._finalize(
             reservation,
@@ -1117,20 +1482,53 @@ class IntakeReconciler:
         blocked: list[str] = []
         for reservation in self.ledger.reservations():
             disposition = self.ledger.disposition(reservation.attempt_id)
-            if disposition is not None and disposition.terminal:
+            receipt = self.ledger.receipt(reservation.attempt_id)
+            deletion = self.ledger.deletion_attestation(reservation.attempt_id)
+            invariants_complete = bool(
+                disposition is not None
+                and disposition.terminal
+                and deletion is not None
+                and deletion.deleted
+                and (reservation.payload_fingerprint is None or receipt is not None)
+            )
+            if invariants_complete:
                 if reservation.reconciliation_required:
                     self.ledger.clear_reconciliation(reservation.attempt_id)
                 continue
+            unsafe_terminal = disposition is not None and disposition.terminal
+            if (
+                not reservation.reconciliation_required
+                and not unsafe_terminal
+                and not _expired(reservation.expires_at, self.clock.now())
+            ):
+                continue
             try:
-                if reservation.pending_receipt is not None:
+                if receipt is None and reservation.pending_receipt is not None:
                     self.ledger.finalize_receipt(
                         self.ledger._receipt_from_dict(reservation.pending_receipt)
                     )
+                elif (
+                    receipt is None
+                    and reservation.payload_fingerprint is not None
+                    and reservation.fingerprint_key_version is not None
+                ):
+                    recovered_receipt = IntakeReceipt(
+                        lineage_id=reservation.lineage_id,
+                        attempt_id=reservation.attempt_id,
+                        received_at=reservation.reserved_at,
+                        publisher=reservation.publisher,
+                        channel=reservation.channel,
+                        quarantine_handle=reservation.quarantine_handle,
+                        key_version=reservation.fingerprint_key_version,
+                        fingerprint=reservation.payload_fingerprint,
+                        correction_reference=reservation.correction_reference,
+                    )
+                    self.ledger.prepare_receipt(recovered_receipt)
+                    self.ledger.finalize_receipt(recovered_receipt)
                 deleted = self.quarantine.delete(reservation.quarantine_handle)
                 if not deleted:
                     raise OSError("quarantine deletion remains unresolved")
-                attestation = self.ledger.deletion_attestation(reservation.attempt_id)
-                if attestation is None:
+                if deletion is None:
                     self.ledger.write_deletion_attestation(
                         DeletionAttestation(
                             lineage_id=reservation.lineage_id,
@@ -1140,24 +1538,39 @@ class IntakeReconciler:
                             deleted_at=self.clock.now(),
                         )
                     )
-                pending = reservation.pending_disposition
-                if pending is None:
-                    finding = _finding(
-                        "INTAKE_RECONCILED_SECURITY_BLOCK",
-                        "interrupted intake was reconciled without resuming admission",
-                    )
-                    terminal = IntakeDisposition(
-                        lineage_id=reservation.lineage_id,
-                        attempt_id=reservation.attempt_id,
-                        status="SECURITY_BLOCKED",
-                        recorded_at=self.clock.now(),
-                        findings=(finding,),
-                    )
-                else:
-                    terminal = self.ledger._disposition_from_dict(pending)
-                    if terminal.status != "SECURITY_BLOCKED":
-                        terminal = replace(terminal, status="SECURITY_BLOCKED")
-                self.ledger.write_disposition(terminal)
+                if disposition is None:
+                    pending = reservation.pending_disposition
+                    if pending is None:
+                        finding = _finding(
+                            "INTAKE_RECONCILED_SECURITY_BLOCK",
+                            "interrupted intake was reconciled without resuming admission",
+                        )
+                        terminal = IntakeDisposition(
+                            lineage_id=reservation.lineage_id,
+                            attempt_id=reservation.attempt_id,
+                            status="SECURITY_BLOCKED",
+                            recorded_at=self.clock.now(),
+                            findings=(finding,),
+                        )
+                    else:
+                        terminal = self.ledger._disposition_from_dict(pending)
+                        if terminal.status != "SECURITY_BLOCKED":
+                            terminal = replace(
+                                terminal,
+                                status="SECURITY_BLOCKED",
+                            )
+                    self.ledger.write_disposition(terminal)
+                durable_receipt = self.ledger.receipt(reservation.attempt_id)
+                durable_deletion = self.ledger.deletion_attestation(reservation.attempt_id)
+                durable_disposition = self.ledger.disposition(reservation.attempt_id)
+                if (
+                    (reservation.payload_fingerprint is not None and durable_receipt is None)
+                    or durable_deletion is None
+                    or not durable_deletion.deleted
+                    or durable_disposition is None
+                    or not durable_disposition.terminal
+                ):
+                    raise RuntimeError("reconciliation invariants remain incomplete")
                 self.ledger.clear_reconciliation(reservation.attempt_id)
                 resolved.append(reservation.attempt_id)
             except Exception:
@@ -1175,6 +1588,7 @@ __all__ = [
     "FileIntakeLedger",
     "FileQuarantineStore",
     "IntakeCoordinator",
+    "IntakeConflictError",
     "IntakeDisposition",
     "IntakeFinding",
     "IntakeOutcome",
@@ -1182,6 +1596,7 @@ __all__ = [
     "IntakeReconciler",
     "IntakeRequest",
     "IntakeReservation",
+    "KeyedFingerprint",
     "KeyedFingerprintProvider",
     "MalwareScanResult",
     "MalwareScanner",

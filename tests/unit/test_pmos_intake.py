@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import importlib
 import json
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -45,15 +46,39 @@ class SequenceIds:
 
 class TestFingerprintProvider:
     key_version = "TEST-KEY-V1"
-    _key = b"test-only-key-material"
+    _keys = {"TEST-KEY-V1": b"test-only-key-material"}
 
     def fingerprint(self, domain: str, payload: bytes) -> str:
+        return self._fingerprint_for_key(self._keys[self.key_version], domain, payload)
+
+    def candidate_fingerprints(self, domain: str, payload: bytes) -> tuple[Any, ...]:
+        module = _module()
+        return tuple(
+            module.KeyedFingerprint(
+                key_version=version,
+                value=self._fingerprint_for_key(key, domain, payload),
+            )
+            for version, key in self._keys.items()
+        )
+
+    @staticmethod
+    def _fingerprint_for_key(key: bytes, domain: str, payload: bytes) -> str:
         assert domain in {"payload", "retry-key"}
         return hmac.new(
-            self._key,
+            key,
             b"pmpe-intake:" + domain.encode() + b"\x00" + payload,
             hashlib.sha256,
         ).hexdigest()
+
+
+class RotatingFingerprintProvider(TestFingerprintProvider):
+    def __init__(
+        self,
+        current: str,
+        keys: dict[str, bytes],
+    ) -> None:
+        self.key_version = current
+        self._keys = keys
 
 
 class TestCipher:
@@ -154,7 +179,7 @@ def test_issue76_public_intake_components_exist() -> None:
 
 def test_retry_key_resolves_exactly_one_durable_reservation(tmp_path: Path) -> None:
     coordinator = _coordinator(tmp_path)
-    first = coordinator.receive(_request())
+    first = coordinator.finalize_admission(coordinator.receive(_request()))
     second = coordinator.receive(_request())
     assert first.reservation == second.reservation
     assert first.receipt == second.receipt
@@ -167,12 +192,52 @@ def test_retry_key_resolves_exactly_one_durable_reservation(tmp_path: Path) -> N
 
 def test_retry_key_cannot_be_rebound_to_different_payload(tmp_path: Path) -> None:
     coordinator = _coordinator(tmp_path)
-    first = coordinator.receive(_request())
+    first = coordinator.finalize_admission(coordinator.receive(_request()))
     mismatch = coordinator.receive(_request(b'{"spec_version":"1.0","product_name":"Different"}'))
     assert mismatch.status == "SECURITY_BLOCKED"
     assert mismatch.reservation == first.reservation
     assert any(finding.code == "RETRY_KEY_PAYLOAD_MISMATCH" for finding in mismatch.findings)
     assert len(list((tmp_path / "quarantine").glob("*.sealed"))) == 0
+
+
+def test_retry_key_resolves_across_governed_key_rotation(tmp_path: Path) -> None:
+    old = RotatingFingerprintProvider(
+        "KEY-V1",
+        {"KEY-V1": b"old-test-key"},
+    )
+    first_coordinator = _coordinator(tmp_path, fingerprints=old)
+    first = first_coordinator.finalize_admission(first_coordinator.receive(_request()))
+    rotated = RotatingFingerprintProvider(
+        "KEY-V2",
+        {
+            "KEY-V2": b"new-test-key",
+            "KEY-V1": b"old-test-key",
+        },
+    )
+    retried = _coordinator(tmp_path, fingerprints=rotated).receive(_request())
+    assert retried.replayed
+    assert retried.reservation.attempt_id == first.reservation.attempt_id
+    assert retried.receipt == first.receipt
+    assert len(list((tmp_path / "ledger" / "reservations").glob("*.json"))) == 1
+
+
+def test_concurrent_retry_payload_binding_is_atomic(tmp_path: Path) -> None:
+    coordinator = _coordinator(tmp_path)
+    requests = (
+        _request(b'{"spec_version":"1.0","product_name":"First"}'),
+        _request(b'{"spec_version":"1.0","product_name":"Second"}'),
+    )
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = tuple(pool.map(coordinator.receive, requests))
+    assert {outcome.status for outcome in outcomes} == {
+        "SECURITY_BLOCKED",
+        "VALIDATED_PENDING_COMPILATION",
+    }
+    reservations = {outcome.reservation.attempt_id for outcome in outcomes}
+    assert len(reservations) == 1
+    persisted = coordinator.ledger.reservation_for_retry_key("publisher-retry-001")
+    assert persisted is not None
+    assert not persisted.reconciliation_required
 
 
 def test_missing_retry_index_is_recovered_from_safe_reservation_metadata(
@@ -260,7 +325,10 @@ def test_quarantine_payload_and_ordinary_digest_are_encrypted_and_deleted(
     tmp_path: Path,
 ) -> None:
     coordinator = _coordinator(tmp_path)
-    outcome = coordinator.receive(_request())
+    pending = coordinator.receive(_request())
+    assert pending.status == "VALIDATED_PENDING_COMPILATION"
+    assert pending.quarantine_retained
+    outcome = coordinator.finalize_admission(pending)
     files = list((tmp_path / "quarantine").glob("*"))
     assert outcome.deletion_attestation is not None
     assert outcome.deletion_attestation.deleted
@@ -321,9 +389,15 @@ def test_malware_result_blocks_and_deletes_without_retaining_scanner_payload(
 def test_valid_payload_is_admitted_only_after_all_checks_and_quarantine_cleanup(
     tmp_path: Path,
 ) -> None:
-    outcome = _coordinator(tmp_path).receive(_request())
+    coordinator = _coordinator(tmp_path)
+    pending = coordinator.receive(_request())
+    assert pending.status == "VALIDATED_PENDING_COMPILATION"
+    assert pending.admitted_payload == VALID_PAYLOAD
+    assert pending.quarantine_retained
+    assert pending.deletion_attestation is None
+    outcome = coordinator.finalize_admission(pending)
     assert outcome.status == "ADMITTED"
-    assert outcome.admitted_payload == VALID_PAYLOAD
+    assert outcome.admitted_payload is None
     assert outcome.deletion_attestation.deleted
     assert not outcome.quarantine_retained
     assert outcome.disposition.status == "ADMITTED"
@@ -354,7 +428,7 @@ def test_syntactically_invalid_correction_reference_is_not_persisted(
 def test_valid_correction_reuses_lineage_only_after_terminal_cleanup(tmp_path: Path) -> None:
     module = _module()
     coordinator = _coordinator(tmp_path)
-    original = coordinator.receive(_request())
+    original = coordinator.finalize_admission(coordinator.receive(_request()))
     reference = module.CorrectionReference(
         original.reservation.lineage_id,
         original.reservation.attempt_id,
@@ -485,7 +559,7 @@ def test_orphan_watchdog_blocks_reserved_handle_and_reconciles_it(tmp_path: Path
     report = module.IntakeReconciler(
         ledger=coordinator.ledger,
         quarantine=coordinator.quarantine,
-        clock=FixedClock(),
+        clock=FixedClock("2026-07-31T08:10:00Z"),
     ).reconcile()
     assert reservation.attempt_id in report.resolved_attempt_ids
     assert not coordinator.quarantine.exists(reservation.quarantine_handle)
@@ -497,7 +571,7 @@ def test_orphan_watchdog_blocks_reserved_handle_and_reconciles_it(tmp_path: Path
 def test_terminal_retry_never_allocates_second_quarantine_object(tmp_path: Path) -> None:
     ids = SequenceIds()
     coordinator = _coordinator(tmp_path, ids=ids)
-    first = coordinator.receive(_request())
+    first = coordinator.finalize_admission(coordinator.receive(_request()))
     second = coordinator.receive(_request())
     assert first.reservation.quarantine_handle == second.reservation.quarantine_handle
     assert ids.counts["quarantine"] == 1
@@ -519,3 +593,96 @@ def test_no_public_fingerprint_validation_or_payload_logging_api(tmp_path: Path)
     )
     assert "Safe Product" not in ledger_text
     assert hashlib.sha256(VALID_PAYLOAD).hexdigest() not in ledger_text
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b'{"token":"ghp_abcdefghijklmnopqr\\u0073tuvwxyz123456"}',
+        b'{"customer_email":"person\\u0040example.com"}',
+    ],
+)
+def test_decoded_secret_and_privacy_values_are_rejected(
+    tmp_path: Path,
+    payload: bytes,
+) -> None:
+    outcome = _coordinator(tmp_path).receive(_request(payload))
+    assert outcome.status == "REJECTED"
+    assert outcome.deletion_attestation.deleted
+    assert outcome.admitted_payload is None
+
+
+def test_unbounded_or_sensitive_safe_metadata_is_rejected_before_reservation(
+    tmp_path: Path,
+) -> None:
+    coordinator = _coordinator(tmp_path)
+    for publisher in (
+        "ghp_abcdefghijklmnopqrstuvwxyz123456",
+        "x" * 129,
+        "publisher\ninjection",
+    ):
+        with pytest.raises(ValueError, match="safe metadata"):
+            coordinator.receive(_request(publisher=publisher))
+    assert list((tmp_path / "ledger" / "reservations").glob("*.json")) == []
+
+
+def test_receipt_failure_on_blocked_correction_is_finalized_by_reconciler(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    coordinator = _coordinator(tmp_path)
+    predecessor = coordinator.ledger.reserve(
+        retry_key="unresolved-original",
+        publisher="pm-agent-os",
+        channel="contract-api",
+        correction_reference=None,
+    )
+    ledger = coordinator.ledger
+    real_finalize = ledger.finalize_receipt
+
+    def fail_once(receipt: Any) -> None:
+        ledger.finalize_receipt = real_finalize
+        raise OSError("simulated durable receipt failure")
+
+    ledger.finalize_receipt = fail_once
+    blocked = coordinator.receive(
+        _request(
+            retry_key="blocked-correction",
+            correction_reference=module.CorrectionReference(
+                predecessor.lineage_id,
+                predecessor.attempt_id,
+            ),
+        )
+    )
+    assert blocked.status == "SECURITY_BLOCKED"
+    assert ledger.receipt(blocked.reservation.attempt_id) is None
+    assert ledger.disposition(blocked.reservation.attempt_id) is None
+    report = module.IntakeReconciler(
+        ledger=ledger,
+        quarantine=coordinator.quarantine,
+        clock=FixedClock(),
+    ).reconcile()
+    assert report.resolved_attempt_ids == (blocked.reservation.attempt_id,)
+    assert ledger.receipt(blocked.reservation.attempt_id) is not None
+    assert ledger.disposition(blocked.reservation.attempt_id).terminal
+
+
+def test_active_unexpired_reservation_is_not_reconciled_as_orphan(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    coordinator = _coordinator(tmp_path)
+    reservation = coordinator.ledger.reserve(
+        retry_key="active",
+        publisher="pm-agent-os",
+        channel="contract-api",
+        correction_reference=None,
+    )
+    report = module.IntakeReconciler(
+        ledger=coordinator.ledger,
+        quarantine=coordinator.quarantine,
+        clock=FixedClock(),
+    ).reconcile()
+    assert report.resolved_attempt_ids == ()
+    assert report.blocked_attempt_ids == ()
+    assert coordinator.ledger.disposition(reservation.attempt_id) is None

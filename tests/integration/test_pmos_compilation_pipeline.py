@@ -121,7 +121,29 @@ def test_acknowledgement_retry_returns_same_compilation_without_new_object(
     assert second.intake.reservation == first.intake.reservation
     assert second.compilation.bundle_digest == first.compilation.bundle_digest
     assert second.compilation.manifest_digest == first.compilation.manifest_digest
-    assert len(list((tmp_path / "evidence").iterdir())) == 1
+    assert len([path for path in (tmp_path / "evidence").iterdir() if path.is_dir()]) == 1
+
+
+def test_compiler_failure_keeps_validated_source_for_safe_retry(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    request = _request(FIXTURES / "minimal_valid_spec.json", "compiler-crash")
+    real_compile = service.compiler.compile
+
+    def fail_once(*args: Any, **kwargs: Any) -> Any:
+        service.compiler.compile = real_compile
+        raise RuntimeError("simulated compiler crash")
+
+    service.compiler.compile = fail_once
+    failed = service.process(request)
+    assert failed.status == "COMPILATION_SECURITY_BLOCKED"
+    assert failed.intake.quarantine_retained
+    assert failed.intake.disposition.terminal is False
+    retried = service.process(request)
+    assert retried.status == "COMPILED_BLOCKED"
+    assert retried.intake.deletion_attestation.deleted
+    assert not retried.intake.quarantine_retained
 
 
 def test_tampered_compilation_evidence_fails_closed_on_retry(tmp_path: Path) -> None:

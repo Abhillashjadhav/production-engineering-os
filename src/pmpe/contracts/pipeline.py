@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -60,6 +63,27 @@ class FileCompilationEvidenceStore:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chmod(self.root, 0o700)
+        self._lock_path = self.root / ".evidence.lock"
+        self._lock_path.touch(mode=0o600, exist_ok=True)
+
+    @contextmanager
+    def _locked(self) -> Iterator[None]:
+        with self._lock_path.open("rb") as stream:
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+
+    @staticmethod
+    def _write_once(path: Path, payload: bytes) -> None:
+        if path.exists():
+            if path.read_bytes() != payload:
+                raise CompilationEvidenceError(
+                    "attempt already contains different compiler evidence"
+                )
+            return
+        _atomic_write(path, payload)
 
     def _attempt_dir(self, attempt_id: str) -> Path:
         if not attempt_id or "/" in attempt_id or "\\" in attempt_id or attempt_id in {".", ".."}:
@@ -75,14 +99,21 @@ class FileCompilationEvidenceStore:
         result: CompilationResult,
         intake_binding: dict[str, str],
     ) -> None:
-        target = self._attempt_dir(attempt_id)
-        evidence = {**result.evidence, "intake": dict(intake_binding)}
-        _atomic_write(target / "bundle.json", result.bundle_bytes + b"\n")
-        _atomic_write(target / "manifest.json", result.manifest_bytes + b"\n")
-        _atomic_write(
-            target / "compiler-evidence.json",
-            canonical_json_bytes(evidence) + b"\n",
-        )
+        with self._locked():
+            target = self._attempt_dir(attempt_id)
+            evidence = {**result.evidence, "intake": dict(intake_binding)}
+            self._write_once(
+                target / "bundle.json",
+                result.bundle_bytes + b"\n",
+            )
+            self._write_once(
+                target / "manifest.json",
+                result.manifest_bytes + b"\n",
+            )
+            self._write_once(
+                target / "compiler-evidence.json",
+                canonical_json_bytes(evidence) + b"\n",
+            )
 
     def write_blocked(
         self,
@@ -90,16 +121,17 @@ class FileCompilationEvidenceStore:
         blocked: CompilationBlocked,
         intake_binding: dict[str, str],
     ) -> None:
-        target = self._attempt_dir(attempt_id)
-        evidence = {
-            "diagnostics": [diagnostic.as_dict() for diagnostic in blocked.diagnostics],
-            "intake": dict(intake_binding),
-            "status": "COMPILATION_BLOCKED",
-        }
-        _atomic_write(
-            target / "compiler-diagnostics.json",
-            canonical_json_bytes(evidence) + b"\n",
-        )
+        with self._locked():
+            target = self._attempt_dir(attempt_id)
+            evidence = {
+                "diagnostics": [diagnostic.as_dict() for diagnostic in blocked.diagnostics],
+                "intake": dict(intake_binding),
+                "status": "COMPILATION_BLOCKED",
+            }
+            self._write_once(
+                target / "compiler-diagnostics.json",
+                canonical_json_bytes(evidence) + b"\n",
+            )
 
     def load_compilation(self, attempt_id: str) -> CompilationResult | None:
         target = self.root / attempt_id
@@ -154,7 +186,14 @@ class PmosCompilationService:
                 compilation=None,
                 replayed=intake_outcome.replayed,
             )
-        if intake_outcome.replayed:
+        if intake_outcome.status == "REJECTED":
+            return PmosCompilationOutcome(
+                status="INTAKE_REJECTED",
+                intake=intake_outcome,
+                compilation=None,
+                replayed=intake_outcome.replayed,
+            )
+        if intake_outcome.status == "ADMITTED":
             try:
                 compiled = self.evidence_store.load_compilation(receipt.attempt_id)
             except CompilationEvidenceError:
@@ -174,11 +213,7 @@ class PmosCompilationService:
             status = (
                 "COMPILATION_BLOCKED"
                 if self.evidence_store.blocked_exists(receipt.attempt_id)
-                else (
-                    "INTAKE_REJECTED"
-                    if intake_outcome.status == "REJECTED"
-                    else "INTAKE_SECURITY_BLOCKED"
-                )
+                else "EVIDENCE_SECURITY_BLOCKED"
             )
             return PmosCompilationOutcome(
                 status=status,
@@ -186,13 +221,7 @@ class PmosCompilationService:
                 compilation=None,
                 replayed=True,
             )
-        if intake_outcome.status == "REJECTED":
-            return PmosCompilationOutcome(
-                status="INTAKE_REJECTED",
-                intake=intake_outcome,
-                compilation=None,
-            )
-        if intake_outcome.status != "ADMITTED" or intake_outcome.admitted_payload is None:
+        if intake_outcome.status != "VALIDATED_PENDING_COMPILATION":
             return PmosCompilationOutcome(
                 status="INTAKE_SECURITY_BLOCKED",
                 intake=intake_outcome,
@@ -207,34 +236,100 @@ class PmosCompilationService:
             "received_at": receipt.received_at,
         }
         try:
+            existing = self.evidence_store.load_compilation(receipt.attempt_id)
+        except CompilationEvidenceError:
+            return PmosCompilationOutcome(
+                status="EVIDENCE_SECURITY_BLOCKED",
+                intake=intake_outcome,
+                compilation=None,
+                replayed=True,
+            )
+        if existing is not None or self.evidence_store.blocked_exists(receipt.attempt_id):
+            finalized = self._finalize_intake(intake_outcome)
+            if finalized.status != "ADMITTED":
+                return PmosCompilationOutcome(
+                    status="INTAKE_SECURITY_BLOCKED",
+                    intake=finalized,
+                    compilation=existing,
+                    replayed=True,
+                )
+            return PmosCompilationOutcome(
+                status=(
+                    "COMPILED_BLOCKED"
+                    if existing is not None and existing.blocked
+                    else ("COMPILED" if existing is not None else "COMPILATION_BLOCKED")
+                ),
+                intake=finalized,
+                compilation=existing,
+                replayed=True,
+            )
+
+        try:
+            source_payload = self.intake.load_validated_payload(intake_outcome)
             compilation = self.compiler.compile(
-                intake_outcome.admitted_payload,
+                source_payload,
                 content_type=request.content_type,
                 received_at=receipt.received_at,
                 source_name=receipt.attempt_id,
             )
         except CompilationBlocked as blocked:
-            self.evidence_store.write_blocked(
-                receipt.attempt_id,
-                blocked,
-                binding,
-            )
+            try:
+                self.evidence_store.write_blocked(
+                    receipt.attempt_id,
+                    blocked,
+                    binding,
+                )
+            except (OSError, CompilationEvidenceError):
+                return PmosCompilationOutcome(
+                    status="COMPILATION_SECURITY_BLOCKED",
+                    intake=intake_outcome,
+                    compilation=None,
+                )
+            finalized = self._finalize_intake(intake_outcome)
             return PmosCompilationOutcome(
-                status="COMPILATION_BLOCKED",
+                status=(
+                    "COMPILATION_BLOCKED"
+                    if finalized.status == "ADMITTED"
+                    else "INTAKE_SECURITY_BLOCKED"
+                ),
+                intake=finalized,
+                compilation=None,
+            )
+        except Exception:
+            return PmosCompilationOutcome(
+                status="COMPILATION_SECURITY_BLOCKED",
                 intake=intake_outcome,
                 compilation=None,
             )
 
-        self.evidence_store.write_compilation(
-            receipt.attempt_id,
-            compilation,
-            binding,
-        )
+        try:
+            self.evidence_store.write_compilation(
+                receipt.attempt_id,
+                compilation,
+                binding,
+            )
+        except (OSError, CompilationEvidenceError):
+            return PmosCompilationOutcome(
+                status="COMPILATION_SECURITY_BLOCKED",
+                intake=intake_outcome,
+                compilation=None,
+            )
+        finalized = self._finalize_intake(intake_outcome)
         return PmosCompilationOutcome(
-            status="COMPILED_BLOCKED" if compilation.blocked else "COMPILED",
-            intake=intake_outcome,
+            status=(
+                "COMPILED_BLOCKED"
+                if compilation.blocked and finalized.status == "ADMITTED"
+                else ("COMPILED" if finalized.status == "ADMITTED" else "INTAKE_SECURITY_BLOCKED")
+            ),
+            intake=finalized,
             compilation=compilation,
         )
+
+    def _finalize_intake(self, intake_outcome: IntakeOutcome) -> IntakeOutcome:
+        try:
+            return self.intake.finalize_admission(intake_outcome)
+        except Exception:
+            return intake_outcome
 
 
 __all__ = [
