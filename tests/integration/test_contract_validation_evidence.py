@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 
-from pmpe.contracts.canonical import canonical_digest
+from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from pmpe.contracts.intake import CorrectionReference, IntakeReceipt, KeyedFingerprint
 from tests.integration.test_pmos_compilation_pipeline import _request, _service
 
@@ -44,6 +44,58 @@ def _api() -> ModuleType:
             "issue #63 validation evidence implementation is absent",
             pytrace=False,
         )
+
+
+class TestAuthorityEvidenceVerifier:
+    """Test-only authority issuer/verifier outside the production validator API."""
+
+    issuer_id = "TEST-AUTHORITY-001"
+    key_version = "TEST-AUTHORITY-KEY-V1"
+    _key = b"issue-63-external-authority-test-key"
+
+    def issue(
+        self,
+        bundle: dict[str, Any],
+        authority_grants: tuple[Any, ...],
+        requirement_grants: tuple[Any, ...],
+    ) -> Any:
+        api = _api()
+        grants = tuple(
+            sorted((item.as_dict() for item in authority_grants), key=canonical_json_bytes)
+        )
+        requirements = tuple(
+            sorted((item.as_dict() for item in requirement_grants), key=canonical_json_bytes)
+        )
+        evidence = api.ApprovalAuthorityEvidence(
+            bundle_digest=canonical_digest(bundle),
+            approvals_digest=canonical_digest(bundle.get("approvals", {})),
+            authority_grants=grants,
+            requirement_grants=requirements,
+            issuer_id=self.issuer_id,
+            key_version=self.key_version,
+            attestation="",
+        )
+        attestation = hmac.new(
+            self._key,
+            b"validation-authority-attestation\x00"
+            + canonical_json_bytes(evidence.signed_payload()),
+            hashlib.sha256,
+        ).hexdigest()
+        return replace(evidence, attestation=attestation)
+
+    def verify(self, evidence: Any) -> bool:
+        if evidence.issuer_id != self.issuer_id or evidence.key_version != self.key_version:
+            return False
+        expected = hmac.new(
+            self._key,
+            b"validation-authority-attestation\x00"
+            + canonical_json_bytes(evidence.signed_payload()),
+            hashlib.sha256,
+        ).hexdigest()
+        return hmac.compare_digest(expected, evidence.attestation)
+
+
+AUTHORITY = TestAuthorityEvidenceVerifier()
 
 
 def _bundle() -> dict[str, Any]:
@@ -127,17 +179,14 @@ def _context(
         authority_grants=authority_grants,
         approval_requirement_grants=requirement_grants,
         intake_identity=api.IntakeIdentityEvidence.create(receipt, FINGERPRINTS),
-        authority_identity=api.ApprovalAuthorityEvidence.create(
-            authority_grants,
-            requirement_grants,
-            FINGERPRINTS,
-        ),
+        authority_identity=AUTHORITY.issue(bundle, authority_grants, requirement_grants),
     )
 
 
 def _validator(*, evidence_lookup: Any = None) -> Any:
     return _api().ContractSemanticValidator(
         fingerprint_provider=FINGERPRINTS,
+        authority_evidence_verifier=AUTHORITY,
         evidence_lookup=evidence_lookup,
     )
 
@@ -262,8 +311,9 @@ def test_missing_lineage_index_is_reconciled_before_recording_correction(
         first_bundle,
         _context(first_bundle, "LINEAGE-000001", "ATTEMPT-000001"),
     )
-    store.record(first)
-    (store.artifacts.root / "lineages" / "LINEAGE-000001.json").unlink()
+    # Simulate a crash after the signed attempt is durable but before the
+    # lineage index and signed catalog commit are written.
+    store._write_attempt_for_test("ATTEMPT-000001", first.as_dict())
     store.reconcile()
 
     corrected_bundle = _bundle()
@@ -288,7 +338,7 @@ def test_missing_lineage_index_is_reconciled_before_recording_correction(
     assert summary["latest_disposition"] == "ADMITTED"
 
 
-def test_missing_lineage_index_cannot_admit_second_first_pass(tmp_path: Path) -> None:
+def test_deleting_cataloged_lineage_cannot_rewrite_metric_denominator(tmp_path: Path) -> None:
     api = _api()
     bundle = _bundle()
     store = api.FileValidationEvidenceStore(
@@ -300,13 +350,70 @@ def test_missing_lineage_index_cannot_admit_second_first_pass(tmp_path: Path) ->
     )
     store.record(first)
     (store.artifacts.root / "lineages" / "LINEAGE-000001.json").unlink()
-    second = _validator().validate(
-        bundle,
-        _context(bundle, "LINEAGE-000001", "ATTEMPT-000002"),
+    with pytest.raises(api.ValidationEvidenceError, match="catalog"):
+        store.metric_summary()
+    with pytest.raises(api.ValidationEvidenceError, match="deleted"):
+        store.reconcile()
+
+
+def test_deleting_latest_correction_cannot_resurrect_prior_admission(tmp_path: Path) -> None:
+    api = _api()
+    store = api.FileValidationEvidenceStore(
+        tmp_path / "evidence", fingerprint_provider=FINGERPRINTS
     )
-    with pytest.raises(api.ValidationEvidenceError, match="requires correction evidence"):
-        store.record(second)
-    assert store.lineage_summary("LINEAGE-000001")["attempt_ids"] == ["ATTEMPT-000001"]
+    validator = _validator(evidence_lookup=store)
+    first_bundle = _bundle()
+    first = validator.validate(
+        first_bundle,
+        _context(first_bundle, "LINEAGE-000001", "ATTEMPT-000001"),
+    )
+    store.record(first)
+
+    correction_bundle = _bundle()
+    del correction_bundle["product"]
+    correction = validator.validate(
+        correction_bundle,
+        _context(
+            correction_bundle,
+            "LINEAGE-000001",
+            "ATTEMPT-000002",
+            correction=CorrectionReference(
+                lineage_id="LINEAGE-000001",
+                attempt_id="ATTEMPT-000001",
+            ),
+        ),
+    )
+    store.record(correction)
+    assert store.lineage_summary("LINEAGE-000001")["latest_disposition"] == (
+        "PRODUCT_INPUT_REQUIRED"
+    )
+
+    (store.artifacts.root / "attempts" / "ATTEMPT-000002.json").unlink()
+    with pytest.raises(api.ValidationEvidenceError, match="deleted"):
+        store.reconcile()
+    with pytest.raises(api.ValidationEvidenceError, match="catalog"):
+        store.metric_summary()
+
+
+def test_deleting_all_signed_evidence_cannot_reinitialize_an_empty_ledger(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    root = tmp_path / "evidence"
+    store = api.FileValidationEvidenceStore(root, fingerprint_provider=FINGERPRINTS)
+    bundle = _bundle()
+    store.record(
+        _validator().validate(
+            bundle,
+            _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
+        )
+    )
+    for path in store.artifacts.root.rglob("*.json"):
+        if path.name != "index.json":
+            path.unlink()
+
+    with pytest.raises(api.ValidationEvidenceError, match="catalog is missing"):
+        api.FileValidationEvidenceStore(root, fingerprint_provider=FINGERPRINTS)
 
 
 def test_reconciliation_rejects_multiple_first_pass_roots(tmp_path: Path) -> None:
@@ -479,6 +586,7 @@ def test_compiler_output_binds_validation_to_issue_76_intake_identity(tmp_path: 
         compiled.intake.receipt,
         bundle_digest=compiled.compilation.bundle_digest,
         evaluated_at="2026-07-31T09:00:00Z",
+        authority_identity=AUTHORITY.issue(compiled.compilation.bundle, (), ()),
         fingerprint_provider=FINGERPRINTS,
     )
     result = _validator().validate(compiled.compilation.bundle, context)

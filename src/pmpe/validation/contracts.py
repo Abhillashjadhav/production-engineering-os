@@ -58,6 +58,10 @@ _STORE_EVIDENCE_PROFILE = "PMPE-VALIDATION-STORE-EVIDENCE-1"
 _OWNERSHIP_PATTERNS = (
     re.compile(r"(?i)\b(?:engineering|peos)\s+(?:will\s+)?decide\b"),
     re.compile(
+        r"(?i)\b(?:engineering|peos)\s+will\s+"
+        r"(?:choose|select|define|determine)\b"
+    ),
+    re.compile(
         r"(?i)\b(?:engineering|peos)\s+(?:is|are)\s+responsible\s+for\s+"
         r"(?:choosing|deciding|defining|selecting)\b"
     ),
@@ -202,86 +206,37 @@ class ApprovalRequirementGrant:
 
 @dataclass(frozen=True)
 class ApprovalAuthorityEvidence:
+    bundle_digest: str
+    approvals_digest: str
     authority_grants: tuple[dict[str, str], ...]
     requirement_grants: tuple[dict[str, str], ...]
-    evidence_digest: str
+    issuer_id: str
     key_version: str
-    fingerprint: str
+    attestation: str
     profile: str = _AUTHORITY_EVIDENCE_PROFILE
 
-    @classmethod
-    def create(
-        cls,
-        authority_grants: Sequence[ApprovalAuthorityGrant],
-        requirement_grants: Sequence[ApprovalRequirementGrant],
-        fingerprint_provider: KeyedFingerprintProvider,
-    ) -> ApprovalAuthorityEvidence:
-        grants = tuple(
-            sorted(
-                (item.as_dict() for item in authority_grants),
-                key=canonical_json_bytes,
-            )
-        )
-        requirements = tuple(
-            sorted(
-                (item.as_dict() for item in requirement_grants),
-                key=canonical_json_bytes,
-            )
-        )
-        payload = {
-            "authority_grants": list(grants),
-            "profile": _AUTHORITY_EVIDENCE_PROFILE,
-            "requirement_grants": list(requirements),
-        }
-        return cls(
-            authority_grants=copy.deepcopy(grants),
-            requirement_grants=copy.deepcopy(requirements),
-            evidence_digest=canonical_digest(payload),
-            key_version=fingerprint_provider.key_version,
-            fingerprint=fingerprint_provider.fingerprint(
-                "validation-authority-evidence",
-                canonical_json_bytes(payload),
-            ),
-        )
-
-    def as_dict(self) -> dict[str, Any]:
+    def signed_payload(self) -> dict[str, Any]:
         return {
+            "approvals_digest": self.approvals_digest,
             "authority_grants": copy.deepcopy(list(self.authority_grants)),
-            "evidence_digest": self.evidence_digest,
-            "fingerprint": self.fingerprint,
+            "bundle_digest": self.bundle_digest,
+            "issuer_id": self.issuer_id,
             "key_version": self.key_version,
             "profile": self.profile,
             "requirement_grants": copy.deepcopy(list(self.requirement_grants)),
         }
 
-    def verify(self, fingerprint_provider: KeyedFingerprintProvider) -> bool:
-        payload = {
-            "authority_grants": list(self.authority_grants),
-            "profile": self.profile,
-            "requirement_grants": list(self.requirement_grants),
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            **self.signed_payload(),
+            "attestation": self.attestation,
         }
-        try:
-            payload_bytes = canonical_json_bytes(payload)
-            digest = canonical_digest(payload)
-        except (TypeError, ValueError):
-            return False
-        if (
-            self.profile != _AUTHORITY_EVIDENCE_PROFILE
-            or self.evidence_digest != digest
-            or not re.fullmatch(r"[0-9a-fA-F]{32,}", self.fingerprint)
-        ):
-            return False
-        candidate = next(
-            (
-                item
-                for item in fingerprint_provider.candidate_fingerprints(
-                    "validation-authority-evidence", payload_bytes
-                )
-                if item.key_version == self.key_version
-            ),
-            None,
-        )
-        return candidate is not None and hmac.compare_digest(candidate.value, self.fingerprint)
+
+
+class ApprovalAuthorityVerifier(Protocol):
+    """Verifier backed by an authority trust root that cannot issue evidence here."""
+
+    def verify(self, evidence: ApprovalAuthorityEvidence) -> bool: ...
 
 
 @dataclass(frozen=True)
@@ -372,6 +327,7 @@ class ValidationContext:
         possible_duplicate: bool = False,
         authority_grants: tuple[ApprovalAuthorityGrant, ...] = (),
         approval_requirement_grants: tuple[ApprovalRequirementGrant, ...] = (),
+        authority_identity: ApprovalAuthorityEvidence | None = None,
         fingerprint_provider: KeyedFingerprintProvider,
     ) -> ValidationContext:
         if receipt.correction_reference is not None and lineage_received_at is None:
@@ -389,11 +345,7 @@ class ValidationContext:
             authority_grants=authority_grants,
             approval_requirement_grants=approval_requirement_grants,
             intake_identity=IntakeIdentityEvidence.create(receipt, fingerprint_provider),
-            authority_identity=ApprovalAuthorityEvidence.create(
-                authority_grants,
-                approval_requirement_grants,
-                fingerprint_provider,
-            ),
+            authority_identity=authority_identity,
         )
 
 
@@ -777,10 +729,12 @@ class ContractSemanticValidator:
         registry: RuleRegistry | None = None,
         *,
         fingerprint_provider: KeyedFingerprintProvider | None = None,
+        authority_evidence_verifier: ApprovalAuthorityVerifier | None = None,
         evidence_lookup: ValidationEvidenceLookup | None = None,
     ) -> None:
         self.registry = registry or default_rule_registry()
         self.fingerprint_provider = fingerprint_provider
+        self.authority_evidence_verifier = authority_evidence_verifier
         self.evidence_lookup = evidence_lookup
         schema = json.loads(
             (packaged_schema_dir() / "pmos_contract_bundle.schema.json").read_text()
@@ -862,13 +816,21 @@ class ContractSemanticValidator:
                     for finding in findings
                 )
         diagnostics.sort(key=lambda item: (item.rule_id, item.field_path, item.relationship or ""))
-        try:
-            metric_eligibility = (
-                _metric_eligibility(bundle, context) if actual_bundle_digest is not None else {}
-            )
-        except Exception:
-            metric_eligibility = {}
         disposition = _overall_disposition(diagnostics)
+        policy_ids = sorted(_mapping(_get(bundle, "/metrics/maturity_policies")))
+        if disposition in {Disposition.ADMITTED, Disposition.WARNING}:
+            try:
+                metric_eligibility = (
+                    _metric_eligibility(bundle, context) if actual_bundle_digest is not None else {}
+                )
+            except Exception:
+                metric_eligibility = {
+                    policy_id: {"due_at": None, "eligible_at": None} for policy_id in policy_ids
+                }
+        else:
+            metric_eligibility = {
+                policy_id: {"due_at": None, "eligible_at": None} for policy_id in policy_ids
+            }
         sanitized_suggestions = tuple(item.sanitized() for item in advisory_suggestions)
         return ValidationResult(
             lineage_id=context.lineage_id,
@@ -905,7 +867,12 @@ class ContractSemanticValidator:
     ) -> tuple[Finding, ...]:
         findings: list[Finding] = []
         if (
-            not _valid_context(context, self.fingerprint_provider)
+            not _valid_context(
+                bundle,
+                context,
+                self.fingerprint_provider,
+                self.authority_evidence_verifier,
+            )
             or actual_bundle_digest is None
             or actual_bundle_digest != context.bundle_digest
         ):
@@ -1162,8 +1129,10 @@ def _sanitize_path(value: str) -> str:
 
 
 def _valid_context(
+    bundle: Mapping[str, Any],
     context: ValidationContext,
     fingerprint_provider: KeyedFingerprintProvider | None,
+    authority_evidence_verifier: ApprovalAuthorityVerifier | None,
 ) -> bool:
     try:
         evaluated_at = _parse_time(context.evaluated_at)
@@ -1174,12 +1143,14 @@ def _valid_context(
             evidence is None
             or authority_evidence is None
             or fingerprint_provider is None
+            or authority_evidence_verifier is None
             or not evidence.verify(fingerprint_provider)
-            or not authority_evidence.verify(fingerprint_provider)
+            or not authority_evidence_verifier.verify(authority_evidence)
         ):
             return False
         receipt = evidence.receipt
         receipt_received_at = _parse_time(str(receipt.get("received_at", "")))
+        approvals_digest = canonical_digest(_mapping(bundle.get("approvals")))
         expected_correction = (
             context.correction_reference.as_dict() if context.correction_reference else None
         )
@@ -1192,6 +1163,9 @@ def _valid_context(
         and receipt.get("lineage_id") == context.lineage_id
         and receipt.get("attempt_id") == context.ingestion_attempt_id
         and receipt.get("correction_reference") == expected_correction
+        and authority_evidence.profile == _AUTHORITY_EVIDENCE_PROFILE
+        and authority_evidence.bundle_digest == context.bundle_digest
+        and authority_evidence.approvals_digest == approvals_digest
         and list(authority_evidence.authority_grants)
         == sorted(
             (grant.as_dict() for grant in context.authority_grants),
@@ -1949,15 +1923,31 @@ def _requirement_grant_valid(
 
 def _approval_active(bundle: Mapping[str, Any], _context: ValidationContext) -> tuple[Finding, ...]:
     approvals = _mapping(bundle.get("approvals"))
+    current_references = {
+        str(reference) for reference in _sequence(_get(bundle, "/release/approval_refs"))
+    }
+    current_references.update(
+        str(_mapping(record).get("approval_ref", ""))
+        for registry in (
+            _get(bundle, "/metrics/maturity_policies"),
+            _get(bundle, "/metrics/reporting_policies"),
+            bundle.get("product_decisions"),
+        )
+        for record in _mapping(registry).values()
+    )
     findings: list[Finding] = []
     for approval_id, approval in sorted(approvals.items()):
         record = _mapping(approval)
         status = record.get("status")
-        if status != "ACTIVE" or record.get("decision") != "APPROVED":
+        if (
+            status not in {"ACTIVE", "SUPERSEDED"}
+            or record.get("decision") != "APPROVED"
+            or (status == "SUPERSEDED" and approval_id in current_references)
+        ):
             findings.append(
                 _finding(
                     f"/approvals/{approval_id}/status",
-                    "Referenced approval evidence is revoked, superseded, or rejected.",
+                    "Current approval evidence is inactive, revoked, superseded, or rejected.",
                     "PMOS must publish current active approval evidence.",
                     approval_id,
                 )
@@ -2009,7 +1999,12 @@ def _approval_freshness(
         except ValueError:
             invalid = True
         else:
-            invalid = not (approved_at <= evaluated and valid_from <= evaluated < expires_at)
+            active_at = approved_at if record.get("status") == "SUPERSEDED" else evaluated
+            invalid = not (
+                approved_at <= evaluated
+                and valid_from <= approved_at < expires_at
+                and valid_from <= active_at < expires_at
+            )
         if invalid:
             findings.append(
                 _finding(
@@ -2048,10 +2043,11 @@ def _approval_authority(
         elif scope == "NAMED_METRIC_REPORTING_POLICY":
             expected_role = "METRIC_POLICY_OWNER"
             expected_owner = str(_mapping(reporting.get(subject_id)).get("owner_ref", ""))
+        required_instants = (
+            (approved_at,) if record.get("status") == "SUPERSEDED" else (approved_at, evaluated)
+        )
         if (
-            not _has_active_authority_grant(
-                record, context.authority_grants, (approved_at, evaluated)
-            )
+            not _has_active_authority_grant(record, context.authority_grants, required_instants)
             or (expected_role is not None and record.get("role") != expected_role)
             or (expected_owner is not None and record.get("actor_id") != expected_owner)
         ):
@@ -2100,7 +2096,13 @@ def _approval_subject(
     maturity = _mapping(_get(bundle, "/metrics/maturity_policies"))
     reporting = _mapping(_get(bundle, "/metrics/reporting_policies"))
     for approval_id, approval in sorted(_mapping(bundle.get("approvals")).items()):
-        subject = _mapping(_mapping(approval).get("subject"))
+        record = _mapping(approval)
+        if record.get("status") == "SUPERSEDED":
+            # A reciprocal active successor supplies the current exact-subject evidence.
+            # Recomputing the historical predecessor against the current candidate would
+            # make every honest supersession impossible.
+            continue
+        subject = _mapping(record.get("subject"))
         scope = subject.get("digest_scope")
         subject_id = subject.get("id")
         if scope == "CANONICAL_BUNDLE_EXCLUDING_APPROVALS":
@@ -2612,10 +2614,17 @@ def _observability_reporting(
 def _contradictory_text(left: str, right: str) -> bool:
     first = _norm(left)
     second = _norm(right)
+    negative_phrases = ("must not ", "must never ", "shall not ", "cannot ")
     for positive, negative in ((first, second), (second, first)):
-        if "must not " in negative:
-            subject = negative.partition("must not ")[2]
-            if subject and (f"must {subject}" in positive or positive == subject):
+        for phrase in negative_phrases:
+            if phrase not in negative:
+                continue
+            subject = negative.partition(phrase)[2]
+            if subject and (
+                f"must {subject}" in positive
+                or f"shall {subject}" in positive
+                or positive == subject
+            ):
                 return True
     return False
 
@@ -3060,6 +3069,38 @@ class FileValidationEvidenceStore:
         self.fingerprint_provider = fingerprint_provider
         self._lock_path = self.root / ".validation-evidence.lock"
         self._lock_path.touch(mode=0o600, exist_ok=True)
+        self._catalog_name = "catalog.json"
+        if self.artifacts.exists(self._catalog_name):
+            self._read_catalog()
+        else:
+            index_path = self.artifacts.root / "index.json"
+            indexed_evidence = False
+            if index_path.exists():
+                try:
+                    indexed_names = json.loads(index_path.read_text())
+                except (json.JSONDecodeError, OSError) as exc:
+                    raise ValidationEvidenceError("evidence store index is malformed") from exc
+                if not isinstance(indexed_names, list) or not all(
+                    isinstance(item, str) for item in indexed_names
+                ):
+                    raise ValidationEvidenceError("evidence store index is malformed")
+                indexed_evidence = any(
+                    item == self._catalog_name
+                    or item.startswith("attempts/")
+                    or item.startswith("lineages/")
+                    for item in indexed_names
+                )
+            materialized = any(
+                path.is_file()
+                for directory in (self.root / "attempts", self.root / "lineages")
+                if directory.exists()
+                for path in directory.iterdir()
+            )
+            if materialized or indexed_evidence:
+                raise ValidationEvidenceError(
+                    "evidence catalog is missing for a materialized store"
+                )
+            self._write_catalog((), ())
 
     def _write_verified(self, name: str, kind: str, payload: Mapping[str, Any]) -> None:
         signed = {
@@ -3118,6 +3159,37 @@ class FileValidationEvidenceStore:
             raise ValidationEvidenceError("stored evidence attestation is invalid")
         return copy.deepcopy(payload)
 
+    def _read_catalog(self) -> dict[str, list[str]]:
+        catalog = self._read_verified(self._catalog_name, "CATALOG")
+        attempt_ids = catalog.get("attempt_ids")
+        lineage_ids = catalog.get("lineage_ids")
+        if (
+            not isinstance(attempt_ids, list)
+            or not isinstance(lineage_ids, list)
+            or len(set(attempt_ids)) != len(attempt_ids)
+            or len(set(lineage_ids)) != len(lineage_ids)
+        ):
+            raise ValidationEvidenceError("evidence catalog is malformed")
+        for attempt_id in attempt_ids:
+            _safe_evidence_id(attempt_id, "catalog ingestion attempt ID")
+        for lineage_id in lineage_ids:
+            _safe_evidence_id(lineage_id, "catalog lineage ID")
+        return {"attempt_ids": attempt_ids, "lineage_ids": lineage_ids}
+
+    def _write_catalog(
+        self,
+        attempt_ids: Sequence[str],
+        lineage_ids: Sequence[str],
+    ) -> None:
+        self._write_verified(
+            self._catalog_name,
+            "CATALOG",
+            {
+                "attempt_ids": sorted(set(attempt_ids)),
+                "lineage_ids": sorted(set(lineage_ids)),
+            },
+        )
+
     def record(self, result: ValidationResult) -> None:
         _safe_evidence_id(result.ingestion_attempt_id, "ingestion attempt ID")
         _safe_evidence_id(result.lineage_id, "lineage ID")
@@ -3132,6 +3204,7 @@ class FileValidationEvidenceStore:
                 fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
     def _record_locked(self, result: ValidationResult) -> None:
+        catalog = self._read_catalog()
         attempt_id = _safe_evidence_id(result.ingestion_attempt_id, "ingestion attempt ID")
         lineage_id = _safe_evidence_id(result.lineage_id, "lineage ID")
         correction = result.correction_reference
@@ -3144,9 +3217,12 @@ class FileValidationEvidenceStore:
             if self._read_verified(attempt_name, "ATTEMPT") != payload:
                 raise ValidationEvidenceError("attempt already contains different evidence")
             lineage_name = f"lineages/{lineage_id}.json"
-            if not self.artifacts.exists(lineage_name) or attempt_id not in self._read_verified(
-                lineage_name, "LINEAGE"
-            ).get("attempt_ids", []):
+            if (
+                not self.artifacts.exists(lineage_name)
+                or attempt_id
+                not in self._read_verified(lineage_name, "LINEAGE").get("attempt_ids", [])
+                or attempt_id not in catalog["attempt_ids"]
+            ):
                 self._reconcile_locked()
             return
         lineage_name = f"lineages/{lineage_id}.json"
@@ -3204,6 +3280,10 @@ class FileValidationEvidenceStore:
             lineage["attempt_ids"] = [*attempt_ids, result.ingestion_attempt_id]
             lineage["latest_disposition"] = result.disposition.value
         self._write_verified(lineage_name, "LINEAGE", lineage)
+        self._write_catalog(
+            (*catalog["attempt_ids"], result.ingestion_attempt_id),
+            (*catalog["lineage_ids"], result.lineage_id),
+        )
 
     def load_attempt(self, attempt_id: str) -> dict[str, Any]:
         safe_attempt_id = _safe_evidence_id(attempt_id, "ingestion attempt ID")
@@ -3211,6 +3291,9 @@ class FileValidationEvidenceStore:
 
     def lineage_summary(self, lineage_id: str) -> dict[str, Any]:
         safe_lineage_id = _safe_evidence_id(lineage_id, "lineage ID")
+        catalog = self._read_catalog()
+        if safe_lineage_id not in catalog["lineage_ids"]:
+            raise ValidationEvidenceError("lineage is absent from the evidence catalog")
         summary = self._read_verified(f"lineages/{safe_lineage_id}.json", "LINEAGE")
         attempt_ids = summary.get("attempt_ids")
         if (
@@ -3253,7 +3336,26 @@ class FileValidationEvidenceStore:
         return summary
 
     def metric_summary(self) -> dict[str, int]:
+        catalog = self._read_catalog()
         lineages = self.artifacts.root / "lineages"
+        attempts = self.artifacts.root / "attempts"
+        materialized_lineages = (
+            {_safe_evidence_id(path.stem, "stored lineage ID") for path in lineages.glob("*.json")}
+            if lineages.exists()
+            else set()
+        )
+        materialized_attempts = (
+            {
+                _safe_evidence_id(path.stem, "stored ingestion attempt ID")
+                for path in attempts.glob("*.json")
+            }
+            if attempts.exists()
+            else set()
+        )
+        if materialized_lineages != set(catalog["lineage_ids"]) or materialized_attempts != set(
+            catalog["attempt_ids"]
+        ):
+            raise ValidationEvidenceError("evidence catalog does not match materialized artifacts")
         summaries = []
         if lineages.exists():
             for path in sorted(lineages.glob("*.json")):
@@ -3275,9 +3377,30 @@ class FileValidationEvidenceStore:
                 fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
     def _reconcile_locked(self) -> None:
+        catalog = self._read_catalog()
         attempts = self.artifacts.root / "attempts"
         if not attempts.exists():
+            if catalog["attempt_ids"] or catalog["lineage_ids"]:
+                raise ValidationEvidenceError("cataloged validation evidence was deleted")
             return
+        available_attempt_ids = {
+            _safe_evidence_id(path.stem, "stored attempt filename")
+            for path in attempts.glob("*.json")
+        }
+        lineages = self.artifacts.root / "lineages"
+        available_lineage_ids = (
+            {
+                _safe_evidence_id(path.stem, "stored lineage filename")
+                for path in lineages.glob("*.json")
+            }
+            if lineages.exists()
+            else set()
+        )
+        if (
+            not set(catalog["attempt_ids"]) <= available_attempt_ids
+            or not set(catalog["lineage_ids"]) <= available_lineage_ids
+        ):
+            raise ValidationEvidenceError("cataloged validation evidence was deleted")
         grouped: dict[str, list[dict[str, Any]]] = {}
         for path in sorted(attempts.glob("*.json")):
             path_attempt_id = _safe_evidence_id(path.stem, "stored attempt filename")
@@ -3324,6 +3447,10 @@ class FileValidationEvidenceStore:
                 "lineage_received_at": first["lineage_received_at"],
             }
             self._write_verified(f"lineages/{lineage_id}.json", "LINEAGE", summary)
+        self._write_catalog(
+            sorted(available_attempt_ids),
+            sorted(grouped),
+        )
 
     def _write_attempt_for_test(self, attempt_id: str, payload: dict[str, Any]) -> None:
         safe_attempt_id = _safe_evidence_id(attempt_id, "ingestion attempt ID")

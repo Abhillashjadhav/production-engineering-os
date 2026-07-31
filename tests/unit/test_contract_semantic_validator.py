@@ -21,7 +21,7 @@ from typing import Any
 
 import pytest
 
-from pmpe.contracts.canonical import canonical_digest
+from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from pmpe.contracts.intake import CorrectionReference, IntakeReceipt, KeyedFingerprint
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -52,6 +52,58 @@ def _api() -> ModuleType:
             "issue #63 canonical semantic validator is not implemented",
             pytrace=False,
         )
+
+
+class TestAuthorityEvidenceVerifier:
+    """Test-only trust root; production validation exposes verification only."""
+
+    issuer_id = "TEST-AUTHORITY-001"
+    key_version = "TEST-AUTHORITY-KEY-V1"
+    _key = b"issue-63-external-authority-test-key"
+
+    def issue(
+        self,
+        bundle: dict[str, Any],
+        authority_grants: tuple[Any, ...],
+        requirement_grants: tuple[Any, ...],
+    ) -> Any:
+        api = _api()
+        grants = tuple(
+            sorted((item.as_dict() for item in authority_grants), key=canonical_json_bytes)
+        )
+        requirements = tuple(
+            sorted((item.as_dict() for item in requirement_grants), key=canonical_json_bytes)
+        )
+        evidence = api.ApprovalAuthorityEvidence(
+            bundle_digest=canonical_digest(bundle),
+            approvals_digest=canonical_digest(bundle.get("approvals", {})),
+            authority_grants=grants,
+            requirement_grants=requirements,
+            issuer_id=self.issuer_id,
+            key_version=self.key_version,
+            attestation="",
+        )
+        attestation = hmac.new(
+            self._key,
+            b"validation-authority-attestation\x00"
+            + canonical_json_bytes(evidence.signed_payload()),
+            hashlib.sha256,
+        ).hexdigest()
+        return replace(evidence, attestation=attestation)
+
+    def verify(self, evidence: Any) -> bool:
+        if evidence.issuer_id != self.issuer_id or evidence.key_version != self.key_version:
+            return False
+        expected = hmac.new(
+            self._key,
+            b"validation-authority-attestation\x00"
+            + canonical_json_bytes(evidence.signed_payload()),
+            hashlib.sha256,
+        ).hexdigest()
+        return hmac.compare_digest(expected, evidence.attestation)
+
+
+AUTHORITY = TestAuthorityEvidenceVerifier()
 
 
 def _ready_bundle() -> dict[str, Any]:
@@ -137,21 +189,17 @@ def _context(
         authority_grants=authority_grants,
         approval_requirement_grants=requirement_grants,
         intake_identity=api.IntakeIdentityEvidence.create(receipt, FINGERPRINTS),
-        authority_identity=api.ApprovalAuthorityEvidence.create(
-            authority_grants,
-            requirement_grants,
-            FINGERPRINTS,
-        ),
+        authority_identity=AUTHORITY.issue(bundle, authority_grants, requirement_grants),
     )
 
 
 def _with_authority_evidence(
     context: Any,
+    bundle: dict[str, Any],
     *,
     authority_grants: tuple[Any, ...] | None = None,
     requirement_grants: tuple[Any, ...] | None = None,
 ) -> Any:
-    api = _api()
     selected_authority = (
         authority_grants if authority_grants is not None else context.authority_grants
     )
@@ -164,11 +212,7 @@ def _with_authority_evidence(
         context,
         authority_grants=selected_authority,
         approval_requirement_grants=selected_requirements,
-        authority_identity=api.ApprovalAuthorityEvidence.create(
-            selected_authority,
-            selected_requirements,
-            FINGERPRINTS,
-        ),
+        authority_identity=AUTHORITY.issue(bundle, selected_authority, selected_requirements),
     )
 
 
@@ -176,6 +220,7 @@ def _validator(registry: Any = None, *, evidence_lookup: Any = None) -> Any:
     return _api().ContractSemanticValidator(
         registry,
         fingerprint_provider=FINGERPRINTS,
+        authority_evidence_verifier=AUTHORITY,
         evidence_lookup=evidence_lookup,
     )
 
@@ -483,7 +528,7 @@ def test_product_decision_requires_exact_bundle_approval_subject() -> None:
 def test_approval_authority_requires_external_governed_grant_evidence() -> None:
     api = _api()
     bundle = _ready_bundle()
-    context = _with_authority_evidence(_context(bundle), authority_grants=())
+    context = _with_authority_evidence(_context(bundle), bundle, authority_grants=())
     result = _validator().validate(bundle, context)
     assert result.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
     assert "APPROVAL.AUTHORITY" in _codes(result)
@@ -511,6 +556,22 @@ def test_caller_cannot_append_a_fabricated_unsigned_authority_grant() -> None:
         authority_grants=(*context.authority_grants, fabricated),
     )
     result = _validator().validate(bundle, tampered)
+    assert result.disposition is api.Disposition.ERROR
+    assert "CORE.EVIDENCE_BINDING" in _codes(result)
+
+
+def test_validator_exposes_no_authority_evidence_issuer_and_rejects_replay() -> None:
+    api = _api()
+    assert not hasattr(api.ApprovalAuthorityEvidence, "create")
+
+    bundle = _ready_bundle()
+    original_context = _context(bundle)
+    bundle["product"]["outcome"]["customer_outcome"] = (
+        "Customers complete a materially different approved workflow."
+    )
+    _reseal(bundle)
+    replayed_context = replace(original_context, bundle_digest=canonical_digest(bundle))
+    result = _validator().validate(bundle, replayed_context)
     assert result.disposition is api.Disposition.ERROR
     assert "CORE.EVIDENCE_BINDING" in _codes(result)
 
@@ -543,7 +604,7 @@ def test_approval_authority_grant_must_cover_the_approval_instant() -> None:
     )
     result = _validator().validate(
         bundle,
-        _with_authority_evidence(context, authority_grants=grants),
+        _with_authority_evidence(context, bundle, authority_grants=grants),
     )
     assert result.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
     assert "APPROVAL.AUTHORITY" in _codes(result)
@@ -567,6 +628,7 @@ def test_metric_policy_requires_metric_owner_role_and_named_owner_actor() -> Non
         bundle,
         _with_authority_evidence(
             context,
+            bundle,
             authority_grants=(*context.authority_grants, wrong_role_grant),
         ),
     )
@@ -593,6 +655,30 @@ def test_approval_supersession_references_must_exist_and_be_reciprocal() -> None
     result = _validate(bundle)
     assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
     assert "APPROVAL.ACTIVE" in _codes(result)
+
+
+def test_expired_historical_approval_can_be_validly_superseded() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    current = bundle["approvals"]["APR-CONTRACT-001"]
+    predecessor = copy.deepcopy(current)
+    predecessor["status"] = "SUPERSEDED"
+    predecessor["expires_at"] = "2026-07-30T12:00:00Z"
+    predecessor["superseded_by_approval_ref"] = "APR-CONTRACT-001"
+    predecessor["supersedes_approval_refs"] = []
+    bundle["approvals"]["APR-CONTRACT-OLD"] = predecessor
+    current["supersedes_approval_refs"] = ["APR-CONTRACT-OLD"]
+    _reseal(bundle)
+
+    result = _validate(bundle)
+    assert result.disposition is api.Disposition.ADMITTED
+    assert not ({"APPROVAL.ACTIVE", "APPROVAL.FRESHNESS", "APPROVAL.SUBJECT"} & _codes(result))
+
+    bundle["product_decisions"]["DECISION-CANONICAL-SCHEMA"]["approval_ref"] = "APR-CONTRACT-OLD"
+    _reseal(bundle)
+    stale_reference = _validate(bundle)
+    assert stale_reference.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
+    assert "APPROVAL.ACTIVE" in _codes(stale_reference)
 
 
 @pytest.mark.parametrize(
@@ -1134,6 +1220,19 @@ def test_pending_policy_has_no_eligibility_or_due_time() -> None:
     assert evidence["due_at"] is None
 
 
+def test_blocked_bundle_never_receives_metric_eligibility_or_due_time() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    del bundle["product"]
+    result = _validate(bundle)
+    assert result.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
+    assert result.metric_eligibility
+    assert all(
+        evidence["eligible_at"] is None and evidence["due_at"] is None
+        for evidence in result.metric_eligibility.values()
+    )
+
+
 @pytest.mark.parametrize(
     ("section", "record", "field"),
     [
@@ -1200,6 +1299,23 @@ def test_cross_section_contradictions_block(case: str, expected_rule: str) -> No
     assert expected_rule in _codes(result)
 
 
+def test_direct_paraphrased_ownership_and_prohibition_conflicts_block() -> None:
+    bundle = _ready_bundle()
+    bundle["product"]["outcome"]["customer_outcome"] = (
+        "Engineering will choose the customer outcome after intake."
+    )
+    _reseal(bundle)
+    ownership_result = _validate(bundle)
+    assert "OWNERSHIP.PRODUCT_TRUTH" in _codes(ownership_result)
+
+    bundle = _ready_bundle()
+    bundle["ux"]["user_stories"]["US-001"]["i_want"] = "must retain customer records"
+    bundle["data"]["requirements"]["DATA-001"]["requirement"] = "must never retain customer records"
+    _reseal(bundle)
+    contradiction_result = _validate(bundle)
+    assert "ALIGN.CROSS_CHANNEL" in _codes(contradiction_result)
+
+
 def test_production_autonomy_uses_end_state_policy_and_exact_environment() -> None:
     bundle = _ready_bundle()
     release = bundle["release"]
@@ -1233,6 +1349,7 @@ def test_production_autonomy_uses_end_state_policy_and_exact_environment() -> No
     )
     context = _with_authority_evidence(
         context,
+        bundle,
         requirement_grants=(*context.approval_requirement_grants, production_grant),
     )
     assert _validator().validate(bundle, context).disposition.value == "ADMITTED"
@@ -1244,6 +1361,7 @@ def test_production_autonomy_uses_end_state_policy_and_exact_environment() -> No
     _reseal(bundle)
     context = _with_authority_evidence(
         _context(bundle),
+        bundle,
         requirement_grants=(*_context(bundle).approval_requirement_grants, production_grant),
     )
     result = _validator().validate(bundle, context)
