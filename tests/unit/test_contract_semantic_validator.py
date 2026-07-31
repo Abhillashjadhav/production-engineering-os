@@ -368,17 +368,21 @@ def test_blocking_open_question_requires_product_input() -> None:
     assert result.diagnostics[0].remediation is not None
 
 
-def test_unresolved_noncritical_question_is_visible_as_warning() -> None:
+def test_publisher_cannot_self_downgrade_unresolved_product_truth_to_warning() -> None:
     api = _api()
     bundle = _ready_bundle()
+    bundle["open_questions"]["QUESTION-001"]["question"] = (
+        "What privacy consent is required before production telemetry collection?"
+    )
+    bundle["open_questions"]["QUESTION-001"]["blocking"] = False
     bundle["open_questions"]["QUESTION-001"].pop("resolution")
     _reseal(bundle)
     result = _validate(bundle)
-    assert result.disposition is api.Disposition.WARNING
+    assert result.disposition is api.Disposition.PRODUCT_INPUT_REQUIRED
     diagnostic = next(item for item in result.diagnostics if item.rule_id == "QUESTION.UNRESOLVED")
-    assert diagnostic.disposition == "WARNING"
-    assert diagnostic.severity == "WARNING"
-    assert diagnostic.remediation is None
+    assert diagnostic.disposition == "PRODUCT_INPUT_REQUIRED"
+    assert diagnostic.severity == "ERROR"
+    assert diagnostic.remediation is not None
 
 
 def test_compiler_unresolved_product_truth_blocks() -> None:
@@ -757,6 +761,7 @@ def test_named_contradiction_classes_block(case: str, expected_rule: str) -> Non
             "success"
         ]["METRIC-SUCCESS-001"]["definition"]
     elif case == "target_guardrail":
+        bundle["guardrails"]["GUARD-SECURITY-001"]["description"] = "Bound POLICY-METRIC-EADPR"
         bundle["guardrails"]["GUARD-SECURITY-001"]["threshold"] = "At most 0.5 ratio"
     elif case == "scope_non_goal":
         bundle["scope"]["non_goals"].append(bundle["scope"]["in_scope"][0])
@@ -787,6 +792,7 @@ def test_named_contradiction_classes_block(case: str, expected_rule: str) -> Non
         ("AT_LEAST", 0.8, "At most 0.5 ratio"),
         ("AT_LEAST", 0.8, "No more than 0.5 ratio"),
         ("AT_LEAST", 0.8, "At most 50 percent"),
+        ("AT_LEAST", 0.8, "Must not exceed 50 percent"),
         ("EXACT", 0.8, "At most 0.5 ratio"),
         ("AT_MOST", 0.2, "At least 0.5 ratio"),
         ("EXACT", 0.2, "At least 0.5 ratio"),
@@ -801,6 +807,7 @@ def test_metric_target_interval_must_intersect_guardrail(
     target = bundle["metrics"]["maturity_policies"]["POLICY-METRIC-EADPR"]["target"]
     target["operator"] = operator
     target["value"] = value
+    bundle["guardrails"]["GUARD-SECURITY-001"]["description"] = "Bound POLICY-METRIC-EADPR"
     bundle["guardrails"]["GUARD-SECURITY-001"]["threshold"] = threshold
     _reseal(bundle)
     result = _validate(bundle)
@@ -810,6 +817,7 @@ def test_metric_target_interval_must_intersect_guardrail(
 
 def test_guardrail_with_different_unit_does_not_constrain_metric_target() -> None:
     bundle = _ready_bundle()
+    bundle["guardrails"]["GUARD-SECURITY-001"]["description"] = "Bound POLICY-METRIC-EADPR"
     bundle["guardrails"]["GUARD-SECURITY-001"]["threshold"] = "At most 0.5 seconds"
     _reseal(bundle)
     assert "ALIGN.TARGET_GUARDRAIL" not in _codes(_validate(bundle))
@@ -827,6 +835,18 @@ def test_generic_engineering_delivery_words_do_not_prove_metric_outcome_alignmen
     assert "ALIGN.METRIC_OUTCOME" in _codes(result)
 
 
+def test_incidental_traceability_and_owner_words_do_not_prove_metric_alignment() -> None:
+    bundle = _ready_bundle()
+    for metric in bundle["metrics"]["success"].values():
+        metric["definition"] = "Traceable owner wallpaper preference count."
+    for metric in bundle["metrics"]["north_stars"].values():
+        metric["definition"] = "Traceable owner wallpaper preference count."
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.METRIC_OUTCOME" in _codes(result)
+
+
 def test_scope_non_goal_support_negation_is_a_contradiction() -> None:
     bundle = _ready_bundle()
     bundle["scope"]["in_scope"].append("Customer data export")
@@ -835,6 +855,18 @@ def test_scope_non_goal_support_negation_is_a_contradiction() -> None:
     result = _validate(bundle)
     assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
     assert "ALIGN.SCOPE_NON_GOAL" in _codes(result)
+
+
+def test_requirement_cannot_implement_a_lexically_nonidentical_non_goal() -> None:
+    bundle = _ready_bundle()
+    bundle["functional_requirements"]["FR-001"]["statement"] = (
+        "Canonical account export download is provided."
+    )
+    bundle["scope"]["non_goals"].append("Do not support account export download")
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "ALIGN.SOLUTION_NON_GOAL" in _codes(result)
 
 
 def test_ux_retention_and_data_prohibition_are_cross_channel_contradictions() -> None:
@@ -853,7 +885,7 @@ def test_natural_language_upper_bound_conflicts_with_metric_target() -> None:
     bundle = _ready_bundle()
     bundle["guardrails"]["GUARD-QUALITY-002"] = {
         "category": "QUALITY",
-        "description": "Bound wallpaper rate",
+        "description": "Bound POLICY-METRIC-EADPR wallpaper rate",
         "response": "BLOCK",
         "threshold": "Must remain below 50 percent",
     }
@@ -861,6 +893,26 @@ def test_natural_language_upper_bound_conflicts_with_metric_target() -> None:
     result = _validate(bundle)
     assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
     assert "ALIGN.TARGET_GUARDRAIL" in _codes(result)
+
+
+def test_numeric_guardrail_without_exact_subject_fails_closed_as_ambiguous() -> None:
+    bundle = _ready_bundle()
+    bundle["guardrails"]["GUARD-QUALITY-002"] = {
+        "category": "QUALITY",
+        "description": "Limit cafeteria satisfaction",
+        "response": "BLOCK",
+        "threshold": "At most 50 percent",
+    }
+    _reseal(bundle)
+    result = _validate(bundle)
+    diagnostic = next(
+        item
+        for item in result.diagnostics
+        if item.rule_id == "ALIGN.TARGET_GUARDRAIL"
+        and item.field_path == "/guardrails/GUARD-QUALITY-002/threshold"
+    )
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert "exact metric or maturity-policy reference" in diagnostic.explanation
 
 
 def test_unknown_or_tampered_extension_fails_closed() -> None:
@@ -900,6 +952,26 @@ def test_supported_extension_cannot_contradict_approved_core_truth() -> None:
             "target_pointer": "/release/requested_autonomy_stage",
         }
     )
+    extension["payload_digest"] = canonical_digest(extension["payload"])
+    _reseal(bundle)
+    result = _validate(bundle)
+    assert result.disposition is api.Disposition.UNSUPPORTED_REPOSITORY_EXTENSION
+    assert "EXTENSION.CONSTRAINT" in _codes(result)
+
+
+def test_extension_pattern_rejects_nested_quantifiers_without_evaluation() -> None:
+    api = _api()
+    bundle = _ready_bundle()
+    extension = bundle["extensions"]["EXT-REPOSITORY-001"]
+    constraint = extension["payload"]["constraints"]["EXT-CONSTRAINT-001"]
+    constraint.update(
+        {
+            "constraint_value": "(a+)+$",
+            "operator": "MATCH_PATTERN",
+            "target_pointer": "/product/problem/statement",
+        }
+    )
+    bundle["product"]["problem"]["statement"] = "a" * 4095 + "X"
     extension["payload_digest"] = canonical_digest(extension["payload"])
     _reseal(bundle)
     result = _validate(bundle)

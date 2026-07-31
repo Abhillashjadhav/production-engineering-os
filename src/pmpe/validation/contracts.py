@@ -128,10 +128,12 @@ _METRIC_GENERIC_CONCEPTS = frozenset(
         "contract",
         "delivery",
         "engineering",
+        "owner",
         "metric",
         "outcome",
         "product",
         "system",
+        "traceable",
     }
 )
 _SEMANTIC_TOP_LEVEL_SECTIONS = frozenset(
@@ -1589,23 +1591,11 @@ def _open_questions(bundle: Mapping[str, Any], _context: ValidationContext) -> t
     return tuple(
         Finding(
             f"/open_questions/{question_id}",
-            (
-                "A product-critical question remains unresolved."
-                if bool(question.get("blocking"))
-                else "A non-blocking product question remains unresolved."
-            ),
-            (
-                "The named PMOS owner must resolve and approve the question."
-                if bool(question.get("blocking"))
-                else "The named PMOS owner should resolve the advisory question."
-            ),
+            "Product truth remains unresolved without governed non-critical evidence.",
+            "The named PMOS owner must resolve and approve the question.",
             question_id,
             Owner.PMOS,
-            (
-                Disposition.PRODUCT_INPUT_REQUIRED
-                if bool(question.get("blocking"))
-                else Disposition.WARNING
-            ),
+            Disposition.PRODUCT_INPUT_REQUIRED,
         )
         for question_id, question in sorted(questions.items())
         if isinstance(question, Mapping) and not _present(question.get("resolution"))
@@ -2422,13 +2412,16 @@ def _scope_non_goal(bundle: Mapping[str, Any], _context: ValidationContext) -> t
 def _solution_non_goal(
     bundle: Mapping[str, Any], _context: ValidationContext
 ) -> tuple[Finding, ...]:
-    non_goals = {_norm(item) for item in _sequence(_get(bundle, "/scope/non_goals"))}
+    non_goals = tuple(str(item) for item in _sequence(_get(bundle, "/scope/non_goals")))
     findings: list[Finding] = []
     for requirement_id, requirement in sorted(
         _mapping(bundle.get("functional_requirements")).items()
     ):
-        statement = _norm(_mapping(requirement).get("statement"))
-        if statement in non_goals:
+        statement = str(_mapping(requirement).get("statement", ""))
+        if any(
+            _norm(statement) == _norm(non_goal) or _contradictory_text(statement, non_goal)
+            for non_goal in non_goals
+        ):
             findings.append(
                 _finding(
                     f"/functional_requirements/{requirement_id}/statement",
@@ -2437,8 +2430,14 @@ def _solution_non_goal(
                     requirement_id,
                 )
             )
-    outcome_values = {_norm(value) for value in _mapping(_get(bundle, "/product/outcome")).values()}
-    if outcome_values & non_goals:
+    outcome_values = tuple(
+        str(value) for value in _mapping(_get(bundle, "/product/outcome")).values()
+    )
+    if any(
+        _norm(outcome) == _norm(non_goal) or _contradictory_text(outcome, non_goal)
+        for outcome in outcome_values
+        for non_goal in non_goals
+    ):
         findings.append(
             _finding(
                 "/product/outcome",
@@ -2548,11 +2547,19 @@ def _leading_distinct(
 def _target_guardrail(
     bundle: Mapping[str, Any], _context: ValidationContext
 ) -> tuple[Finding, ...]:
-    bounds: list[tuple[str, str, Decimal, str]] = []
+    policies = _mapping(_get(bundle, "/metrics/maturity_policies"))
+    policy_by_metric = {
+        str(_mapping(policy).get("metric_ref")): str(policy_id)
+        for policy_id, policy in policies.items()
+    }
+    bounds: list[tuple[str, str, Decimal, str, tuple[str, ...]]] = []
+    findings: list[Finding] = []
     for guardrail_id, guardrail in sorted(_mapping(bundle.get("guardrails")).items()):
+        guardrail_record = _mapping(guardrail)
         match = re.search(
             (
                 r"(?i)^\s*(at\s+most|no\s+more\s+than|maximum(?:\s+of)?|"
+                r"(?:must|shall)\s+not\s+exceed|"
                 r"(?:must|shall)\s+(?:remain|stay|be)\s+(?:below|under)|"
                 r"below|under|less\s+than|"
                 r"at\s+least|no\s+less\s+than|minimum(?:\s+of)?|"
@@ -2560,7 +2567,7 @@ def _target_guardrail(
                 r"above|over|greater\s+than)\s+"
                 r"([+-]?[0-9]+(?:\.[0-9]+)?)\s+(.+?)\s*$"
             ),
-            str(_mapping(guardrail).get("threshold", "")),
+            str(guardrail_record.get("threshold", "")),
         )
         if match:
             phrase = re.sub(r"\s+", " ", match.group(1).casefold())
@@ -2573,25 +2580,50 @@ def _target_guardrail(
                 else "most"
             )
             boundary, unit = _canonical_quantity(Decimal(match.group(2)), match.group(3))
+            reference_text = " ".join(
+                (
+                    str(guardrail_record.get("description", "")),
+                    str(guardrail_record.get("threshold", "")),
+                )
+            )
+            references = set(re.findall(r"\b(?:POLICY-METRIC|METRIC)-[A-Z0-9-]+\b", reference_text))
+            policy_refs = {reference for reference in references if reference in policies} | {
+                policy_by_metric[reference]
+                for reference in references
+                if reference in policy_by_metric
+            }
+            if not policy_refs:
+                findings.append(
+                    _finding(
+                        f"/guardrails/{guardrail_id}/threshold",
+                        "A numeric guardrail lacks an exact metric or maturity-policy reference.",
+                        (
+                            "PMOS must identify the exact METRIC-* or POLICY-METRIC-* subject "
+                            "before the guardrail can be compared without ambiguity."
+                        ),
+                        str(guardrail_id),
+                    )
+                )
+                continue
             bounds.append(
                 (
                     str(guardrail_id),
                     direction,
                     boundary,
                     unit,
+                    tuple(sorted(policy_refs)),
                 )
             )
-    if not bounds:
-        return ()
-    findings: list[Finding] = []
-    for policy_id, policy in sorted(_mapping(_get(bundle, "/metrics/maturity_policies")).items()):
+    for policy_id, policy in sorted(policies.items()):
         target = _mapping(_mapping(policy).get("target"))
         value = target.get("value")
         if not isinstance(value, (int, float)) or isinstance(value, bool):
             continue
         target_value, unit = _canonical_quantity(Decimal(str(value)), target.get("unit", ""))
         operator = str(target.get("operator", ""))
-        for guardrail_id, direction, boundary, guardrail_unit in bounds:
+        for guardrail_id, direction, boundary, guardrail_unit, bound_policy_refs in bounds:
+            if policy_id not in bound_policy_refs:
+                continue
             if unit != guardrail_unit:
                 continue
             conflict = (
@@ -3002,10 +3034,7 @@ def _constraint_satisfied(bundle: Mapping[str, Any], constraint: Mapping[str, An
     if operator == "MATCH_PATTERN":
         if not isinstance(target, str):
             return False
-        try:
-            return re.fullmatch(raw_value, target) is not None
-        except re.error:
-            return False
+        return _safe_extension_pattern_matches(raw_value, target)
     if operator == "LIMIT_ALLOWED_VALUES":
         try:
             allowed = json.loads(raw_value)
@@ -3021,6 +3050,30 @@ def _constraint_satisfied(bundle: Mapping[str, Any], constraint: Mapping[str, An
             return False
         return target <= boundary if operator == "SET_MAXIMUM" else target >= boundary
     return False
+
+
+def _safe_extension_pattern_matches(pattern: str, target: str) -> bool:
+    """Evaluate the deliberately small, linear extension-pattern subset.
+
+    Extension constraints are publisher-controlled.  Grouping, alternation,
+    counted repetition, escapes, repeated quantifiers, and multiple unbounded
+    quantifiers are excluded so the standard-library regex engine cannot be
+    driven into nested or combinatorial backtracking.  Larger values fail
+    closed rather than consuming unbounded validation time.
+    """
+
+    if len(pattern) > 256 or len(target) > 4096:
+        return False
+    if re.search(r"[(){}|\\]", pattern) or re.search(r"[?*+]{2}", pattern):
+        return False
+    if sum(pattern.count(token) for token in ("*", "+")) > 1:
+        return False
+    if pattern.count("?") > 8:
+        return False
+    try:
+        return re.fullmatch(pattern, target) is not None
+    except re.error:
+        return False
 
 
 def _metric_maturity_policy(
@@ -3259,13 +3312,39 @@ def _safe_evidence_id(value: Any, label: str) -> str:
     return value
 
 
+class ValidationHighWatermarkStore(Protocol):
+    """Non-replayable trust boundary for validation-ledger high watermarks.
+
+    Implementations must durably retain state outside the file evidence root,
+    perform the compare-and-swap atomically, and prevent an older value from
+    being restored even when every file in the evidence root is replayed.  A
+    production deployment must bind this interface to governed monotonic
+    storage; this module deliberately does not claim that an ordinary file
+    provides those guarantees.
+    """
+
+    def load(self, ledger_id: str) -> Mapping[str, Any] | None:
+        """Return the current immutable envelope, or ``None`` before initialization."""
+
+    def compare_and_swap(
+        self,
+        ledger_id: str,
+        *,
+        expected_fingerprint: str | None,
+        envelope: Mapping[str, Any],
+    ) -> bool:
+        """Atomically advance from the expected envelope without permitting rollback."""
+
+
 class FileValidationEvidenceStore:
     """Write-once validation artifacts using the repository ArtifactStore.
 
     The lineage index preserves the first attempt permanently.  Corrections add
     attempts but never add a second first-pass denominator entry.  A file lock
     serializes writers; ``reconcile`` can rebuild lineage indexes from immutable
-    attempt artifacts after an interrupted index write.
+    attempt artifacts after an interrupted index write.  Rollback detection is
+    anchored by the required external ``ValidationHighWatermarkStore`` trust
+    boundary; an ordinary file is intentionally insufficient.
     """
 
     def __init__(
@@ -3273,23 +3352,22 @@ class FileValidationEvidenceStore:
         root: Path,
         *,
         fingerprint_provider: KeyedFingerprintProvider,
-        anchor_path: Path,
+        high_watermark_store: ValidationHighWatermarkStore,
+        ledger_id: str,
     ) -> None:
         self.root = Path(root)
         root_preexisting = self.root.exists()
         self.root.mkdir(parents=True, exist_ok=True)
         self.artifacts = ArtifactStore(self.root)
         self.fingerprint_provider = fingerprint_provider
-        self._anchor_path = Path(anchor_path)
-        if self._anchor_path.resolve().is_relative_to(self.root.resolve()):
-            raise ValueError("the validation high-watermark anchor must be outside the ledger root")
-        self._anchor_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self._high_watermark_store = high_watermark_store
+        self._ledger_id = _safe_evidence_id(ledger_id, "validation ledger ID")
         self._lock_path = self.root / ".validation-evidence.lock"
         lock_preexisting = self._lock_path.exists()
         self._lock_path.touch(mode=0o600, exist_ok=True)
         self._catalog_name = "catalog.json"
         if self.artifacts.exists(self._catalog_name):
-            if not self._anchor_path.exists():
+            if self._load_anchor_envelope() is None:
                 raise ValidationEvidenceError("evidence high-watermark anchor is missing")
             catalog = self._read_catalog()
             anchor = self._read_anchor()
@@ -3324,14 +3402,14 @@ class FileValidationEvidenceStore:
                 raise ValidationEvidenceError(
                     "evidence catalog is missing for a materialized store"
                 )
-            if self._anchor_path.exists():
+            if self._load_anchor_envelope() is not None:
                 anchor = self._read_anchor()
                 if anchor["attempt_ids"] or anchor["lineage_ids"]:
                     raise ValidationEvidenceError(
                         "evidence catalog is missing below its external high watermark"
                     )
             self._write_catalog((), ())
-            if not self._anchor_path.exists():
+            if self._load_anchor_envelope() is None:
                 self._write_anchor((), ())
 
     def _write_verified(self, name: str, kind: str, payload: Mapping[str, Any]) -> None:
@@ -3422,13 +3500,23 @@ class FileValidationEvidenceStore:
             },
         )
 
-    def _read_anchor(self) -> dict[str, list[str]]:
+    def _load_anchor_envelope(self) -> dict[str, Any] | None:
         try:
-            envelope = json.loads(self._anchor_path.read_text())
-        except (json.JSONDecodeError, OSError) as exc:
-            raise ValidationEvidenceError("evidence high-watermark anchor is unreadable") from exc
-        if not isinstance(envelope, dict):
+            envelope = self._high_watermark_store.load(self._ledger_id)
+        except Exception as exc:
+            raise ValidationEvidenceError(
+                "evidence high-watermark provider is unavailable"
+            ) from exc
+        if envelope is None:
+            return None
+        if not isinstance(envelope, Mapping):
             raise ValidationEvidenceError("evidence high-watermark anchor is malformed")
+        return copy.deepcopy(dict(envelope))
+
+    def _read_anchor(self) -> dict[str, list[str]]:
+        envelope = self._load_anchor_envelope()
+        if envelope is None:
+            raise ValidationEvidenceError("evidence high-watermark anchor is missing")
         attempt_ids = envelope.get("attempt_ids")
         lineage_ids = envelope.get("lineage_ids")
         signed = {
@@ -3481,12 +3569,18 @@ class FileValidationEvidenceStore:
     ) -> None:
         normalized_attempts = sorted(set(attempt_ids))
         normalized_lineages = sorted(set(lineage_ids))
-        if self._anchor_path.exists():
+        current_envelope = self._load_anchor_envelope()
+        expected_fingerprint: str | None = None
+        if current_envelope is not None:
             current = self._read_anchor()
             if not set(current["attempt_ids"]) <= set(normalized_attempts) or not set(
                 current["lineage_ids"]
             ) <= set(normalized_lineages):
                 raise ValidationEvidenceError("evidence high-watermark anchor cannot regress")
+            fingerprint = current_envelope.get("fingerprint")
+            if not isinstance(fingerprint, str):
+                raise ValidationEvidenceError("evidence high-watermark anchor is malformed")
+            expected_fingerprint = fingerprint
         signed = {
             "attempt_ids": normalized_attempts,
             "high_watermark": len(normalized_attempts),
@@ -3500,9 +3594,16 @@ class FileValidationEvidenceStore:
             ),
             "key_version": self.fingerprint_provider.key_version,
         }
-        temporary = self._anchor_path.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(envelope, indent=2, sort_keys=True) + "\n")
-        temporary.replace(self._anchor_path)
+        try:
+            advanced = self._high_watermark_store.compare_and_swap(
+                self._ledger_id,
+                expected_fingerprint=expected_fingerprint,
+                envelope=envelope,
+            )
+        except Exception as exc:
+            raise ValidationEvidenceError("evidence high-watermark advance failed") from exc
+        if not advanced:
+            raise ValidationEvidenceError("evidence high-watermark changed concurrently")
 
     @staticmethod
     def _validate_anchor(

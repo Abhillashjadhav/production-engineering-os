@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import hmac
 import importlib
 import json
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
@@ -27,6 +29,39 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests" / "fixtures"
 BUNDLE_SCHEMA = json.loads((ROOT / "schemas" / "pmos_contract_bundle.schema.json").read_text())
 MANIFEST_SCHEMA = json.loads((ROOT / "schemas" / "pmos_contract_manifest.schema.json").read_text())
+
+
+class DeterministicValidationHighWatermarkStore:
+    """Deterministic test double for externally governed monotonic storage."""
+
+    def __init__(self) -> None:
+        self._records: dict[str, dict[str, Any]] = {}
+
+    def load(self, ledger_id: str) -> dict[str, Any] | None:
+        record = self._records.get(ledger_id)
+        return None if record is None else copy.deepcopy(record)
+
+    def compare_and_swap(
+        self,
+        ledger_id: str,
+        *,
+        expected_fingerprint: str | None,
+        envelope: Mapping[str, Any],
+    ) -> bool:
+        current = self._records.get(ledger_id)
+        current_fingerprint = None if current is None else current.get("fingerprint")
+        if current_fingerprint != expected_fingerprint:
+            return False
+        if current is not None and (
+            not set(current["attempt_ids"]) <= set(envelope["attempt_ids"])
+            or not set(current["lineage_ids"]) <= set(envelope["lineage_ids"])
+        ):
+            raise ValueError("test high watermark cannot regress")
+        self._records[ledger_id] = copy.deepcopy(dict(envelope))
+        return True
+
+    def delete_for_test(self, ledger_id: str) -> None:
+        self._records.pop(ledger_id, None)
 
 
 class PipelineAuthorityVerifier:
@@ -138,7 +173,8 @@ def _service(tmp_path: Path) -> Any:
     validation_store = validation.FileValidationEvidenceStore(
         tmp_path / "validation-evidence",
         fingerprint_provider=validation_fingerprints,
-        anchor_path=tmp_path / ".validation-high-watermark.json",
+        high_watermark_store=DeterministicValidationHighWatermarkStore(),
+        ledger_id="VALIDATION-LEDGER-PIPELINE",
     )
     semantic_validator = validation.ContractSemanticValidator(
         fingerprint_provider=validation_fingerprints,

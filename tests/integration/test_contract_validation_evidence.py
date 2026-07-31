@@ -17,7 +17,11 @@ import pytest
 
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from pmpe.contracts.intake import CorrectionReference, IntakeReceipt, KeyedFingerprint
-from tests.integration.test_pmos_compilation_pipeline import _request, _service
+from tests.integration.test_pmos_compilation_pipeline import (
+    DeterministicValidationHighWatermarkStore,
+    _request,
+    _service,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 VALID_BUNDLE = ROOT / "tests" / "fixtures" / "pmos" / "v1" / "valid_bundle.json"
@@ -192,11 +196,15 @@ def _validator(*, evidence_lookup: Any = None) -> Any:
     )
 
 
-def _store(root: Path) -> Any:
+def _store(
+    root: Path,
+    high_watermarks: DeterministicValidationHighWatermarkStore | None = None,
+) -> Any:
     return _api().FileValidationEvidenceStore(
         root,
         fingerprint_provider=FINGERPRINTS,
-        anchor_path=root.parent / f".{root.name}-validation-high-watermark.json",
+        high_watermark_store=high_watermarks or DeterministicValidationHighWatermarkStore(),
+        ledger_id="VALIDATION-LEDGER-TEST",
     )
 
 
@@ -443,7 +451,8 @@ def test_deleting_all_signed_evidence_cannot_reinitialize_an_empty_ledger(
 ) -> None:
     api = _api()
     root = tmp_path / "evidence"
-    store = _store(root)
+    high_watermarks = DeterministicValidationHighWatermarkStore()
+    store = _store(root, high_watermarks)
     bundle = _bundle()
     store.record(
         _validator().validate(
@@ -454,7 +463,7 @@ def test_deleting_all_signed_evidence_cannot_reinitialize_an_empty_ledger(
     shutil.rmtree(root)
 
     with pytest.raises(api.ValidationEvidenceError, match="external high watermark"):
-        _store(root)
+        _store(root, high_watermarks)
 
 
 def test_restoring_older_signed_snapshot_cannot_roll_back_high_watermark(
@@ -463,7 +472,8 @@ def test_restoring_older_signed_snapshot_cannot_roll_back_high_watermark(
     api = _api()
     root = tmp_path / "evidence"
     snapshot = tmp_path / "snapshot"
-    store = _store(root)
+    high_watermarks = DeterministicValidationHighWatermarkStore()
+    store = _store(root, high_watermarks)
     bundle = _bundle()
     first = _validator().validate(
         bundle,
@@ -489,13 +499,14 @@ def test_restoring_older_signed_snapshot_cannot_roll_back_high_watermark(
     shutil.copytree(snapshot, root)
 
     with pytest.raises(api.ValidationEvidenceError, match="regressed"):
-        _store(root)
+        _store(root, high_watermarks)
 
 
-def test_deleting_high_watermark_anchor_fails_closed(tmp_path: Path) -> None:
+def test_deleting_monotonic_high_watermark_fails_closed(tmp_path: Path) -> None:
     api = _api()
     root = tmp_path / "evidence"
-    store = _store(root)
+    high_watermarks = DeterministicValidationHighWatermarkStore()
+    store = _store(root, high_watermarks)
     bundle = _bundle()
     store.record(
         _validator().validate(
@@ -503,10 +514,10 @@ def test_deleting_high_watermark_anchor_fails_closed(tmp_path: Path) -> None:
             _context(bundle, "LINEAGE-000001", "ATTEMPT-000001"),
         )
     )
-    store._anchor_path.unlink()
+    high_watermarks.delete_for_test("VALIDATION-LEDGER-TEST")
 
     with pytest.raises(api.ValidationEvidenceError, match="anchor is missing"):
-        _store(root)
+        _store(root, high_watermarks)
 
 
 def test_reconciliation_rejects_multiple_first_pass_roots(tmp_path: Path) -> None:

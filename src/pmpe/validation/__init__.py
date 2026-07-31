@@ -20,6 +20,7 @@ from pmpe.validation.contracts import (
     ValidationDiagnostic,
     ValidationEvidenceError,
     ValidationEvidenceLookup,
+    ValidationHighWatermarkStore,
     ValidationResult,
     default_rule_registry,
 )
@@ -46,6 +47,7 @@ __all__ = [
     "ValidationDiagnostic",
     "ValidationEvidenceLookup",
     "ValidationEvidenceError",
+    "ValidationHighWatermarkStore",
     "ValidationResult",
     "default_rule_registry",
 ]
