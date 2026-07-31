@@ -19,6 +19,7 @@ _DIFF_EVENTS = frozenset({"pull_request", "push"})
 _RELEVANT_PREFIXES = (
     "products/pm-evals-web/frontend/",
     "products/pm-evals-web/e2e/",
+    "products/pm-evals-web/fixtures/",
 )
 _RELEVANT_FILES = frozenset(
     {
