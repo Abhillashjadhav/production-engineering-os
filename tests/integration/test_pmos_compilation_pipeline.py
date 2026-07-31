@@ -124,6 +124,20 @@ def test_acknowledgement_retry_returns_same_compilation_without_new_object(
     assert len(list((tmp_path / "evidence").iterdir())) == 1
 
 
+def test_tampered_compilation_evidence_fails_closed_on_retry(tmp_path: Path) -> None:
+    service = _service(tmp_path)
+    request = _request(FIXTURES / "minimal_valid_spec.json", "tamper")
+    first = service.process(request)
+    bundle_path = tmp_path / "evidence" / first.intake.receipt.attempt_id / "bundle.json"
+    bundle = json.loads(bundle_path.read_text())
+    bundle["bundle_version"] = "9.9.9"
+    bundle_path.write_text(json.dumps(bundle))
+    replay = service.process(request)
+    assert replay.status == "EVIDENCE_SECURITY_BLOCKED"
+    assert replay.compilation is None
+    assert replay.replayed
+
+
 def test_unsupported_source_is_deleted_and_emits_no_bundle_or_manifest(
     tmp_path: Path,
 ) -> None:

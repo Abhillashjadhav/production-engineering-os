@@ -174,6 +174,32 @@ def test_v3_api_and_backend_capability_values_are_preserved() -> None:
     assert mapping["canonical_pointer"] == "/backend_capabilities/CAPABILITY-BC-1"
 
 
+def test_v3_identifier_normalization_collision_fails_without_artifact() -> None:
+    compiler = _module("pmpe.contracts.compiler")
+    source = json.loads((FIXTURES / "v3" / "fullstack_contract_approved.json").read_text())
+    duplicate = copy.deepcopy(source["backend_capabilities"][0])
+    duplicate["capability_id"] = "BC_1"
+    source["backend_capabilities"].append(duplicate)
+    with pytest.raises(compiler.CompilationBlocked) as raised:
+        _compiler().compile(
+            json.dumps(source).encode(),
+            content_type="application/json",
+            received_at=FIXED_TIME,
+            source_name="collision.json",
+        )
+    assert raised.value.bundle is None
+    assert raised.value.diagnostics[0].code == "SOURCE_ID_COLLISION"
+    assert raised.value.diagnostics[0].source_path.endswith("/capability_id")
+
+
+def test_integer_legacy_source_version_is_preserved_in_provenance() -> None:
+    result = _compile(FIXTURES / "v2" / "contract_approved.json")
+    assert result.source_version == "1"
+    assert result.bundle["provenance"]["source_version"] == 1
+    assert result.manifest["provenance"]["source_version"] == 1
+    assert result.evidence["source_version_value"] == 1
+
+
 @pytest.mark.parametrize(("_format", "_version", "fixture"), LEGACY_CASES)
 def test_every_source_field_is_mapped_or_preserved_in_a_blocking_diagnostic(
     _format: str,
@@ -426,6 +452,19 @@ def test_migration_registry_rejects_ambiguous_and_reordered_paths() -> None:
         registry.register(migrations.MigrationStep("0.9.0", "1.0.0", "RULE-OLD", identity))
     with pytest.raises(migrations.MigrationError, match="ambiguous"):
         registry.register(migrations.MigrationStep("1.0.0", "1.5.0", "RULE-X", identity))
+
+
+def test_migration_transform_failure_is_sanitized_as_migration_error() -> None:
+    migrations = _module("pmpe.contracts.migrations")
+    registry = migrations.MigrationRegistry()
+
+    def broken(_value: dict[str, Any]) -> dict[str, Any]:
+        raise RuntimeError("source value must not escape")
+
+    registry.register(migrations.MigrationStep("1.0.0", "2.0.0", "RULE-BROKEN", broken))
+    with pytest.raises(migrations.MigrationError, match="RULE-BROKEN") as raised:
+        registry.migrate({"sensitive": "value"}, "1.0.0", "2.0.0")
+    assert "source value" not in str(raised.value)
 
 
 def test_source_change_changes_source_bundle_and_manifest_digests() -> None:

@@ -165,6 +165,38 @@ def test_retry_key_resolves_exactly_one_durable_reservation(tmp_path: Path) -> N
     assert reloaded == first.reservation
 
 
+def test_retry_key_cannot_be_rebound_to_different_payload(tmp_path: Path) -> None:
+    coordinator = _coordinator(tmp_path)
+    first = coordinator.receive(_request())
+    mismatch = coordinator.receive(_request(b'{"spec_version":"1.0","product_name":"Different"}'))
+    assert mismatch.status == "SECURITY_BLOCKED"
+    assert mismatch.reservation == first.reservation
+    assert any(finding.code == "RETRY_KEY_PAYLOAD_MISMATCH" for finding in mismatch.findings)
+    assert len(list((tmp_path / "quarantine").glob("*.sealed"))) == 0
+
+
+def test_missing_retry_index_is_recovered_from_safe_reservation_metadata(
+    tmp_path: Path,
+) -> None:
+    coordinator = _coordinator(tmp_path)
+    reservation = coordinator.ledger.reserve(
+        retry_key="recoverable",
+        publisher="pm-agent-os",
+        channel="contract-api",
+        correction_reference=None,
+    )
+    retry_index = next((tmp_path / "ledger" / "retry-index").glob("*.json"))
+    retry_index.unlink()
+    recovered = coordinator.ledger.reserve(
+        retry_key="recoverable",
+        publisher="pm-agent-os",
+        channel="contract-api",
+        correction_reference=None,
+    )
+    assert recovered == reservation
+    assert len(list((tmp_path / "ledger" / "reservations").glob("*.json"))) == 1
+
+
 def test_reservation_exists_before_quarantine_write(tmp_path: Path) -> None:
     module = _module()
     observed: list[bool] = []
@@ -305,6 +337,18 @@ def test_invalid_correction_reference_creates_new_lineage_and_duplicate_finding(
     outcome = _coordinator(tmp_path).receive(_request(correction_reference=reference))
     assert outcome.reservation.lineage_id != reference.lineage_id
     assert any(finding.code == "POSSIBLE_DUPLICATE" for finding in outcome.findings)
+
+
+def test_syntactically_invalid_correction_reference_is_not_persisted(
+    tmp_path: Path,
+) -> None:
+    module = _module()
+    reference = module.CorrectionReference("../secret", "not/a/handle")
+    outcome = _coordinator(tmp_path).receive(_request(correction_reference=reference))
+    assert outcome.reservation.correction_reference is None
+    assert any(finding.code == "POSSIBLE_DUPLICATE" for finding in outcome.findings)
+    ledger_text = "\n".join(path.read_text() for path in (tmp_path / "ledger").rglob("*.json"))
+    assert "../secret" not in ledger_text
 
 
 def test_valid_correction_reuses_lineage_only_after_terminal_cleanup(tmp_path: Path) -> None:
