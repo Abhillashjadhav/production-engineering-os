@@ -12,7 +12,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from pmpe.contracts.canonical import (
     CanonicalInputError,
@@ -31,6 +31,7 @@ from pmpe.contracts.intake import (
     IntakeRequest,
     KeyedFingerprintProvider,
 )
+from pmpe.validation.contracts import Disposition, ValidationResult
 
 
 def _atomic_write(path: Path, payload: bytes) -> None:
@@ -61,7 +62,25 @@ class PmosCompilationOutcome:
     status: str
     intake: IntakeOutcome
     compilation: CompilationResult | None
+    validation: ValidationResult | None = None
     replayed: bool = False
+
+    @property
+    def engineering_admissible(self) -> bool:
+        return (
+            self.compilation is not None
+            and not self.compilation.blocked
+            and self.validation is not None
+            and self.validation.engineering_admissible
+        )
+
+
+class CanonicalAdmissionBoundary(Protocol):
+    def admit(
+        self,
+        compilation: CompilationResult,
+        intake: IntakeOutcome,
+    ) -> ValidationResult: ...
 
 
 class CompilationEvidenceError(ValueError):
@@ -476,10 +495,12 @@ class PmosCompilationService:
         intake: IntakeCoordinator,
         compiler: CanonicalCompiler,
         evidence_store: FileCompilationEvidenceStore,
+        admission_boundary: CanonicalAdmissionBoundary,
     ) -> None:
         self.intake = intake
         self.compiler = compiler
         self.evidence_store = evidence_store
+        self.admission_boundary = admission_boundary
 
     def process(self, request: IntakeRequest) -> PmosCompilationOutcome:
         intake_outcome = self.intake.receive(request)
@@ -517,10 +538,9 @@ class PmosCompilationService:
                     replayed=True,
                 )
             if compiled is not None:
-                return PmosCompilationOutcome(
-                    status="COMPILED_BLOCKED" if compiled.blocked else "COMPILED",
-                    intake=intake_outcome,
-                    compilation=compiled,
+                return self._semantic_outcome(
+                    intake_outcome,
+                    compiled,
                     replayed=True,
                 )
             status = "COMPILATION_BLOCKED" if blocked_evidence else "EVIDENCE_SECURITY_BLOCKED"
@@ -605,14 +625,12 @@ class PmosCompilationService:
                     compilation=existing,
                     replayed=True,
                 )
+            if existing is not None:
+                return self._semantic_outcome(finalized, existing, replayed=True)
             return PmosCompilationOutcome(
-                status=(
-                    "COMPILED_BLOCKED"
-                    if existing is not None and existing.blocked
-                    else ("COMPILED" if existing is not None else "COMPILATION_BLOCKED")
-                ),
+                status="COMPILATION_BLOCKED",
                 intake=finalized,
-                compilation=existing,
+                compilation=None,
                 replayed=True,
             )
 
@@ -677,14 +695,51 @@ class PmosCompilationService:
                 compilation=None,
             )
         finalized = self._finalize_intake(intake_outcome)
+        if finalized.status != "ADMITTED":
+            return PmosCompilationOutcome(
+                status="INTAKE_SECURITY_BLOCKED",
+                intake=finalized,
+                compilation=compilation,
+            )
+        return self._semantic_outcome(finalized, compilation)
+
+    def _semantic_outcome(
+        self,
+        intake_outcome: IntakeOutcome,
+        compilation: CompilationResult,
+        *,
+        replayed: bool = False,
+    ) -> PmosCompilationOutcome:
+        try:
+            validation = self.admission_boundary.admit(compilation, intake_outcome)
+        except Exception:
+            return PmosCompilationOutcome(
+                status="VALIDATION_SECURITY_BLOCKED",
+                intake=intake_outcome,
+                compilation=compilation,
+                replayed=replayed,
+            )
+        if compilation.blocked and validation.engineering_admissible:
+            return PmosCompilationOutcome(
+                status="VALIDATION_SECURITY_BLOCKED",
+                intake=intake_outcome,
+                compilation=compilation,
+                validation=validation,
+                replayed=replayed,
+            )
+        status = {
+            Disposition.ADMITTED: "ENGINEERING_ADMITTED",
+            Disposition.WARNING: "ENGINEERING_ADMITTED_WITH_WARNINGS",
+            Disposition.PRODUCT_INPUT_REQUIRED: "COMPILED_BLOCKED",
+            Disposition.UNSUPPORTED_REPOSITORY_EXTENSION: "VALIDATION_BLOCKED",
+            Disposition.ERROR: "VALIDATION_SECURITY_BLOCKED",
+        }[validation.disposition]
         return PmosCompilationOutcome(
-            status=(
-                "COMPILED_BLOCKED"
-                if compilation.blocked and finalized.status == "ADMITTED"
-                else ("COMPILED" if finalized.status == "ADMITTED" else "INTAKE_SECURITY_BLOCKED")
-            ),
-            intake=finalized,
+            status=status,
+            intake=intake_outcome,
             compilation=compilation,
+            validation=validation,
+            replayed=replayed,
         )
 
     def _finalize_intake(self, intake_outcome: IntakeOutcome) -> IntakeOutcome:
@@ -696,6 +751,7 @@ class PmosCompilationService:
 
 __all__ = [
     "CompilationEvidenceError",
+    "CanonicalAdmissionBoundary",
     "FileCompilationEvidenceStore",
     "PmosCompilationOutcome",
     "PmosCompilationService",

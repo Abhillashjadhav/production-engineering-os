@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
+import copy
+import hashlib
+import hmac
 import importlib
 import json
+from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -11,6 +16,7 @@ from typing import Any
 import pytest
 from jsonschema import Draft202012Validator
 
+from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from tests.unit.test_pmos_intake import (
     CleanMalwareScanner,
     FixedClock,
@@ -25,6 +31,111 @@ BUNDLE_SCHEMA = json.loads((ROOT / "schemas" / "pmos_contract_bundle.schema.json
 MANIFEST_SCHEMA = json.loads((ROOT / "schemas" / "pmos_contract_manifest.schema.json").read_text())
 
 
+class DeterministicValidationHighWatermarkStore:
+    """Deterministic test double for externally governed monotonic storage."""
+
+    def __init__(self) -> None:
+        self._records: dict[str, dict[str, Any]] = {}
+
+    def load(self, ledger_id: str) -> dict[str, Any] | None:
+        record = self._records.get(ledger_id)
+        return None if record is None else copy.deepcopy(record)
+
+    def compare_and_swap(
+        self,
+        ledger_id: str,
+        *,
+        expected_fingerprint: str | None,
+        envelope: Mapping[str, Any],
+    ) -> bool:
+        current = self._records.get(ledger_id)
+        current_fingerprint = None if current is None else current.get("fingerprint")
+        if current_fingerprint != expected_fingerprint:
+            return False
+        if envelope.get("ledger_id") != ledger_id:
+            raise ValueError("test high watermark must bind the exact ledger")
+        if current is not None and (
+            not set(current["attempt_ids"]) <= set(envelope["attempt_ids"])
+            or not set(current["lineage_ids"]) <= set(envelope["lineage_ids"])
+        ):
+            raise ValueError("test high watermark cannot regress")
+        self._records[ledger_id] = copy.deepcopy(dict(envelope))
+        return True
+
+    def delete_for_test(self, ledger_id: str) -> None:
+        self._records.pop(ledger_id, None)
+
+
+class PipelineAuthorityVerifier:
+    """Test-only authority issuer; production admission exposes verification only."""
+
+    issuer_id = "TEST-PIPELINE-AUTHORITY-001"
+    key_version = "TEST-PIPELINE-AUTHORITY-KEY-V1"
+    _key = b"issue-63-pipeline-authority-test-key"
+
+    def issue(self, bundle: dict[str, Any]) -> Any:
+        validation = _module("pmpe.validation.contracts")
+        evidence = validation.ApprovalAuthorityEvidence(
+            bundle_digest=canonical_digest(bundle),
+            approvals_digest=canonical_digest(bundle.get("approvals", {})),
+            authority_grants=(),
+            requirement_grants=(),
+            issuer_id=self.issuer_id,
+            key_version=self.key_version,
+            attestation="",
+        )
+        attestation = hmac.new(
+            self._key,
+            b"validation-authority-attestation\x00"
+            + canonical_json_bytes(evidence.signed_payload()),
+            hashlib.sha256,
+        ).hexdigest()
+        return replace(evidence, attestation=attestation)
+
+    def verify(self, evidence: Any) -> bool:
+        if evidence.issuer_id != self.issuer_id or evidence.key_version != self.key_version:
+            return False
+        expected = hmac.new(
+            self._key,
+            b"validation-authority-attestation\x00"
+            + canonical_json_bytes(evidence.signed_payload()),
+            hashlib.sha256,
+        ).hexdigest()
+        return hmac.compare_digest(expected, evidence.attestation)
+
+
+PIPELINE_AUTHORITY = PipelineAuthorityVerifier()
+
+
+class PipelineValidationFingerprintProvider:
+    key_version = "TEST-PIPELINE-VALIDATION-KEY-V1"
+    _key = b"issue-63-pipeline-validation-test-key"
+
+    def fingerprint(self, domain: str, payload: bytes) -> str:
+        return hmac.new(
+            self._key,
+            domain.encode() + b"\x00" + payload,
+            hashlib.sha256,
+        ).hexdigest()
+
+    def candidate_fingerprints(self, domain: str, payload: bytes) -> tuple[Any, ...]:
+        intake = _module("pmpe.contracts.intake")
+        return (intake.KeyedFingerprint(self.key_version, self.fingerprint(domain, payload)),)
+
+
+class PipelineValidationAuthorityProvider:
+    def authority_for(
+        self,
+        bundle: dict[str, Any],
+    ) -> Any:
+        validation = _module("pmpe.validation.contracts")
+        return validation.ValidationAuthority(
+            authority_grants=(),
+            approval_requirement_grants=(),
+            authority_identity=PIPELINE_AUTHORITY.issue(bundle),
+        )
+
+
 def _module(name: str) -> ModuleType:
     try:
         return importlib.import_module(name)
@@ -32,13 +143,15 @@ def _module(name: str) -> ModuleType:
         pytest.fail(f"issue #76 module {name!r} is not implemented", pytrace=False)
 
 
-def _service(tmp_path: Path) -> Any:
+def _service(tmp_path: Path, *, authority_provider: Any = None) -> Any:
     intake = _module("pmpe.contracts.intake")
     pipeline = _module("pmpe.contracts.pipeline")
     compiler = _module("pmpe.contracts.compiler")
     clock = FixedClock()
     ids = SequenceIds()
     fingerprints = TestFingerprintProvider()
+    validation_fingerprints = PipelineValidationFingerprintProvider()
+    validation = _module("pmpe.validation.contracts")
     ledger = intake.FileIntakeLedger(
         tmp_path / "ledger",
         clock=clock,
@@ -59,13 +172,35 @@ def _service(tmp_path: Path) -> Any:
         max_bytes=2_000_000,
         allowed_content_types={"application/json", "application/yaml"},
     )
+    validation_store = validation.FileValidationEvidenceStore(
+        tmp_path / "validation-evidence",
+        fingerprint_provider=validation_fingerprints,
+        high_watermark_store=DeterministicValidationHighWatermarkStore(),
+        ledger_id="VALIDATION-LEDGER-PIPELINE",
+    )
+    semantic_validator = validation.ContractSemanticValidator(
+        fingerprint_provider=validation_fingerprints,
+        authority_evidence_verifier=PIPELINE_AUTHORITY,
+        evidence_lookup=validation_store,
+    )
+    compilation_evidence = pipeline.FileCompilationEvidenceStore(
+        tmp_path / "evidence",
+        fingerprint_provider=fingerprints,
+    )
+    admission = validation.CanonicalContractAdmission(
+        validator=semantic_validator,
+        evidence_store=validation_store,
+        authority_provider=authority_provider or PipelineValidationAuthorityProvider(),
+        intake_verifier=coordinator,
+        compilation_evidence=compilation_evidence,
+        fingerprint_provider=validation_fingerprints,
+        clock=clock,
+    )
     return pipeline.PmosCompilationService(
         intake=coordinator,
         compiler=compiler.CanonicalCompiler(),
-        evidence_store=pipeline.FileCompilationEvidenceStore(
-            tmp_path / "evidence",
-            fingerprint_provider=fingerprints,
-        ),
+        evidence_store=compilation_evidence,
+        admission_boundary=admission,
     )
 
 
@@ -97,6 +232,9 @@ def test_supported_input_produces_durable_schema_valid_evidence(
     result = _service(tmp_path).process(_request(fixture, retry_key))
     assert result.status == "COMPILED_BLOCKED"
     assert result.compilation.blocked
+    assert result.validation is not None
+    assert result.validation.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert not result.engineering_admissible
     assert list(Draft202012Validator(BUNDLE_SCHEMA).iter_errors(result.compilation.bundle)) == []
     assert (
         list(Draft202012Validator(MANIFEST_SCHEMA).iter_errors(result.compilation.manifest)) == []
@@ -112,7 +250,110 @@ def test_supported_input_produces_durable_schema_valid_evidence(
     assert evidence["intake"] == result.intake.receipt.as_dict()
     assert "payload" not in evidence["intake"]
     assert (attempt_dir / "evidence-attestation.json").exists()
+    validation_attempt = (
+        tmp_path
+        / "validation-evidence"
+        / "artifacts"
+        / "attempts"
+        / f"{result.intake.receipt.attempt_id}.json"
+    )
+    assert validation_attempt.exists()
     assert not result.intake.quarantine_retained
+
+
+def test_semantic_admission_boundary_is_a_required_pipeline_dependency(
+    tmp_path: Path,
+) -> None:
+    pipeline = _module("pmpe.contracts.pipeline")
+    compiler = _module("pmpe.contracts.compiler")
+    service = _service(tmp_path)
+    with pytest.raises(TypeError, match="admission_boundary"):
+        pipeline.PmosCompilationService(
+            intake=service.intake,
+            compiler=compiler.CanonicalCompiler(),
+            evidence_store=service.evidence_store,
+        )
+
+
+def test_semantic_admission_rejects_an_unfinalized_secure_intake(
+    tmp_path: Path,
+) -> None:
+    validation = _module("pmpe.validation.contracts")
+    service = _service(tmp_path)
+    request = _request(FIXTURES / "minimal_valid_spec.json", "unfinalized-semantic-intake")
+    pending = service.intake.receive(request)
+    assert pending.receipt is not None
+    compiled = service.compiler.compile(
+        service.intake.load_validated_payload(pending),
+        content_type=pending.receipt.content_type,
+        received_at=pending.receipt.received_at,
+        source_name=pending.receipt.attempt_id,
+    )
+    with pytest.raises(validation.ValidationEvidenceError, match="quarantine-free"):
+        service.admission_boundary.admit(compiled, pending)
+    assert pending.status == "VALIDATED_PENDING_COMPILATION"
+    assert not pending.disposition.terminal
+    assert pending.quarantine_retained
+    assert pending.deletion_attestation is None
+
+
+def test_semantic_admission_failure_never_returns_an_admissible_outcome(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+
+    class FailingBoundary:
+        @staticmethod
+        def admit(_bundle: dict[str, Any], _intake: Any) -> Any:
+            raise RuntimeError("simulated validation evidence failure")
+
+    service.admission_boundary = FailingBoundary()
+    result = service.process(
+        _request(FIXTURES / "minimal_valid_spec.json", "semantic-boundary-failure")
+    )
+    assert result.status == "VALIDATION_SECURITY_BLOCKED"
+    assert result.validation is None
+    assert not result.engineering_admissible
+
+
+def test_authority_provider_cannot_mutate_compiler_verified_product_truth(
+    tmp_path: Path,
+) -> None:
+    class MutatingAuthorityProvider(PipelineValidationAuthorityProvider):
+        def authority_for(self, bundle: dict[str, Any]) -> Any:
+            bundle["product"]["problem"]["statement"] = "Invented after compilation"
+            return super().authority_for(bundle)
+
+    service = _service(tmp_path, authority_provider=MutatingAuthorityProvider())
+    result = service.process(
+        _request(FIXTURES / "minimal_valid_spec.json", "mutating-authority-provider")
+    )
+    assert result.status == "VALIDATION_SECURITY_BLOCKED"
+    assert result.validation is None
+    assert not result.engineering_admissible
+
+
+def test_tampered_semantic_evidence_fails_closed_on_pipeline_replay(
+    tmp_path: Path,
+) -> None:
+    service = _service(tmp_path)
+    request = _request(FIXTURES / "minimal_valid_spec.json", "semantic-evidence-tamper")
+    first = service.process(request)
+    assert first.intake.receipt is not None
+    evidence_path = (
+        tmp_path
+        / "validation-evidence"
+        / "artifacts"
+        / "attempts"
+        / f"{first.intake.receipt.attempt_id}.json"
+    )
+    envelope = json.loads(evidence_path.read_text())
+    envelope["payload"]["disposition"] = "ADMITTED"
+    evidence_path.write_text(json.dumps(envelope))
+    replay = service.process(request)
+    assert replay.status == "VALIDATION_SECURITY_BLOCKED"
+    assert replay.validation is None
+    assert not replay.engineering_admissible
 
 
 def test_acknowledgement_retry_returns_same_compilation_without_new_object(
