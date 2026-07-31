@@ -5,6 +5,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  schedule:
+    - cron: "23 3 * * *"
 
 permissions:
   contents: read
@@ -19,9 +21,9 @@ jobs:
           python-version: "3.11"
       - run: pip install ruff
       - name: ruff format
-        run: ruff format --check src tests/unit tests/integration tests/e2e tests/conftest.py
+        run: ruff format --check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py
       - name: ruff lint
-        run: ruff check src tests/unit tests/integration tests/e2e tests/conftest.py
+        run: ruff check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py
 
   types:
     runs-on: ubuntu-latest
@@ -32,7 +34,7 @@ jobs:
           python-version: "3.11"
       - run: pip install -e ".[dev]"
       - name: mypy --strict
-        run: mypy
+        run: mypy --strict src/pmpe scripts/ci/classify_frontend_ci.py
 
   tests:
     runs-on: ubuntu-latest
@@ -61,9 +63,9 @@ jobs:
           python-version: "3.11"
       - run: pip install -e ".[dev]" pip-audit
       - name: bandit (fail on high severity)
-        run: bandit -r src -q --severity-level high
+        run: bandit -r src scripts/ci/classify_frontend_ci.py -q --severity-level high
       - name: bandit full report (informational)
-        run: bandit -r src -q || true
+        run: bandit -r src scripts/ci/classify_frontend_ci.py -q || true
       - name: dependency audit
         run: pip-audit --strict || echo "::warning::pip-audit reported issues (non-blocking in V1, see SECURITY.md)"
 
@@ -98,25 +100,59 @@ jobs:
         working-directory: products/pm-evals-web/frontend
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: classify frontend impact
+        id: frontend-paths
+        continue-on-error: true
+        working-directory: .
+        run: |
+          python3 scripts/ci/classify_frontend_ci.py \
+            --event-name "${{ github.event_name }}" \
+            --base-sha "${{ github.event.pull_request.base.sha || github.event.before }}" \
+            --head-sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+            --repo-root . \
+            --github-output "$GITHUB_OUTPUT"
       - uses: actions/setup-node@v4
+        if: steps.frontend-paths.outcome != 'success' || steps.frontend-paths.outputs.applicable != 'false'
         with:
           node-version: "22"
           cache: npm
           cache-dependency-path: products/pm-evals-web/frontend/package-lock.json
       - name: install
+        if: steps.frontend-paths.outcome != 'success' || steps.frontend-paths.outputs.applicable != 'false'
         run: npm ci
       - name: dependency audit (high severity blocks)
+        if: steps.frontend-paths.outcome != 'success' || steps.frontend-paths.outputs.applicable != 'false'
         run: npm audit --audit-level=high
       - name: typed client is current with the committed contract
+        if: steps.frontend-paths.outcome != 'success' || steps.frontend-paths.outputs.applicable != 'false'
         run: |
           npm run generate:api-types
           git diff --exit-code src/lib/api-types.gen.ts
       - name: typecheck
+        if: steps.frontend-paths.outcome != 'success' || steps.frontend-paths.outputs.applicable != 'false'
         run: npx tsc --noEmit
       - name: unit and component tests
+        if: steps.frontend-paths.outcome != 'success' || steps.frontend-paths.outputs.applicable != 'false'
         run: npx vitest run
       - name: production build
+        if: steps.frontend-paths.outcome != 'success' || steps.frontend-paths.outputs.applicable != 'false'
         run: npx next build
+      - name: frontend CI routing result
+        if: always()
+        working-directory: .
+        env:
+          CLASSIFIER_APPLICABLE: ${{ steps.frontend-paths.outputs.applicable }}
+          CLASSIFIER_OUTCOME: ${{ steps.frontend-paths.outcome }}
+        run: |
+          if [[ "$CLASSIFIER_OUTCOME" != "success" || "$CLASSIFIER_APPLICABLE" != "false" ]]; then
+            decision="APPLICABLE — full frontend security and validation suite executed"
+          else
+            decision="NOT APPLICABLE — no frontend-affecting paths changed"
+          fi
+          echo "$decision"
+          echo "### $decision" >> "$GITHUB_STEP_SUMMARY"
 
   product-e2e:
     runs-on: ubuntu-latest

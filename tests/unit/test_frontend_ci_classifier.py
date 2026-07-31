@@ -6,11 +6,13 @@ import subprocess
 from pathlib import Path
 
 import pytest
+
 from scripts.ci.classify_frontend_ci import (
     APPLICABLE_LABEL,
     NOT_APPLICABLE_LABEL,
     classify_changed_paths,
     classify_event,
+    main,
 )
 
 
@@ -162,3 +164,44 @@ def test_git_error_fails_closed(tmp_path: Path) -> None:
     assert decision.applicable is True
     assert decision.label == APPLICABLE_LABEL
     assert "git comparison failed" in decision.reason
+
+
+def test_rename_from_frontend_path_remains_applicable(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    old_path = "products/pm-evals-web/frontend/src/app/page.tsx"
+    base = _commit(repo, old_path, "export {};\n")
+    new_path = "archive/page.tsx"
+    (repo / new_path).parent.mkdir(parents=True)
+    _git(repo, "mv", old_path, new_path)
+    _git(repo, "commit", "-q", "-m", "move frontend file")
+    head = _git(repo, "rev-parse", "HEAD")
+
+    decision = classify_event("pull_request", base, head, repo)
+
+    assert decision.applicable is True
+    assert decision.changed_paths == (new_path, old_path)
+
+
+def test_cli_writes_stable_github_outputs(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    github_output = tmp_path / "github-output"
+    exit_code = main(
+        [
+            "--event-name",
+            "workflow_dispatch",
+            "--repo-root",
+            str(tmp_path),
+            "--github-output",
+            str(github_output),
+        ]
+    )
+
+    assert exit_code == 0
+    assert capsys.readouterr().out.splitlines()[0] == APPLICABLE_LABEL
+    assert github_output.read_text().splitlines() == [
+        "applicable=true",
+        f"decision={APPLICABLE_LABEL}",
+        "reason=workflow_dispatch always runs the full frontend suite",
+    ]
