@@ -17,7 +17,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.22.0"
+DETECTOR_VERSION = "1.23.0"
 
 _GITHUB_EVENTS = frozenset(
     {
@@ -92,6 +92,24 @@ _GITHUB_PULL_REQUEST_TYPES = frozenset(
     }
 )
 _GITHUB_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
+_GITHUB_PERMISSION_SCOPES = frozenset(
+    {
+        "actions",
+        "attestations",
+        "checks",
+        "contents",
+        "deployments",
+        "discussions",
+        "id-token",
+        "issues",
+        "models",
+        "packages",
+        "pages",
+        "pull-requests",
+        "security-events",
+        "statuses",
+    }
+)
 _GITHUB_TOP_LEVEL_KEYS = frozenset(
     {True, "on", "name", "run-name", "permissions", "env", "defaults", "concurrency", "jobs"}
 )
@@ -1425,7 +1443,7 @@ def _github_permissions_are_supported(value: object) -> bool:
         return value in {"read-all", "write-all"}
     return isinstance(value, dict) and all(
         isinstance(key, str)
-        and _GITHUB_IDENTIFIER.fullmatch(key) is not None
+        and key in _GITHUB_PERMISSION_SCOPES
         and isinstance(item, str)
         and item in {"read", "write", "none"}
         for key, item in value.items()
@@ -1493,14 +1511,19 @@ def _github_strategy_is_supported(value: object) -> bool:
         and max_parallel > 0
         and isinstance(matrix, dict)
         and bool(matrix)
-        and all(
-            isinstance(key, str)
-            and _GITHUB_IDENTIFIER.fullmatch(key) is not None
-            and isinstance(items, list)
-            and bool(items)
-            and all(isinstance(item, (str, int, float, bool)) for item in items)
-            for key, items in matrix.items()
+        and all(_github_matrix_entry_is_supported(key, items) for key, items in matrix.items())
+    )
+
+
+def _github_matrix_entry_is_supported(key: object, items: object) -> bool:
+    if not isinstance(key, str) or not isinstance(items, list) or not items:
+        return False
+    if key in {"include", "exclude"}:
+        return all(
+            isinstance(item, dict) and bool(item) and _github_scalar_mapping(item) for item in items
         )
+    return _GITHUB_IDENTIFIER.fullmatch(key) is not None and all(
+        isinstance(item, (str, int, float, bool)) for item in items
     )
 
 
@@ -1738,7 +1761,7 @@ def _github_workflow_is_runnable(value: dict[object, object]) -> bool:
         return False
     event = value.get("on", value.get(True))
     jobs = value.get("jobs")
-    return (
+    if not (
         _github_trigger_is_runnable(event)
         and isinstance(jobs, dict)
         and bool(jobs)
@@ -1748,7 +1771,26 @@ def _github_workflow_is_runnable(value: dict[object, object]) -> bool:
             and _github_job_is_runnable(job)
             for job_id, job in jobs.items()
         )
-    )
+    ):
+        return False
+    job_ids = set(jobs)
+    dependencies: dict[str, set[str]] = {}
+    for job_id, job in jobs.items():
+        assert isinstance(job_id, str) and isinstance(job, dict)
+        needs = job.get("needs")
+        required = {needs} if isinstance(needs, str) else set(needs or ())
+        if not required <= job_ids or job_id in required:
+            return False
+        dependencies[job_id] = required
+    remaining = set(job_ids)
+    completed: set[str] = set()
+    while remaining:
+        ready = {job_id for job_id in remaining if dependencies[job_id] <= completed}
+        if not ready:
+            return False
+        completed.update(ready)
+        remaining.difference_update(ready)
+    return True
 
 
 def _valid_ci_structure(path: str, value: object) -> bool:

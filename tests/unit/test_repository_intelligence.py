@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib
 import json
 import os
+import re
 import signal
 import subprocess
 import threading
@@ -354,6 +355,18 @@ def test_implementation_digest_binds_loaded_runtime_code_and_source_identity(
         assert scanner._implementation_digest() != original
     with monkeypatch.context() as runtime_patch:
         runtime_patch.setattr(scanner, "_OBJECT_FORMAT_LENGTH", {"sha1": 1, "sha256": 1})
+        assert scanner._implementation_digest() != original
+    redaction = importlib.import_module("pmpe.repository.redaction")
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(redaction.EvidenceRedactor, "_token", re.compile(r"changed"))
+        assert scanner._implementation_digest() != original
+    yaml_module = importlib.import_module("yaml")
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(yaml_module, "safe_load", lambda value: value)
+        assert scanner._implementation_digest() != original
+    rfc8785_module = importlib.import_module("rfc8785")
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(rfc8785_module, "dumps", lambda value: b"changed")
         assert scanner._implementation_digest() != original
     runtime_digest = scanner._module_runtime_digest("repository.scanner")
     with monkeypatch.context() as runtime_patch:
@@ -1028,6 +1041,55 @@ def test_supported_github_ci_forms_are_reported(tmp_path: Path, content: str) ->
         item.kind == "CI_WORKFLOW" for item in snapshot.inventory["delivery_environments"].items
     )
     assert not any(item.code == "DELIVERY.CI_ABSENT" for item in snapshot.findings)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "on: [push]\npermissions:\n  arbitrary-scope: read\njobs:\n  test:\n"
+        "    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n",
+        "on: [push]\njobs:\n  test:\n    needs: missing\n"
+        "    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n",
+        "on: [push]\njobs:\n  first:\n    needs: second\n"
+        "    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n"
+        "  second:\n    needs: first\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - run: pytest\n",
+        "on: [push]\njobs:\n  test:\n    strategy:\n      matrix:\n"
+        "        include: [ubuntu-latest]\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - run: pytest\n",
+    ],
+)
+def test_unproven_github_relationships_and_scopes_are_not_verified(
+    tmp_path: Path,
+    content: str,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, ".github/workflows/ci.yml", content)
+    _commit(repo, "unproven github workflow")
+    snapshot = _scan(repo)
+    assert not any(
+        item.kind == "CI_WORKFLOW" for item in snapshot.inventory["delivery_environments"].items
+    )
+    assert any(item.code == "WORKFLOW.STRUCTURE_UNPROVEN" for item in snapshot.findings)
+
+
+def test_supported_github_needs_graph_and_matrix_objects_are_verified(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(
+        repo,
+        ".github/workflows/ci.yml",
+        "on: [push]\npermissions:\n  contents: read\njobs:\n  build:\n"
+        "    strategy:\n      matrix:\n        python: ['3.12']\n"
+        "        include:\n          - python: '3.13'\n            experimental: true\n"
+        "    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n"
+        "  report:\n    needs: build\n    runs-on: ubuntu-latest\n"
+        "    steps:\n      - run: echo done\n",
+    )
+    _commit(repo, "supported github dependency graph")
+    snapshot = _scan(repo)
+    assert any(
+        item.kind == "CI_WORKFLOW" for item in snapshot.inventory["delivery_environments"].items
+    )
 
 
 def test_ci_comments_do_not_become_security_test_or_rollback_controls(tmp_path: Path) -> None:
@@ -2730,6 +2792,21 @@ def test_observation_is_reproducible_only_from_matching_recorded_inputs(tmp_path
     changed = _observe(repo, _FakeRemote())
     assert first.observation_input_digest != changed.observation_input_digest
     assert first.observation_output_digest != changed.observation_output_digest
+
+
+def test_observation_input_digest_binds_staged_object_identity(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    _write(repo, "README.md", "first staged value\n")
+    _git(repo, "add", "README.md")
+    first = _observe(repo, _FakeRemote())
+
+    _write(repo, "README.md", "second staged value\n")
+    _git(repo, "add", "README.md")
+    second = _observe(repo, _FakeRemote())
+
+    assert first.local_state == second.local_state
+    assert first.observation_input_digest != second.observation_input_digest
+    assert first.observation_output_digest != second.observation_output_digest
 
 
 def test_observation_input_digest_binds_freshness_and_collector_budgets(tmp_path: Path) -> None:

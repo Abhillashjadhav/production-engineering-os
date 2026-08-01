@@ -51,7 +51,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/2.8.0"
+SCANNER_VERSION = "repository-scanner/2.9.0"
 _MAX_SCAN_BUDGETS = {
     "max_files": 100_000,
     "max_directories": 50_000,
@@ -84,6 +84,12 @@ _IMPORTED_SOURCE_DIGESTS = MappingProxyType(
     {
         name: "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
         for name, path in _IMPLEMENTATION_PATHS.items()
+    }
+)
+_RUNTIME_DEPENDENCY_PATHS = MappingProxyType(
+    {
+        "pyyaml.safe_load": ("yaml", "safe_load"),
+        "rfc8785.dumps": ("rfc8785", "dumps"),
     }
 )
 _OBJECT_FORMAT_LENGTH = {"sha1": 40, "sha256": 64}
@@ -568,6 +574,8 @@ def _runtime_code_evidence(target: Any) -> list[dict[str, Any]]:
     if inspect.isclass(target):
         evidence: list[dict[str, Any]] = []
         for name, member in sorted(vars(target).items()):
+            if name.startswith("__") and name.endswith("__"):
+                continue
             if isinstance(member, (staticmethod, classmethod)):
                 member = member.__func__
             elif isinstance(member, property):
@@ -587,6 +595,13 @@ def _runtime_code_evidence(target: Any) -> list[dict[str, Any]]:
                 continue
             if inspect.isfunction(member) or inspect.ismethod(member):
                 evidence.extend({**item, "member": name} for item in _runtime_code_evidence(member))
+            else:
+                evidence.append(
+                    {
+                        "member": name,
+                        "runtime_value": _runtime_value_evidence(member),
+                    }
+                )
         return evidence
     if callable(target):
         return _runtime_code_evidence(target.__class__)
@@ -726,6 +741,21 @@ def _implementation_source_evidence(label: str, target: Any) -> dict[str, str]:
     }
 
 
+def _runtime_dependency_evidence() -> list[dict[str, str]]:
+    """Bind live third-party callables that materially affect canonical scan output."""
+
+    evidence: list[dict[str, str]] = []
+    for label, (module_name, attribute_name) in _RUNTIME_DEPENDENCY_PATHS.items():
+        try:
+            dependency = getattr(importlib.import_module(module_name), attribute_name)
+        except (AttributeError, ImportError) as exc:
+            raise RepositoryIntelligenceError(
+                f"{label} runtime dependency is unavailable for provenance binding"
+            ) from exc
+        evidence.append(_implementation_source_evidence(label, dependency))
+    return evidence
+
+
 def _implementation_digest(
     extension_evidence: Sequence[dict[str, str]] = (),
 ) -> str:
@@ -733,6 +763,7 @@ def _implementation_digest(
         _IMPLEMENTATION_PATHS,
         _IMPORTED_SOURCE_DIGESTS,
     )
+    evidence.extend(_runtime_dependency_evidence())
     evidence.extend(extension_evidence)
     return canonical_digest(
         sorted(evidence, key=lambda item: (item.get("label", ""), item["module"]))

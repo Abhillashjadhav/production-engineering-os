@@ -49,7 +49,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.1.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.2.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -1984,6 +1984,8 @@ class GovernanceCollector:
             "observation_id": observation_id,
             "observed_at": observed_at,
             "local_status": status_raw,
+            "git_index_listing_digest": "sha256:"
+            + hashlib.sha256(index_listing.encode("utf-8")).hexdigest(),
             "local_state": asdict(local_state),
             "current_branch": current_branch,
             "configured_remotes": configured_remotes,
