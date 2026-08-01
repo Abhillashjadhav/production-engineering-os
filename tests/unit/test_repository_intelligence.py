@@ -870,6 +870,21 @@ def test_non_github_ci_is_not_reported_as_ci_absent(tmp_path: Path) -> None:
             "name: empty trigger\non: {}\njobs:\n  test:\n"
             "    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n",
         ),
+        (
+            ".github/workflows/ci.yml",
+            "name: missing runner\non: [push]\njobs:\n  test:\n"
+            "    runs-on:\n    steps:\n      - run: pytest\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: empty runner\non: [push]\njobs:\n  test:\n"
+            "    runs-on: '  '\n    steps:\n      - run: pytest\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: empty runner labels\non: [push]\njobs:\n  test:\n"
+            "    runs-on: []\n    steps:\n      - run: pytest\n",
+        ),
         (".circleci/config.yml", "version: 2.1\njobs: []\n"),
         (
             ".circleci/config.yml",
