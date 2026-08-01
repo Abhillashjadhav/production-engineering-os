@@ -1364,32 +1364,65 @@ class RepositoryScanner:
                 )
             )
             entries = entries[: self.config.max_files]
-        directories = sorted(
-            {
-                "/".join(PurePosixPath(path).parts[:depth])
-                for _, _, _, path, _ in entries
-                for depth in range(1, len(PurePosixPath(path).parts))
-            }
-        )
-        if len(directories) > self.config.max_directories:
-            allowed_directories = set(directories[: self.config.max_directories])
-            findings.append(
-                _finding(
-                    "BUDGET.DIRECTORY_COUNT",
-                    "repository_topology",
-                    "The tracked directory-count budget was exceeded; results are explicitly "
-                    "partial.",
-                    ("repository:tracked-tree",),
+        bounded_entries: list[tuple[str, str, str, str, int]] = []
+        directory_trie: dict[str, Any] = {}
+        directory_count = 0
+        directory_exhausted = False
+        cancelled_during_path_bounding = False
+        for entry in entries:
+            path = entry[3]
+            if self._is_cancelled():
+                findings.append(
+                    _finding(
+                        "SCAN.CANCELLED",
+                        "repository_topology",
+                        "The scan was cancelled during bounded tracked-path evaluation.",
+                        (path,),
+                        blocking=True,
+                    )
                 )
-            )
-            entries = [
-                entry
-                for entry in entries
-                if all(
-                    "/".join(PurePosixPath(entry[3]).parts[:depth]) in allowed_directories
-                    for depth in range(1, len(PurePosixPath(entry[3]).parts))
+                cancelled_during_path_bounding = True
+                break
+            parts = PurePosixPath(path).parts
+            if len(parts) > self.config.max_path_depth:
+                findings.append(
+                    _finding(
+                        "BUDGET.PATH_DEPTH",
+                        "repository_topology",
+                        "A tracked path exceeds the configured traversal depth.",
+                        (path,),
+                    )
                 )
-            ]
+                continue
+            node = directory_trie
+            missing_index = len(parts) - 1
+            for index, component in enumerate(parts[:-1]):
+                child = node.get(component)
+                if child is None:
+                    missing_index = index
+                    break
+                node = child
+            new_directories = max(0, len(parts) - 1 - missing_index)
+            if directory_count + new_directories > self.config.max_directories:
+                if not directory_exhausted:
+                    findings.append(
+                        _finding(
+                            "BUDGET.DIRECTORY_COUNT",
+                            "repository_topology",
+                            "The tracked directory-count budget was exceeded; results are "
+                            "explicitly partial.",
+                            ("repository:tracked-tree",),
+                        )
+                    )
+                    directory_exhausted = True
+                continue
+            for component in parts[missing_index:-1]:
+                child = {}
+                node[component] = child
+                node = child
+                directory_count += 1
+            bounded_entries.append(entry)
+        entries = [] if cancelled_during_path_bounding else bounded_entries
         files: list[TrackedFile] = []
         total = 0
         total_exhausted = False
@@ -1405,16 +1438,6 @@ class RepositoryScanner:
                     )
                 )
                 break
-            if len(PurePosixPath(path).parts) > self.config.max_path_depth:
-                findings.append(
-                    _finding(
-                        "BUDGET.PATH_DEPTH",
-                        "repository_topology",
-                        "A tracked path exceeds the configured traversal depth.",
-                        (path,),
-                    )
-                )
-                continue
             if total + size > self.config.max_total_bytes:
                 if not total_exhausted:
                     findings.append(

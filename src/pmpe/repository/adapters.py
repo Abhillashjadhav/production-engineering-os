@@ -17,7 +17,80 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.20.0"
+DETECTOR_VERSION = "1.21.0"
+
+_GITHUB_EVENTS = frozenset(
+    {
+        "branch_protection_rule",
+        "check_run",
+        "check_suite",
+        "create",
+        "delete",
+        "deployment",
+        "deployment_status",
+        "discussion",
+        "discussion_comment",
+        "fork",
+        "gollum",
+        "issue_comment",
+        "issues",
+        "label",
+        "merge_group",
+        "milestone",
+        "page_build",
+        "project",
+        "project_card",
+        "project_column",
+        "public",
+        "pull_request",
+        "pull_request_review",
+        "pull_request_review_comment",
+        "pull_request_target",
+        "push",
+        "registry_package",
+        "release",
+        "repository_dispatch",
+        "schedule",
+        "status",
+        "watch",
+        "workflow_call",
+        "workflow_dispatch",
+        "workflow_run",
+    }
+)
+_GITHUB_LOCAL_REUSABLE_WORKFLOW = re.compile(r"^\./\.github/workflows/[A-Za-z0-9_./-]+\.ya?ml$")
+_GITHUB_REMOTE_REUSABLE_WORKFLOW = re.compile(
+    r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/"
+    r"[A-Za-z0-9_./-]+\.ya?ml@\S+$"
+)
+_GITHUB_LOCAL_ACTION = re.compile(r"^\./[A-Za-z0-9_./-]+$")
+_GITHUB_REMOTE_ACTION = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_./-]+)?@\S+$")
+_GITHUB_DOCKER_ACTION = re.compile(r"^docker://\S+$")
+_GITHUB_PULL_REQUEST_TYPES = frozenset(
+    {
+        "assigned",
+        "auto_merge_disabled",
+        "auto_merge_enabled",
+        "closed",
+        "converted_to_draft",
+        "demilestoned",
+        "dequeued",
+        "edited",
+        "enqueued",
+        "labeled",
+        "locked",
+        "milestoned",
+        "opened",
+        "ready_for_review",
+        "reopened",
+        "review_request_removed",
+        "review_requested",
+        "synchronize",
+        "unassigned",
+        "unlabeled",
+        "unlocked",
+    }
+)
 
 _PACKAGE_BOUNDARY_MANIFEST_NAMES = frozenset(
     {
@@ -1122,7 +1195,7 @@ def _containers(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="delivery.ci",
-    version="1.7.0",
+    version="1.8.0",
     file_patterns=(
         ".github/workflows/*.yml",
         ".github/workflows/*.yaml",
@@ -1308,13 +1381,73 @@ def _ci_action_has_content(value: object) -> bool:
     return False
 
 
+def _nonempty_string_list(value: object) -> bool:
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(isinstance(item, str) and bool(item.strip()) for item in value)
+    )
+
+
+def _github_event_configuration_is_supported(event: str, value: object) -> bool:
+    if value is None:
+        return True
+    if event == "schedule":
+        return (
+            isinstance(value, list)
+            and bool(value)
+            and all(
+                isinstance(item, dict)
+                and set(item) == {"cron"}
+                and isinstance(item["cron"], str)
+                and bool(item["cron"].strip())
+                for item in value
+            )
+        )
+    if event in {"workflow_call", "workflow_dispatch"}:
+        return isinstance(value, dict) and not value
+    if not isinstance(value, dict):
+        return False
+    permitted = (
+        {"branches", "branches-ignore", "paths", "paths-ignore", "tags", "tags-ignore"}
+        if event == "push"
+        else {"branches", "branches-ignore", "paths", "paths-ignore", "types"}
+        if event in {"pull_request", "pull_request_target"}
+        else {"branches", "branches-ignore", "types", "workflows"}
+        if event == "workflow_run"
+        else {"types"}
+        if event == "repository_dispatch"
+        else set()
+    )
+    if not set(value) <= permitted or not all(
+        _nonempty_string_list(item) for item in value.values()
+    ):
+        return False
+    types = value.get("types")
+    if types is None or event == "repository_dispatch":
+        return True
+    allowed_types = (
+        _GITHUB_PULL_REQUEST_TYPES
+        if event in {"pull_request", "pull_request_target"}
+        else {"completed", "in_progress", "requested"}
+    )
+    return all(item in allowed_types for item in types)
+
+
 def _github_trigger_is_runnable(value: object) -> bool:
     if isinstance(value, str):
-        return bool(value.strip())
+        return value.strip() in _GITHUB_EVENTS
     if isinstance(value, list):
-        return any(isinstance(item, str) and bool(item.strip()) for item in value)
+        return bool(value) and all(
+            isinstance(item, str) and item.strip() in _GITHUB_EVENTS for item in value
+        )
     if isinstance(value, dict):
-        return bool(value) and any(isinstance(key, str) and bool(key.strip()) for key in value)
+        return bool(value) and all(
+            isinstance(event, str)
+            and event.strip() in _GITHUB_EVENTS
+            and _github_event_configuration_is_supported(event.strip(), configuration)
+            for event, configuration in value.items()
+        )
     return False
 
 
@@ -1322,10 +1455,72 @@ def _github_runner_is_runnable(value: object) -> bool:
     if isinstance(value, str):
         return bool(value.strip())
     if isinstance(value, list):
-        return bool(value) and all(isinstance(item, str) and bool(item.strip()) for item in value)
+        return _nonempty_string_list(value)
     if isinstance(value, dict):
-        return any(_ci_action_has_content(value.get(key)) for key in ("group", "labels"))
+        if not value or not set(value) <= {"group", "labels"}:
+            return False
+        group = value.get("group")
+        labels = value.get("labels")
+        return (
+            (group is None or isinstance(group, str) and bool(group.strip()))
+            and (
+                labels is None
+                or isinstance(labels, str)
+                and bool(labels.strip())
+                or _nonempty_string_list(labels)
+            )
+            and (group is not None or labels is not None)
+        )
     return False
+
+
+def _github_reusable_workflow_is_runnable(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    reference = value.strip()
+    if _GITHUB_LOCAL_REUSABLE_WORKFLOW.fullmatch(reference) is not None:
+        path = reference.removeprefix("./")
+    elif _GITHUB_REMOTE_REUSABLE_WORKFLOW.fullmatch(reference) is not None:
+        path = reference.split("@", 1)[0].split("/", 2)[2]
+    else:
+        return False
+    return ".." not in PurePosixPath(path).parts
+
+
+def _github_job_is_runnable(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    if "uses" in value:
+        return (
+            "runs-on" not in value
+            and "steps" not in value
+            and _github_reusable_workflow_is_runnable(value.get("uses"))
+        )
+    steps = value.get("steps")
+    return (
+        _github_runner_is_runnable(value.get("runs-on"))
+        and isinstance(steps, list)
+        and bool(steps)
+        and all(_github_step_is_runnable(step) for step in steps)
+    )
+
+
+def _github_step_is_runnable(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    run = value.get("run")
+    uses = value.get("uses")
+    if run is not None:
+        return uses is None and isinstance(run, str) and bool(run.strip())
+    if not isinstance(uses, str):
+        return False
+    reference = uses.strip()
+    if _GITHUB_LOCAL_ACTION.fullmatch(reference) is not None:
+        return ".." not in PurePosixPath(reference.removeprefix("./")).parts
+    if _GITHUB_REMOTE_ACTION.fullmatch(reference) is not None:
+        action_path = reference.rsplit("@", 1)[0].split("/", 2)
+        return len(action_path) < 3 or ".." not in PurePosixPath(action_path[2]).parts
+    return _GITHUB_DOCKER_ACTION.fullmatch(reference) is not None
 
 
 def _gitlab_job_is_runnable(job: dict[object, object]) -> bool:
@@ -1397,26 +1592,8 @@ def _valid_ci_structure(path: str, value: object) -> bool:
         return (
             event_declared
             and isinstance(jobs, dict)
-            and any(
-                isinstance(job, dict)
-                and (
-                    isinstance(job.get("uses"), str)
-                    and bool(job["uses"].strip())
-                    or (
-                        _github_runner_is_runnable(job.get("runs-on"))
-                        and isinstance(job.get("steps"), list)
-                        and any(
-                            isinstance(step, dict)
-                            and any(
-                                isinstance(step.get(action), str) and bool(step[action].strip())
-                                for action in ("run", "uses")
-                            )
-                            for step in job["steps"]
-                        )
-                    )
-                )
-                for job in jobs.values()
-            )
+            and bool(jobs)
+            and all(_github_job_is_runnable(job) for job in jobs.values())
         )
     if lowered == ".gitlab-ci.yml":
         reserved = {

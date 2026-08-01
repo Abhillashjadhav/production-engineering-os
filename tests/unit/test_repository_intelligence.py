@@ -885,6 +885,58 @@ def test_non_github_ci_is_not_reported_as_ci_absent(tmp_path: Path) -> None:
             "name: empty runner labels\non: [push]\njobs:\n  test:\n"
             "    runs-on: []\n    steps:\n      - run: pytest\n",
         ),
+        (
+            ".github/workflows/ci.yml",
+            "name: unknown event\non: imaginary_event\njobs:\n  test:\n"
+            "    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: mixed event list\non: [push, imaginary_event]\njobs:\n  test:\n"
+            "    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: invalid event filter\non:\n  push:\n    branches: main\njobs:\n  test:\n"
+            "    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: invalid activity type\non:\n  pull_request:\n"
+            "    types: [invented]\njobs:\n  test:\n"
+            "    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: invalid runner mapping\non: [push]\njobs:\n  test:\n"
+            "    runs-on: {pool: production}\n    steps:\n      - run: pytest\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: invalid reusable workflow\non: [push]\njobs:\n  test:\n"
+            "    uses: arbitrary-string\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: escaping reusable workflow\non: [push]\njobs:\n  test:\n"
+            "    uses: ./.github/workflows/../secret.yml\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: conflicting reusable job\non: [push]\njobs:\n  test:\n"
+            "    uses: ./.github/workflows/build.yml\n    runs-on: ubuntu-latest\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: mixed valid invalid jobs\non: [push]\njobs:\n  valid:\n"
+            "    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n"
+            "  invalid:\n    runs-on:\n    steps:\n      - run: pytest\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: invalid action reference\non: [push]\njobs:\n  test:\n"
+            "    runs-on: ubuntu-latest\n    steps:\n      - uses: arbitrary-string\n",
+        ),
         (".circleci/config.yml", "version: 2.1\njobs: []\n"),
         (
             ".circleci/config.yml",
@@ -918,6 +970,30 @@ def test_non_runnable_ci_scaffolds_do_not_suppress_missing_ci(
         item.kind == "CI_WORKFLOW" for item in snapshot.inventory["delivery_environments"].items
     )
     assert any(item.code == "DELIVERY.CI_ABSENT" for item in snapshot.findings)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "on:\n  push:\n    branches: [main]\n  schedule:\n    - cron: '23 3 * * *'\n"
+        "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n",
+        "on:\n  pull_request:\n    types: [opened, synchronize, ready_for_review]\n"
+        "jobs:\n  test:\n    runs-on: {group: trusted, labels: [linux, x64]}\n"
+        "    steps:\n      - run: pytest\n",
+        "on: workflow_dispatch\njobs:\n  local:\n    uses: ./.github/workflows/build.yml\n",
+        "on: workflow_dispatch\njobs:\n  remote:\n"
+        "    uses: example/automation/.github/workflows/build.yml@v1\n",
+    ],
+)
+def test_supported_github_ci_forms_are_reported(tmp_path: Path, content: str) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, ".github/workflows/ci.yml", content)
+    _commit(repo, "supported github workflow")
+    snapshot = _scan(repo)
+    assert any(
+        item.kind == "CI_WORKFLOW" for item in snapshot.inventory["delivery_environments"].items
+    )
+    assert not any(item.code == "DELIVERY.CI_ABSENT" for item in snapshot.findings)
 
 
 def test_ci_comments_do_not_become_security_test_or_rollback_controls(tmp_path: Path) -> None:
@@ -1301,6 +1377,30 @@ def test_budget_exhaustion_is_explicit_partial_result(
     assert snapshot.disposition in {"PARTIAL", "BLOCKED"}
     assert any(item.code == expected_code for item in snapshot.findings)
     assert set(snapshot.inventory) == set(_api().AUDIT_CATEGORIES)
+
+
+def test_path_and_directory_budgets_filter_before_adapter_evaluation(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "a/allowed/pyproject.toml", "[project]\nname = 'allowed'\nversion = '1'\n")
+    _write(repo, "b/deep/excluded/package.json", '{"name":"excluded"}')
+    _commit(repo, "budgeted paths")
+    snapshot = _scan(repo, max_directories=2, max_path_depth=32)
+    assert any(item.code == "BUDGET.DIRECTORY_COUNT" for item in snapshot.findings)
+    emitted_paths = {
+        item.path for category in snapshot.inventory.values() for item in category.items
+    } | {path for item in snapshot.boundary_candidates for path in item.evidence_paths}
+    assert "a/allowed/pyproject.toml" in emitted_paths
+    assert "b/deep/excluded/package.json" not in emitted_paths
+
+    depth_limited = _scan(repo, max_path_depth=2)
+    assert any(
+        item.code == "BUDGET.PATH_DEPTH" and "b/deep/excluded/package.json" in item.evidence_refs
+        for item in depth_limited.findings
+    )
+    depth_paths = {
+        item.path for category in depth_limited.inventory.values() for item in category.items
+    } | {path for item in depth_limited.boundary_candidates for path in item.evidence_paths}
+    assert "b/deep/excluded/package.json" not in depth_paths
 
 
 @pytest.mark.parametrize(
