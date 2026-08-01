@@ -51,7 +51,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/2.7.0"
+SCANNER_VERSION = "repository-scanner/2.8.0"
 _MAX_SCAN_BUDGETS = {
     "max_files": 100_000,
     "max_directories": 50_000,
@@ -652,7 +652,11 @@ def _module_runtime_digest(module_name: str) -> str:
     module = importlib.import_module(f"pmpe.{module_name}")
     symbols: list[dict[str, Any]] = []
     for name, target in sorted(vars(module).items()):
-        if name.startswith("__"):
+        if (
+            name.startswith("__")
+            or name.endswith("IMPLEMENTATION_PATHS")
+            or name.endswith("IMPORTED_SOURCE_DIGESTS")
+        ):
             continue
         if inspect.isfunction(target) or inspect.isclass(target) or callable(target):
             code = _runtime_code_evidence(target)

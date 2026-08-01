@@ -17,7 +17,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.17.0"
+DETECTOR_VERSION = "1.18.0"
 
 _PACKAGE_BOUNDARY_MANIFEST_NAMES = frozenset(
     {
@@ -1122,7 +1122,7 @@ def _containers(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="delivery.ci",
-    version="1.4.0",
+    version="1.5.0",
     file_patterns=(
         ".github/workflows/*.yml",
         ".github/workflows/*.yaml",
@@ -1298,6 +1298,75 @@ def _structured_text(value: object) -> str:
     return "\n".join(strings)
 
 
+def _ci_action_has_content(value: object) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list):
+        return any(_ci_action_has_content(item) for item in value)
+    if isinstance(value, dict):
+        return bool(value) and any(_ci_action_has_content(item) for item in value.values())
+    return False
+
+
+def _gitlab_job_is_runnable(job: dict[object, object]) -> bool:
+    script = job.get("script")
+    if isinstance(script, str) and bool(script.strip()):
+        return True
+    if isinstance(script, list) and any(
+        isinstance(item, str) and bool(item.strip()) for item in script
+    ):
+        return True
+    trigger = job.get("trigger")
+    if isinstance(trigger, str):
+        return bool(trigger.strip())
+    return isinstance(trigger, dict) and any(
+        _ci_action_has_content(trigger.get(key)) for key in ("project", "include")
+    )
+
+
+def _circle_step_is_runnable(step: object) -> bool:
+    if isinstance(step, str):
+        return bool(step.strip())
+    if not isinstance(step, dict):
+        return False
+    run = step.get("run")
+    if isinstance(run, str) and bool(run.strip()):
+        return True
+    if isinstance(run, dict) and _ci_action_has_content(run.get("command")):
+        return True
+    return any(
+        key in step and (step[key] is None or _ci_action_has_content(step[key]))
+        for key in ("checkout", "setup_remote_docker")
+    )
+
+
+def _azure_tree_contains_action(value: object) -> bool:
+    pending = [value]
+    visited = 0
+    while pending:
+        current = pending.pop()
+        visited += 1
+        if visited > 50_000:
+            return False
+        if isinstance(current, dict):
+            if any(
+                _ci_action_has_content(current.get(key))
+                for key in ("script", "bash", "pwsh", "powershell", "task", "template")
+            ):
+                return True
+            checkout = current.get("checkout")
+            if (
+                isinstance(checkout, str)
+                and checkout.strip()
+                and checkout.strip().lower() != "none"
+            ):
+                return True
+            pending.extend(current[key] for key in ("jobs", "stages", "steps") if key in current)
+        elif isinstance(current, list):
+            pending.extend(current)
+    return False
+
+
 def _valid_ci_structure(path: str, value: object) -> bool:
     if not isinstance(value, dict) or not value:
         return False
@@ -1347,7 +1416,7 @@ def _valid_ci_structure(path: str, value: object) -> bool:
             key not in reserved
             and not key.startswith(".")
             and isinstance(item, dict)
-            and any(action in item for action in ("script", "trigger"))
+            and _gitlab_job_is_runnable(item)
             for key, item in value.items()
         )
     if lowered == ".circleci/config.yml":
@@ -1358,20 +1427,12 @@ def _valid_ci_structure(path: str, value: object) -> bool:
             and any(
                 isinstance(job, dict)
                 and isinstance(job.get("steps"), list)
-                and any(
-                    isinstance(step, str)
-                    or isinstance(step, dict)
-                    and any(action in step for action in ("run", "checkout", "setup_remote_docker"))
-                    for step in job["steps"]
-                )
+                and any(_circle_step_is_runnable(step) for step in job["steps"])
                 for job in jobs.values()
             )
         )
     if lowered == "azure-pipelines.yml":
-        return any(
-            isinstance(value.get(key), list) and bool(value[key])
-            for key in ("jobs", "stages", "steps")
-        )
+        return _azure_tree_contains_action(value)
     if lowered == "bitbucket-pipelines.yml":
         pipelines = value.get("pipelines")
         pending = [pipelines]
@@ -1386,7 +1447,12 @@ def _valid_ci_structure(path: str, value: object) -> bool:
                 if (
                     isinstance(step, dict)
                     and isinstance(step.get("script"), list)
-                    and bool(step["script"])
+                    and any(
+                        _ci_action_has_content(item)
+                        if not isinstance(item, dict)
+                        else _ci_action_has_content(item.get("pipe"))
+                        for item in step["script"]
+                    )
                 ):
                     return True
                 pending.extend(current.values())

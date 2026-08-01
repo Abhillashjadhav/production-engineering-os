@@ -49,7 +49,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.0.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.1.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -408,8 +408,8 @@ def _remote_provider_worker(
 class GovernanceCommandRunner:
     """Allowlisted local Git observation commands with mutation subcommands refused."""
 
-    identity = "git-governance-readonly/1.9.0"
-    __slots__ = ("max_output_bytes",)
+    identity = "git-governance-readonly/1.10.0"
+    __slots__ = ("_max_output_bytes",)
     _allowed = {
         "config",
         "status",
@@ -438,7 +438,11 @@ class GovernanceCommandRunner:
             raise RepositoryIntelligenceError(
                 "governance command output budget exceeds hard ceiling"
             )
-        self.max_output_bytes = max_output_bytes
+        self._max_output_bytes = max_output_bytes
+
+    @property
+    def max_output_bytes(self) -> int:
+        return self._max_output_bytes
 
     def run(
         self,
@@ -1079,6 +1083,10 @@ class GovernanceCollector:
     def _execute(self, root: Path, command: tuple[str, ...]) -> CommandResult:
         if self._is_cancelled():
             raise RepositoryIntelligenceError("governance observation was cancelled")
+        if self.runner.max_output_bytes != self.max_output_bytes:
+            raise RepositorySecurityError(
+                "governance command runner output budget changed after collector construction"
+            )
         if self._commands >= self.max_commands:
             raise RepositoryIntelligenceError("governance command budget was exhausted")
         self._commands += 1

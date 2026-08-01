@@ -198,9 +198,10 @@ class RepositorySnapshot:
             raise ValueError(
                 "governance observation is not bound to this exact repository snapshot"
             )
+        immutable_unsupported = set(self.unsupported_categories) - {"active_divergent_work"}
         if (
             self.disposition != "COMPLETE"
-            or self.unsupported_categories
+            or immutable_unsupported
             or any(item.blocking for item in self.findings)
         ):
             raise ValueError("repository snapshot is not complete and cannot enter engineering")

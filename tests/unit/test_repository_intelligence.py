@@ -355,6 +355,19 @@ def test_implementation_digest_binds_loaded_runtime_code_and_source_identity(
     with monkeypatch.context() as runtime_patch:
         runtime_patch.setattr(scanner, "_OBJECT_FORMAT_LENGTH", {"sha1": 1, "sha256": 1})
         assert scanner._implementation_digest() != original
+    runtime_digest = scanner._module_runtime_digest("repository.scanner")
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(
+            scanner,
+            "_IMPLEMENTATION_PATHS",
+            {"repository.scanner": Path("/different/checkout/scanner.py")},
+        )
+        runtime_patch.setattr(
+            scanner,
+            "_IMPORTED_SOURCE_DIGESTS",
+            {"repository.scanner": "sha256:" + "f" * 64},
+        )
+        assert scanner._module_runtime_digest("repository.scanner") == runtime_digest
 
     mismatched_sources = dict(scanner._IMPORTED_SOURCE_DIGESTS)
     mismatched_sources["repository.scanner"] = "sha256:" + "0" * 64
@@ -837,13 +850,34 @@ def test_non_github_ci_is_not_reported_as_ci_absent(tmp_path: Path) -> None:
     ("path", "content"),
     [
         (".gitlab-ci.yml", "variables:\n  FOO: bar\n"),
+        (".gitlab-ci.yml", "empty:\n  script: []\n"),
+        (".gitlab-ci.yml", "empty:\n  trigger: {}\n"),
+        (".gitlab-ci.yml", "empty:\n  trigger:\n    strategy: depend\n"),
         ("azure-pipelines.yml", "steps: []\n"),
+        ("azure-pipelines.yml", "jobs:\n  - job: empty\n"),
+        ("azure-pipelines.yml", "steps:\n  - checkout: none\n"),
         (
             ".github/workflows/ci.yml",
             "name: empty\non: [push]\njobs:\n  empty: {}\n",
         ),
         (".circleci/config.yml", "version: 2.1\njobs: []\n"),
+        (
+            ".circleci/config.yml",
+            "version: 2.1\njobs:\n  empty:\n    steps:\n      - '  '\n",
+        ),
+        (
+            ".circleci/config.yml",
+            "version: 2.1\njobs:\n  empty:\n    steps:\n      - run:\n          name: empty\n",
+        ),
         ("bitbucket-pipelines.yml", "pipelines:\n  default:\n"),
+        (
+            "bitbucket-pipelines.yml",
+            "pipelines:\n  default:\n    - step:\n        script:\n          - '  '\n",
+        ),
+        (
+            "bitbucket-pipelines.yml",
+            "pipelines:\n  default:\n    - step:\n        script:\n          - pipe: '  '\n",
+        ),
     ],
 )
 def test_non_runnable_ci_scaffolds_do_not_suppress_missing_ci(
@@ -2612,6 +2646,20 @@ def test_governance_runner_budget_must_match_recorded_collector_budget() -> None
             max_output_bytes=2_048,
         )
 
+    runner = governance.GovernanceCommandRunner(max_output_bytes=2_048)
+    collector = api.GovernanceCollector(
+        repository="example/fixture",
+        clock=_fixed_clock(),
+        id_provider=_fixed_ids(),
+        command_runner=runner,
+        max_output_bytes=2_048,
+    )
+    with pytest.raises(AttributeError):
+        runner.max_output_bytes = 4_096  # type: ignore[misc]
+    object.__setattr__(runner, "_max_output_bytes", 4_096)
+    with pytest.raises(api.RepositorySecurityError, match="changed after"):
+        collector.observe(Path.cwd(), ref="HEAD")
+
 
 def test_scan_and_observation_never_create_branches_commits_or_remote_mutations(
     tmp_path: Path,
@@ -2943,7 +2991,7 @@ def test_git_readers_disable_lazy_fetch_and_repository_defined_accelerators() ->
     assert scanner_environment["GIT_CONFIG_VALUE_0"] == "false"
     governance_runner = governance.GovernanceCommandRunner()
     assert scanner_environment["GIT_CONFIG_VALUE_5"] == "false"
-    assert governance_runner.identity.endswith("1.9.0")
+    assert governance_runner.identity.endswith("1.10.0")
 
 
 def test_artifact_maps_cannot_be_mutated_after_digest_binding(tmp_path: Path) -> None:
@@ -2999,6 +3047,52 @@ def test_noncomplete_snapshot_and_observation_cannot_form_a_lifecycle_reference(
     ).observe(repo, ref="main")
     with pytest.raises(ValueError, match="snapshot is not complete"):
         snapshot.assessment_reference(observation)
+
+
+def test_complete_snapshot_can_delegate_only_mutable_work_to_governance(
+    tmp_path: Path,
+) -> None:
+    canonical = importlib.import_module("pmpe.contracts.canonical")
+    repo = _init_repo(tmp_path)
+    snapshot = _scan(repo)
+    complete_snapshot = replace(
+        snapshot,
+        disposition="COMPLETE",
+        findings=(),
+        unsupported_categories=("active_divergent_work",),
+        snapshot_digest="",
+    )
+    snapshot_payload = complete_snapshot.as_dict()
+    snapshot_payload.pop("snapshot_digest")
+    complete_snapshot = replace(
+        complete_snapshot,
+        snapshot_digest=canonical.canonical_digest(snapshot_payload),
+    )
+    observation = (
+        _api()
+        .GovernanceCollector(
+            repository="example/fixture",
+            snapshot=complete_snapshot,
+            clock=_fixed_clock(),
+            id_provider=_fixed_ids(),
+        )
+        .observe(repo, ref="main")
+    )
+    complete_observation = replace(
+        observation,
+        disposition="COMPLETE",
+        unknowns=(),
+        observation_output_digest="",
+    )
+    observation_payload = complete_observation.as_dict()
+    observation_payload.pop("observation_output_digest")
+    complete_observation = replace(
+        complete_observation,
+        observation_output_digest=canonical.canonical_digest(observation_payload),
+    )
+    reference = complete_snapshot.assessment_reference(complete_observation)
+    assert reference["repository_snapshot_disposition"] == "COMPLETE"
+    assert reference["governance_observation_disposition"] == "COMPLETE"
 
 
 def test_snapshot_rejects_governance_observation_from_another_repository(
