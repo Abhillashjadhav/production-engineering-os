@@ -679,9 +679,54 @@ def test_every_required_internal_audit_subcategory_is_explicit(tmp_path: Path) -
             "bounded-context boundaries",
             "storage models",
             "deployment-evidence mechanisms",
+            "release workflows",
+            "preview environments",
+            "container definitions",
+            "infrastructure-as-code",
+            "deployment definitions",
+            "environment configuration shapes",
+            "rollback mechanisms",
+            "dependency audits",
+            "static application security testing",
+            "secret scanning",
+            "permissions",
+            "credential boundaries",
+            "data retention and privacy controls",
+            "security configuration",
+            "logs",
+            "metrics",
+            "traces",
+            "alerting",
+            "service-level objectives",
+            "health checks",
+            "incident and rollback evidence",
+            "telemetry schemas",
+            "production feedback paths",
         )
     )
     assert snapshot.disposition == "BLOCKED"
+
+
+def test_security_privacy_observability_and_delivery_facets_are_never_silent(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    for path in (".semgrep.yml", "gitleaks.toml", ".snyk", "sentry.yml"):
+        _write(repo, path, "enabled: true\n")
+    _commit(repo, "required audit facet signals")
+    snapshot = _scan(repo)
+    for category in (
+        "security_privacy",
+        "observability_operations",
+        "delivery_environments",
+    ):
+        assert snapshot.inventory[category].status == "BLOCKED"
+        assert any(
+            item.code == "AUDIT.REQUIRED_SUBCATEGORY_UNSUPPORTED"
+            and item.category == category
+            and item.blocking
+            for item in snapshot.findings
+        )
 
 
 def test_worker_library_and_infrastructure_boundaries_are_typed(tmp_path: Path) -> None:
@@ -840,6 +885,42 @@ def test_invalid_openapi_version_or_paths_are_not_high_confidence_evidence(
     snapshot = _scan(repo)
     assert snapshot.disposition == "BLOCKED"
     assert not any(item.kind == "OPENAPI" for item in snapshot.inventory["apis_data"].items)
+
+
+@pytest.mark.parametrize(
+    ("path", "payload"),
+    [
+        (
+            "openapi-v1.json",
+            '{"openapi":"3.1.0","info":{"title":"x","version":"1"},"paths":{}}',
+        ),
+        (
+            "openapi_3_1.yaml",
+            'openapi: 3.1.0\ninfo: {title: x, version: "1"}\npaths: {}\n',
+        ),
+        (
+            "swagger.json",
+            '{"swagger":"2.0","info":{"title":"x","version":"1"},"paths":{}}',
+        ),
+    ],
+)
+def test_common_api_declaration_names_are_validated_and_inventoried(
+    tmp_path: Path,
+    path: str,
+    payload: str,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, path, payload)
+    _commit(repo, "common API declaration")
+    snapshot = _scan(repo)
+    assert any(
+        item.kind == "OPENAPI" and item.path == path
+        for item in snapshot.inventory["apis_data"].items
+    )
+    assert not any(
+        item.code == "INTERFACE.DECLARATION_INVALID" and path in item.evidence_refs
+        for item in snapshot.findings
+    )
 
 
 def test_tests_delivery_security_observability_and_governance_are_evidence_backed(
@@ -1221,6 +1302,14 @@ def test_sensitive_mapping_fields_are_redacted_before_persistence(field: str) ->
     assert secret not in json.dumps(sanitized)
 
 
+def test_non_secret_boolean_control_with_sensitive_word_remains_typed() -> None:
+    redaction = importlib.import_module("pmpe.repository.redaction")
+    sanitized = redaction.EvidenceRedactor(environment={}).sanitize(
+        {"required_signed_commits": True, "signature": "secret-value"}
+    )
+    assert sanitized == {"required_signed_commits": True, "signature": "[REDACTED]"}
+
+
 def test_sensitive_environment_value_is_redacted_under_benign_field() -> None:
     redaction = importlib.import_module("pmpe.repository.redaction")
     secret = "opaque-credential-value-not-matching-a-token-shape"
@@ -1248,6 +1337,15 @@ def test_home_path_minimization_is_host_state_independent(
         "command failed under /home/repository-owner/work/repository: permission denied"
     )
     assert embedded == "command failed under $HOME/work/repository: permission denied"
+    for posix_home in (
+        "/root/work/repository",
+        "/var/root/work/repository",
+        "/usr/home/repository-owner/work/repository",
+    ):
+        assert (
+            redaction.EvidenceRedactor(environment={}).sanitize(posix_home)
+            == "$HOME/work/repository"
+        )
 
 
 def _fixed_clock() -> Any:
@@ -1290,9 +1388,23 @@ class _FakeRemote:
             ],
             "issues": [{"number": 8, "state": "OPEN"}],
             "governance": {
-                "schema_version": "pmpe.repository-governance/v1",
-                "branch_protection": {"observed": True, "required_checks": ["ci"]},
-                "review_policy": {"required_approvals": 1},
+                "schema_version": "pmpe.repository-governance/v2",
+                "branch_protection": {
+                    "observed": True,
+                    "protected": True,
+                    "required_checks": ["ci"],
+                    "required_signed_commits": True,
+                    "required_linear_history": True,
+                    "push_restrictions": True,
+                    "allow_force_pushes": False,
+                    "allow_deletions": False,
+                },
+                "review_policy": {
+                    "required_approvals": 1,
+                    "dismiss_stale_reviews": True,
+                    "require_code_owner_reviews": True,
+                    "require_last_push_approval": True,
+                },
                 "security_settings": {
                     "observed": True,
                     "leak_detection": "ENABLED",
@@ -1391,9 +1503,24 @@ class _UnobservedBranchProtectionRemote(_FakeRemote):
         payload = super().collect(repository, ref, **bounds)
         payload["governance"]["branch_protection"] = {
             "observed": False,
+            "protected": False,
             "required_checks": [],
+            "required_signed_commits": False,
+            "required_linear_history": False,
+            "push_restrictions": False,
+            "allow_force_pushes": False,
+            "allow_deletions": False,
         }
         payload["unknowns"] = []
+        return payload
+
+
+class _MaterialGovernanceVariantRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["governance"]["branch_protection"]["required_signed_commits"] = False
+        payload["governance"]["branch_protection"]["allow_force_pushes"] = True
+        payload["governance"]["review_policy"]["dismiss_stale_reviews"] = False
         return payload
 
 
@@ -1918,6 +2045,16 @@ def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path:
     assert "pass-json-secret" not in payload
     assert "[REDACTED_URL]" in payload
     assert "[REDACTED]" in payload
+
+
+def test_material_governance_controls_are_typed_and_digest_bound(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    protected = _observe(repo, _CompleteRemote())
+    variant = _observe(repo, _MaterialGovernanceVariantRemote())
+    assert protected.governance["branch_protection"]["required_signed_commits"] is True
+    assert protected.governance["review_policy"]["dismiss_stale_reviews"] is True
+    assert variant.governance["branch_protection"]["allow_force_pushes"] is True
+    assert protected.observation_output_digest != variant.observation_output_digest
 
 
 @pytest.mark.parametrize(

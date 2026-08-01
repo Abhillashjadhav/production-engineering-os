@@ -17,7 +17,7 @@ class RedactionError(RuntimeError):
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
-    version = "central-redactor/1.9.0"
+    version = "central-redactor/2.0.0"
     __slots__ = ("_environment_secrets",)
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
@@ -62,7 +62,10 @@ class EvidenceRedactor:
         r"|redis[_-]?url|api[_-]?key|access[_-]?key|private[_-]?key|password|passwd"
         r"|pwd|secret|signature|token)"
     )
-    _home_path = re.compile(r"(?<![A-Za-z0-9_])(?:/Users|/home)/[^/\s]+")
+    _home_path = re.compile(
+        r"(?<![A-Za-z0-9_])(?:(?:/Users|/home|/usr/home)/[^/\s]+|/var/root|/root)"
+        r"(?=/|\s|$)"
+    )
 
     def __init__(self, *, environment: Mapping[str, str] | None = None) -> None:
         source = os.environ if environment is None else environment
@@ -144,9 +147,10 @@ class EvidenceRedactor:
                     safe_key = str(self.sanitize(key))
                     if safe_key in result:
                         raise RedactionError("redacted object keys collide")
+                    sensitive_field = self._sensitive_field.search(safe_key) is not None
                     result[safe_key] = (
                         "[REDACTED]"
-                        if self._sensitive_field.search(safe_key)
+                        if sensitive_field and not isinstance(item, bool)
                         else self.sanitize(item)
                     )
                 return result

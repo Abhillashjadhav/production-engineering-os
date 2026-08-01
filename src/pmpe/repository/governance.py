@@ -47,7 +47,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.9.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/3.0.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -56,7 +56,7 @@ GOVERNANCE_IMPLEMENTATION_MODULES = (
     "contracts.canonical",
 )
 _REQUIRED_REMOTE_COVERAGE = frozenset({"remote_branches", "pull_requests", "issues", "governance"})
-_GOVERNANCE_SCHEMA_VERSION = "pmpe.repository-governance/v1"
+_GOVERNANCE_SCHEMA_VERSION = "pmpe.repository-governance/v2"
 _GOVERNANCE_FIELDS = frozenset(
     {"schema_version", "branch_protection", "review_policy", "security_settings"}
 )
@@ -665,16 +665,51 @@ def _governance_content_is_complete(value: dict[str, Any]) -> bool:
     security_settings = value["security_settings"]
     if (
         not isinstance(branch_protection, dict)
-        or set(branch_protection) != {"observed", "required_checks"}
+        or set(branch_protection)
+        != {
+            "observed",
+            "protected",
+            "required_checks",
+            "required_signed_commits",
+            "required_linear_history",
+            "push_restrictions",
+            "allow_force_pushes",
+            "allow_deletions",
+        }
         or branch_protection.get("observed") is not True
+        or not isinstance(branch_protection.get("protected"), bool)
         or not isinstance(branch_protection.get("required_checks"), list)
         or not all(_is_str(item) for item in branch_protection["required_checks"])
         or len(set(branch_protection["required_checks"]))
         != len(branch_protection["required_checks"])
+        or not all(
+            isinstance(branch_protection.get(field), bool)
+            for field in (
+                "required_signed_commits",
+                "required_linear_history",
+                "push_restrictions",
+                "allow_force_pushes",
+                "allow_deletions",
+            )
+        )
         or not isinstance(review_policy, dict)
-        or set(review_policy) != {"required_approvals"}
+        or set(review_policy)
+        != {
+            "required_approvals",
+            "dismiss_stale_reviews",
+            "require_code_owner_reviews",
+            "require_last_push_approval",
+        }
         or not _is_int(review_policy.get("required_approvals"))
         or review_policy["required_approvals"] < 0
+        or not all(
+            isinstance(review_policy.get(field), bool)
+            for field in (
+                "dismiss_stale_reviews",
+                "require_code_owner_reviews",
+                "require_last_push_approval",
+            )
+        )
         or not isinstance(security_settings, dict)
         or set(security_settings) != {"observed", "leak_detection", "dependency_alerts"}
         or security_settings.get("observed") is not True

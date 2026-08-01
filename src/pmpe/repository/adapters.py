@@ -17,7 +17,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.14.0"
+DETECTOR_VERSION = "1.15.0"
 
 _PACKAGE_BOUNDARY_MANIFEST_NAMES = frozenset(
     {
@@ -272,9 +272,19 @@ def _api_declaration_kind(path: str) -> str | None:
     if suffix not in {".json", ".yaml", ".yml"}:
         return None
     stem = name[: -len(suffix)]
-    if stem == "openapi" or stem.endswith(".openapi"):
+    if (
+        stem == "openapi"
+        or stem.endswith(".openapi")
+        or stem.startswith(("openapi-", "openapi_"))
+        or stem == "swagger"
+        or stem.startswith(("swagger-", "swagger_"))
+    ):
         return "OPENAPI"
-    if stem == "asyncapi" or stem.endswith(".asyncapi"):
+    if (
+        stem == "asyncapi"
+        or stem.endswith(".asyncapi")
+        or stem.startswith(("asyncapi-", "asyncapi_"))
+    ):
         return "EVENT_CONTRACT"
     return None
 
@@ -1308,12 +1318,18 @@ def _valid_ci_structure(path: str, value: object) -> bool:
 
 @repository_adapter(
     adapter_id="interface.schema-api",
-    version="1.5.0",
+    version="1.6.0",
     file_patterns=(
         "package.json",
         "**/package.json",
         "*openapi*",
         "**/*openapi*",
+        "*swagger*.json",
+        "**/*swagger*.json",
+        "*swagger*.yaml",
+        "**/*swagger*.yaml",
+        "*swagger*.yml",
+        "**/*swagger*.yml",
         "*asyncapi*",
         "**/*asyncapi*",
         "*.proto",
@@ -1507,7 +1523,14 @@ def _interfaces(context: AdapterContext) -> AdapterResult:
             try:
                 text = file.content.decode("utf-8")
                 payload = json.loads(text) if lowered.endswith(".json") else yaml.safe_load(text)
-                version_key = "openapi" if kind == "OPENAPI" else "asyncapi"
+                if kind == "OPENAPI":
+                    version_key = (
+                        "openapi"
+                        if isinstance(payload, dict) and isinstance(payload.get("openapi"), str)
+                        else "swagger"
+                    )
+                else:
+                    version_key = "asyncapi"
                 info = payload.get("info") if isinstance(payload, dict) else None
                 if (
                     not isinstance(payload, dict)
@@ -1520,14 +1543,18 @@ def _interfaces(context: AdapterContext) -> AdapterResult:
                 ):
                     raise ValueError
                 declared_version = str(payload[version_key])
-                supported_version = (
-                    re.fullmatch(r"3\.(?:0|1)\.\d+(?:[-+][0-9A-Za-z.-]+)?", declared_version)
-                    if kind == "OPENAPI"
-                    else re.fullmatch(
+                if kind == "OPENAPI":
+                    version_pattern = (
+                        r"3\.(?:0|1)\.\d+(?:[-+][0-9A-Za-z.-]+)?"
+                        if version_key == "openapi"
+                        else r"2\.0"
+                    )
+                    supported_version = re.fullmatch(version_pattern, declared_version)
+                else:
+                    supported_version = re.fullmatch(
                         r"(?:2\.\d+\.\d+|3\.0\.\d+)(?:[-+][0-9A-Za-z.-]+)?",
                         declared_version,
                     )
-                )
                 if supported_version is None:
                     raise ValueError
                 if kind == "OPENAPI":

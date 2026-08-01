@@ -49,7 +49,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/2.5.0"
+SCANNER_VERSION = "repository-scanner/2.6.0"
 IMPLEMENTATION_MODULES = (
     "repository.adapters",
     "repository.models",
@@ -1545,6 +1545,121 @@ class RepositoryScanner:
             (
                 "delivery_environments",
                 "deployment-evidence mechanisms",
+                (),
+            ),
+            (
+                "delivery_environments",
+                "release workflows",
+                (),
+            ),
+            (
+                "delivery_environments",
+                "preview environments",
+                (),
+            ),
+            (
+                "delivery_environments",
+                "container definitions",
+                (),
+            ),
+            (
+                "delivery_environments",
+                "infrastructure-as-code",
+                (),
+            ),
+            (
+                "delivery_environments",
+                "deployment definitions",
+                (),
+            ),
+            (
+                "delivery_environments",
+                "environment configuration shapes",
+                (),
+            ),
+            (
+                "delivery_environments",
+                "rollback mechanisms",
+                (),
+            ),
+            (
+                "security_privacy",
+                "dependency audits",
+                (),
+            ),
+            (
+                "security_privacy",
+                "static application security testing",
+                (),
+            ),
+            (
+                "security_privacy",
+                "secret scanning",
+                (),
+            ),
+            (
+                "security_privacy",
+                "permissions",
+                (),
+            ),
+            (
+                "security_privacy",
+                "credential boundaries",
+                (),
+            ),
+            (
+                "security_privacy",
+                "data retention and privacy controls",
+                (),
+            ),
+            (
+                "security_privacy",
+                "security configuration",
+                (),
+            ),
+            (
+                "observability_operations",
+                "logs",
+                (),
+            ),
+            (
+                "observability_operations",
+                "metrics",
+                (),
+            ),
+            (
+                "observability_operations",
+                "traces",
+                (),
+            ),
+            (
+                "observability_operations",
+                "alerting",
+                (),
+            ),
+            (
+                "observability_operations",
+                "service-level objectives",
+                (),
+            ),
+            (
+                "observability_operations",
+                "health checks",
+                (),
+            ),
+            (
+                "observability_operations",
+                "incident and rollback evidence",
+                (),
+            ),
+            (
+                "observability_operations",
+                "telemetry schemas",
+                (),
+            ),
+            (
+                "observability_operations",
+                "production feedback paths",
                 (),
             ),
         )
