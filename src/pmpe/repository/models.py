@@ -242,6 +242,9 @@ class PullRequestObservation:
     number: int
     draft: bool
     head: str
+    updated_at: str
+    mergeability: str
+    stale: bool
 
 
 @dataclass(frozen=True)

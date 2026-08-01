@@ -47,7 +47,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.1.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.2.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -123,7 +123,7 @@ class RecordedRemoteProvider:
 
     __slots__ = ("_delay_seconds", "_payload", "_permission_denied", "api_version")
 
-    tool_identity = "recorded-remote-payload/1.0.0"
+    tool_identity = "recorded-remote-payload/1.1.0"
 
     def __init__(
         self,
@@ -161,7 +161,14 @@ class RecordedRemoteProvider:
         max_items: int,
         cancellation: Cancellation | None,
     ) -> dict[str, Any]:
-        del repository, ref, timeout_seconds, max_output_bytes, max_items
+        del repository, ref, timeout_seconds
+        if _cancellation_requested(cancellation):
+            raise RepositoryIntelligenceError("recorded remote replay was cancelled")
+        _preflight_json_limits(
+            self._payload,
+            max_bytes=max_output_bytes,
+            max_items=max_items,
+        )
         deadline = time.monotonic() + self._delay_seconds
         while time.monotonic() < deadline:
             if _cancellation_requested(cancellation):
@@ -169,9 +176,12 @@ class RecordedRemoteProvider:
             time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
         if self._permission_denied:
             raise PermissionError("recorded remote input reports permission denial")
+        if _cancellation_requested(cancellation):
+            raise RepositoryIntelligenceError("recorded remote replay was cancelled")
         decoded = json.loads(self._payload)
         if not isinstance(decoded, dict):
             raise RepositoryIntelligenceError("recorded remote payload is malformed")
+        _bounded_remote_shape(decoded, max_bytes=max_output_bytes, max_items=max_items)
         return cast(dict[str, Any], decoded)
 
 
@@ -502,6 +512,66 @@ def _bounded_remote_shape(value: Any, *, max_bytes: int, max_items: int) -> None
             raise RepositoryIntelligenceError("remote observation byte budget was exceeded")
 
 
+def _preflight_json_limits(payload: bytes, *, max_bytes: int, max_items: int) -> None:
+    """Bound encoded JSON bytes and value/key tokens before object materialization."""
+
+    if max_bytes <= 0 or max_items <= 0:
+        raise RepositoryIntelligenceError("remote observation budgets must be positive")
+    if len(payload) > max_bytes:
+        raise RepositoryIntelligenceError("recorded remote payload exceeds the byte budget")
+    index = 0
+    items = 0
+    length = len(payload)
+    whitespace_or_delimiter = b" \t\r\n,:]}"
+    while index < length:
+        current = payload[index]
+        if current in whitespace_or_delimiter:
+            index += 1
+            continue
+        if current in b"[{":
+            items += 1
+            index += 1
+        elif current == ord('"'):
+            items += 1
+            index += 1
+            while index < length:
+                current = payload[index]
+                index += 1
+                if current == ord('"'):
+                    break
+                if current == ord("\\"):
+                    if index >= length:
+                        raise RepositoryIntelligenceError("recorded remote payload is malformed")
+                    escape = payload[index]
+                    index += 1
+                    if escape == ord("u"):
+                        index += 4
+                        if index > length:
+                            raise RepositoryIntelligenceError(
+                                "recorded remote payload is malformed"
+                            )
+            else:
+                raise RepositoryIntelligenceError("recorded remote payload is malformed")
+        elif current in b"-0123456789":
+            items += 1
+            index += 1
+            while index < length and payload[index] in b"0123456789+-.eE":
+                index += 1
+        elif payload.startswith(b"true", index):
+            items += 1
+            index += 4
+        elif payload.startswith(b"false", index):
+            items += 1
+            index += 5
+        elif payload.startswith(b"null", index):
+            items += 1
+            index += 4
+        else:
+            raise RepositoryIntelligenceError("recorded remote payload is malformed")
+        if items > max_items:
+            raise RepositoryIntelligenceError("remote observation item budget was exceeded")
+
+
 def _stop_remote_process(process: Any) -> None:
     """Terminate and reap the isolated provider process and its descendants."""
 
@@ -609,6 +679,8 @@ def _validate_remote_payload_types(value: dict[str, Any]) -> None:
                 ("number", _is_int),
                 ("draft", lambda item: isinstance(item, bool)),
                 ("head", _is_str),
+                ("updated_at", _is_str),
+                ("mergeability", _is_str),
             ),
         ),
         ("issues", (("number", _is_int), ("state", _is_str))),
@@ -739,6 +811,7 @@ class GovernanceCollector:
         max_output_bytes: int = 8_000_000,
         max_remote_items: int = 20_000,
         max_remote_age_seconds: int = 300,
+        stale_pull_request_after_seconds: int = 2_592_000,
         cancellation: Cancellation | None = None,
     ) -> None:
         self.repository = repository
@@ -779,6 +852,7 @@ class GovernanceCollector:
         self.max_output_bytes = max_output_bytes
         self.max_remote_items = max_remote_items
         self.max_remote_age_seconds = max_remote_age_seconds
+        self.stale_pull_request_after_seconds = stale_pull_request_after_seconds
         self.cancellation = cancellation
         self._command_provenance: list[CommandProvenance] = []
         self._commands = 0
@@ -999,22 +1073,72 @@ class GovernanceCollector:
         return tuple(sorted(branches, key=lambda item: item.name))
 
     def _worktrees(self, root: Path) -> tuple[WorktreeObservation, ...]:
-        raw = self._run(root, "worktree", "list", "--porcelain")
+        raw = self._run(root, "worktree", "list", "--porcelain", "-z")
         results: list[WorktreeObservation] = []
         current: dict[str, str] = {}
-        for line in (*raw.splitlines(), ""):
-            if not line:
-                if current:
+        record_invalid = False
+        record_number = 0
+        allowed_fields = {"worktree", "HEAD", "branch", "bare", "detached", "locked", "prunable"}
+        for field in (*raw.split("\0"), ""):
+            if not field:
+                if current or record_invalid:
+                    record_number += 1
+                    if record_invalid:
+                        current = {}
+                        record_invalid = False
+                        continue
+                    missing = {"worktree", "HEAD"} - set(current)
+                    detached = "detached" in current or "bare" in current
+                    if missing or ("branch" not in current and not detached):
+                        self._local_unknowns.append(
+                            UnknownFact(
+                                fact=f"worktree_record:{record_number}",
+                                status="BLOCKED",
+                                reason=(
+                                    "A Git worktree record is incomplete; mutable worktree state "
+                                    "was not inferred."
+                                ),
+                            )
+                        )
+                        current = {}
+                        continue
                     results.append(
                         WorktreeObservation(
-                            path=current.get("worktree", "UNKNOWN"),
-                            head_sha=current.get("HEAD", "UNKNOWN"),
+                            path=current["worktree"],
+                            head_sha=current["HEAD"],
                             branch=current.get("branch", "DETACHED").removeprefix("refs/heads/"),
                         )
                     )
                     current = {}
                 continue
-            key, _, value = line.partition(" ")
+            key, separator, value = field.partition(" ")
+            if record_invalid:
+                continue
+            if key not in allowed_fields or key in current:
+                self._local_unknowns.append(
+                    UnknownFact(
+                        fact=f"worktree_record:{record_number + 1}",
+                        status="BLOCKED",
+                        reason=(
+                            "A Git worktree record contains an unknown or duplicate field; "
+                            "mutable worktree state was not inferred."
+                        ),
+                    )
+                )
+                current = {}
+                record_invalid = True
+                continue
+            if key in {"worktree", "HEAD", "branch"} and (not separator or not value):
+                self._local_unknowns.append(
+                    UnknownFact(
+                        fact=f"worktree_record:{record_number + 1}",
+                        status="BLOCKED",
+                        reason="A required Git worktree field is malformed.",
+                    )
+                )
+                current = {}
+                record_invalid = True
+                continue
             current[key] = value
         return tuple(sorted(results, key=lambda item: item.path))
 
@@ -1033,6 +1157,7 @@ class GovernanceCollector:
                 self.max_output_bytes,
                 self.max_remote_items,
                 self.max_remote_age_seconds,
+                self.stale_pull_request_after_seconds,
             )
         ):
             raise RepositoryIntelligenceError("governance observation budgets must be positive")
@@ -1139,8 +1264,7 @@ class GovernanceCollector:
         branches = self._branches(root, ref)
         worktrees = self._worktrees(root)
         if any(not _valid_object_id(item.sha, object_format) for item in branches) or any(
-            item.head_sha != "UNKNOWN" and not _valid_object_id(item.head_sha, object_format)
-            for item in worktrees
+            not _valid_object_id(item.head_sha, object_format) for item in worktrees
         ):
             raise RepositoryIntelligenceError("local Git reference identity is malformed")
         observed_at = self.clock.now()
@@ -1226,14 +1350,30 @@ class GovernanceCollector:
                         RemoteBranchObservation(name=item["name"], sha=item["sha"])
                         for item in sanitized_remote["remote_branches"]
                     )
-                    pull_requests = tuple(
-                        PullRequestObservation(
-                            number=item["number"],
-                            draft=item["draft"],
-                            head=item["head"],
+                    parsed_pull_requests: list[PullRequestObservation] = []
+                    for item in sanitized_remote["pull_requests"]:
+                        update_age = (
+                            remote_observed_value
+                            - _parse_utc(
+                                item["updated_at"],
+                                field="pull request update time",
+                            )
+                        ).total_seconds()
+                        if update_age < -30:
+                            raise ValueError(
+                                "pull request update time is later than the remote observation"
+                            )
+                        parsed_pull_requests.append(
+                            PullRequestObservation(
+                                number=item["number"],
+                                draft=item["draft"],
+                                head=item["head"],
+                                updated_at=item["updated_at"],
+                                mergeability=item["mergeability"],
+                                stale=update_age > self.stale_pull_request_after_seconds,
+                            )
                         )
-                        for item in sanitized_remote["pull_requests"]
-                    )
+                    pull_requests = tuple(parsed_pull_requests)
                     issues = tuple(
                         IssueObservation(number=item["number"], state=item["state"])
                         for item in sanitized_remote["issues"]
@@ -1265,6 +1405,26 @@ class GovernanceCollector:
                         )
                         for item in sanitized_remote["unknowns"]
                     )
+                    unknown_mergeability = tuple(
+                        item.number
+                        for item in pull_requests
+                        if item.mergeability not in {"MERGEABLE", "CONFLICTING"}
+                    )
+                    if unknown_mergeability:
+                        remote_unknowns = (
+                            *remote_unknowns,
+                            *(
+                                UnknownFact(
+                                    fact=f"pull_request_mergeability:{number}",
+                                    status="BLOCKED",
+                                    reason=(
+                                        "Pull request conflict/mergeability evidence is missing "
+                                        "or unsupported."
+                                    ),
+                                )
+                                for number in unknown_mergeability
+                            ),
+                        )
                     if any(
                         not _valid_object_id(item.sha, object_format) for item in remote_branches
                     ) or any(
@@ -1381,6 +1541,7 @@ class GovernanceCollector:
                 "max_output_bytes": self.max_output_bytes,
                 "max_remote_items": self.max_remote_items,
                 "max_remote_age_seconds": self.max_remote_age_seconds,
+                "stale_pull_request_after_seconds": self.stale_pull_request_after_seconds,
             },
             "remote_result": sanitized_remote,
             "remote_collection_status": remote_collection_status,

@@ -415,6 +415,53 @@ def test_nested_package_manifests_create_explicit_architecture_boundaries(
     assert boundaries["products/example/backend"].confidence == "HIGH"
 
 
+def test_entry_points_and_test_coverage_configuration_are_explicit_inventory(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(
+        repo,
+        "services/api/pyproject.toml",
+        "[project]\nname='api'\nversion='1'\n[project.scripts]\napi='api.cli:main'\n",
+    )
+    _write(repo, "services/api/src/api/__main__.py", "raise SystemExit(0)\n")
+    _write(
+        repo,
+        "apps/web/package.json",
+        json.dumps(
+            {
+                "name": "web",
+                "version": "1.0.0",
+                "main": "src/index.js",
+                "scripts": {"start": "node src/index.js"},
+            }
+        ),
+    )
+    _write(repo, "apps/web/playwright.config.ts", "export default {};\n")
+    _write(repo, "apps/web/vitest.config.ts", "export default {};\n")
+    _write(repo, ".coveragerc", "[run]\nbranch = True\n")
+    _commit(repo, "entry-point and quality configuration evidence")
+
+    snapshot = _scan(repo)
+    architecture = {
+        (item.path, item.kind) for item in snapshot.inventory["architecture_boundaries"].items
+    }
+    quality = {(item.path, item.kind) for item in snapshot.inventory["tests_quality"].items}
+    assert (
+        "services/api/pyproject.toml",
+        "DECLARED_ENTRY_POINT",
+    ) in architecture
+    assert (
+        "services/api/src/api/__main__.py",
+        "ENTRY_POINT_FILE_SIGNAL",
+    ) in architecture
+    assert ("apps/web/package.json", "DECLARED_ENTRY_POINT") in architecture
+    assert ("apps/web/package.json", "DECLARED_RUN_ENTRY_POINT") in architecture
+    assert ("apps/web/playwright.config.ts", "TEST_CONFIGURATION") in quality
+    assert ("apps/web/vitest.config.ts", "TEST_CONFIGURATION") in quality
+    assert (".coveragerc", "COVERAGE_CONFIGURATION") in quality
+
+
 def test_every_recognized_nested_python_manifest_creates_a_package_boundary(
     tmp_path: Path,
 ) -> None:
@@ -943,7 +990,15 @@ class _FakeRemote:
             "observed_at": "2026-08-01T00:00:00Z",
             "coverage": ["remote_branches", "pull_requests", "issues", "governance"],
             "remote_branches": [{"name": "origin/feature", "sha": "a" * 40}],
-            "pull_requests": [{"number": 7, "draft": True, "head": "a" * 40}],
+            "pull_requests": [
+                {
+                    "number": 7,
+                    "draft": True,
+                    "head": "a" * 40,
+                    "updated_at": "2026-07-31T12:00:00Z",
+                    "mergeability": "MERGEABLE",
+                }
+            ],
             "issues": [{"number": 8, "state": "OPEN"}],
             "governance": {
                 "branch_protection": {"observed": True, "required_checks": ["ci"]},
@@ -1024,6 +1079,29 @@ class _StaleRemote(_FakeRemote):
     def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
         payload = super().collect(repository, ref, **bounds)
         payload["observed_at"] = "2026-07-31T00:00:00Z"
+        payload["pull_requests"][0]["updated_at"] = "2026-07-30T12:00:00Z"
+        return payload
+
+
+class _CompleteRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["unknowns"] = []
+        return payload
+
+
+class _StaleConflictingPullRequestRemote(_CompleteRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["pull_requests"][0]["updated_at"] = "2026-06-01T00:00:00Z"
+        payload["pull_requests"][0]["mergeability"] = "CONFLICTING"
+        return payload
+
+
+class _UnknownMergeabilityRemote(_CompleteRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["pull_requests"][0]["mergeability"] = "UNKNOWN"
         return payload
 
 
@@ -1201,10 +1279,45 @@ def test_branch_divergence_and_additional_worktrees_are_mutable_observations(
     assert "local_branches" not in _scan(repo).as_dict()
 
 
+def test_malformed_worktree_record_is_blocked_without_placeholder_facts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    governance = importlib.import_module("pmpe.repository.governance")
+    repo = _init_repo(tmp_path)
+    original = governance.GovernanceCommandRunner.run
+
+    def malformed_worktree(
+        self: Any,
+        args: tuple[str, ...],
+        cwd: Path,
+        timeout: int,
+        *,
+        cancellation: Any = None,
+    ) -> Any:
+        if args[1:3] == ("worktree", "list"):
+            return api.CommandResult(
+                args=args,
+                returncode=0,
+                stdout=(
+                    f"worktree {repo}\0mystery value\0HEAD {'a' * 40}\0branch refs/heads/main\0\0"
+                ),
+                stderr="",
+            )
+        return original(self, args, cwd, timeout, cancellation=cancellation)
+
+    monkeypatch.setattr(governance.GovernanceCommandRunner, "run", malformed_worktree)
+    observation = _observe(repo)
+    assert observation.disposition == "BLOCKED"
+    assert observation.worktrees == ()
+    assert any(item.fact == "worktree_record:1" for item in observation.unknowns)
+    assert "UNKNOWN" not in observation.canonical_bytes().decode()
+
+
 def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path: Path) -> None:
     observation = _observe(_init_repo(tmp_path), _FakeRemote())
     payload = observation.canonical_bytes().decode()
-    assert observation.tool_identity == "recorded-remote-payload/1.0.0"
+    assert observation.tool_identity == "recorded-remote-payload/1.1.0"
     assert observation.api_query_version == "github-rest/2026-03-10"
     assert observation.query_provenance[0].surface == "remote_branches"
     assert observation.query_provenance[0].cursor == "branches-page-1"
@@ -1258,6 +1371,66 @@ def test_recorded_remote_provider_cannot_be_replaced_with_instance_code() -> Non
     provider = _sealed_remote(_FakeRemote())
     with pytest.raises(AttributeError):
         provider.collect = lambda *_args, **_kwargs: {}  # type: ignore[method-assign]
+
+
+@pytest.mark.parametrize(
+    ("max_output_bytes", "max_items", "message"),
+    [(8, 1_000, "byte budget"), (8_000_000, 3, "item budget")],
+)
+def test_recorded_remote_provider_enforces_bounds_before_deserialization(
+    monkeypatch: pytest.MonkeyPatch,
+    max_output_bytes: int,
+    max_items: int,
+    message: str,
+) -> None:
+    api = _api()
+    governance = importlib.import_module("pmpe.repository.governance")
+    provider = api.RecordedRemoteProvider(
+        {"collection": [1, 2, 3]},
+        api_version="fixture/1",
+    )
+    deserialized = False
+
+    def forbidden_loads(_payload: Any) -> Any:
+        nonlocal deserialized
+        deserialized = True
+        raise AssertionError("deserialization must not occur before preflight bounds")
+
+    monkeypatch.setattr(governance.json, "loads", forbidden_loads)
+    with pytest.raises(api.RepositoryIntelligenceError, match=message):
+        provider.collect(
+            "example/fixture",
+            "main",
+            timeout_seconds=1,
+            max_output_bytes=max_output_bytes,
+            max_items=max_items,
+            cancellation=None,
+        )
+    assert deserialized is False
+
+
+def test_recorded_remote_provider_checks_cancellation_before_deserialization(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api()
+    governance = importlib.import_module("pmpe.repository.governance")
+    provider = api.RecordedRemoteProvider({"safe": True}, api_version="fixture/1")
+    cancellation = api.CancellationSignal()
+    cancellation.cancel()
+
+    def forbidden_loads(_payload: Any) -> Any:
+        raise AssertionError("cancelled replay must not deserialize")
+
+    monkeypatch.setattr(governance.json, "loads", forbidden_loads)
+    with pytest.raises(api.RepositoryIntelligenceError, match="cancelled"):
+        provider.collect(
+            "example/fixture",
+            "main",
+            timeout_seconds=1,
+            max_output_bytes=1_000,
+            max_items=100,
+            cancellation=cancellation,
+        )
 
 
 def test_unsealed_parent_collaborators_are_rejected_before_execution(tmp_path: Path) -> None:
@@ -1331,6 +1504,21 @@ def test_stale_remote_metadata_is_blocked_not_complete(tmp_path: Path) -> None:
     observation = _observe(_init_repo(tmp_path), _StaleRemote())
     assert observation.disposition == "BLOCKED"
     assert any(item.fact == "remote_metadata_completeness" for item in observation.unknowns)
+
+
+def test_pull_request_staleness_and_conflict_evidence_are_explicit(tmp_path: Path) -> None:
+    observation = _observe(_init_repo(tmp_path), _StaleConflictingPullRequestRemote())
+    pull_request = observation.pull_requests[0]
+    assert pull_request.updated_at == "2026-06-01T00:00:00Z"
+    assert pull_request.stale is True
+    assert pull_request.mergeability == "CONFLICTING"
+    assert observation.disposition == "COMPLETE"
+
+
+def test_unknown_pull_request_mergeability_blocks_complete_observation(tmp_path: Path) -> None:
+    observation = _observe(_init_repo(tmp_path), _UnknownMergeabilityRemote())
+    assert observation.disposition == "BLOCKED"
+    assert any(item.fact == "pull_request_mergeability:7" for item in observation.unknowns)
 
 
 @pytest.mark.parametrize("remote", [_SingleSurfaceRemote(), _CountMismatchRemote()])
@@ -1459,6 +1647,16 @@ def test_observation_input_digest_binds_freshness_and_collector_budgets(tmp_path
     assert admitted.disposition == "COMPLETE"
     assert blocked.disposition == "BLOCKED"
     assert admitted.observation_input_digest != blocked.observation_input_digest
+
+    alternate_stale_policy = api.GovernanceCollector(
+        repository="example/fixture",
+        clock=_fixed_clock(),
+        id_provider=_fixed_ids(),
+        remote_provider=_sealed_remote(_AgeSensitiveRemote()),
+        max_remote_age_seconds=300,
+        stale_pull_request_after_seconds=60,
+    ).observe(repo, ref="main")
+    assert admitted.observation_input_digest != alternate_stale_policy.observation_input_digest
 
 
 def test_scan_and_observation_never_create_branches_commits_or_remote_mutations(

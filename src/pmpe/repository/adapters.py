@@ -14,7 +14,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.8.0"
+DETECTOR_VERSION = "1.9.0"
 
 _PACKAGE_BOUNDARY_MANIFEST_NAMES = frozenset(
     {
@@ -180,9 +180,39 @@ def _test_signal_kind(path: str) -> str | None:
     return "TEST_FILE_SIGNAL"
 
 
+def _test_configuration_kind(path: str) -> str | None:
+    """Classify explicit test and coverage configuration without executing it."""
+
+    name = PurePosixPath(path).name.lower()
+    if name in {"pytest.ini", "tox.ini", "noxfile.py", "conftest.py"} or any(
+        fnmatch.fnmatch(name, pattern)
+        for pattern in (
+            "jest.config.*",
+            "karma.conf.*",
+            "playwright.config.*",
+            "vitest.config.*",
+        )
+    ):
+        return "TEST_CONFIGURATION"
+    if name in {".coveragerc", ".nycrc", "coverage.ini", "coverage.toml"} or any(
+        fnmatch.fnmatch(name, pattern) for pattern in (".codecov.*", "codecov.*", "nyc.config.*")
+    ):
+        return "COVERAGE_CONFIGURATION"
+    return None
+
+
+def _entry_point_signal_kind(path: str) -> str | None:
+    """Return a bounded conventional entry-point signal, never a recommendation."""
+
+    name = PurePosixPath(path).name.lower()
+    if name in {"__main__.py", "app.py", "cli.py", "main.py", "manage.py", "server.py"}:
+        return "ENTRY_POINT_FILE_SIGNAL"
+    return None
+
+
 @repository_adapter(
     adapter_id="core.repository-topology",
-    version="1.4.0",
+    version="1.5.0",
     file_patterns=("**/*", "*"),
     supported_categories=(
         "repository_topology",
@@ -192,6 +222,7 @@ def _test_signal_kind(path: str) -> str | None:
         "debt_risk",
         "observability_operations",
         "security_privacy",
+        "tests_quality",
     ),
 )
 def _topology(context: AdapterContext) -> AdapterResult:
@@ -220,6 +251,28 @@ def _topology(context: AdapterContext) -> AdapterResult:
         else:
             kind = "TRACKED_FILE"
         items.append(("repository_topology", _item(file, kind, "core.repository-topology")))
+
+        test_configuration_kind = _test_configuration_kind(file.path)
+        if test_configuration_kind is not None:
+            items.append(
+                (
+                    "tests_quality",
+                    _item(file, test_configuration_kind, "core.repository-topology"),
+                )
+            )
+        entry_point_kind = _entry_point_signal_kind(file.path)
+        if entry_point_kind is not None:
+            items.append(
+                (
+                    "architecture_boundaries",
+                    _item(
+                        file,
+                        entry_point_kind,
+                        "core.repository-topology",
+                        confidence="MEDIUM",
+                    ),
+                )
+            )
 
         if file.path in {"README.md", "CONTRIBUTING.md", "SECURITY.md"}:
             items.append(
@@ -433,7 +486,7 @@ def _topology(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="stack.python",
-    version="1.2.0",
+    version="1.3.0",
     file_patterns=(
         "*.py",
         "**/*.py",
@@ -458,7 +511,12 @@ def _topology(context: AdapterContext) -> AdapterResult:
         ".python-version",
         "**/.python-version",
     ),
-    supported_categories=("languages_build_ecosystems", "tests_quality", "debt_risk"),
+    supported_categories=(
+        "languages_build_ecosystems",
+        "architecture_boundaries",
+        "tests_quality",
+        "debt_risk",
+    ),
 )
 def _python(context: AdapterContext) -> AdapterResult:
     items: list[tuple[str, EvidenceItem]] = []
@@ -485,6 +543,17 @@ def _python(context: AdapterContext) -> AdapterResult:
                     parsed = tomllib.loads(file.content.decode("utf-8"))
                     if not isinstance(parsed, dict):
                         raise ValueError
+                    project = parsed.get("project", {})
+                    if isinstance(project, dict) and any(
+                        isinstance(project.get(key), dict) and project[key]
+                        for key in ("scripts", "gui-scripts")
+                    ):
+                        items.append(
+                            (
+                                "architecture_boundaries",
+                                _item(file, "DECLARED_ENTRY_POINT", "stack.python"),
+                            )
+                        )
                 except (tomllib.TOMLDecodeError, UnicodeDecodeError, ValueError):
                     findings.append(
                         _finding(
@@ -527,7 +596,7 @@ def _python(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="stack.node-web",
-    version="1.1.0",
+    version="1.2.0",
     file_patterns=(
         "**/*.js",
         "*.js",
@@ -546,7 +615,12 @@ def _python(context: AdapterContext) -> AdapterResult:
         "pnpm-lock.yaml",
         "**/pnpm-lock.yaml",
     ),
-    supported_categories=("languages_build_ecosystems", "tests_quality", "debt_risk"),
+    supported_categories=(
+        "languages_build_ecosystems",
+        "architecture_boundaries",
+        "tests_quality",
+        "debt_risk",
+    ),
 )
 def _node(context: AdapterContext) -> AdapterResult:
     items: list[tuple[str, EvidenceItem]] = []
@@ -562,9 +636,29 @@ def _node(context: AdapterContext) -> AdapterResult:
             if file.content is not None:
                 try:
                     package = json.loads(file.content)
+                    if not isinstance(package, dict):
+                        raise AttributeError
                     engine = package.get("engines", {}).get("node")
                     if isinstance(engine, str):
                         runtime_declarations[file.path] = engine
+                    if any(
+                        package.get(key) not in (None, "", {}, [])
+                        for key in ("bin", "main", "module", "exports")
+                    ):
+                        items.append(
+                            (
+                                "architecture_boundaries",
+                                _item(file, "DECLARED_ENTRY_POINT", "stack.node-web"),
+                            )
+                        )
+                    scripts = package.get("scripts", {})
+                    if isinstance(scripts, dict) and isinstance(scripts.get("start"), str):
+                        items.append(
+                            (
+                                "architecture_boundaries",
+                                _item(file, "DECLARED_RUN_ENTRY_POINT", "stack.node-web"),
+                            )
+                        )
                 except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
                     findings.append(
                         _finding(
