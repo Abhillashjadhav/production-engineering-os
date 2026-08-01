@@ -14,7 +14,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.2.0"
+DETECTOR_VERSION = "1.3.0"
 
 
 @dataclass(frozen=True)
@@ -651,14 +651,32 @@ def _containers(context: AdapterContext) -> AdapterResult:
                     _item(file, "CONTAINER_DEFINITION", "stack.docker-compose"),
                 )
             )
-            if file.content and any(
-                line.lstrip().upper().startswith(b"HEALTHCHECK ")
-                for line in file.content.splitlines()
-            ):
+            health_instructions = (
+                tuple(
+                    line.lstrip().upper()
+                    for line in file.content.splitlines()
+                    if line.lstrip().upper().startswith(b"HEALTHCHECK ")
+                )
+                if file.content
+                else ()
+            )
+            if any(line != b"HEALTHCHECK NONE" for line in health_instructions):
                 items.append(
                     (
                         "observability_operations",
                         _item(file, "HEALTH_CHECK", "stack.docker-compose"),
+                    )
+                )
+            elif health_instructions:
+                items.append(
+                    (
+                        "observability_operations",
+                        _item(
+                            file,
+                            "HEALTH_CHECK_DISABLED_SIGNAL",
+                            "stack.docker-compose",
+                            confidence="MEDIUM",
+                        ),
                     )
                 )
         elif "compose" in name:
@@ -703,25 +721,8 @@ def _ci_workflows(context: AdapterContext) -> AdapterResult:
     items: list[tuple[str, EvidenceItem]] = []
     findings: list[Finding] = []
     workflows = list(context.files)
+    verified_workflows = 0
     for file in workflows:
-        items.append(
-            (
-                "delivery_environments",
-                _item(file, "CI_WORKFLOW", "delivery.ci"),
-            )
-        )
-        if any(token in file.path.lower() for token in ("release", "deploy", "publish")):
-            items.append(
-                (
-                    "delivery_environments",
-                    _item(
-                        file,
-                        "RELEASE_WORKFLOW_SIGNAL",
-                        "delivery.ci",
-                        confidence="MEDIUM",
-                    ),
-                )
-            )
         parsed: object | None = None
         if file.content is not None and file.path.endswith((".yml", ".yaml")):
             try:
@@ -741,7 +742,64 @@ def _ci_workflows(context: AdapterContext) -> AdapterResult:
                     )
                 )
                 continue
-        signals = _structured_text(parsed) if parsed is not None else ""
+        if parsed is None or not _valid_ci_structure(file.path, parsed):
+            items.append(
+                (
+                    "delivery_environments",
+                    _item(
+                        file,
+                        "CI_CONFIGURATION_SIGNAL",
+                        "delivery.ci",
+                        confidence="MEDIUM",
+                    ),
+                )
+            )
+            findings.append(
+                _finding(
+                    "WORKFLOW.STRUCTURE_UNPROVEN",
+                    "delivery_environments",
+                    "A tracked CI configuration could not be proven to contain the required "
+                    "provider structure; it remains a signal, not a verified workflow.",
+                    (file.path,),
+                    "delivery.ci",
+                    confidence="MEDIUM",
+                )
+            )
+            continue
+        verified_workflows += 1
+        items.append(
+            (
+                "delivery_environments",
+                _item(file, "CI_WORKFLOW", "delivery.ci"),
+            )
+        )
+        if any(token in file.path.lower() for token in ("release", "deploy", "publish")):
+            items.append(
+                (
+                    "delivery_environments",
+                    _item(
+                        file,
+                        "RELEASE_WORKFLOW_SIGNAL",
+                        "delivery.ci",
+                        confidence="MEDIUM",
+                    ),
+                )
+            )
+        try:
+            signals = _structured_text(parsed)
+        except ValueError:
+            findings.append(
+                _finding(
+                    "WORKFLOW.STRUCTURE_BUDGET_EXCEEDED",
+                    "delivery_environments",
+                    "Parsed workflow structure exceeded the deterministic adapter budget.",
+                    (file.path,),
+                    "delivery.ci",
+                    severity="HIGH",
+                    blocking=True,
+                )
+            )
+            continue
         if re.search(r"\b(pytest|vitest|playwright|test)\b", signals, re.I):
             items.append(
                 (
@@ -781,7 +839,7 @@ def _ci_workflows(context: AdapterContext) -> AdapterResult:
                     ),
                 )
             )
-    if not workflows:
+    if not verified_workflows:
         findings.append(
             _finding(
                 "DELIVERY.CI_ABSENT",
@@ -799,17 +857,46 @@ def _structured_text(value: object) -> str:
 
     pending = [value]
     strings: list[str] = []
+    seen: set[int] = set()
+    visited = 0
     while pending:
         current = pending.pop()
+        visited += 1
+        if visited > 50_000:
+            raise ValueError("workflow structure budget exceeded")
         if isinstance(current, dict):
+            if id(current) in seen:
+                continue
+            seen.add(id(current))
             for key, item in current.items():
                 strings.append(str(key))
                 pending.append(item)
         elif isinstance(current, list):
+            if id(current) in seen:
+                continue
+            seen.add(id(current))
             pending.extend(current)
         elif isinstance(current, (str, int, float, bool)):
             strings.append(str(current))
     return "\n".join(strings)
+
+
+def _valid_ci_structure(path: str, value: object) -> bool:
+    if not isinstance(value, dict) or not value:
+        return False
+    lowered = path.lower()
+    if lowered.startswith(".github/workflows/"):
+        event_declared = "on" in value or True in value
+        return event_declared and isinstance(value.get("jobs"), dict) and bool(value["jobs"])
+    if lowered == ".gitlab-ci.yml":
+        return any(isinstance(item, dict) for item in value.values())
+    if lowered == ".circleci/config.yml":
+        return "version" in value and any(key in value for key in ("jobs", "workflows"))
+    if lowered == "azure-pipelines.yml":
+        return any(key in value for key in ("jobs", "stages", "steps"))
+    if lowered == "bitbucket-pipelines.yml":
+        return isinstance(value.get("pipelines"), dict) and bool(value["pipelines"])
+    return False
 
 
 @repository_adapter(
@@ -843,20 +930,26 @@ def _interfaces(context: AdapterContext) -> AdapterResult:
     findings: list[Finding] = []
     for file in context.files:
         lowered = file.path.lower()
+        confidence = "HIGH"
         if "openapi" in lowered:
             kind = "OPENAPI"
         elif "asyncapi" in lowered:
             kind = "EVENT_CONTRACT"
         elif lowered.endswith((".proto", ".graphql", ".gql")):
-            kind = "INTERFACE_DEFINITION"
+            kind = "INTERFACE_DEFINITION_SIGNAL"
+            confidence = "MEDIUM"
         elif "/migrations/" in f"/{lowered}":
-            kind = "MIGRATION"
+            kind = "MIGRATION_SIGNAL"
+            confidence = "MEDIUM"
         elif "generate" in PurePosixPath(lowered).name:
-            kind = "CODE_GENERATOR"
+            kind = "CODE_GENERATOR_SIGNAL"
+            confidence = "MEDIUM"
         elif ".gen." in lowered or "generated_client" in lowered:
-            kind = "GENERATED_CLIENT"
+            kind = "GENERATED_CLIENT_SIGNAL"
+            confidence = "MEDIUM"
         elif "/schemas/" in f"/{lowered}" or lowered.endswith(".schema.json"):
-            kind = "SCHEMA"
+            kind = "SCHEMA_SIGNAL"
+            confidence = "MEDIUM"
         else:
             continue
         if kind in {"OPENAPI", "EVENT_CONTRACT"}:
@@ -872,10 +965,32 @@ def _interfaces(context: AdapterContext) -> AdapterResult:
                     or not isinstance(payload.get(version_key), str)
                     or not isinstance(info, dict)
                     or not isinstance(info.get("title"), str)
+                    or not info["title"].strip()
                     or not isinstance(info.get("version"), str)
+                    or not info["version"].strip()
                 ):
                     raise ValueError
-                if kind == "OPENAPI" and not isinstance(payload.get("paths"), dict):
+                declared_version = str(payload[version_key])
+                supported_version = (
+                    re.fullmatch(r"3\.(?:0|1)\.\d+(?:[-+][0-9A-Za-z.-]+)?", declared_version)
+                    if kind == "OPENAPI"
+                    else re.fullmatch(
+                        r"(?:2\.\d+\.\d+|3\.0\.\d+)(?:[-+][0-9A-Za-z.-]+)?",
+                        declared_version,
+                    )
+                )
+                if supported_version is None:
+                    raise ValueError
+                if kind == "OPENAPI":
+                    paths = payload.get("paths")
+                    if not isinstance(paths, dict) or any(
+                        not isinstance(path, str)
+                        or not path.startswith("/")
+                        or not isinstance(operation, dict)
+                        for path, operation in paths.items()
+                    ):
+                        raise ValueError
+                elif not isinstance(payload.get("channels"), dict):
                     raise ValueError
             except (json.JSONDecodeError, UnicodeDecodeError, yaml.YAMLError, ValueError):
                 findings.append(
@@ -891,7 +1006,34 @@ def _interfaces(context: AdapterContext) -> AdapterResult:
                     )
                 )
                 continue
-        items.append(("apis_data", _item(file, kind, "interface.schema-api")))
+        elif lowered.endswith(".schema.json"):
+            if file.content is None or file.binary:
+                continue
+            try:
+                schema = json.loads(file.content)
+                if not isinstance(schema, dict) or not isinstance(schema.get("$schema"), str):
+                    raise ValueError
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+                findings.append(
+                    _finding(
+                        "INTERFACE.DECLARATION_INVALID",
+                        "apis_data",
+                        "A tracked JSON Schema declaration is malformed or lacks a dialect.",
+                        (file.path,),
+                        "interface.schema-api",
+                        severity="HIGH",
+                        blocking=True,
+                    )
+                )
+                continue
+            kind = "JSON_SCHEMA"
+            confidence = "HIGH"
+        items.append(
+            (
+                "apis_data",
+                _item(file, kind, "interface.schema-api", confidence=confidence),
+            )
+        )
     return AdapterResult(items=tuple(items), findings=tuple(findings))
 
 

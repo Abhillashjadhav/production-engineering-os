@@ -15,7 +15,7 @@ class RedactionError(RuntimeError):
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
-    version = "central-redactor/1.2.0"
+    version = "central-redactor/1.3.0"
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
         r"|glpat-[A-Za-z0-9_-]{16,}"
@@ -35,6 +35,12 @@ class EvidenceRedactor:
         r"(?:AIza[0-9A-Za-z_-]{35}|sk_(?:live|test)_[0-9A-Za-z]{16,}"
         r"|rk_(?:live|test)_[0-9A-Za-z]{16,}|npm_[0-9A-Za-z]{20,}"
         r"|pypi-[0-9A-Za-z_-]{20,})"
+    )
+    _sensitive_assignment = re.compile(
+        r"(?i)\b(?P<key>accountkey|sharedaccesskey|sharedaccesssignature|pwd|password|passwd"
+        r"|cookie|set-cookie|aws_access_key_id|aws_secret_access_key|aws_session_token"
+        r"|client_secret|private_key|api_key|access_token|refresh_token)"
+        r"(?P<separator>\s*[=:]\s*)(?P<value>\{[^}]*\}|[^\s,;]+)"
     )
     _sensitive_query = re.compile(r"(?i)(token|key|secret|password|signature|credential)")
     _sensitive_field = re.compile(
@@ -74,6 +80,10 @@ class EvidenceRedactor:
         sanitized = self._url_credentials.sub(r"\1[REDACTED]@", sanitized)
         sanitized = self._common_access_key.sub("[REDACTED]", sanitized)
         sanitized = self._vendor_token.sub("[REDACTED]", sanitized)
+        sanitized = self._sensitive_assignment.sub(
+            lambda match: f"{match.group('key')}{match.group('separator')}[REDACTED]",
+            sanitized,
+        )
         sanitized = self._token.sub("[REDACTED]", sanitized)
         sanitized = self._embedded_url.sub(
             lambda match: self._sanitize_url(match.group(0)), sanitized

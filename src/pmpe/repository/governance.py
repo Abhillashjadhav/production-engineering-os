@@ -36,7 +36,7 @@ from pmpe.repository.scanner import (
     RepositorySecurityError,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/1.2.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/1.3.0"
 _REQUIRED_REMOTE_COVERAGE = frozenset({"remote_branches", "pull_requests", "issues", "governance"})
 _SAFE_REF = re.compile(r"^(?:HEAD|[A-Za-z0-9][A-Za-z0-9._/-]{0,255})$")
 
@@ -86,8 +86,16 @@ class UuidObservationIds:
 class GovernanceCommandRunner:
     """Allowlisted local Git observation commands with mutation subcommands refused."""
 
-    identity = "git-governance-readonly/1.2.0"
-    _allowed = {"config", "status", "rev-parse", "for-each-ref", "rev-list", "worktree"}
+    identity = "git-governance-readonly/1.3.0"
+    _allowed = {
+        "config",
+        "status",
+        "rev-parse",
+        "for-each-ref",
+        "rev-list",
+        "worktree",
+        "ls-files",
+    }
     _filter_probe = (
         "--name-only",
         "--get-regexp",
@@ -109,6 +117,8 @@ class GovernanceCommandRunner:
             raise RepositorySecurityError("command is outside the governance read-only allowlist")
         if args[1] == "config" and args[2:] != self._filter_probe:
             raise RepositorySecurityError("Git configuration reads are outside the safe probe")
+        if args[1] == "ls-files" and args[2:] != ("--stage", "-z"):
+            raise RepositorySecurityError("Git index reads are outside the safe probe")
         if args[1] == "worktree" and (len(args) < 3 or args[2] != "list"):
             raise RepositorySecurityError("mutating Git worktree command was refused")
         safe_environment = {
@@ -118,6 +128,7 @@ class GovernanceCommandRunner:
             "GIT_TERMINAL_PROMPT": "0",
             "GIT_OPTIONAL_LOCKS": "0",
             "GIT_NO_LAZY_FETCH": "1",
+            "GIT_NO_REPLACE_OBJECTS": "1",
             "GIT_CONFIG_COUNT": "6",
             "GIT_CONFIG_KEY_0": "core.fsmonitor",
             "GIT_CONFIG_VALUE_0": "false",
@@ -255,6 +266,29 @@ def _bounded_remote_shape(value: Any, *, max_bytes: int, max_items: int) -> None
             raise RepositoryIntelligenceError("remote observation contains an unsupported value")
         if encoded_bytes > max_bytes:
             raise RepositoryIntelligenceError("remote observation byte budget was exceeded")
+
+
+def _pagination_is_complete(
+    provenance: tuple[QueryProvenance, ...], expected_counts: dict[str, int]
+) -> bool:
+    if {item.surface for item in provenance} != set(expected_counts):
+        return False
+    for surface, expected_count in expected_counts.items():
+        pages = sorted(
+            (item for item in provenance if item.surface == surface),
+            key=lambda item: item.page if item.page is not None else 0,
+        )
+        if not pages or any(item.page is None or item.result_count is None for item in pages):
+            return False
+        if [item.page for item in pages] != list(range(1, len(pages) + 1)):
+            return False
+        if any(item.has_next_page != (index < len(pages) - 1) for index, item in enumerate(pages)):
+            return False
+        if sum(item.result_count or 0 for item in pages) != expected_count:
+            return False
+        if any(not item.query.strip() for item in pages):
+            return False
+    return True
 
 
 def _governance_implementation_digest() -> str:
@@ -491,6 +525,39 @@ class GovernanceCollector:
             )
         if filter_probe.returncode != 1:
             raise RepositoryIntelligenceError("Git content-filter safety could not be proven")
+        index_listing = self._run(root, "ls-files", "--stage", "-z")
+        gitlinks = 0
+        for record in index_listing.split("\0"):
+            if not record:
+                continue
+            metadata, separator, _path = record.partition("\t")
+            fields = metadata.split()
+            if separator != "\t" or len(fields) != 3:
+                raise RepositoryIntelligenceError("Git index metadata is malformed")
+            mode, object_id, stage = fields
+            if not re.fullmatch(r"[0-7]{6}", mode) or not re.fullmatch(r"[0-9a-f]{40}", object_id):
+                raise RepositoryIntelligenceError("Git index metadata is malformed")
+            if stage != "0":
+                self._local_unknowns.append(
+                    UnknownFact(
+                        fact="unmerged_index_state",
+                        status="BLOCKED",
+                        reason="The index contains an unmerged entry.",
+                    )
+                )
+            if mode == "160000":
+                gitlinks += 1
+        if gitlinks:
+            self._local_unknowns.append(
+                UnknownFact(
+                    fact="submodule_worktree_state",
+                    status="UNSUPPORTED",
+                    reason=(
+                        "Gitlink entries are present; nested submodule worktree dirtiness is "
+                        "not executed or inferred and remains a separate mutable unknown."
+                    ),
+                )
+            )
         status_raw = self._run(
             root,
             "status",
@@ -620,6 +687,7 @@ class GovernanceCollector:
                     governance = cast(dict[str, Any], sanitized_remote.get("governance", {}))
                     provenance = tuple(
                         QueryProvenance(
+                            surface=str(item["surface"]),
                             query=str(item["query"]),
                             cursor=cast(str | None, item.get("cursor")),
                             page=cast(int | None, item.get("page")),
@@ -672,10 +740,16 @@ class GovernanceCollector:
                         if any(item.status in {"UNKNOWN", "UNSUPPORTED"} for item in unknowns)
                         else "COMPLETE"
                     )
-                    pagination_complete = (
-                        sanitized_remote.get("complete") is True
-                        and bool(provenance)
-                        and all(not item.has_next_page for item in provenance)
+                    pagination_complete = sanitized_remote.get(
+                        "complete"
+                    ) is True and _pagination_is_complete(
+                        provenance,
+                        {
+                            "remote_branches": len(remote_branches),
+                            "pull_requests": len(pull_requests),
+                            "issues": len(issues),
+                            "governance": 1 if governance else 0,
+                        },
                     )
                     if not pagination_complete or not coverage_complete or not freshness_proven:
                         disposition = "BLOCKED"

@@ -166,6 +166,19 @@ def test_new_commit_changes_tree_and_snapshot_digests(tmp_path: Path) -> None:
     assert first.snapshot_digest != second.snapshot_digest
 
 
+def test_replace_refs_cannot_change_an_exact_commit_snapshot(tmp_path: Path) -> None:
+    api = _api()
+    repo = _init_repo(tmp_path)
+    original = _git(repo, "rev-parse", "HEAD")
+    baseline = api.RepositoryScanner(config=_config()).scan(repo, commit=original)
+    _write(repo, "README.md", "# Replacement content\n")
+    replacement = _commit(repo, "replacement target")
+    _git(repo, "replace", original, replacement)
+    with_replacement = api.RepositoryScanner(config=_config()).scan(repo, commit=original)
+    assert with_replacement.canonical_bytes() == baseline.canonical_bytes()
+    assert with_replacement.commit_sha == original
+
+
 def test_adapter_order_does_not_change_output_but_version_does(tmp_path: Path) -> None:
     api = _api()
     repo = _init_repo(tmp_path)
@@ -247,7 +260,12 @@ def test_api_data_generated_client_migration_and_contract_sync_are_inventory_ite
 ) -> None:
     snapshot = _scan(_init_repo(tmp_path))
     kinds = {item.kind for item in snapshot.inventory["apis_data"].items}
-    assert {"OPENAPI", "MIGRATION", "CODE_GENERATOR"} <= kinds
+    assert {"OPENAPI", "MIGRATION_SIGNAL", "CODE_GENERATOR_SIGNAL"} <= kinds
+    assert all(
+        item.confidence == "MEDIUM"
+        for item in snapshot.inventory["apis_data"].items
+        if item.kind.endswith("_SIGNAL")
+    )
 
 
 def test_integration_declarations_and_codeowners_are_evidence_backed(tmp_path: Path) -> None:
@@ -302,6 +320,33 @@ def test_ci_comments_do_not_become_security_test_or_rollback_controls(tmp_path: 
     assert any(item.code == "DELIVERY.ROLLBACK_EVIDENCE_ABSENT" for item in snapshot.findings)
 
 
+def test_recursive_workflow_alias_is_cycle_bounded_and_deterministic(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(
+        repo,
+        ".github/workflows/ci.yml",
+        "on: [push]\njobs: &jobs\n  recursive: *jobs\n",
+    )
+    _commit(repo, "recursive workflow")
+    first = _scan(repo)
+    second = _scan(repo)
+    assert first.canonical_bytes() == second.canonical_bytes()
+    assert not any(item.code == "ADAPTER.FAILURE" for item in first.findings)
+
+
+def test_disabled_docker_healthcheck_is_not_positive_health_evidence(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "Dockerfile", "FROM scratch\nHEALTHCHECK NONE\n")
+    _commit(repo, "disabled health check")
+    snapshot = _scan(repo)
+    kinds = {item.kind for item in snapshot.inventory["observability_operations"].items}
+    assert "HEALTH_CHECK" not in kinds
+    assert "HEALTH_CHECK_DISABLED_SIGNAL" in kinds
+    assert any(
+        item.code == "OPERATIONS.OBSERVABILITY_EVIDENCE_ABSENT" for item in snapshot.findings
+    )
+
+
 def test_malformed_openapi_is_blocked_and_never_emitted_as_api_evidence(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path, mixed=False)
     _write(repo, "openapi.yaml", "# not an OpenAPI declaration\n{}\n")
@@ -309,6 +354,25 @@ def test_malformed_openapi_is_blocked_and_never_emitted_as_api_evidence(tmp_path
     snapshot = _scan(repo)
     assert snapshot.disposition == "BLOCKED"
     assert any(item.code == "INTERFACE.DECLARATION_INVALID" for item in snapshot.findings)
+    assert not any(item.kind == "OPENAPI" for item in snapshot.inventory["apis_data"].items)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '{"openapi":"future","info":{"title":"x","version":"1"},"paths":{}}',
+        '{"openapi":"3.1.0","info":{"title":"x","version":"1"},"paths":{"bad":[]}}',
+    ],
+)
+def test_invalid_openapi_version_or_paths_are_not_high_confidence_evidence(
+    tmp_path: Path,
+    payload: str,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "openapi.json", payload)
+    _commit(repo, "invalid OpenAPI semantics")
+    snapshot = _scan(repo)
+    assert snapshot.disposition == "BLOCKED"
     assert not any(item.kind == "OPENAPI" for item in snapshot.inventory["apis_data"].items)
 
 
@@ -556,15 +620,44 @@ class _FakeRemote:
                     "DATABASE_URL=postgres://database-user:database-password@db.invalid/app"
                     "?sslmode=require&token=query-secret"
                 ),
+                "azure_note": "AccountName=demo;AccountKey=azure-secret-value==;Endpoint=x",
+                "odbc_note": "Driver=x;UID=demo;PWD={odbc secret value};Server=db",
+                "cookie_note": "Cookie: session=cookie-secret; theme=dark",
+                "aws_note": "aws_secret_access_key=aws-secret-value",
             },
             "query_provenance": [
                 {
-                    "query": "branches,pulls,issues,protection",
-                    "cursor": "cursor-2",
-                    "page": 2,
+                    "surface": "remote_branches",
+                    "query": "branches",
+                    "cursor": "branches-page-1",
+                    "page": 1,
                     "has_next_page": False,
-                    "result_count": 3,
-                }
+                    "result_count": 1,
+                },
+                {
+                    "surface": "pull_requests",
+                    "query": "pulls",
+                    "cursor": "pulls-page-1",
+                    "page": 1,
+                    "has_next_page": False,
+                    "result_count": 1,
+                },
+                {
+                    "surface": "issues",
+                    "query": "issues",
+                    "cursor": "issues-page-1",
+                    "page": 1,
+                    "has_next_page": False,
+                    "result_count": 1,
+                },
+                {
+                    "surface": "governance",
+                    "query": "protection",
+                    "cursor": "governance-page-1",
+                    "page": 1,
+                    "has_next_page": False,
+                    "result_count": 1,
+                },
             ],
             "unknowns": [
                 {"fact": "secret_scanning", "status": "BLOCKED", "reason": "permission denied"}
@@ -600,6 +693,20 @@ class _StaleRemote(_FakeRemote):
         return payload
 
 
+class _SingleSurfaceRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["query_provenance"] = payload["query_provenance"][:1]
+        return payload
+
+
+class _CountMismatchRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["query_provenance"][0]["result_count"] = 0
+        return payload
+
+
 def _observe(repo: Path, remote: Any = None) -> Any:
     api = _api()
     return api.GovernanceCollector(
@@ -632,6 +739,16 @@ def test_governance_observation_records_dirty_index_worktree_and_untracked_state
     assert any(item.fact == "remote_governance" for item in observation.unknowns)
 
 
+def test_gitlink_state_is_explicitly_unknown_instead_of_silently_clean(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    commit_sha = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "update-index", "--add", "--cacheinfo", f"160000,{commit_sha},deps/sub")
+    _git(repo, "commit", "-q", "-m", "gitlink fixture")
+    observation = _observe(repo)
+    assert observation.disposition == "BLOCKED"
+    assert any(item.fact == "submodule_worktree_state" for item in observation.unknowns)
+
+
 def test_branch_divergence_and_additional_worktrees_are_mutable_observations(
     tmp_path: Path,
 ) -> None:
@@ -654,7 +771,8 @@ def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path:
     payload = observation.canonical_bytes().decode()
     assert observation.tool_identity == "fake-github-readonly/1.0"
     assert observation.api_query_version == "github-rest/2026-03-10"
-    assert observation.query_provenance[0].cursor == "cursor-2"
+    assert observation.query_provenance[0].surface == "remote_branches"
+    assert observation.query_provenance[0].cursor == "branches-page-1"
     assert observation.observation_input_digest.startswith("sha256:")
     assert observation.observation_output_digest.startswith("sha256:")
     assert "ghp_0123456789abcdefghijklmnop" not in payload
@@ -666,6 +784,10 @@ def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path:
     assert "database-user" not in payload
     assert "database-password" not in payload
     assert "query-secret" not in payload
+    assert "azure-secret-value" not in payload
+    assert "odbc secret value" not in payload
+    assert "cookie-secret" not in payload
+    assert "aws-secret-value" not in payload
     assert "[REDACTED_URL]" in payload
     assert "[REDACTED]" in payload
 
@@ -678,6 +800,16 @@ def test_unproven_remote_pagination_is_blocked_not_complete(tmp_path: Path) -> N
 
 def test_stale_remote_metadata_is_blocked_not_complete(tmp_path: Path) -> None:
     observation = _observe(_init_repo(tmp_path), _StaleRemote())
+    assert observation.disposition == "BLOCKED"
+    assert any(item.fact == "remote_metadata_completeness" for item in observation.unknowns)
+
+
+@pytest.mark.parametrize("remote", [_SingleSurfaceRemote(), _CountMismatchRemote()])
+def test_remote_completeness_requires_per_surface_count_bound_pagination(
+    tmp_path: Path,
+    remote: Any,
+) -> None:
+    observation = _observe(_init_repo(tmp_path), remote)
     assert observation.disposition == "BLOCKED"
     assert any(item.fact == "remote_metadata_completeness" for item in observation.unknowns)
 
@@ -910,10 +1042,11 @@ def test_git_readers_disable_lazy_fetch_and_repository_defined_accelerators() ->
     governance = importlib.import_module("pmpe.repository.governance")
     scanner_environment = scanner.SubprocessCommandRunner._environment()
     assert scanner_environment["GIT_NO_LAZY_FETCH"] == "1"
+    assert scanner_environment["GIT_NO_REPLACE_OBJECTS"] == "1"
     assert scanner_environment["GIT_CONFIG_VALUE_0"] == "false"
     governance_runner = governance.GovernanceCommandRunner()
     assert scanner_environment["GIT_CONFIG_VALUE_5"] == "false"
-    assert governance_runner.identity.endswith("1.2.0")
+    assert governance_runner.identity.endswith("1.3.0")
 
 
 def test_artifact_maps_cannot_be_mutated_after_digest_binding(tmp_path: Path) -> None:

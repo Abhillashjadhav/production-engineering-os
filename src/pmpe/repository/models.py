@@ -231,6 +231,7 @@ class IssueObservation:
 
 @dataclass(frozen=True)
 class QueryProvenance:
+    surface: str
     query: str
     cursor: str | None
     page: int | None

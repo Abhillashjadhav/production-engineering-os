@@ -41,7 +41,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/1.2.0"
+SCANNER_VERSION = "repository-scanner/1.3.0"
 IMPLEMENTATION_MODULES = (
     "repository.adapters",
     "repository.models",
@@ -81,7 +81,7 @@ class TreeListingResult:
 class SubprocessCommandRunner:
     """Allowlisted local Git reader; it never invokes shells or project code."""
 
-    identity = "git-readonly-subprocess/1.2.0"
+    identity = "git-readonly-subprocess/1.3.0"
     _allowed = {"rev-parse", "ls-tree", "cat-file", "version"}
 
     @staticmethod
@@ -93,6 +93,7 @@ class SubprocessCommandRunner:
             "GIT_TERMINAL_PROMPT": "0",
             "GIT_OPTIONAL_LOCKS": "0",
             "GIT_NO_LAZY_FETCH": "1",
+            "GIT_NO_REPLACE_OBJECTS": "1",
             "GIT_CONFIG_COUNT": "6",
             "GIT_CONFIG_KEY_0": "core.fsmonitor",
             "GIT_CONFIG_VALUE_0": "false",
@@ -608,7 +609,7 @@ class RepositoryScanner:
         return root, commit_sha, tree_sha
 
     def _list_files(
-        self, root: Path, commit_sha: str, tree_sha: str
+        self, root: Path, tree_sha: str
     ) -> tuple[list[TrackedFile], list[Finding], str, str]:
         findings: list[Finding] = []
         tracked_tree_digest = canonical_digest({"git_object_format": "sha1", "tree_sha": tree_sha})
@@ -623,7 +624,7 @@ class RepositoryScanner:
             )
             return [], findings, tracked_tree_digest, canonical_digest([])
         bounded_listing = self._list_tree(
-            ("git", "ls-tree", "-r", "-z", "-l", "--full-tree", commit_sha), root
+            ("git", "ls-tree", "-r", "-z", "-l", "--full-tree", tree_sha), root
         )
         if bounded_listing is None:
             findings.append(
@@ -790,7 +791,7 @@ class RepositoryScanner:
                     )
                 )
                 continue
-            result = self._run(("git", "cat-file", "blob", f"{commit_sha}:{path}"), root)
+            result = self._run(("git", "cat-file", "blob", object_id), root)
             if result is None:
                 findings.append(
                     _finding(
@@ -1230,9 +1231,7 @@ class RepositoryScanner:
             return self._cancelled_snapshot(
                 root, commit_sha, tree_sha, config_digest, adapter_digest
             )
-        files, budget_findings, tree_digest, scanned_digest = self._list_files(
-            root, commit_sha, tree_sha
-        )
+        files, budget_findings, tree_digest, scanned_digest = self._list_files(root, tree_sha)
         inventory, adapter_findings, boundaries, supported = self._apply_adapters(tuple(files))
         findings = budget_findings + adapter_findings
         if self.config.include_paths:
