@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
-from typing import Any
+from collections.abc import Mapping
+from dataclasses import dataclass, field, fields, is_dataclass
+from types import MappingProxyType
+from typing import Any, cast
 
 from pmpe.contracts.canonical import canonical_json_bytes
 
@@ -12,6 +14,7 @@ AUDIT_CATEGORIES = (
     "languages_build_ecosystems",
     "architecture_boundaries",
     "apis_data",
+    "integrations",
     "tests_quality",
     "delivery_environments",
     "security_privacy",
@@ -20,6 +23,24 @@ AUDIT_CATEGORIES = (
     "active_divergent_work",
     "debt_risk",
 )
+
+
+def _freeze(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return MappingProxyType({str(key): _freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    return value
+
+
+def _plain(value: Any) -> Any:
+    if is_dataclass(value) and not isinstance(value, type):
+        return {item.name: _plain(getattr(value, item.name)) for item in fields(value)}
+    if isinstance(value, Mapping):
+        return {str(key): _plain(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_plain(item) for item in value]
+    return value
 
 
 @dataclass(frozen=True)
@@ -111,6 +132,12 @@ class CommandProvenance:
 
 
 @dataclass(frozen=True)
+class ToolVersion:
+    tool: str
+    version: str
+
+
+@dataclass(frozen=True)
 class RepositorySnapshot:
     repository: str
     commit_sha: str
@@ -120,24 +147,30 @@ class RepositorySnapshot:
     scanner_version: str
     scan_configuration_digest: str
     adapter_set_digest: str
+    implementation_digest: str
     tracked_tree_digest: str
     scanned_content_digest: str
     scan_scope: str
     included_paths: tuple[str, ...]
     tooling_digest: str
+    tool_versions: tuple[ToolVersion, ...]
     adapters: tuple[AdapterMetadata, ...]
     command_provenance: tuple[CommandProvenance, ...]
-    inventory: dict[str, InventoryCategory]
+    inventory: Mapping[str, InventoryCategory]
     findings: tuple[Finding, ...]
     boundary_candidates: tuple[BoundaryCandidate, ...]
     unsupported_categories: tuple[str, ...]
     disposition: str
-    redaction: dict[str, Any]
+    redaction: Mapping[str, Any]
     snapshot_digest: str
     artifact_kind: str = "REPOSITORY_SNAPSHOT"
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "inventory", _freeze(self.inventory))
+        object.__setattr__(self, "redaction", _freeze(self.redaction))
+
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return cast(dict[str, Any], _plain(self))
 
     def canonical_bytes(self) -> bytes:
         return canonical_json_bytes(self.as_dict())
@@ -225,19 +258,27 @@ class GovernanceObservation:
     remote_branches: tuple[RemoteBranchObservation, ...]
     pull_requests: tuple[PullRequestObservation, ...]
     issues: tuple[IssueObservation, ...]
-    governance: dict[str, Any]
+    governance: Mapping[str, Any]
     query_provenance: tuple[QueryProvenance, ...]
+    remote_observed_at: str | None
+    remote_query_coverage: tuple[str, ...]
     unknowns: tuple[UnknownFact, ...]
+    collector_version: str
+    collector_implementation_digest: str
     tool_identity: str
     api_query_version: str
     observation_input_digest: str
     observation_output_digest: str
     disposition: str
-    redaction: dict[str, Any] = field(default_factory=dict)
+    redaction: Mapping[str, Any] = field(default_factory=dict)
     artifact_kind: str = "GOVERNANCE_OBSERVATION"
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "governance", _freeze(self.governance))
+        object.__setattr__(self, "redaction", _freeze(self.redaction))
+
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        return cast(dict[str, Any], _plain(self))
 
     def canonical_bytes(self) -> bytes:
         return canonical_json_bytes(self.as_dict())

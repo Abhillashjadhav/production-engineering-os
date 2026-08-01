@@ -14,6 +14,8 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
+DETECTOR_VERSION = "1.1.0"
+
 
 @dataclass(frozen=True)
 class TrackedFile:
@@ -86,9 +88,10 @@ def _item(
     file: TrackedFile,
     kind: str,
     detector: str,
-    version: str = "1.0.0",
+    version: str = DETECTOR_VERSION,
     *,
     confidence: str = "HIGH",
+    location: str = "file",
 ) -> EvidenceItem:
     return EvidenceItem(
         kind=kind,
@@ -96,6 +99,7 @@ def _item(
         file_digest=file.digest,
         detector_id=detector,
         detector_version=version,
+        location=location,
         confidence=confidence,
     )
 
@@ -119,7 +123,7 @@ def _finding(
         explanation=explanation,
         evidence_refs=evidence,
         detector_id=detector,
-        detector_version="1.0.0",
+        detector_version=DETECTOR_VERSION,
         blocking=blocking,
     )
 
@@ -157,7 +161,7 @@ def _test_signal_kind(path: str) -> str | None:
 
 @repository_adapter(
     adapter_id="core.repository-topology",
-    version="1.0.0",
+    version="1.1.0",
     file_patterns=("**/*", "*"),
     supported_categories=(
         "repository_topology",
@@ -169,6 +173,7 @@ def _test_signal_kind(path: str) -> str | None:
 def _topology(context: AdapterContext) -> AdapterResult:
     items: list[tuple[str, EvidenceItem]] = []
     boundaries: list[BoundaryCandidate] = []
+    findings: list[Finding] = []
     for file in context.files:
         name = PurePosixPath(file.path).name
         lowered = file.path.lower()
@@ -210,6 +215,48 @@ def _topology(context: AdapterContext) -> AdapterResult:
             items.append(
                 ("security_privacy", _item(file, "OWNERSHIP_CONTROL", "core.repository-topology"))
             )
+            if file.content is not None:
+                try:
+                    for line in file.content.decode("utf-8").splitlines():
+                        stripped = line.strip()
+                        if not stripped or stripped.startswith("#"):
+                            continue
+                        codeowners_parts = stripped.split()
+                        if len(codeowners_parts) < 2:
+                            findings.append(
+                                _finding(
+                                    "OWNERSHIP.CODEOWNERS_MALFORMED",
+                                    "architecture_boundaries",
+                                    "A CODEOWNERS rule has no declared owner.",
+                                    (file.path,),
+                                    "core.repository-topology",
+                                    severity="HIGH",
+                                    blocking=True,
+                                )
+                            )
+                            continue
+                        boundaries.append(
+                            BoundaryCandidate(
+                                kind="OWNERSHIP_AREA",
+                                name=codeowners_parts[0],
+                                evidence_paths=(file.path,),
+                                confidence="HIGH",
+                                detector_id="core.repository-topology",
+                                detector_version=DETECTOR_VERSION,
+                            )
+                        )
+                except UnicodeDecodeError:
+                    findings.append(
+                        _finding(
+                            "OWNERSHIP.CODEOWNERS_MALFORMED",
+                            "architecture_boundaries",
+                            "CODEOWNERS is not valid UTF-8.",
+                            (file.path,),
+                            "core.repository-topology",
+                            severity="HIGH",
+                            blocking=True,
+                        )
+                    )
         if lowered.startswith(".github/issue_template/"):
             items.append(
                 (
@@ -298,13 +345,20 @@ def _topology(context: AdapterContext) -> AdapterResult:
                 detector_version="1.0.0",
             )
         )
-    return AdapterResult(items=tuple(items), boundaries=tuple(boundaries))
+    return AdapterResult(items=tuple(items), findings=tuple(findings), boundaries=tuple(boundaries))
 
 
 @repository_adapter(
     adapter_id="stack.python",
-    version="1.0.0",
-    file_patterns=("**/*.py", "pyproject.toml", "**/requirements*.txt", ".python-version"),
+    version="1.1.0",
+    file_patterns=(
+        "*.py",
+        "**/*.py",
+        "pyproject.toml",
+        "requirements*.txt",
+        "**/requirements*.txt",
+        ".python-version",
+    ),
     supported_categories=("languages_build_ecosystems", "tests_quality", "debt_risk"),
 )
 def _python(context: AdapterContext) -> AdapterResult:
@@ -364,15 +418,23 @@ def _python(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="stack.node-web",
-    version="1.0.0",
+    version="1.1.0",
     file_patterns=(
         "**/*.js",
+        "*.js",
         "**/*.jsx",
+        "*.jsx",
         "**/*.ts",
+        "*.ts",
         "**/*.tsx",
+        "*.tsx",
+        "package.json",
         "**/package.json",
+        "package-lock.json",
         "**/package-lock.json",
+        "yarn.lock",
         "**/yarn.lock",
+        "pnpm-lock.yaml",
         "**/pnpm-lock.yaml",
     ),
     supported_categories=("languages_build_ecosystems", "tests_quality", "debt_risk"),
@@ -457,9 +519,103 @@ def _node(context: AdapterContext) -> AdapterResult:
 
 
 @repository_adapter(
+    adapter_id="integration.manifest-declarations",
+    version="1.1.0",
+    file_patterns=(
+        "pyproject.toml",
+        "**/pyproject.toml",
+        "package.json",
+        "**/package.json",
+        "*openapi*.json",
+        "**/*openapi*.json",
+        "*openapi*.yaml",
+        "*openapi*.yml",
+        "**/*openapi*.yaml",
+        "**/*openapi*.yml",
+    ),
+    supported_categories=("integrations",),
+)
+def _integration_declarations(context: AdapterContext) -> AdapterResult:
+    items: list[tuple[str, EvidenceItem]] = []
+    for file in context.files:
+        if file.content is None or file.binary:
+            continue
+        name = PurePosixPath(file.path).name
+        try:
+            if name == "pyproject.toml":
+                payload = tomllib.loads(file.content.decode("utf-8"))
+                dependencies = payload.get("project", {}).get("dependencies", [])
+                if isinstance(dependencies, list):
+                    for index, dependency in enumerate(dependencies):
+                        if isinstance(dependency, str):
+                            items.append(
+                                (
+                                    "integrations",
+                                    _item(
+                                        file,
+                                        "EXTERNAL_DEPENDENCY_DECLARATION",
+                                        "integration.manifest-declarations",
+                                        confidence="LOW",
+                                        location=f"project.dependencies[{index}]",
+                                    ),
+                                )
+                            )
+            elif name == "package.json":
+                payload = json.loads(file.content)
+                for group in ("dependencies", "optionalDependencies", "peerDependencies"):
+                    dependencies = payload.get(group, {})
+                    if isinstance(dependencies, dict):
+                        for dependency in sorted(dependencies):
+                            items.append(
+                                (
+                                    "integrations",
+                                    _item(
+                                        file,
+                                        "EXTERNAL_DEPENDENCY_DECLARATION",
+                                        "integration.manifest-declarations",
+                                        confidence="LOW",
+                                        location=f"{group}.{dependency}",
+                                    ),
+                                )
+                            )
+            elif "openapi" in name.lower():
+                text = file.content.decode("utf-8")
+                payload = json.loads(text) if name.endswith(".json") else yaml.safe_load(text)
+                servers = payload.get("servers", []) if isinstance(payload, dict) else []
+                if isinstance(servers, list):
+                    for index, server in enumerate(servers):
+                        if isinstance(server, dict) and isinstance(server.get("url"), str):
+                            items.append(
+                                (
+                                    "integrations",
+                                    _item(
+                                        file,
+                                        "EXTERNAL_API_SERVER_DECLARATION",
+                                        "integration.manifest-declarations",
+                                        confidence="MEDIUM",
+                                        location=f"servers[{index}]",
+                                    ),
+                                )
+                            )
+        except (json.JSONDecodeError, tomllib.TOMLDecodeError, UnicodeDecodeError, yaml.YAMLError):
+            # The owning stack/schema adapter emits the canonical malformed-input finding.
+            continue
+    return AdapterResult(items=tuple(items))
+
+
+@repository_adapter(
     adapter_id="stack.docker-compose",
-    version="1.0.0",
-    file_patterns=("**/Dockerfile", "**/Dockerfile.*", "**/compose.y*ml", "**/docker-compose.y*ml"),
+    version="1.1.0",
+    file_patterns=(
+        "Dockerfile",
+        "Dockerfile.*",
+        "compose.y*ml",
+        "docker-compose.y*ml",
+        "**/Dockerfile",
+        "**/Dockerfile.*",
+        "**/compose.y*ml",
+        "**/docker-compose.y*ml",
+    ),
     supported_categories=(
         "languages_build_ecosystems",
         "delivery_environments",
@@ -516,15 +672,23 @@ def _containers(context: AdapterContext) -> AdapterResult:
 
 
 @repository_adapter(
-    adapter_id="delivery.github-actions",
-    version="1.0.0",
-    file_patterns=(".github/workflows/*.yml", ".github/workflows/*.yaml"),
+    adapter_id="delivery.ci",
+    version="1.1.0",
+    file_patterns=(
+        ".github/workflows/*.yml",
+        ".github/workflows/*.yaml",
+        ".gitlab-ci.yml",
+        ".circleci/config.yml",
+        "azure-pipelines.yml",
+        "bitbucket-pipelines.yml",
+        "Jenkinsfile",
+    ),
     supported_categories=("delivery_environments", "tests_quality", "security_privacy"),
 )
-def _github_actions(context: AdapterContext) -> AdapterResult:
+def _ci_workflows(context: AdapterContext) -> AdapterResult:
     items: list[tuple[str, EvidenceItem]] = []
     findings: list[Finding] = []
-    workflows = [file for file in context.files if file.path.startswith(".github/workflows/")]
+    workflows = list(context.files)
     for file in workflows:
         workflow_kind = (
             "RELEASE_WORKFLOW"
@@ -534,14 +698,12 @@ def _github_actions(context: AdapterContext) -> AdapterResult:
         items.append(
             (
                 "delivery_environments",
-                _item(file, workflow_kind, "delivery.github-actions"),
+                _item(file, workflow_kind, "delivery.ci"),
             )
         )
         if file.content and re.search(rb"\b(pytest|vitest|playwright|test)\b", file.content, re.I):
-            items.append(
-                ("tests_quality", _item(file, "CI_TEST_MAPPING", "delivery.github-actions"))
-            )
-        if file.content is not None:
+            items.append(("tests_quality", _item(file, "CI_TEST_MAPPING", "delivery.ci")))
+        if file.content is not None and file.path.endswith((".yml", ".yaml")):
             try:
                 parsed = yaml.safe_load(file.content)
                 if not isinstance(parsed, dict):
@@ -553,20 +715,18 @@ def _github_actions(context: AdapterContext) -> AdapterResult:
                         "delivery_environments",
                         "A tracked workflow cannot be parsed deterministically.",
                         (file.path,),
-                        "delivery.github-actions",
+                        "delivery.ci",
                         severity="HIGH",
                         blocking=True,
                     )
                 )
         if file.content and re.search(rb"\b(audit|bandit|secret|security)\b", file.content, re.I):
-            items.append(
-                ("security_privacy", _item(file, "SECURITY_GATE", "delivery.github-actions"))
-            )
+            items.append(("security_privacy", _item(file, "SECURITY_GATE", "delivery.ci")))
         if file.content and re.search(rb"\b(rollback|revert)\b", file.content, re.I):
             items.append(
                 (
                     "delivery_environments",
-                    _item(file, "ROLLBACK_MECHANISM", "delivery.github-actions"),
+                    _item(file, "ROLLBACK_MECHANISM", "delivery.ci"),
                 )
             )
     if not workflows:
@@ -574,9 +734,9 @@ def _github_actions(context: AdapterContext) -> AdapterResult:
             _finding(
                 "DELIVERY.CI_ABSENT",
                 "delivery_environments",
-                "No tracked GitHub Actions workflow was observed.",
+                "No tracked supported CI workflow was observed.",
                 ("repository:tracked-tree",),
-                "delivery.github-actions",
+                "delivery.ci",
             )
         )
     return AdapterResult(items=tuple(items), findings=tuple(findings))
@@ -584,16 +744,25 @@ def _github_actions(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="interface.schema-api",
-    version="1.0.0",
+    version="1.1.0",
     file_patterns=(
+        "*openapi*",
         "**/*openapi*",
+        "*asyncapi*",
         "**/*asyncapi*",
+        "*.proto",
         "**/*.proto",
+        "*.graphql",
         "**/*.graphql",
+        "*.gql",
         "**/*.gql",
+        "*.gen.*",
         "**/*.gen.*",
+        "schemas/**",
         "**/schemas/**",
+        "migrations/**",
         "**/migrations/**",
+        "generate*",
         "**/generate*",
         "scripts/**",
     ),
@@ -625,7 +794,7 @@ def _interfaces(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="repository.pmpe",
-    version="1.0.0",
+    version="1.1.0",
     file_patterns=("src/pmpe/**", "state/**", "docs/**"),
     supported_categories=("architecture_boundaries", "documentation_governance", "debt_risk"),
 )
@@ -648,8 +817,9 @@ def default_adapters() -> tuple[RepositoryAdapter, ...]:
                 _topology,
                 _python,
                 _node,
+                _integration_declarations,
                 _containers,
-                _github_actions,
+                _ci_workflows,
                 _interfaces,
                 _pmpe,
             ),

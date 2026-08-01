@@ -208,13 +208,33 @@ def test_adapter_metadata_is_versioned_and_declares_supported_categories(
         "stack.python",
         "stack.node-web",
         "stack.docker-compose",
-        "delivery.github-actions",
+        "delivery.ci",
         "interface.schema-api",
+        "integration.manifest-declarations",
         "repository.pmpe",
     }
     assert all(item.version and item.file_patterns for item in snapshot.adapters)
     assert all(item.supported_categories for item in snapshot.adapters)
     assert all(item.failure_behavior == "VISIBLE_PARTIAL_OR_BLOCKED" for item in snapshot.adapters)
+
+
+def test_snapshot_binds_implementation_modules_and_runtime_tool_versions(tmp_path: Path) -> None:
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    snapshot = _scan(_init_repo(tmp_path))
+    assert set(scanner.IMPLEMENTATION_MODULES) == {
+        "repository.adapters",
+        "repository.models",
+        "repository.redaction",
+        "repository.scanner",
+        "contracts.canonical",
+    }
+    assert snapshot.implementation_digest == scanner._implementation_digest()
+    assert {item.tool for item in snapshot.tool_versions} == {
+        "git",
+        "python",
+        "pyyaml",
+        "rfc8785",
+    }
 
 
 def test_api_data_generated_client_migration_and_contract_sync_are_inventory_items(
@@ -223,6 +243,39 @@ def test_api_data_generated_client_migration_and_contract_sync_are_inventory_ite
     snapshot = _scan(_init_repo(tmp_path))
     kinds = {item.kind for item in snapshot.inventory["apis_data"].items}
     assert {"OPENAPI", "MIGRATION", "CODE_GENERATOR"} <= kinds
+
+
+def test_integration_declarations_and_codeowners_are_evidence_backed(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    _write(
+        repo,
+        "packages/web/package.json",
+        json.dumps(
+            {
+                "name": "web",
+                "dependencies": {"example-sdk": "1.0.0"},
+                "scripts": {"test": "vitest"},
+            }
+        ),
+    )
+    _commit(repo, "integration declaration")
+    snapshot = _scan(repo)
+    assert any(
+        item.kind == "EXTERNAL_DEPENDENCY_DECLARATION"
+        for item in snapshot.inventory["integrations"].items
+    )
+    assert any(item.kind == "OWNERSHIP_AREA" for item in snapshot.boundary_candidates)
+
+
+def test_non_github_ci_is_not_reported_as_ci_absent(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, ".gitlab-ci.yml", "test:\n  script: pytest\n")
+    _commit(repo, "gitlab ci")
+    snapshot = _scan(repo)
+    assert any(
+        item.kind == "CI_WORKFLOW" for item in snapshot.inventory["delivery_environments"].items
+    )
+    assert not any(item.code == "DELIVERY.CI_ABSENT" for item in snapshot.findings)
 
 
 def test_tests_delivery_security_observability_and_governance_are_evidence_backed(
@@ -446,10 +499,20 @@ class _FakeRemote:
     tool_identity = "fake-github-readonly/1.0"
     api_version = "github-rest/2026-03-10"
 
-    def collect(self, repository: str, ref: str) -> dict[str, Any]:
+    def collect(
+        self,
+        repository: str,
+        ref: str,
+        **bounds: Any,
+    ) -> dict[str, Any]:
         assert repository == "example/fixture"
+        assert bounds["timeout_seconds"] > 0
+        assert bounds["max_output_bytes"] > 0
+        assert bounds["max_items"] > 0
         return {
             "complete": True,
+            "observed_at": "2026-08-01T00:00:00Z",
+            "coverage": ["remote_branches", "pull_requests", "issues", "governance"],
             "remote_branches": [{"name": "origin/feature", "sha": "a" * 40}],
             "pull_requests": [{"number": 7, "draft": True, "head": "a" * 40}],
             "issues": [{"number": 8, "state": "OPEN"}],
@@ -469,6 +532,8 @@ class _FakeRemote:
             "safe_url": "https://user:password@example.invalid/repo?token=secret-value",
             "authorization": "Basic dXNlcjpwYXNzd29yZA==",
             "x-api-key": "unstructured-bare-secret",
+            "note": "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+            "comment": "glpat-0123456789abcdefghijkl",
         }
 
 
@@ -476,15 +541,22 @@ class _DeniedRemote:
     tool_identity = "fake-github-readonly/1.0"
     api_version = "github-rest/2026-03-10"
 
-    def collect(self, _repository: str, _ref: str) -> dict[str, Any]:
+    def collect(self, _repository: str, _ref: str, **_bounds: Any) -> dict[str, Any]:
         raise PermissionError("token ghp_0123456789abcdefghijklmnop denied")
 
 
 class _PartialRemote(_FakeRemote):
-    def collect(self, repository: str, ref: str) -> dict[str, Any]:
-        payload = super().collect(repository, ref)
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
         payload.pop("complete")
         payload["query_provenance"][0]["has_next_page"] = True
+        return payload
+
+
+class _StaleRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["observed_at"] = "2026-07-31T00:00:00Z"
         return payload
 
 
@@ -516,6 +588,8 @@ def test_governance_observation_records_dirty_index_worktree_and_untracked_state
     assert observation.observed_at == "2026-08-01T00:00:00Z"
     assert observation.observation_id == "OBS-000001"
     assert observation.artifact_kind == "GOVERNANCE_OBSERVATION"
+    assert observation.disposition == "PARTIAL"
+    assert any(item.fact == "remote_governance" for item in observation.unknowns)
 
 
 def test_branch_divergence_and_additional_worktrees_are_mutable_observations(
@@ -548,11 +622,18 @@ def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path:
     assert "password" not in payload
     assert "secret-value" not in payload
     assert "unstructured-bare-secret" not in payload
+    assert "glpat-0123456789abcdefghijkl" not in payload
     assert "[REDACTED]" in payload
 
 
 def test_unproven_remote_pagination_is_blocked_not_complete(tmp_path: Path) -> None:
     observation = _observe(_init_repo(tmp_path), _PartialRemote())
+    assert observation.disposition == "BLOCKED"
+    assert any(item.fact == "remote_metadata_completeness" for item in observation.unknowns)
+
+
+def test_stale_remote_metadata_is_blocked_not_complete(tmp_path: Path) -> None:
+    observation = _observe(_init_repo(tmp_path), _StaleRemote())
     assert observation.disposition == "BLOCKED"
     assert any(item.fact == "remote_metadata_completeness" for item in observation.unknowns)
 
@@ -598,6 +679,28 @@ def test_governance_observation_does_not_refresh_index_bytes_or_mtime(tmp_path: 
     _observe(repo)
     assert index.read_bytes() == before_bytes
     assert index.stat().st_mtime_ns == before_mtime
+
+
+def test_governance_observation_disables_repository_fsmonitor_hook(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    marker = tmp_path / "fsmonitor-must-not-run"
+    hook = tmp_path / "hostile-fsmonitor.sh"
+    hook.write_text(f"#!/bin/sh\ntouch {marker}\nexit 0\n")
+    hook.chmod(0o755)
+    _git(repo, "config", "core.fsmonitor", str(hook))
+    _observe(repo)
+    assert not marker.exists()
+
+
+def test_invalid_governance_ref_is_rejected_before_git_comparison(tmp_path: Path) -> None:
+    api = _api()
+    repo = _init_repo(tmp_path)
+    with pytest.raises(api.RepositorySecurityError, match="ref"):
+        api.GovernanceCollector(
+            repository="example/fixture",
+            clock=_FixedClock(),
+            id_provider=_FixedIds(),
+        ).observe(repo, ref="--output=outside")
 
 
 def test_scanner_does_not_execute_tracked_project_code(tmp_path: Path) -> None:
@@ -660,6 +763,82 @@ def test_cancellation_is_visible_and_never_silently_partial(tmp_path: Path) -> N
     )
     assert snapshot.disposition == "BLOCKED"
     assert any(item.code == "SCAN.CANCELLED" for item in snapshot.findings)
+
+
+def test_cancellation_terminates_bounded_enumeration_and_preserves_repository(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    repo = _init_repo(tmp_path)
+    before_head = _git(repo, "rev-parse", "HEAD")
+    before_index = (repo / ".git" / "index").read_bytes()
+    before_status = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
+
+    class CancelDuringTree:
+        calls = 0
+
+        def cancelled(self) -> bool:
+            self.calls += 1
+            return self.calls > 1
+
+    snapshot = api.RepositoryScanner(config=_config(), cancellation=CancelDuringTree()).scan(
+        repo, commit="HEAD"
+    )
+    assert snapshot.disposition == "BLOCKED"
+    assert any(item.code == "SCAN.CANCELLED" and item.blocking for item in snapshot.findings)
+    assert _git(repo, "rev-parse", "HEAD") == before_head
+    assert (repo / ".git" / "index").read_bytes() == before_index
+    assert _git(repo, "status", "--porcelain=v1", "--untracked-files=all") == before_status
+
+
+def test_governance_cancellation_terminates_bounded_command_and_preserves_repository(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    repo = _init_repo(tmp_path)
+    before_head = _git(repo, "rev-parse", "HEAD")
+    before_index = (repo / ".git" / "index").read_bytes()
+
+    class CancelInsideCommand:
+        calls = 0
+
+        def cancelled(self) -> bool:
+            self.calls += 1
+            return self.calls > 1
+
+    collector = api.GovernanceCollector(
+        repository="example/fixture",
+        clock=_FixedClock(),
+        id_provider=_FixedIds(),
+        cancellation=CancelInsideCommand(),
+    )
+    with pytest.raises(api.RepositoryIntelligenceError, match="failed"):
+        collector.observe(repo, ref="main")
+    assert _git(repo, "rev-parse", "HEAD") == before_head
+    assert (repo / ".git" / "index").read_bytes() == before_index
+
+
+def test_git_readers_disable_lazy_fetch_and_repository_defined_accelerators() -> None:
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    governance = importlib.import_module("pmpe.repository.governance")
+    scanner_environment = scanner.SubprocessCommandRunner._environment()
+    assert scanner_environment["GIT_NO_LAZY_FETCH"] == "1"
+    assert scanner_environment["GIT_CONFIG_VALUE_0"] == "false"
+    governance_runner = governance.GovernanceCommandRunner()
+    assert governance_runner.identity.endswith("1.1.0")
+
+
+def test_artifact_maps_cannot_be_mutated_after_digest_binding(tmp_path: Path) -> None:
+    snapshot = _scan(_init_repo(tmp_path))
+    observation = _observe(tmp_path / "fixture-repo")
+    with pytest.raises(TypeError):
+        snapshot.inventory["repository_topology"] = snapshot.inventory[  # type: ignore[index]
+            "repository_topology"
+        ]
+    with pytest.raises(TypeError):
+        observation.governance["branch_protection"] = "changed"  # type: ignore[index]
+    assert snapshot.snapshot_digest in snapshot.canonical_bytes().decode()
+    assert observation.observation_output_digest in observation.canonical_bytes().decode()
 
 
 def test_snapshot_and_observation_references_form_a_narrow_lifecycle_seam(

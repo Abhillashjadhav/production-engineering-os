@@ -69,6 +69,10 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         governance_path = (
             _outside_repository(Path(args.governance_out), root) if args.governance_out else None
         )
+        if governance_path is not None and governance_path == snapshot_path:
+            raise RepositorySecurityError(
+                "snapshot and governance artifacts require distinct output paths"
+            )
         snapshot = scan_repository(
             requested,
             commit=args.commit,
@@ -102,7 +106,12 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         ),
     }
     print(json.dumps(summary, sort_keys=True, separators=(",", ":")))
-    return 0 if snapshot.disposition == "COMPLETE" else 3
+    return (
+        0
+        if snapshot.disposition == "COMPLETE"
+        and (observation is None or observation.disposition == "COMPLETE")
+        else 3
+    )
 
 
 def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]

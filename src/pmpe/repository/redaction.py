@@ -15,12 +15,14 @@ class RedactionError(RuntimeError):
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
-    version = "central-redactor/1.0.0"
+    version = "central-redactor/1.1.0"
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
+        r"|glpat-[A-Za-z0-9_-]{16,}"
         r"|(?:api[_-]?key|token|secret|password)\s*[=:]\s*[^\s,;]+"
-        r"|bearer\s+[A-Za-z0-9._~+\-/=]{12,})"
+        r"|(?:basic|bearer)\s+[A-Za-z0-9._~+\-/=]{8,})"
     )
+    _authorization = re.compile(r"(?i)authorization\s*:\s*(?:basic|bearer|digest)\s+[^\s,;]+")
     _private_key = re.compile(
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
         re.DOTALL,
@@ -59,6 +61,7 @@ class EvidenceRedactor:
     def _sanitize_string(self, value: str) -> str:
         sanitized = self._private_key.sub("[REDACTED_PRIVATE_KEY]", value)
         sanitized = self._private_key_header.sub("[REDACTED_PRIVATE_KEY]", sanitized)
+        sanitized = self._authorization.sub("Authorization: [REDACTED]", sanitized)
         sanitized = self._url_credentials.sub(r"\1[REDACTED]@", sanitized)
         sanitized = self._common_access_key.sub("[REDACTED]", sanitized)
         sanitized = self._token.sub("[REDACTED]", sanitized)

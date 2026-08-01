@@ -63,7 +63,7 @@ def test_repository_scan_cli_writes_artifacts_outside_scanned_repo(
         ]
     )
     after = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
-    assert code == 0
+    assert code == 3
     assert before == after == ""
     assert json.loads(out.read_text())["artifact_kind"] == "REPOSITORY_SNAPSHOT"
     assert json.loads(observation.read_text())["artifact_kind"] == "GOVERNANCE_OBSERVATION"
@@ -108,6 +108,27 @@ def test_repository_scan_cli_uses_actual_git_root_for_output_containment(
             "--repository",
             "example/cli-fixture",
             "--snapshot-out",
+            str(output),
+        ]
+    )
+    assert code != 0
+    assert not output.exists()
+
+
+def test_repository_scan_cli_requires_distinct_artifact_outputs(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    output = tmp_path / "evidence" / "artifact.json"
+    code = main(
+        [
+            "repository",
+            "scan",
+            "--repo",
+            str(repo),
+            "--repository",
+            "example/cli-fixture",
+            "--snapshot-out",
+            str(output),
+            "--governance-out",
             str(output),
         ]
     )

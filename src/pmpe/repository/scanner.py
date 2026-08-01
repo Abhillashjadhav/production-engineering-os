@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import os
+import platform
 import posixpath
 import re
 import selectors
@@ -13,6 +15,8 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol, cast
+
+import yaml
 
 from pmpe.contracts.canonical import canonical_digest
 from pmpe.repository.adapters import (
@@ -32,10 +36,18 @@ from pmpe.repository.models import (
     InventoryCategory,
     RepositorySnapshot,
     ScanConfig,
+    ToolVersion,
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/1.0.0"
+SCANNER_VERSION = "repository-scanner/1.1.0"
+IMPLEMENTATION_MODULES = (
+    "repository.adapters",
+    "repository.models",
+    "repository.redaction",
+    "repository.scanner",
+    "contracts.canonical",
+)
 _SHA = re.compile(r"^[0-9a-f]{40}$")
 
 
@@ -62,13 +74,14 @@ class TreeListingResult:
     result: CommandResult
     record_limit_exceeded: bool
     byte_limit_exceeded: bool
+    cancelled: bool
 
 
 class SubprocessCommandRunner:
     """Allowlisted local Git reader; it never invokes shells or project code."""
 
-    identity = "git-readonly-subprocess/1.0.0"
-    _allowed = {"rev-parse", "ls-tree", "cat-file"}
+    identity = "git-readonly-subprocess/1.1.0"
+    _allowed = {"rev-parse", "ls-tree", "cat-file", "version"}
 
     @staticmethod
     def _environment() -> dict[str, str]:
@@ -78,6 +91,14 @@ class SubprocessCommandRunner:
             "GIT_CONFIG_SYSTEM": os.devnull,
             "GIT_TERMINAL_PROMPT": "0",
             "GIT_OPTIONAL_LOCKS": "0",
+            "GIT_NO_LAZY_FETCH": "1",
+            "GIT_CONFIG_COUNT": "3",
+            "GIT_CONFIG_KEY_0": "core.fsmonitor",
+            "GIT_CONFIG_VALUE_0": "false",
+            "GIT_CONFIG_KEY_1": "core.untrackedCache",
+            "GIT_CONFIG_VALUE_1": "false",
+            "GIT_CONFIG_KEY_2": "core.preloadIndex",
+            "GIT_CONFIG_VALUE_2": "false",
             "LC_ALL": "C",
         }
 
@@ -110,6 +131,7 @@ class SubprocessCommandRunner:
         *,
         max_records: int,
         max_output_bytes: int,
+        cancellation: Cancellation | None = None,
     ) -> TreeListingResult:
         """Stream NUL-delimited tree records and stop before unbounded buffering."""
 
@@ -132,9 +154,14 @@ class SubprocessCommandRunner:
         record_count = 0
         byte_limit = False
         timed_out = False
+        cancelled = False
         deadline = time.monotonic() + timeout
         try:
             while True:
+                if cancellation is not None and cancellation.cancelled():
+                    cancelled = True
+                    process.terminate()
+                    break
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     timed_out = True
@@ -186,7 +213,29 @@ class SubprocessCommandRunner:
             ),
             record_limit_exceeded=record_limit,
             byte_limit_exceeded=byte_limit,
+            cancelled=cancelled,
         )
+
+
+def _implementation_digest() -> str:
+    package_root = Path(__file__).resolve().parent
+    paths = {
+        "repository.adapters": package_root / "adapters.py",
+        "repository.models": package_root / "models.py",
+        "repository.redaction": package_root / "redaction.py",
+        "repository.scanner": package_root / "scanner.py",
+        "contracts.canonical": package_root.parent / "contracts" / "canonical.py",
+    }
+    try:
+        evidence = [
+            {"module": name, "source_digest": _sha256(paths[name].read_bytes())}
+            for name in IMPLEMENTATION_MODULES
+        ]
+    except OSError as exc:
+        raise RepositoryIntelligenceError(
+            "scanner implementation bytes are unavailable for provenance binding"
+        ) from exc
+    return canonical_digest(evidence)
 
 
 def _sha256(payload: bytes) -> str:
@@ -249,7 +298,7 @@ def _finding(
         explanation=explanation,
         evidence_refs=evidence_refs,
         detector_id="repository-scanner",
-        detector_version="1.0.0",
+        detector_version="1.1.0",
         blocking=blocking,
     )
 
@@ -285,11 +334,13 @@ def _snapshot_from_dict(value: dict[str, Any]) -> RepositorySnapshot:
         scanner_version=str(value["scanner_version"]),
         scan_configuration_digest=str(value["scan_configuration_digest"]),
         adapter_set_digest=str(value["adapter_set_digest"]),
+        implementation_digest=str(value["implementation_digest"]),
         tracked_tree_digest=str(value["tracked_tree_digest"]),
         scanned_content_digest=str(value["scanned_content_digest"]),
         scan_scope=str(value["scan_scope"]),
         included_paths=tuple(value["included_paths"]),
         tooling_digest=str(value["tooling_digest"]),
+        tool_versions=tuple(ToolVersion(**item) for item in value["tool_versions"]),
         adapters=tuple(AdapterMetadata(**item) for item in value["adapters"]),
         command_provenance=tuple(
             CommandProvenance(
@@ -334,6 +385,7 @@ class RepositoryScanner:
         self.cancellation = cancellation
         self._commands = 0
         self._command_provenance: list[CommandProvenance] = []
+        self._tool_versions: tuple[ToolVersion, ...] = ()
 
     def _run(
         self, args: tuple[str, ...], root: Path, *, essential: bool = False
@@ -375,12 +427,14 @@ class RepositoryScanner:
                     self.config.command_timeout_seconds,
                     max_records=self.config.max_files + 1,
                     max_output_bytes=self.config.max_tree_output_bytes,
+                    cancellation=self.cancellation,
                 )
             else:
                 listing = TreeListingResult(
                     result=self.runner.run(args, root, self.config.command_timeout_seconds),
                     record_limit_exceeded=False,
                     byte_limit_exceeded=False,
+                    cancelled=False,
                 )
         except (FileNotFoundError, OSError) as exc:
             raise RepositoryIntelligenceError("read-only Git command is unavailable") from exc
@@ -395,6 +449,8 @@ class RepositoryScanner:
         )
         if result.timed_out:
             raise RepositoryIntelligenceError("bounded tracked-tree enumeration timed out")
+        if listing.cancelled:
+            return listing
         if result.returncode != 0 and not (
             listing.record_limit_exceeded or listing.byte_limit_exceeded
         ):
@@ -421,6 +477,36 @@ class RepositoryScanner:
                 raise RepositorySecurityError(
                     "configured scan paths must be contained in the repository"
                 )
+
+    def _collect_tool_versions(self, root: Path) -> tuple[ToolVersion, ...]:
+        try:
+            git_result = self.runner.run(
+                ("git", "version"), root, self.config.command_timeout_seconds
+            )
+            if git_result.timed_out or git_result.returncode != 0:
+                raise RepositoryIntelligenceError("Git version command failed")
+            git_version = _text(git_result.stdout).strip()
+            canonicalizer_version = importlib.metadata.version("rfc8785")
+        except (
+            FileNotFoundError,
+            OSError,
+            UnicodeDecodeError,
+            importlib.metadata.PackageNotFoundError,
+        ) as exc:
+            raise RepositoryIntelligenceError("scanner tool versions are unavailable") from exc
+        if not git_version.startswith("git version "):
+            raise RepositoryIntelligenceError("Git version output is malformed")
+        return tuple(
+            sorted(
+                (
+                    ToolVersion("git", git_version.removeprefix("git version ")),
+                    ToolVersion("python", platform.python_version()),
+                    ToolVersion("pyyaml", str(yaml.__version__)),
+                    ToolVersion("rfc8785", canonicalizer_version),
+                ),
+                key=lambda item: item.tool,
+            )
+        )
 
     def _cancelled_snapshot(
         self,
@@ -528,6 +614,16 @@ class RepositoryScanner:
             )
             return [], findings, tracked_tree_digest, canonical_digest([])
         listing = bounded_listing.result
+        if bounded_listing.cancelled:
+            findings.append(
+                _finding(
+                    "SCAN.CANCELLED",
+                    "repository_topology",
+                    "The scan was cancelled during bounded tracked-tree enumeration.",
+                    ("repository:tracked-tree",),
+                    blocking=True,
+                )
+            )
         if bounded_listing.byte_limit_exceeded:
             findings.append(
                 _finding(
@@ -603,6 +699,17 @@ class RepositoryScanner:
         total = 0
         total_exhausted = False
         for mode, object_type, object_id, path, size in entries:
+            if self.cancellation is not None and self.cancellation.cancelled():
+                findings.append(
+                    _finding(
+                        "SCAN.CANCELLED",
+                        "repository_topology",
+                        "The scan was cancelled before every tracked blob was inspected.",
+                        (path,),
+                        blocking=True,
+                    )
+                )
+                break
             if len(PurePosixPath(path).parts) > self.config.max_path_depth:
                 findings.append(
                     _finding(
@@ -706,9 +813,22 @@ class RepositoryScanner:
         supported: set[str] = set()
         context = AdapterContext(files=files)
         for adapter in self.adapters:
+            if self.cancellation is not None and self.cancellation.cancelled():
+                findings.append(
+                    _finding(
+                        "SCAN.CANCELLED",
+                        "repository_topology",
+                        "The scan was cancelled during adapter evaluation.",
+                        (f"adapter:{adapter.adapter_id}",),
+                        blocking=True,
+                    )
+                )
+                break
             supported.update(adapter.supported_categories)
             try:
-                result = adapter.evaluator(context)
+                result = adapter.evaluator(
+                    AdapterContext(files=context.matching(adapter.file_patterns))
+                )
             except Exception:
                 findings.append(
                     _finding(
@@ -745,7 +865,16 @@ class RepositoryScanner:
     def _cross_cutting_findings(
         self, files: tuple[TrackedFile, ...], inventory: dict[str, list[EvidenceItem]]
     ) -> list[Finding]:
-        findings: list[Finding] = []
+        findings: list[Finding] = [
+            _finding(
+                "ARCHITECTURE.HISTORY_COUPLING_UNSUPPORTED",
+                "architecture_boundaries",
+                "High-change and temporal-coupling analysis is unsupported by an exact-tree "
+                "snapshot without governed history inputs; no hotspot was inferred.",
+                ("repository:exact-tree",),
+                severity="MEDIUM",
+            )
+        ]
         expected_test_kinds = {
             "unit": "UNIT_TEST_FILE_SIGNAL",
             "integration": "INTEGRATION_TEST_FILE_SIGNAL",
@@ -986,6 +1115,7 @@ class RepositoryScanner:
         tracked_tree_digest: str | None = None,
         scanned_content_digest: str | None = None,
     ) -> RepositorySnapshot:
+        implementation_digest = _implementation_digest()
         inventory = {
             name: InventoryCategory(
                 status=statuses.get(name, "SUPPORTED"),
@@ -1008,6 +1138,7 @@ class RepositoryScanner:
             scanner_version=SCANNER_VERSION,
             scan_configuration_digest=config_digest,
             adapter_set_digest=adapter_digest,
+            implementation_digest=implementation_digest,
             tracked_tree_digest=tracked_tree_digest or canonical_digest([]),
             scanned_content_digest=scanned_content_digest or canonical_digest([]),
             scan_scope=("INCLUDED_PATHS" if self.config.include_paths else "FULL_REPOSITORY"),
@@ -1016,10 +1147,13 @@ class RepositoryScanner:
                 {
                     "scanner_version": SCANNER_VERSION,
                     "adapter_set_digest": adapter_digest,
+                    "implementation_digest": implementation_digest,
                     "command_runner": self.runner.identity,
                     "redactor_version": str(getattr(self.redactor, "version", "unknown")),
+                    "tool_versions": [asdict(item) for item in self._tool_versions],
                 }
             ),
+            tool_versions=self._tool_versions,
             adapters=tuple(_metadata(adapter) for adapter in self.adapters),
             command_provenance=tuple(self._command_provenance),
             inventory=inventory,
@@ -1045,7 +1179,7 @@ class RepositoryScanner:
             snapshot_digest="",
         )
         try:
-            sanitized = cast(dict[str, Any], self.redactor.sanitize(asdict(draft)))
+            sanitized = cast(dict[str, Any], self.redactor.sanitize(draft.as_dict()))
         except (RedactionError, Exception) as exc:
             raise RepositorySecurityError(
                 "evidence redaction failed; artifact was not created"
@@ -1066,6 +1200,7 @@ class RepositoryScanner:
         # commit-stable provenance because equivalent refs (HEAD versus the exact SHA)
         # must yield byte-equivalent snapshots. Remaining commands are SHA-bound.
         self._command_provenance = self._command_provenance[2:]
+        self._tool_versions = self._collect_tool_versions(root)
         adapter_digest = canonical_digest([asdict(_metadata(item)) for item in self.adapters])
         config_digest = canonical_digest(asdict(self.config))
         if self.cancellation is not None and self.cancellation.cancelled():
@@ -1088,7 +1223,8 @@ class RepositoryScanner:
                     severity="MEDIUM",
                 )
             )
-        findings.extend(self._cross_cutting_findings(tuple(files), inventory))
+        if not any(item.code == "SCAN.CANCELLED" for item in findings):
+            findings.extend(self._cross_cutting_findings(tuple(files), inventory))
         statuses = {
             name: (
                 "OBSERVED"
@@ -1131,6 +1267,7 @@ class RepositoryScanner:
             "MANIFEST.MALFORMED",
             "WORKFLOW.MALFORMED",
             "SCAN.SCOPED_PARTIAL",
+            "SCAN.CANCELLED",
         }
         partial = any(item.code in partial_codes for item in findings)
         if partial:
