@@ -17,6 +17,7 @@ from pmpe.repository import (
     resolve_repository_root,
     scan_repository,
 )
+from pmpe.repository.governance import GovernanceCommandRunner
 
 
 class _ArgumentClock:
@@ -35,12 +36,55 @@ class _ArgumentIds:
         return self.value
 
 
-def _outside_repository(output: Path, repository: Path) -> Path:
+def _git_output(runner: GovernanceCommandRunner, root: Path, *args: str) -> str:
+    result = runner.run(("git", *args), root, 20)
+    if result.timed_out or result.returncode != 0:
+        raise RepositorySecurityError("repository containment metadata is unavailable")
+    try:
+        raw = result.stdout.decode("utf-8") if isinstance(result.stdout, bytes) else result.stdout
+    except UnicodeDecodeError as exc:
+        raise RepositorySecurityError("repository containment metadata is malformed") from exc
+    return raw
+
+
+def _protected_repository_paths(repository: Path) -> tuple[Path, ...]:
+    """Resolve every Git/worktree boundary that artifact writes must not touch."""
+
+    runner = GovernanceCommandRunner(max_output_bytes=1_000_000)
+    git_dir_value = _git_output(runner, repository, "rev-parse", "--absolute-git-dir").strip()
+    common_dir_value = _git_output(
+        runner,
+        repository,
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir",
+    ).strip()
+    git_dir = Path(git_dir_value)
+    common_dir = Path(common_dir_value)
+    if (
+        not git_dir_value
+        or not common_dir_value
+        or not git_dir.is_absolute()
+        or not common_dir.is_absolute()
+    ):
+        raise RepositorySecurityError("absolute Git metadata containment could not be proven")
+    worktree_output = _git_output(runner, repository, "worktree", "list", "--porcelain", "-z")
+    worktrees = tuple(
+        Path(record.removeprefix("worktree ")).resolve()
+        for record in worktree_output.split("\0")
+        if record.startswith("worktree ")
+    )
+    paths = {repository.resolve(), git_dir.resolve(), common_dir.resolve(), *worktrees}
+    if not worktrees:
+        raise RepositorySecurityError("repository worktree containment could not be proven")
+    return tuple(sorted(paths, key=lambda item: str(item)))
+
+
+def _outside_repository(output: Path, protected_paths: tuple[Path, ...]) -> Path:
     resolved = output.expanduser().resolve()
-    root = repository.expanduser().resolve()
-    if resolved == root or resolved.is_relative_to(root):
+    if any(resolved == path or resolved.is_relative_to(path) for path in protected_paths):
         raise RepositorySecurityError(
-            "repository-intelligence artifacts must be written outside the scanned repository"
+            "repository-intelligence artifacts must be outside all Git and worktree boundaries"
         )
     return resolved
 
@@ -65,9 +109,12 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     requested = Path(args.repo)
     try:
         root = resolve_repository_root(requested)
-        snapshot_path = _outside_repository(Path(args.snapshot_out), root)
+        protected_paths = _protected_repository_paths(root)
+        snapshot_path = _outside_repository(Path(args.snapshot_out), protected_paths)
         governance_path = (
-            _outside_repository(Path(args.governance_out), root) if args.governance_out else None
+            _outside_repository(Path(args.governance_out), protected_paths)
+            if args.governance_out
+            else None
         )
         if governance_path is not None and governance_path == snapshot_path:
             raise RepositorySecurityError(

@@ -6,6 +6,7 @@ import hashlib
 import os
 import re
 import selectors
+import signal
 import subprocess
 import time
 import uuid
@@ -35,7 +36,7 @@ from pmpe.repository.scanner import (
     RepositorySecurityError,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/1.1.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/1.2.0"
 _REQUIRED_REMOTE_COVERAGE = frozenset({"remote_branches", "pull_requests", "issues", "governance"})
 _SAFE_REF = re.compile(r"^(?:HEAD|[A-Za-z0-9][A-Za-z0-9._/-]{0,255})$")
 
@@ -85,8 +86,13 @@ class UuidObservationIds:
 class GovernanceCommandRunner:
     """Allowlisted local Git observation commands with mutation subcommands refused."""
 
-    identity = "git-governance-readonly/1.1.0"
-    _allowed = {"status", "rev-parse", "for-each-ref", "rev-list", "worktree"}
+    identity = "git-governance-readonly/1.2.0"
+    _allowed = {"config", "status", "rev-parse", "for-each-ref", "rev-list", "worktree"}
+    _filter_probe = (
+        "--name-only",
+        "--get-regexp",
+        r"^filter\..*\.(clean|smudge|process)$",
+    )
 
     def __init__(self, *, max_output_bytes: int = 8_000_000) -> None:
         self.max_output_bytes = max_output_bytes
@@ -101,6 +107,8 @@ class GovernanceCommandRunner:
     ) -> CommandResult:
         if len(args) < 2 or args[0] != "git" or args[1] not in self._allowed:
             raise RepositorySecurityError("command is outside the governance read-only allowlist")
+        if args[1] == "config" and args[2:] != self._filter_probe:
+            raise RepositorySecurityError("Git configuration reads are outside the safe probe")
         if args[1] == "worktree" and (len(args) < 3 or args[2] != "list"):
             raise RepositorySecurityError("mutating Git worktree command was refused")
         safe_environment = {
@@ -110,13 +118,19 @@ class GovernanceCommandRunner:
             "GIT_TERMINAL_PROMPT": "0",
             "GIT_OPTIONAL_LOCKS": "0",
             "GIT_NO_LAZY_FETCH": "1",
-            "GIT_CONFIG_COUNT": "3",
+            "GIT_CONFIG_COUNT": "6",
             "GIT_CONFIG_KEY_0": "core.fsmonitor",
             "GIT_CONFIG_VALUE_0": "false",
             "GIT_CONFIG_KEY_1": "core.untrackedCache",
             "GIT_CONFIG_VALUE_1": "false",
             "GIT_CONFIG_KEY_2": "core.preloadIndex",
             "GIT_CONFIG_VALUE_2": "false",
+            "GIT_CONFIG_KEY_3": "core.attributesFile",
+            "GIT_CONFIG_VALUE_3": os.devnull,
+            "GIT_CONFIG_KEY_4": "core.excludesFile",
+            "GIT_CONFIG_VALUE_4": os.devnull,
+            "GIT_CONFIG_KEY_5": "submodule.recurse",
+            "GIT_CONFIG_VALUE_5": "false",
             "LC_ALL": "C",
         }
         try:
@@ -126,6 +140,7 @@ class GovernanceCommandRunner:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
                 env=safe_environment,
+                start_new_session=True,
             )
         except OSError:
             raise
@@ -143,25 +158,23 @@ class GovernanceCommandRunner:
             while True:
                 if cancellation is not None and cancellation.cancelled():
                     cancelled = True
-                    process.terminate()
+                    _signal_process_group(process, signal.SIGTERM)
                     break
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     timed_out = True
-                    process.kill()
+                    _signal_process_group(process, signal.SIGKILL)
                     break
-                events = selector.select(remaining)
+                events = selector.select(min(remaining, 0.1))
                 if not events:
-                    timed_out = True
-                    process.kill()
-                    break
+                    continue
                 chunk = os.read(process.stdout.fileno(), 65_536)
                 if not chunk:
                     break
                 payload.extend(chunk)
                 if len(payload) > self.max_output_bytes:
                     output_exceeded = True
-                    process.terminate()
+                    _signal_process_group(process, signal.SIGTERM)
                     break
         finally:
             selector.close()
@@ -169,7 +182,7 @@ class GovernanceCommandRunner:
         try:
             returncode = process.wait(timeout=max(0.1, deadline - time.monotonic()))
         except subprocess.TimeoutExpired:
-            process.kill()
+            _signal_process_group(process, signal.SIGKILL)
             returncode = process.wait()
             timed_out = True
         return CommandResult(
@@ -179,6 +192,22 @@ class GovernanceCommandRunner:
             stderr=b"",
             timed_out=timed_out,
         )
+
+
+def _signal_process_group(process: subprocess.Popen[bytes], action: signal.Signals) -> None:
+    """Stop the isolated Git process group, including any unexpected descendant."""
+
+    try:
+        os.killpg(process.pid, action)
+    except ProcessLookupError:
+        return
+    except PermissionError:
+        # Content filters are refused and submodule recursion is disabled before
+        # mutable observation, so the allowlisted Git parent is the only expected
+        # process on hosts that prohibit group signalling.
+        process.send_signal(action)
+    except OSError as exc:
+        raise RepositorySecurityError("bounded Git process group could not be terminated") from exc
 
 
 def _decode(result: CommandResult) -> str:
@@ -448,7 +477,27 @@ class GovernanceCollector:
         ):
             raise RepositoryIntelligenceError("governance observation budgets must be positive")
         root = Path(repository_root).resolve()
-        status_raw = self._run(root, "status", "--porcelain=v1", "--untracked-files=all")
+        filter_probe = self._execute(
+            root,
+            ("git", "config", *GovernanceCommandRunner._filter_probe),
+        )
+        if filter_probe.timed_out:
+            raise RepositoryIntelligenceError("Git content-filter safety probe timed out")
+        if filter_probe.returncode == 126:
+            raise RepositoryIntelligenceError("governance observation was cancelled")
+        if filter_probe.returncode == 0:
+            raise RepositorySecurityError(
+                "repository-defined Git content filters prevent a code-free governance scan"
+            )
+        if filter_probe.returncode != 1:
+            raise RepositoryIntelligenceError("Git content-filter safety could not be proven")
+        status_raw = self._run(
+            root,
+            "status",
+            "--porcelain=v1",
+            "--untracked-files=all",
+            "--ignore-submodules=all",
+        )
         head_sha = self._run(root, "rev-parse", "HEAD").strip()
         if not re.fullmatch(r"[0-9a-f]{40}", head_sha):
             raise RepositoryIntelligenceError("local Git HEAD is malformed")

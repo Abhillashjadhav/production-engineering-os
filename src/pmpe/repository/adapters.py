@@ -14,7 +14,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.1.0"
+DETECTOR_VERSION = "1.2.0"
 
 
 @dataclass(frozen=True)
@@ -520,7 +520,7 @@ def _node(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="integration.manifest-declarations",
-    version="1.1.0",
+    version="1.2.0",
     file_patterns=(
         "pyproject.toml",
         "**/pyproject.toml",
@@ -537,6 +537,7 @@ def _node(context: AdapterContext) -> AdapterResult:
 )
 def _integration_declarations(context: AdapterContext) -> AdapterResult:
     items: list[tuple[str, EvidenceItem]] = []
+    findings: list[Finding] = []
     for file in context.files:
         if file.content is None or file.binary:
             continue
@@ -598,9 +599,19 @@ def _integration_declarations(context: AdapterContext) -> AdapterResult:
                                 )
                             )
         except (json.JSONDecodeError, tomllib.TOMLDecodeError, UnicodeDecodeError, yaml.YAMLError):
-            # The owning stack/schema adapter emits the canonical malformed-input finding.
-            continue
-    return AdapterResult(items=tuple(items))
+            findings.append(
+                _finding(
+                    "INTEGRATION.DECLARATION_MALFORMED",
+                    "integrations",
+                    "A tracked integration declaration cannot be parsed; no integration "
+                    "evidence was inferred from it.",
+                    (file.path,),
+                    "integration.manifest-declarations",
+                    severity="HIGH",
+                    blocking=True,
+                )
+            )
+    return AdapterResult(items=tuple(items), findings=tuple(findings))
 
 
 @repository_adapter(
@@ -640,7 +651,10 @@ def _containers(context: AdapterContext) -> AdapterResult:
                     _item(file, "CONTAINER_DEFINITION", "stack.docker-compose"),
                 )
             )
-            if file.content and b"HEALTHCHECK" in file.content:
+            if file.content and any(
+                line.lstrip().upper().startswith(b"HEALTHCHECK ")
+                for line in file.content.splitlines()
+            ):
                 items.append(
                     (
                         "observability_operations",
@@ -673,7 +687,7 @@ def _containers(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="delivery.ci",
-    version="1.1.0",
+    version="1.2.0",
     file_patterns=(
         ".github/workflows/*.yml",
         ".github/workflows/*.yaml",
@@ -690,19 +704,25 @@ def _ci_workflows(context: AdapterContext) -> AdapterResult:
     findings: list[Finding] = []
     workflows = list(context.files)
     for file in workflows:
-        workflow_kind = (
-            "RELEASE_WORKFLOW"
-            if any(token in file.path.lower() for token in ("release", "deploy", "publish"))
-            else "CI_WORKFLOW"
-        )
         items.append(
             (
                 "delivery_environments",
-                _item(file, workflow_kind, "delivery.ci"),
+                _item(file, "CI_WORKFLOW", "delivery.ci"),
             )
         )
-        if file.content and re.search(rb"\b(pytest|vitest|playwright|test)\b", file.content, re.I):
-            items.append(("tests_quality", _item(file, "CI_TEST_MAPPING", "delivery.ci")))
+        if any(token in file.path.lower() for token in ("release", "deploy", "publish")):
+            items.append(
+                (
+                    "delivery_environments",
+                    _item(
+                        file,
+                        "RELEASE_WORKFLOW_SIGNAL",
+                        "delivery.ci",
+                        confidence="MEDIUM",
+                    ),
+                )
+            )
+        parsed: object | None = None
         if file.content is not None and file.path.endswith((".yml", ".yaml")):
             try:
                 parsed = yaml.safe_load(file.content)
@@ -720,13 +740,45 @@ def _ci_workflows(context: AdapterContext) -> AdapterResult:
                         blocking=True,
                     )
                 )
-        if file.content and re.search(rb"\b(audit|bandit|secret|security)\b", file.content, re.I):
-            items.append(("security_privacy", _item(file, "SECURITY_GATE", "delivery.ci")))
-        if file.content and re.search(rb"\b(rollback|revert)\b", file.content, re.I):
+                continue
+        signals = _structured_text(parsed) if parsed is not None else ""
+        if re.search(r"\b(pytest|vitest|playwright|test)\b", signals, re.I):
+            items.append(
+                (
+                    "tests_quality",
+                    _item(
+                        file,
+                        "CI_TEST_MAPPING_SIGNAL",
+                        "delivery.ci",
+                        confidence="MEDIUM",
+                        location="parsed-workflow",
+                    ),
+                )
+            )
+        if re.search(r"\b(audit|bandit|secret|security)\b", signals, re.I):
+            items.append(
+                (
+                    "security_privacy",
+                    _item(
+                        file,
+                        "SECURITY_CONTROL_SIGNAL",
+                        "delivery.ci",
+                        confidence="MEDIUM",
+                        location="parsed-workflow",
+                    ),
+                )
+            )
+        if re.search(r"\b(rollback|revert)\b", signals, re.I):
             items.append(
                 (
                     "delivery_environments",
-                    _item(file, "ROLLBACK_MECHANISM", "delivery.ci"),
+                    _item(
+                        file,
+                        "ROLLBACK_SIGNAL",
+                        "delivery.ci",
+                        confidence="MEDIUM",
+                        location="parsed-workflow",
+                    ),
                 )
             )
     if not workflows:
@@ -742,9 +794,27 @@ def _ci_workflows(context: AdapterContext) -> AdapterResult:
     return AdapterResult(items=tuple(items), findings=tuple(findings))
 
 
+def _structured_text(value: object) -> str:
+    """Return only parsed keys/scalars; comments and unparsed source never become controls."""
+
+    pending = [value]
+    strings: list[str] = []
+    while pending:
+        current = pending.pop()
+        if isinstance(current, dict):
+            for key, item in current.items():
+                strings.append(str(key))
+                pending.append(item)
+        elif isinstance(current, list):
+            pending.extend(current)
+        elif isinstance(current, (str, int, float, bool)):
+            strings.append(str(current))
+    return "\n".join(strings)
+
+
 @repository_adapter(
     adapter_id="interface.schema-api",
-    version="1.1.0",
+    version="1.2.0",
     file_patterns=(
         "*openapi*",
         "**/*openapi*",
@@ -770,6 +840,7 @@ def _ci_workflows(context: AdapterContext) -> AdapterResult:
 )
 def _interfaces(context: AdapterContext) -> AdapterResult:
     items: list[tuple[str, EvidenceItem]] = []
+    findings: list[Finding] = []
     for file in context.files:
         lowered = file.path.lower()
         if "openapi" in lowered:
@@ -788,8 +859,40 @@ def _interfaces(context: AdapterContext) -> AdapterResult:
             kind = "SCHEMA"
         else:
             continue
+        if kind in {"OPENAPI", "EVENT_CONTRACT"}:
+            if file.content is None or file.binary:
+                continue
+            try:
+                text = file.content.decode("utf-8")
+                payload = json.loads(text) if lowered.endswith(".json") else yaml.safe_load(text)
+                version_key = "openapi" if kind == "OPENAPI" else "asyncapi"
+                info = payload.get("info") if isinstance(payload, dict) else None
+                if (
+                    not isinstance(payload, dict)
+                    or not isinstance(payload.get(version_key), str)
+                    or not isinstance(info, dict)
+                    or not isinstance(info.get("title"), str)
+                    or not isinstance(info.get("version"), str)
+                ):
+                    raise ValueError
+                if kind == "OPENAPI" and not isinstance(payload.get("paths"), dict):
+                    raise ValueError
+            except (json.JSONDecodeError, UnicodeDecodeError, yaml.YAMLError, ValueError):
+                findings.append(
+                    _finding(
+                        "INTERFACE.DECLARATION_INVALID",
+                        "apis_data",
+                        "A tracked API declaration is malformed or lacks required structural "
+                        "identity; no API evidence was inferred from it.",
+                        (file.path,),
+                        "interface.schema-api",
+                        severity="HIGH",
+                        blocking=True,
+                    )
+                )
+                continue
         items.append(("apis_data", _item(file, kind, "interface.schema-api")))
-    return AdapterResult(items=tuple(items))
+    return AdapterResult(items=tuple(items), findings=tuple(findings))
 
 
 @repository_adapter(

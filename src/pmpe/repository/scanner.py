@@ -9,6 +9,7 @@ import platform
 import posixpath
 import re
 import selectors
+import signal
 import subprocess
 import time
 from collections.abc import Sequence
@@ -40,7 +41,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/1.1.0"
+SCANNER_VERSION = "repository-scanner/1.2.0"
 IMPLEMENTATION_MODULES = (
     "repository.adapters",
     "repository.models",
@@ -80,7 +81,7 @@ class TreeListingResult:
 class SubprocessCommandRunner:
     """Allowlisted local Git reader; it never invokes shells or project code."""
 
-    identity = "git-readonly-subprocess/1.1.0"
+    identity = "git-readonly-subprocess/1.2.0"
     _allowed = {"rev-parse", "ls-tree", "cat-file", "version"}
 
     @staticmethod
@@ -92,13 +93,19 @@ class SubprocessCommandRunner:
             "GIT_TERMINAL_PROMPT": "0",
             "GIT_OPTIONAL_LOCKS": "0",
             "GIT_NO_LAZY_FETCH": "1",
-            "GIT_CONFIG_COUNT": "3",
+            "GIT_CONFIG_COUNT": "6",
             "GIT_CONFIG_KEY_0": "core.fsmonitor",
             "GIT_CONFIG_VALUE_0": "false",
             "GIT_CONFIG_KEY_1": "core.untrackedCache",
             "GIT_CONFIG_VALUE_1": "false",
             "GIT_CONFIG_KEY_2": "core.preloadIndex",
             "GIT_CONFIG_VALUE_2": "false",
+            "GIT_CONFIG_KEY_3": "core.attributesFile",
+            "GIT_CONFIG_VALUE_3": os.devnull,
+            "GIT_CONFIG_KEY_4": "core.excludesFile",
+            "GIT_CONFIG_VALUE_4": os.devnull,
+            "GIT_CONFIG_KEY_5": "submodule.recurse",
+            "GIT_CONFIG_VALUE_5": "false",
             "LC_ALL": "C",
         }
 
@@ -143,6 +150,7 @@ class SubprocessCommandRunner:
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             env=self._environment(),
+            start_new_session=True,
         )
         if process.stdout is None:
             process.kill()
@@ -160,18 +168,16 @@ class SubprocessCommandRunner:
             while True:
                 if cancellation is not None and cancellation.cancelled():
                     cancelled = True
-                    process.terminate()
+                    _signal_process_group(process, signal.SIGTERM)
                     break
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     timed_out = True
-                    process.kill()
+                    _signal_process_group(process, signal.SIGKILL)
                     break
-                events = selector.select(remaining)
+                events = selector.select(min(remaining, 0.1))
                 if not events:
-                    timed_out = True
-                    process.kill()
-                    break
+                    continue
                 chunk = os.read(process.stdout.fileno(), 65_536)
                 if not chunk:
                     break
@@ -179,11 +185,11 @@ class SubprocessCommandRunner:
                 record_count += chunk.count(0)
                 if len(payload) > max_output_bytes:
                     byte_limit = True
-                    process.terminate()
+                    _signal_process_group(process, signal.SIGTERM)
                     break
                 if record_count >= max_records:
                     record_limit = True
-                    process.terminate()
+                    _signal_process_group(process, signal.SIGTERM)
                     break
         finally:
             selector.close()
@@ -191,7 +197,7 @@ class SubprocessCommandRunner:
         try:
             returncode = process.wait(timeout=max(0.1, deadline - time.monotonic()))
         except subprocess.TimeoutExpired:
-            process.kill()
+            _signal_process_group(process, signal.SIGKILL)
             returncode = process.wait()
             timed_out = True
         complete_records = bytes(payload[:max_output_bytes]).split(b"\0")
@@ -215,6 +221,22 @@ class SubprocessCommandRunner:
             byte_limit_exceeded=byte_limit,
             cancelled=cancelled,
         )
+
+
+def _signal_process_group(process: subprocess.Popen[bytes], action: signal.Signals) -> None:
+    """Stop the isolated immutable-object reader and any unexpected descendant."""
+
+    try:
+        os.killpg(process.pid, action)
+    except ProcessLookupError:
+        return
+    except PermissionError:
+        # Some constrained hosts prohibit group signalling. The allowlisted
+        # immutable-object Git commands cannot invoke repository-defined code,
+        # so terminating the parent remains safe and fail-bounded there.
+        process.send_signal(action)
+    except OSError as exc:
+        raise RepositorySecurityError("bounded Git process group could not be terminated") from exc
 
 
 def _implementation_digest() -> str:
@@ -918,7 +940,7 @@ class RepositoryScanner:
             ),
         )
         for category, code, explanation in absence_rules:
-            if not inventory[category]:
+            if not any(item.confidence == "HIGH" for item in inventory[category]):
                 findings.append(
                     _finding(
                         code,
@@ -929,7 +951,8 @@ class RepositoryScanner:
                     )
                 )
         if not any(
-            item.kind == "ROLLBACK_MECHANISM" for item in inventory["delivery_environments"]
+            item.kind == "ROLLBACK_MECHANISM" and item.confidence == "HIGH"
+            for item in inventory["delivery_environments"]
         ):
             findings.append(
                 _finding(

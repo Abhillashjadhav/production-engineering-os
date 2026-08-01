@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import signal
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -71,7 +72,11 @@ def _init_repo(tmp_path: Path, *, mixed: bool = True) -> Path:
         )
         _write(repo, "packages/web/package-lock.json", '{"lockfileVersion":3}\n')
         _write(repo, "packages/web/src/index.ts", "export const ok = true;\n")
-        _write(repo, "services/api/openapi.json", '{"openapi":"3.1.0","paths":{}}\n')
+        _write(
+            repo,
+            "services/api/openapi.json",
+            '{"openapi":"3.1.0","info":{"title":"Fixture","version":"1"},"paths":{}}\n',
+        )
         _write(repo, "services/api/migrations/001_create.sql", "create table item(id int);\n")
         _write(repo, "Dockerfile", "FROM python:3.11-slim\nHEALTHCHECK CMD true\n")
         _write(repo, "compose.yaml", "services:\n  api:\n    build: .\n")
@@ -276,6 +281,35 @@ def test_non_github_ci_is_not_reported_as_ci_absent(tmp_path: Path) -> None:
         item.kind == "CI_WORKFLOW" for item in snapshot.inventory["delivery_environments"].items
     )
     assert not any(item.code == "DELIVERY.CI_ABSENT" for item in snapshot.findings)
+
+
+def test_ci_comments_do_not_become_security_test_or_rollback_controls(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(
+        repo,
+        ".github/workflows/ci.yml",
+        "name: empty\non: [push]\njobs: {}\n# test security rollback\n",
+    )
+    _write(repo, "Dockerfile", "# HEALTHCHECK CMD false\nFROM scratch\n")
+    _commit(repo, "comment-only CI claims")
+    snapshot = _scan(repo)
+    kinds = {item.kind for category in snapshot.inventory.values() for item in category.items}
+    assert "CI_TEST_MAPPING_SIGNAL" not in kinds
+    assert "SECURITY_CONTROL_SIGNAL" not in kinds
+    assert "ROLLBACK_SIGNAL" not in kinds
+    assert "HEALTH_CHECK" not in kinds
+    assert any(item.code == "SECURITY.CONTROL_EVIDENCE_ABSENT" for item in snapshot.findings)
+    assert any(item.code == "DELIVERY.ROLLBACK_EVIDENCE_ABSENT" for item in snapshot.findings)
+
+
+def test_malformed_openapi_is_blocked_and_never_emitted_as_api_evidence(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "openapi.yaml", "# not an OpenAPI declaration\n{}\n")
+    _commit(repo, "invalid API declaration")
+    snapshot = _scan(repo)
+    assert snapshot.disposition == "BLOCKED"
+    assert any(item.code == "INTERFACE.DECLARATION_INVALID" for item in snapshot.findings)
+    assert not any(item.kind == "OPENAPI" for item in snapshot.inventory["apis_data"].items)
 
 
 def test_tests_delivery_security_observability_and_governance_are_evidence_backed(
@@ -516,7 +550,13 @@ class _FakeRemote:
             "remote_branches": [{"name": "origin/feature", "sha": "a" * 40}],
             "pull_requests": [{"number": 7, "draft": True, "head": "a" * 40}],
             "issues": [{"number": 8, "state": "OPEN"}],
-            "governance": {"branch_protection": "UNKNOWN"},
+            "governance": {
+                "branch_protection": "UNKNOWN",
+                "database_note": (
+                    "DATABASE_URL=postgres://database-user:database-password@db.invalid/app"
+                    "?sslmode=require&token=query-secret"
+                ),
+            },
             "query_provenance": [
                 {
                     "query": "branches,pulls,issues,protection",
@@ -623,6 +663,10 @@ def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path:
     assert "secret-value" not in payload
     assert "unstructured-bare-secret" not in payload
     assert "glpat-0123456789abcdefghijkl" not in payload
+    assert "database-user" not in payload
+    assert "database-password" not in payload
+    assert "query-secret" not in payload
+    assert "[REDACTED_URL]" in payload
     assert "[REDACTED]" in payload
 
 
@@ -690,6 +734,49 @@ def test_governance_observation_disables_repository_fsmonitor_hook(tmp_path: Pat
     _git(repo, "config", "core.fsmonitor", str(hook))
     _observe(repo)
     assert not marker.exists()
+
+
+def test_governance_refuses_repository_content_filters_without_executing_them(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    repo = _init_repo(tmp_path)
+    marker = tmp_path / "content-filter-must-not-run"
+    _write(repo, ".gitattributes", "README.md filter=hostile\n")
+    _commit(repo, "content filter attributes")
+    _git(repo, "config", "filter.hostile.clean", f"touch {marker}; cat")
+    _write(repo, "README.md", "dirty content\n")
+    before_head = _git(repo, "rev-parse", "HEAD")
+    before_index = (repo / ".git" / "index").read_bytes()
+    with pytest.raises(api.RepositorySecurityError, match="content filters"):
+        _observe(repo)
+    assert not marker.exists()
+    assert _git(repo, "rev-parse", "HEAD") == before_head
+    assert (repo / ".git" / "index").read_bytes() == before_index
+    assert (repo / "README.md").read_text() == "dirty content\n"
+
+
+def test_bounded_git_termination_targets_the_isolated_process_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    governance = importlib.import_module("pmpe.repository.governance")
+    calls: list[tuple[int, signal.Signals]] = []
+
+    def record_group(pid: int, action: signal.Signals) -> None:
+        calls.append((pid, action))
+
+    class Process:
+        pid = 4242
+
+        def send_signal(self, _action: signal.Signals) -> None:
+            pytest.fail("process-only fallback must not be used when process groups are available")
+
+    monkeypatch.setattr(scanner.os, "killpg", record_group)
+    scanner._signal_process_group(Process(), signal.SIGTERM)
+    monkeypatch.setattr(governance.os, "killpg", record_group)
+    governance._signal_process_group(Process(), signal.SIGKILL)
+    assert calls == [(4242, signal.SIGTERM), (4242, signal.SIGKILL)]
 
 
 def test_invalid_governance_ref_is_rejected_before_git_comparison(tmp_path: Path) -> None:
@@ -812,7 +899,7 @@ def test_governance_cancellation_terminates_bounded_command_and_preserves_reposi
         id_provider=_FixedIds(),
         cancellation=CancelInsideCommand(),
     )
-    with pytest.raises(api.RepositoryIntelligenceError, match="failed"):
+    with pytest.raises(api.RepositoryIntelligenceError, match="cancelled"):
         collector.observe(repo, ref="main")
     assert _git(repo, "rev-parse", "HEAD") == before_head
     assert (repo / ".git" / "index").read_bytes() == before_index
@@ -825,7 +912,8 @@ def test_git_readers_disable_lazy_fetch_and_repository_defined_accelerators() ->
     assert scanner_environment["GIT_NO_LAZY_FETCH"] == "1"
     assert scanner_environment["GIT_CONFIG_VALUE_0"] == "false"
     governance_runner = governance.GovernanceCommandRunner()
-    assert governance_runner.identity.endswith("1.1.0")
+    assert scanner_environment["GIT_CONFIG_VALUE_5"] == "false"
+    assert governance_runner.identity.endswith("1.2.0")
 
 
 def test_artifact_maps_cannot_be_mutated_after_digest_binding(tmp_path: Path) -> None:

@@ -134,3 +134,62 @@ def test_repository_scan_cli_requires_distinct_artifact_outputs(tmp_path: Path) 
     )
     assert code != 0
     assert not output.exists()
+
+
+def test_repository_scan_cli_refuses_sibling_worktree_output(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    sibling = tmp_path / "sibling-worktree"
+    _git(repo, "worktree", "add", "-q", "-b", "sibling", str(sibling))
+    output = sibling / "snapshot.json"
+    code = main(
+        [
+            "repository",
+            "scan",
+            "--repo",
+            str(repo),
+            "--repository",
+            "example/cli-fixture",
+            "--snapshot-out",
+            str(output),
+        ]
+    )
+    assert code != 0
+    assert not output.exists()
+
+
+def test_repository_scan_cli_refuses_external_git_metadata_output(tmp_path: Path) -> None:
+    repo = tmp_path / "separate-repository"
+    metadata = tmp_path / "separate-metadata.git"
+    repo.mkdir()
+    subprocess.run(
+        [
+            "git",
+            "init",
+            "-q",
+            "--initial-branch=main",
+            f"--separate-git-dir={metadata}",
+        ],
+        cwd=repo,
+        check=True,
+    )
+    _git(repo, "config", "user.email", "fixture@localhost")
+    _git(repo, "config", "user.name", "Fixture")
+    (repo / "README.md").write_text("# Separate Git directory\n")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "fixture")
+    index = metadata / "index"
+    before_index = index.read_bytes()
+    code = main(
+        [
+            "repository",
+            "scan",
+            "--repo",
+            str(repo),
+            "--repository",
+            "example/separate-fixture",
+            "--snapshot-out",
+            str(index),
+        ]
+    )
+    assert code != 0
+    assert index.read_bytes() == before_index
