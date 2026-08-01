@@ -125,6 +125,16 @@ def test_exact_sha_snapshot_is_byte_deterministic_and_has_no_timestamp(tmp_path:
     assert "observed_at" not in first.as_dict()
     assert "worktree" not in first.as_dict()
     assert "pull_requests" not in first.as_dict()
+    assert ("git", "version") in {item.args for item in first.command_provenance}
+
+
+def test_exact_sha_snapshot_does_not_depend_on_host_secret_environment(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    repo = _init_repo(tmp_path)
+    baseline = _scan(repo)
+    monkeypatch.setenv("CLAUDESECRET", "repository")
+    assert _scan(repo).canonical_bytes() == baseline.canonical_bytes()
 
 
 def test_equivalent_ref_and_exact_sha_produce_same_snapshot(tmp_path: Path) -> None:
@@ -502,6 +512,38 @@ def test_multiple_lockfiles_version_drift_and_duplicate_config_are_risk_signals(
     assert "RUNTIME.VERSION_DRIFT_SIGNAL" in codes
 
 
+def test_python_manifests_and_lockfiles_are_explicit_inventory(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "services/api/requirements.txt", "rfc8785==0.1.4\n")
+    _write(repo, "services/api/requirements.lock", "rfc8785==0.1.4\n")
+    _write(repo, "services/worker/Pipfile", "[packages]\nrfc8785='==0.1.4'\n")
+    _write(repo, "services/worker/Pipfile.lock", "{}\n")
+    _write(repo, "services/worker/poetry.lock", "# generated lock\n")
+    _write(repo, "services/worker/uv.lock", "version = 1\n")
+    _write(repo, "services/legacy/setup.cfg", "[metadata]\nname = legacy\n")
+    _commit(repo, "python dependency inputs")
+    snapshot = _scan(repo)
+    items = snapshot.inventory["languages_build_ecosystems"].items
+    manifest_paths = {item.path for item in items if item.kind == "PYTHON_MANIFEST"}
+    lock_paths = {item.path for item in items if item.kind == "PYTHON_LOCKFILE"}
+    assert {
+        "services/api/requirements.txt",
+        "services/worker/Pipfile",
+        "services/legacy/setup.cfg",
+    } <= manifest_paths
+    assert {
+        "services/api/requirements.lock",
+        "services/worker/Pipfile.lock",
+        "services/worker/poetry.lock",
+        "services/worker/uv.lock",
+    } <= lock_paths
+    assert not any(
+        item.code == "STACK.UNSUPPORTED_ECOSYSTEM"
+        and any("Pipfile" in ref for ref in item.evidence_refs)
+        for item in snapshot.findings
+    )
+
+
 def test_unknown_ecosystem_is_explicitly_unsupported(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path, mixed=False)
     _write(repo, "main.unknownlang", "opaque\n")
@@ -525,7 +567,7 @@ def test_shell_source_without_adapter_is_blocked_not_reported_absent(tmp_path: P
 
 @pytest.mark.parametrize(
     "manifest",
-    ["Makefile", "WORKSPACE", "BUILD.bazel", "Jenkinsfile", "Pipfile", "Rakefile", "Procfile"],
+    ["Makefile", "WORKSPACE", "BUILD.bazel", "Jenkinsfile", "Rakefile", "Procfile"],
 )
 def test_extensionless_unsupported_ecosystem_is_blocked(tmp_path: Path, manifest: str) -> None:
     repo = _init_repo(tmp_path, mixed=False)
@@ -626,6 +668,8 @@ def test_adapter_failure_is_visible_and_cannot_remove_categories(
         os.setsid()
         connection.send_bytes(b'{"error_type":"RuntimeError","status":"ERROR"}')
         connection.close()
+        while True:
+            signal.pause()
 
     monkeypatch.setattr(scanner, "_adapter_worker", failing_worker)
     snapshot = api.RepositoryScanner(config=_config()).scan(repo, commit="HEAD")
@@ -742,6 +786,16 @@ def test_sensitive_mapping_fields_are_redacted_before_persistence(field: str) ->
     assert secret not in json.dumps(sanitized)
 
 
+def test_sensitive_environment_value_is_redacted_under_benign_field() -> None:
+    redaction = importlib.import_module("pmpe.repository.redaction")
+    secret = "opaque-credential-value-not-matching-a-token-shape"
+    sanitized = redaction.EvidenceRedactor(environment={"CLAUDESECRET": secret}).sanitize(
+        {"message": f"provider returned {secret}"}
+    )
+    assert secret not in json.dumps(sanitized)
+    assert sanitized["message"] == "provider returned [REDACTED_ENV]"
+
+
 class _FixedClock:
     def now(self) -> str:
         return "2026-08-01T00:00:00Z"
@@ -786,6 +840,12 @@ class _FakeRemote:
                 "odbc_note": "Driver=x;UID=demo;PWD={odbc secret value};Server=db",
                 "cookie_note": "Cookie: session=cookie-secret; theme=dark",
                 "aws_note": "aws_secret_access_key=aws-secret-value",
+                "safe_url": "https://user:password@example.invalid/repo?token=secret-value",
+                "signed_url": "https://storage.example.invalid/blob?sv=1&sig=signed-secret",
+                "authorization": "Basic dXNlcjpwYXNzd29yZA==",
+                "x-api-key": "unstructured-bare-secret",
+                "note": "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+                "comment": "glpat-0123456789abcdefghijkl",
             },
             "query_provenance": [
                 {
@@ -826,12 +886,6 @@ class _FakeRemote:
             "unknowns": [
                 {"fact": "secret_scanning", "status": "BLOCKED", "reason": "permission denied"}
             ],
-            "safe_url": "https://user:password@example.invalid/repo?token=secret-value",
-            "signed_url": "https://storage.example.invalid/blob?sv=1&sig=signed-secret",
-            "authorization": "Basic dXNlcjpwYXNzd29yZA==",
-            "x-api-key": "unstructured-bare-secret",
-            "note": "Authorization: Basic dXNlcjpwYXNzd29yZA==",
-            "comment": "glpat-0123456789abcdefghijkl",
         }
 
 
@@ -930,8 +984,16 @@ class _AgeSensitiveRemote(_FakeRemote):
 
 
 class _HugeNumericRemote(_FakeRemote):
-    def collect(self, _repository: str, _ref: str, **_bounds: Any) -> dict[str, Any]:
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        del repository, ref, bounds
         return {"numeric_payload": 10**3000}
+
+
+class _ExtraFieldRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["unexpected"] = "unreviewed provider surface"
+        return payload
 
 
 def _observe(repo: Path, remote: Any = None) -> Any:
@@ -1084,7 +1146,13 @@ def test_remote_numeric_payload_cannot_bypass_parent_byte_bound(tmp_path: Path) 
 
 
 @pytest.mark.parametrize(
-    "remote", [_MismatchedRemote(), _DuplicateRemote(), _CoerciblePrimitiveRemote()]
+    "remote",
+    [
+        _MismatchedRemote(),
+        _DuplicateRemote(),
+        _CoerciblePrimitiveRemote(),
+        _ExtraFieldRemote(),
+    ],
 )
 def test_remote_identity_mismatch_or_duplicate_inventory_fails_closed(
     tmp_path: Path, remote: Any
@@ -1472,7 +1540,7 @@ def test_git_readers_disable_lazy_fetch_and_repository_defined_accelerators() ->
     assert scanner_environment["GIT_CONFIG_VALUE_0"] == "false"
     governance_runner = governance.GovernanceCommandRunner()
     assert scanner_environment["GIT_CONFIG_VALUE_5"] == "false"
-    assert governance_runner.identity.endswith("1.6.0")
+    assert governance_runner.identity.endswith("1.7.0")
 
 
 def test_artifact_maps_cannot_be_mutated_after_digest_binding(tmp_path: Path) -> None:

@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from pmpe.cli import main
+from pmpe.cli import main, repository_cmd
+from pmpe.repository import scan_repository
+from pmpe.repository.models import RepositorySnapshot, ScanConfig
 
 pytestmark = pytest.mark.e2e
 
@@ -193,3 +195,43 @@ def test_repository_scan_cli_refuses_external_git_metadata_output(tmp_path: Path
     )
     assert code != 0
     assert index.read_bytes() == before_index
+
+
+def test_repository_scan_cli_refuses_output_directory_symlink_swap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _repo(tmp_path)
+    output_parent = tmp_path / "evidence"
+    output_parent.mkdir()
+    moved_parent = tmp_path / "moved-evidence"
+    output = output_parent / "snapshot.json"
+
+    def scan_then_swap(
+        repository_root: Path | str,
+        *,
+        commit: str = "HEAD",
+        config: ScanConfig,
+    ) -> RepositorySnapshot:
+        snapshot = scan_repository(repository_root, commit=commit, config=config)
+        output_parent.rename(moved_parent)
+        output_parent.symlink_to(repo, target_is_directory=True)
+        return snapshot
+
+    monkeypatch.setattr(repository_cmd, "scan_repository", scan_then_swap)
+    code = main(
+        [
+            "repository",
+            "scan",
+            "--repo",
+            str(repo),
+            "--repository",
+            "example/cli-fixture",
+            "--snapshot-out",
+            str(output),
+        ]
+    )
+    assert code != 0
+    assert not (repo / "snapshot.json").exists()
+    assert not (moved_parent / "snapshot.json").exists()
+    assert _git(repo, "status", "--porcelain=v1", "--untracked-files=all") == ""

@@ -14,7 +14,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.4.0"
+DETECTOR_VERSION = "1.5.0"
 
 
 @dataclass(frozen=True)
@@ -355,14 +355,30 @@ def _topology(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="stack.python",
-    version="1.1.0",
+    version="1.2.0",
     file_patterns=(
         "*.py",
         "**/*.py",
         "pyproject.toml",
+        "**/pyproject.toml",
         "requirements*.txt",
         "**/requirements*.txt",
+        "requirements*.lock",
+        "**/requirements*.lock",
+        "Pipfile",
+        "**/Pipfile",
+        "Pipfile.lock",
+        "**/Pipfile.lock",
+        "poetry.lock",
+        "**/poetry.lock",
+        "setup.cfg",
+        "**/setup.cfg",
+        "setup.py",
+        "**/setup.py",
+        "uv.lock",
+        "**/uv.lock",
         ".python-version",
+        "**/.python-version",
     ),
     supported_categories=("languages_build_ecosystems", "tests_quality", "debt_risk"),
 )
@@ -370,7 +386,40 @@ def _python(context: AdapterContext) -> AdapterResult:
     items: list[tuple[str, EvidenceItem]] = []
     findings: list[Finding] = []
     for file in context.files:
-        if file.path.endswith(".py"):
+        name = PurePosixPath(file.path).name
+        is_requirement_manifest = name.startswith("requirements") and name.endswith(
+            (".txt", ".lock")
+        )
+        if name in {"Pipfile.lock", "poetry.lock", "uv.lock"} or (
+            is_requirement_manifest and name.endswith(".lock")
+        ):
+            items.append(
+                ("languages_build_ecosystems", _item(file, "PYTHON_LOCKFILE", "stack.python"))
+            )
+        elif name in {"Pipfile", "pyproject.toml", "setup.cfg", "setup.py"} or (
+            is_requirement_manifest and name.endswith(".txt")
+        ):
+            items.append(
+                ("languages_build_ecosystems", _item(file, "PYTHON_MANIFEST", "stack.python"))
+            )
+            if name in {"Pipfile", "pyproject.toml"} and file.content is not None:
+                try:
+                    parsed = tomllib.loads(file.content.decode("utf-8"))
+                    if not isinstance(parsed, dict):
+                        raise ValueError
+                except (tomllib.TOMLDecodeError, UnicodeDecodeError, ValueError):
+                    findings.append(
+                        _finding(
+                            "MANIFEST.MALFORMED",
+                            "languages_build_ecosystems",
+                            "A tracked Python manifest cannot be parsed deterministically.",
+                            (file.path,),
+                            "stack.python",
+                            severity="HIGH",
+                            blocking=True,
+                        )
+                    )
+        elif file.path.endswith(".py"):
             test_kind = _test_signal_kind(file.path)
             if test_kind is None:
                 items.append(
@@ -391,30 +440,7 @@ def _python(context: AdapterContext) -> AdapterResult:
                         ),
                     )
                 )
-        elif PurePosixPath(file.path).name == "pyproject.toml" or file.path.endswith(
-            "requirements.txt"
-        ):
-            items.append(
-                ("languages_build_ecosystems", _item(file, "PYTHON_MANIFEST", "stack.python"))
-            )
-            if PurePosixPath(file.path).name == "pyproject.toml" and file.content is not None:
-                try:
-                    parsed = tomllib.loads(file.content.decode("utf-8"))
-                    if not isinstance(parsed, dict):
-                        raise ValueError
-                except (tomllib.TOMLDecodeError, UnicodeDecodeError, ValueError):
-                    findings.append(
-                        _finding(
-                            "MANIFEST.MALFORMED",
-                            "languages_build_ecosystems",
-                            "A tracked Python manifest cannot be parsed deterministically.",
-                            (file.path,),
-                            "stack.python",
-                            severity="HIGH",
-                            blocking=True,
-                        )
-                    )
-        elif file.path == ".python-version":
+        elif name == ".python-version":
             items.append(
                 ("languages_build_ecosystems", _item(file, "RUNTIME_VERSION", "stack.python"))
             )

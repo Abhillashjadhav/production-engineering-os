@@ -41,9 +41,12 @@ from pmpe.repository.scanner import (
     RepositorySecurityError,
     _cancellation_requested,
     _implementation_source_evidence,
+    _spawn_guarded_git,
+    _stop_guarded_process_group,
+    _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/1.7.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/1.8.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -54,6 +57,21 @@ GOVERNANCE_IMPLEMENTATION_MODULES = (
 _REQUIRED_REMOTE_COVERAGE = frozenset({"remote_branches", "pull_requests", "issues", "governance"})
 _REQUIRED_GOVERNANCE_FACTS = frozenset({"branch_protection", "review_policy"})
 _OBJECT_FORMAT_LENGTH = {"sha1": 40, "sha256": 64}
+_REMOTE_PAYLOAD_FIELDS = frozenset(
+    {
+        "complete",
+        "repository",
+        "ref",
+        "observed_at",
+        "coverage",
+        "remote_branches",
+        "pull_requests",
+        "issues",
+        "governance",
+        "query_provenance",
+        "unknowns",
+    }
+)
 _SAFE_REF = re.compile(r"^(?:HEAD|[A-Za-z0-9][A-Za-z0-9._/-]{0,255})$")
 
 
@@ -128,8 +146,10 @@ def _remote_provider_worker(
 ) -> None:
     """Run injected remote I/O in a killable, output-bounded process."""
 
+    isolated = False
     try:
         os.setsid()
+        isolated = True
         safe_path = os.environ.get("PATH", "/usr/bin:/bin")
         os.environ.clear()
         os.environ.update(
@@ -170,12 +190,15 @@ def _remote_provider_worker(
             connection.send_bytes(b"ERROR\0" + type(exc).__name__.encode("ascii", errors="replace"))
     finally:
         connection.close()
+        if isolated:
+            while True:
+                signal.pause()
 
 
 class GovernanceCommandRunner:
     """Allowlisted local Git observation commands with mutation subcommands refused."""
 
-    identity = "git-governance-readonly/1.6.0"
+    identity = "git-governance-readonly/1.7.0"
     _allowed = {
         "config",
         "status",
@@ -233,19 +256,9 @@ class GovernanceCommandRunner:
             "GIT_CONFIG_VALUE_5": "false",
             "LC_ALL": "C",
         }
-        try:
-            process = subprocess.Popen(
-                args,
-                cwd=cwd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                env=safe_environment,
-                start_new_session=True,
-            )
-        except OSError:
-            raise
+        process, guard = _spawn_guarded_git(args, cwd, safe_environment)
         if process.stdout is None:
-            process.kill()
+            _stop_guarded_process_group(process, guard)
             raise RepositoryIntelligenceError("governance command output is unavailable")
         selector = selectors.DefaultSelector()
         selector.register(process.stdout, selectors.EVENT_READ)
@@ -274,26 +287,14 @@ class GovernanceCommandRunner:
                     output_exceeded = True
                     break
         except BaseException:
-            _stop_governance_process_group(process)
+            _stop_guarded_process_group(process, guard)
             raise
         finally:
             selector.close()
             process.stdout.close()
-        if cancelled or output_exceeded or timed_out:
-            _stop_governance_process_group(process)
-            returncode = process.returncode
-        else:
-            try:
-                returncode = process.wait(timeout=max(0.1, deadline - time.monotonic()))
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                _stop_governance_process_group(process)
-                returncode = process.returncode
-            else:
-                if not _signal_process_group(process, signal.SIGKILL):
-                    raise RepositorySecurityError(
-                        "governance Git descendant termination could not be proven"
-                    )
+        _stop_guarded_process_group(process, guard)
+        returncode = process.returncode
+        assert returncode is not None
         return CommandResult(
             args=args,
             returncode=126 if cancelled else 125 if output_exceeded else returncode,
@@ -334,21 +335,6 @@ def _signal_process_group(process: subprocess.Popen[bytes], action: signal.Signa
                     "bounded Git process group and parent could not be terminated"
                 ) from exc
         return False
-
-
-def _stop_governance_process_group(process: subprocess.Popen[bytes]) -> None:
-    """Terminate, fence, and reap a governance command and every descendant."""
-
-    _signal_process_group(process, signal.SIGTERM)
-    with suppress(subprocess.TimeoutExpired):
-        process.wait(timeout=0.25)
-    group_proven = _signal_process_group(process, signal.SIGKILL)
-    try:
-        process.wait(timeout=1.0)
-    except subprocess.TimeoutExpired as exc:
-        raise RepositorySecurityError("bounded Git process could not be reaped") from exc
-    if not group_proven:
-        raise RepositorySecurityError("governance Git descendant termination could not be proven")
 
 
 def _decode(result: CommandResult) -> str:
@@ -423,21 +409,16 @@ def _stop_remote_process(process: Any) -> None:
     """Terminate and reap the isolated provider process and its descendants."""
 
     try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-    except (PermissionError, OSError):
-        if process.is_alive():
-            process.terminate()
-    process.join(timeout=0.25)
-    try:
         os.killpg(process.pid, signal.SIGKILL)
         group_proven = True
     except ProcessLookupError:
-        group_proven = True
+        group_proven = _wait_for_exit_without_reaping(process, 0.0)
+        if not group_proven:
+            with suppress(ProcessLookupError, OSError):
+                process.kill()
     except (PermissionError, OSError):
         group_proven = False
-        if process.is_alive():
+        with suppress(ProcessLookupError, OSError):
             process.kill()
     process.join(timeout=1.0)
     if process.is_alive():
@@ -511,7 +492,8 @@ def _validate_remote_payload_types(value: dict[str, Any]) -> None:
     """Reject provider coercion before mutable evidence becomes authoritative."""
 
     if (
-        not isinstance(value.get("complete"), bool)
+        set(value) != _REMOTE_PAYLOAD_FIELDS
+        or not isinstance(value.get("complete"), bool)
         or not _is_str(value.get("repository"))
         or not _is_str(value.get("ref"))
         or not _is_str(value.get("observed_at"))
@@ -804,6 +786,10 @@ class GovernanceCollector:
                             "bounded remote provider isolation was not established"
                         )
                     if status == "RESULT":
+                        if len(payload) > self.max_output_bytes:
+                            raise RepositoryIntelligenceError(
+                                "bounded remote provider result exceeded its byte budget"
+                            )
                         try:
                             decoded = json.loads(payload)
                         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
@@ -814,6 +800,11 @@ class GovernanceCollector:
                             raise RepositoryIntelligenceError(
                                 "bounded remote provider result was malformed"
                             )
+                        _bounded_remote_shape(
+                            decoded,
+                            max_bytes=self.max_output_bytes,
+                            max_items=self.max_remote_items,
+                        )
                         return cast(dict[str, Any], decoded)
                     if status == "PERMISSION":
                         raise PermissionError("bounded remote provider denied access")
@@ -824,10 +815,6 @@ class GovernanceCollector:
                     )
                     raise RepositoryIntelligenceError(
                         f"bounded remote provider failed safely: {safe_type}"
-                    )
-                if not process.is_alive():
-                    raise RepositoryIntelligenceError(
-                        "bounded remote provider exited without complete evidence"
                     )
         finally:
             receiver.close()

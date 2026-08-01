@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import re
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
@@ -15,7 +17,7 @@ class RedactionError(RuntimeError):
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
-    version = "central-redactor/1.6.0"
+    version = "central-redactor/1.7.0"
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
         r"|glpat-[A-Za-z0-9_-]{16,}"
@@ -54,9 +56,27 @@ class EvidenceRedactor:
         r"|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|passwd|secret"
         r"|private[_-]?key|credential|token|signature|sig)"
     )
+    _sensitive_environment_field = re.compile(
+        r"(?i)(?:auth|authorization|cookie|credential|database[_-]?url|db[_-]?url"
+        r"|redis[_-]?url|api[_-]?key|access[_-]?key|private[_-]?key|password|passwd"
+        r"|pwd|secret|signature|token)"
+    )
 
-    def __init__(self) -> None:
+    def __init__(self, *, environment: Mapping[str, str] | None = None) -> None:
         self._home = str(Path.home())
+        source = os.environ if environment is None else environment
+        self._environment_secrets = tuple(
+            sorted(
+                {
+                    value
+                    for key, value in source.items()
+                    if self._sensitive_environment_field.search(key)
+                    and isinstance(value, str)
+                    and len(value) >= 4
+                },
+                key=lambda item: (-len(item), item),
+            )
+        )
 
     @staticmethod
     def _redact_assignment(match: re.Match[str]) -> str:
@@ -95,7 +115,10 @@ class EvidenceRedactor:
         return urlunsplit((parts.scheme, netloc, parts.path, query, ""))
 
     def _sanitize_string(self, value: str) -> str:
-        sanitized = self._private_key.sub("[REDACTED_PRIVATE_KEY]", value)
+        sanitized = value
+        for secret in self._environment_secrets:
+            sanitized = sanitized.replace(secret, "[REDACTED_ENV]")
+        sanitized = self._private_key.sub("[REDACTED_PRIVATE_KEY]", sanitized)
         sanitized = self._private_key_header.sub("[REDACTED_PRIVATE_KEY]", sanitized)
         sanitized = self._authorization.sub("Authorization: [REDACTED]", sanitized)
         sanitized = self._url_credentials.sub(r"\1[REDACTED]@", sanitized)

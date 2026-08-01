@@ -5,8 +5,9 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import secrets
 import sys
-import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 from pmpe.repository import (
@@ -89,24 +90,92 @@ def _outside_repository(output: Path, protected_paths: tuple[Path, ...]) -> Path
     return resolved
 
 
-def _atomic_write(path: Path, payload: bytes) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
-    temporary_path = Path(temporary)
+@dataclass(frozen=True)
+class _PreparedOutput:
+    path: Path
+    parent_descriptor: int
+    parent_identity: tuple[int, int]
+
+    def close(self) -> None:
+        os.close(self.parent_descriptor)
+
+
+def _prepare_output(path: Path, protected_paths: tuple[Path, ...]) -> _PreparedOutput:
+    """Open and pin a validated output directory before an untrusted scan runs."""
+
+    validated = _outside_repository(path, protected_paths)
+    validated.parent.mkdir(parents=True, exist_ok=True)
+    validated = _outside_repository(validated, protected_paths)
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
+        descriptor = os.open(validated.parent, flags)
+        identity = os.fstat(descriptor)
+    except OSError as exc:
+        raise RepositorySecurityError("artifact output directory could not be pinned") from exc
+    return _PreparedOutput(
+        path=validated,
+        parent_descriptor=descriptor,
+        parent_identity=(identity.st_dev, identity.st_ino),
+    )
+
+
+def _revalidate_output(output: _PreparedOutput, protected_paths: tuple[Path, ...]) -> None:
+    """Reject path replacement while continuing to rely on the pinned descriptor."""
+
+    try:
+        current = _outside_repository(output.path, protected_paths)
+        parent = os.stat(current.parent, follow_symlinks=False)
+        pinned = os.fstat(output.parent_descriptor)
+    except (OSError, RepositorySecurityError) as exc:
+        raise RepositorySecurityError("artifact output containment changed during scan") from exc
+    if current != output.path or (parent.st_dev, parent.st_ino) != output.parent_identity:
+        raise RepositorySecurityError("artifact output containment changed during scan")
+    if (pinned.st_dev, pinned.st_ino) != output.parent_identity:
+        raise RepositorySecurityError("artifact output descriptor identity changed during scan")
+
+
+def _atomic_write(
+    output: _PreparedOutput,
+    payload: bytes,
+    protected_paths: tuple[Path, ...],
+) -> None:
+    _revalidate_output(output, protected_paths)
+    temporary = f".{output.path.name}.{secrets.token_hex(16)}"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
+    try:
+        descriptor = os.open(temporary, flags, 0o600, dir_fd=output.parent_descriptor)
         with os.fdopen(descriptor, "wb") as stream:
+            descriptor = None
             stream.write(payload)
             stream.write(b"\n")
             stream.flush()
             os.fsync(stream.fileno())
-        temporary_path.replace(path)
-    except Exception:
-        temporary_path.unlink(missing_ok=True)
-        raise
+        _revalidate_output(output, protected_paths)
+        os.replace(
+            temporary,
+            output.path.name,
+            src_dir_fd=output.parent_descriptor,
+            dst_dir_fd=output.parent_descriptor,
+        )
+        os.fsync(output.parent_descriptor)
+    except OSError as exc:
+        raise RepositorySecurityError("artifact write could not be completed safely") from exc
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+        try:
+            os.unlink(temporary, dir_fd=output.parent_descriptor)
+        except FileNotFoundError:
+            pass
+        except OSError as exc:
+            raise RepositorySecurityError("temporary artifact cleanup could not be proven") from exc
 
 
 def _cmd_scan(args: argparse.Namespace) -> int:
     requested = Path(args.repo)
+    snapshot_output: _PreparedOutput | None = None
+    governance_output: _PreparedOutput | None = None
     try:
         root = resolve_repository_root(requested)
         protected_paths = _protected_repository_paths(root)
@@ -120,6 +189,9 @@ def _cmd_scan(args: argparse.Namespace) -> int:
             raise RepositorySecurityError(
                 "snapshot and governance artifacts require distinct output paths"
             )
+        snapshot_output = _prepare_output(snapshot_path, protected_paths)
+        if governance_path is not None:
+            governance_output = _prepare_output(governance_path, protected_paths)
         snapshot = scan_repository(
             requested,
             commit=args.commit,
@@ -140,12 +212,17 @@ def _cmd_scan(args: argparse.Namespace) -> int:
                 clock=clock,
                 id_provider=ids,
             )
-        _atomic_write(snapshot_path, snapshot.canonical_bytes())
-        if governance_path is not None and observation is not None:
-            _atomic_write(governance_path, observation.canonical_bytes())
+        _atomic_write(snapshot_output, snapshot.canonical_bytes(), protected_paths)
+        if governance_output is not None and observation is not None:
+            _atomic_write(governance_output, observation.canonical_bytes(), protected_paths)
     except RepositoryIntelligenceError as exc:
         print(f"repository intelligence blocked: {exc}", file=sys.stderr)
         return 1
+    finally:
+        if governance_output is not None:
+            governance_output.close()
+        if snapshot_output is not None:
+            snapshot_output.close()
     summary = {
         "snapshot_digest": snapshot.snapshot_digest,
         "snapshot_disposition": snapshot.disposition,

@@ -14,8 +14,9 @@ import re
 import selectors
 import signal
 import subprocess
+import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from contextlib import suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
@@ -46,7 +47,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/1.7.0"
+SCANNER_VERSION = "repository-scanner/1.8.0"
 IMPLEMENTATION_MODULES = (
     "repository.adapters",
     "repository.models",
@@ -75,8 +76,63 @@ class Cancellation(Protocol):
     def cancelled(self) -> bool: ...
 
 
+_PROCESS_GROUP_GUARD = "import signal\nwhile True:\n signal.pause()"
+
+
+def _spawn_guarded_git(
+    args: tuple[str, ...], cwd: Path, environment: dict[str, str]
+) -> tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]]:
+    """Launch Git behind an inert group leader whose PID cannot be reused early."""
+
+    guard_environment = {"PATH": environment.get("PATH", "/usr/bin:/bin"), "LC_ALL": "C"}
+    guard = subprocess.Popen(
+        (sys.executable, "-I", "-S", "-c", _PROCESS_GROUP_GUARD),
+        cwd=cwd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=guard_environment,
+        process_group=0,
+    )
+    try:
+        process = subprocess.Popen(
+            args,
+            cwd=cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            env=environment,
+            process_group=guard.pid,
+        )
+    except BaseException:
+        with suppress(ProcessLookupError, OSError):
+            os.killpg(guard.pid, signal.SIGKILL)
+        with suppress(subprocess.TimeoutExpired):
+            guard.wait(timeout=1.0)
+        raise
+    return process, guard
+
+
+def _stop_guarded_process_group(
+    process: subprocess.Popen[bytes], guard: subprocess.Popen[bytes]
+) -> None:
+    """Fence a retained group identity, then reap the command and its guard."""
+
+    group_proven = _signal_process_group(guard, signal.SIGKILL)
+    try:
+        process.wait(timeout=1.0)
+        guard.wait(timeout=1.0)
+    except subprocess.TimeoutExpired as exc:
+        raise RepositorySecurityError("bounded Git process group could not be reaped") from exc
+    if not group_proven:
+        raise RepositorySecurityError("bounded Git descendant termination could not be proven")
+
+
 class _ScanCancelledError(RepositoryIntelligenceError):
     """An in-flight bounded scan operation was cancelled."""
+
+
+class _ScanCommandBudgetError(RepositoryIntelligenceError):
+    """A required scan command could not run within the declared budget."""
 
 
 def _cancellation_requested(cancellation: Cancellation | None) -> bool:
@@ -99,7 +155,7 @@ class TreeListingResult:
 class SubprocessCommandRunner:
     """Allowlisted local Git reader; it never invokes shells or project code."""
 
-    identity = "git-readonly-subprocess/1.6.0"
+    identity = "git-readonly-subprocess/1.7.0"
     _allowed = {"rev-parse", "ls-tree", "cat-file", "version"}
 
     @staticmethod
@@ -138,19 +194,9 @@ class SubprocessCommandRunner:
     ) -> CommandResult:
         if len(args) < 2 or args[0] != "git" or args[1] not in self._allowed:
             raise RepositorySecurityError("command is outside the read-only Git allowlist")
-        try:
-            process = subprocess.Popen(
-                args,
-                cwd=cwd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-                env=self._environment(),
-                start_new_session=True,
-            )
-        except OSError:
-            raise
+        process, guard = _spawn_guarded_git(args, cwd, self._environment())
         if process.stdout is None:
-            _stop_subprocess_group(process)
+            _stop_guarded_process_group(process, guard)
             raise RepositoryIntelligenceError("bounded Git command output is unavailable")
         selector = selectors.DefaultSelector()
         selector.register(process.stdout, selectors.EVENT_READ)
@@ -176,30 +222,18 @@ class SubprocessCommandRunner:
                     if len(payload) > 8_000_000:
                         timed_out = True
                         break
-                elif process.poll() is not None:
-                    break
         except BaseException:
-            _stop_subprocess_group(process)
+            _stop_guarded_process_group(process, guard)
             raise
         finally:
             selector.close()
             process.stdout.close()
-        if cancelled or timed_out:
-            _stop_subprocess_group(process)
-        else:
-            try:
-                process.wait(timeout=0.25)
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                _stop_subprocess_group(process)
-            else:
-                if not _signal_process_group(process, signal.SIGKILL):
-                    raise RepositorySecurityError(
-                        "bounded Git descendant termination could not be proven"
-                    )
+        _stop_guarded_process_group(process, guard)
+        returncode = process.returncode
+        assert returncode is not None
         return CommandResult(
             args=args,
-            returncode=126 if cancelled else 124 if timed_out else process.returncode,
+            returncode=126 if cancelled else 124 if timed_out else returncode,
             stdout=bytes(payload),
             stderr=b"",
             timed_out=timed_out,
@@ -219,16 +253,9 @@ class SubprocessCommandRunner:
 
         if len(args) < 2 or args[0:2] != ("git", "ls-tree"):
             raise RepositorySecurityError("bounded tree reader only accepts git ls-tree")
-        process = subprocess.Popen(
-            args,
-            cwd=cwd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            env=self._environment(),
-            start_new_session=True,
-        )
+        process, guard = _spawn_guarded_git(args, cwd, self._environment())
         if process.stdout is None:
-            process.kill()
+            _stop_guarded_process_group(process, guard)
             raise RepositoryIntelligenceError("bounded tree reader did not expose output")
         selector = selectors.DefaultSelector()
         selector.register(process.stdout, selectors.EVENT_READ)
@@ -263,26 +290,14 @@ class SubprocessCommandRunner:
                     record_limit = True
                     break
         except BaseException:
-            _stop_subprocess_group(process)
+            _stop_guarded_process_group(process, guard)
             raise
         finally:
             selector.close()
             process.stdout.close()
-        if cancelled or record_limit or byte_limit or timed_out:
-            _stop_subprocess_group(process)
-            returncode = process.returncode
-        else:
-            try:
-                returncode = process.wait(timeout=max(0.1, deadline - time.monotonic()))
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                _stop_subprocess_group(process)
-                returncode = process.returncode
-            else:
-                if not _signal_process_group(process, signal.SIGKILL):
-                    raise RepositorySecurityError(
-                        "bounded Git descendant termination could not be proven"
-                    )
+        _stop_guarded_process_group(process, guard)
+        returncode = process.returncode
+        assert returncode is not None
         complete_records = bytes(payload[:max_output_bytes]).split(b"\0")
         if complete_records and complete_records[-1]:
             complete_records = complete_records[:-1]
@@ -340,19 +355,32 @@ def _signal_process_group(process: subprocess.Popen[bytes], action: signal.Signa
         return False
 
 
-def _stop_subprocess_group(process: subprocess.Popen[bytes]) -> None:
-    """Terminate and reap a bounded process group, including surviving descendants."""
+def _wait_for_exit_without_reaping(process: subprocess.Popen[bytes], timeout: float) -> bool:
+    """Observe child exit while retaining its PID until the process group is fenced."""
 
-    _signal_process_group(process, signal.SIGTERM)
-    with suppress(subprocess.TimeoutExpired):
-        process.wait(timeout=0.25)
-    group_proven = _signal_process_group(process, signal.SIGKILL)
-    try:
-        process.wait(timeout=1.0)
-    except subprocess.TimeoutExpired as exc:
-        raise RepositorySecurityError("bounded Git process could not be reaped") from exc
-    if not group_proven:
-        raise RepositorySecurityError("bounded Git descendant termination could not be proven")
+    if not all(hasattr(os, name) for name in ("P_PID", "WEXITED", "WNOHANG", "WNOWAIT")):
+        raise RepositorySecurityError("PID-safe bounded process observation is unsupported")
+    waitid = cast(
+        Callable[[int, int, int], object | None],
+        vars(os)["waitid"],
+    )
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            result = waitid(
+                os.P_PID,
+                process.pid,
+                os.WEXITED | os.WNOHANG | os.WNOWAIT,
+            )
+        except ChildProcessError as exc:
+            raise RepositorySecurityError(
+                "bounded process was reaped before its process group was fenced"
+            ) from exc
+        if result is not None:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.01)
 
 
 def _valid_object_id(value: str, object_format: str) -> bool:
@@ -423,8 +451,10 @@ def _implementation_digest(
 def _adapter_worker(connection: Any, adapter: RepositoryAdapter, context: AdapterContext) -> None:
     """Evaluate one adapter in a killable, environment-isolated process."""
 
+    isolated = False
     try:
         os.setsid()
+        isolated = True
         os.environ.clear()
         os.environ.update({"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
         result = adapter.evaluator(context)
@@ -447,27 +477,25 @@ def _adapter_worker(connection: Any, adapter: RepositoryAdapter, context: Adapte
             )
     finally:
         connection.close()
+        if isolated:
+            while True:
+                signal.pause()
 
 
 def _stop_isolated_process(process: Any) -> None:
     """Terminate a forked evaluator and its descendants even if its parent exited."""
 
     try:
-        os.killpg(process.pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pass
-    except (PermissionError, OSError):
-        if process.is_alive():
-            process.terminate()
-    process.join(timeout=0.25)
-    try:
         os.killpg(process.pid, signal.SIGKILL)
         group_proven = True
     except ProcessLookupError:
-        group_proven = True
+        group_proven = _wait_for_exit_without_reaping(process, 0.0)
+        if not group_proven:
+            with suppress(ProcessLookupError, OSError):
+                process.kill()
     except (PermissionError, OSError):
         group_proven = False
-        if process.is_alive():
+        with suppress(ProcessLookupError, OSError):
             process.kill()
     process.join(timeout=1.0)
     if process.is_alive():
@@ -639,7 +667,9 @@ class RepositoryScanner:
         ):
             raise RepositoryIntelligenceError("repository adapter declaration is invalid")
         self.runner = command_runner or SubprocessCommandRunner()
-        self.redactor = redactor or EvidenceRedactor()
+        # Exact-SHA snapshots never capture host environment values; excluding them
+        # from the default redaction context preserves cross-host determinism.
+        self.redactor = redactor or EvidenceRedactor(environment={})
         self.cancellation = cancellation
         extension_targets: list[tuple[str, Any]] = [
             ("command_runner", self.runner),
@@ -777,21 +807,11 @@ class RepositoryScanner:
 
     def _collect_tool_versions(self, root: Path) -> tuple[ToolVersion, ...]:
         try:
-            if isinstance(self.runner, SubprocessCommandRunner):
-                git_result = self.runner.run(
-                    ("git", "version"),
-                    root,
-                    self.config.command_timeout_seconds,
-                    cancellation=self.cancellation,
+            git_result = self._run(("git", "version"), root)
+            if git_result is None:
+                raise _ScanCommandBudgetError(
+                    "Git version could not be observed within the command budget"
                 )
-            else:
-                git_result = self.runner.run(
-                    ("git", "version"), root, self.config.command_timeout_seconds
-                )
-            if git_result.returncode == 126:
-                raise _ScanCancelledError("Git version observation was cancelled")
-            if git_result.timed_out or git_result.returncode != 0:
-                raise RepositoryIntelligenceError("Git version command failed")
             git_version = _text(git_result.stdout).strip()
             canonicalizer_version = importlib.metadata.version("rfc8785")
         except (
@@ -813,6 +833,35 @@ class RepositoryScanner:
                 ),
                 key=lambda item: item.tool,
             )
+        )
+
+    def _command_budget_snapshot(
+        self,
+        commit_sha: str,
+        tree_sha: str,
+        git_object_format: str,
+        config_digest: str,
+        adapter_digest: str,
+    ) -> RepositorySnapshot:
+        finding = _finding(
+            "BUDGET.COMMAND_COUNT",
+            "repository_topology",
+            "The command budget ended before required scanner tooling could be observed.",
+            ("repository:scan-budget",),
+            blocking=True,
+        )
+        return self._finalize(
+            commit_sha=commit_sha,
+            tree_sha=tree_sha,
+            git_object_format=git_object_format,
+            config_digest=config_digest,
+            adapter_digest=adapter_digest,
+            inventory_items={},
+            findings=[finding],
+            boundaries=[],
+            statuses=dict.fromkeys(AUDIT_CATEGORIES, "BLOCKED"),
+            reasons=dict.fromkeys(AUDIT_CATEGORIES, "scan command budget exhausted"),
+            disposition="BLOCKED",
         )
 
     def _cancelled_snapshot(
@@ -1306,8 +1355,6 @@ class RepositoryScanner:
                     except (KeyError, TypeError, ValueError):
                         return "ERROR", None
                     return "RESULT", result
-                if not process.is_alive():
-                    return "ERROR", None
         finally:
             receiver.close()
             _stop_isolated_process(process)
@@ -1495,8 +1542,6 @@ class RepositoryScanner:
             "Jenkinsfile",
             "MODULE.bazel",
             "Makefile",
-            "Pipfile",
-            "Pipfile.lock",
             "Procfile",
             "Rakefile",
             "SConstruct",
@@ -1733,6 +1778,14 @@ class RepositoryScanner:
                 root, tree_sha, object_format
             )
             inventory, adapter_findings, boundaries, supported = self._apply_adapters(tuple(files))
+        except _ScanCommandBudgetError:
+            return self._command_budget_snapshot(
+                commit_sha,
+                tree_sha,
+                object_format,
+                config_digest,
+                adapter_digest,
+            )
         except _ScanCancelledError:
             return self._cancelled_snapshot(
                 root, commit_sha, tree_sha, object_format, config_digest, adapter_digest
