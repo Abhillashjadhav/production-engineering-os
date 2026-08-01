@@ -153,7 +153,7 @@ def test_scoped_scan_is_explicitly_partial_and_keeps_full_tree_binding(tmp_path:
     scoped = _scan(repo, include_paths=("src",))
     assert scoped.scan_scope == "INCLUDED_PATHS"
     assert scoped.included_paths == ("src",)
-    assert scoped.disposition == "PARTIAL"
+    assert scoped.disposition == "BLOCKED"
     assert scoped.tracked_tree_digest == full.tracked_tree_digest
     assert scoped.scanned_content_digest != full.scanned_content_digest
     assert any(item.code == "SCAN.SCOPED_PARTIAL" for item in scoped.findings)
@@ -380,7 +380,7 @@ def test_api_codegen_declarations_bind_tracked_inputs_outputs_and_exporter(
                 "name": "web",
                 "scripts": {
                     "generate:api-types": (
-                        "openapi-typescript ../backend/openapi.json -o src/lib/api-types.gen.ts"
+                        "openapi-typescript ../backend/schema.json -o src/lib/api.ts"
                     )
                 },
             }
@@ -388,13 +388,18 @@ def test_api_codegen_declarations_bind_tracked_inputs_outputs_and_exporter(
     )
     _write(
         repo,
-        "products/backend/openapi.json",
-        '{"openapi":"3.1.0","info":{"title":"Fixture","version":"1"},"paths":{}}',
+        "products/backend/schema.json",
+        '{"$schema":"https://json-schema.org/draft/2020-12/schema"}',
     )
-    _write(repo, "products/web/src/lib/api-types.gen.ts", "export interface paths {}\n")
+    _write(repo, "products/web/src/lib/api.ts", "export interface paths {}\n")
     _write(
         repo,
-        "products/backend/scripts/export_openapi.py",
+        "openapi.json",
+        '{"openapi":"3.1.0","info":{"title":"Fixture","version":"1"},"paths":{}}',
+    )
+    _write(
+        repo,
+        "scripts/export_openapi.py",
         'target = root / "openapi.json"\ntarget.write_text("{}")\n',
     )
     _commit(repo, "code generation relationship")
@@ -413,18 +418,31 @@ def test_api_codegen_declarations_bind_tracked_inputs_outputs_and_exporter(
     }
     assert {item.path for item in relationship} == {
         "products/web/package.json",
-        "products/backend/openapi.json",
-        "products/web/src/lib/api-types.gen.ts",
+        "products/backend/schema.json",
+        "products/web/src/lib/api.ts",
     }
     export_relationship = [
-        item
-        for item in evidence
-        if item.location == "products/backend/scripts/export_openapi.py#export"
+        item for item in evidence if item.location == "scripts/export_openapi.py#export"
     ]
     assert {item.kind for item in export_relationship} == {
         "CODE_GENERATOR_SIGNAL",
         "CODE_GENERATION_OUTPUT",
     }
+
+
+def test_openapi_named_source_or_documentation_is_not_parsed_as_a_contract(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "docs/openapi-guide.md", "# OpenAPI authoring guide\n")
+    _write(repo, "src/openapi_helpers.py", "def helper() -> None:\n    pass\n")
+    _commit(repo, "non-contract OpenAPI names")
+    snapshot = _scan(repo)
+    assert not any(
+        item.code == "INTERFACE.DECLARATION_INVALID"
+        and set(item.evidence_refs) & {"docs/openapi-guide.md", "src/openapi_helpers.py"}
+        for item in snapshot.findings
+    )
 
 
 def test_incomplete_api_codegen_relationship_fails_closed(tmp_path: Path) -> None:
@@ -623,6 +641,26 @@ def test_unhandled_required_subcategory_is_blocked_not_silently_absent(
         item.code == "AUDIT.UNSUPPORTED_SUBCATEGORY" and "data-model.yaml" in item.evidence_refs
         for item in snapshot.findings
     )
+
+
+def test_every_required_internal_audit_subcategory_is_explicit(tmp_path: Path) -> None:
+    snapshot = _scan(_init_repo(tmp_path, mixed=False))
+    unsupported = {
+        item.explanation
+        for item in snapshot.findings
+        if item.code == "AUDIT.REQUIRED_SUBCATEGORY_UNSUPPORTED"
+    }
+    assert all(
+        any(capability in explanation for explanation in unsupported)
+        for capability in (
+            "ignored paths",
+            "internal dependency direction",
+            "shared-library relationships",
+            "storage models",
+            "deployment-evidence mechanisms",
+        )
+    )
+    assert snapshot.disposition == "BLOCKED"
 
 
 def test_blocked_subcategory_status_survives_a_concurrent_partial_scan(
@@ -1136,6 +1174,21 @@ def test_sensitive_environment_value_is_redacted_under_benign_field() -> None:
     assert sanitized["message"] == "provider returned [REDACTED_ENV]"
 
 
+def test_home_path_minimization_is_host_state_independent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    redaction = importlib.import_module("pmpe.repository.redaction")
+    monkeypatch.setenv("HOME", "/Users/first-host")
+    first = redaction.EvidenceRedactor(environment={}).sanitize(
+        "/Users/repository-owner/work/repository"
+    )
+    monkeypatch.setenv("HOME", "/home/second-host")
+    second = redaction.EvidenceRedactor(environment={}).sanitize(
+        "/Users/repository-owner/work/repository"
+    )
+    assert first == second == "$HOME/work/repository"
+
+
 def _fixed_clock() -> Any:
     return _api().RecordedUtcClock("2026-08-01T00:00:00Z")
 
@@ -1179,6 +1232,11 @@ class _FakeRemote:
                 "schema_version": "pmpe.repository-governance/v1",
                 "branch_protection": {"observed": True, "required_checks": ["ci"]},
                 "review_policy": {"required_approvals": 1},
+                "security_settings": {
+                    "observed": True,
+                    "leak_detection": "ENABLED",
+                    "dependency_alerts": "ENABLED",
+                },
             },
             "query_provenance": [
                 {
@@ -1257,6 +1315,13 @@ class _ExtraCoverageRemote(_FakeRemote):
     def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
         payload = super().collect(repository, ref, **bounds)
         payload["coverage"].append("deployments")
+        return payload
+
+
+class _MissingSecuritySettingsRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        del payload["governance"]["security_settings"]
         return payload
 
 
@@ -1783,7 +1848,10 @@ def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path:
     assert "[REDACTED]" in payload
 
 
-@pytest.mark.parametrize("remote", [_InvalidIssueStateRemote(), _ExtraCoverageRemote()])
+@pytest.mark.parametrize(
+    "remote",
+    [_InvalidIssueStateRemote(), _ExtraCoverageRemote(), _MissingSecuritySettingsRemote()],
+)
 def test_untyped_or_overbroad_remote_metadata_cannot_be_complete(
     tmp_path: Path,
     remote: Any,
@@ -1791,7 +1859,12 @@ def test_untyped_or_overbroad_remote_metadata_cannot_be_complete(
     observation = _observe(_init_repo(tmp_path), remote)
     assert observation.disposition == "BLOCKED"
     assert any(
-        item.fact in {"remote_metadata_shape", "remote_metadata_completeness"}
+        item.fact
+        in {
+            "remote_governance_completeness",
+            "remote_metadata_shape",
+            "remote_metadata_completeness",
+        }
         for item in observation.unknowns
     )
 

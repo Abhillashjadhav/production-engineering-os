@@ -53,6 +53,7 @@ class TrackedFile:
 @dataclass(frozen=True)
 class AdapterContext:
     files: tuple[TrackedFile, ...]
+    repository_files: tuple[TrackedFile, ...] = ()
 
     def matching(self, patterns: tuple[str, ...]) -> tuple[TrackedFile, ...]:
         return tuple(
@@ -261,6 +262,21 @@ def _openapi_typescript_relationship(command: str) -> tuple[str, str] | None:
     if len(positional) != 1 or output is None:
         return None
     return positional[0], output
+
+
+def _api_declaration_kind(path: str) -> str | None:
+    """Return a declaration kind only for supported API document filenames."""
+
+    name = PurePosixPath(path).name.lower()
+    suffix = PurePosixPath(name).suffix
+    if suffix not in {".json", ".yaml", ".yml"}:
+        return None
+    stem = name[: -len(suffix)]
+    if stem == "openapi" or stem.endswith(".openapi"):
+        return "OPENAPI"
+    if stem == "asyncapi" or stem.endswith(".asyncapi"):
+        return "EVENT_CONTRACT"
+    return None
 
 
 @repository_adapter(
@@ -1315,7 +1331,7 @@ def _valid_ci_structure(path: str, value: object) -> bool:
 def _interfaces(context: AdapterContext) -> AdapterResult:
     items: list[tuple[str, EvidenceItem]] = []
     findings: list[Finding] = []
-    files_by_path = {file.path: file for file in context.files}
+    files_by_path = {file.path: file for file in (context.repository_files or context.files)}
     for file in context.files:
         lowered = file.path.lower()
         confidence = "HIGH"
@@ -1393,7 +1409,7 @@ def _interfaces(context: AdapterContext) -> AdapterResult:
                         )
                     )
             continue
-        if lowered.endswith("/scripts/export_openapi.py"):
+        if lowered == "scripts/export_openapi.py" or lowered.endswith("/scripts/export_openapi.py"):
             target_path = str(PurePosixPath(file.path).parent.parent / "openapi.json")
             target = files_by_path.get(target_path)
             content = (
@@ -1440,10 +1456,9 @@ def _interfaces(context: AdapterContext) -> AdapterResult:
                 )
             )
             continue
-        if "openapi" in lowered:
-            kind = "OPENAPI"
-        elif "asyncapi" in lowered:
-            kind = "EVENT_CONTRACT"
+        declaration_kind = _api_declaration_kind(lowered)
+        if declaration_kind is not None:
+            kind = declaration_kind
         elif lowered.endswith((".proto", ".graphql", ".gql")):
             kind = "INTERFACE_DEFINITION_SIGNAL"
             confidence = "MEDIUM"

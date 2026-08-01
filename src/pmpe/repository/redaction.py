@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Mapping
-from pathlib import Path
 from typing import Any, final
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -18,8 +17,8 @@ class RedactionError(RuntimeError):
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
-    version = "central-redactor/1.7.0"
-    __slots__ = ("_environment_secrets", "_home")
+    version = "central-redactor/1.8.0"
+    __slots__ = ("_environment_secrets",)
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
         r"|glpat-[A-Za-z0-9_-]{16,}"
@@ -63,9 +62,9 @@ class EvidenceRedactor:
         r"|redis[_-]?url|api[_-]?key|access[_-]?key|private[_-]?key|password|passwd"
         r"|pwd|secret|signature|token)"
     )
+    _home_path = re.compile(r"^(?:/Users|/home)/[^/]+(?=/|$)")
 
     def __init__(self, *, environment: Mapping[str, str] | None = None) -> None:
-        self._home = str(Path.home())
         source = os.environ if environment is None else environment
         self._environment_secrets = tuple(
             sorted(
@@ -131,9 +130,7 @@ class EvidenceRedactor:
         sanitized = self._embedded_url.sub(
             lambda match: self._sanitize_url(match.group(0)), sanitized
         )
-        if self._home and sanitized.startswith(self._home):
-            sanitized = "$HOME" + sanitized[len(self._home) :]
-        return sanitized
+        return self._home_path.sub("$HOME", sanitized)
 
     def sanitize(self, value: Any) -> Any:
         try:

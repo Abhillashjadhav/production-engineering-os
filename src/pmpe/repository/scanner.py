@@ -49,7 +49,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/2.3.0"
+SCANNER_VERSION = "repository-scanner/2.4.0"
 IMPLEMENTATION_MODULES = (
     "repository.adapters",
     "repository.models",
@@ -1296,7 +1296,10 @@ class RepositoryScanner:
                 )
                 break
             supported.update(adapter.supported_categories)
-            matched_context = AdapterContext(files=context.matching(adapter.file_patterns))
+            matched_context = AdapterContext(
+                files=context.matching(adapter.file_patterns),
+                repository_files=files,
+            )
             status, result = self._run_adapter_bounded(
                 adapter,
                 matched_context,
@@ -1356,7 +1359,7 @@ class RepositoryScanner:
         context: AdapterContext,
         result: AdapterResult,
     ) -> bool:
-        files = {item.path: item for item in context.files}
+        files = {item.path: item for item in (context.repository_files or context.files)}
         allowed_categories = set(adapter.supported_categories)
         allowed_confidence = {"HIGH", "MEDIUM", "LOW"}
         allowed_severity = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
@@ -1488,6 +1491,49 @@ class RepositoryScanner:
                 severity="MEDIUM",
             )
         ]
+        required_subcategories = (
+            (
+                "repository_topology",
+                "ignored paths",
+                (),
+            ),
+            (
+                "architecture_boundaries",
+                "internal dependency direction",
+                (),
+            ),
+            (
+                "architecture_boundaries",
+                "shared-library relationships",
+                (),
+            ),
+            (
+                "apis_data",
+                "storage models",
+                ("DATABASE_SCHEMA_SIGNAL", "MIGRATION_SIGNAL"),
+            ),
+            (
+                "delivery_environments",
+                "deployment-evidence mechanisms",
+                (),
+            ),
+        )
+        for category, capability, supported_kinds in required_subcategories:
+            if not supported_kinds or not any(
+                item.kind in supported_kinds for item in inventory[category]
+            ):
+                findings.append(
+                    _finding(
+                        "AUDIT.REQUIRED_SUBCATEGORY_UNSUPPORTED",
+                        category,
+                        f"The required {capability} audit subcategory has no complete "
+                        "deterministic detector for this snapshot; it remains explicitly "
+                        "unsupported rather than inferred or silently omitted.",
+                        ("repository:tracked-tree",),
+                        severity="HIGH",
+                        blocking=True,
+                    )
+                )
         gitlinks = tuple(sorted(file.path for file in files if file.mode == "160000"))
         if gitlinks:
             findings.append(
@@ -2024,7 +2070,10 @@ class RepositoryScanner:
                 "The tracked ecosystem has no deterministic adapter."
             )
         for finding in findings:
-            if finding.code == "AUDIT.UNSUPPORTED_SUBCATEGORY":
+            if finding.code in {
+                "AUDIT.REQUIRED_SUBCATEGORY_UNSUPPORTED",
+                "AUDIT.UNSUPPORTED_SUBCATEGORY",
+            }:
                 statuses[finding.category] = "BLOCKED"
                 reasons[finding.category] = (
                     "Relevant tracked content has no deterministic subcategory adapter."

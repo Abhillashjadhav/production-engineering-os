@@ -47,7 +47,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.7.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.8.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -57,7 +57,9 @@ GOVERNANCE_IMPLEMENTATION_MODULES = (
 )
 _REQUIRED_REMOTE_COVERAGE = frozenset({"remote_branches", "pull_requests", "issues", "governance"})
 _GOVERNANCE_SCHEMA_VERSION = "pmpe.repository-governance/v1"
-_GOVERNANCE_FIELDS = frozenset({"schema_version", "branch_protection", "review_policy"})
+_GOVERNANCE_FIELDS = frozenset(
+    {"schema_version", "branch_protection", "review_policy", "security_settings"}
+)
 _OBJECT_FORMAT_LENGTH = {"sha1": 40, "sha256": 64}
 _REMOTE_PAYLOAD_FIELDS = frozenset(
     {
@@ -660,6 +662,7 @@ def _governance_content_is_complete(value: dict[str, Any]) -> bool:
         return False
     branch_protection = value["branch_protection"]
     review_policy = value["review_policy"]
+    security_settings = value["security_settings"]
     if (
         not isinstance(branch_protection, dict)
         or set(branch_protection) != {"observed", "required_checks"}
@@ -672,6 +675,11 @@ def _governance_content_is_complete(value: dict[str, Any]) -> bool:
         or set(review_policy) != {"required_approvals"}
         or not _is_int(review_policy.get("required_approvals"))
         or review_policy["required_approvals"] < 0
+        or not isinstance(security_settings, dict)
+        or set(security_settings) != {"observed", "leak_detection", "dependency_alerts"}
+        or security_settings.get("observed") is not True
+        or security_settings.get("leak_detection") not in {"ENABLED", "DISABLED"}
+        or security_settings.get("dependency_alerts") not in {"ENABLED", "DISABLED"}
     ):
         return False
     pending: list[Any] = [value]
