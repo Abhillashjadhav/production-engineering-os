@@ -47,7 +47,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.5.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.6.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -83,6 +83,53 @@ def _valid_ref(value: str) -> bool:
         and not any(marker in value for marker in ("..", "@{", "//", "\\"))
         and not value.endswith(("/", ".", ".lock"))
     )
+
+
+def _valid_branch_ref(value: str) -> bool:
+    prefix = "refs/heads/"
+    if not value.startswith(prefix):
+        return False
+    name = value.removeprefix(prefix)
+    return (
+        name != "HEAD"
+        and _valid_ref(name)
+        and all(
+            part and not part.startswith(".") and not part.endswith((".", ".lock"))
+            for part in name.split("/")
+        )
+    )
+
+
+def _parse_porcelain_status(value: str) -> tuple[bool, bool, bool]:
+    """Parse the bounded NUL porcelain-v1 grammar or fail closed."""
+
+    records = value.split("\0")
+    if not records or records[-1] != "":
+        raise RepositoryIntelligenceError("local Git status output is malformed")
+    records.pop()
+    index_dirty = False
+    worktree_dirty = False
+    untracked = False
+    position = 0
+    allowed_codes = frozenset(" MTADRCU")
+    while position < len(records):
+        record = records[position]
+        if len(record) < 4 or record[2] != " " or not record[3:]:
+            raise RepositoryIntelligenceError("local Git status output is malformed")
+        status = record[:2]
+        if status == "??":
+            untracked = True
+        elif status == "!!" or status == "  " or any(code not in allowed_codes for code in status):
+            raise RepositoryIntelligenceError("local Git status output is malformed")
+        else:
+            index_dirty = index_dirty or status[0] != " "
+            worktree_dirty = worktree_dirty or status[1] != " "
+            if any(code in {"R", "C"} for code in status):
+                position += 1
+                if position >= len(records) or not records[position]:
+                    raise RepositoryIntelligenceError("local Git status output is malformed")
+        position += 1
+    return index_dirty, worktree_dirty, untracked
 
 
 def _valid_object_id(value: str, object_format: str) -> bool:
@@ -303,7 +350,7 @@ def _remote_provider_worker(
 class GovernanceCommandRunner:
     """Allowlisted local Git observation commands with mutation subcommands refused."""
 
-    identity = "git-governance-readonly/1.8.0"
+    identity = "git-governance-readonly/1.9.0"
     __slots__ = ("max_output_bytes",)
     _allowed = {
         "config",
@@ -318,6 +365,12 @@ class GovernanceCommandRunner:
         "--name-only",
         "--get-regexp",
         r"^filter\..*\.(clean|smudge|process)$",
+    )
+    _status_probe = (
+        "--porcelain=v1",
+        "-z",
+        "--untracked-files=all",
+        "--ignore-submodules=all",
     )
 
     def __init__(self, *, max_output_bytes: int = 8_000_000) -> None:
@@ -339,6 +392,8 @@ class GovernanceCommandRunner:
             raise RepositorySecurityError("Git configuration reads are outside the safe probe")
         if args[1] == "ls-files" and args[2:] != ("--stage", "-z"):
             raise RepositorySecurityError("Git index reads are outside the safe probe")
+        if args[1] == "status" and args[2:] != self._status_probe:
+            raise RepositorySecurityError("Git status reads are outside the safe probe")
         if args[1] == "worktree" and (len(args) < 3 or args[2] != "list"):
             raise RepositorySecurityError("mutating Git worktree command was refused")
         safe_environment = {
@@ -1134,6 +1189,21 @@ class GovernanceCollector:
                         )
                         current = {}
                         continue
+                    if not Path(current["worktree"]).is_absolute() or (
+                        "branch" in current and not _valid_branch_ref(current["branch"])
+                    ):
+                        self._local_unknowns.append(
+                            UnknownFact(
+                                fact=f"worktree_record:{record_number}",
+                                status="BLOCKED",
+                                reason=(
+                                    "A Git worktree path or branch reference is malformed; "
+                                    "mutable worktree state was not inferred."
+                                ),
+                            )
+                        )
+                        current = {}
+                        continue
                     results.append(
                         WorktreeObservation(
                             path=current["worktree"],
@@ -1313,23 +1383,14 @@ class GovernanceCollector:
             root,
             "status",
             "--porcelain=v1",
+            "-z",
             "--untracked-files=all",
             "--ignore-submodules=all",
         )
         head_sha = self._run(root, "rev-parse", "HEAD").strip()
         if not _valid_object_id(head_sha, object_format):
             raise RepositoryIntelligenceError("local Git HEAD is malformed")
-        index_dirty = False
-        worktree_dirty = False
-        untracked = False
-        for line in status_raw.splitlines():
-            if line.startswith("??"):
-                untracked = True
-                continue
-            if len(line) < 2:
-                raise RepositoryIntelligenceError("local Git status output is malformed")
-            index_dirty = index_dirty or line[0] not in {" ", "?"}
-            worktree_dirty = worktree_dirty or line[1] not in {" ", "?"}
+        index_dirty, worktree_dirty, untracked = _parse_porcelain_status(status_raw)
         local_state = LocalState(
             index_dirty=index_dirty,
             worktree_dirty=worktree_dirty,

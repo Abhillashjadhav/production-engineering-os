@@ -1356,6 +1356,57 @@ def test_governance_observation_records_dirty_index_worktree_and_untracked_state
     assert any(item.fact == "remote_governance" for item in observation.unknowns)
 
 
+@pytest.mark.parametrize(
+    "status_output",
+    [
+        "XX malformed\0",
+        "??\0",
+        "?? \0",
+        "M malformed\0",
+        "?? untracked-without-terminator",
+    ],
+)
+def test_malformed_porcelain_status_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    status_output: str,
+) -> None:
+    api = _api()
+    governance = importlib.import_module("pmpe.repository.governance")
+    repo = _init_repo(tmp_path)
+    original = governance.GovernanceCommandRunner.run
+
+    def malformed_status(
+        self: Any,
+        args: tuple[str, ...],
+        cwd: Path,
+        timeout: int,
+        *,
+        cancellation: Any = None,
+    ) -> Any:
+        if args[1] == "status":
+            return api.CommandResult(
+                args=args,
+                returncode=0,
+                stdout=status_output,
+                stderr="",
+            )
+        return original(self, args, cwd, timeout, cancellation=cancellation)
+
+    monkeypatch.setattr(governance.GovernanceCommandRunner, "run", malformed_status)
+    with pytest.raises(api.RepositoryIntelligenceError, match="status output is malformed"):
+        _observe(repo)
+
+
+def test_nul_porcelain_status_preserves_rename_and_untracked_state() -> None:
+    governance = importlib.import_module("pmpe.repository.governance")
+    assert governance._parse_porcelain_status("R  new-name\0old-name\0?? untracked\0") == (
+        True,
+        False,
+        True,
+    )
+
+
 def test_gitlink_state_is_explicitly_unknown_instead_of_silently_clean(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     commit_sha = _git(repo, "rev-parse", "HEAD")
@@ -1536,6 +1587,57 @@ def test_malformed_or_contradictory_worktree_lifecycle_fails_closed(
         return original(self, args, cwd, timeout, cancellation=cancellation)
 
     monkeypatch.setattr(governance.GovernanceCommandRunner, "run", malformed_lifecycle)
+    observation = _observe(repo)
+    assert observation.disposition == "BLOCKED"
+    assert observation.worktrees == ()
+    assert any(item.fact == "worktree_record:1" for item in observation.unknowns)
+
+
+@pytest.mark.parametrize(
+    ("path_kind", "branch_ref"),
+    [
+        ("relative", "refs/heads/main"),
+        ("absolute", "refs/tags/v1"),
+        ("absolute", "main"),
+        ("absolute", "refs/heads/.hidden"),
+        ("absolute", "refs/heads/topic.lock/child"),
+    ],
+)
+def test_malformed_worktree_path_or_branch_ref_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    path_kind: str,
+    branch_ref: str,
+) -> None:
+    api = _api()
+    governance = importlib.import_module("pmpe.repository.governance")
+    repo = _init_repo(tmp_path)
+    head = _git(repo, "rev-parse", "HEAD")
+    worktree_path = "relative/worktree" if path_kind == "relative" else str(repo)
+    original = governance.GovernanceCommandRunner.run
+
+    def malformed_worktree_identity(
+        self: Any,
+        args: tuple[str, ...],
+        cwd: Path,
+        timeout: int,
+        *,
+        cancellation: Any = None,
+    ) -> Any:
+        if args[1:3] == ("worktree", "list"):
+            return api.CommandResult(
+                args=args,
+                returncode=0,
+                stdout=(f"worktree {worktree_path}\0HEAD {head}\0branch {branch_ref}\0\0"),
+                stderr="",
+            )
+        return original(self, args, cwd, timeout, cancellation=cancellation)
+
+    monkeypatch.setattr(
+        governance.GovernanceCommandRunner,
+        "run",
+        malformed_worktree_identity,
+    )
     observation = _observe(repo)
     assert observation.disposition == "BLOCKED"
     assert observation.worktrees == ()
@@ -2220,7 +2322,7 @@ def test_git_readers_disable_lazy_fetch_and_repository_defined_accelerators() ->
     assert scanner_environment["GIT_CONFIG_VALUE_0"] == "false"
     governance_runner = governance.GovernanceCommandRunner()
     assert scanner_environment["GIT_CONFIG_VALUE_5"] == "false"
-    assert governance_runner.identity.endswith("1.8.0")
+    assert governance_runner.identity.endswith("1.9.0")
 
 
 def test_artifact_maps_cannot_be_mutated_after_digest_binding(tmp_path: Path) -> None:
