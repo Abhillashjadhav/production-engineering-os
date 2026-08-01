@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import importlib.metadata
+import inspect
+import json
+import marshal
+import multiprocessing
 import os
 import platform
 import posixpath
@@ -13,6 +17,7 @@ import signal
 import subprocess
 import time
 from collections.abc import Sequence
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, Protocol, cast
@@ -22,6 +27,7 @@ import yaml
 from pmpe.contracts.canonical import canonical_digest
 from pmpe.repository.adapters import (
     AdapterContext,
+    AdapterResult,
     RepositoryAdapter,
     TrackedFile,
     default_adapters,
@@ -41,7 +47,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/1.4.0"
+SCANNER_VERSION = "repository-scanner/1.5.0"
 IMPLEMENTATION_MODULES = (
     "repository.adapters",
     "repository.models",
@@ -70,6 +76,10 @@ class Cancellation(Protocol):
     def cancelled(self) -> bool: ...
 
 
+class _ScanCancelledError(RepositoryIntelligenceError):
+    """An in-flight bounded scan operation was cancelled."""
+
+
 @dataclass(frozen=True)
 class TreeListingResult:
     result: CommandResult
@@ -81,7 +91,7 @@ class TreeListingResult:
 class SubprocessCommandRunner:
     """Allowlisted local Git reader; it never invokes shells or project code."""
 
-    identity = "git-readonly-subprocess/1.4.0"
+    identity = "git-readonly-subprocess/1.5.0"
     _allowed = {"rev-parse", "ls-tree", "cat-file", "version"}
 
     @staticmethod
@@ -110,25 +120,69 @@ class SubprocessCommandRunner:
             "LC_ALL": "C",
         }
 
-    def run(self, args: tuple[str, ...], cwd: Path, timeout: int) -> CommandResult:
+    def run(
+        self,
+        args: tuple[str, ...],
+        cwd: Path,
+        timeout: int,
+        *,
+        cancellation: Cancellation | None = None,
+    ) -> CommandResult:
         if len(args) < 2 or args[0] != "git" or args[1] not in self._allowed:
             raise RepositorySecurityError("command is outside the read-only Git allowlist")
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 args,
                 cwd=cwd,
-                capture_output=True,
-                check=False,
-                timeout=timeout,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
                 env=self._environment(),
+                start_new_session=True,
             )
-        except subprocess.TimeoutExpired:
-            return CommandResult(args=args, returncode=124, stdout=b"", stderr=b"", timed_out=True)
+        except OSError:
+            raise
+        if process.stdout is None:
+            _stop_subprocess_group(process)
+            raise RepositoryIntelligenceError("bounded Git command output is unavailable")
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ)
+        payload = bytearray()
+        deadline = time.monotonic() + timeout
+        timed_out = False
+        cancelled = False
+        try:
+            while True:
+                if cancellation is not None and cancellation.cancelled():
+                    cancelled = True
+                    break
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    timed_out = True
+                    break
+                events = selector.select(min(remaining, 0.05))
+                if events:
+                    chunk = os.read(process.stdout.fileno(), 65_536)
+                    if not chunk:
+                        break
+                    payload.extend(chunk)
+                    if len(payload) > 8_000_000:
+                        timed_out = True
+                        break
+                elif process.poll() is not None:
+                    break
+        finally:
+            selector.close()
+            process.stdout.close()
+        if cancelled or timed_out or process.poll() is None:
+            _stop_subprocess_group(process)
+        else:
+            process.wait(timeout=1.0)
         return CommandResult(
             args=args,
-            returncode=result.returncode,
-            stdout=result.stdout,
-            stderr=result.stderr,
+            returncode=126 if cancelled else 124 if timed_out else process.returncode,
+            stdout=bytes(payload),
+            stderr=b"",
+            timed_out=timed_out,
         )
 
     def list_tree(
@@ -260,6 +314,20 @@ def _signal_process_group(process: subprocess.Popen[bytes], action: signal.Signa
                 ) from exc
 
 
+def _stop_subprocess_group(process: subprocess.Popen[bytes]) -> None:
+    """Terminate and reap a bounded process group, including surviving descendants."""
+
+    _signal_process_group(process, signal.SIGTERM)
+    try:
+        process.wait(timeout=0.25)
+    except subprocess.TimeoutExpired:
+        _signal_process_group(process, signal.SIGKILL)
+        try:
+            process.wait(timeout=1.0)
+        except subprocess.TimeoutExpired as exc:
+            raise RepositorySecurityError("bounded Git process could not be reaped") from exc
+
+
 def _valid_object_id(value: str, object_format: str) -> bool:
     length = _OBJECT_FORMAT_LENGTH.get(object_format)
     return (
@@ -269,7 +337,37 @@ def _valid_object_id(value: str, object_format: str) -> bool:
     )
 
 
-def _implementation_digest() -> str:
+def _implementation_source_evidence(label: str, target: Any) -> dict[str, str]:
+    """Bind an injected output-affecting implementation without persisting its state."""
+
+    implementation = target if inspect.isfunction(target) else target.__class__
+    try:
+        source_path_value = inspect.getsourcefile(implementation)
+        if source_path_value is None:
+            raise OSError("implementation source path is unavailable")
+        source_digest = _sha256(Path(source_path_value).read_bytes())
+        callable_target = target if callable(target) else getattr(target, "run", None)
+        code = getattr(callable_target, "__code__", None)
+        if code is None and not inspect.isfunction(target) and callable(target):
+            method = inspect.getattr_static(implementation, "__call__", None)
+            code = getattr(method, "__code__", None)
+        code_digest = _sha256(marshal.dumps(code)) if code is not None else source_digest
+    except (OSError, TypeError, ValueError) as exc:
+        raise RepositoryIntelligenceError(
+            f"{label} implementation bytes are unavailable for provenance binding"
+        ) from exc
+    return {
+        "label": label,
+        "module": str(getattr(implementation, "__module__", "unknown")),
+        "qualname": str(getattr(implementation, "__qualname__", type(target).__qualname__)),
+        "source_digest": source_digest,
+        "code_digest": code_digest,
+    }
+
+
+def _implementation_digest(
+    extension_evidence: Sequence[dict[str, str]] = (),
+) -> str:
     package_root = Path(__file__).resolve().parent
     paths = {
         "repository.adapters": package_root / "adapters.py",
@@ -279,7 +377,7 @@ def _implementation_digest() -> str:
         "contracts.canonical": package_root.parent / "contracts" / "canonical.py",
     }
     try:
-        evidence = [
+        evidence: list[dict[str, str]] = [
             {"module": name, "source_digest": _sha256(paths[name].read_bytes())}
             for name in IMPLEMENTATION_MODULES
         ]
@@ -287,7 +385,58 @@ def _implementation_digest() -> str:
         raise RepositoryIntelligenceError(
             "scanner implementation bytes are unavailable for provenance binding"
         ) from exc
-    return canonical_digest(evidence)
+    evidence.extend(extension_evidence)
+    return canonical_digest(
+        sorted(evidence, key=lambda item: (item.get("label", ""), item["module"]))
+    )
+
+
+def _adapter_worker(connection: Any, adapter: RepositoryAdapter, context: AdapterContext) -> None:
+    """Evaluate one adapter in a killable, environment-isolated process."""
+
+    try:
+        os.setsid()
+        os.environ.clear()
+        os.environ.update({"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+        result = adapter.evaluator(context)
+        if not isinstance(result, AdapterResult):
+            raise TypeError("adapter result has an invalid type")
+        payload = json.dumps(
+            {"status": "RESULT", "result": asdict(result)},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        connection.send_bytes(payload)
+    except BaseException as exc:
+        with suppress(BrokenPipeError, EOFError, OSError):
+            connection.send_bytes(
+                json.dumps(
+                    {"status": "ERROR", "error_type": type(exc).__name__},
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            )
+    finally:
+        connection.close()
+
+
+def _stop_isolated_process(process: Any) -> None:
+    """Terminate a forked evaluator and its descendants even if its parent exited."""
+
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        if process.is_alive():
+            process.terminate()
+    process.join(timeout=0.25)
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        if process.is_alive():
+            process.kill()
+    process.join(timeout=1.0)
+    if process.is_alive():
+        raise RepositorySecurityError("bounded adapter process could not be reaped")
 
 
 def _sha256(payload: bytes) -> str:
@@ -436,9 +585,20 @@ class RepositoryScanner:
         self.runner = command_runner or SubprocessCommandRunner()
         self.redactor = redactor or EvidenceRedactor()
         self.cancellation = cancellation
+        extension_targets: list[tuple[str, Any]] = [
+            ("command_runner", self.runner),
+            ("redactor", self.redactor),
+            *((f"adapter:{item.adapter_id}", item.evaluator) for item in self.adapters),
+        ]
+        if cancellation is not None:
+            extension_targets.append(("cancellation", cancellation))
+        self._extension_implementation_evidence = tuple(
+            _implementation_source_evidence(label, target) for label, target in extension_targets
+        )
         self._commands = 0
         self._command_provenance: list[CommandProvenance] = []
         self._tool_versions: tuple[ToolVersion, ...] = ()
+        self._identity_resolved = False
 
     def _is_cancelled(self) -> bool:
         if self.cancellation is None:
@@ -467,7 +627,15 @@ class RepositoryScanner:
             return None
         self._commands += 1
         try:
-            result = self.runner.run(args, root, self.config.command_timeout_seconds)
+            if isinstance(self.runner, SubprocessCommandRunner):
+                result = self.runner.run(
+                    args,
+                    root,
+                    self.config.command_timeout_seconds,
+                    cancellation=self.cancellation if self._identity_resolved else None,
+                )
+            else:
+                result = self.runner.run(args, root, self.config.command_timeout_seconds)
         except (FileNotFoundError, OSError) as exc:
             raise RepositoryIntelligenceError("read-only Git command is unavailable") from exc
         self._command_provenance.append(
@@ -480,6 +648,8 @@ class RepositoryScanner:
         )
         if result.timed_out:
             raise RepositoryIntelligenceError("read-only Git command timed out")
+        if result.returncode == 126 and self._identity_resolved:
+            raise _ScanCancelledError("read-only Git command was cancelled")
         if result.returncode != 0:
             if essential:
                 raise RepositoryIntelligenceError("path is not an accessible Git repository")
@@ -551,9 +721,19 @@ class RepositoryScanner:
 
     def _collect_tool_versions(self, root: Path) -> tuple[ToolVersion, ...]:
         try:
-            git_result = self.runner.run(
-                ("git", "version"), root, self.config.command_timeout_seconds
-            )
+            if isinstance(self.runner, SubprocessCommandRunner):
+                git_result = self.runner.run(
+                    ("git", "version"),
+                    root,
+                    self.config.command_timeout_seconds,
+                    cancellation=self.cancellation,
+                )
+            else:
+                git_result = self.runner.run(
+                    ("git", "version"), root, self.config.command_timeout_seconds
+                )
+            if git_result.returncode == 126:
+                raise _ScanCancelledError("Git version observation was cancelled")
             if git_result.timed_out or git_result.returncode != 0:
                 raise RepositoryIntelligenceError("Git version command failed")
             git_version = _text(git_result.stdout).strip()
@@ -909,11 +1089,14 @@ class RepositoryScanner:
                 )
                 break
             supported.update(adapter.supported_categories)
-            try:
-                result = adapter.evaluator(
-                    AdapterContext(files=context.matching(adapter.file_patterns))
-                )
-            except Exception:
+            status, result = self._run_adapter_bounded(
+                adapter,
+                AdapterContext(files=context.matching(adapter.file_patterns)),
+            )
+            if status == "CANCELLED":
+                findings.append(self._cancelled_finding(f"adapter:{adapter.adapter_id}"))
+                break
+            if status != "RESULT" or result is None:
                 findings.append(
                     _finding(
                         "ADAPTER.FAILURE",
@@ -921,7 +1104,7 @@ class RepositoryScanner:
                         f"Adapter {adapter.adapter_id} failed; its categories remain visibly "
                         "partial.",
                         (f"adapter:{adapter.adapter_id}",),
-                        blocking=False,
+                        blocking=True,
                     )
                 )
                 continue
@@ -948,6 +1131,63 @@ class RepositoryScanner:
             for item in boundaries
         )
         return inventory, findings, boundaries, supported
+
+    def _run_adapter_bounded(
+        self, adapter: RepositoryAdapter, context: AdapterContext
+    ) -> tuple[str, AdapterResult | None]:
+        if not hasattr(os, "fork") or not hasattr(os, "setsid"):
+            return "ERROR", None
+        process_context = multiprocessing.get_context("fork")
+        receiver, sender = process_context.Pipe(duplex=False)
+        process = process_context.Process(
+            target=_adapter_worker,
+            args=(sender, adapter, context),
+            daemon=True,
+            name=f"pmpe-readonly-adapter-{adapter.adapter_id}",
+        )
+        try:
+            process.start()
+        except (OSError, RuntimeError):
+            receiver.close()
+            sender.close()
+            return "ERROR", None
+        sender.close()
+        deadline = time.monotonic() + self.config.command_timeout_seconds
+        try:
+            while True:
+                if self._is_cancelled():
+                    return "CANCELLED", None
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return "ERROR", None
+                if receiver.poll(min(remaining, 0.05)):
+                    try:
+                        payload = receiver.recv_bytes(self.config.max_tree_output_bytes)
+                        decoded = json.loads(payload)
+                    except (EOFError, OSError, UnicodeDecodeError, ValueError, TypeError):
+                        return "ERROR", None
+                    if not isinstance(decoded, dict) or decoded.get("status") != "RESULT":
+                        return "ERROR", None
+                    try:
+                        raw_result = decoded["result"]
+                        result = AdapterResult(
+                            items=tuple(
+                                (str(category), EvidenceItem(**item))
+                                for category, item in raw_result["items"]
+                            ),
+                            findings=tuple(Finding(**item) for item in raw_result["findings"]),
+                            boundaries=tuple(
+                                BoundaryCandidate(**item) for item in raw_result["boundaries"]
+                            ),
+                        )
+                    except (KeyError, TypeError, ValueError):
+                        return "ERROR", None
+                    return "RESULT", result
+                if not process.is_alive():
+                    return "ERROR", None
+        finally:
+            receiver.close()
+            _stop_isolated_process(process)
 
     def _cross_cutting_findings(
         self, files: tuple[TrackedFile, ...], inventory: dict[str, list[EvidenceItem]]
@@ -1126,7 +1366,24 @@ class RepositoryScanner:
             file.path
             for file in files
             if PurePosixPath(file.path).name
-            in {"Cargo.toml", "go.mod", "pom.xml", "build.gradle", "Gemfile"}
+            in {
+                "BUILD",
+                "BUILD.bazel",
+                "CMakeLists.txt",
+                "Cargo.toml",
+                "Gemfile",
+                "GNUmakefile",
+                "Jenkinsfile",
+                "MODULE.bazel",
+                "Makefile",
+                "Tiltfile",
+                "WORKSPACE",
+                "WORKSPACE.bazel",
+                "build.gradle",
+                "go.mod",
+                "justfile",
+                "pom.xml",
+            }
         )
         if unsupported_manifests:
             findings.append(
@@ -1212,7 +1469,7 @@ class RepositoryScanner:
             statuses.update(dict.fromkeys(AUDIT_CATEGORIES, "BLOCKED"))
             reasons.update(dict.fromkeys(AUDIT_CATEGORIES, "scan cancelled"))
             disposition = "BLOCKED"
-        implementation_digest = _implementation_digest()
+        implementation_digest = _implementation_digest(self._extension_implementation_evidence)
         inventory = {
             name: InventoryCategory(
                 status=statuses.get(name, "SUPPORTED"),
@@ -1307,24 +1564,29 @@ class RepositoryScanner:
         self._validate_config()
         self._commands = 0
         self._command_provenance = []
+        self._identity_resolved = False
         self._requested_commit = commit
         requested = Path(repository_root).resolve()
         root, commit_sha, tree_sha, object_format = self._resolve_identity(requested)
+        self._identity_resolved = True
         # Root/ref resolution establishes the immutable identity but is excluded from
         # commit-stable provenance because equivalent refs (HEAD versus the exact SHA)
         # must yield byte-equivalent snapshots. Remaining commands are SHA-bound.
         self._command_provenance = self._command_provenance[2:]
-        self._tool_versions = self._collect_tool_versions(root)
         adapter_digest = canonical_digest([asdict(_metadata(item)) for item in self.adapters])
         config_digest = canonical_digest(asdict(self.config))
-        if self._is_cancelled():
+        try:
+            self._tool_versions = self._collect_tool_versions(root)
+            if self._is_cancelled():
+                raise _ScanCancelledError("scan cancelled after immutable identity resolution")
+            files, budget_findings, tree_digest, scanned_digest = self._list_files(
+                root, tree_sha, object_format
+            )
+            inventory, adapter_findings, boundaries, supported = self._apply_adapters(tuple(files))
+        except _ScanCancelledError:
             return self._cancelled_snapshot(
                 root, commit_sha, tree_sha, object_format, config_digest, adapter_digest
             )
-        files, budget_findings, tree_digest, scanned_digest = self._list_files(
-            root, tree_sha, object_format
-        )
-        inventory, adapter_findings, boundaries, supported = self._apply_adapters(tuple(files))
         findings = budget_findings + adapter_findings
         if self.config.include_paths:
             findings.append(

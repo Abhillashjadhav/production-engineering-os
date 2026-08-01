@@ -219,6 +219,37 @@ def test_adapter_order_does_not_change_output_but_version_does(tmp_path: Path) -
     assert first.snapshot_digest != versioned.snapshot_digest
 
 
+def test_output_affecting_injected_implementation_changes_provenance_digest(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    adapters = importlib.import_module("pmpe.repository.adapters")
+    repo = _init_repo(tmp_path)
+
+    def first_evaluator(_context: Any) -> Any:
+        return adapters.AdapterResult()
+
+    def second_evaluator(context: Any) -> Any:
+        assert context.files or not context.files
+        return adapters.AdapterResult()
+
+    metadata = {
+        "adapter_id": "test.same-declaration",
+        "version": "1.0.0",
+        "file_patterns": ("*",),
+        "supported_categories": ("repository_topology",),
+    }
+    first = api.RepositoryScanner(
+        config=_config(), adapters=(api.RepositoryAdapter(evaluator=first_evaluator, **metadata),)
+    ).scan(repo, commit="HEAD")
+    second = api.RepositoryScanner(
+        config=_config(), adapters=(api.RepositoryAdapter(evaluator=second_evaluator, **metadata),)
+    ).scan(repo, commit="HEAD")
+    assert first.adapter_set_digest == second.adapter_set_digest
+    assert first.implementation_digest != second.implementation_digest
+    assert first.snapshot_digest != second.snapshot_digest
+
+
 def test_all_audit_categories_are_present_and_active_work_is_separate(tmp_path: Path) -> None:
     api = _api()
     snapshot = _scan(_init_repo(tmp_path))
@@ -262,7 +293,8 @@ def test_adapter_metadata_is_versioned_and_declares_supported_categories(
 
 def test_snapshot_binds_implementation_modules_and_runtime_tool_versions(tmp_path: Path) -> None:
     scanner = importlib.import_module("pmpe.repository.scanner")
-    snapshot = _scan(_init_repo(tmp_path))
+    repository_scanner = scanner.RepositoryScanner(config=_config())
+    snapshot = repository_scanner.scan(_init_repo(tmp_path), commit="HEAD")
     assert set(scanner.IMPLEMENTATION_MODULES) == {
         "repository.adapters",
         "repository.models",
@@ -270,7 +302,9 @@ def test_snapshot_binds_implementation_modules_and_runtime_tool_versions(tmp_pat
         "repository.scanner",
         "contracts.canonical",
     }
-    assert snapshot.implementation_digest == scanner._implementation_digest()
+    assert snapshot.implementation_digest == scanner._implementation_digest(
+        repository_scanner._extension_implementation_evidence
+    )
     assert {item.tool for item in snapshot.tool_versions} == {
         "git",
         "python",
@@ -458,6 +492,19 @@ def test_shell_source_without_adapter_is_blocked_not_reported_absent(tmp_path: P
     assert any(item.code == "STACK.UNSUPPORTED_FILE_TYPE" for item in snapshot.findings)
 
 
+@pytest.mark.parametrize("manifest", ["Makefile", "WORKSPACE", "BUILD.bazel", "Jenkinsfile"])
+def test_extensionless_unsupported_ecosystem_is_blocked(tmp_path: Path, manifest: str) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, manifest, "unsupported build definition\n")
+    _commit(repo, f"add {manifest}")
+    snapshot = _scan(repo)
+    assert snapshot.disposition == "BLOCKED"
+    assert any(
+        item.code == "STACK.UNSUPPORTED_ECOSYSTEM" and manifest in item.evidence_refs
+        for item in snapshot.findings
+    )
+
+
 def test_source_names_containing_test_are_not_high_confidence_test_evidence(
     tmp_path: Path,
 ) -> None:
@@ -633,6 +680,8 @@ class _FakeRemote:
         assert bounds["max_items"] > 0
         return {
             "complete": True,
+            "repository": repository,
+            "ref": ref,
             "observed_at": "2026-08-01T00:00:00Z",
             "coverage": ["remote_branches", "pull_requests", "issues", "governance"],
             "remote_branches": [{"name": "origin/feature", "sha": "a" * 40}],
@@ -653,7 +702,9 @@ class _FakeRemote:
             "query_provenance": [
                 {
                     "surface": "remote_branches",
-                    "query": "branches",
+                    "query": (
+                        'branches {"token":"query-json-secret","password":"pass-json-secret"}'
+                    ),
                     "cursor": "branches-page-1",
                     "page": 1,
                     "has_next_page": False,
@@ -759,6 +810,21 @@ class _HangingRemote(_FakeRemote):
         return super().collect(repository, ref, **bounds)
 
 
+class _MismatchedRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["repository"] = "different/repository"
+        return payload
+
+
+class _DuplicateRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["remote_branches"].append(dict(payload["remote_branches"][0]))
+        payload["query_provenance"][0]["result_count"] = 2
+        return payload
+
+
 def _observe(repo: Path, remote: Any = None) -> Any:
     api = _api()
     return api.GovernanceCollector(
@@ -829,7 +895,6 @@ def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path:
     assert observation.observation_output_digest.startswith("sha256:")
     assert "ghp_0123456789abcdefghijklmnop" not in payload
     assert "dXNlcjpwYXNzd29yZA==" not in payload
-    assert "password" not in payload
     assert "secret-value" not in payload
     assert "signed-secret" not in payload
     assert "unstructured-bare-secret" not in payload
@@ -841,6 +906,8 @@ def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path:
     assert "odbc secret value" not in payload
     assert "cookie-secret" not in payload
     assert "aws-secret-value" not in payload
+    assert "query-json-secret" not in payload
+    assert "pass-json-secret" not in payload
     assert "[REDACTED_URL]" in payload
     assert "[REDACTED]" in payload
 
@@ -891,6 +958,15 @@ def test_remote_provider_timeout_is_bounded_and_visible(tmp_path: Path) -> None:
     assert time.monotonic() - started < 4
     assert observation.disposition == "BLOCKED"
     assert any(item.fact == "remote_governance" for item in observation.unknowns)
+
+
+@pytest.mark.parametrize("remote", [_MismatchedRemote(), _DuplicateRemote()])
+def test_remote_identity_mismatch_or_duplicate_inventory_fails_closed(
+    tmp_path: Path, remote: Any
+) -> None:
+    observation = _observe(_init_repo(tmp_path), remote)
+    assert observation.disposition == "BLOCKED"
+    assert any(item.fact == "remote_metadata_shape" for item in observation.unknowns)
 
 
 def test_remote_provider_cancellation_terminates_the_isolated_process() -> None:
@@ -1138,6 +1214,32 @@ def test_cancellation_terminates_bounded_enumeration_and_preserves_repository(
     assert _git(repo, "status", "--porcelain=v1", "--untracked-files=all") == before_status
 
 
+def test_cancellation_terminates_an_ordinary_bounded_git_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_git = fake_bin / "git"
+    fake_git.write_text("#!/bin/sh\nsleep 30\n")
+    fake_git.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake_bin}:/usr/bin:/bin")
+
+    class CancelSoon:
+        started = time.monotonic()
+
+        def cancelled(self) -> bool:
+            return time.monotonic() - self.started > 0.2
+
+    started = time.monotonic()
+    result = scanner.SubprocessCommandRunner().run(
+        ("git", "version"), tmp_path, 10, cancellation=CancelSoon()
+    )
+    assert time.monotonic() - started < 4
+    assert result.returncode == 126
+    assert result.timed_out is False
+
+
 def test_cancellation_during_final_adapter_blocks_snapshot_finalization(tmp_path: Path) -> None:
     api = _api()
     adapters = importlib.import_module("pmpe.repository.adapters")
@@ -1146,15 +1248,15 @@ def test_cancellation_during_final_adapter_blocks_snapshot_finalization(tmp_path
     before_status = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
 
     class CancellationAfterAdapter:
-        active = False
+        started = time.monotonic()
 
         def cancelled(self) -> bool:
-            return self.active
+            return time.monotonic() - self.started > 0.2
 
     cancellation = CancellationAfterAdapter()
 
     def evaluate(_context: Any) -> Any:
-        cancellation.active = True
+        time.sleep(30)
         return adapters.AdapterResult()
 
     final_adapter = api.RepositoryAdapter(
@@ -1211,7 +1313,7 @@ def test_git_readers_disable_lazy_fetch_and_repository_defined_accelerators() ->
     assert scanner_environment["GIT_CONFIG_VALUE_0"] == "false"
     governance_runner = governance.GovernanceCommandRunner()
     assert scanner_environment["GIT_CONFIG_VALUE_5"] == "false"
-    assert governance_runner.identity.endswith("1.4.0")
+    assert governance_runner.identity.endswith("1.5.0")
 
 
 def test_artifact_maps_cannot_be_mutated_after_digest_binding(tmp_path: Path) -> None:
@@ -1230,8 +1332,15 @@ def test_artifact_maps_cannot_be_mutated_after_digest_binding(tmp_path: Path) ->
 def test_snapshot_and_observation_references_form_a_narrow_lifecycle_seam(
     tmp_path: Path,
 ) -> None:
-    snapshot = _scan(_init_repo(tmp_path))
-    observation = _observe(tmp_path / "fixture-repo")
+    api = _api()
+    repo = _init_repo(tmp_path)
+    snapshot = _scan(repo)
+    observation = api.GovernanceCollector(
+        repository="example/fixture",
+        snapshot=snapshot,
+        clock=_FixedClock(),
+        id_provider=_FixedIds(),
+    ).observe(repo, ref="main")
     reference = snapshot.assessment_reference(observation)
     assert reference == {
         "repository_snapshot_digest": snapshot.snapshot_digest,

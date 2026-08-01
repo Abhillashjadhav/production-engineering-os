@@ -15,7 +15,7 @@ class RedactionError(RuntimeError):
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
-    version = "central-redactor/1.4.0"
+    version = "central-redactor/1.5.0"
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
         r"|glpat-[A-Za-z0-9_-]{16,}"
@@ -37,10 +37,13 @@ class EvidenceRedactor:
         r"|pypi-[0-9A-Za-z_-]{20,})"
     )
     _sensitive_assignment = re.compile(
-        r"(?i)\b(?P<key>accountkey|sharedaccesskey|sharedaccesssignature|pwd|password|passwd"
+        r"(?i)(?P<quote>[\"']?)\b(?P<key>accountkey|sharedaccesskey|sharedaccesssignature"
+        r"|pwd|password|passwd"
         r"|cookie|set-cookie|aws_access_key_id|aws_secret_access_key|aws_session_token"
-        r"|client_secret|private_key|api_key|access_token|refresh_token)"
-        r"(?P<separator>\s*[=:]\s*)(?P<value>\{[^}]*\}|[^\s,;]+)"
+        r"|client_secret|private_key|api[-_]?key|access[-_]?token|refresh[-_]?token"
+        r"|token|secret|signature|sig|credential)"
+        r"(?P=quote)(?P<separator>\s*[=:]\s*)"
+        r"(?P<value>\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|\{[^}]*\}|[^\s,;]+)"
     )
     _sensitive_query = re.compile(
         r"(?i)(?:^|[-_])(?:access[-_]?token|refresh[-_]?token|api[-_]?key|token|key"
@@ -54,6 +57,21 @@ class EvidenceRedactor:
 
     def __init__(self) -> None:
         self._home = str(Path.home())
+
+    @staticmethod
+    def _redact_assignment(match: re.Match[str]) -> str:
+        value = match.group("value")
+        replacement = (
+            '"[REDACTED]"'
+            if value.startswith('"')
+            else "'[REDACTED]'"
+            if value.startswith("'")
+            else "[REDACTED]"
+        )
+        return (
+            f"{match.group('quote')}{match.group('key')}{match.group('quote')}"
+            f"{match.group('separator')}{replacement}"
+        )
 
     def _sanitize_url(self, value: str) -> str:
         if "://" not in value:
@@ -83,10 +101,7 @@ class EvidenceRedactor:
         sanitized = self._url_credentials.sub(r"\1[REDACTED]@", sanitized)
         sanitized = self._common_access_key.sub("[REDACTED]", sanitized)
         sanitized = self._vendor_token.sub("[REDACTED]", sanitized)
-        sanitized = self._sensitive_assignment.sub(
-            lambda match: f"{match.group('key')}{match.group('separator')}[REDACTED]",
-            sanitized,
-        )
+        sanitized = self._sensitive_assignment.sub(self._redact_assignment, sanitized)
         sanitized = self._token.sub("[REDACTED]", sanitized)
         sanitized = self._embedded_url.sub(
             lambda match: self._sanitize_url(match.group(0)), sanitized

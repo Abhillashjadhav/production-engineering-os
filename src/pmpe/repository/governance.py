@@ -28,6 +28,7 @@ from pmpe.repository.models import (
     PullRequestObservation,
     QueryProvenance,
     RemoteBranchObservation,
+    RepositorySnapshot,
     UnknownFact,
     WorktreeObservation,
 )
@@ -36,9 +37,10 @@ from pmpe.repository.scanner import (
     Cancellation,
     RepositoryIntelligenceError,
     RepositorySecurityError,
+    _implementation_source_evidence,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/1.4.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/1.5.0"
 _REQUIRED_REMOTE_COVERAGE = frozenset({"remote_branches", "pull_requests", "issues", "governance"})
 _REQUIRED_GOVERNANCE_FACTS = frozenset({"branch_protection", "review_policy"})
 _OBJECT_FORMAT_LENGTH = {"sha1": 40, "sha256": 64}
@@ -154,7 +156,7 @@ def _remote_provider_worker(
 class GovernanceCommandRunner:
     """Allowlisted local Git observation commands with mutation subcommands refused."""
 
-    identity = "git-governance-readonly/1.4.0"
+    identity = "git-governance-readonly/1.5.0"
     _allowed = {
         "config",
         "status",
@@ -355,20 +357,18 @@ def _bounded_remote_shape(value: Any, *, max_bytes: int, max_items: int) -> None
 def _stop_remote_process(process: Any) -> None:
     """Terminate and reap the isolated provider process and its descendants."""
 
-    if not process.is_alive():
-        process.join(timeout=0.1)
-        return
     try:
         os.killpg(process.pid, signal.SIGTERM)
     except (ProcessLookupError, PermissionError, OSError):
-        process.terminate()
+        if process.is_alive():
+            process.terminate()
     process.join(timeout=0.25)
-    if process.is_alive():
-        try:
-            os.killpg(process.pid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError, OSError):
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        if process.is_alive():
             process.kill()
-        process.join(timeout=1.0)
+    process.join(timeout=1.0)
     if process.is_alive():
         raise RepositorySecurityError("bounded remote provider process could not be reaped")
 
@@ -424,7 +424,9 @@ def _pagination_is_complete(
     return True
 
 
-def _governance_implementation_digest() -> str:
+def _governance_implementation_digest(
+    extension_evidence: tuple[dict[str, str], ...] = (),
+) -> str:
     package_root = Path(__file__).resolve().parent
     sources = (
         ("repository.governance", package_root / "governance.py"),
@@ -433,7 +435,7 @@ def _governance_implementation_digest() -> str:
         ("contracts.canonical", package_root.parent / "contracts" / "canonical.py"),
     )
     try:
-        evidence = [
+        evidence: list[dict[str, str]] = [
             {
                 "module": name,
                 "source_digest": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
@@ -444,7 +446,10 @@ def _governance_implementation_digest() -> str:
         raise RepositoryIntelligenceError(
             "governance implementation bytes are unavailable for provenance binding"
         ) from exc
-    return canonical_digest(evidence)
+    evidence.extend(extension_evidence)
+    return canonical_digest(
+        sorted(evidence, key=lambda item: (item.get("label", ""), item["module"]))
+    )
 
 
 def _observation_from_dict(value: dict[str, Any]) -> GovernanceObservation:
@@ -453,6 +458,8 @@ def _observation_from_dict(value: dict[str, Any]) -> GovernanceObservation:
         observed_at=str(value["observed_at"]),
         repository=str(value["repository"]),
         ref=str(value["ref"]),
+        repository_snapshot_digest=cast(str | None, value["repository_snapshot_digest"]),
+        repository_snapshot_commit=cast(str | None, value["repository_snapshot_commit"]),
         local_state=LocalState(**value["local_state"]),
         local_branches=tuple(BranchObservation(**item) for item in value["local_branches"]),
         worktrees=tuple(WorktreeObservation(**item) for item in value["worktrees"]),
@@ -492,6 +499,7 @@ class GovernanceCollector:
         self,
         *,
         repository: str,
+        snapshot: RepositorySnapshot | None = None,
         clock: Clock,
         id_provider: IdProvider,
         remote_provider: RemoteProvider | None = None,
@@ -506,6 +514,11 @@ class GovernanceCollector:
         cancellation: Cancellation | None = None,
     ) -> None:
         self.repository = repository
+        if snapshot is not None and snapshot.repository != repository:
+            raise RepositoryIntelligenceError(
+                "governance repository label does not match the bound snapshot"
+            )
+        self.snapshot = snapshot
         self.clock = clock
         self.id_provider = id_provider
         self.remote_provider = remote_provider
@@ -521,6 +534,19 @@ class GovernanceCollector:
         self._command_provenance: list[CommandProvenance] = []
         self._commands = 0
         self._local_unknowns: list[UnknownFact] = []
+        extension_targets: list[tuple[str, Any]] = [
+            ("clock", self.clock),
+            ("id_provider", self.id_provider),
+            ("command_runner", self.runner),
+            ("redactor", self.redactor),
+        ]
+        if self.remote_provider is not None:
+            extension_targets.append(("remote_provider", self.remote_provider))
+        if self.cancellation is not None:
+            extension_targets.append(("cancellation", self.cancellation))
+        self._extension_implementation_evidence = tuple(
+            _implementation_source_evidence(label, target) for label, target in extension_targets
+        )
 
     def _is_cancelled(self) -> bool:
         if self.cancellation is None:
@@ -748,6 +774,22 @@ class GovernanceCollector:
             raise RepositoryIntelligenceError(
                 f"Git object format {object_format!r} is explicitly unsupported"
             )
+        ref_commit = self._run(
+            root,
+            "rev-parse",
+            "--verify",
+            "--end-of-options",
+            f"{ref}^{{commit}}",
+        ).strip()
+        if not _valid_object_id(ref_commit, object_format):
+            raise RepositoryIntelligenceError("governance observation ref identity is malformed")
+        if self.snapshot is not None and (
+            self.snapshot.commit_sha != ref_commit
+            or self.snapshot.git_object_format != object_format
+        ):
+            raise RepositoryIntelligenceError(
+                "governance ref does not resolve to the bound repository snapshot"
+            )
         index_listing = self._run(root, "ls-files", "--stage", "-z")
         gitlinks = 0
         for record in index_listing.split("\0"):
@@ -877,6 +919,10 @@ class GovernanceCollector:
                         "remote evidence redaction failed; observation was not created"
                     ) from exc
                 try:
+                    if sanitized_remote.get("repository") != self.repository:
+                        raise ValueError("remote repository identity does not match the request")
+                    if sanitized_remote.get("ref") != ref:
+                        raise ValueError("remote ref identity does not match the request")
                     remote_observed_at = str(sanitized_remote["observed_at"])
                     remote_observed_value = _parse_utc(
                         remote_observed_at, field="remote observation time"
@@ -903,6 +949,12 @@ class GovernanceCollector:
                         IssueObservation(number=int(item["number"]), state=str(item["state"]))
                         for item in sanitized_remote.get("issues", [])
                     )
+                    if len({item.name for item in remote_branches}) != len(remote_branches):
+                        raise ValueError("remote branch inventory contains duplicate names")
+                    if len({item.number for item in pull_requests}) != len(pull_requests):
+                        raise ValueError("pull request inventory contains duplicate numbers")
+                    if len({item.number for item in issues}) != len(issues):
+                        raise ValueError("issue inventory contains duplicate numbers")
                     governance = cast(dict[str, Any], sanitized_remote.get("governance", {}))
                     governance_complete = _governance_content_is_complete(governance)
                     provenance = tuple(
@@ -1010,10 +1062,19 @@ class GovernanceCollector:
                     reason="Mutable governance observation was cancelled before finalization.",
                 ),
             )
-        collector_digest = _governance_implementation_digest()
+        collector_digest = _governance_implementation_digest(
+            self._extension_implementation_evidence
+        )
         inputs = {
             "repository": self.repository,
             "ref": ref,
+            "resolved_ref_commit": ref_commit,
+            "repository_snapshot_digest": (
+                self.snapshot.snapshot_digest if self.snapshot is not None else None
+            ),
+            "repository_snapshot_commit": (
+                self.snapshot.commit_sha if self.snapshot is not None else None
+            ),
             "observation_id": observation_id,
             "observed_at": observed_at,
             "local_status": status_raw,
@@ -1039,6 +1100,12 @@ class GovernanceCollector:
             observed_at=observed_at,
             repository=self.repository,
             ref=ref,
+            repository_snapshot_digest=(
+                self.snapshot.snapshot_digest if self.snapshot is not None else None
+            ),
+            repository_snapshot_commit=(
+                self.snapshot.commit_sha if self.snapshot is not None else None
+            ),
             local_state=local_state,
             local_branches=branches,
             worktrees=worktrees,
@@ -1096,12 +1163,14 @@ def observe_governance(
     *,
     repository: str,
     ref: str,
+    snapshot: RepositorySnapshot | None = None,
     clock: Clock | None = None,
     id_provider: IdProvider | None = None,
     remote_provider: RemoteProvider | None = None,
 ) -> GovernanceObservation:
     return GovernanceCollector(
         repository=repository,
+        snapshot=snapshot,
         clock=clock or SystemUtcClock(),
         id_provider=id_provider or UuidObservationIds(),
         remote_provider=remote_provider,

@@ -136,6 +136,7 @@ def _cmd_scan(args: argparse.Namespace) -> int:
                 requested,
                 repository=args.repository,
                 ref=args.default_branch or args.commit,
+                snapshot=snapshot,
                 clock=clock,
                 id_provider=ids,
             )

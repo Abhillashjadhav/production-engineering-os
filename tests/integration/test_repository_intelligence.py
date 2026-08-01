@@ -62,6 +62,7 @@ def test_public_api_emits_separate_canonical_artifacts_without_mutating_repo(
         repo,
         repository="example/integration",
         ref="main",
+        snapshot=snapshot,
         clock=FixedClock(),
         id_provider=FixedIds(),
     )
@@ -92,6 +93,7 @@ def test_dirty_state_is_only_in_governance_artifact(tmp_path: Path) -> None:
         repo,
         repository="example/integration",
         ref="main",
+        snapshot=snapshot,
         clock=FixedClock(),
         id_provider=FixedIds(),
     )

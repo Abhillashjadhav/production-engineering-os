@@ -181,6 +181,13 @@ class RepositorySnapshot:
 
         if observation.repository != self.repository:
             raise ValueError("snapshot and governance observation repositories do not match")
+        if (
+            observation.repository_snapshot_digest != self.snapshot_digest
+            or observation.repository_snapshot_commit != self.commit_sha
+        ):
+            raise ValueError(
+                "governance observation is not bound to this exact repository snapshot"
+            )
         return {
             "repository_snapshot_digest": self.snapshot_digest,
             "repository_commit": self.commit_sha,
@@ -256,6 +263,8 @@ class GovernanceObservation:
     observed_at: str
     repository: str
     ref: str
+    repository_snapshot_digest: str | None
+    repository_snapshot_commit: str | None
     local_state: LocalState
     local_branches: tuple[BranchObservation, ...]
     worktrees: tuple[WorktreeObservation, ...]
