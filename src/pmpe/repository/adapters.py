@@ -17,7 +17,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.21.0"
+DETECTOR_VERSION = "1.22.0"
 
 _GITHUB_EVENTS = frozenset(
     {
@@ -89,6 +89,38 @@ _GITHUB_PULL_REQUEST_TYPES = frozenset(
         "unassigned",
         "unlabeled",
         "unlocked",
+    }
+)
+_GITHUB_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
+_GITHUB_TOP_LEVEL_KEYS = frozenset(
+    {True, "on", "name", "run-name", "permissions", "env", "defaults", "concurrency", "jobs"}
+)
+_GITHUB_INLINE_JOB_KEYS = frozenset(
+    {
+        "name",
+        "if",
+        "runs-on",
+        "timeout-minutes",
+        "steps",
+        "strategy",
+        "defaults",
+        "needs",
+    }
+)
+_GITHUB_REUSABLE_JOB_KEYS = frozenset({"name", "if", "needs", "uses", "with", "secrets"})
+_GITHUB_STEP_KEYS = frozenset(
+    {
+        "name",
+        "id",
+        "if",
+        "uses",
+        "run",
+        "with",
+        "env",
+        "working-directory",
+        "shell",
+        "continue-on-error",
+        "timeout-minutes",
     }
 )
 
@@ -1195,7 +1227,7 @@ def _containers(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="delivery.ci",
-    version="1.8.0",
+    version="1.9.0",
     file_patterns=(
         ".github/workflows/*.yml",
         ".github/workflows/*.yaml",
@@ -1371,22 +1403,132 @@ def _structured_text(value: object) -> str:
     return "\n".join(strings)
 
 
-def _ci_action_has_content(value: object) -> bool:
-    if isinstance(value, str):
-        return bool(value.strip())
-    if isinstance(value, list):
-        return any(_ci_action_has_content(item) for item in value)
-    if isinstance(value, dict):
-        return bool(value) and any(_ci_action_has_content(item) for item in value.values())
-    return False
-
-
 def _nonempty_string_list(value: object) -> bool:
     return (
         isinstance(value, list)
         and bool(value)
         and all(isinstance(item, str) and bool(item.strip()) for item in value)
     )
+
+
+def _github_scalar_mapping(value: object) -> bool:
+    return isinstance(value, dict) and all(
+        isinstance(key, str)
+        and bool(key.strip())
+        and (item is None or isinstance(item, (str, int, float, bool)))
+        for key, item in value.items()
+    )
+
+
+def _github_permissions_are_supported(value: object) -> bool:
+    if isinstance(value, str):
+        return value in {"read-all", "write-all"}
+    return isinstance(value, dict) and all(
+        isinstance(key, str)
+        and _GITHUB_IDENTIFIER.fullmatch(key) is not None
+        and isinstance(item, str)
+        and item in {"read", "write", "none"}
+        for key, item in value.items()
+    )
+
+
+def _github_concurrency_is_supported(value: object) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if not isinstance(value, dict) or not set(value) <= {"group", "cancel-in-progress"}:
+        return False
+    group = value.get("group")
+    cancel = value.get("cancel-in-progress", False)
+    return (
+        isinstance(group, str)
+        and bool(group.strip())
+        and (isinstance(cancel, bool) or isinstance(cancel, str) and bool(cancel.strip()))
+    )
+
+
+def _github_defaults_are_supported(value: object) -> bool:
+    if not isinstance(value, dict) or set(value) != {"run"}:
+        return False
+    run = value.get("run")
+    return (
+        isinstance(run, dict)
+        and bool(run)
+        and set(run) <= {"shell", "working-directory"}
+        and all(isinstance(item, str) and bool(item.strip()) for item in run.values())
+    )
+
+
+def _github_needs_are_supported(value: object) -> bool:
+    if isinstance(value, str):
+        return _GITHUB_IDENTIFIER.fullmatch(value) is not None
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(
+            isinstance(item, str) and _GITHUB_IDENTIFIER.fullmatch(item) is not None
+            for item in value
+        )
+    )
+
+
+def _github_strategy_is_supported(value: object) -> bool:
+    if (
+        not isinstance(value, dict)
+        or not value
+        or not set(value)
+        <= {
+            "matrix",
+            "fail-fast",
+            "max-parallel",
+        }
+    ):
+        return False
+    fail_fast = value.get("fail-fast", True)
+    max_parallel = value.get("max-parallel", 1)
+    matrix = value.get("matrix")
+    return (
+        isinstance(fail_fast, bool)
+        and isinstance(max_parallel, int)
+        and not isinstance(max_parallel, bool)
+        and max_parallel > 0
+        and isinstance(matrix, dict)
+        and bool(matrix)
+        and all(
+            isinstance(key, str)
+            and _GITHUB_IDENTIFIER.fullmatch(key) is not None
+            and isinstance(items, list)
+            and bool(items)
+            and all(isinstance(item, (str, int, float, bool)) for item in items)
+            for key, items in matrix.items()
+        )
+    )
+
+
+def _github_cron_is_supported(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    fields = value.split()
+    limits = ((0, 59), (0, 23), (1, 31), (1, 12), (0, 7))
+    if len(fields) != len(limits):
+        return False
+    for field, (minimum, maximum) in zip(fields, limits, strict=True):
+        if re.fullmatch(r"[0-9*/,-]+", field) is None:
+            return False
+        for segment in field.split(","):
+            base, separator, step = segment.partition("/")
+            if separator and (not step.isdigit() or int(step) <= 0):
+                return False
+            if base == "*":
+                continue
+            endpoints = base.split("-")
+            if len(endpoints) not in {1, 2} or not all(item.isdigit() for item in endpoints):
+                return False
+            numbers = [int(item) for item in endpoints]
+            if not all(minimum <= item <= maximum for item in numbers):
+                return False
+            if len(numbers) == 2 and numbers[0] > numbers[1]:
+                return False
+    return True
 
 
 def _github_event_configuration_is_supported(event: str, value: object) -> bool:
@@ -1399,8 +1541,7 @@ def _github_event_configuration_is_supported(event: str, value: object) -> bool:
             and all(
                 isinstance(item, dict)
                 and set(item) == {"cron"}
-                and isinstance(item["cron"], str)
-                and bool(item["cron"].strip())
+                and _github_cron_is_supported(item["cron"])
                 for item in value
             )
         )
@@ -1423,6 +1564,13 @@ def _github_event_configuration_is_supported(event: str, value: object) -> bool:
         _nonempty_string_list(item) for item in value.values()
     ):
         return False
+    for positive, negative in (
+        ("branches", "branches-ignore"),
+        ("paths", "paths-ignore"),
+        ("tags", "tags-ignore"),
+    ):
+        if positive in value and negative in value:
+            return False
     types = value.get("types")
     if types is None or event == "repository_dispatch":
         return True
@@ -1490,15 +1638,40 @@ def _github_reusable_workflow_is_runnable(value: object) -> bool:
 def _github_job_is_runnable(value: object) -> bool:
     if not isinstance(value, dict):
         return False
+    name = value.get("name")
+    condition = value.get("if")
+    needs = value.get("needs")
+    if name is not None and (not isinstance(name, str) or not name.strip()):
+        return False
+    if condition is not None and (not isinstance(condition, str) or not condition.strip()):
+        return False
+    if needs is not None and not _github_needs_are_supported(needs):
+        return False
     if "uses" in value:
         return (
-            "runs-on" not in value
-            and "steps" not in value
+            bool(value)
+            and set(value) <= _GITHUB_REUSABLE_JOB_KEYS
             and _github_reusable_workflow_is_runnable(value.get("uses"))
+            and ("with" not in value or _github_scalar_mapping(value["with"]))
+            and (
+                "secrets" not in value
+                or value["secrets"] == "inherit"
+                or _github_scalar_mapping(value["secrets"])
+            )
         )
+    if not set(value) <= _GITHUB_INLINE_JOB_KEYS:
+        return False
+    timeout = value.get("timeout-minutes", 1)
+    strategy = value.get("strategy")
+    defaults = value.get("defaults")
     steps = value.get("steps")
     return (
-        _github_runner_is_runnable(value.get("runs-on"))
+        isinstance(timeout, int)
+        and not isinstance(timeout, bool)
+        and timeout > 0
+        and (strategy is None or _github_strategy_is_supported(strategy))
+        and (defaults is None or _github_defaults_are_supported(defaults))
+        and _github_runner_is_runnable(value.get("runs-on"))
         and isinstance(steps, list)
         and bool(steps)
         and all(_github_step_is_runnable(step) for step in steps)
@@ -1506,7 +1679,32 @@ def _github_job_is_runnable(value: object) -> bool:
 
 
 def _github_step_is_runnable(value: object) -> bool:
-    if not isinstance(value, dict):
+    if not isinstance(value, dict) or not value or not set(value) <= _GITHUB_STEP_KEYS:
+        return False
+    name = value.get("name")
+    step_id = value.get("id")
+    condition = value.get("if")
+    for key in ("working-directory", "shell"):
+        item = value.get(key)
+        if item is not None and (not isinstance(item, str) or not item.strip()):
+            return False
+    if name is not None and (not isinstance(name, str) or not name.strip()):
+        return False
+    if step_id is not None and (
+        not isinstance(step_id, str) or _GITHUB_IDENTIFIER.fullmatch(step_id) is None
+    ):
+        return False
+    if condition is not None and (not isinstance(condition, str) or not condition.strip()):
+        return False
+    if "with" in value and not _github_scalar_mapping(value["with"]):
+        return False
+    if "env" in value and not _github_scalar_mapping(value["env"]):
+        return False
+    continue_on_error = value.get("continue-on-error", False)
+    timeout = value.get("timeout-minutes", 1)
+    if not isinstance(continue_on_error, bool) or (
+        not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0
+    ):
         return False
     run = value.get("run")
     uses = value.get("uses")
@@ -1523,63 +1721,34 @@ def _github_step_is_runnable(value: object) -> bool:
     return _GITHUB_DOCKER_ACTION.fullmatch(reference) is not None
 
 
-def _gitlab_job_is_runnable(job: dict[object, object]) -> bool:
-    script = job.get("script")
-    if isinstance(script, str) and bool(script.strip()):
-        return True
-    if isinstance(script, list) and any(
-        isinstance(item, str) and bool(item.strip()) for item in script
-    ):
-        return True
-    trigger = job.get("trigger")
-    if isinstance(trigger, str):
-        return bool(trigger.strip())
-    return isinstance(trigger, dict) and any(
-        _ci_action_has_content(trigger.get(key)) for key in ("project", "include")
-    )
-
-
-def _circle_step_is_runnable(step: object) -> bool:
-    if isinstance(step, str):
-        return bool(step.strip())
-    if not isinstance(step, dict):
+def _github_workflow_is_runnable(value: dict[object, object]) -> bool:
+    if not set(value) <= _GITHUB_TOP_LEVEL_KEYS or ("on" in value and True in value):
         return False
-    run = step.get("run")
-    if isinstance(run, str) and bool(run.strip()):
-        return True
-    if isinstance(run, dict) and _ci_action_has_content(run.get("command")):
-        return True
-    return any(
-        key in step and (step[key] is None or _ci_action_has_content(step[key]))
-        for key in ("checkout", "setup_remote_docker")
-    )
-
-
-def _azure_tree_contains_action(value: object) -> bool:
-    pending = [value]
-    visited = 0
-    while pending:
-        current = pending.pop()
-        visited += 1
-        if visited > 50_000:
+    for key in ("name", "run-name"):
+        item = value.get(key)
+        if item is not None and (not isinstance(item, str) or not item.strip()):
             return False
-        if isinstance(current, dict):
-            if any(
-                _ci_action_has_content(current.get(key))
-                for key in ("script", "bash", "pwsh", "powershell", "task", "template")
-            ):
-                return True
-            checkout = current.get("checkout")
-            if (
-                isinstance(checkout, str)
-                and checkout.strip()
-                and checkout.strip().lower() != "none"
-            ):
-                return True
-            pending.extend(current[key] for key in ("jobs", "stages", "steps") if key in current)
-        elif isinstance(current, list):
-            pending.extend(current)
-    return False
+    if "permissions" in value and not _github_permissions_are_supported(value["permissions"]):
+        return False
+    if "env" in value and not _github_scalar_mapping(value["env"]):
+        return False
+    if "defaults" in value and not _github_defaults_are_supported(value["defaults"]):
+        return False
+    if "concurrency" in value and not _github_concurrency_is_supported(value["concurrency"]):
+        return False
+    event = value.get("on", value.get(True))
+    jobs = value.get("jobs")
+    return (
+        _github_trigger_is_runnable(event)
+        and isinstance(jobs, dict)
+        and bool(jobs)
+        and all(
+            isinstance(job_id, str)
+            and _GITHUB_IDENTIFIER.fullmatch(job_id) is not None
+            and _github_job_is_runnable(job)
+            for job_id, job in jobs.items()
+        )
+    )
 
 
 def _valid_ci_structure(path: str, value: object) -> bool:
@@ -1587,75 +1756,7 @@ def _valid_ci_structure(path: str, value: object) -> bool:
         return False
     lowered = path.lower()
     if lowered.startswith(".github/workflows/"):
-        event_declared = _github_trigger_is_runnable(value.get("on", value.get(True)))
-        jobs = value.get("jobs")
-        return (
-            event_declared
-            and isinstance(jobs, dict)
-            and bool(jobs)
-            and all(_github_job_is_runnable(job) for job in jobs.values())
-        )
-    if lowered == ".gitlab-ci.yml":
-        reserved = {
-            "default",
-            "include",
-            "stages",
-            "variables",
-            "workflow",
-            "image",
-            "services",
-            "before_script",
-            "after_script",
-            "cache",
-            "pages",
-        }
-        return any(
-            key not in reserved
-            and not key.startswith(".")
-            and isinstance(item, dict)
-            and _gitlab_job_is_runnable(item)
-            for key, item in value.items()
-        )
-    if lowered == ".circleci/config.yml":
-        jobs = value.get("jobs")
-        return (
-            "version" in value
-            and isinstance(jobs, dict)
-            and any(
-                isinstance(job, dict)
-                and isinstance(job.get("steps"), list)
-                and any(_circle_step_is_runnable(step) for step in job["steps"])
-                for job in jobs.values()
-            )
-        )
-    if lowered == "azure-pipelines.yml":
-        return _azure_tree_contains_action(value)
-    if lowered == "bitbucket-pipelines.yml":
-        pipelines = value.get("pipelines")
-        pending = [pipelines]
-        visited = 0
-        while pending:
-            current = pending.pop()
-            visited += 1
-            if visited > 50_000:
-                return False
-            if isinstance(current, dict):
-                step = current.get("step")
-                if (
-                    isinstance(step, dict)
-                    and isinstance(step.get("script"), list)
-                    and any(
-                        _ci_action_has_content(item)
-                        if not isinstance(item, dict)
-                        else _ci_action_has_content(item.get("pipe"))
-                        for item in step["script"]
-                    )
-                ):
-                    return True
-                pending.extend(current.values())
-            elif isinstance(current, list):
-                pending.extend(current)
-        return False
+        return _github_workflow_is_runnable(value)
     return False
 
 

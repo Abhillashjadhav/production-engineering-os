@@ -835,15 +835,16 @@ def test_integration_declarations_and_codeowners_are_evidence_backed(tmp_path: P
     assert any(item.kind == "OWNERSHIP_AREA" for item in snapshot.boundary_candidates)
 
 
-def test_non_github_ci_is_not_reported_as_ci_absent(tmp_path: Path) -> None:
+def test_non_github_ci_is_visible_but_remains_structurally_unproven(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path, mixed=False)
     _write(repo, ".gitlab-ci.yml", "test:\n  script: pytest\n")
     _commit(repo, "gitlab ci")
     snapshot = _scan(repo)
-    assert any(
-        item.kind == "CI_WORKFLOW" for item in snapshot.inventory["delivery_environments"].items
-    )
-    assert not any(item.code == "DELIVERY.CI_ABSENT" for item in snapshot.findings)
+    delivery = snapshot.inventory["delivery_environments"].items
+    assert any(item.kind == "CI_CONFIGURATION_SIGNAL" for item in delivery)
+    assert not any(item.kind == "CI_WORKFLOW" for item in delivery)
+    assert any(item.code == "WORKFLOW.STRUCTURE_UNPROVEN" for item in snapshot.findings)
+    assert any(item.code == "DELIVERY.CI_ABSENT" for item in snapshot.findings)
 
 
 @pytest.mark.parametrize(
@@ -936,6 +937,39 @@ def test_non_github_ci_is_not_reported_as_ci_absent(tmp_path: Path) -> None:
             ".github/workflows/ci.yml",
             "name: invalid action reference\non: [push]\njobs:\n  test:\n"
             "    runs-on: ubuntu-latest\n    steps:\n      - uses: arbitrary-string\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: invalid job id\non: [push]\njobs:\n  'bad id':\n"
+            "    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: unsupported top key\non: [push]\nunsupported: true\njobs:\n  test:\n"
+            "    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: unsupported job key\non: [push]\njobs:\n  test:\n"
+            "    runs-on: ubuntu-latest\n    unsupported: true\n"
+            "    steps:\n      - run: pytest\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: unsupported step key\non: [push]\njobs:\n  test:\n"
+            "    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n"
+            "        unsupported: true\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: invalid schedule\non:\n  schedule:\n    - cron: '99 99 * * *'\n"
+            "jobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: conflicting filters\non:\n  push:\n    branches: [main]\n"
+            "    branches-ignore: [legacy]\njobs:\n  test:\n"
+            "    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n",
         ),
         (".circleci/config.yml", "version: 2.1\njobs: []\n"),
         (
