@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import signal
 import subprocess
 import time
@@ -250,6 +251,22 @@ def test_output_affecting_injected_implementation_changes_provenance_digest(
     assert first.snapshot_digest != second.snapshot_digest
 
 
+def test_implementation_provenance_is_independent_of_checkout_path(tmp_path: Path) -> None:
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    source = "def evaluate(context):\n    return len(context)\n"
+    implementations: list[Any] = []
+    for name in ("clone-a", "clone-b"):
+        source_path = tmp_path / name / "adapter.py"
+        source_path.parent.mkdir()
+        source_path.write_text(source)
+        namespace: dict[str, Any] = {"__name__": "fixture.adapter"}
+        exec(compile(source, str(source_path), "exec"), namespace)
+        implementations.append(namespace["evaluate"])
+    assert scanner._implementation_source_evidence(
+        "adapter:test", implementations[0]
+    ) == scanner._implementation_source_evidence("adapter:test", implementations[1])
+
+
 def test_all_audit_categories_are_present_and_active_work_is_separate(tmp_path: Path) -> None:
     api = _api()
     snapshot = _scan(_init_repo(tmp_path))
@@ -492,7 +509,10 @@ def test_shell_source_without_adapter_is_blocked_not_reported_absent(tmp_path: P
     assert any(item.code == "STACK.UNSUPPORTED_FILE_TYPE" for item in snapshot.findings)
 
 
-@pytest.mark.parametrize("manifest", ["Makefile", "WORKSPACE", "BUILD.bazel", "Jenkinsfile"])
+@pytest.mark.parametrize(
+    "manifest",
+    ["Makefile", "WORKSPACE", "BUILD.bazel", "Jenkinsfile", "Pipfile", "Rakefile", "Procfile"],
+)
 def test_extensionless_unsupported_ecosystem_is_blocked(tmp_path: Path, manifest: str) -> None:
     repo = _init_repo(tmp_path, mixed=False)
     _write(repo, manifest, "unsupported build definition\n")
@@ -502,6 +522,48 @@ def test_extensionless_unsupported_ecosystem_is_blocked(tmp_path: Path, manifest
     assert any(
         item.code == "STACK.UNSUPPORTED_ECOSYSTEM" and manifest in item.evidence_refs
         for item in snapshot.findings
+    )
+
+
+def test_adapter_cannot_fabricate_untracked_high_confidence_evidence(tmp_path: Path) -> None:
+    api = _api()
+    adapters = importlib.import_module("pmpe.repository.adapters")
+    models = importlib.import_module("pmpe.repository.models")
+    repo = _init_repo(tmp_path)
+
+    def fabricate(_context: Any) -> Any:
+        return adapters.AdapterResult(
+            items=(
+                (
+                    "repository_topology",
+                    models.EvidenceItem(
+                        kind="FABRICATED",
+                        path="does-not-exist.txt",
+                        file_digest="sha256:" + "0" * 64,
+                        detector_id="test.fabricator",
+                        detector_version=adapters.DETECTOR_VERSION,
+                        confidence="HIGH",
+                    ),
+                ),
+            )
+        )
+
+    adapter = api.RepositoryAdapter(
+        adapter_id="test.fabricator",
+        version="1.0.0",
+        file_patterns=("*",),
+        supported_categories=("repository_topology",),
+        evaluator=fabricate,
+    )
+    snapshot = api.RepositoryScanner(config=_config(), adapters=(adapter,)).scan(
+        repo, commit="HEAD"
+    )
+    assert snapshot.disposition == "BLOCKED"
+    assert any(item.code == "ADAPTER.INVALID_EVIDENCE" for item in snapshot.findings)
+    assert not any(
+        item.path == "does-not-exist.txt"
+        for category in snapshot.inventory.values()
+        for item in category.items
     )
 
 
@@ -654,6 +716,15 @@ def test_redaction_failure_blocks_artifact_creation(tmp_path: Path) -> None:
         api.RepositoryScanner(config=_config(), redactor=BrokenRedactor()).scan(repo, commit="HEAD")
 
 
+@pytest.mark.parametrize("field", ["token", "signature", "sig"])
+def test_sensitive_mapping_fields_are_redacted_before_persistence(field: str) -> None:
+    redaction = importlib.import_module("pmpe.repository.redaction")
+    secret = "TOPSECRET123"
+    sanitized = redaction.EvidenceRedactor().sanitize({field: secret})
+    assert sanitized[field] == "[REDACTED]"
+    assert secret not in json.dumps(sanitized)
+
+
 class _FixedClock:
     def now(self) -> str:
         return "2026-08-01T00:00:00Z"
@@ -758,7 +829,6 @@ class _DeniedRemote:
 class _PartialRemote(_FakeRemote):
     def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
         payload = super().collect(repository, ref, **bounds)
-        payload.pop("complete")
         payload["query_provenance"][0]["has_next_page"] = True
         return payload
 
@@ -822,6 +892,15 @@ class _DuplicateRemote(_FakeRemote):
         payload = super().collect(repository, ref, **bounds)
         payload["remote_branches"].append(dict(payload["remote_branches"][0]))
         payload["query_provenance"][0]["result_count"] = 2
+        return payload
+
+
+class _CoerciblePrimitiveRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["pull_requests"][0]["draft"] = "false"
+        payload["issues"][0]["number"] = True
+        payload["query_provenance"][0]["has_next_page"] = "false"
         return payload
 
 
@@ -960,7 +1039,9 @@ def test_remote_provider_timeout_is_bounded_and_visible(tmp_path: Path) -> None:
     assert any(item.fact == "remote_governance" for item in observation.unknowns)
 
 
-@pytest.mark.parametrize("remote", [_MismatchedRemote(), _DuplicateRemote()])
+@pytest.mark.parametrize(
+    "remote", [_MismatchedRemote(), _DuplicateRemote(), _CoerciblePrimitiveRemote()]
+)
 def test_remote_identity_mismatch_or_duplicate_inventory_fails_closed(
     tmp_path: Path, remote: Any
 ) -> None:
@@ -973,7 +1054,8 @@ def test_remote_provider_cancellation_terminates_the_isolated_process() -> None:
     api = _api()
 
     class CancelSoon:
-        started = time.monotonic()
+        def __init__(self) -> None:
+            self.started = time.monotonic()
 
         def cancelled(self) -> bool:
             return time.monotonic() - self.started > 0.2
@@ -1221,15 +1303,23 @@ def test_cancellation_terminates_an_ordinary_bounded_git_command(
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     fake_git = fake_bin / "git"
-    fake_git.write_text("#!/bin/sh\nsleep 30\n")
+    child_pid_path = tmp_path / "child.pid"
+    fake_git.write_text(
+        "#!/bin/sh\n"
+        "trap 'exit 0' TERM\n"
+        "( trap '' TERM; sleep 30 ) &\n"
+        f"echo $! > {child_pid_path}\n"
+        "while :; do sleep 1; done\n"
+    )
     fake_git.chmod(0o755)
     monkeypatch.setenv("PATH", f"{fake_bin}:/usr/bin:/bin")
 
     class CancelSoon:
-        started = time.monotonic()
+        def __init__(self) -> None:
+            self.started = time.monotonic()
 
         def cancelled(self) -> bool:
-            return time.monotonic() - self.started > 0.2
+            return child_pid_path.exists() and time.monotonic() - self.started > 0.2
 
     started = time.monotonic()
     result = scanner.SubprocessCommandRunner().run(
@@ -1238,6 +1328,16 @@ def test_cancellation_terminates_an_ordinary_bounded_git_command(
     assert time.monotonic() - started < 4
     assert result.returncode == 126
     assert result.timed_out is False
+    child_pid = int(child_pid_path.read_text())
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        try:
+            os.kill(child_pid, 0)
+        except ProcessLookupError:
+            break
+        time.sleep(0.05)
+    else:
+        pytest.fail("TERM-ignoring descendant survived bounded command cancellation")
 
 
 def test_cancellation_during_final_adapter_blocks_snapshot_finalization(tmp_path: Path) -> None:
@@ -1313,7 +1413,7 @@ def test_git_readers_disable_lazy_fetch_and_repository_defined_accelerators() ->
     assert scanner_environment["GIT_CONFIG_VALUE_0"] == "false"
     governance_runner = governance.GovernanceCommandRunner()
     assert scanner_environment["GIT_CONFIG_VALUE_5"] == "false"
-    assert governance_runner.identity.endswith("1.5.0")
+    assert governance_runner.identity.endswith("1.6.0")
 
 
 def test_artifact_maps_cannot_be_mutated_after_digest_binding(tmp_path: Path) -> None:

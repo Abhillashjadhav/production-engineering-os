@@ -14,7 +14,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.3.0"
+DETECTOR_VERSION = "1.4.0"
 
 
 @dataclass(frozen=True)
@@ -57,6 +57,7 @@ class RepositoryAdapter:
     file_patterns: tuple[str, ...]
     supported_categories: tuple[str, ...]
     evaluator: AdapterEvaluator
+    detector_version: str = DETECTOR_VERSION
     failure_behavior: str = "VISIBLE_PARTIAL_OR_BLOCKED"
     detection_logic: str = "TRACKED_PATH_AND_SAFE_STRUCTURE_ONLY"
     evidence_emitted: str = "DIGEST_BOUND_FILE_EVIDENCE"
@@ -79,6 +80,7 @@ def repository_adapter(
             file_patterns=file_patterns,
             supported_categories=supported_categories,
             evaluator=evaluator,
+            detector_version=DETECTOR_VERSION,
         )
 
     return decorate
@@ -166,8 +168,11 @@ def _test_signal_kind(path: str) -> str | None:
     supported_categories=(
         "repository_topology",
         "architecture_boundaries",
+        "delivery_environments",
         "documentation_governance",
         "debt_risk",
+        "observability_operations",
+        "security_privacy",
     ),
 )
 def _topology(context: AdapterContext) -> AdapterResult:
@@ -342,7 +347,7 @@ def _topology(context: AdapterContext) -> AdapterResult:
                 evidence_paths=tuple(sorted(paths)),
                 confidence="MEDIUM",
                 detector_id="core.repository-topology",
-                detector_version="1.0.0",
+                detector_version=DETECTOR_VERSION,
             )
         )
     return AdapterResult(items=tuple(items), findings=tuple(findings), boundaries=tuple(boundaries))

@@ -15,7 +15,7 @@ class RedactionError(RuntimeError):
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
-    version = "central-redactor/1.5.0"
+    version = "central-redactor/1.6.0"
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
         r"|glpat-[A-Za-z0-9_-]{16,}"
@@ -52,7 +52,7 @@ class EvidenceRedactor:
     _sensitive_field = re.compile(
         r"(?i)(?:authorization|proxy-authorization|cookie|set-cookie|x-api-key|api[_-]?key"
         r"|access[_-]?token|refresh[_-]?token|client[_-]?secret|password|passwd|secret"
-        r"|private[_-]?key|credential)"
+        r"|private[_-]?key|credential|token|signature|sig)"
     )
 
     def __init__(self) -> None:

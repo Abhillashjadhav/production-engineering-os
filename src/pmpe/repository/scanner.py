@@ -6,7 +6,6 @@ import hashlib
 import importlib.metadata
 import inspect
 import json
-import marshal
 import multiprocessing
 import os
 import platform
@@ -47,7 +46,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/1.5.0"
+SCANNER_VERSION = "repository-scanner/1.6.0"
 IMPLEMENTATION_MODULES = (
     "repository.adapters",
     "repository.models",
@@ -80,6 +79,15 @@ class _ScanCancelledError(RepositoryIntelligenceError):
     """An in-flight bounded scan operation was cancelled."""
 
 
+def _cancellation_requested(cancellation: Cancellation | None) -> bool:
+    if cancellation is None:
+        return False
+    try:
+        return cancellation.cancelled()
+    except Exception:
+        return True
+
+
 @dataclass(frozen=True)
 class TreeListingResult:
     result: CommandResult
@@ -91,7 +99,7 @@ class TreeListingResult:
 class SubprocessCommandRunner:
     """Allowlisted local Git reader; it never invokes shells or project code."""
 
-    identity = "git-readonly-subprocess/1.5.0"
+    identity = "git-readonly-subprocess/1.6.0"
     _allowed = {"rev-parse", "ls-tree", "cat-file", "version"}
 
     @staticmethod
@@ -152,7 +160,7 @@ class SubprocessCommandRunner:
         cancelled = False
         try:
             while True:
-                if cancellation is not None and cancellation.cancelled():
+                if _cancellation_requested(cancellation):
                     cancelled = True
                     break
                 remaining = deadline - time.monotonic()
@@ -170,13 +178,25 @@ class SubprocessCommandRunner:
                         break
                 elif process.poll() is not None:
                     break
+        except BaseException:
+            _stop_subprocess_group(process)
+            raise
         finally:
             selector.close()
             process.stdout.close()
-        if cancelled or timed_out or process.poll() is None:
+        if cancelled or timed_out:
             _stop_subprocess_group(process)
         else:
-            process.wait(timeout=1.0)
+            try:
+                process.wait(timeout=0.25)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                _stop_subprocess_group(process)
+            else:
+                if not _signal_process_group(process, signal.SIGKILL):
+                    raise RepositorySecurityError(
+                        "bounded Git descendant termination could not be proven"
+                    )
         return CommandResult(
             args=args,
             returncode=126 if cancelled else 124 if timed_out else process.returncode,
@@ -221,14 +241,12 @@ class SubprocessCommandRunner:
         deadline = time.monotonic() + timeout
         try:
             while True:
-                if cancellation is not None and cancellation.cancelled():
+                if _cancellation_requested(cancellation):
                     cancelled = True
-                    _signal_process_group(process, signal.SIGTERM)
                     break
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     timed_out = True
-                    _signal_process_group(process, signal.SIGKILL)
                     break
                 events = selector.select(min(remaining, 0.1))
                 if not events:
@@ -240,31 +258,31 @@ class SubprocessCommandRunner:
                 record_count += chunk.count(0)
                 if len(payload) > max_output_bytes:
                     byte_limit = True
-                    _signal_process_group(process, signal.SIGTERM)
                     break
                 if record_count >= max_records:
                     record_limit = True
-                    _signal_process_group(process, signal.SIGTERM)
                     break
+        except BaseException:
+            _stop_subprocess_group(process)
+            raise
         finally:
             selector.close()
             process.stdout.close()
-        graceful_timeout = 0.25 if cancelled or record_limit or byte_limit else 0.1
-        try:
-            returncode = process.wait(
-                timeout=(
-                    graceful_timeout
-                    if cancelled or record_limit or byte_limit
-                    else max(0.1, deadline - time.monotonic())
-                )
-            )
-        except subprocess.TimeoutExpired:
-            _signal_process_group(process, signal.SIGKILL)
+        if cancelled or record_limit or byte_limit or timed_out:
+            _stop_subprocess_group(process)
+            returncode = process.returncode
+        else:
             try:
-                returncode = process.wait(timeout=1.0)
-            except subprocess.TimeoutExpired as exc:
-                raise RepositorySecurityError("bounded Git process could not be reaped") from exc
-            timed_out = True
+                returncode = process.wait(timeout=max(0.1, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                _stop_subprocess_group(process)
+                returncode = process.returncode
+            else:
+                if not _signal_process_group(process, signal.SIGKILL):
+                    raise RepositorySecurityError(
+                        "bounded Git descendant termination could not be proven"
+                    )
         complete_records = bytes(payload[:max_output_bytes]).split(b"\0")
         if complete_records and complete_records[-1]:
             complete_records = complete_records[:-1]
@@ -288,44 +306,53 @@ class SubprocessCommandRunner:
         )
 
 
-def _signal_process_group(process: subprocess.Popen[bytes], action: signal.Signals) -> None:
+def _signal_process_group(process: subprocess.Popen[bytes], action: signal.Signals) -> bool:
     """Stop the isolated immutable-object reader and any unexpected descendant."""
 
     try:
         os.killpg(process.pid, action)
+        return True
     except ProcessLookupError:
-        return
+        return True
     except OSError:
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            return True
+        except OSError:
+            pass
         # Always make a best-effort parent termination if process-group signalling
         # is unavailable. These immutable-object commands cannot invoke repository
         # code, so a successfully signalled and reaped parent is a safe fallback.
         try:
             process.send_signal(action)
         except ProcessLookupError:
-            return
+            return False
         except OSError:
             try:
                 process.kill()
             except ProcessLookupError:
-                return
+                return False
             except OSError as exc:
                 raise RepositorySecurityError(
                     "bounded Git process group and parent could not be terminated"
                 ) from exc
+        return False
 
 
 def _stop_subprocess_group(process: subprocess.Popen[bytes]) -> None:
     """Terminate and reap a bounded process group, including surviving descendants."""
 
     _signal_process_group(process, signal.SIGTERM)
-    try:
+    with suppress(subprocess.TimeoutExpired):
         process.wait(timeout=0.25)
-    except subprocess.TimeoutExpired:
-        _signal_process_group(process, signal.SIGKILL)
-        try:
-            process.wait(timeout=1.0)
-        except subprocess.TimeoutExpired as exc:
-            raise RepositorySecurityError("bounded Git process could not be reaped") from exc
+    group_proven = _signal_process_group(process, signal.SIGKILL)
+    try:
+        process.wait(timeout=1.0)
+    except subprocess.TimeoutExpired as exc:
+        raise RepositorySecurityError("bounded Git process could not be reaped") from exc
+    if not group_proven:
+        raise RepositorySecurityError("bounded Git descendant termination could not be proven")
 
 
 def _valid_object_id(value: str, object_format: str) -> bool:
@@ -347,11 +374,13 @@ def _implementation_source_evidence(label: str, target: Any) -> dict[str, str]:
             raise OSError("implementation source path is unavailable")
         source_digest = _sha256(Path(source_path_value).read_bytes())
         callable_target = target if callable(target) else getattr(target, "run", None)
-        code = getattr(callable_target, "__code__", None)
-        if code is None and not inspect.isfunction(target) and callable(target):
-            method = inspect.getattr_static(implementation, "__call__", None)
-            code = getattr(method, "__code__", None)
-        code_digest = _sha256(marshal.dumps(code)) if code is not None else source_digest
+        if callable_target is None and not inspect.isfunction(target) and callable(target):
+            callable_target = inspect.getattr_static(implementation, "__call__", None)
+        code_digest = (
+            _sha256(inspect.getsource(callable_target).encode("utf-8"))
+            if callable_target is not None
+            else source_digest
+        )
     except (OSError, TypeError, ValueError) as exc:
         raise RepositoryIntelligenceError(
             f"{label} implementation bytes are unavailable for provenance binding"
@@ -425,18 +454,26 @@ def _stop_isolated_process(process: Any) -> None:
 
     try:
         os.killpg(process.pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError, OSError):
+    except ProcessLookupError:
+        pass
+    except (PermissionError, OSError):
         if process.is_alive():
             process.terminate()
     process.join(timeout=0.25)
     try:
         os.killpg(process.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError, OSError):
+        group_proven = True
+    except ProcessLookupError:
+        group_proven = True
+    except (PermissionError, OSError):
+        group_proven = False
         if process.is_alive():
             process.kill()
     process.join(timeout=1.0)
     if process.is_alive():
         raise RepositorySecurityError("bounded adapter process could not be reaped")
+    if not group_proven:
+        raise RepositorySecurityError("bounded adapter descendant termination could not be proven")
 
 
 def _sha256(payload: bytes) -> str:
@@ -508,6 +545,7 @@ def _metadata(adapter: RepositoryAdapter) -> AdapterMetadata:
     return AdapterMetadata(
         adapter_id=adapter.adapter_id,
         version=adapter.version,
+        detector_version=adapter.detector_version,
         file_patterns=adapter.file_patterns,
         supported_categories=adapter.supported_categories,
         failure_behavior=adapter.failure_behavior,
@@ -582,6 +620,17 @@ class RepositoryScanner:
         self.adapters = tuple(
             sorted(adapters or default_adapters(), key=lambda item: item.adapter_id)
         )
+        adapter_ids = [item.adapter_id for item in self.adapters]
+        if len(set(adapter_ids)) != len(adapter_ids) or any(
+            not item.adapter_id
+            or not item.version
+            or not item.detector_version
+            or not item.file_patterns
+            or not item.supported_categories
+            or not set(item.supported_categories).issubset(AUDIT_CATEGORIES)
+            for item in self.adapters
+        ):
+            raise RepositoryIntelligenceError("repository adapter declaration is invalid")
         self.runner = command_runner or SubprocessCommandRunner()
         self.redactor = redactor or EvidenceRedactor()
         self.cancellation = cancellation
@@ -1089,9 +1138,10 @@ class RepositoryScanner:
                 )
                 break
             supported.update(adapter.supported_categories)
+            matched_context = AdapterContext(files=context.matching(adapter.file_patterns))
             status, result = self._run_adapter_bounded(
                 adapter,
-                AdapterContext(files=context.matching(adapter.file_patterns)),
+                matched_context,
             )
             if status == "CANCELLED":
                 findings.append(self._cancelled_finding(f"adapter:{adapter.adapter_id}"))
@@ -1108,6 +1158,18 @@ class RepositoryScanner:
                     )
                 )
                 continue
+            if not self._adapter_result_is_valid(adapter, matched_context, result):
+                findings.append(
+                    _finding(
+                        "ADAPTER.INVALID_EVIDENCE",
+                        adapter.supported_categories[0],
+                        f"Adapter {adapter.adapter_id} emitted evidence that was not bound to "
+                        "its declaration and matched immutable files.",
+                        (f"adapter:{adapter.adapter_id}",),
+                        blocking=True,
+                    )
+                )
+                continue
             if self._is_cancelled():
                 findings.append(self._cancelled_finding(f"adapter:{adapter.adapter_id}"))
                 break
@@ -1116,14 +1178,12 @@ class RepositoryScanner:
                     inventory[category].append(item)
             findings.extend(result.findings)
             boundaries.extend(result.boundaries)
+        files_by_path = {item.path: item for item in files}
         inventory["architecture_boundaries"].extend(
             EvidenceItem(
                 kind=f"BOUNDARY_{item.kind}",
                 path=item.evidence_paths[0],
-                file_digest=next(
-                    (file.digest for file in files if file.path == item.evidence_paths[0]),
-                    "sha256:" + "0" * 64,
-                ),
+                file_digest=files_by_path[item.evidence_paths[0]].digest,
                 detector_id=item.detector_id,
                 detector_version=item.detector_version,
                 confidence=item.confidence,
@@ -1131,6 +1191,62 @@ class RepositoryScanner:
             for item in boundaries
         )
         return inventory, findings, boundaries, supported
+
+    @staticmethod
+    def _adapter_result_is_valid(
+        adapter: RepositoryAdapter,
+        context: AdapterContext,
+        result: AdapterResult,
+    ) -> bool:
+        files = {item.path: item for item in context.files}
+        allowed_categories = set(adapter.supported_categories)
+        allowed_confidence = {"HIGH", "MEDIUM", "LOW"}
+        allowed_severity = {"CRITICAL", "HIGH", "MEDIUM", "LOW"}
+
+        for category, item in result.items:
+            source = files.get(item.path)
+            if (
+                category not in allowed_categories
+                or source is None
+                or item.file_digest != source.digest
+                or item.detector_id != adapter.adapter_id
+                or item.detector_version != adapter.detector_version
+                or item.confidence not in allowed_confidence
+                or item.redaction_status != "SANITIZED"
+                or not item.kind
+                or not item.location
+            ):
+                return False
+        for finding in result.findings:
+            if (
+                finding.category not in allowed_categories
+                or finding.detector_id != adapter.adapter_id
+                or finding.detector_version != adapter.detector_version
+                or finding.confidence not in allowed_confidence
+                or finding.severity not in allowed_severity
+                or not finding.code
+                or not finding.explanation
+                or not finding.evidence_refs
+                or not all(
+                    reference == "repository:tracked-tree" or reference in files
+                    for reference in finding.evidence_refs
+                )
+            ):
+                return False
+        if result.boundaries and "architecture_boundaries" not in allowed_categories:
+            return False
+        for boundary in result.boundaries:
+            if (
+                not boundary.kind
+                or not boundary.name
+                or not boundary.evidence_paths
+                or not all(path in files for path in boundary.evidence_paths)
+                or boundary.detector_id != adapter.adapter_id
+                or boundary.detector_version != adapter.detector_version
+                or boundary.confidence not in allowed_confidence
+            ):
+                return False
+        return True
 
     def _run_adapter_bounded(
         self, adapter: RepositoryAdapter, context: AdapterContext
@@ -1376,7 +1492,13 @@ class RepositoryScanner:
                 "Jenkinsfile",
                 "MODULE.bazel",
                 "Makefile",
+                "Pipfile",
+                "Pipfile.lock",
+                "Procfile",
+                "Rakefile",
+                "SConstruct",
                 "Tiltfile",
+                "Vagrantfile",
                 "WORKSPACE",
                 "WORKSPACE.bazel",
                 "build.gradle",

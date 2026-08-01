@@ -37,10 +37,11 @@ from pmpe.repository.scanner import (
     Cancellation,
     RepositoryIntelligenceError,
     RepositorySecurityError,
+    _cancellation_requested,
     _implementation_source_evidence,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/1.5.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/1.6.0"
 _REQUIRED_REMOTE_COVERAGE = frozenset({"remote_branches", "pull_requests", "issues", "governance"})
 _REQUIRED_GOVERNANCE_FACTS = frozenset({"branch_protection", "review_policy"})
 _OBJECT_FORMAT_LENGTH = {"sha1": 40, "sha256": 64}
@@ -156,7 +157,7 @@ def _remote_provider_worker(
 class GovernanceCommandRunner:
     """Allowlisted local Git observation commands with mutation subcommands refused."""
 
-    identity = "git-governance-readonly/1.5.0"
+    identity = "git-governance-readonly/1.6.0"
     _allowed = {
         "config",
         "status",
@@ -237,14 +238,12 @@ class GovernanceCommandRunner:
         cancelled = False
         try:
             while True:
-                if cancellation is not None and cancellation.cancelled():
+                if _cancellation_requested(cancellation):
                     cancelled = True
-                    _signal_process_group(process, signal.SIGTERM)
                     break
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     timed_out = True
-                    _signal_process_group(process, signal.SIGKILL)
                     break
                 events = selector.select(min(remaining, 0.1))
                 if not events:
@@ -255,24 +254,28 @@ class GovernanceCommandRunner:
                 payload.extend(chunk)
                 if len(payload) > self.max_output_bytes:
                     output_exceeded = True
-                    _signal_process_group(process, signal.SIGTERM)
                     break
+        except BaseException:
+            _stop_governance_process_group(process)
+            raise
         finally:
             selector.close()
             process.stdout.close()
-        try:
-            returncode = process.wait(
-                timeout=(
-                    0.25 if cancelled or output_exceeded else max(0.1, deadline - time.monotonic())
-                )
-            )
-        except subprocess.TimeoutExpired:
-            _signal_process_group(process, signal.SIGKILL)
+        if cancelled or output_exceeded or timed_out:
+            _stop_governance_process_group(process)
+            returncode = process.returncode
+        else:
             try:
-                returncode = process.wait(timeout=1.0)
-            except subprocess.TimeoutExpired as exc:
-                raise RepositorySecurityError("bounded Git process could not be reaped") from exc
-            timed_out = True
+                returncode = process.wait(timeout=max(0.1, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                _stop_governance_process_group(process)
+                returncode = process.returncode
+            else:
+                if not _signal_process_group(process, signal.SIGKILL):
+                    raise RepositorySecurityError(
+                        "governance Git descendant termination could not be proven"
+                    )
         return CommandResult(
             args=args,
             returncode=126 if cancelled else 125 if output_exceeded else returncode,
@@ -282,29 +285,52 @@ class GovernanceCommandRunner:
         )
 
 
-def _signal_process_group(process: subprocess.Popen[bytes], action: signal.Signals) -> None:
+def _signal_process_group(process: subprocess.Popen[bytes], action: signal.Signals) -> bool:
     """Stop the isolated Git process group, including any unexpected descendant."""
 
     try:
         os.killpg(process.pid, action)
+        return True
     except ProcessLookupError:
-        return
+        return True
     except OSError:
+        try:
+            os.killpg(process.pid, 0)
+        except ProcessLookupError:
+            return True
+        except OSError:
+            pass
         # Content filters are refused and submodule recursion is disabled. Always
         # fall back to the parent and let the caller prove it was reaped.
         try:
             process.send_signal(action)
         except ProcessLookupError:
-            return
+            return False
         except OSError:
             try:
                 process.kill()
             except ProcessLookupError:
-                return
+                return False
             except OSError as exc:
                 raise RepositorySecurityError(
                     "bounded Git process group and parent could not be terminated"
                 ) from exc
+        return False
+
+
+def _stop_governance_process_group(process: subprocess.Popen[bytes]) -> None:
+    """Terminate, fence, and reap a governance command and every descendant."""
+
+    _signal_process_group(process, signal.SIGTERM)
+    with suppress(subprocess.TimeoutExpired):
+        process.wait(timeout=0.25)
+    group_proven = _signal_process_group(process, signal.SIGKILL)
+    try:
+        process.wait(timeout=1.0)
+    except subprocess.TimeoutExpired as exc:
+        raise RepositorySecurityError("bounded Git process could not be reaped") from exc
+    if not group_proven:
+        raise RepositorySecurityError("governance Git descendant termination could not be proven")
 
 
 def _decode(result: CommandResult) -> str:
@@ -359,18 +385,28 @@ def _stop_remote_process(process: Any) -> None:
 
     try:
         os.killpg(process.pid, signal.SIGTERM)
-    except (ProcessLookupError, PermissionError, OSError):
+    except ProcessLookupError:
+        pass
+    except (PermissionError, OSError):
         if process.is_alive():
             process.terminate()
     process.join(timeout=0.25)
     try:
         os.killpg(process.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError, OSError):
+        group_proven = True
+    except ProcessLookupError:
+        group_proven = True
+    except (PermissionError, OSError):
+        group_proven = False
         if process.is_alive():
             process.kill()
     process.join(timeout=1.0)
     if process.is_alive():
         raise RepositorySecurityError("bounded remote provider process could not be reaped")
+    if not group_proven:
+        raise RepositorySecurityError(
+            "bounded remote-provider descendant termination could not be proven"
+        )
 
 
 def _governance_content_is_complete(value: dict[str, Any]) -> bool:
@@ -422,6 +458,72 @@ def _pagination_is_complete(
         if any(not item.query.strip() for item in pages):
             return False
     return True
+
+
+def _is_str(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def _is_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _validate_remote_payload_types(value: dict[str, Any]) -> None:
+    """Reject provider coercion before mutable evidence becomes authoritative."""
+
+    if (
+        not isinstance(value.get("complete"), bool)
+        or not _is_str(value.get("repository"))
+        or not _is_str(value.get("ref"))
+        or not _is_str(value.get("observed_at"))
+        or not isinstance(value.get("coverage"), list)
+        or not all(_is_str(item) for item in value["coverage"])
+        or len(set(value["coverage"])) != len(value["coverage"])
+        or not isinstance(value.get("governance"), dict)
+    ):
+        raise ValueError("remote payload envelope is malformed")
+
+    records: tuple[tuple[str, tuple[tuple[str, Any], ...]], ...] = (
+        ("remote_branches", (("name", _is_str), ("sha", _is_str))),
+        (
+            "pull_requests",
+            (
+                ("number", _is_int),
+                ("draft", lambda item: isinstance(item, bool)),
+                ("head", _is_str),
+            ),
+        ),
+        ("issues", (("number", _is_int), ("state", _is_str))),
+        (
+            "query_provenance",
+            (
+                ("surface", _is_str),
+                ("query", _is_str),
+                ("page", _is_int),
+                ("has_next_page", lambda item: isinstance(item, bool)),
+                ("result_count", _is_int),
+            ),
+        ),
+        (
+            "unknowns",
+            (("fact", _is_str), ("status", _is_str), ("reason", _is_str)),
+        ),
+    )
+    for key, required in records:
+        collection = value.get(key)
+        if not isinstance(collection, list):
+            raise ValueError(f"remote {key} inventory is malformed")
+        for item in collection:
+            if not isinstance(item, dict) or any(
+                field not in item or not predicate(item[field]) for field, predicate in required
+            ):
+                raise ValueError(f"remote {key} record is malformed")
+            if key == "query_provenance" and not (
+                item.get("cursor") is None or isinstance(item.get("cursor"), str)
+            ):
+                raise ValueError("remote query cursor is malformed")
+    if any(item["number"] < 1 for key in ("pull_requests", "issues") for item in value[key]):
+        raise ValueError("remote record number is malformed")
 
 
 def _governance_implementation_digest(
@@ -919,35 +1021,37 @@ class GovernanceCollector:
                         "remote evidence redaction failed; observation was not created"
                     ) from exc
                 try:
+                    _validate_remote_payload_types(raw_remote)
+                    _validate_remote_payload_types(sanitized_remote)
                     if sanitized_remote.get("repository") != self.repository:
                         raise ValueError("remote repository identity does not match the request")
                     if sanitized_remote.get("ref") != ref:
                         raise ValueError("remote ref identity does not match the request")
-                    remote_observed_at = str(sanitized_remote["observed_at"])
+                    remote_observed_at = cast(str, sanitized_remote["observed_at"])
                     remote_observed_value = _parse_utc(
                         remote_observed_at, field="remote observation time"
                     )
                     remote_age = (observed_at_value - remote_observed_value).total_seconds()
                     remote_query_coverage = tuple(
-                        sorted(str(item) for item in sanitized_remote.get("coverage", []))
+                        sorted(cast(list[str], sanitized_remote["coverage"]))
                     )
                     coverage_complete = _REQUIRED_REMOTE_COVERAGE.issubset(remote_query_coverage)
                     freshness_proven = -30 <= remote_age <= self.max_remote_age_seconds
                     remote_branches = tuple(
-                        RemoteBranchObservation(name=str(item["name"]), sha=str(item["sha"]))
-                        for item in sanitized_remote.get("remote_branches", [])
+                        RemoteBranchObservation(name=item["name"], sha=item["sha"])
+                        for item in sanitized_remote["remote_branches"]
                     )
                     pull_requests = tuple(
                         PullRequestObservation(
-                            number=int(item["number"]),
-                            draft=bool(item["draft"]),
-                            head=str(item["head"]),
+                            number=item["number"],
+                            draft=item["draft"],
+                            head=item["head"],
                         )
-                        for item in sanitized_remote.get("pull_requests", [])
+                        for item in sanitized_remote["pull_requests"]
                     )
                     issues = tuple(
-                        IssueObservation(number=int(item["number"]), state=str(item["state"]))
-                        for item in sanitized_remote.get("issues", [])
+                        IssueObservation(number=item["number"], state=item["state"])
+                        for item in sanitized_remote["issues"]
                     )
                     if len({item.name for item in remote_branches}) != len(remote_branches):
                         raise ValueError("remote branch inventory contains duplicate names")
@@ -955,26 +1059,26 @@ class GovernanceCollector:
                         raise ValueError("pull request inventory contains duplicate numbers")
                     if len({item.number for item in issues}) != len(issues):
                         raise ValueError("issue inventory contains duplicate numbers")
-                    governance = cast(dict[str, Any], sanitized_remote.get("governance", {}))
+                    governance = cast(dict[str, Any], sanitized_remote["governance"])
                     governance_complete = _governance_content_is_complete(governance)
                     provenance = tuple(
                         QueryProvenance(
-                            surface=str(item["surface"]),
-                            query=str(item["query"]),
+                            surface=item["surface"],
+                            query=item["query"],
                             cursor=cast(str | None, item.get("cursor")),
                             page=cast(int | None, item.get("page")),
-                            has_next_page=bool(item.get("has_next_page", True)),
+                            has_next_page=item["has_next_page"],
                             result_count=cast(int | None, item.get("result_count")),
                         )
-                        for item in sanitized_remote.get("query_provenance", [])
+                        for item in sanitized_remote["query_provenance"]
                     )
                     remote_unknowns = tuple(
                         UnknownFact(
-                            fact=str(item["fact"]),
-                            status=str(item["status"]),
-                            reason=str(item["reason"]),
+                            fact=item["fact"],
+                            status=item["status"],
+                            reason=item["reason"],
                         )
-                        for item in sanitized_remote.get("unknowns", [])
+                        for item in sanitized_remote["unknowns"]
                     )
                     if any(
                         not _valid_object_id(item.sha, object_format) for item in remote_branches

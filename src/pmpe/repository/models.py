@@ -115,6 +115,7 @@ class BoundaryCandidate:
 class AdapterMetadata:
     adapter_id: str
     version: str
+    detector_version: str
     file_patterns: tuple[str, ...]
     supported_categories: tuple[str, ...]
     failure_behavior: str = "VISIBLE_PARTIAL_OR_BLOCKED"
