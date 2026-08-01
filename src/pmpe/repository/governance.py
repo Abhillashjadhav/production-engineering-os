@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import math
 import multiprocessing
 import os
 import re
@@ -41,7 +43,14 @@ from pmpe.repository.scanner import (
     _implementation_source_evidence,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/1.6.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/1.7.0"
+GOVERNANCE_IMPLEMENTATION_MODULES = (
+    "repository.governance",
+    "repository.models",
+    "repository.redaction",
+    "repository.scanner",
+    "contracts.canonical",
+)
 _REQUIRED_REMOTE_COVERAGE = frozenset({"remote_branches", "pull_requests", "issues", "governance"})
 _REQUIRED_GOVERNANCE_FACTS = frozenset({"branch_protection", "review_policy"})
 _OBJECT_FORMAT_LENGTH = {"sha1": 40, "sha256": 64}
@@ -130,7 +139,7 @@ def _remote_provider_worker(
                 "GIT_TERMINAL_PROMPT": "0",
             }
         )
-        connection.send(("READY", None))
+        connection.send_bytes(b"READY\0")
         result = provider.collect(
             repository,
             ref,
@@ -142,14 +151,23 @@ def _remote_provider_worker(
         if not isinstance(result, dict):
             raise TypeError("remote provider result must be an object")
         _bounded_remote_shape(result, max_bytes=max_output_bytes, max_items=max_items)
-        connection.send(("RESULT", result))
+        encoded = json.dumps(
+            result,
+            allow_nan=False,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        if len(encoded) > max_output_bytes:
+            raise RepositoryIntelligenceError("remote observation byte budget was exceeded")
+        connection.send_bytes(b"RESULT\0" + encoded)
     except PermissionError:
-        connection.send(("PERMISSION", None))
+        connection.send_bytes(b"PERMISSION\0")
     except BaseException as exc:
         # Exception text can contain credentials. Only the safe type identity crosses
         # the process boundary and is later sanitized before persistence.
         with suppress(BrokenPipeError, EOFError, OSError):
-            connection.send(("ERROR", type(exc).__name__))
+            connection.send_bytes(b"ERROR\0" + type(exc).__name__.encode("ascii", errors="replace"))
     finally:
         connection.close()
 
@@ -366,15 +384,36 @@ def _bounded_remote_shape(value: Any, *, max_bytes: int, max_items: int) -> None
         if items > max_items:
             raise RepositoryIntelligenceError("remote observation item budget was exceeded")
         if isinstance(current, str):
-            encoded_bytes += len(current.encode("utf-8", errors="replace"))
-        elif isinstance(current, bytes):
-            encoded_bytes += len(current)
+            encoded_bytes += len(
+                json.dumps(current, ensure_ascii=False).encode("utf-8", errors="strict")
+            )
+        elif isinstance(current, bool):
+            encoded_bytes += 4 if current else 5
+        elif isinstance(current, int):
+            try:
+                encoded_bytes += len(str(current))
+            except ValueError as exc:
+                raise RepositoryIntelligenceError(
+                    "remote observation numeric value exceeds the byte budget"
+                ) from exc
+        elif isinstance(current, float):
+            if not math.isfinite(current):
+                raise RepositoryIntelligenceError(
+                    "remote observation contains a non-finite numeric value"
+                )
+            encoded_bytes += len(repr(current))
         elif isinstance(current, dict):
+            if not all(isinstance(key, str) for key in current):
+                raise RepositoryIntelligenceError("remote observation object keys must be strings")
+            encoded_bytes += 2 + max(0, len(current) - 1)
             pending.extend(current.keys())
             pending.extend(current.values())
         elif isinstance(current, (list, tuple)):
+            encoded_bytes += 2 + max(0, len(current) - 1)
             pending.extend(current)
-        elif current is not None and not isinstance(current, (bool, int, float)):
+        elif current is None:
+            encoded_bytes += 4
+        else:
             raise RepositoryIntelligenceError("remote observation contains an unsupported value")
         if encoded_bytes > max_bytes:
             raise RepositoryIntelligenceError("remote observation byte budget was exceeded")
@@ -530,19 +569,20 @@ def _governance_implementation_digest(
     extension_evidence: tuple[dict[str, str], ...] = (),
 ) -> str:
     package_root = Path(__file__).resolve().parent
-    sources = (
-        ("repository.governance", package_root / "governance.py"),
-        ("repository.models", package_root / "models.py"),
-        ("repository.redaction", package_root / "redaction.py"),
-        ("contracts.canonical", package_root.parent / "contracts" / "canonical.py"),
-    )
+    sources = {
+        "repository.governance": package_root / "governance.py",
+        "repository.models": package_root / "models.py",
+        "repository.redaction": package_root / "redaction.py",
+        "repository.scanner": package_root / "scanner.py",
+        "contracts.canonical": package_root.parent / "contracts" / "canonical.py",
+    }
     try:
         evidence: list[dict[str, str]] = [
             {
                 "module": name,
-                "source_digest": "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest(),
+                "source_digest": "sha256:" + hashlib.sha256(sources[name].read_bytes()).hexdigest(),
             }
-            for name, path in sources
+            for name in GOVERNANCE_IMPLEMENTATION_MODULES
         ]
     except OSError as exc:
         raise RepositoryIntelligenceError(
@@ -736,23 +776,52 @@ class GovernanceCollector:
                     raise RepositoryIntelligenceError("bounded remote provider timed out")
                 if receiver.poll(min(remaining, 0.05)):
                     try:
-                        status, payload = receiver.recv()
-                    except EOFError as exc:
+                        frame = receiver.recv_bytes(maxlength=self.max_output_bytes + 256)
+                    except (EOFError, OSError) as exc:
                         raise RepositoryIntelligenceError(
-                            "bounded remote provider exited without evidence"
+                            "bounded remote provider output was absent or exceeded its byte budget"
+                        ) from exc
+                    raw_status, separator, payload = frame.partition(b"\0")
+                    if not separator:
+                        raise RepositoryIntelligenceError(
+                            "bounded remote provider protocol was malformed"
+                        )
+                    try:
+                        status = raw_status.decode("ascii")
+                    except UnicodeDecodeError as exc:
+                        raise RepositoryIntelligenceError(
+                            "bounded remote provider protocol was malformed"
                         ) from exc
                     if status == "READY":
+                        if payload:
+                            raise RepositoryIntelligenceError(
+                                "bounded remote provider protocol was malformed"
+                            )
                         ready = True
                         continue
                     if not ready:
                         raise RepositoryIntelligenceError(
                             "bounded remote provider isolation was not established"
                         )
-                    if status == "RESULT" and isinstance(payload, dict):
-                        return cast(dict[str, Any], payload)
+                    if status == "RESULT":
+                        try:
+                            decoded = json.loads(payload)
+                        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                            raise RepositoryIntelligenceError(
+                                "bounded remote provider result was malformed"
+                            ) from exc
+                        if not isinstance(decoded, dict):
+                            raise RepositoryIntelligenceError(
+                                "bounded remote provider result was malformed"
+                            )
+                        return cast(dict[str, Any], decoded)
                     if status == "PERMISSION":
                         raise PermissionError("bounded remote provider denied access")
-                    safe_type = payload if isinstance(payload, str) else "UnknownError"
+                    safe_type = (
+                        payload.decode("ascii", errors="replace")
+                        if status == "ERROR"
+                        else "UnknownError"
+                    )
                     raise RepositoryIntelligenceError(
                         f"bounded remote provider failed safely: {safe_type}"
                     )
@@ -984,13 +1053,16 @@ class GovernanceCollector:
         tool_identity = self.runner.identity
         api_version = GOVERNANCE_COLLECTOR_VERSION
         disposition = "BLOCKED" if self._local_unknowns else "PARTIAL"
+        remote_collection_status = "NOT_REQUESTED"
         sanitized_remote: dict[str, Any] = {}
         if self.remote_provider is not None:
             tool_identity = self.remote_provider.tool_identity
             api_version = self.remote_provider.api_version
+            remote_collection_status = "STARTED"
             try:
                 raw_remote = self._collect_remote_bounded(ref)
             except (PermissionError, OSError):
+                remote_collection_status = "PERMISSION_OR_IO_BLOCKED"
                 disposition = "BLOCKED"
                 unknowns = (
                     *self._local_unknowns,
@@ -1004,6 +1076,7 @@ class GovernanceCollector:
                     ),
                 )
             except Exception as exc:
+                remote_collection_status = "ERROR_BLOCKED"
                 disposition = "BLOCKED"
                 unknowns = (
                     *self._local_unknowns,
@@ -1098,6 +1171,7 @@ class GovernanceCollector:
                     ):
                         raise ValueError("remote pagination evidence is malformed")
                 except (KeyError, TypeError, ValueError, RepositoryIntelligenceError):
+                    remote_collection_status = "INVALID_BLOCKED"
                     disposition = "BLOCKED"
                     unknowns = (
                         *self._local_unknowns,
@@ -1108,6 +1182,7 @@ class GovernanceCollector:
                         ),
                     )
                 else:
+                    remote_collection_status = "EVALUATED"
                     unknowns = (*self._local_unknowns, *remote_unknowns)
                     disposition = (
                         "BLOCKED"
@@ -1157,6 +1232,7 @@ class GovernanceCollector:
         if self._is_cancelled() and not any(
             item.fact == "observation_cancellation" for item in unknowns
         ):
+            remote_collection_status = "CANCELLED"
             disposition = "BLOCKED"
             unknowns = (
                 *unknowns,
@@ -1186,9 +1262,27 @@ class GovernanceCollector:
             "local_branches": [asdict(item) for item in branches],
             "worktrees": [asdict(item) for item in worktrees],
             "command_provenance": [asdict(item) for item in self._command_provenance],
+            "collector_configuration": {
+                "command_timeout_seconds": self.timeout,
+                "max_commands": self.max_commands,
+                "max_branches": self.max_branches,
+                "max_output_bytes": self.max_output_bytes,
+                "max_remote_items": self.max_remote_items,
+                "max_remote_age_seconds": self.max_remote_age_seconds,
+            },
             "remote_result": sanitized_remote,
+            "remote_collection_status": remote_collection_status,
             "remote_observed_at": remote_observed_at,
             "remote_query_coverage": remote_query_coverage,
+            "normalized_remote_evidence": {
+                "remote_branches": [asdict(item) for item in remote_branches],
+                "pull_requests": [asdict(item) for item in pull_requests],
+                "issues": [asdict(item) for item in issues],
+                "governance": governance,
+                "query_provenance": [asdict(item) for item in provenance],
+            },
+            "evaluation_disposition": disposition,
+            "evaluation_unknowns": [asdict(item) for item in unknowns],
             "tool_identity": tool_identity,
             "api_query_version": api_version,
             "collector_version": GOVERNANCE_COLLECTOR_VERSION,

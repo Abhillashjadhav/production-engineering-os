@@ -8,7 +8,7 @@ import os
 import signal
 import subprocess
 import time
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -204,8 +204,10 @@ def test_sha256_repository_is_exactly_bound_or_fails_explicitly(tmp_path: Path) 
     assert snapshot.disposition != "ERROR"
 
 
-def test_adapter_order_does_not_change_output_but_version_does(tmp_path: Path) -> None:
+def test_adapter_order_does_not_change_output_and_registry_is_sealed(tmp_path: Path) -> None:
     api = _api()
+    canonical = importlib.import_module("pmpe.contracts.canonical")
+    scanner = importlib.import_module("pmpe.repository.scanner")
     repo = _init_repo(tmp_path)
     adapters = api.default_adapters()
     first = api.RepositoryScanner(config=_config(), adapters=adapters).scan(repo, commit="HEAD")
@@ -215,40 +217,41 @@ def test_adapter_order_does_not_change_output_but_version_does(tmp_path: Path) -
     assert first.canonical_bytes() == reordered.canonical_bytes()
 
     changed = (replace(adapters[0], version="99.0.0"), *adapters[1:])
-    versioned = api.RepositoryScanner(config=_config(), adapters=changed).scan(repo, commit="HEAD")
-    assert first.adapter_set_digest != versioned.adapter_set_digest
-    assert first.snapshot_digest != versioned.snapshot_digest
+    original_digest = canonical.canonical_digest(
+        [asdict(scanner._metadata(item)) for item in adapters]
+    )
+    changed_digest = canonical.canonical_digest(
+        [asdict(scanner._metadata(item)) for item in changed]
+    )
+    assert original_digest != changed_digest
+    with pytest.raises(api.RepositorySecurityError, match="sealed built-in adapter registry"):
+        api.RepositoryScanner(config=_config(), adapters=changed)
 
 
-def test_output_affecting_injected_implementation_changes_provenance_digest(
+def test_unregistered_adapter_cannot_execute_or_mutate_the_repository(
     tmp_path: Path,
 ) -> None:
     api = _api()
     adapters = importlib.import_module("pmpe.repository.adapters")
     repo = _init_repo(tmp_path)
+    marker = repo / "adapter-mutated.txt"
 
-    def first_evaluator(_context: Any) -> Any:
+    def mutate_repository(_context: Any) -> Any:
+        marker.write_text("mutation\n")
         return adapters.AdapterResult()
 
-    def second_evaluator(context: Any) -> Any:
-        assert context.files or not context.files
-        return adapters.AdapterResult()
-
-    metadata = {
-        "adapter_id": "test.same-declaration",
-        "version": "1.0.0",
-        "file_patterns": ("*",),
-        "supported_categories": ("repository_topology",),
-    }
-    first = api.RepositoryScanner(
-        config=_config(), adapters=(api.RepositoryAdapter(evaluator=first_evaluator, **metadata),)
-    ).scan(repo, commit="HEAD")
-    second = api.RepositoryScanner(
-        config=_config(), adapters=(api.RepositoryAdapter(evaluator=second_evaluator, **metadata),)
-    ).scan(repo, commit="HEAD")
-    assert first.adapter_set_digest == second.adapter_set_digest
-    assert first.implementation_digest != second.implementation_digest
-    assert first.snapshot_digest != second.snapshot_digest
+    unregistered = api.RepositoryAdapter(
+        adapter_id="test.mutating-adapter",
+        version="1.0.0",
+        file_patterns=("*",),
+        supported_categories=("repository_topology",),
+        evaluator=mutate_repository,
+    )
+    before = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
+    with pytest.raises(api.RepositorySecurityError, match="sealed built-in adapter registry"):
+        api.RepositoryScanner(config=_config(), adapters=(unregistered,))
+    assert not marker.exists()
+    assert _git(repo, "status", "--porcelain=v1", "--untracked-files=all") == before
 
 
 def test_implementation_provenance_is_independent_of_checkout_path(tmp_path: Path) -> None:
@@ -327,6 +330,17 @@ def test_snapshot_binds_implementation_modules_and_runtime_tool_versions(tmp_pat
         "python",
         "pyyaml",
         "rfc8785",
+    }
+
+
+def test_governance_provenance_binds_every_material_repository_module() -> None:
+    governance = importlib.import_module("pmpe.repository.governance")
+    assert set(governance.GOVERNANCE_IMPLEMENTATION_MODULES) == {
+        "repository.governance",
+        "repository.models",
+        "repository.redaction",
+        "repository.scanner",
+        "contracts.canonical",
     }
 
 
@@ -525,45 +539,50 @@ def test_extensionless_unsupported_ecosystem_is_blocked(tmp_path: Path, manifest
     )
 
 
-def test_adapter_cannot_fabricate_untracked_high_confidence_evidence(tmp_path: Path) -> None:
+def test_extensionless_executable_is_blocked_without_being_run(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    marker = tmp_path / "must-not-run"
+    script = repo / "bin" / "deploy"
+    _write(repo, "bin/deploy", f"#!/bin/sh\ntouch {marker}\n")
+    script.chmod(0o755)
+    _commit(repo, "extensionless executable")
+    snapshot = _scan(repo)
+    assert snapshot.disposition == "BLOCKED"
+    assert any(
+        item.code == "STACK.UNSUPPORTED_EXTENSIONLESS_PROGRAM"
+        and "bin/deploy" in item.evidence_refs
+        for item in snapshot.findings
+    )
+    assert not marker.exists()
+
+
+def test_adapter_cannot_fabricate_untracked_high_confidence_evidence() -> None:
     api = _api()
     adapters = importlib.import_module("pmpe.repository.adapters")
     models = importlib.import_module("pmpe.repository.models")
-    repo = _init_repo(tmp_path)
-
-    def fabricate(_context: Any) -> Any:
-        return adapters.AdapterResult(
-            items=(
-                (
-                    "repository_topology",
-                    models.EvidenceItem(
-                        kind="FABRICATED",
-                        path="does-not-exist.txt",
-                        file_digest="sha256:" + "0" * 64,
-                        detector_id="test.fabricator",
-                        detector_version=adapters.DETECTOR_VERSION,
-                        confidence="HIGH",
-                    ),
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    adapter = next(
+        item for item in api.default_adapters() if item.adapter_id == "core.repository-topology"
+    )
+    fabricated = adapters.AdapterResult(
+        items=(
+            (
+                "repository_topology",
+                models.EvidenceItem(
+                    kind="FABRICATED",
+                    path="does-not-exist.txt",
+                    file_digest="sha256:" + "0" * 64,
+                    detector_id=adapter.adapter_id,
+                    detector_version=adapter.detector_version,
+                    confidence="HIGH",
                 ),
-            )
+            ),
         )
-
-    adapter = api.RepositoryAdapter(
-        adapter_id="test.fabricator",
-        version="1.0.0",
-        file_patterns=("*",),
-        supported_categories=("repository_topology",),
-        evaluator=fabricate,
     )
-    snapshot = api.RepositoryScanner(config=_config(), adapters=(adapter,)).scan(
-        repo, commit="HEAD"
-    )
-    assert snapshot.disposition == "BLOCKED"
-    assert any(item.code == "ADAPTER.INVALID_EVIDENCE" for item in snapshot.findings)
-    assert not any(
-        item.path == "does-not-exist.txt"
-        for category in snapshot.inventory.values()
-        for item in category.items
+    assert not scanner.RepositoryScanner._adapter_result_is_valid(
+        adapter,
+        adapters.AdapterContext(files=()),
+        fabricated,
     )
 
 
@@ -596,22 +615,20 @@ def test_malformed_manifest_and_workflow_are_visible_findings(tmp_path: Path) ->
     assert snapshot.disposition in {"PARTIAL", "BLOCKED"}
 
 
-def test_adapter_failure_is_visible_and_cannot_remove_categories(tmp_path: Path) -> None:
+def test_adapter_failure_is_visible_and_cannot_remove_categories(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     api = _api()
+    scanner = importlib.import_module("pmpe.repository.scanner")
     repo = _init_repo(tmp_path)
 
-    @api.repository_adapter(
-        adapter_id="test.exploding",
-        version="1.0.0",
-        file_patterns=("**/*",),
-        supported_categories=("security_privacy",),
-    )
-    def exploding(_context: Any) -> Any:
-        raise RuntimeError("detector failed")
+    def failing_worker(connection: Any, _adapter: Any, _context: Any) -> None:
+        os.setsid()
+        connection.send_bytes(b'{"error_type":"RuntimeError","status":"ERROR"}')
+        connection.close()
 
-    snapshot = api.RepositoryScanner(
-        config=_config(), adapters=(*api.default_adapters(), exploding)
-    ).scan(repo, commit="HEAD")
+    monkeypatch.setattr(scanner, "_adapter_worker", failing_worker)
+    snapshot = api.RepositoryScanner(config=_config()).scan(repo, commit="HEAD")
     assert set(snapshot.inventory) == set(api.AUDIT_CATEGORIES)
     assert snapshot.disposition in {"PARTIAL", "BLOCKED"}
     assert any(item.code == "ADAPTER.FAILURE" for item in snapshot.findings)
@@ -904,6 +921,19 @@ class _CoerciblePrimitiveRemote(_FakeRemote):
         return payload
 
 
+class _AgeSensitiveRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["observed_at"] = "2026-07-31T23:58:00Z"
+        payload["unknowns"] = []
+        return payload
+
+
+class _HugeNumericRemote(_FakeRemote):
+    def collect(self, _repository: str, _ref: str, **_bounds: Any) -> dict[str, Any]:
+        return {"numeric_payload": 10**3000}
+
+
 def _observe(repo: Path, remote: Any = None) -> Any:
     api = _api()
     return api.GovernanceCollector(
@@ -1039,6 +1069,20 @@ def test_remote_provider_timeout_is_bounded_and_visible(tmp_path: Path) -> None:
     assert any(item.fact == "remote_governance" for item in observation.unknowns)
 
 
+def test_remote_numeric_payload_cannot_bypass_parent_byte_bound(tmp_path: Path) -> None:
+    api = _api()
+    observation = api.GovernanceCollector(
+        repository="example/fixture",
+        clock=_FixedClock(),
+        id_provider=_FixedIds(),
+        remote_provider=_HugeNumericRemote(),
+        max_output_bytes=2_048,
+    ).observe(_init_repo(tmp_path), ref="main")
+    assert observation.disposition == "BLOCKED"
+    assert observation.remote_branches == ()
+    assert any(item.fact == "remote_governance" for item in observation.unknowns)
+
+
 @pytest.mark.parametrize(
     "remote", [_MismatchedRemote(), _DuplicateRemote(), _CoerciblePrimitiveRemote()]
 )
@@ -1091,6 +1135,26 @@ def test_observation_is_reproducible_only_from_matching_recorded_inputs(tmp_path
     changed = _observe(repo, _FakeRemote())
     assert first.observation_input_digest != changed.observation_input_digest
     assert first.observation_output_digest != changed.observation_output_digest
+
+
+def test_observation_input_digest_binds_freshness_and_collector_budgets(tmp_path: Path) -> None:
+    api = _api()
+    repo = _init_repo(tmp_path)
+
+    def observe(max_age: int) -> Any:
+        return api.GovernanceCollector(
+            repository="example/fixture",
+            clock=_FixedClock(),
+            id_provider=_FixedIds(),
+            remote_provider=_AgeSensitiveRemote(),
+            max_remote_age_seconds=max_age,
+        ).observe(repo, ref="main")
+
+    admitted = observe(300)
+    blocked = observe(60)
+    assert admitted.disposition == "COMPLETE"
+    assert blocked.disposition == "BLOCKED"
+    assert admitted.observation_input_digest != blocked.observation_input_digest
 
 
 def test_scan_and_observation_never_create_branches_commits_or_remote_mutations(
@@ -1340,9 +1404,11 @@ def test_cancellation_terminates_an_ordinary_bounded_git_command(
         pytest.fail("TERM-ignoring descendant survived bounded command cancellation")
 
 
-def test_cancellation_during_final_adapter_blocks_snapshot_finalization(tmp_path: Path) -> None:
+def test_cancellation_during_adapter_blocks_snapshot_finalization(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     api = _api()
-    adapters = importlib.import_module("pmpe.repository.adapters")
+    scanner = importlib.import_module("pmpe.repository.scanner")
     repo = _init_repo(tmp_path)
     before_head = _git(repo, "rev-parse", "HEAD")
     before_status = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
@@ -1355,20 +1421,13 @@ def test_cancellation_during_final_adapter_blocks_snapshot_finalization(tmp_path
 
     cancellation = CancellationAfterAdapter()
 
-    def evaluate(_context: Any) -> Any:
+    def hanging_worker(_connection: Any, _adapter: Any, _context: Any) -> None:
+        os.setsid()
         time.sleep(30)
-        return adapters.AdapterResult()
 
-    final_adapter = api.RepositoryAdapter(
-        adapter_id="test.final-cancellation",
-        version="1.0.0",
-        file_patterns=("*",),
-        supported_categories=("repository_topology",),
-        evaluator=evaluate,
-    )
+    monkeypatch.setattr(scanner, "_adapter_worker", hanging_worker)
     snapshot = api.RepositoryScanner(
         config=_config(),
-        adapters=(final_adapter,),
         cancellation=cancellation,
     ).scan(repo, commit="HEAD")
     assert snapshot.disposition == "BLOCKED"

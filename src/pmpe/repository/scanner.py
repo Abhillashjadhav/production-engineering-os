@@ -46,7 +46,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/1.6.0"
+SCANNER_VERSION = "repository-scanner/1.7.0"
 IMPLEMENTATION_MODULES = (
     "repository.adapters",
     "repository.models",
@@ -617,9 +617,16 @@ class RepositoryScanner:
         cancellation: Cancellation | None = None,
     ) -> None:
         self.config = config
-        self.adapters = tuple(
-            sorted(adapters or default_adapters(), key=lambda item: item.adapter_id)
-        )
+        registered_adapters = default_adapters()
+        requested_adapters = tuple(adapters) if adapters is not None else registered_adapters
+        registered_by_id = {item.adapter_id: item for item in registered_adapters}
+        if len(requested_adapters) != len(registered_adapters) or any(
+            registered_by_id.get(item.adapter_id) is not item for item in requested_adapters
+        ):
+            raise RepositorySecurityError(
+                "repository scans only execute the sealed built-in adapter registry"
+            )
+        self.adapters = tuple(sorted(requested_adapters, key=lambda item: item.adapter_id))
         adapter_ids = [item.adapter_id for item in self.adapters]
         if len(set(adapter_ids)) != len(adapter_ids) or any(
             not item.adapter_id
@@ -1478,34 +1485,34 @@ class RepositoryScanner:
                     blocking=True,
                 )
             )
+        unsupported_manifest_names = {
+            "BUILD",
+            "BUILD.bazel",
+            "CMakeLists.txt",
+            "Cargo.toml",
+            "Gemfile",
+            "GNUmakefile",
+            "Jenkinsfile",
+            "MODULE.bazel",
+            "Makefile",
+            "Pipfile",
+            "Pipfile.lock",
+            "Procfile",
+            "Rakefile",
+            "SConstruct",
+            "Tiltfile",
+            "Vagrantfile",
+            "WORKSPACE",
+            "WORKSPACE.bazel",
+            "build.gradle",
+            "go.mod",
+            "justfile",
+            "pom.xml",
+        }
         unsupported_manifests = sorted(
             file.path
             for file in files
-            if PurePosixPath(file.path).name
-            in {
-                "BUILD",
-                "BUILD.bazel",
-                "CMakeLists.txt",
-                "Cargo.toml",
-                "Gemfile",
-                "GNUmakefile",
-                "Jenkinsfile",
-                "MODULE.bazel",
-                "Makefile",
-                "Pipfile",
-                "Pipfile.lock",
-                "Procfile",
-                "Rakefile",
-                "SConstruct",
-                "Tiltfile",
-                "Vagrantfile",
-                "WORKSPACE",
-                "WORKSPACE.bazel",
-                "build.gradle",
-                "go.mod",
-                "justfile",
-                "pom.xml",
-            }
+            if PurePosixPath(file.path).name in unsupported_manifest_names
         )
         if unsupported_manifests:
             findings.append(
@@ -1515,6 +1522,27 @@ class RepositoryScanner:
                     "A tracked ecosystem manifest has no versioned adapter; its stack was not "
                     "guessed.",
                     tuple(unsupported_manifests),
+                    blocking=True,
+                )
+            )
+        extensionless_programs = sorted(
+            file.path
+            for file in files
+            if not PurePosixPath(file.path).suffix
+            and PurePosixPath(file.path).name not in {*unsupported_manifest_names, "Dockerfile"}
+            and (
+                file.mode == "100755"
+                or (file.content is not None and file.content.startswith(b"#!"))
+            )
+        )
+        if extensionless_programs:
+            findings.append(
+                _finding(
+                    "STACK.UNSUPPORTED_EXTENSIONLESS_PROGRAM",
+                    "languages_build_ecosystems",
+                    "Tracked extensionless executable or shebang content has no deterministic "
+                    "stack adapter; it was not executed or guessed.",
+                    tuple(extensionless_programs),
                     blocking=True,
                 )
             )
