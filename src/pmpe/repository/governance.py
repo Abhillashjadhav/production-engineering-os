@@ -47,7 +47,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.4.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.5.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -57,6 +57,7 @@ GOVERNANCE_IMPLEMENTATION_MODULES = (
 )
 _REQUIRED_REMOTE_COVERAGE = frozenset({"remote_branches", "pull_requests", "issues", "governance"})
 _REQUIRED_GOVERNANCE_FACTS = frozenset({"branch_protection", "review_policy"})
+_GOVERNANCE_SCHEMA_VERSION = "pmpe.repository-governance/v1"
 _OBJECT_FORMAT_LENGTH = {"sha1": 40, "sha256": 64}
 _REMOTE_PAYLOAD_FIELDS = frozenset(
     {
@@ -597,9 +598,23 @@ def _stop_remote_process(process: Any) -> None:
 
 
 def _governance_content_is_complete(value: dict[str, Any]) -> bool:
-    if not _REQUIRED_GOVERNANCE_FACTS.issubset(value):
+    if value.get(
+        "schema_version"
+    ) != _GOVERNANCE_SCHEMA_VERSION or not _REQUIRED_GOVERNANCE_FACTS.issubset(value):
         return False
-    if any(value[fact] in ({}, [], "") for fact in _REQUIRED_GOVERNANCE_FACTS):
+    branch_protection = value["branch_protection"]
+    review_policy = value["review_policy"]
+    if (
+        not isinstance(branch_protection, dict)
+        or not isinstance(branch_protection.get("observed"), bool)
+        or not isinstance(branch_protection.get("required_checks"), list)
+        or not all(_is_str(item) for item in branch_protection["required_checks"])
+        or len(set(branch_protection["required_checks"]))
+        != len(branch_protection["required_checks"])
+        or not isinstance(review_policy, dict)
+        or not _is_int(review_policy.get("required_approvals"))
+        or review_policy["required_approvals"] < 0
+    ):
         return False
     pending: list[Any] = [value]
     visited = 0

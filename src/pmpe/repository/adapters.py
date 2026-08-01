@@ -15,7 +15,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.11.0"
+DETECTOR_VERSION = "1.12.0"
 
 _PACKAGE_BOUNDARY_MANIFEST_NAMES = frozenset(
     {
@@ -487,10 +487,12 @@ def _topology(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="stack.python",
-    version="1.5.0",
+    version="1.6.0",
     file_patterns=(
         "*.py",
         "**/*.py",
+        "*.pyi",
+        "**/*.pyi",
         "pyproject.toml",
         "**/pyproject.toml",
         "requirements*.txt",
@@ -652,16 +654,15 @@ def _python(context: AdapterContext) -> AdapterResult:
                         blocking=True,
                     )
                 )
-        elif file.path.endswith(".py"):
-            test_kind = _test_signal_kind(file.path)
-            if test_kind is None:
-                items.append(
-                    (
-                        "languages_build_ecosystems",
-                        _item(file, "PYTHON_SOURCE", "stack.python"),
-                    )
+        elif file.path.endswith((".py", ".pyi")):
+            items.append(
+                (
+                    "languages_build_ecosystems",
+                    _item(file, "PYTHON_SOURCE", "stack.python"),
                 )
-            else:
+            )
+            test_kind = _test_signal_kind(file.path)
+            if test_kind is not None:
                 items.append(
                     (
                         "tests_quality",
@@ -682,10 +683,14 @@ def _python(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="stack.node-web",
-    version="1.3.0",
+    version="1.4.0",
     file_patterns=(
         "**/*.js",
         "*.js",
+        "**/*.mjs",
+        "*.mjs",
+        "**/*.cjs",
+        "*.cjs",
         "**/*.jsx",
         "*.jsx",
         "**/*.ts",
@@ -797,16 +802,15 @@ def _node(context: AdapterContext) -> AdapterResult:
         elif name in {"package-lock.json", "yarn.lock", "pnpm-lock.yaml"}:
             lock_paths.setdefault(name, []).append(file.path)
             items.append(("languages_build_ecosystems", _item(file, "LOCKFILE", "stack.node-web")))
-        elif file.path.endswith((".js", ".jsx", ".ts", ".tsx")):
-            test_kind = _test_signal_kind(file.path)
-            if test_kind is None:
-                items.append(
-                    (
-                        "languages_build_ecosystems",
-                        _item(file, "NODE_SOURCE", "stack.node-web"),
-                    )
+        elif file.path.endswith((".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx")):
+            items.append(
+                (
+                    "languages_build_ecosystems",
+                    _item(file, "NODE_SOURCE", "stack.node-web"),
                 )
-            else:
+            )
+            test_kind = _test_signal_kind(file.path)
+            if test_kind is not None:
                 items.append(
                     (
                         "tests_quality",

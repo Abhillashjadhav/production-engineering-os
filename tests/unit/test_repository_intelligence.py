@@ -778,6 +778,28 @@ def test_adapter_classified_file_types_are_not_also_reported_unsupported(tmp_pat
     )
 
 
+def test_every_recognized_python_and_node_source_emits_language_evidence(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "stubs/widget.pyi", "def ready() -> bool: ...\n")
+    _write(repo, "scripts/start.mjs", "export const ready = true;\n")
+    _write(repo, "scripts/config.cjs", "module.exports = { ready: true };\n")
+    _write(repo, "tests/unit/test_only.py", "def test_ready():\n    assert True\n")
+    _write(repo, "tests/web/widget.test.ts", "export const ready = true;\n")
+    _commit(repo, "recognized source variants")
+    snapshot = _scan(repo)
+    observed = {
+        (item.path, item.kind) for item in snapshot.inventory["languages_build_ecosystems"].items
+    }
+    assert {
+        ("stubs/widget.pyi", "PYTHON_SOURCE"),
+        ("scripts/start.mjs", "NODE_SOURCE"),
+        ("scripts/config.cjs", "NODE_SOURCE"),
+        ("tests/unit/test_only.py", "PYTHON_SOURCE"),
+        ("tests/web/widget.test.ts", "NODE_SOURCE"),
+    } <= observed
+    assert snapshot.inventory["languages_build_ecosystems"].status == "OBSERVED"
+
+
 @pytest.mark.parametrize(
     "manifest",
     ["Makefile", "WORKSPACE", "BUILD.bazel", "Jenkinsfile", "Rakefile", "Procfile"],
@@ -1069,6 +1091,7 @@ class _FakeRemote:
             ],
             "issues": [{"number": 8, "state": "OPEN"}],
             "governance": {
+                "schema_version": "pmpe.repository-governance/v1",
                 "branch_protection": {"observed": True, "required_checks": ["ci"]},
                 "review_policy": {"required_approvals": 1},
                 "database_note": (
@@ -1200,8 +1223,21 @@ class _UnknownGovernanceRemote(_FakeRemote):
     def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
         payload = super().collect(repository, ref, **bounds)
         payload["governance"] = {
+            "schema_version": "pmpe.repository-governance/v1",
             "branch_protection": "UNKNOWN",
             "review_policy": {"required_approvals": 1},
+        }
+        payload["unknowns"] = []
+        return payload
+
+
+class _ScalarGovernanceRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["governance"] = {
+            "schema_version": "pmpe.repository-governance/v1",
+            "branch_protection": True,
+            "review_policy": 1,
         }
         payload["unknowns"] = []
         return payload
@@ -1723,7 +1759,10 @@ def test_remote_completeness_requires_per_surface_count_bound_pagination(
     assert any(item.fact == "remote_metadata_completeness" for item in observation.unknowns)
 
 
-@pytest.mark.parametrize("remote", [_EmptyGovernanceRemote(), _UnknownGovernanceRemote()])
+@pytest.mark.parametrize(
+    "remote",
+    [_EmptyGovernanceRemote(), _UnknownGovernanceRemote(), _ScalarGovernanceRemote()],
+)
 def test_empty_or_unknown_governance_is_explicitly_blocked(
     tmp_path: Path,
     remote: Any,
