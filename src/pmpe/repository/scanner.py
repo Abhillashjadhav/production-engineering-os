@@ -49,7 +49,17 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/2.6.0"
+SCANNER_VERSION = "repository-scanner/2.7.0"
+_MAX_SCAN_BUDGETS = {
+    "max_files": 100_000,
+    "max_directories": 50_000,
+    "max_total_bytes": 2_000_000_000,
+    "max_file_bytes": 50_000_000,
+    "max_tree_output_bytes": 128_000_000,
+    "max_commands": 250_000,
+    "command_timeout_seconds": 120,
+    "max_path_depth": 256,
+}
 IMPLEMENTATION_MODULES = (
     "repository.adapters",
     "repository.models",
@@ -901,6 +911,18 @@ class RepositoryScanner:
         )
         if any(value <= 0 for value in positive):
             raise RepositoryIntelligenceError("scan budgets must be positive")
+        configured_budgets = {
+            "max_files": self.config.max_files,
+            "max_directories": self.config.max_directories,
+            "max_total_bytes": self.config.max_total_bytes,
+            "max_file_bytes": self.config.max_file_bytes,
+            "max_tree_output_bytes": self.config.max_tree_output_bytes,
+            "max_commands": self.config.max_commands,
+            "command_timeout_seconds": self.config.command_timeout_seconds,
+            "max_path_depth": self.config.max_path_depth,
+        }
+        if any(value > _MAX_SCAN_BUDGETS[name] for name, value in configured_budgets.items()):
+            raise RepositoryIntelligenceError("scan budget exceeds a hard safety ceiling")
         for path in self.config.include_paths:
             if not _safe_relative_path(path):
                 raise RepositorySecurityError(

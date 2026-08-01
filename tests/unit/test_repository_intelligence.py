@@ -812,6 +812,28 @@ def test_non_github_ci_is_not_reported_as_ci_absent(tmp_path: Path) -> None:
     assert not any(item.code == "DELIVERY.CI_ABSENT" for item in snapshot.findings)
 
 
+@pytest.mark.parametrize(
+    ("path", "content"),
+    [
+        (".gitlab-ci.yml", "variables:\n  FOO: bar\n"),
+        ("azure-pipelines.yml", "steps: []\n"),
+    ],
+)
+def test_non_runnable_ci_scaffolds_do_not_suppress_missing_ci(
+    tmp_path: Path,
+    path: str,
+    content: str,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, path, content)
+    _commit(repo, "non-runnable CI scaffold")
+    snapshot = _scan(repo)
+    assert not any(
+        item.kind == "CI_WORKFLOW" for item in snapshot.inventory["delivery_environments"].items
+    )
+    assert any(item.code == "DELIVERY.CI_ABSENT" for item in snapshot.findings)
+
+
 def test_ci_comments_do_not_become_security_test_or_rollback_controls(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path, mixed=False)
     _write(
@@ -1195,6 +1217,28 @@ def test_budget_exhaustion_is_explicit_partial_result(
     assert set(snapshot.inventory) == set(_api().AUDIT_CATEGORIES)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("max_files", 100_001),
+        ("max_directories", 50_001),
+        ("max_total_bytes", 2_000_000_001),
+        ("max_file_bytes", 50_000_001),
+        ("max_tree_output_bytes", 128_000_001),
+        ("max_commands", 250_001),
+        ("command_timeout_seconds", 121),
+        ("max_path_depth", 257),
+    ],
+)
+def test_scan_budget_hard_ceilings_cannot_be_disabled(
+    tmp_path: Path,
+    field: str,
+    value: int,
+) -> None:
+    with pytest.raises(_api().RepositoryIntelligenceError, match="hard safety ceiling"):
+        _scan(_init_repo(tmp_path), **{field: value})
+
+
 def test_bounded_tree_enumeration_is_byte_deterministic(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     first = _scan(repo, max_tree_output_bytes=64)
@@ -1310,6 +1354,21 @@ def test_non_secret_boolean_control_with_sensitive_word_remains_typed() -> None:
     assert sanitized == {"required_signed_commits": True, "signature": "[REDACTED]"}
 
 
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://hooks.slack.com/services/T000/B000/slack-webhook-secret",
+        "https://discord.com/api/webhooks/123/discord-webhook-secret",
+        "https://api.telegram.org/bottelegram-secret/sendMessage",
+    ],
+)
+def test_credential_bearing_url_paths_are_redacted(url: str) -> None:
+    redaction = importlib.import_module("pmpe.repository.redaction")
+    sanitized = redaction.EvidenceRedactor(environment={}).sanitize(url)
+    assert sanitized.endswith("/[REDACTED_PATH]")
+    assert "secret" not in sanitized
+
+
 def test_sensitive_environment_value_is_redacted_under_benign_field() -> None:
     redaction = importlib.import_module("pmpe.repository.redaction")
     secret = "opaque-credential-value-not-matching-a-token-shape"
@@ -1374,9 +1433,19 @@ class _FakeRemote:
             "complete": True,
             "repository": repository,
             "ref": ref,
+            "default_branch": "main",
             "observed_at": "2026-08-01T00:00:00Z",
             "coverage": ["remote_branches", "pull_requests", "issues", "governance"],
-            "remote_branches": [{"name": "origin/feature", "sha": "a" * 40}],
+            "remote_branches": [
+                {
+                    "name": "origin/feature",
+                    "sha": "a" * 40,
+                    "comparison_ref": ref,
+                    "ahead": 1,
+                    "behind": 0,
+                    "status": "OBSERVED",
+                }
+            ],
             "pull_requests": [
                 {
                     "number": 7,
@@ -1725,8 +1794,50 @@ def test_governance_observation_records_dirty_index_worktree_and_untracked_state
     assert observation.observed_at == "2026-08-01T00:00:00Z"
     assert observation.observation_id == "OBS-000001"
     assert observation.artifact_kind == "GOVERNANCE_OBSERVATION"
-    assert observation.disposition == "PARTIAL"
+    assert observation.disposition == "BLOCKED"
+    assert {item.fact for item in observation.unknowns} >= {
+        "dirty_index",
+        "dirty_worktree",
+        "untracked_files",
+    }
     assert any(item.fact == "remote_governance" for item in observation.unknowns)
+
+
+def test_concurrent_local_mutation_blocks_mixed_time_observation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api = _api()
+    governance = importlib.import_module("pmpe.repository.governance")
+    repo = _init_repo(tmp_path)
+    original = governance.GovernanceCommandRunner.run
+    status_calls = 0
+
+    def changing_status(
+        self: Any,
+        args: tuple[str, ...],
+        cwd: Path,
+        timeout: int,
+        *,
+        cancellation: Any = None,
+    ) -> Any:
+        nonlocal status_calls
+        if args[1] == "status":
+            status_calls += 1
+            if status_calls == 2:
+                return api.CommandResult(
+                    args=args,
+                    returncode=0,
+                    stdout=b"?? concurrently-created.txt\0",
+                    stderr=b"",
+                )
+        return original(self, args, cwd, timeout, cancellation=cancellation)
+
+    monkeypatch.setattr(governance.GovernanceCommandRunner, "run", changing_status)
+    observation = _observe(repo)
+    assert observation.disposition == "BLOCKED"
+    assert any(item.fact == "concurrent_local_mutation" for item in observation.unknowns)
+    assert _git(repo, "status", "--porcelain=v1", "--untracked-files=all") == ""
 
 
 @pytest.mark.parametrize(
@@ -1803,6 +1914,8 @@ def test_branch_divergence_and_additional_worktrees_are_mutable_observations(
     observation = _observe(repo)
     feature = next(item for item in observation.local_branches if item.name == "feature")
     assert feature.ahead >= 1 and feature.behind >= 1
+    assert observation.current_branch == "main"
+    assert observation.configured_remotes == ()
     assert observation.worktrees
     assert "local_branches" not in _scan(repo).as_dict()
 
@@ -2022,12 +2135,19 @@ def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path:
     payload = observation.canonical_bytes().decode()
     assert observation.disposition == "BLOCKED"
     assert any(item.fact == "remote_governance_completeness" for item in observation.unknowns)
-    assert observation.tool_identity == "recorded-remote-payload/1.1.0"
+    assert observation.tool_identity == "recorded-remote-payload/2.0.0"
     assert observation.api_query_version == "github-rest/2026-03-10"
     assert observation.query_provenance[0].surface == "remote_branches"
     assert observation.query_provenance[0].cursor == "branches-page-1"
     assert observation.observation_input_digest.startswith("sha256:")
     assert observation.observation_output_digest.startswith("sha256:")
+    assert observation.remote_default_branch == "main"
+    assert observation.remote_branches[0].comparison_ref == "main"
+    assert observation.remote_branches[0].ahead == 1
+    assert observation.remote_branches[0].status == "OBSERVED"
+    assert observation.remote_collection_provenance["source_kind"] == "RECORDED_UNATTESTED"
+    assert observation.remote_collection_provenance["attestation"] == "ABSENT"
+    assert any(item.fact == "remote_collection_attestation" for item in observation.unknowns)
     assert "ghp_0123456789abcdefghijklmnop" not in payload
     assert "dXNlcjpwYXNzd29yZA==" not in payload
     assert "secret-value" not in payload
@@ -2268,7 +2388,8 @@ def test_pull_request_staleness_and_conflict_evidence_are_explicit(tmp_path: Pat
     assert pull_request.updated_at == "2026-06-01T00:00:00Z"
     assert pull_request.stale is True
     assert pull_request.mergeability == "CONFLICTING"
-    assert observation.disposition == "COMPLETE"
+    assert observation.disposition == "BLOCKED"
+    assert any(item.fact == "remote_collection_attestation" for item in observation.unknowns)
 
 
 def test_unknown_pull_request_mergeability_blocks_complete_observation(tmp_path: Path) -> None:
@@ -2401,11 +2522,12 @@ def test_observation_input_digest_binds_freshness_and_collector_budgets(tmp_path
             max_remote_age_seconds=max_age,
         ).observe(repo, ref="main")
 
-    admitted = observe(300)
+    fresh = observe(300)
     blocked = observe(60)
-    assert admitted.disposition == "COMPLETE"
+    assert fresh.disposition == "BLOCKED"
+    assert any(item.fact == "remote_collection_attestation" for item in fresh.unknowns)
     assert blocked.disposition == "BLOCKED"
-    assert admitted.observation_input_digest != blocked.observation_input_digest
+    assert fresh.observation_input_digest != blocked.observation_input_digest
 
     alternate_stale_policy = api.GovernanceCollector(
         repository="example/fixture",
@@ -2415,7 +2537,40 @@ def test_observation_input_digest_binds_freshness_and_collector_budgets(tmp_path
         max_remote_age_seconds=300,
         stale_pull_request_after_seconds=60,
     ).observe(repo, ref="main")
-    assert admitted.observation_input_digest != alternate_stale_policy.observation_input_digest
+    assert fresh.observation_input_digest != alternate_stale_policy.observation_input_digest
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("command_timeout_seconds", 121),
+        ("max_commands", 20_001),
+        ("max_branches", 10_001),
+        ("max_output_bytes", 64_000_001),
+        ("max_remote_items", 100_001),
+        ("max_remote_age_seconds", 86_401),
+        ("stale_pull_request_after_seconds", 31_536_001),
+    ],
+)
+def test_governance_budget_hard_ceilings_cannot_be_disabled(
+    tmp_path: Path,
+    field: str,
+    value: int,
+) -> None:
+    api = _api()
+    kwargs = {
+        "repository": "example/fixture",
+        "clock": _fixed_clock(),
+        "id_provider": _fixed_ids(),
+        field: value,
+    }
+    if field == "max_output_bytes":
+        with pytest.raises(api.RepositoryIntelligenceError, match="hard ceiling"):
+            api.GovernanceCollector(**kwargs)
+        return
+    collector = api.GovernanceCollector(**kwargs)
+    with pytest.raises(api.RepositoryIntelligenceError, match="hard safety ceiling"):
+        collector.observe(_init_repo(tmp_path), ref="main")
 
 
 def test_scan_and_observation_never_create_branches_commits_or_remote_mutations(
@@ -2790,7 +2945,7 @@ def test_digest_bearing_artifacts_are_self_verified_before_reuse(tmp_path: Path)
         snapshot.assessment_reference(tampered_observation)
 
 
-def test_snapshot_and_observation_references_form_a_narrow_lifecycle_seam(
+def test_noncomplete_snapshot_and_observation_cannot_form_a_lifecycle_reference(
     tmp_path: Path,
 ) -> None:
     api = _api()
@@ -2802,15 +2957,8 @@ def test_snapshot_and_observation_references_form_a_narrow_lifecycle_seam(
         clock=_fixed_clock(),
         id_provider=_fixed_ids(),
     ).observe(repo, ref="main")
-    reference = snapshot.assessment_reference(observation)
-    assert reference == {
-        "repository_snapshot_digest": snapshot.snapshot_digest,
-        "repository_commit": snapshot.commit_sha,
-        "governance_observation_id": observation.observation_id,
-        "governance_observation_digest": observation.observation_output_digest,
-    }
-    assert "architecture" not in reference
-    assert "recommendation" not in reference
+    with pytest.raises(ValueError, match="snapshot is not complete"):
+        snapshot.assessment_reference(observation)
 
 
 def test_snapshot_rejects_governance_observation_from_another_repository(

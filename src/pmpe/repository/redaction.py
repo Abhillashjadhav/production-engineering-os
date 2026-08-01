@@ -17,7 +17,7 @@ class RedactionError(RuntimeError):
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
-    version = "central-redactor/2.0.0"
+    version = "central-redactor/2.1.0"
     __slots__ = ("_environment_secrets",)
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
@@ -66,6 +66,14 @@ class EvidenceRedactor:
         r"(?<![A-Za-z0-9_])(?:(?:/Users|/home|/usr/home)/[^/\s]+|/var/root|/root)"
         r"(?=/|\s|$)"
     )
+    _path_secret_hosts = frozenset(
+        {
+            "api.telegram.org",
+            "discord.com",
+            "discordapp.com",
+            "hooks.slack.com",
+        }
+    )
 
     def __init__(self, *, environment: Mapping[str, str] | None = None) -> None:
         source = os.environ if environment is None else environment
@@ -108,6 +116,11 @@ class EvidenceRedactor:
             netloc = hostname
             if parts.port:
                 netloc = f"{netloc}:{parts.port}"
+            path = (
+                "/[REDACTED_PATH]"
+                if parts.hostname in self._path_secret_hosts and parts.path not in {"", "/"}
+                else parts.path
+            )
             query = urlencode(
                 [
                     (key, "[REDACTED]" if self._sensitive_query.search(key) else item)
@@ -116,7 +129,7 @@ class EvidenceRedactor:
             )
         except (UnicodeError, ValueError):
             return "[REDACTED_URL]"
-        return urlunsplit((parts.scheme, netloc, parts.path, query, ""))
+        return urlunsplit((parts.scheme, netloc, path, query, ""))
 
     def _sanitize_string(self, value: str) -> str:
         sanitized = value

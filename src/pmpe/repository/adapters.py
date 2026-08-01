@@ -17,7 +17,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.15.0"
+DETECTOR_VERSION = "1.16.0"
 
 _PACKAGE_BOUNDARY_MANIFEST_NAMES = frozenset(
     {
@@ -1122,7 +1122,7 @@ def _containers(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="delivery.ci",
-    version="1.2.0",
+    version="1.3.0",
     file_patterns=(
         ".github/workflows/*.yml",
         ".github/workflows/*.yaml",
@@ -1306,11 +1306,33 @@ def _valid_ci_structure(path: str, value: object) -> bool:
         event_declared = "on" in value or True in value
         return event_declared and isinstance(value.get("jobs"), dict) and bool(value["jobs"])
     if lowered == ".gitlab-ci.yml":
-        return any(isinstance(item, dict) for item in value.values())
+        reserved = {
+            "default",
+            "include",
+            "stages",
+            "variables",
+            "workflow",
+            "image",
+            "services",
+            "before_script",
+            "after_script",
+            "cache",
+            "pages",
+        }
+        return any(
+            key not in reserved
+            and not key.startswith(".")
+            and isinstance(item, dict)
+            and any(action in item for action in ("script", "trigger"))
+            for key, item in value.items()
+        )
     if lowered == ".circleci/config.yml":
         return "version" in value and any(key in value for key in ("jobs", "workflows"))
     if lowered == "azure-pipelines.yml":
-        return any(key in value for key in ("jobs", "stages", "steps"))
+        return any(
+            isinstance(value.get(key), list) and bool(value[key])
+            for key in ("jobs", "stages", "steps")
+        )
     if lowered == "bitbucket-pipelines.yml":
         return isinstance(value.get("pipelines"), dict) and bool(value["pipelines"])
     return False

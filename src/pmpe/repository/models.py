@@ -182,7 +182,7 @@ class RepositorySnapshot:
         claimed = str(payload.pop("snapshot_digest", ""))
         return bool(claimed) and claimed == canonical_digest(payload)
 
-    def assessment_reference(self, observation: GovernanceObservation) -> dict[str, str]:
+    def assessment_reference(self, observation: GovernanceObservation) -> dict[str, Any]:
         """Return the narrow evidence seam consumed by later lifecycle work."""
 
         if not self.digest_is_valid():
@@ -198,11 +198,26 @@ class RepositorySnapshot:
             raise ValueError(
                 "governance observation is not bound to this exact repository snapshot"
             )
+        if (
+            self.disposition != "COMPLETE"
+            or self.unsupported_categories
+            or any(item.blocking for item in self.findings)
+        ):
+            raise ValueError("repository snapshot is not complete and cannot enter engineering")
+        if observation.disposition != "COMPLETE" or observation.unknowns:
+            raise ValueError("governance observation is not complete and cannot enter engineering")
         return {
             "repository_snapshot_digest": self.snapshot_digest,
+            "repository_snapshot_disposition": self.disposition,
             "repository_commit": self.commit_sha,
             "governance_observation_id": observation.observation_id,
             "governance_observation_digest": observation.observation_output_digest,
+            "governance_observation_disposition": observation.disposition,
+            "governance_observed_at": observation.observed_at,
+            "remote_observed_at": observation.remote_observed_at,
+            "governance_query_provenance_digest": canonical_digest(
+                [_plain(item) for item in observation.query_provenance]
+            ),
         }
 
 
@@ -241,6 +256,10 @@ class WorktreeObservation:
 class RemoteBranchObservation:
     name: str
     sha: str
+    comparison_ref: str
+    ahead: int
+    behind: int
+    status: str
 
 
 @dataclass(frozen=True)
@@ -285,16 +304,20 @@ class GovernanceObservation:
     repository_snapshot_digest: str | None
     repository_snapshot_commit: str | None
     local_state: LocalState
+    current_branch: str
+    configured_remotes: tuple[str, ...]
     local_branches: tuple[BranchObservation, ...]
     worktrees: tuple[WorktreeObservation, ...]
     command_provenance: tuple[CommandProvenance, ...]
     remote_branches: tuple[RemoteBranchObservation, ...]
+    remote_default_branch: str | None
     pull_requests: tuple[PullRequestObservation, ...]
     issues: tuple[IssueObservation, ...]
     governance: Mapping[str, Any]
     query_provenance: tuple[QueryProvenance, ...]
     remote_observed_at: str | None
     remote_query_coverage: tuple[str, ...]
+    remote_collection_provenance: Mapping[str, Any]
     unknowns: tuple[UnknownFact, ...]
     collector_version: str
     collector_implementation_digest: str
@@ -308,6 +331,9 @@ class GovernanceObservation:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "governance", _freeze(self.governance))
+        object.__setattr__(
+            self, "remote_collection_provenance", _freeze(self.remote_collection_provenance)
+        )
         object.__setattr__(self, "redaction", _freeze(self.redaction))
 
     def as_dict(self) -> dict[str, Any]:

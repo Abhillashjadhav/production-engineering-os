@@ -47,7 +47,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/3.0.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.0.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -66,6 +66,7 @@ _REMOTE_PAYLOAD_FIELDS = frozenset(
         "complete",
         "repository",
         "ref",
+        "default_branch",
         "observed_at",
         "coverage",
         "remote_branches",
@@ -77,6 +78,16 @@ _REMOTE_PAYLOAD_FIELDS = frozenset(
     }
 )
 _SAFE_REF = re.compile(r"^(?:HEAD|[A-Za-z0-9][A-Za-z0-9._/-]{0,255})$")
+_SAFE_REMOTE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,255}$")
+_MAX_GOVERNANCE_BUDGETS = {
+    "command_timeout_seconds": 120,
+    "max_commands": 20_000,
+    "max_branches": 10_000,
+    "max_output_bytes": 64_000_000,
+    "max_remote_items": 100_000,
+    "max_remote_age_seconds": 86_400,
+    "stale_pull_request_after_seconds": 31_536_000,
+}
 
 
 def _valid_ref(value: str) -> bool:
@@ -155,6 +166,9 @@ class RemoteProvider(Protocol):
     tool_identity: str
     api_version: str
 
+    @property
+    def collection_provenance(self) -> dict[str, Any]: ...
+
     def collect(
         self,
         repository: str,
@@ -171,9 +185,15 @@ class RemoteProvider(Protocol):
 class RecordedRemoteProvider:
     """Sealed, data-only remote input that cannot execute caller-supplied collection code."""
 
-    __slots__ = ("_delay_seconds", "_payload", "_permission_denied", "api_version")
+    __slots__ = (
+        "_collection_provenance",
+        "_delay_seconds",
+        "_payload",
+        "_permission_denied",
+        "api_version",
+    )
 
-    tool_identity = "recorded-remote-payload/1.1.0"
+    tool_identity = "recorded-remote-payload/2.0.0"
 
     def __init__(
         self,
@@ -198,8 +218,19 @@ class RecordedRemoteProvider:
         except (TypeError, ValueError) as exc:
             raise ValueError("recorded remote payload is not canonical JSON") from exc
         self.api_version = api_version
+        self._collection_provenance = {
+            "source_kind": "RECORDED_UNATTESTED",
+            "replay_provider": self.tool_identity,
+            "api_version": api_version,
+            "recorded_payload_digest": "sha256:" + hashlib.sha256(self._payload).hexdigest(),
+            "attestation": "ABSENT",
+        }
         self._delay_seconds = delay_seconds
         self._permission_denied = permission_denied
+
+    @property
+    def collection_provenance(self) -> dict[str, Any]:
+        return dict(self._collection_provenance)
 
     def collect(
         self,
@@ -211,7 +242,13 @@ class RecordedRemoteProvider:
         max_items: int,
         cancellation: Cancellation | None,
     ) -> dict[str, Any]:
-        del repository, ref, timeout_seconds
+        del repository, ref
+        if (
+            timeout_seconds > _MAX_GOVERNANCE_BUDGETS["command_timeout_seconds"]
+            or max_output_bytes > _MAX_GOVERNANCE_BUDGETS["max_output_bytes"]
+            or max_items > _MAX_GOVERNANCE_BUDGETS["max_remote_items"]
+        ):
+            raise RepositoryIntelligenceError("recorded remote replay budget exceeds hard ceiling")
         if _cancellation_requested(cancellation):
             raise RepositoryIntelligenceError("recorded remote replay was cancelled")
         _preflight_json_limits(
@@ -362,6 +399,8 @@ class GovernanceCommandRunner:
         "rev-list",
         "worktree",
         "ls-files",
+        "remote",
+        "symbolic-ref",
     }
     _filter_probe = (
         "--name-only",
@@ -376,6 +415,10 @@ class GovernanceCommandRunner:
     )
 
     def __init__(self, *, max_output_bytes: int = 8_000_000) -> None:
+        if not 0 < max_output_bytes <= _MAX_GOVERNANCE_BUDGETS["max_output_bytes"]:
+            raise RepositoryIntelligenceError(
+                "governance command output budget exceeds hard ceiling"
+            )
         self.max_output_bytes = max_output_bytes
 
     def run(
@@ -398,6 +441,10 @@ class GovernanceCommandRunner:
             raise RepositorySecurityError("Git status reads are outside the safe probe")
         if args[1] == "worktree" and (len(args) < 3 or args[2] != "list"):
             raise RepositorySecurityError("mutating Git worktree command was refused")
+        if args[1] == "remote" and args[2:]:
+            raise RepositorySecurityError("Git remote reads are outside the safe inventory")
+        if args[1] == "symbolic-ref" and args[2:] != ("--quiet", "--short", "HEAD"):
+            raise RepositorySecurityError("Git symbolic-ref reads are outside the safe probe")
         safe_environment = {
             "PATH": "/usr/bin:/bin",
             "GIT_CONFIG_GLOBAL": os.devnull,
@@ -779,6 +826,7 @@ def _validate_remote_payload_types(value: dict[str, Any]) -> None:
         or not isinstance(value.get("complete"), bool)
         or not _is_str(value.get("repository"))
         or not _is_str(value.get("ref"))
+        or not _is_str(value.get("default_branch"))
         or not _is_str(value.get("observed_at"))
         or not isinstance(value.get("coverage"), list)
         or not all(_is_str(item) for item in value["coverage"])
@@ -788,7 +836,17 @@ def _validate_remote_payload_types(value: dict[str, Any]) -> None:
         raise ValueError("remote payload envelope is malformed")
 
     records: tuple[tuple[str, tuple[tuple[str, Any], ...]], ...] = (
-        ("remote_branches", (("name", _is_str), ("sha", _is_str))),
+        (
+            "remote_branches",
+            (
+                ("name", _is_str),
+                ("sha", _is_str),
+                ("comparison_ref", _is_str),
+                ("ahead", _is_int),
+                ("behind", _is_int),
+                ("status", lambda item: item in {"OBSERVED", "UNKNOWN", "BLOCKED"}),
+            ),
+        ),
         (
             "pull_requests",
             (
@@ -840,6 +898,13 @@ def _validate_remote_payload_types(value: dict[str, Any]) -> None:
                 raise ValueError("remote query cursor is malformed")
     if any(item["number"] < 1 for key in ("pull_requests", "issues") for item in value[key]):
         raise ValueError("remote record number is malformed")
+    if any(
+        item["ahead"] < 0 or item["behind"] < 0 or item["comparison_ref"] != value["ref"]
+        for item in value["remote_branches"]
+    ):
+        raise ValueError("remote branch divergence is malformed")
+    if not _valid_ref(value["default_branch"]):
+        raise ValueError("remote default branch is malformed")
 
 
 def _governance_implementation_digest(
@@ -880,6 +945,8 @@ def _observation_from_dict(value: dict[str, Any]) -> GovernanceObservation:
         repository_snapshot_digest=cast(str | None, value["repository_snapshot_digest"]),
         repository_snapshot_commit=cast(str | None, value["repository_snapshot_commit"]),
         local_state=LocalState(**value["local_state"]),
+        current_branch=str(value["current_branch"]),
+        configured_remotes=tuple(value["configured_remotes"]),
         local_branches=tuple(BranchObservation(**item) for item in value["local_branches"]),
         worktrees=tuple(WorktreeObservation(**item) for item in value["worktrees"]),
         command_provenance=tuple(
@@ -892,12 +959,14 @@ def _observation_from_dict(value: dict[str, Any]) -> GovernanceObservation:
             for item in value["command_provenance"]
         ),
         remote_branches=tuple(RemoteBranchObservation(**item) for item in value["remote_branches"]),
+        remote_default_branch=cast(str | None, value["remote_default_branch"]),
         pull_requests=tuple(PullRequestObservation(**item) for item in value["pull_requests"]),
         issues=tuple(IssueObservation(**item) for item in value["issues"]),
         governance=cast(dict[str, Any], value["governance"]),
         query_provenance=tuple(QueryProvenance(**item) for item in value["query_provenance"]),
         remote_observed_at=cast(str | None, value["remote_observed_at"]),
         remote_query_coverage=tuple(value["remote_query_coverage"]),
+        remote_collection_provenance=cast(dict[str, Any], value["remote_collection_provenance"]),
         unknowns=tuple(UnknownFact(**item) for item in value["unknowns"]),
         collector_version=str(value["collector_version"]),
         collector_implementation_digest=str(value["collector_implementation_digest"]),
@@ -1140,7 +1209,51 @@ class GovernanceCollector:
             receiver.close()
             _stop_remote_process(process)
 
-    def _branches(self, root: Path, ref: str) -> tuple[BranchObservation, ...]:
+    def _current_branch(self, root: Path) -> str:
+        result = self._execute(
+            root,
+            ("git", "symbolic-ref", "--quiet", "--short", "HEAD"),
+        )
+        if result.returncode == 1 and not result.timed_out:
+            return "DETACHED"
+        if result.returncode != 0 or result.timed_out:
+            self._local_unknowns.append(
+                UnknownFact(
+                    fact="current_branch",
+                    status="BLOCKED",
+                    reason="The current branch could not be observed safely.",
+                )
+            )
+            return "UNKNOWN"
+        value = _decode(result).strip()
+        if not _valid_ref(value):
+            self._local_unknowns.append(
+                UnknownFact(
+                    fact="current_branch",
+                    status="BLOCKED",
+                    reason="The current branch identity is malformed.",
+                )
+            )
+            return "UNKNOWN"
+        return value
+
+    def _configured_remotes(self, root: Path) -> tuple[str, ...]:
+        raw = self._run(root, "remote")
+        names = tuple(sorted(raw.splitlines()))
+        if len(names) != len(set(names)) or any(
+            _SAFE_REMOTE_NAME.fullmatch(name) is None for name in names
+        ):
+            self._local_unknowns.append(
+                UnknownFact(
+                    fact="configured_remotes",
+                    status="BLOCKED",
+                    reason="Configured Git remote names are malformed or duplicated.",
+                )
+            )
+            return ()
+        return names
+
+    def _branches(self, root: Path, reference_commit: str) -> tuple[BranchObservation, ...]:
         raw = self._run(
             root, "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads"
         )
@@ -1164,7 +1277,13 @@ class GovernanceCollector:
             status = "OBSERVED"
             comparison = self._execute(
                 root,
-                ("git", "rev-list", "--left-right", "--count", f"{ref}...{name}"),
+                (
+                    "git",
+                    "rev-list",
+                    "--left-right",
+                    "--count",
+                    f"{reference_commit}...{name}",
+                ),
             )
             if comparison.returncode == 0 and not comparison.timed_out:
                 try:
@@ -1358,6 +1477,19 @@ class GovernanceCollector:
             )
         ):
             raise RepositoryIntelligenceError("governance observation budgets must be positive")
+        configured_budgets = {
+            "command_timeout_seconds": self.timeout,
+            "max_commands": self.max_commands,
+            "max_branches": self.max_branches,
+            "max_output_bytes": self.max_output_bytes,
+            "max_remote_items": self.max_remote_items,
+            "max_remote_age_seconds": self.max_remote_age_seconds,
+            "stale_pull_request_after_seconds": self.stale_pull_request_after_seconds,
+        }
+        if any(value > _MAX_GOVERNANCE_BUDGETS[name] for name, value in configured_budgets.items()):
+            raise RepositoryIntelligenceError(
+                "governance observation budget exceeds a hard safety ceiling"
+            )
         root = Path(repository_root).resolve()
         filter_probe = self._execute(
             root,
@@ -1449,7 +1581,22 @@ class GovernanceCollector:
             head_sha=head_sha,
             git_object_format=object_format,
         )
-        branches = self._branches(root, ref)
+        for is_dirty, fact, explanation in (
+            (index_dirty, "dirty_index", "The Git index contains uncommitted changes."),
+            (
+                worktree_dirty,
+                "dirty_worktree",
+                "The working tree contains unstaged tracked changes.",
+            ),
+            (untracked, "untracked_files", "The working tree contains untracked files."),
+        ):
+            if is_dirty:
+                self._local_unknowns.append(
+                    UnknownFact(fact=fact, status="BLOCKED", reason=explanation)
+                )
+        current_branch = self._current_branch(root)
+        configured_remotes = self._configured_remotes(root)
+        branches = self._branches(root, ref_commit)
         worktrees = self._worktrees(root)
         if any(not _valid_object_id(item.sha, object_format) for item in branches) or any(
             (item.bare and item.head_sha != "")
@@ -1467,7 +1614,9 @@ class GovernanceCollector:
         governance: dict[str, Any] = {}
         provenance: tuple[QueryProvenance, ...] = ()
         remote_observed_at: str | None = None
+        remote_default_branch: str | None = None
         remote_query_coverage: tuple[str, ...] = ()
+        remote_collection_provenance: dict[str, Any] = {}
         unknowns: tuple[UnknownFact, ...] = (
             *self._local_unknowns,
             UnknownFact(
@@ -1484,6 +1633,7 @@ class GovernanceCollector:
         if self.remote_provider is not None:
             tool_identity = self.remote_provider.tool_identity
             api_version = self.remote_provider.api_version
+            remote_collection_provenance = self.remote_provider.collection_provenance
             remote_collection_status = "STARTED"
             try:
                 raw_remote = self._collect_remote_bounded(ref)
@@ -1527,6 +1677,7 @@ class GovernanceCollector:
                     if sanitized_remote.get("ref") != ref:
                         raise ValueError("remote ref identity does not match the request")
                     remote_observed_at = cast(str, sanitized_remote["observed_at"])
+                    remote_default_branch = cast(str, sanitized_remote["default_branch"])
                     remote_observed_value = _parse_utc(
                         remote_observed_at, field="remote observation time"
                     )
@@ -1537,7 +1688,14 @@ class GovernanceCollector:
                     coverage_complete = set(remote_query_coverage) == _REQUIRED_REMOTE_COVERAGE
                     freshness_proven = -30 <= remote_age <= self.max_remote_age_seconds
                     remote_branches = tuple(
-                        RemoteBranchObservation(name=item["name"], sha=item["sha"])
+                        RemoteBranchObservation(
+                            name=item["name"],
+                            sha=item["sha"],
+                            comparison_ref=item["comparison_ref"],
+                            ahead=item["ahead"],
+                            behind=item["behind"],
+                            status=item["status"],
+                        )
                         for item in sanitized_remote["remote_branches"]
                     )
                     parsed_pull_requests: list[PullRequestObservation] = []
@@ -1615,6 +1773,23 @@ class GovernanceCollector:
                                 for number in unknown_mergeability
                             ),
                         )
+                    unresolved_remote_divergence = tuple(
+                        item.name for item in remote_branches if item.status != "OBSERVED"
+                    )
+                    if unresolved_remote_divergence:
+                        remote_unknowns = (
+                            *remote_unknowns,
+                            *(
+                                UnknownFact(
+                                    fact=f"remote_branch_divergence:{name}",
+                                    status="BLOCKED",
+                                    reason=(
+                                        "Remote branch divergence was not observed completely."
+                                    ),
+                                )
+                                for name in unresolved_remote_divergence
+                            ),
+                        )
                     if any(
                         not _valid_object_id(item.sha, object_format) for item in remote_branches
                     ) or any(
@@ -1645,7 +1820,19 @@ class GovernanceCollector:
                     )
                 else:
                     remote_collection_status = "EVALUATED"
-                    unknowns = (*self._local_unknowns, *remote_unknowns)
+                    unknowns = (
+                        *self._local_unknowns,
+                        *remote_unknowns,
+                        UnknownFact(
+                            fact="remote_collection_attestation",
+                            status="BLOCKED",
+                            reason=(
+                                "Remote facts were supplied as reproducible recorded input, "
+                                "but no independently verifiable collector attestation was "
+                                "available; they cannot make this observation complete."
+                            ),
+                        ),
+                    )
                     disposition = (
                         "BLOCKED"
                         if any(item.status == "BLOCKED" for item in unknowns)
@@ -1691,6 +1878,68 @@ class GovernanceCollector:
                             ),
                         )
 
+        revalidation_unknown_start = len(self._local_unknowns)
+        try:
+            final_ref_commit = self._run(
+                root,
+                "rev-parse",
+                "--verify",
+                "--end-of-options",
+                f"{ref}^{{commit}}",
+            ).strip()
+            final_head_sha = self._run(root, "rev-parse", "HEAD").strip()
+            final_index_listing = self._run(root, "ls-files", "--stage", "-z")
+            final_status_raw = self._run(
+                root,
+                "status",
+                "--porcelain=v1",
+                "-z",
+                "--untracked-files=all",
+                "--ignore-submodules=all",
+            )
+            final_current_branch = self._current_branch(root)
+            final_configured_remotes = self._configured_remotes(root)
+            final_branches = self._branches(root, ref_commit)
+            final_worktrees = self._worktrees(root)
+        except RepositoryIntelligenceError:
+            disposition = "BLOCKED"
+            unknowns = (
+                *unknowns,
+                UnknownFact(
+                    fact="local_state_revalidation",
+                    status="BLOCKED",
+                    reason=("Mutable local state could not be revalidated before finalization."),
+                ),
+            )
+        else:
+            revalidation_unknowns = tuple(self._local_unknowns[revalidation_unknown_start:])
+            if revalidation_unknowns:
+                disposition = "BLOCKED"
+                unknowns = (*unknowns, *revalidation_unknowns)
+            if (
+                final_ref_commit != ref_commit
+                or final_head_sha != head_sha
+                or final_index_listing != index_listing
+                or final_status_raw != status_raw
+                or final_current_branch != current_branch
+                or final_configured_remotes != configured_remotes
+                or final_branches != branches
+                or final_worktrees != worktrees
+            ):
+                disposition = "BLOCKED"
+                unknowns = (
+                    *unknowns,
+                    UnknownFact(
+                        fact="concurrent_local_mutation",
+                        status="BLOCKED",
+                        reason=(
+                            "The ref, HEAD, index, worktree, branch, remote, or worktree "
+                            "inventory changed during collection; mixed-time facts were not "
+                            "represented as complete."
+                        ),
+                    ),
+                )
+
         if self._is_cancelled() and not any(
             item.fact == "observation_cancellation" for item in unknowns
         ):
@@ -1721,6 +1970,8 @@ class GovernanceCollector:
             "observed_at": observed_at,
             "local_status": status_raw,
             "local_state": asdict(local_state),
+            "current_branch": current_branch,
+            "configured_remotes": configured_remotes,
             "local_branches": [asdict(item) for item in branches],
             "worktrees": [asdict(item) for item in worktrees],
             "command_provenance": [asdict(item) for item in self._command_provenance],
@@ -1736,7 +1987,9 @@ class GovernanceCollector:
             "remote_result": sanitized_remote,
             "remote_collection_status": remote_collection_status,
             "remote_observed_at": remote_observed_at,
+            "remote_default_branch": remote_default_branch,
             "remote_query_coverage": remote_query_coverage,
+            "remote_collection_provenance": remote_collection_provenance,
             "normalized_remote_evidence": {
                 "remote_branches": [asdict(item) for item in remote_branches],
                 "pull_requests": [asdict(item) for item in pull_requests],
@@ -1768,16 +2021,20 @@ class GovernanceCollector:
                 self.snapshot.commit_sha if self.snapshot is not None else None
             ),
             local_state=local_state,
+            current_branch=current_branch,
+            configured_remotes=configured_remotes,
             local_branches=branches,
             worktrees=worktrees,
             command_provenance=tuple(self._command_provenance),
             remote_branches=remote_branches,
+            remote_default_branch=remote_default_branch,
             pull_requests=pull_requests,
             issues=issues,
             governance=governance,
             query_provenance=provenance,
             remote_observed_at=remote_observed_at,
             remote_query_coverage=remote_query_coverage,
+            remote_collection_provenance=remote_collection_provenance,
             unknowns=unknowns,
             collector_version=GOVERNANCE_COLLECTOR_VERSION,
             collector_implementation_digest=collector_digest,
