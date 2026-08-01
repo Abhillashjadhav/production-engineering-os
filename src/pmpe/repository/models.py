@@ -142,6 +142,7 @@ class RepositorySnapshot:
     repository: str
     commit_sha: str
     tree_sha: str
+    git_object_format: str
     default_branch: str | None
     default_branch_source: str
     scanner_version: str
@@ -178,6 +179,8 @@ class RepositorySnapshot:
     def assessment_reference(self, observation: GovernanceObservation) -> dict[str, str]:
         """Return the narrow evidence seam consumed by later lifecycle work."""
 
+        if observation.repository != self.repository:
+            raise ValueError("snapshot and governance observation repositories do not match")
         return {
             "repository_snapshot_digest": self.snapshot_digest,
             "repository_commit": self.commit_sha,
@@ -192,6 +195,7 @@ class LocalState:
     worktree_dirty: bool
     untracked: bool
     head_sha: str
+    git_object_format: str
 
 
 @dataclass(frozen=True)

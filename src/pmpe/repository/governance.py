@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import multiprocessing
 import os
 import re
 import selectors
@@ -10,6 +11,7 @@ import signal
 import subprocess
 import time
 import uuid
+from contextlib import suppress
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,8 +38,10 @@ from pmpe.repository.scanner import (
     RepositorySecurityError,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/1.3.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/1.4.0"
 _REQUIRED_REMOTE_COVERAGE = frozenset({"remote_branches", "pull_requests", "issues", "governance"})
+_REQUIRED_GOVERNANCE_FACTS = frozenset({"branch_protection", "review_policy"})
+_OBJECT_FORMAT_LENGTH = {"sha1": 40, "sha256": 64}
 _SAFE_REF = re.compile(r"^(?:HEAD|[A-Za-z0-9][A-Za-z0-9._/-]{0,255})$")
 
 
@@ -46,6 +50,15 @@ def _valid_ref(value: str) -> bool:
         bool(_SAFE_REF.fullmatch(value))
         and not any(marker in value for marker in ("..", "@{", "//", "\\"))
         and not value.endswith(("/", ".", ".lock"))
+    )
+
+
+def _valid_object_id(value: str, object_format: str) -> bool:
+    length = _OBJECT_FORMAT_LENGTH.get(object_format)
+    return (
+        length is not None
+        and len(value) == length
+        and all(character in "0123456789abcdef" for character in value)
     )
 
 
@@ -83,10 +96,65 @@ class UuidObservationIds:
         return f"OBS-{uuid.uuid4()}"
 
 
+class _SharedCancellation:
+    def __init__(self, event: Any) -> None:
+        self._event = event
+
+    def cancelled(self) -> bool:
+        return bool(self._event.is_set())
+
+
+def _remote_provider_worker(
+    connection: Any,
+    provider: RemoteProvider,
+    repository: str,
+    ref: str,
+    timeout_seconds: int,
+    max_output_bytes: int,
+    max_items: int,
+    cancellation_event: Any,
+) -> None:
+    """Run injected remote I/O in a killable, output-bounded process."""
+
+    try:
+        os.setsid()
+        safe_path = os.environ.get("PATH", "/usr/bin:/bin")
+        os.environ.clear()
+        os.environ.update(
+            {
+                "PATH": safe_path,
+                "LC_ALL": "C",
+                "GIT_TERMINAL_PROMPT": "0",
+            }
+        )
+        connection.send(("READY", None))
+        result = provider.collect(
+            repository,
+            ref,
+            timeout_seconds=timeout_seconds,
+            max_output_bytes=max_output_bytes,
+            max_items=max_items,
+            cancellation=_SharedCancellation(cancellation_event),
+        )
+        if not isinstance(result, dict):
+            raise TypeError("remote provider result must be an object")
+        _bounded_remote_shape(result, max_bytes=max_output_bytes, max_items=max_items)
+        connection.send(("RESULT", result))
+    except PermissionError:
+        connection.send(("PERMISSION", None))
+    except BaseException as exc:
+        # Exception text can contain credentials. Only the safe type identity crosses
+        # the process boundary and is later sanitized before persistence.
+        with suppress(BrokenPipeError, EOFError, OSError):
+            connection.send(("ERROR", type(exc).__name__))
+    finally:
+        connection.close()
+
+
 class GovernanceCommandRunner:
     """Allowlisted local Git observation commands with mutation subcommands refused."""
 
-    identity = "git-governance-readonly/1.3.0"
+    identity = "git-governance-readonly/1.4.0"
     _allowed = {
         "config",
         "status",
@@ -191,10 +259,17 @@ class GovernanceCommandRunner:
             selector.close()
             process.stdout.close()
         try:
-            returncode = process.wait(timeout=max(0.1, deadline - time.monotonic()))
+            returncode = process.wait(
+                timeout=(
+                    0.25 if cancelled or output_exceeded else max(0.1, deadline - time.monotonic())
+                )
+            )
         except subprocess.TimeoutExpired:
             _signal_process_group(process, signal.SIGKILL)
-            returncode = process.wait()
+            try:
+                returncode = process.wait(timeout=1.0)
+            except subprocess.TimeoutExpired as exc:
+                raise RepositorySecurityError("bounded Git process could not be reaped") from exc
             timed_out = True
         return CommandResult(
             args=args,
@@ -212,13 +287,22 @@ def _signal_process_group(process: subprocess.Popen[bytes], action: signal.Signa
         os.killpg(process.pid, action)
     except ProcessLookupError:
         return
-    except PermissionError:
-        # Content filters are refused and submodule recursion is disabled before
-        # mutable observation, so the allowlisted Git parent is the only expected
-        # process on hosts that prohibit group signalling.
-        process.send_signal(action)
-    except OSError as exc:
-        raise RepositorySecurityError("bounded Git process group could not be terminated") from exc
+    except OSError:
+        # Content filters are refused and submodule recursion is disabled. Always
+        # fall back to the parent and let the caller prove it was reaped.
+        try:
+            process.send_signal(action)
+        except ProcessLookupError:
+            return
+        except OSError:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                return
+            except OSError as exc:
+                raise RepositorySecurityError(
+                    "bounded Git process group and parent could not be terminated"
+                ) from exc
 
 
 def _decode(result: CommandResult) -> str:
@@ -266,6 +350,55 @@ def _bounded_remote_shape(value: Any, *, max_bytes: int, max_items: int) -> None
             raise RepositoryIntelligenceError("remote observation contains an unsupported value")
         if encoded_bytes > max_bytes:
             raise RepositoryIntelligenceError("remote observation byte budget was exceeded")
+
+
+def _stop_remote_process(process: Any) -> None:
+    """Terminate and reap the isolated provider process and its descendants."""
+
+    if not process.is_alive():
+        process.join(timeout=0.1)
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except (ProcessLookupError, PermissionError, OSError):
+        process.terminate()
+    process.join(timeout=0.25)
+    if process.is_alive():
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            process.kill()
+        process.join(timeout=1.0)
+    if process.is_alive():
+        raise RepositorySecurityError("bounded remote provider process could not be reaped")
+
+
+def _governance_content_is_complete(value: dict[str, Any]) -> bool:
+    if not _REQUIRED_GOVERNANCE_FACTS.issubset(value):
+        return False
+    if any(value[fact] in ({}, [], "") for fact in _REQUIRED_GOVERNANCE_FACTS):
+        return False
+    pending: list[Any] = [value]
+    visited = 0
+    while pending:
+        current = pending.pop()
+        visited += 1
+        if visited > 20_000:
+            return False
+        if current is None:
+            return False
+        if isinstance(current, str) and current.strip().upper() in {
+            "UNKNOWN",
+            "UNSUPPORTED",
+            "BLOCKED",
+            "UNAVAILABLE",
+        }:
+            return False
+        if isinstance(current, dict):
+            pending.extend(current.values())
+        elif isinstance(current, (list, tuple)):
+            pending.extend(current)
+    return True
 
 
 def _pagination_is_complete(
@@ -389,8 +522,16 @@ class GovernanceCollector:
         self._commands = 0
         self._local_unknowns: list[UnknownFact] = []
 
+    def _is_cancelled(self) -> bool:
+        if self.cancellation is None:
+            return False
+        try:
+            return self.cancellation.cancelled()
+        except Exception:
+            return True
+
     def _execute(self, root: Path, command: tuple[str, ...]) -> CommandResult:
-        if self.cancellation is not None and self.cancellation.cancelled():
+        if self._is_cancelled():
             raise RepositoryIntelligenceError("governance observation was cancelled")
         if self._commands >= self.max_commands:
             raise RepositoryIntelligenceError("governance command budget was exhausted")
@@ -418,6 +559,82 @@ class GovernanceCollector:
             return _decode(result)
         except (FileNotFoundError, OSError) as exc:
             raise RepositoryIntelligenceError("local Git observation is unavailable") from exc
+
+    def _collect_remote_bounded(self, ref: str) -> dict[str, Any]:
+        if self.remote_provider is None:
+            raise RepositoryIntelligenceError("no remote provider was configured")
+        if not hasattr(os, "fork") or not hasattr(os, "setsid"):
+            raise RepositoryIntelligenceError(
+                "bounded remote provider execution is unsupported on this platform"
+            )
+        context = multiprocessing.get_context("fork")
+        receiver, sender = context.Pipe(duplex=False)
+        cancellation_event = context.Event()
+        process = context.Process(
+            target=_remote_provider_worker,
+            args=(
+                sender,
+                self.remote_provider,
+                self.repository,
+                ref,
+                self.timeout,
+                self.max_output_bytes,
+                self.max_remote_items,
+                cancellation_event,
+            ),
+            daemon=True,
+            name="pmpe-readonly-remote-provider",
+        )
+        try:
+            process.start()
+        except (OSError, RuntimeError) as exc:
+            receiver.close()
+            sender.close()
+            raise RepositoryIntelligenceError(
+                "bounded remote provider process could not start"
+            ) from exc
+        sender.close()
+        deadline = time.monotonic() + self.timeout
+        ready = False
+        try:
+            while True:
+                if self._is_cancelled():
+                    cancellation_event.set()
+                    raise RepositoryIntelligenceError(
+                        "bounded remote provider observation was cancelled"
+                    )
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RepositoryIntelligenceError("bounded remote provider timed out")
+                if receiver.poll(min(remaining, 0.05)):
+                    try:
+                        status, payload = receiver.recv()
+                    except EOFError as exc:
+                        raise RepositoryIntelligenceError(
+                            "bounded remote provider exited without evidence"
+                        ) from exc
+                    if status == "READY":
+                        ready = True
+                        continue
+                    if not ready:
+                        raise RepositoryIntelligenceError(
+                            "bounded remote provider isolation was not established"
+                        )
+                    if status == "RESULT" and isinstance(payload, dict):
+                        return cast(dict[str, Any], payload)
+                    if status == "PERMISSION":
+                        raise PermissionError("bounded remote provider denied access")
+                    safe_type = payload if isinstance(payload, str) else "UnknownError"
+                    raise RepositoryIntelligenceError(
+                        f"bounded remote provider failed safely: {safe_type}"
+                    )
+                if not process.is_alive():
+                    raise RepositoryIntelligenceError(
+                        "bounded remote provider exited without complete evidence"
+                    )
+        finally:
+            receiver.close()
+            _stop_remote_process(process)
 
     def _branches(self, root: Path, ref: str) -> tuple[BranchObservation, ...]:
         raw = self._run(
@@ -525,6 +742,12 @@ class GovernanceCollector:
             )
         if filter_probe.returncode != 1:
             raise RepositoryIntelligenceError("Git content-filter safety could not be proven")
+        object_format = self._run(root, "rev-parse", "--show-object-format").strip()
+        object_length = _OBJECT_FORMAT_LENGTH.get(object_format)
+        if object_length is None:
+            raise RepositoryIntelligenceError(
+                f"Git object format {object_format!r} is explicitly unsupported"
+            )
         index_listing = self._run(root, "ls-files", "--stage", "-z")
         gitlinks = 0
         for record in index_listing.split("\0"):
@@ -535,7 +758,9 @@ class GovernanceCollector:
             if separator != "\t" or len(fields) != 3:
                 raise RepositoryIntelligenceError("Git index metadata is malformed")
             mode, object_id, stage = fields
-            if not re.fullmatch(r"[0-7]{6}", mode) or not re.fullmatch(r"[0-9a-f]{40}", object_id):
+            if not re.fullmatch(r"[0-7]{6}", mode) or not _valid_object_id(
+                object_id, object_format
+            ):
                 raise RepositoryIntelligenceError("Git index metadata is malformed")
             if stage != "0":
                 self._local_unknowns.append(
@@ -566,7 +791,7 @@ class GovernanceCollector:
             "--ignore-submodules=all",
         )
         head_sha = self._run(root, "rev-parse", "HEAD").strip()
-        if not re.fullmatch(r"[0-9a-f]{40}", head_sha):
+        if not _valid_object_id(head_sha, object_format):
             raise RepositoryIntelligenceError("local Git HEAD is malformed")
         index_dirty = False
         worktree_dirty = False
@@ -584,9 +809,15 @@ class GovernanceCollector:
             worktree_dirty=worktree_dirty,
             untracked=untracked,
             head_sha=head_sha,
+            git_object_format=object_format,
         )
         branches = self._branches(root, ref)
         worktrees = self._worktrees(root)
+        if any(not _valid_object_id(item.sha, object_format) for item in branches) or any(
+            item.head_sha != "UNKNOWN" and not _valid_object_id(item.head_sha, object_format)
+            for item in worktrees
+        ):
+            raise RepositoryIntelligenceError("local Git reference identity is malformed")
         observed_at = self.clock.now()
         observation_id = self.id_provider.new_id()
         observed_at_value = _parse_utc(observed_at, field="observation time")
@@ -614,19 +845,7 @@ class GovernanceCollector:
             tool_identity = self.remote_provider.tool_identity
             api_version = self.remote_provider.api_version
             try:
-                raw_remote = self.remote_provider.collect(
-                    self.repository,
-                    ref,
-                    timeout_seconds=self.timeout,
-                    max_output_bytes=self.max_output_bytes,
-                    max_items=self.max_remote_items,
-                    cancellation=self.cancellation,
-                )
-                _bounded_remote_shape(
-                    raw_remote,
-                    max_bytes=self.max_output_bytes,
-                    max_items=self.max_remote_items,
-                )
+                raw_remote = self._collect_remote_bounded(ref)
             except (PermissionError, OSError):
                 disposition = "BLOCKED"
                 unknowns = (
@@ -685,6 +904,7 @@ class GovernanceCollector:
                         for item in sanitized_remote.get("issues", [])
                     )
                     governance = cast(dict[str, Any], sanitized_remote.get("governance", {}))
+                    governance_complete = _governance_content_is_complete(governance)
                     provenance = tuple(
                         QueryProvenance(
                             surface=str(item["surface"]),
@@ -705,9 +925,9 @@ class GovernanceCollector:
                         for item in sanitized_remote.get("unknowns", [])
                     )
                     if any(
-                        not re.fullmatch(r"[0-9a-f]{40}", item.sha) for item in remote_branches
+                        not _valid_object_id(item.sha, object_format) for item in remote_branches
                     ) or any(
-                        not re.fullmatch(r"[0-9a-f]{40}", item.head) for item in pull_requests
+                        not _valid_object_id(item.head, object_format) for item in pull_requests
                     ):
                         raise ValueError("remote commit identity is malformed")
                     if any(
@@ -764,7 +984,32 @@ class GovernanceCollector:
                                 ),
                             ),
                         )
+                    if not governance_complete:
+                        disposition = "BLOCKED"
+                        unknowns = (
+                            *unknowns,
+                            UnknownFact(
+                                fact="remote_governance_completeness",
+                                status="BLOCKED",
+                                reason=(
+                                    "Required branch-protection or review-policy facts are "
+                                    "missing, empty, or explicitly unknown."
+                                ),
+                            ),
+                        )
 
+        if self._is_cancelled() and not any(
+            item.fact == "observation_cancellation" for item in unknowns
+        ):
+            disposition = "BLOCKED"
+            unknowns = (
+                *unknowns,
+                UnknownFact(
+                    fact="observation_cancellation",
+                    status="BLOCKED",
+                    reason="Mutable governance observation was cancelled before finalization.",
+                ),
+            )
         collector_digest = _governance_implementation_digest()
         inputs = {
             "repository": self.repository,
@@ -824,6 +1069,22 @@ class GovernanceCollector:
             sanitized = cast(dict[str, Any], self.redactor.sanitize(draft.as_dict()))
         except (RedactionError, Exception) as exc:
             raise RepositorySecurityError("observation redaction failed") from exc
+        if self._is_cancelled() and not any(
+            item.get("fact") == "observation_cancellation"
+            for item in cast(list[dict[str, Any]], sanitized["unknowns"])
+        ):
+            cast(list[dict[str, Any]], sanitized["unknowns"]).append(
+                {
+                    "fact": "observation_cancellation",
+                    "status": "BLOCKED",
+                    "reason": "Mutable governance observation was cancelled before finalization.",
+                }
+            )
+            sanitized["unknowns"] = sorted(
+                cast(list[dict[str, Any]], sanitized["unknowns"]),
+                key=lambda item: (item["fact"], item["status"], item["reason"]),
+            )
+            sanitized["disposition"] = "BLOCKED"
         sanitized["observation_output_digest"] = canonical_digest(
             {key: value for key, value in sanitized.items() if key != "observation_output_digest"}
         )

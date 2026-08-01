@@ -41,7 +41,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/1.3.0"
+SCANNER_VERSION = "repository-scanner/1.4.0"
 IMPLEMENTATION_MODULES = (
     "repository.adapters",
     "repository.models",
@@ -49,7 +49,7 @@ IMPLEMENTATION_MODULES = (
     "repository.scanner",
     "contracts.canonical",
 )
-_SHA = re.compile(r"^[0-9a-f]{40}$")
+_OBJECT_FORMAT_LENGTH = {"sha1": 40, "sha256": 64}
 
 
 class RepositoryIntelligenceError(RuntimeError):
@@ -81,7 +81,7 @@ class TreeListingResult:
 class SubprocessCommandRunner:
     """Allowlisted local Git reader; it never invokes shells or project code."""
 
-    identity = "git-readonly-subprocess/1.3.0"
+    identity = "git-readonly-subprocess/1.4.0"
     _allowed = {"rev-parse", "ls-tree", "cat-file", "version"}
 
     @staticmethod
@@ -195,11 +195,21 @@ class SubprocessCommandRunner:
         finally:
             selector.close()
             process.stdout.close()
+        graceful_timeout = 0.25 if cancelled or record_limit or byte_limit else 0.1
         try:
-            returncode = process.wait(timeout=max(0.1, deadline - time.monotonic()))
+            returncode = process.wait(
+                timeout=(
+                    graceful_timeout
+                    if cancelled or record_limit or byte_limit
+                    else max(0.1, deadline - time.monotonic())
+                )
+            )
         except subprocess.TimeoutExpired:
             _signal_process_group(process, signal.SIGKILL)
-            returncode = process.wait()
+            try:
+                returncode = process.wait(timeout=1.0)
+            except subprocess.TimeoutExpired as exc:
+                raise RepositorySecurityError("bounded Git process could not be reaped") from exc
             timed_out = True
         complete_records = bytes(payload[:max_output_bytes]).split(b"\0")
         if complete_records and complete_records[-1]:
@@ -231,13 +241,32 @@ def _signal_process_group(process: subprocess.Popen[bytes], action: signal.Signa
         os.killpg(process.pid, action)
     except ProcessLookupError:
         return
-    except PermissionError:
-        # Some constrained hosts prohibit group signalling. The allowlisted
-        # immutable-object Git commands cannot invoke repository-defined code,
-        # so terminating the parent remains safe and fail-bounded there.
-        process.send_signal(action)
-    except OSError as exc:
-        raise RepositorySecurityError("bounded Git process group could not be terminated") from exc
+    except OSError:
+        # Always make a best-effort parent termination if process-group signalling
+        # is unavailable. These immutable-object commands cannot invoke repository
+        # code, so a successfully signalled and reaped parent is a safe fallback.
+        try:
+            process.send_signal(action)
+        except ProcessLookupError:
+            return
+        except OSError:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                return
+            except OSError as exc:
+                raise RepositorySecurityError(
+                    "bounded Git process group and parent could not be terminated"
+                ) from exc
+
+
+def _valid_object_id(value: str, object_format: str) -> bool:
+    length = _OBJECT_FORMAT_LENGTH.get(object_format)
+    return (
+        length is not None
+        and len(value) == length
+        and all(character in "0123456789abcdef" for character in value)
+    )
 
 
 def _implementation_digest() -> str:
@@ -352,6 +381,7 @@ def _snapshot_from_dict(value: dict[str, Any]) -> RepositorySnapshot:
         repository=str(value["repository"]),
         commit_sha=str(value["commit_sha"]),
         tree_sha=str(value["tree_sha"]),
+        git_object_format=str(value["git_object_format"]),
         default_branch=cast(str | None, value["default_branch"]),
         default_branch_source=str(value["default_branch_source"]),
         scanner_version=str(value["scanner_version"]),
@@ -409,6 +439,24 @@ class RepositoryScanner:
         self._commands = 0
         self._command_provenance: list[CommandProvenance] = []
         self._tool_versions: tuple[ToolVersion, ...] = ()
+
+    def _is_cancelled(self) -> bool:
+        if self.cancellation is None:
+            return False
+        try:
+            return self.cancellation.cancelled()
+        except Exception:
+            return True
+
+    @staticmethod
+    def _cancelled_finding(evidence_ref: str) -> Finding:
+        return _finding(
+            "SCAN.CANCELLED",
+            "repository_topology",
+            "The scan was cancelled before a complete repository artifact was finalized.",
+            (evidence_ref,),
+            blocking=True,
+        )
 
     def _run(
         self, args: tuple[str, ...], root: Path, *, essential: bool = False
@@ -536,6 +584,7 @@ class RepositoryScanner:
         root: Path,
         commit_sha: str,
         tree_sha: str,
+        git_object_format: str,
         config_digest: str,
         adapter_digest: str,
     ) -> RepositorySnapshot:
@@ -549,6 +598,7 @@ class RepositoryScanner:
         return self._finalize(
             commit_sha=commit_sha,
             tree_sha=tree_sha,
+            git_object_format=git_object_format,
             config_digest=config_digest,
             adapter_digest=adapter_digest,
             inventory_items={},
@@ -559,7 +609,7 @@ class RepositoryScanner:
             disposition="BLOCKED",
         )
 
-    def _resolve_identity(self, requested: Path) -> tuple[Path, str, str]:
+    def _resolve_identity(self, requested: Path) -> tuple[Path, str, str, str]:
         root_result = self._run(("git", "rev-parse", "--show-toplevel"), requested, essential=True)
         assert root_result is not None
         try:
@@ -570,10 +620,11 @@ class RepositoryScanner:
             raise RepositorySecurityError(
                 "resolved Git repository root is outside the requested path"
             )
-        commit_result = self._run(
+        identity_result = self._run(
             (
                 "git",
                 "rev-parse",
+                "--show-object-format",
                 "--verify",
                 "--end-of-options",
                 f"{self._requested_commit}^{{commit}}",
@@ -581,12 +632,18 @@ class RepositoryScanner:
             root,
             essential=True,
         )
-        assert commit_result is not None
+        assert identity_result is not None
         try:
-            commit_sha = _text(commit_result.stdout).strip()
+            object_format, commit_sha = _text(identity_result.stdout).splitlines()
         except UnicodeDecodeError as exc:
-            raise RepositoryIntelligenceError("Git commit identity is malformed") from exc
-        if not _SHA.fullmatch(commit_sha):
+            raise RepositoryIntelligenceError("Git repository identity is malformed") from exc
+        except ValueError as exc:
+            raise RepositoryIntelligenceError("Git repository identity is malformed") from exc
+        if object_format not in _OBJECT_FORMAT_LENGTH:
+            raise RepositoryIntelligenceError(
+                f"Git object format {object_format!r} is explicitly unsupported"
+            )
+        if not _valid_object_id(commit_sha, object_format):
             raise RepositoryIntelligenceError("Git commit identity is malformed")
         tree_result = self._run(
             (
@@ -599,21 +656,23 @@ class RepositoryScanner:
             root,
         )
         if tree_result is None:
-            return root, commit_sha, "0" * 40
+            return root, commit_sha, "0" * _OBJECT_FORMAT_LENGTH[object_format], object_format
         try:
             tree_sha = _text(tree_result.stdout).strip()
         except UnicodeDecodeError as exc:
             raise RepositoryIntelligenceError("Git tree identity is malformed") from exc
-        if not _SHA.fullmatch(tree_sha):
+        if not _valid_object_id(tree_sha, object_format):
             raise RepositoryIntelligenceError("Git tree identity is malformed")
-        return root, commit_sha, tree_sha
+        return root, commit_sha, tree_sha, object_format
 
     def _list_files(
-        self, root: Path, tree_sha: str
+        self, root: Path, tree_sha: str, object_format: str
     ) -> tuple[list[TrackedFile], list[Finding], str, str]:
         findings: list[Finding] = []
-        tracked_tree_digest = canonical_digest({"git_object_format": "sha1", "tree_sha": tree_sha})
-        if tree_sha == "0" * 40:
+        tracked_tree_digest = canonical_digest(
+            {"git_object_format": object_format, "tree_sha": tree_sha}
+        )
+        if tree_sha == "0" * _OBJECT_FORMAT_LENGTH[object_format]:
             findings.append(
                 _finding(
                     "BUDGET.COMMAND_COUNT",
@@ -669,7 +728,9 @@ class RepositoryScanner:
                 size = int(raw_size) if raw_size != "-" else 0
             except (ValueError, UnicodeDecodeError) as exc:
                 raise RepositoryIntelligenceError("tracked-tree output is malformed") from exc
-            if object_type not in {"blob", "commit"} or not _SHA.fullmatch(object_id):
+            if object_type not in {"blob", "commit"} or not _valid_object_id(
+                object_id, object_format
+            ):
                 raise RepositoryIntelligenceError("tracked-tree output is malformed")
             if object_type == "commit" and mode != "160000":
                 raise RepositoryIntelligenceError("tracked-tree output is malformed")
@@ -722,7 +783,7 @@ class RepositoryScanner:
         total = 0
         total_exhausted = False
         for mode, object_type, object_id, path, size in entries:
-            if self.cancellation is not None and self.cancellation.cancelled():
+            if self._is_cancelled():
                 findings.append(
                     _finding(
                         "SCAN.CANCELLED",
@@ -836,7 +897,7 @@ class RepositoryScanner:
         supported: set[str] = set()
         context = AdapterContext(files=files)
         for adapter in self.adapters:
-            if self.cancellation is not None and self.cancellation.cancelled():
+            if self._is_cancelled():
                 findings.append(
                     _finding(
                         "SCAN.CANCELLED",
@@ -864,6 +925,9 @@ class RepositoryScanner:
                     )
                 )
                 continue
+            if self._is_cancelled():
+                findings.append(self._cancelled_finding(f"adapter:{adapter.adapter_id}"))
+                break
             for category, item in result.items:
                 if category in inventory:
                     inventory[category].append(item)
@@ -1128,6 +1192,7 @@ class RepositoryScanner:
         *,
         commit_sha: str,
         tree_sha: str,
+        git_object_format: str,
         config_digest: str,
         adapter_digest: str,
         inventory_items: dict[str, list[EvidenceItem]],
@@ -1139,6 +1204,14 @@ class RepositoryScanner:
         tracked_tree_digest: str | None = None,
         scanned_content_digest: str | None = None,
     ) -> RepositorySnapshot:
+        findings = list(findings)
+        statuses = dict(statuses)
+        reasons = dict(reasons)
+        if self._is_cancelled() and not any(item.code == "SCAN.CANCELLED" for item in findings):
+            findings.append(self._cancelled_finding("repository:finalization"))
+            statuses.update(dict.fromkeys(AUDIT_CATEGORIES, "BLOCKED"))
+            reasons.update(dict.fromkeys(AUDIT_CATEGORIES, "scan cancelled"))
+            disposition = "BLOCKED"
         implementation_digest = _implementation_digest()
         inventory = {
             name: InventoryCategory(
@@ -1157,6 +1230,7 @@ class RepositoryScanner:
             repository=self.config.repository,
             commit_sha=commit_sha,
             tree_sha=tree_sha,
+            git_object_format=git_object_format,
             default_branch=self.config.default_branch,
             default_branch_source="SCAN_CONFIGURATION_NOT_OBSERVED",
             scanner_version=SCANNER_VERSION,
@@ -1208,6 +1282,22 @@ class RepositoryScanner:
             raise RepositorySecurityError(
                 "evidence redaction failed; artifact was not created"
             ) from exc
+        if self._is_cancelled() and not any(item.code == "SCAN.CANCELLED" for item in findings):
+            return self._finalize(
+                commit_sha=commit_sha,
+                tree_sha=tree_sha,
+                git_object_format=git_object_format,
+                config_digest=config_digest,
+                adapter_digest=adapter_digest,
+                inventory_items=inventory_items,
+                findings=[*findings, self._cancelled_finding("repository:finalization")],
+                boundaries=boundaries,
+                statuses=dict.fromkeys(AUDIT_CATEGORIES, "BLOCKED"),
+                reasons=dict.fromkeys(AUDIT_CATEGORIES, "scan cancelled"),
+                disposition="BLOCKED",
+                tracked_tree_digest=tracked_tree_digest,
+                scanned_content_digest=scanned_content_digest,
+            )
         sanitized["snapshot_digest"] = canonical_digest(
             {key: value for key, value in sanitized.items() if key != "snapshot_digest"}
         )
@@ -1219,7 +1309,7 @@ class RepositoryScanner:
         self._command_provenance = []
         self._requested_commit = commit
         requested = Path(repository_root).resolve()
-        root, commit_sha, tree_sha = self._resolve_identity(requested)
+        root, commit_sha, tree_sha, object_format = self._resolve_identity(requested)
         # Root/ref resolution establishes the immutable identity but is excluded from
         # commit-stable provenance because equivalent refs (HEAD versus the exact SHA)
         # must yield byte-equivalent snapshots. Remaining commands are SHA-bound.
@@ -1227,11 +1317,13 @@ class RepositoryScanner:
         self._tool_versions = self._collect_tool_versions(root)
         adapter_digest = canonical_digest([asdict(_metadata(item)) for item in self.adapters])
         config_digest = canonical_digest(asdict(self.config))
-        if self.cancellation is not None and self.cancellation.cancelled():
+        if self._is_cancelled():
             return self._cancelled_snapshot(
-                root, commit_sha, tree_sha, config_digest, adapter_digest
+                root, commit_sha, tree_sha, object_format, config_digest, adapter_digest
             )
-        files, budget_findings, tree_digest, scanned_digest = self._list_files(root, tree_sha)
+        files, budget_findings, tree_digest, scanned_digest = self._list_files(
+            root, tree_sha, object_format
+        )
         inventory, adapter_findings, boundaries, supported = self._apply_adapters(tuple(files))
         findings = budget_findings + adapter_findings
         if self.config.include_paths:
@@ -1301,6 +1393,7 @@ class RepositoryScanner:
         return self._finalize(
             commit_sha=commit_sha,
             tree_sha=tree_sha,
+            git_object_format=object_format,
             config_digest=config_digest,
             adapter_digest=adapter_digest,
             tracked_tree_digest=tree_digest,
