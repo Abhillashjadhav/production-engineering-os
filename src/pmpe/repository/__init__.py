@@ -12,6 +12,7 @@ from pmpe.repository.models import AUDIT_CATEGORIES, CommandResult, ScanConfig
 from pmpe.repository.scanner import (
     CancellationSignal,
     RepositoryIntelligenceError,
+    RepositoryScanCancelledError,
     RepositoryScanner,
     RepositorySecurityError,
     resolve_repository_root,
@@ -28,6 +29,7 @@ __all__ = [
     "RecordedUtcClock",
     "RepositoryAdapter",
     "RepositoryIntelligenceError",
+    "RepositoryScanCancelledError",
     "RepositoryScanner",
     "RepositorySecurityError",
     "ScanConfig",

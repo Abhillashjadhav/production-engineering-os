@@ -39,8 +39,10 @@ def test_repository_scan_cli_writes_artifacts_outside_scanned_repo(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     repo = _repo(tmp_path)
-    out = tmp_path / "evidence" / "snapshot.json"
-    observation = tmp_path / "evidence" / "governance.json"
+    output_parent = tmp_path / "evidence"
+    output_parent.mkdir()
+    out = output_parent / "snapshot.json"
+    observation = output_parent / "governance.json"
     before = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
     code = main(
         [
@@ -72,6 +74,26 @@ def test_repository_scan_cli_writes_artifacts_outside_scanned_repo(
     output = json.loads(capsys.readouterr().out)
     assert output["snapshot_digest"].startswith("sha256:")
     assert output["governance_observation_id"] == "OBS-CLI-001"
+
+
+def test_repository_scan_cli_refuses_to_create_unpinned_output_parents(tmp_path: Path) -> None:
+    repo = _repo(tmp_path)
+    missing_parent = tmp_path / "untrusted-parent"
+    code = main(
+        [
+            "repository",
+            "scan",
+            "--repo",
+            str(repo),
+            "--repository",
+            "example/cli-fixture",
+            "--snapshot-out",
+            str(missing_parent / "snapshot.json"),
+        ]
+    )
+    assert code != 0
+    assert not missing_parent.exists()
+    assert _git(repo, "status", "--porcelain=v1", "--untracked-files=all") == ""
 
 
 def test_repository_scan_cli_refuses_to_write_inside_scanned_repository(

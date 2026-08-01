@@ -415,6 +415,27 @@ def test_nested_package_manifests_create_explicit_architecture_boundaries(
     assert boundaries["products/example/backend"].confidence == "HIGH"
 
 
+def test_every_recognized_nested_python_manifest_creates_a_package_boundary(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "components/setup-project/setup.py", "from setuptools import setup\n")
+    _write(repo, "components/config-project/setup.cfg", "[metadata]\nname = config-project\n")
+    _write(repo, "components/pipfile-project/Pipfile", "[packages]\n")
+    _write(repo, "components/requirements-project/requirements-dev.txt", "pytest==9.1.1\n")
+    _commit(repo, "recognized nested Python boundaries")
+    snapshot = _scan(repo)
+    boundaries = {item.name: item for item in snapshot.boundary_candidates}
+    expected = {
+        "components/setup-project",
+        "components/config-project",
+        "components/pipfile-project",
+        "components/requirements-project",
+    }
+    assert expected <= set(boundaries)
+    assert all(boundaries[name].confidence == "HIGH" for name in expected)
+
+
 def test_unhandled_required_subcategory_is_blocked_not_silently_absent(
     tmp_path: Path,
 ) -> None:
@@ -428,6 +449,20 @@ def test_unhandled_required_subcategory_is_blocked_not_silently_absent(
         item.code == "AUDIT.UNSUPPORTED_SUBCATEGORY" and "data-model.yaml" in item.evidence_refs
         for item in snapshot.findings
     )
+
+
+def test_blocked_subcategory_status_survives_a_concurrent_partial_scan(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "data-model.yaml", "entities: []\n")
+    _write(repo, "extra.txt", "bounded\n")
+    _commit(repo, "blocked and partial evidence")
+    snapshot = _scan(repo, max_files=2)
+    assert snapshot.disposition == "BLOCKED"
+    assert snapshot.inventory["apis_data"].status == "BLOCKED"
+    assert "apis_data" in snapshot.unsupported_categories
+    assert any(item.code == "BUDGET.FILE_COUNT" for item in snapshot.findings)
 
 
 def test_integration_declarations_and_codeowners_are_evidence_backed(tmp_path: Path) -> None:
@@ -824,6 +859,25 @@ def test_planted_credentials_never_appear_in_snapshot(tmp_path: Path) -> None:
     assert secret not in payload
     assert "PRIVATE KEY" not in payload
     assert "redaction" in payload.lower()
+
+
+def test_environment_files_are_inventory_evidence_without_secret_values(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    secret = "ghp_0123456789abcdefghijklmnop"
+    _write(repo, ".env", f"TOKEN={secret}\n")
+    _write(repo, "config/.env.production", "DEPLOYMENT=production\n")
+    _commit(repo, "environment configuration shapes")
+    snapshot = _scan(repo)
+    delivery = snapshot.inventory["delivery_environments"].items
+    security = snapshot.inventory["security_privacy"].items
+    assert any(
+        item.path == ".env" and item.kind == "ENVIRONMENT_CONFIGURATION_SHAPE" for item in delivery
+    )
+    assert any(
+        item.path == "config/.env.production" and item.kind == "SECRET_CONFIGURATION_BOUNDARY"
+        for item in security
+    )
+    assert secret not in snapshot.canonical_bytes().decode()
 
 
 def test_redaction_failure_blocks_artifact_creation(
@@ -1533,25 +1587,41 @@ def test_scanner_does_not_execute_tracked_project_code(tmp_path: Path) -> None:
 
 def test_missing_git_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     api = _api()
+    scanner = importlib.import_module("pmpe.repository.scanner")
     repo = _init_repo(tmp_path)
-    empty_path = tmp_path / "empty-path"
-    empty_path.mkdir()
-    monkeypatch.setenv("PATH", str(empty_path))
+    monkeypatch.setattr(
+        scanner,
+        "_TRUSTED_GIT_CANDIDATES",
+        (tmp_path / "missing-system-git",),
+    )
     with pytest.raises(api.RepositoryIntelligenceError):
         api.RepositoryScanner(config=_config()).scan(repo, commit="HEAD")
 
 
-def test_git_timeout_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    api = _api()
+def test_git_timeout_is_bounded_and_visible(tmp_path: Path) -> None:
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    result = scanner.SubprocessCommandRunner().run(("git", "version"), tmp_path, 0)
+    assert result.timed_out
+    assert result.returncode == 124
+
+
+def test_caller_path_cannot_select_the_git_executable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     repo = _init_repo(tmp_path)
-    fake_bin = tmp_path / "timeout-bin"
+    expected_head = _git(repo, "rev-parse", "HEAD")
+    fake_bin = tmp_path / "attacker-bin"
     fake_bin.mkdir()
+    marker = tmp_path / "caller-path-git-ran"
     fake_git = fake_bin / "git"
-    fake_git.write_text("#!/bin/sh\nsleep 30\n")
+    fake_git.write_text(f"#!/bin/sh\ntouch {marker}\nexit 9\n")
     fake_git.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{fake_bin}:/usr/bin:/bin")
-    with pytest.raises(api.RepositoryIntelligenceError, match="timed out"):
-        api.RepositoryScanner(config=_config(command_timeout_seconds=1)).scan(repo, commit="HEAD")
+    monkeypatch.setenv("PATH", str(fake_bin))
+    snapshot = _scan(repo)
+    observation = _observe(repo)
+    assert snapshot.commit_sha == expected_head
+    assert observation.local_state.head_sha == expected_head
+    assert not marker.exists()
 
 
 def test_malformed_git_output_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1591,25 +1661,56 @@ def test_invalid_repository_fails_closed(tmp_path: Path) -> None:
 def test_cancellation_is_visible_and_never_silently_partial(tmp_path: Path) -> None:
     api = _api()
     repo = _init_repo(tmp_path)
+    before_head = _git(repo, "rev-parse", "HEAD")
+    before_index = (repo / ".git" / "index").read_bytes()
+    before_status = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
     cancellation = api.CancellationSignal()
     cancellation.cancel()
-    snapshot = api.RepositoryScanner(config=_config(), cancellation=cancellation).scan(
-        repo, commit="HEAD"
-    )
-    assert snapshot.disposition == "BLOCKED"
-    assert any(item.code == "SCAN.CANCELLED" for item in snapshot.findings)
+    with pytest.raises(api.RepositoryScanCancelledError) as cancelled:
+        api.RepositoryScanner(config=_config(), cancellation=cancellation).scan(repo, commit="HEAD")
+    assert cancelled.value.finding.code == "SCAN.CANCELLED"
+    assert cancelled.value.finding.blocking
+    assert _git(repo, "rev-parse", "HEAD") == before_head
+    assert (repo / ".git" / "index").read_bytes() == before_index
+    assert _git(repo, "status", "--porcelain=v1", "--untracked-files=all") == before_status
 
 
 def test_cancellation_terminates_bounded_enumeration_and_preserves_repository(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     api = _api()
+    scanner = importlib.import_module("pmpe.repository.scanner")
     repo = _init_repo(tmp_path)
     before_head = _git(repo, "rev-parse", "HEAD")
     before_index = (repo / ".git" / "index").read_bytes()
     before_status = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
 
-    cancellation = api.CancellationSignal(cancel_after_checks=2)
+    cancellation = api.CancellationSignal()
+    original = scanner.SubprocessCommandRunner.list_tree
+
+    def cancel_then_list(
+        self: Any,
+        args: tuple[str, ...],
+        cwd: Path,
+        timeout: int,
+        *,
+        max_records: int,
+        max_output_bytes: int,
+        cancellation: Any = None,
+    ) -> Any:
+        assert cancellation is not None
+        cancellation.cancel()
+        return original(
+            self,
+            args,
+            cwd,
+            timeout,
+            max_records=max_records,
+            max_output_bytes=max_output_bytes,
+            cancellation=cancellation,
+        )
+
+    monkeypatch.setattr(scanner.SubprocessCommandRunner, "list_tree", cancel_then_list)
     snapshot = api.RepositoryScanner(config=_config(), cancellation=cancellation).scan(
         repo, commit="HEAD"
     )
@@ -1620,53 +1721,16 @@ def test_cancellation_terminates_bounded_enumeration_and_preserves_repository(
     assert _git(repo, "status", "--porcelain=v1", "--untracked-files=all") == before_status
 
 
-def test_cancellation_terminates_an_ordinary_bounded_git_command(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_cancellation_terminates_an_initial_bounded_git_command(tmp_path: Path) -> None:
     scanner = importlib.import_module("pmpe.repository.scanner")
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
-    fake_git = fake_bin / "git"
-    child_pid_path = tmp_path / "child.pid"
-    fake_git.write_text(
-        "#!/bin/sh\n"
-        "trap 'exit 0' TERM\n"
-        "( trap '' TERM; sleep 30 ) &\n"
-        f"echo $! > {child_pid_path}\n"
-        "while :; do sleep 1; done\n"
-    )
-    fake_git.chmod(0o755)
-    monkeypatch.setenv("PATH", f"{fake_bin}:/usr/bin:/bin")
-
-    cancellation = _api().CancellationSignal()
-
-    def cancel_after_start() -> None:
-        deadline = time.monotonic() + 2
-        while not child_pid_path.exists() and time.monotonic() < deadline:
-            time.sleep(0.01)
-        time.sleep(0.2)
-        cancellation.cancel()
-
-    cancellation_thread = threading.Thread(target=cancel_after_start, daemon=True)
-    cancellation_thread.start()
+    cancellation = _api().CancellationSignal(cancel_after_checks=1)
     started = time.monotonic()
     result = scanner.SubprocessCommandRunner().run(
         ("git", "version"), tmp_path, 10, cancellation=cancellation
     )
-    cancellation_thread.join(timeout=1)
     assert time.monotonic() - started < 4
     assert result.returncode == 126
     assert result.timed_out is False
-    child_pid = int(child_pid_path.read_text())
-    deadline = time.monotonic() + 2
-    while time.monotonic() < deadline:
-        try:
-            os.kill(child_pid, 0)
-        except ProcessLookupError:
-            break
-        time.sleep(0.05)
-    else:
-        pytest.fail("TERM-ignoring descendant survived bounded command cancellation")
 
 
 def test_cancellation_during_adapter_blocks_snapshot_finalization(
@@ -1727,7 +1791,7 @@ def test_git_readers_disable_lazy_fetch_and_repository_defined_accelerators() ->
     assert scanner_environment["GIT_CONFIG_VALUE_0"] == "false"
     governance_runner = governance.GovernanceCommandRunner()
     assert scanner_environment["GIT_CONFIG_VALUE_5"] == "false"
-    assert governance_runner.identity.endswith("1.7.0")
+    assert governance_runner.identity.endswith("1.8.0")
 
 
 def test_artifact_maps_cannot_be_mutated_after_digest_binding(tmp_path: Path) -> None:

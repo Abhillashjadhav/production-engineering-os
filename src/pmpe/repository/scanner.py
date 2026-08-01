@@ -13,6 +13,7 @@ import posixpath
 import re
 import selectors
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -48,7 +49,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/2.0.0"
+SCANNER_VERSION = "repository-scanner/2.1.0"
 IMPLEMENTATION_MODULES = (
     "repository.adapters",
     "repository.models",
@@ -65,6 +66,27 @@ class RepositoryIntelligenceError(RuntimeError):
 
 class RepositorySecurityError(RepositoryIntelligenceError):
     """A containment or evidence-safety guarantee could not be established."""
+
+
+class RepositoryScanCancelledError(RepositoryIntelligenceError):
+    """A scan stopped before an exact-SHA snapshot could be safely emitted."""
+
+    def __init__(self, evidence_ref: str) -> None:
+        self.finding = Finding(
+            code="SCAN.CANCELLED",
+            category="repository_topology",
+            severity="HIGH",
+            confidence="HIGH",
+            explanation=(
+                "The scan was cancelled before immutable repository identity could be "
+                "established; no RepositorySnapshot was emitted."
+            ),
+            evidence_refs=(evidence_ref,),
+            detector_id="repository-scanner",
+            detector_version="1.1.0",
+            blocking=True,
+        )
+        super().__init__(f"{self.finding.code}: {self.finding.explanation}")
 
 
 class CommandRunner(Protocol):
@@ -104,12 +126,37 @@ class CancellationSignal:
 
 
 _PROCESS_GROUP_GUARD = "import signal\nwhile True:\n signal.pause()"
+_TRUSTED_GIT_CANDIDATES = (Path("/usr/bin/git"), Path("/bin/git"))
+
+
+def _trusted_git_executable() -> str:
+    """Resolve Git only from root-owned, non-writable operating-system paths."""
+
+    for candidate in _TRUSTED_GIT_CANDIDATES:
+        try:
+            resolved = candidate.resolve(strict=True)
+            metadata = resolved.stat()
+        except OSError:
+            continue
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != 0
+            or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+        ):
+            continue
+        return str(resolved)
+    raise FileNotFoundError("a trusted operating-system Git executable is unavailable")
 
 
 def _spawn_guarded_git(
     args: tuple[str, ...], cwd: Path, environment: dict[str, str]
 ) -> tuple[subprocess.Popen[bytes], subprocess.Popen[bytes]]:
     """Launch Git behind an inert group leader whose PID cannot be reused early."""
+
+    if not args or args[0] != "git":
+        raise RepositorySecurityError("guarded Git execution requires the logical Git command")
+    executable = _trusted_git_executable()
+    sealed_args = (executable, *args[1:])
 
     guard_environment = {"PATH": environment.get("PATH", "/usr/bin:/bin"), "LC_ALL": "C"}
     guard = subprocess.Popen(
@@ -123,7 +170,7 @@ def _spawn_guarded_git(
     )
     try:
         process = subprocess.Popen(
-            args,
+            sealed_args,
             cwd=cwd,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -154,7 +201,7 @@ def _stop_guarded_process_group(
         raise RepositorySecurityError("bounded Git descendant termination could not be proven")
 
 
-class _ScanCancelledError(RepositoryIntelligenceError):
+class _ScanCancelledError(RepositoryScanCancelledError):
     """An in-flight bounded scan operation was cancelled."""
 
 
@@ -182,14 +229,14 @@ class TreeListingResult:
 class SubprocessCommandRunner:
     """Allowlisted local Git reader; it never invokes shells or project code."""
 
-    identity = "git-readonly-subprocess/1.7.0"
+    identity = "git-readonly-subprocess/1.8.0"
     __slots__ = ()
     _allowed = {"rev-parse", "ls-tree", "cat-file", "version"}
 
     @staticmethod
     def _environment() -> dict[str, str]:
         return {
-            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "PATH": "/usr/bin:/bin",
             "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_CONFIG_SYSTEM": os.devnull,
             "GIT_TERMINAL_PROMPT": "0",
@@ -769,7 +816,7 @@ class RepositoryScanner:
                     args,
                     root,
                     self.config.command_timeout_seconds,
-                    cancellation=self.cancellation if self._identity_resolved else None,
+                    cancellation=self.cancellation,
                 )
             else:
                 result = self.runner.run(args, root, self.config.command_timeout_seconds)
@@ -785,8 +832,10 @@ class RepositoryScanner:
         )
         if result.timed_out:
             raise RepositoryIntelligenceError("read-only Git command timed out")
-        if result.returncode == 126 and self._identity_resolved:
-            raise _ScanCancelledError("read-only Git command was cancelled")
+        if result.returncode == 126:
+            raise _ScanCancelledError(
+                "repository:identity" if not self._identity_resolved else "repository:scan"
+            )
         if result.returncode != 0:
             if essential:
                 raise RepositoryIntelligenceError("path is not an accessible Git repository")
@@ -1974,7 +2023,10 @@ class RepositoryScanner:
         partial = any(item.code in partial_codes for item in findings)
         if partial:
             for name in AUDIT_CATEGORIES:
-                if name != "active_divergent_work" and statuses[name] != "UNSUPPORTED":
+                if name != "active_divergent_work" and statuses[name] not in {
+                    "UNSUPPORTED",
+                    "BLOCKED",
+                }:
                     statuses[name] = "PARTIAL"
                     reasons[name] = "A bounded scan or adapter failure made this category partial."
         disposition = "BLOCKED" if blocking else "PARTIAL" if partial else "COMPLETE"

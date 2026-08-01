@@ -47,7 +47,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.0.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.1.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -292,7 +292,7 @@ def _remote_provider_worker(
 class GovernanceCommandRunner:
     """Allowlisted local Git observation commands with mutation subcommands refused."""
 
-    identity = "git-governance-readonly/1.7.0"
+    identity = "git-governance-readonly/1.8.0"
     __slots__ = ("max_output_bytes",)
     _allowed = {
         "config",
@@ -331,7 +331,7 @@ class GovernanceCommandRunner:
         if args[1] == "worktree" and (len(args) < 3 or args[2] != "list"):
             raise RepositorySecurityError("mutating Git worktree command was refused")
         safe_environment = {
-            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "PATH": "/usr/bin:/bin",
             "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_CONFIG_SYSTEM": os.devnull,
             "GIT_TERMINAL_PROMPT": "0",

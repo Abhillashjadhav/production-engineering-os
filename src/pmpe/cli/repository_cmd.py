@@ -96,15 +96,30 @@ class _PreparedOutput:
 def _prepare_output(path: Path, protected_paths: tuple[Path, ...]) -> _PreparedOutput:
     """Open and pin a validated output directory before an untrusted scan runs."""
 
-    validated = _outside_repository(path, protected_paths)
-    validated.parent.mkdir(parents=True, exist_ok=True)
-    validated = _outside_repository(validated, protected_paths)
+    requested = path.expanduser()
+    validated = _outside_repository(requested, protected_paths)
     flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+    descriptor: int | None = None
     try:
         descriptor = os.open(validated.parent, flags)
         identity = os.fstat(descriptor)
+        revalidated = _outside_repository(requested, protected_paths)
+        current = os.stat(revalidated.parent, follow_symlinks=False)
     except OSError as exc:
+        if descriptor is not None:
+            os.close(descriptor)
         raise RepositorySecurityError("artifact output directory could not be pinned") from exc
+    except RepositorySecurityError:
+        if descriptor is not None:
+            os.close(descriptor)
+        raise
+    assert descriptor is not None
+    if revalidated != validated or (current.st_dev, current.st_ino) != (
+        identity.st_dev,
+        identity.st_ino,
+    ):
+        os.close(descriptor)
+        raise RepositorySecurityError("artifact output containment changed during preparation")
     reservation = f".pmpe-intelligence-reservation.{secrets.token_hex(16)}"
     reservation_descriptor: int | None = None
     try:

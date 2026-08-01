@@ -14,7 +14,26 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.7.0"
+DETECTOR_VERSION = "1.8.0"
+
+_PACKAGE_BOUNDARY_MANIFEST_NAMES = frozenset(
+    {
+        "package.json",
+        "pyproject.toml",
+        "Cargo.toml",
+        "go.mod",
+        "Pipfile",
+        "setup.cfg",
+        "setup.py",
+    }
+)
+
+
+def _is_package_boundary_manifest(path: str) -> bool:
+    name = PurePosixPath(path).name
+    return name in _PACKAGE_BOUNDARY_MANIFEST_NAMES or (
+        name.startswith("requirements") and name.endswith(".txt")
+    )
 
 
 @dataclass(frozen=True)
@@ -163,7 +182,7 @@ def _test_signal_kind(path: str) -> str | None:
 
 @repository_adapter(
     adapter_id="core.repository-topology",
-    version="1.3.0",
+    version="1.4.0",
     file_patterns=("**/*", "*"),
     supported_categories=(
         "repository_topology",
@@ -196,7 +215,7 @@ def _topology(context: AdapterContext) -> AdapterResult:
             kind = "IGNORE_POLICY"
         elif name == ".gitmodules":
             kind = "SUBMODULE_CONFIG"
-        elif name in {"package.json", "pyproject.toml", "Cargo.toml", "go.mod"}:
+        elif _is_package_boundary_manifest(file.path):
             kind = "PACKAGE_BOUNDARY_MANIFEST"
         else:
             kind = "TRACKED_FILE"
@@ -342,6 +361,19 @@ def _topology(context: AdapterContext) -> AdapterResult:
                     ),
                 )
             )
+        if name == ".env" or name.startswith(".env."):
+            items.append(
+                (
+                    "delivery_environments",
+                    _item(file, "ENVIRONMENT_CONFIGURATION_SHAPE", "core.repository-topology"),
+                )
+            )
+            items.append(
+                (
+                    "security_privacy",
+                    _item(file, "SECRET_CONFIGURATION_BOUNDARY", "core.repository-topology"),
+                )
+            )
 
     roots: dict[tuple[str, str], set[str]] = {}
     for file in context.files:
@@ -368,8 +400,7 @@ def _topology(context: AdapterContext) -> AdapterResult:
             roots.setdefault((kind, root), set()).add(file.path)
     boundary_roots = {root for _kind, root in roots}
     for file in context.files:
-        name = PurePosixPath(file.path).name
-        if name not in {"package.json", "pyproject.toml", "Cargo.toml", "go.mod"}:
+        if not _is_package_boundary_manifest(file.path):
             continue
         parent = PurePosixPath(file.path).parent
         root = "." if str(parent) == "." else str(parent)
@@ -384,11 +415,7 @@ def _topology(context: AdapterContext) -> AdapterResult:
         confidence = (
             "HIGH"
             if evidence_paths
-            and all(
-                PurePosixPath(path).name
-                in {"package.json", "pyproject.toml", "Cargo.toml", "go.mod"}
-                for path in evidence_paths
-            )
+            and all(_is_package_boundary_manifest(path) for path in evidence_paths)
             else "MEDIUM"
         )
         boundaries.append(
