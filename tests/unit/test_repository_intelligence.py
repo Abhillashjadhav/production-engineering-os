@@ -367,6 +367,44 @@ def test_api_data_generated_client_migration_and_contract_sync_are_inventory_ite
     )
 
 
+def test_database_privacy_and_observability_subcategories_are_explicit(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "schema.sql", "create table item(id integer);\n")
+    _write(repo, "privacy.yaml", "retention_days: 30\n")
+    _write(repo, "prometheus.yml", "scrape_configs: []\n")
+    _commit(repo, "required audit subcategories")
+    snapshot = _scan(repo)
+    assert any(
+        item.path == "schema.sql" and item.kind == "DATABASE_SCHEMA_SIGNAL"
+        for item in snapshot.inventory["apis_data"].items
+    )
+    assert any(
+        item.path == "privacy.yaml" and item.kind == "PRIVACY_CONTROL_SIGNAL"
+        for item in snapshot.inventory["security_privacy"].items
+    )
+    assert any(
+        item.path == "prometheus.yml" and item.kind == "OBSERVABILITY_CONFIG_SIGNAL"
+        for item in snapshot.inventory["observability_operations"].items
+    )
+
+
+def test_unhandled_required_subcategory_is_blocked_not_silently_absent(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "data-model.yaml", "entities: []\n")
+    _commit(repo, "unhandled data declaration")
+    snapshot = _scan(repo)
+    assert snapshot.disposition == "BLOCKED"
+    assert snapshot.inventory["apis_data"].status == "BLOCKED"
+    assert any(
+        item.code == "AUDIT.UNSUPPORTED_SUBCATEGORY" and "data-model.yaml" in item.evidence_refs
+        for item in snapshot.findings
+    )
+
+
 def test_integration_declarations_and_codeowners_are_evidence_backed(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path)
     _write(
@@ -996,13 +1034,43 @@ class _ExtraFieldRemote(_FakeRemote):
         return payload
 
 
+class _ExtraNestedFieldRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["query_provenance"][0]["truncated"] = True
+        return payload
+
+
+def _sealed_remote(remote: Any) -> Any:
+    api = _api()
+    bounds = {
+        "timeout_seconds": 30,
+        "max_output_bytes": 8_000_000,
+        "max_items": 20_000,
+        "cancellation": None,
+    }
+    delay_seconds = 30.0 if isinstance(remote, _HangingRemote) else 0.0
+    permission_denied = isinstance(remote, _DeniedRemote)
+    payload = (
+        _FakeRemote().collect("example/fixture", "main", **bounds)
+        if delay_seconds or permission_denied
+        else remote.collect("example/fixture", "main", **bounds)
+    )
+    return api.RecordedRemoteProvider(
+        payload,
+        api_version=remote.api_version,
+        delay_seconds=delay_seconds,
+        permission_denied=permission_denied,
+    )
+
+
 def _observe(repo: Path, remote: Any = None) -> Any:
     api = _api()
     return api.GovernanceCollector(
         repository="example/fixture",
         clock=_FixedClock(),
         id_provider=_FixedIds(),
-        remote_provider=remote,
+        remote_provider=_sealed_remote(remote) if remote is not None else None,
     ).observe(repo, ref="main")
 
 
@@ -1058,7 +1126,7 @@ def test_branch_divergence_and_additional_worktrees_are_mutable_observations(
 def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path: Path) -> None:
     observation = _observe(_init_repo(tmp_path), _FakeRemote())
     payload = observation.canonical_bytes().decode()
-    assert observation.tool_identity == "fake-github-readonly/1.0"
+    assert observation.tool_identity == "recorded-remote-payload/1.0.0"
     assert observation.api_query_version == "github-rest/2026-03-10"
     assert observation.query_provenance[0].surface == "remote_branches"
     assert observation.query_provenance[0].cursor == "branches-page-1"
@@ -1081,6 +1149,37 @@ def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path:
     assert "pass-json-secret" not in payload
     assert "[REDACTED_URL]" in payload
     assert "[REDACTED]" in payload
+
+
+def test_arbitrary_remote_provider_is_rejected_before_it_can_mutate_repository(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    repo = _init_repo(tmp_path)
+    marker = repo / "remote-provider-mutation.txt"
+
+    class MutatingRemote:
+        tool_identity = "untrusted"
+        api_version = "untrusted"
+
+        def collect(self, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
+            marker.write_text("mutated")
+            return {}
+
+    with pytest.raises(api.RepositorySecurityError, match="sealed data-only provider"):
+        api.GovernanceCollector(
+            repository="example/fixture",
+            clock=_FixedClock(),
+            id_provider=_FixedIds(),
+            remote_provider=MutatingRemote(),
+        )
+    assert not marker.exists()
+
+
+def test_recorded_remote_provider_cannot_be_replaced_with_instance_code() -> None:
+    provider = _sealed_remote(_FakeRemote())
+    with pytest.raises(AttributeError):
+        provider.collect = lambda *_args, **_kwargs: {}  # type: ignore[method-assign]
 
 
 def test_unproven_remote_pagination_is_blocked_not_complete(tmp_path: Path) -> None:
@@ -1123,7 +1222,7 @@ def test_remote_provider_timeout_is_bounded_and_visible(tmp_path: Path) -> None:
         repository="example/fixture",
         clock=_FixedClock(),
         id_provider=_FixedIds(),
-        remote_provider=_HangingRemote(),
+        remote_provider=_sealed_remote(_HangingRemote()),
         command_timeout_seconds=1,
     ).observe(repo, ref="main")
     assert time.monotonic() - started < 4
@@ -1137,7 +1236,7 @@ def test_remote_numeric_payload_cannot_bypass_parent_byte_bound(tmp_path: Path) 
         repository="example/fixture",
         clock=_FixedClock(),
         id_provider=_FixedIds(),
-        remote_provider=_HugeNumericRemote(),
+        remote_provider=_sealed_remote(_HugeNumericRemote()),
         max_output_bytes=2_048,
     ).observe(_init_repo(tmp_path), ref="main")
     assert observation.disposition == "BLOCKED"
@@ -1152,6 +1251,7 @@ def test_remote_numeric_payload_cannot_bypass_parent_byte_bound(tmp_path: Path) 
         _DuplicateRemote(),
         _CoerciblePrimitiveRemote(),
         _ExtraFieldRemote(),
+        _ExtraNestedFieldRemote(),
     ],
 )
 def test_remote_identity_mismatch_or_duplicate_inventory_fails_closed(
@@ -1176,7 +1276,7 @@ def test_remote_provider_cancellation_terminates_the_isolated_process() -> None:
         repository="example/fixture",
         clock=_FixedClock(),
         id_provider=_FixedIds(),
-        remote_provider=_HangingRemote(),
+        remote_provider=_sealed_remote(_HangingRemote()),
         command_timeout_seconds=10,
         cancellation=CancelSoon(),
     )
@@ -1214,7 +1314,7 @@ def test_observation_input_digest_binds_freshness_and_collector_budgets(tmp_path
             repository="example/fixture",
             clock=_FixedClock(),
             id_provider=_FixedIds(),
-            remote_provider=_AgeSensitiveRemote(),
+            remote_provider=_sealed_remote(_AgeSensitiveRemote()),
             max_remote_age_seconds=max_age,
         ).observe(repo, ref="main")
 
@@ -1554,6 +1654,32 @@ def test_artifact_maps_cannot_be_mutated_after_digest_binding(tmp_path: Path) ->
         observation.governance["branch_protection"] = "changed"  # type: ignore[index]
     assert snapshot.snapshot_digest in snapshot.canonical_bytes().decode()
     assert observation.observation_output_digest in observation.canonical_bytes().decode()
+
+
+def test_digest_bearing_artifacts_are_self_verified_before_reuse(tmp_path: Path) -> None:
+    api = _api()
+    repo = _init_repo(tmp_path)
+    snapshot = _scan(repo)
+    tampered_snapshot = replace(snapshot, scanner_version="tampered")
+    assert tampered_snapshot.digest_is_valid() is False
+    with pytest.raises(api.RepositorySecurityError, match="snapshot digest"):
+        api.GovernanceCollector(
+            repository="example/fixture",
+            snapshot=tampered_snapshot,
+            clock=_FixedClock(),
+            id_provider=_FixedIds(),
+        )
+
+    observation = api.GovernanceCollector(
+        repository="example/fixture",
+        snapshot=snapshot,
+        clock=_FixedClock(),
+        id_provider=_FixedIds(),
+    ).observe(repo, ref="main")
+    tampered_observation = replace(observation, disposition="COMPLETE")
+    assert tampered_observation.digest_is_valid() is False
+    with pytest.raises(ValueError, match="observation digest"):
+        snapshot.assessment_reference(tampered_observation)
 
 
 def test_snapshot_and_observation_references_form_a_narrow_lifecycle_seam(

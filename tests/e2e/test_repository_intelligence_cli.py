@@ -235,3 +235,47 @@ def test_repository_scan_cli_refuses_output_directory_symlink_swap(
     assert not (repo / "snapshot.json").exists()
     assert not (moved_parent / "snapshot.json").exists()
     assert _git(repo, "status", "--porcelain=v1", "--untracked-files=all") == ""
+
+
+def test_repository_scan_cli_refuses_output_directory_adopted_as_worktree(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repo = _repo(tmp_path)
+    output_parent = tmp_path / "evidence"
+    output_parent.mkdir()
+    output = output_parent / "snapshot.json"
+
+    def scan_then_adopt(
+        repository_root: Path | str,
+        *,
+        commit: str = "HEAD",
+        config: ScanConfig,
+    ) -> RepositorySnapshot:
+        snapshot = scan_repository(repository_root, commit=commit, config=config)
+        reservations = tuple(output_parent.glob(".pmpe-intelligence-reservation.*"))
+        assert reservations
+        for reservation in reservations:
+            reservation.unlink()
+        subprocess.run(
+            ["git", "worktree", "add", "-q", "-b", "adopt-output", str(output_parent)],
+            cwd=repo,
+            check=True,
+        )
+        return snapshot
+
+    monkeypatch.setattr(repository_cmd, "scan_repository", scan_then_adopt)
+    code = main(
+        [
+            "repository",
+            "scan",
+            "--repo",
+            str(repo),
+            "--repository",
+            "example/cli-fixture",
+            "--snapshot-out",
+            str(output),
+        ]
+    )
+    assert code != 0
+    assert not output.exists()

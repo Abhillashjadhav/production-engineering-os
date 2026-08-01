@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import secrets
+import stat
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -95,8 +96,14 @@ class _PreparedOutput:
     path: Path
     parent_descriptor: int
     parent_identity: tuple[int, int]
+    reservation: str
 
     def close(self) -> None:
+        try:
+            os.unlink(self.reservation, dir_fd=self.parent_descriptor)
+            os.fsync(self.parent_descriptor)
+        except FileNotFoundError:
+            pass
         os.close(self.parent_descriptor)
 
 
@@ -112,34 +119,68 @@ def _prepare_output(path: Path, protected_paths: tuple[Path, ...]) -> _PreparedO
         identity = os.fstat(descriptor)
     except OSError as exc:
         raise RepositorySecurityError("artifact output directory could not be pinned") from exc
+    reservation = f".pmpe-intelligence-reservation.{secrets.token_hex(16)}"
+    reservation_descriptor: int | None = None
+    try:
+        reservation_descriptor = os.open(
+            reservation,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+            dir_fd=descriptor,
+        )
+    except OSError as exc:
+        os.close(descriptor)
+        raise RepositorySecurityError("artifact output reservation could not be created") from exc
+    finally:
+        if reservation_descriptor is not None:
+            os.close(reservation_descriptor)
     return _PreparedOutput(
         path=validated,
         parent_descriptor=descriptor,
         parent_identity=(identity.st_dev, identity.st_ino),
+        reservation=reservation,
     )
 
 
-def _revalidate_output(output: _PreparedOutput, protected_paths: tuple[Path, ...]) -> None:
+def _revalidate_output(
+    output: _PreparedOutput,
+    protected_paths: tuple[Path, ...],
+    repository: Path,
+) -> None:
     """Reject path replacement while continuing to rely on the pinned descriptor."""
 
     try:
-        current = _outside_repository(output.path, protected_paths)
+        current_protected = tuple(
+            sorted(
+                {*protected_paths, *_protected_repository_paths(repository)},
+                key=lambda item: str(item),
+            )
+        )
+        current = _outside_repository(output.path, current_protected)
         parent = os.stat(current.parent, follow_symlinks=False)
         pinned = os.fstat(output.parent_descriptor)
+        reservation = os.stat(
+            output.reservation,
+            dir_fd=output.parent_descriptor,
+            follow_symlinks=False,
+        )
     except (OSError, RepositorySecurityError) as exc:
         raise RepositorySecurityError("artifact output containment changed during scan") from exc
     if current != output.path or (parent.st_dev, parent.st_ino) != output.parent_identity:
         raise RepositorySecurityError("artifact output containment changed during scan")
     if (pinned.st_dev, pinned.st_ino) != output.parent_identity:
         raise RepositorySecurityError("artifact output descriptor identity changed during scan")
+    if not stat.S_ISREG(reservation.st_mode) or reservation.st_nlink != 1:
+        raise RepositorySecurityError("artifact output reservation changed during scan")
 
 
 def _atomic_write(
     output: _PreparedOutput,
     payload: bytes,
     protected_paths: tuple[Path, ...],
+    repository: Path,
 ) -> None:
-    _revalidate_output(output, protected_paths)
+    _revalidate_output(output, protected_paths, repository)
     temporary = f".{output.path.name}.{secrets.token_hex(16)}"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
     descriptor: int | None = None
@@ -151,7 +192,7 @@ def _atomic_write(
             stream.write(b"\n")
             stream.flush()
             os.fsync(stream.fileno())
-        _revalidate_output(output, protected_paths)
+        _revalidate_output(output, protected_paths, repository)
         os.replace(
             temporary,
             output.path.name,
@@ -212,9 +253,14 @@ def _cmd_scan(args: argparse.Namespace) -> int:
                 clock=clock,
                 id_provider=ids,
             )
-        _atomic_write(snapshot_output, snapshot.canonical_bytes(), protected_paths)
+        _atomic_write(snapshot_output, snapshot.canonical_bytes(), protected_paths, root)
         if governance_output is not None and observation is not None:
-            _atomic_write(governance_output, observation.canonical_bytes(), protected_paths)
+            _atomic_write(
+                governance_output,
+                observation.canonical_bytes(),
+                protected_paths,
+                root,
+            )
     except RepositoryIntelligenceError as exc:
         print(f"repository intelligence blocked: {exc}", file=sys.stderr)
         return 1

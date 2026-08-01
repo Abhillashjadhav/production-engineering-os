@@ -14,7 +14,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.5.0"
+DETECTOR_VERSION = "1.6.0"
 
 
 @dataclass(frozen=True)
@@ -163,7 +163,7 @@ def _test_signal_kind(path: str) -> str | None:
 
 @repository_adapter(
     adapter_id="core.repository-topology",
-    version="1.1.0",
+    version="1.2.0",
     file_patterns=("**/*", "*"),
     supported_categories=(
         "repository_topology",
@@ -276,7 +276,19 @@ def _topology(context: AdapterContext) -> AdapterResult:
                     _item(file, "PR_TEMPLATE", "core.repository-topology"),
                 )
             )
-        if any(token in lowered for token in ("/alerts", "/slo", "/metrics", "/traces")):
+        if any(
+            token in lowered
+            for token in (
+                "/alerts",
+                "/slo",
+                "/metrics",
+                "/traces",
+                "prometheus",
+                "grafana",
+                "opentelemetry",
+                "otel",
+            )
+        ):
             items.append(
                 (
                     "observability_operations",
@@ -298,6 +310,21 @@ def _topology(context: AdapterContext) -> AdapterResult:
                     _item(
                         file,
                         "SECURITY_CONTROL_SIGNAL",
+                        "core.repository-topology",
+                        confidence="MEDIUM",
+                    ),
+                )
+            )
+        if any(
+            token in lowered
+            for token in ("privacy", "data-retention", "data_retention", "gdpr", "pii")
+        ):
+            items.append(
+                (
+                    "security_privacy",
+                    _item(
+                        file,
+                        "PRIVACY_CONTROL_SIGNAL",
                         "core.repository-topology",
                         confidence="MEDIUM",
                     ),
@@ -932,7 +959,7 @@ def _valid_ci_structure(path: str, value: object) -> bool:
 
 @repository_adapter(
     adapter_id="interface.schema-api",
-    version="1.2.0",
+    version="1.3.0",
     file_patterns=(
         "*openapi*",
         "**/*openapi*",
@@ -944,6 +971,8 @@ def _valid_ci_structure(path: str, value: object) -> bool:
         "**/*.graphql",
         "*.gql",
         "**/*.gql",
+        "*.sql",
+        "**/*.sql",
         "*.gen.*",
         "**/*.gen.*",
         "schemas/**",
@@ -971,6 +1000,9 @@ def _interfaces(context: AdapterContext) -> AdapterResult:
             confidence = "MEDIUM"
         elif "/migrations/" in f"/{lowered}":
             kind = "MIGRATION_SIGNAL"
+            confidence = "MEDIUM"
+        elif lowered.endswith(".sql"):
+            kind = "DATABASE_SCHEMA_SIGNAL"
             confidence = "MEDIUM"
         elif "generate" in PurePosixPath(lowered).name:
             kind = "CODE_GENERATOR_SIGNAL"

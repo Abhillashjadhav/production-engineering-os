@@ -17,7 +17,7 @@ from contextlib import suppress
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol, cast
+from typing import Any, Protocol, cast, final
 
 from pmpe.contracts.canonical import canonical_digest
 from pmpe.repository.models import (
@@ -46,7 +46,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/1.8.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/1.9.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -114,6 +114,64 @@ class RemoteProvider(Protocol):
         max_items: int,
         cancellation: Cancellation | None,
     ) -> dict[str, Any]: ...
+
+
+@final
+class RecordedRemoteProvider:
+    """Sealed, data-only remote input that cannot execute caller-supplied collection code."""
+
+    __slots__ = ("_delay_seconds", "_payload", "_permission_denied", "api_version")
+
+    tool_identity = "recorded-remote-payload/1.0.0"
+
+    def __init__(
+        self,
+        payload: dict[str, Any],
+        *,
+        api_version: str,
+        delay_seconds: float = 0.0,
+        permission_denied: bool = False,
+    ) -> None:
+        if not api_version.strip():
+            raise ValueError("recorded remote API version is required")
+        if not math.isfinite(delay_seconds) or not 0 <= delay_seconds <= 300:
+            raise ValueError("recorded remote delay must be bounded")
+        try:
+            self._payload = json.dumps(
+                payload,
+                allow_nan=False,
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise ValueError("recorded remote payload is not canonical JSON") from exc
+        self.api_version = api_version
+        self._delay_seconds = delay_seconds
+        self._permission_denied = permission_denied
+
+    def collect(
+        self,
+        repository: str,
+        ref: str,
+        *,
+        timeout_seconds: int,
+        max_output_bytes: int,
+        max_items: int,
+        cancellation: Cancellation | None,
+    ) -> dict[str, Any]:
+        del repository, ref, timeout_seconds, max_output_bytes, max_items
+        deadline = time.monotonic() + self._delay_seconds
+        while time.monotonic() < deadline:
+            if _cancellation_requested(cancellation):
+                raise RepositoryIntelligenceError("recorded remote replay was cancelled")
+            time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
+        if self._permission_denied:
+            raise PermissionError("recorded remote input reports permission denial")
+        decoded = json.loads(self._payload)
+        if not isinstance(decoded, dict):
+            raise RepositoryIntelligenceError("recorded remote payload is malformed")
+        return cast(dict[str, Any], decoded)
 
 
 class SystemUtcClock:
@@ -534,9 +592,16 @@ def _validate_remote_payload_types(value: dict[str, Any]) -> None:
         collection = value.get(key)
         if not isinstance(collection, list):
             raise ValueError(f"remote {key} inventory is malformed")
+        allowed_fields = {field for field, _predicate in required}
+        if key == "query_provenance":
+            allowed_fields.add("cursor")
         for item in collection:
-            if not isinstance(item, dict) or any(
-                field not in item or not predicate(item[field]) for field, predicate in required
+            if (
+                not isinstance(item, dict)
+                or set(item) != allowed_fields
+                or any(
+                    field not in item or not predicate(item[field]) for field, predicate in required
+                )
             ):
                 raise ValueError(f"remote {key} record is malformed")
             if key == "query_provenance" and not (
@@ -638,9 +703,16 @@ class GovernanceCollector:
         cancellation: Cancellation | None = None,
     ) -> None:
         self.repository = repository
-        if snapshot is not None and snapshot.repository != repository:
-            raise RepositoryIntelligenceError(
-                "governance repository label does not match the bound snapshot"
+        if snapshot is not None:
+            if snapshot.repository != repository:
+                raise RepositoryIntelligenceError(
+                    "governance repository label does not match the bound snapshot"
+                )
+            if not snapshot.digest_is_valid():
+                raise RepositorySecurityError("bound repository snapshot digest is invalid")
+        if remote_provider is not None and type(remote_provider) is not RecordedRemoteProvider:
+            raise RepositorySecurityError(
+                "remote observations require the sealed data-only provider"
             )
         self.snapshot = snapshot
         self.clock = clock

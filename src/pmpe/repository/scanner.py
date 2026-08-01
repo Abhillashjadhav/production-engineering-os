@@ -47,7 +47,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/1.8.0"
+SCANNER_VERSION = "repository-scanner/1.9.0"
 IMPLEMENTATION_MODULES = (
     "repository.adapters",
     "repository.models",
@@ -1372,6 +1372,58 @@ class RepositoryScanner:
                 severity="MEDIUM",
             )
         ]
+        evidenced_paths = {
+            category: {item.path for item in category_items}
+            for category, category_items in inventory.items()
+        }
+        unsupported_relevant: dict[str, list[str]] = {
+            "apis_data": [],
+            "security_privacy": [],
+            "observability_operations": [],
+        }
+        for file in files:
+            lowered = file.path.lower()
+            name = PurePosixPath(lowered).name
+            suffix = PurePosixPath(lowered).suffix
+            if file.binary:
+                continue
+            if (
+                suffix == ".sql"
+                or (
+                    suffix in {".json", ".yaml", ".yml"}
+                    and any(token in name for token in ("schema", "data-model", "data_model"))
+                )
+            ) and file.path not in evidenced_paths["apis_data"]:
+                unsupported_relevant["apis_data"].append(file.path)
+            if (
+                any(
+                    token in lowered
+                    for token in ("privacy", "data-retention", "data_retention", "gdpr", "pii")
+                )
+                and file.path not in evidenced_paths["security_privacy"]
+            ):
+                unsupported_relevant["security_privacy"].append(file.path)
+            if (
+                any(
+                    token in lowered
+                    for token in ("prometheus", "grafana", "opentelemetry", "otel", "telemetry")
+                )
+                and file.path not in evidenced_paths["observability_operations"]
+            ):
+                unsupported_relevant["observability_operations"].append(file.path)
+        for category, paths in unsupported_relevant.items():
+            if paths:
+                findings.append(
+                    _finding(
+                        "AUDIT.UNSUPPORTED_SUBCATEGORY",
+                        category,
+                        "Tracked content appears relevant to a required audit subcategory but "
+                        "no versioned adapter emitted evidence; the category is blocked rather "
+                        "than reported as not observed.",
+                        tuple(sorted(set(paths))),
+                        blocking=True,
+                    )
+                )
         expected_test_kinds = {
             "unit": "UNIT_TEST_FILE_SIGNAL",
             "integration": "INTEGRATION_TEST_FILE_SIGNAL",
@@ -1829,6 +1881,12 @@ class RepositoryScanner:
             reasons["languages_build_ecosystems"] = (
                 "The tracked ecosystem has no deterministic adapter."
             )
+        for finding in findings:
+            if finding.code == "AUDIT.UNSUPPORTED_SUBCATEGORY":
+                statuses[finding.category] = "BLOCKED"
+                reasons[finding.category] = (
+                    "Relevant tracked content has no deterministic subcategory adapter."
+                )
         unsupported_required = any(
             status in {"UNSUPPORTED", "BLOCKED"} and name != "active_divergent_work"
             for name, status in statuses.items()

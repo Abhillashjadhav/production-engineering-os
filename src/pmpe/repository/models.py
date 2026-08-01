@@ -7,7 +7,7 @@ from dataclasses import dataclass, field, fields, is_dataclass
 from types import MappingProxyType
 from typing import Any, cast
 
-from pmpe.contracts.canonical import canonical_json_bytes
+from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 
 AUDIT_CATEGORIES = (
     "repository_topology",
@@ -177,9 +177,18 @@ class RepositorySnapshot:
     def canonical_bytes(self) -> bytes:
         return canonical_json_bytes(self.as_dict())
 
+    def digest_is_valid(self) -> bool:
+        payload = self.as_dict()
+        claimed = str(payload.pop("snapshot_digest", ""))
+        return bool(claimed) and claimed == canonical_digest(payload)
+
     def assessment_reference(self, observation: GovernanceObservation) -> dict[str, str]:
         """Return the narrow evidence seam consumed by later lifecycle work."""
 
+        if not self.digest_is_valid():
+            raise ValueError("repository snapshot digest is invalid")
+        if not observation.digest_is_valid():
+            raise ValueError("governance observation digest is invalid")
         if observation.repository != self.repository:
             raise ValueError("snapshot and governance observation repositories do not match")
         if (
@@ -297,3 +306,8 @@ class GovernanceObservation:
 
     def canonical_bytes(self) -> bytes:
         return canonical_json_bytes(self.as_dict())
+
+    def digest_is_valid(self) -> bool:
+        payload = self.as_dict()
+        claimed = str(payload.pop("observation_output_digest", ""))
+        return bool(claimed) and claimed == canonical_digest(payload)
