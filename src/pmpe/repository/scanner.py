@@ -49,7 +49,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/2.2.0"
+SCANNER_VERSION = "repository-scanner/2.3.0"
 IMPLEMENTATION_MODULES = (
     "repository.adapters",
     "repository.models",
@@ -760,14 +760,16 @@ class RepositoryScanner:
             raise RepositoryIntelligenceError("repository adapter declaration is invalid")
         if command_runner is not None and type(command_runner) is not SubprocessCommandRunner:
             raise RepositorySecurityError("repository scans require the sealed Git reader")
-        if redactor is not None and type(redactor) is not EvidenceRedactor:
-            raise RepositorySecurityError("repository scans require the sealed redactor")
+        if redactor is not None:
+            raise RepositorySecurityError(
+                "exact repository scans use only the sealed fixed state-free redaction policy"
+            )
         if cancellation is not None and type(cancellation) is not CancellationSignal:
             raise RepositorySecurityError("repository scans require the sealed cancellation signal")
         self.runner = command_runner or SubprocessCommandRunner()
         # Exact-SHA snapshots never capture host environment values; excluding them
         # from the default redaction context preserves cross-host determinism.
-        self.redactor = redactor or EvidenceRedactor(environment={})
+        self.redactor = EvidenceRedactor(environment={})
         self.cancellation = cancellation
         extension_targets: list[tuple[str, Any]] = [
             ("command_runner", self.runner),
@@ -1486,6 +1488,20 @@ class RepositoryScanner:
                 severity="MEDIUM",
             )
         ]
+        gitlinks = tuple(sorted(file.path for file in files if file.mode == "160000"))
+        if gitlinks:
+            findings.append(
+                _finding(
+                    "REPOSITORY.SUBMODULE_SCOPE_UNSCANNED",
+                    "repository_topology",
+                    "Tracked gitlinks identify nested repositories whose content is outside "
+                    "this exact-tree scan; nested architecture, dependency, security, test, "
+                    "and delivery evidence remains unsupported.",
+                    gitlinks,
+                    severity="HIGH",
+                    blocking=True,
+                )
+            )
         evidenced_paths = {
             category: {item.path for item in category_items}
             for category, category_items in inventory.items()

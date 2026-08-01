@@ -368,6 +368,89 @@ def test_api_data_generated_client_migration_and_contract_sync_are_inventory_ite
     )
 
 
+def test_api_codegen_declarations_bind_tracked_inputs_outputs_and_exporter(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(
+        repo,
+        "products/web/package.json",
+        json.dumps(
+            {
+                "name": "web",
+                "scripts": {
+                    "generate:api-types": (
+                        "openapi-typescript ../backend/openapi.json -o src/lib/api-types.gen.ts"
+                    )
+                },
+            }
+        ),
+    )
+    _write(
+        repo,
+        "products/backend/openapi.json",
+        '{"openapi":"3.1.0","info":{"title":"Fixture","version":"1"},"paths":{}}',
+    )
+    _write(repo, "products/web/src/lib/api-types.gen.ts", "export interface paths {}\n")
+    _write(
+        repo,
+        "products/backend/scripts/export_openapi.py",
+        'target = root / "openapi.json"\ntarget.write_text("{}")\n',
+    )
+    _commit(repo, "code generation relationship")
+
+    snapshot = _scan(repo)
+    evidence = snapshot.inventory["apis_data"].items
+    relationship = [
+        item
+        for item in evidence
+        if item.location == "products/web/package.json#scripts.generate:api-types"
+    ]
+    assert {item.kind for item in relationship} == {
+        "CODE_GENERATION_DECLARATION",
+        "CODE_GENERATION_INPUT",
+        "CODE_GENERATION_OUTPUT",
+    }
+    assert {item.path for item in relationship} == {
+        "products/web/package.json",
+        "products/backend/openapi.json",
+        "products/web/src/lib/api-types.gen.ts",
+    }
+    export_relationship = [
+        item
+        for item in evidence
+        if item.location == "products/backend/scripts/export_openapi.py#export"
+    ]
+    assert {item.kind for item in export_relationship} == {
+        "CODE_GENERATOR_SIGNAL",
+        "CODE_GENERATION_OUTPUT",
+    }
+
+
+def test_incomplete_api_codegen_relationship_fails_closed(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(
+        repo,
+        "products/web/package.json",
+        json.dumps(
+            {
+                "name": "web",
+                "scripts": {
+                    "generate:api-types": (
+                        "openapi-typescript ../backend/missing.json -o src/lib/api-types.gen.ts"
+                    )
+                },
+            }
+        ),
+    )
+    _commit(repo, "incomplete code generation relationship")
+    snapshot = _scan(repo)
+    assert snapshot.disposition == "BLOCKED"
+    assert any(
+        item.code == "INTERFACE.CODEGEN_RELATIONSHIP_INCOMPLETE" for item in snapshot.findings
+    )
+
+
 def test_database_privacy_and_observability_subcategories_are_explicit(
     tmp_path: Path,
 ) -> None:
@@ -963,6 +1046,8 @@ def test_submodule_gitlink_is_inventory_only_and_never_executed(tmp_path: Path) 
     _git(repo, "commit", "-q", "-m", "gitlink")
     snapshot = _scan(repo)
     assert any(item.kind == "SUBMODULE" for item in snapshot.inventory["repository_topology"].items)
+    assert snapshot.disposition == "BLOCKED"
+    assert any(item.code == "REPOSITORY.SUBMODULE_SCOPE_UNSCANNED" for item in snapshot.findings)
 
 
 def test_symlink_escape_is_refused_without_following_target(tmp_path: Path) -> None:
@@ -1094,20 +1179,6 @@ class _FakeRemote:
                 "schema_version": "pmpe.repository-governance/v1",
                 "branch_protection": {"observed": True, "required_checks": ["ci"]},
                 "review_policy": {"required_approvals": 1},
-                "database_note": (
-                    "DATABASE_URL=postgres://database-user:database-password@db.invalid/app"
-                    "?sslmode=require&token=query-secret"
-                ),
-                "azure_note": "AccountName=demo;AccountKey=azure-secret-value==;Endpoint=x",
-                "odbc_note": "Driver=x;UID=demo;PWD={odbc secret value};Server=db",
-                "cookie_note": "Cookie: session=cookie-secret; theme=dark",
-                "aws_note": "aws_secret_access_key=aws-secret-value",
-                "safe_url": "https://user:password@example.invalid/repo?token=secret-value",
-                "signed_url": "https://storage.example.invalid/blob?sv=1&sig=signed-secret",
-                "authorization": "Basic dXNlcjpwYXNzd29yZA==",
-                "x-api-key": "unstructured-bare-secret",
-                "note": "Authorization: Basic dXNlcjpwYXNzd29yZA==",
-                "comment": "glpat-0123456789abcdefghijkl",
             },
             "query_provenance": [
                 {
@@ -1149,6 +1220,44 @@ class _FakeRemote:
                 {"fact": "secret_scanning", "status": "BLOCKED", "reason": "permission denied"}
             ],
         }
+
+
+class _SecretBearingRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["governance"].update(
+            {
+                "database_note": (
+                    "DATABASE_URL=postgres://database-user:database-password@db.invalid/app"
+                    "?sslmode=require&token=query-secret"
+                ),
+                "azure_note": "AccountName=demo;AccountKey=azure-secret-value==;Endpoint=x",
+                "odbc_note": "Driver=x;UID=demo;PWD={odbc secret value};Server=db",
+                "cookie_note": "Cookie: session=cookie-secret; theme=dark",
+                "aws_note": "aws_secret_access_key=aws-secret-value",
+                "safe_url": "https://user:password@example.invalid/repo?token=secret-value",
+                "signed_url": "https://storage.example.invalid/blob?sv=1&sig=signed-secret",
+                "authorization": "Basic dXNlcjpwYXNzd29yZA==",
+                "x-api-key": "unstructured-bare-secret",
+                "note": "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+                "comment": "glpat-0123456789abcdefghijkl",
+            }
+        )
+        return payload
+
+
+class _InvalidIssueStateRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["issues"][0]["state"] = "BANANA"
+        return payload
+
+
+class _ExtraCoverageRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["coverage"].append("deployments")
+        return payload
 
 
 class _DeniedRemote:
@@ -1645,8 +1754,10 @@ def test_malformed_worktree_path_or_branch_ref_fails_closed(
 
 
 def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path: Path) -> None:
-    observation = _observe(_init_repo(tmp_path), _FakeRemote())
+    observation = _observe(_init_repo(tmp_path), _SecretBearingRemote())
     payload = observation.canonical_bytes().decode()
+    assert observation.disposition == "BLOCKED"
+    assert any(item.fact == "remote_governance_completeness" for item in observation.unknowns)
     assert observation.tool_identity == "recorded-remote-payload/1.1.0"
     assert observation.api_query_version == "github-rest/2026-03-10"
     assert observation.query_provenance[0].surface == "remote_branches"
@@ -1672,6 +1783,19 @@ def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path:
     assert "[REDACTED]" in payload
 
 
+@pytest.mark.parametrize("remote", [_InvalidIssueStateRemote(), _ExtraCoverageRemote()])
+def test_untyped_or_overbroad_remote_metadata_cannot_be_complete(
+    tmp_path: Path,
+    remote: Any,
+) -> None:
+    observation = _observe(_init_repo(tmp_path), remote)
+    assert observation.disposition == "BLOCKED"
+    assert any(
+        item.fact in {"remote_metadata_shape", "remote_metadata_completeness"}
+        for item in observation.unknowns
+    )
+
+
 def test_arbitrary_remote_provider_is_rejected_before_it_can_mutate_repository(
     tmp_path: Path,
 ) -> None:
@@ -1695,6 +1819,21 @@ def test_arbitrary_remote_provider_is_rejected_before_it_can_mutate_repository(
             remote_provider=MutatingRemote(),
         )
     assert not marker.exists()
+
+
+def test_exact_collectors_reject_stateful_redactor_injection(tmp_path: Path) -> None:
+    api = _api()
+    redaction = importlib.import_module("pmpe.repository.redaction")
+    redactor = redaction.EvidenceRedactor(environment={"PRIVATE_VALUE": "host-secret"})
+    with pytest.raises(api.RepositorySecurityError, match="state-free"):
+        api.RepositoryScanner(config=_config(), redactor=redactor)
+    with pytest.raises(api.RepositorySecurityError, match="state-free"):
+        api.GovernanceCollector(
+            repository="example/fixture",
+            clock=_fixed_clock(),
+            id_provider=_fixed_ids(),
+            redactor=redactor,
+        )
 
 
 def test_recorded_remote_provider_cannot_be_replaced_with_instance_code() -> None:

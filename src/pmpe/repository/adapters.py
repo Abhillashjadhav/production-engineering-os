@@ -5,7 +5,9 @@ from __future__ import annotations
 import configparser
 import fnmatch
 import json
+import posixpath
 import re
+import shlex
 import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -15,7 +17,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.12.0"
+DETECTOR_VERSION = "1.13.0"
 
 _PACKAGE_BOUNDARY_MANIFEST_NAMES = frozenset(
     {
@@ -209,6 +211,56 @@ def _entry_point_signal_kind(path: str) -> str | None:
     if name in {"__main__.py", "app.py", "cli.py", "main.py", "manage.py", "server.py"}:
         return "ENTRY_POINT_FILE_SIGNAL"
     return None
+
+
+def _manifest_relative_path(manifest_path: str, declared_path: str) -> str | None:
+    """Resolve a simple manifest-relative path without allowing root escape."""
+
+    if (
+        not declared_path
+        or "\0" in declared_path
+        or "\\" in declared_path
+        or PurePosixPath(declared_path).is_absolute()
+    ):
+        return None
+    parent = str(PurePosixPath(manifest_path).parent)
+    resolved = posixpath.normpath(posixpath.join(parent, declared_path))
+    if resolved in {"", ".", ".."} or resolved.startswith("../"):
+        return None
+    return resolved
+
+
+def _openapi_typescript_relationship(command: str) -> tuple[str, str] | None:
+    """Parse the supported data-only openapi-typescript invocation shape."""
+
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return None
+    if tokens[:1] == ["npx"]:
+        tokens = tokens[1:]
+    if not tokens or tokens[0] != "openapi-typescript":
+        return None
+    if any(token in {"&&", "||", ";", "|", ">", ">>"} for token in tokens):
+        return None
+    output: str | None = None
+    positional: list[str] = []
+    index = 1
+    while index < len(tokens):
+        token = tokens[index]
+        if token in {"-o", "--output"}:
+            if output is not None or index + 1 >= len(tokens):
+                return None
+            output = tokens[index + 1]
+            index += 2
+            continue
+        if token.startswith("-"):
+            return None
+        positional.append(token)
+        index += 1
+    if len(positional) != 1 or output is None:
+        return None
+    return positional[0], output
 
 
 @repository_adapter(
@@ -1231,8 +1283,10 @@ def _valid_ci_structure(path: str, value: object) -> bool:
 
 @repository_adapter(
     adapter_id="interface.schema-api",
-    version="1.3.0",
+    version="1.4.0",
     file_patterns=(
+        "package.json",
+        "**/package.json",
         "*openapi*",
         "**/*openapi*",
         "*asyncapi*",
@@ -1254,15 +1308,138 @@ def _valid_ci_structure(path: str, value: object) -> bool:
         "generate*",
         "**/generate*",
         "scripts/**",
+        "**/scripts/**",
     ),
     supported_categories=("apis_data", "languages_build_ecosystems"),
 )
 def _interfaces(context: AdapterContext) -> AdapterResult:
     items: list[tuple[str, EvidenceItem]] = []
     findings: list[Finding] = []
+    files_by_path = {file.path: file for file in context.files}
     for file in context.files:
         lowered = file.path.lower()
         confidence = "HIGH"
+        location = "file"
+        if PurePosixPath(lowered).name == "package.json":
+            if file.content is None or file.binary:
+                continue
+            try:
+                manifest = json.loads(file.content)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            scripts = manifest.get("scripts") if isinstance(manifest, dict) else None
+            if not isinstance(scripts, dict):
+                continue
+            for script_name, command in sorted(scripts.items()):
+                if not isinstance(script_name, str) or not isinstance(command, str):
+                    continue
+                codegen_relevant = "openapi-typescript" in command or (
+                    "api" in script_name.lower() and "generat" in script_name.lower()
+                )
+                if not codegen_relevant:
+                    continue
+                relationship = _openapi_typescript_relationship(command)
+                if relationship is None:
+                    findings.append(
+                        _finding(
+                            "INTERFACE.CODEGEN_RELATIONSHIP_UNSUPPORTED",
+                            "apis_data",
+                            "A tracked API-client generation declaration cannot be represented "
+                            "by the supported deterministic command grammar.",
+                            (file.path,),
+                            "interface.schema-api",
+                            severity="HIGH",
+                            blocking=True,
+                        )
+                    )
+                    continue
+                raw_input, raw_output = relationship
+                input_path = _manifest_relative_path(file.path, raw_input)
+                output_path = _manifest_relative_path(file.path, raw_output)
+                if (
+                    input_path is None
+                    or output_path is None
+                    or input_path not in files_by_path
+                    or output_path not in files_by_path
+                ):
+                    findings.append(
+                        _finding(
+                            "INTERFACE.CODEGEN_RELATIONSHIP_INCOMPLETE",
+                            "apis_data",
+                            "A tracked API-client generation declaration does not bind one "
+                            "existing tracked input to one existing tracked output.",
+                            (file.path,),
+                            "interface.schema-api",
+                            severity="HIGH",
+                            blocking=True,
+                        )
+                    )
+                    continue
+                relationship_location = f"{file.path}#scripts.{script_name}"
+                for related, kind in (
+                    (file, "CODE_GENERATION_DECLARATION"),
+                    (files_by_path[input_path], "CODE_GENERATION_INPUT"),
+                    (files_by_path[output_path], "CODE_GENERATION_OUTPUT"),
+                ):
+                    items.append(
+                        (
+                            "apis_data",
+                            _item(
+                                related,
+                                kind,
+                                "interface.schema-api",
+                                location=relationship_location,
+                            ),
+                        )
+                    )
+            continue
+        if lowered.endswith("/scripts/export_openapi.py"):
+            target_path = str(PurePosixPath(file.path).parent.parent / "openapi.json")
+            target = files_by_path.get(target_path)
+            content = (
+                file.content.decode("utf-8", errors="strict")
+                if file.content is not None and not file.binary
+                else ""
+            )
+            if target is None or "openapi.json" not in content or "write_text" not in content:
+                findings.append(
+                    _finding(
+                        "INTERFACE.CODEGEN_RELATIONSHIP_INCOMPLETE",
+                        "apis_data",
+                        "The tracked OpenAPI export entry point does not bind to its expected "
+                        "tracked OpenAPI output using a supported deterministic signal.",
+                        tuple(sorted({file.path, target_path})),
+                        "interface.schema-api",
+                        severity="HIGH",
+                        blocking=True,
+                    )
+                )
+                continue
+            location = f"{file.path}#export"
+            items.extend(
+                (
+                    (
+                        "apis_data",
+                        _item(
+                            file,
+                            "CODE_GENERATOR_SIGNAL",
+                            "interface.schema-api",
+                            confidence="MEDIUM",
+                            location=location,
+                        ),
+                    ),
+                    (
+                        "apis_data",
+                        _item(
+                            target,
+                            "CODE_GENERATION_OUTPUT",
+                            "interface.schema-api",
+                            location=location,
+                        ),
+                    ),
+                )
+            )
+            continue
         if "openapi" in lowered:
             kind = "OPENAPI"
         elif "asyncapi" in lowered:
@@ -1366,7 +1543,13 @@ def _interfaces(context: AdapterContext) -> AdapterResult:
         items.append(
             (
                 "apis_data",
-                _item(file, kind, "interface.schema-api", confidence=confidence),
+                _item(
+                    file,
+                    kind,
+                    "interface.schema-api",
+                    confidence=confidence,
+                    location=location,
+                ),
             )
         )
     return AdapterResult(items=tuple(items), findings=tuple(findings))

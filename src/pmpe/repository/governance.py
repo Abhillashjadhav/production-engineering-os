@@ -47,7 +47,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.6.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.7.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -56,8 +56,8 @@ GOVERNANCE_IMPLEMENTATION_MODULES = (
     "contracts.canonical",
 )
 _REQUIRED_REMOTE_COVERAGE = frozenset({"remote_branches", "pull_requests", "issues", "governance"})
-_REQUIRED_GOVERNANCE_FACTS = frozenset({"branch_protection", "review_policy"})
 _GOVERNANCE_SCHEMA_VERSION = "pmpe.repository-governance/v1"
+_GOVERNANCE_FIELDS = frozenset({"schema_version", "branch_protection", "review_policy"})
 _OBJECT_FORMAT_LENGTH = {"sha1": 40, "sha256": 64}
 _REMOTE_PAYLOAD_FIELDS = frozenset(
     {
@@ -653,20 +653,23 @@ def _stop_remote_process(process: Any) -> None:
 
 
 def _governance_content_is_complete(value: dict[str, Any]) -> bool:
-    if value.get(
-        "schema_version"
-    ) != _GOVERNANCE_SCHEMA_VERSION or not _REQUIRED_GOVERNANCE_FACTS.issubset(value):
+    if (
+        value.get("schema_version") != _GOVERNANCE_SCHEMA_VERSION
+        or set(value) != _GOVERNANCE_FIELDS
+    ):
         return False
     branch_protection = value["branch_protection"]
     review_policy = value["review_policy"]
     if (
         not isinstance(branch_protection, dict)
+        or set(branch_protection) != {"observed", "required_checks"}
         or not isinstance(branch_protection.get("observed"), bool)
         or not isinstance(branch_protection.get("required_checks"), list)
         or not all(_is_str(item) for item in branch_protection["required_checks"])
         or len(set(branch_protection["required_checks"]))
         != len(branch_protection["required_checks"])
         or not isinstance(review_policy, dict)
+        or set(review_policy) != {"required_approvals"}
         or not _is_int(review_policy.get("required_approvals"))
         or review_policy["required_approvals"] < 0
     ):
@@ -753,7 +756,10 @@ def _validate_remote_payload_types(value: dict[str, Any]) -> None:
                 ("mergeability", _is_str),
             ),
         ),
-        ("issues", (("number", _is_int), ("state", _is_str))),
+        (
+            "issues",
+            (("number", _is_int), ("state", lambda item: item in {"OPEN", "CLOSED"})),
+        ),
         (
             "query_provenance",
             (
@@ -904,8 +910,10 @@ class GovernanceCollector:
             )
         if command_runner is not None and type(command_runner) is not GovernanceCommandRunner:
             raise RepositorySecurityError("governance observations require the sealed Git reader")
-        if redactor is not None and type(redactor) is not EvidenceRedactor:
-            raise RepositorySecurityError("governance observations require the sealed redactor")
+        if redactor is not None:
+            raise RepositorySecurityError(
+                "governance observations use only the sealed fixed state-free redaction policy"
+            )
         if cancellation is not None and type(cancellation) is not CancellationSignal:
             raise RepositorySecurityError(
                 "governance observations require the sealed cancellation signal"
@@ -915,7 +923,7 @@ class GovernanceCollector:
         self.id_provider = id_provider
         self.remote_provider = remote_provider
         self.runner = command_runner or GovernanceCommandRunner(max_output_bytes=max_output_bytes)
-        self.redactor = redactor or EvidenceRedactor()
+        self.redactor = EvidenceRedactor(environment={})
         self.timeout = command_timeout_seconds
         self.max_commands = max_commands
         self.max_branches = max_branches
@@ -1483,7 +1491,7 @@ class GovernanceCollector:
                     remote_query_coverage = tuple(
                         sorted(cast(list[str], sanitized_remote["coverage"]))
                     )
-                    coverage_complete = _REQUIRED_REMOTE_COVERAGE.issubset(remote_query_coverage)
+                    coverage_complete = set(remote_query_coverage) == _REQUIRED_REMOTE_COVERAGE
                     freshness_proven = -30 <= remote_age <= self.max_remote_age_seconds
                     remote_branches = tuple(
                         RemoteBranchObservation(name=item["name"], sha=item["sha"])
