@@ -17,6 +17,7 @@ from contextlib import suppress
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Protocol, cast, final
 
 from pmpe.contracts.canonical import canonical_digest
@@ -41,6 +42,7 @@ from pmpe.repository.scanner import (
     RepositoryIntelligenceError,
     RepositorySecurityError,
     _cancellation_requested,
+    _implementation_module_evidence,
     _implementation_source_evidence,
     _spawn_guarded_git,
     _stop_guarded_process_group,
@@ -54,6 +56,23 @@ GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.redaction",
     "repository.scanner",
     "contracts.canonical",
+)
+_GOVERNANCE_IMPLEMENTATION_PATHS = MappingProxyType(
+    {
+        "repository.governance": Path(__file__).resolve(),
+        "repository.models": Path(__file__).resolve().parent / "models.py",
+        "repository.redaction": Path(__file__).resolve().parent / "redaction.py",
+        "repository.scanner": Path(__file__).resolve().parent / "scanner.py",
+        "contracts.canonical": Path(__file__).resolve().parent.parent
+        / "contracts"
+        / "canonical.py",
+    }
+)
+_GOVERNANCE_IMPORTED_SOURCE_DIGESTS = MappingProxyType(
+    {
+        name: "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+        for name, path in _GOVERNANCE_IMPLEMENTATION_PATHS.items()
+    }
 )
 _REQUIRED_REMOTE_COVERAGE = frozenset({"remote_branches", "pull_requests", "issues", "governance"})
 _GOVERNANCE_SCHEMA_VERSION = "pmpe.repository-governance/v2"
@@ -910,26 +929,10 @@ def _validate_remote_payload_types(value: dict[str, Any]) -> None:
 def _governance_implementation_digest(
     extension_evidence: tuple[dict[str, str], ...] = (),
 ) -> str:
-    package_root = Path(__file__).resolve().parent
-    sources = {
-        "repository.governance": package_root / "governance.py",
-        "repository.models": package_root / "models.py",
-        "repository.redaction": package_root / "redaction.py",
-        "repository.scanner": package_root / "scanner.py",
-        "contracts.canonical": package_root.parent / "contracts" / "canonical.py",
-    }
-    try:
-        evidence: list[dict[str, str]] = [
-            {
-                "module": name,
-                "source_digest": "sha256:" + hashlib.sha256(sources[name].read_bytes()).hexdigest(),
-            }
-            for name in GOVERNANCE_IMPLEMENTATION_MODULES
-        ]
-    except OSError as exc:
-        raise RepositoryIntelligenceError(
-            "governance implementation bytes are unavailable for provenance binding"
-        ) from exc
+    evidence = _implementation_module_evidence(
+        _GOVERNANCE_IMPLEMENTATION_PATHS,
+        _GOVERNANCE_IMPORTED_SOURCE_DIGESTS,
+    )
     evidence.extend(extension_evidence)
     return canonical_digest(
         sorted(evidence, key=lambda item: (item.get("label", ""), item["module"]))
@@ -1022,6 +1025,10 @@ class GovernanceCollector:
             )
         if command_runner is not None and type(command_runner) is not GovernanceCommandRunner:
             raise RepositorySecurityError("governance observations require the sealed Git reader")
+        if command_runner is not None and command_runner.max_output_bytes != max_output_bytes:
+            raise RepositorySecurityError(
+                "governance command runner output budget must match the recorded collector budget"
+            )
         if redactor is not None:
             raise RepositorySecurityError(
                 "governance observations use only the sealed fixed state-free redaction policy"

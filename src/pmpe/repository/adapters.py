@@ -17,7 +17,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.16.0"
+DETECTOR_VERSION = "1.17.0"
 
 _PACKAGE_BOUNDARY_MANIFEST_NAMES = frozenset(
     {
@@ -1122,7 +1122,7 @@ def _containers(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="delivery.ci",
-    version="1.3.0",
+    version="1.4.0",
     file_patterns=(
         ".github/workflows/*.yml",
         ".github/workflows/*.yaml",
@@ -1304,7 +1304,31 @@ def _valid_ci_structure(path: str, value: object) -> bool:
     lowered = path.lower()
     if lowered.startswith(".github/workflows/"):
         event_declared = "on" in value or True in value
-        return event_declared and isinstance(value.get("jobs"), dict) and bool(value["jobs"])
+        jobs = value.get("jobs")
+        return (
+            event_declared
+            and isinstance(jobs, dict)
+            and any(
+                isinstance(job, dict)
+                and (
+                    isinstance(job.get("uses"), str)
+                    and bool(job["uses"].strip())
+                    or (
+                        "runs-on" in job
+                        and isinstance(job.get("steps"), list)
+                        and any(
+                            isinstance(step, dict)
+                            and any(
+                                isinstance(step.get(action), str) and bool(step[action].strip())
+                                for action in ("run", "uses")
+                            )
+                            for step in job["steps"]
+                        )
+                    )
+                )
+                for job in jobs.values()
+            )
+        )
     if lowered == ".gitlab-ci.yml":
         reserved = {
             "default",
@@ -1327,14 +1351,48 @@ def _valid_ci_structure(path: str, value: object) -> bool:
             for key, item in value.items()
         )
     if lowered == ".circleci/config.yml":
-        return "version" in value and any(key in value for key in ("jobs", "workflows"))
+        jobs = value.get("jobs")
+        return (
+            "version" in value
+            and isinstance(jobs, dict)
+            and any(
+                isinstance(job, dict)
+                and isinstance(job.get("steps"), list)
+                and any(
+                    isinstance(step, str)
+                    or isinstance(step, dict)
+                    and any(action in step for action in ("run", "checkout", "setup_remote_docker"))
+                    for step in job["steps"]
+                )
+                for job in jobs.values()
+            )
+        )
     if lowered == "azure-pipelines.yml":
         return any(
             isinstance(value.get(key), list) and bool(value[key])
             for key in ("jobs", "stages", "steps")
         )
     if lowered == "bitbucket-pipelines.yml":
-        return isinstance(value.get("pipelines"), dict) and bool(value["pipelines"])
+        pipelines = value.get("pipelines")
+        pending = [pipelines]
+        visited = 0
+        while pending:
+            current = pending.pop()
+            visited += 1
+            if visited > 50_000:
+                return False
+            if isinstance(current, dict):
+                step = current.get("step")
+                if (
+                    isinstance(step, dict)
+                    and isinstance(step.get("script"), list)
+                    and bool(step["script"])
+                ):
+                    return True
+                pending.extend(current.values())
+            elif isinstance(current, list):
+                pending.extend(current)
+        return False
     return False
 
 

@@ -344,6 +344,27 @@ def test_snapshot_binds_implementation_modules_and_runtime_tool_versions(tmp_pat
     }
 
 
+def test_implementation_digest_binds_loaded_runtime_code_and_source_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    original = scanner._implementation_digest()
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(scanner, "_valid_object_id", lambda _value, _format: True)
+        assert scanner._implementation_digest() != original
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(scanner, "_OBJECT_FORMAT_LENGTH", {"sha1": 1, "sha256": 1})
+        assert scanner._implementation_digest() != original
+
+    mismatched_sources = dict(scanner._IMPORTED_SOURCE_DIGESTS)
+    mismatched_sources["repository.scanner"] = "sha256:" + "0" * 64
+    with pytest.raises(scanner.RepositorySecurityError, match="changed after"):
+        scanner._implementation_module_evidence(
+            scanner._IMPLEMENTATION_PATHS,
+            mismatched_sources,
+        )
+
+
 def test_governance_provenance_binds_every_material_repository_module() -> None:
     governance = importlib.import_module("pmpe.repository.governance")
     assert set(governance.GOVERNANCE_IMPLEMENTATION_MODULES) == {
@@ -817,6 +838,12 @@ def test_non_github_ci_is_not_reported_as_ci_absent(tmp_path: Path) -> None:
     [
         (".gitlab-ci.yml", "variables:\n  FOO: bar\n"),
         ("azure-pipelines.yml", "steps: []\n"),
+        (
+            ".github/workflows/ci.yml",
+            "name: empty\non: [push]\njobs:\n  empty: {}\n",
+        ),
+        (".circleci/config.yml", "version: 2.1\njobs: []\n"),
+        ("bitbucket-pipelines.yml", "pipelines:\n  default:\n"),
     ],
 )
 def test_non_runnable_ci_scaffolds_do_not_suppress_missing_ci(
@@ -2571,6 +2598,19 @@ def test_governance_budget_hard_ceilings_cannot_be_disabled(
     collector = api.GovernanceCollector(**kwargs)
     with pytest.raises(api.RepositoryIntelligenceError, match="hard safety ceiling"):
         collector.observe(_init_repo(tmp_path), ref="main")
+
+
+def test_governance_runner_budget_must_match_recorded_collector_budget() -> None:
+    api = _api()
+    governance = importlib.import_module("pmpe.repository.governance")
+    with pytest.raises(api.RepositorySecurityError, match="must match"):
+        api.GovernanceCollector(
+            repository="example/fixture",
+            clock=_fixed_clock(),
+            id_provider=_fixed_ids(),
+            command_runner=governance.GovernanceCommandRunner(max_output_bytes=4_096),
+            max_output_bytes=2_048,
+        )
 
 
 def test_scan_and_observation_never_create_branches_commits_or_remote_mutations(

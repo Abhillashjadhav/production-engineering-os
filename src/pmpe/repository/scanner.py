@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import importlib.metadata
 import inspect
 import json
@@ -18,10 +19,11 @@ import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields, is_dataclass
 from pathlib import Path, PurePosixPath
+from types import CodeType, MappingProxyType
 from typing import Any, Protocol, cast, final
 
 import yaml
@@ -66,6 +68,23 @@ IMPLEMENTATION_MODULES = (
     "repository.redaction",
     "repository.scanner",
     "contracts.canonical",
+)
+_IMPLEMENTATION_PATHS = MappingProxyType(
+    {
+        "repository.adapters": Path(__file__).resolve().parent / "adapters.py",
+        "repository.models": Path(__file__).resolve().parent / "models.py",
+        "repository.redaction": Path(__file__).resolve().parent / "redaction.py",
+        "repository.scanner": Path(__file__).resolve(),
+        "contracts.canonical": Path(__file__).resolve().parent.parent
+        / "contracts"
+        / "canonical.py",
+    }
+)
+_IMPORTED_SOURCE_DIGESTS = MappingProxyType(
+    {
+        name: "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+        for name, path in _IMPLEMENTATION_PATHS.items()
+    }
 )
 _OBJECT_FORMAT_LENGTH = {"sha1": 40, "sha256": 64}
 
@@ -481,6 +500,202 @@ def _valid_object_id(value: str, object_format: str) -> bool:
     )
 
 
+def _stable_code_constant(value: Any) -> Any:
+    """Represent Python code constants without paths, addresses, or host state."""
+
+    if isinstance(value, CodeType):
+        return {"code": _code_object_evidence(value)}
+    if isinstance(value, bytes):
+        return {"bytes": value.hex()}
+    if isinstance(value, tuple):
+        return {"tuple": [_stable_code_constant(item) for item in value]}
+    if isinstance(value, frozenset):
+        items = [_stable_code_constant(item) for item in value]
+        return {
+            "frozenset": sorted(
+                items,
+                key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")),
+            )
+        }
+    if value is Ellipsis:
+        return {"singleton": "ELLIPSIS"}
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
+    if isinstance(value, (float, complex)):
+        return {"numeric_type": type(value).__name__, "value": repr(value)}
+    return {"unsupported_constant_type": f"{type(value).__module__}.{type(value).__qualname__}"}
+
+
+def _code_object_evidence(code: CodeType) -> dict[str, Any]:
+    """Canonicalize the loaded executable code, excluding host-specific filenames."""
+
+    return {
+        "name": code.co_name,
+        "qualname": code.co_qualname,
+        "argcount": code.co_argcount,
+        "posonlyargcount": code.co_posonlyargcount,
+        "kwonlyargcount": code.co_kwonlyargcount,
+        "nlocals": code.co_nlocals,
+        "stacksize": code.co_stacksize,
+        "flags": code.co_flags,
+        "bytecode": code.co_code.hex(),
+        "constants": [_stable_code_constant(item) for item in code.co_consts],
+        "names": list(code.co_names),
+        "varnames": list(code.co_varnames),
+        "freevars": list(code.co_freevars),
+        "cellvars": list(code.co_cellvars),
+        "line_table": code.co_linetable.hex(),
+        "exception_table": code.co_exceptiontable.hex(),
+    }
+
+
+def _runtime_code_evidence(target: Any) -> list[dict[str, Any]]:
+    """Collect the loaded code objects that can execute for a function or class."""
+
+    if inspect.ismethod(target):
+        target = target.__func__
+    if inspect.isfunction(target):
+        return [
+            {
+                "qualname": target.__qualname__,
+                "code": _code_object_evidence(target.__code__),
+                "defaults": _stable_code_constant(target.__defaults__),
+                "keyword_defaults": _stable_code_constant(
+                    tuple(sorted((target.__kwdefaults__ or {}).items()))
+                ),
+            }
+        ]
+    if inspect.isclass(target):
+        evidence: list[dict[str, Any]] = []
+        for name, member in sorted(vars(target).items()):
+            if isinstance(member, (staticmethod, classmethod)):
+                member = member.__func__
+            elif isinstance(member, property):
+                for accessor_name, accessor in (
+                    ("get", member.fget),
+                    ("set", member.fset),
+                    ("delete", member.fdel),
+                ):
+                    if accessor is not None:
+                        evidence.extend(
+                            {
+                                **item,
+                                "member": f"{name}:{accessor_name}",
+                            }
+                            for item in _runtime_code_evidence(accessor)
+                        )
+                continue
+            if inspect.isfunction(member) or inspect.ismethod(member):
+                evidence.extend({**item, "member": name} for item in _runtime_code_evidence(member))
+        return evidence
+    if callable(target):
+        return _runtime_code_evidence(target.__class__)
+    return []
+
+
+def _runtime_value_evidence(value: Any, *, depth: int = 0) -> Any:
+    """Canonicalize output-affecting runtime constants without object identities."""
+
+    if depth > 32:
+        raise RepositoryIntelligenceError("runtime implementation state exceeds depth limit")
+    if isinstance(value, CodeType):
+        return {"code": _code_object_evidence(value)}
+    if value is None or isinstance(value, (bool, int, str)):
+        return value
+    if isinstance(value, bytes):
+        return {"bytes": value.hex()}
+    if isinstance(value, (float, complex)):
+        return {"numeric_type": type(value).__name__, "value": repr(value)}
+    if isinstance(value, PurePosixPath):
+        return {"path": value.as_posix()}
+    if isinstance(value, re.Pattern):
+        return {"pattern": value.pattern, "flags": value.flags}
+    if isinstance(value, Mapping):
+        return {
+            "mapping": [
+                [str(key), _runtime_value_evidence(item, depth=depth + 1)]
+                for key, item in sorted(value.items(), key=lambda pair: str(pair[0]))
+            ]
+        }
+    if isinstance(value, (list, tuple)):
+        return {
+            type(value).__name__: [_runtime_value_evidence(item, depth=depth + 1) for item in value]
+        }
+    if isinstance(value, (set, frozenset)):
+        items = [_runtime_value_evidence(item, depth=depth + 1) for item in value]
+        return {
+            type(value).__name__: sorted(
+                items,
+                key=lambda item: json.dumps(item, sort_keys=True, separators=(",", ":")),
+            )
+        }
+    if is_dataclass(value) and not isinstance(value, type):
+        return {
+            "dataclass": f"{type(value).__module__}.{type(value).__qualname__}",
+            "fields": {
+                item.name: _runtime_value_evidence(
+                    getattr(value, item.name),
+                    depth=depth + 1,
+                )
+                for item in fields(value)
+            },
+        }
+    code = _runtime_code_evidence(value)
+    if code:
+        return {"runtime_code_digest": canonical_digest(code)}
+    return {"type": f"{type(value).__module__}.{type(value).__qualname__}"}
+
+
+def _module_runtime_digest(module_name: str) -> str:
+    """Bind the loaded module namespace rather than only its current source file."""
+
+    module = importlib.import_module(f"pmpe.{module_name}")
+    symbols: list[dict[str, Any]] = []
+    for name, target in sorted(vars(module).items()):
+        if name.startswith("__"):
+            continue
+        if inspect.isfunction(target) or inspect.isclass(target) or callable(target):
+            code = _runtime_code_evidence(target)
+            if code:
+                symbols.append({"symbol": name, "code": code})
+        elif name.lstrip("_").isupper() or (is_dataclass(target) and not isinstance(target, type)):
+            symbols.append(
+                {
+                    "symbol": name,
+                    "value": _runtime_value_evidence(target),
+                }
+            )
+    return canonical_digest(symbols)
+
+
+def _implementation_module_evidence(
+    paths: Mapping[str, Path],
+    imported_source_digests: Mapping[str, str],
+) -> list[dict[str, str]]:
+    """Bind import-time source, current source, and loaded runtime code fail closed."""
+
+    evidence: list[dict[str, str]] = []
+    try:
+        for name in paths:
+            source_digest = _sha256(paths[name].read_bytes())
+            if imported_source_digests.get(name) != source_digest:
+                raise RepositorySecurityError(
+                    f"{name} source changed after its executable module was imported"
+                )
+            evidence.append(
+                {
+                    "module": name,
+                    "source_digest": source_digest,
+                    "runtime_code_digest": _module_runtime_digest(name),
+                }
+            )
+    except OSError as exc:
+        raise RepositoryIntelligenceError(
+            "implementation bytes are unavailable for provenance binding"
+        ) from exc
+    return evidence
+
+
 def _implementation_source_evidence(label: str, target: Any) -> dict[str, str]:
     """Bind an injected output-affecting implementation without persisting its state."""
 
@@ -490,14 +705,10 @@ def _implementation_source_evidence(label: str, target: Any) -> dict[str, str]:
         if source_path_value is None:
             raise OSError("implementation source path is unavailable")
         source_digest = _sha256(Path(source_path_value).read_bytes())
-        callable_target = target if callable(target) else getattr(target, "run", None)
-        if callable_target is None and not inspect.isfunction(target) and callable(target):
-            callable_target = inspect.getattr_static(implementation, "__call__", None)
-        code_digest = (
-            _sha256(inspect.getsource(callable_target).encode("utf-8"))
-            if callable_target is not None
-            else source_digest
-        )
+        runtime_code = _runtime_code_evidence(implementation)
+        if not runtime_code:
+            raise ValueError("implementation has no inspectable runtime code")
+        code_digest = canonical_digest(runtime_code)
     except (OSError, TypeError, ValueError) as exc:
         raise RepositoryIntelligenceError(
             f"{label} implementation bytes are unavailable for provenance binding"
@@ -507,30 +718,17 @@ def _implementation_source_evidence(label: str, target: Any) -> dict[str, str]:
         "module": str(getattr(implementation, "__module__", "unknown")),
         "qualname": str(getattr(implementation, "__qualname__", type(target).__qualname__)),
         "source_digest": source_digest,
-        "code_digest": code_digest,
+        "runtime_code_digest": code_digest,
     }
 
 
 def _implementation_digest(
     extension_evidence: Sequence[dict[str, str]] = (),
 ) -> str:
-    package_root = Path(__file__).resolve().parent
-    paths = {
-        "repository.adapters": package_root / "adapters.py",
-        "repository.models": package_root / "models.py",
-        "repository.redaction": package_root / "redaction.py",
-        "repository.scanner": package_root / "scanner.py",
-        "contracts.canonical": package_root.parent / "contracts" / "canonical.py",
-    }
-    try:
-        evidence: list[dict[str, str]] = [
-            {"module": name, "source_digest": _sha256(paths[name].read_bytes())}
-            for name in IMPLEMENTATION_MODULES
-        ]
-    except OSError as exc:
-        raise RepositoryIntelligenceError(
-            "scanner implementation bytes are unavailable for provenance binding"
-        ) from exc
+    evidence = _implementation_module_evidence(
+        _IMPLEMENTATION_PATHS,
+        _IMPORTED_SOURCE_DIGESTS,
+    )
     evidence.extend(extension_evidence)
     return canonical_digest(
         sorted(evidence, key=lambda item: (item.get("label", ""), item["module"]))
