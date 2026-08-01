@@ -422,7 +422,20 @@ def test_entry_points_and_test_coverage_configuration_are_explicit_inventory(
     _write(
         repo,
         "services/api/pyproject.toml",
-        "[project]\nname='api'\nversion='1'\n[project.scripts]\napi='api.cli:main'\n",
+        (
+            "[project]\nname='api'\nversion='1'\n"
+            "[project.scripts]\napi='api.cli:main'\n"
+            "[tool.pytest.ini_options]\ntestpaths=['tests']\n"
+            "[tool.coverage.run]\nbranch=true\n"
+        ),
+    )
+    _write(
+        repo,
+        "services/worker/setup.cfg",
+        (
+            "[metadata]\nname = worker\n[tool:pytest]\ntestpaths = tests\n"
+            "[coverage:run]\nbranch = true\n"
+        ),
     )
     _write(repo, "services/api/src/api/__main__.py", "raise SystemExit(0)\n")
     _write(
@@ -433,7 +446,13 @@ def test_entry_points_and_test_coverage_configuration_are_explicit_inventory(
                 "name": "web",
                 "version": "1.0.0",
                 "main": "src/index.js",
-                "scripts": {"start": "node src/index.js"},
+                "scripts": {
+                    "start": "node src/index.js",
+                    "test": "vitest",
+                    "test:coverage": "vitest --coverage",
+                },
+                "vitest": {"globals": True},
+                "nyc": {"all": True},
             }
         ),
     )
@@ -457,6 +476,14 @@ def test_entry_points_and_test_coverage_configuration_are_explicit_inventory(
     ) in architecture
     assert ("apps/web/package.json", "DECLARED_ENTRY_POINT") in architecture
     assert ("apps/web/package.json", "DECLARED_RUN_ENTRY_POINT") in architecture
+    assert ("services/api/pyproject.toml", "TEST_CONFIGURATION") in quality
+    assert ("services/api/pyproject.toml", "COVERAGE_CONFIGURATION") in quality
+    assert ("services/worker/setup.cfg", "TEST_CONFIGURATION") in quality
+    assert ("services/worker/setup.cfg", "COVERAGE_CONFIGURATION") in quality
+    assert ("apps/web/package.json", "DECLARED_TEST_COMMAND") in quality
+    assert ("apps/web/package.json", "DECLARED_COVERAGE_COMMAND") in quality
+    assert ("apps/web/package.json", "TEST_CONFIGURATION") in quality
+    assert ("apps/web/package.json", "COVERAGE_CONFIGURATION") in quality
     assert ("apps/web/playwright.config.ts", "TEST_CONFIGURATION") in quality
     assert ("apps/web/vitest.config.ts", "TEST_CONFIGURATION") in quality
     assert (".coveragerc", "COVERAGE_CONFIGURATION") in quality
@@ -1312,6 +1339,48 @@ def test_malformed_worktree_record_is_blocked_without_placeholder_facts(
     assert observation.worktrees == ()
     assert any(item.fact == "worktree_record:1" for item in observation.unknowns)
     assert "UNKNOWN" not in observation.canonical_bytes().decode()
+
+
+def test_worktree_lifecycle_flags_are_preserved_and_prunable_state_blocks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    governance = importlib.import_module("pmpe.repository.governance")
+    repo = _init_repo(tmp_path)
+    head = _git(repo, "rev-parse", "HEAD")
+    original = governance.GovernanceCommandRunner.run
+
+    def lifecycle_worktree(
+        self: Any,
+        args: tuple[str, ...],
+        cwd: Path,
+        timeout: int,
+        *,
+        cancellation: Any = None,
+    ) -> Any:
+        if args[1:3] == ("worktree", "list"):
+            return api.CommandResult(
+                args=args,
+                returncode=0,
+                stdout=(
+                    f"worktree {repo}\0HEAD {head}\0detached\0locked maintenance\0"
+                    "prunable gitdir-missing\0\0"
+                ),
+                stderr="",
+            )
+        return original(self, args, cwd, timeout, cancellation=cancellation)
+
+    monkeypatch.setattr(governance.GovernanceCommandRunner, "run", lifecycle_worktree)
+    observation = _observe(repo)
+    worktree = observation.worktrees[0]
+    assert worktree.detached is True
+    assert worktree.bare is False
+    assert worktree.locked is True
+    assert worktree.locked_reason == "maintenance"
+    assert worktree.prunable is True
+    assert worktree.prunable_reason == "gitdir-missing"
+    assert observation.disposition == "BLOCKED"
+    assert any(item.fact == "worktree_prunable:1" for item in observation.unknowns)
 
 
 def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path: Path) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import configparser
 import fnmatch
 import json
 import re
@@ -14,7 +15,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.9.0"
+DETECTOR_VERSION = "1.10.0"
 
 _PACKAGE_BOUNDARY_MANIFEST_NAMES = frozenset(
     {
@@ -486,7 +487,7 @@ def _topology(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="stack.python",
-    version="1.3.0",
+    version="1.4.0",
     file_patterns=(
         "*.py",
         "**/*.py",
@@ -554,7 +555,56 @@ def _python(context: AdapterContext) -> AdapterResult:
                                 _item(file, "DECLARED_ENTRY_POINT", "stack.python"),
                             )
                         )
+                    tool = parsed.get("tool", {})
+                    if isinstance(tool, dict):
+                        pytest_configuration = tool.get("pytest")
+                        if isinstance(pytest_configuration, dict) and pytest_configuration:
+                            items.append(
+                                (
+                                    "tests_quality",
+                                    _item(file, "TEST_CONFIGURATION", "stack.python"),
+                                )
+                            )
+                        coverage_configuration = tool.get("coverage")
+                        if isinstance(coverage_configuration, dict) and coverage_configuration:
+                            items.append(
+                                (
+                                    "tests_quality",
+                                    _item(file, "COVERAGE_CONFIGURATION", "stack.python"),
+                                )
+                            )
                 except (tomllib.TOMLDecodeError, UnicodeDecodeError, ValueError):
+                    findings.append(
+                        _finding(
+                            "MANIFEST.MALFORMED",
+                            "languages_build_ecosystems",
+                            "A tracked Python manifest cannot be parsed deterministically.",
+                            (file.path,),
+                            "stack.python",
+                            severity="HIGH",
+                            blocking=True,
+                        )
+                    )
+            if name == "setup.cfg" and file.content is not None:
+                try:
+                    configuration = configparser.ConfigParser(interpolation=None)
+                    configuration.read_string(file.content.decode("utf-8"))
+                    sections = {section.lower() for section in configuration.sections()}
+                    if sections & {"pytest", "tool:pytest"}:
+                        items.append(
+                            (
+                                "tests_quality",
+                                _item(file, "TEST_CONFIGURATION", "stack.python"),
+                            )
+                        )
+                    if any(section.startswith("coverage:") for section in sections):
+                        items.append(
+                            (
+                                "tests_quality",
+                                _item(file, "COVERAGE_CONFIGURATION", "stack.python"),
+                            )
+                        )
+                except (configparser.Error, UnicodeDecodeError):
                     findings.append(
                         _finding(
                             "MANIFEST.MALFORMED",
@@ -596,7 +646,7 @@ def _python(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="stack.node-web",
-    version="1.2.0",
+    version="1.3.0",
     file_patterns=(
         "**/*.js",
         "*.js",
@@ -657,6 +707,43 @@ def _node(context: AdapterContext) -> AdapterResult:
                             (
                                 "architecture_boundaries",
                                 _item(file, "DECLARED_RUN_ENTRY_POINT", "stack.node-web"),
+                            )
+                        )
+                    if isinstance(scripts, dict) and any(
+                        isinstance(command, str) and (name == "test" or name.startswith("test:"))
+                        for name, command in scripts.items()
+                    ):
+                        items.append(
+                            (
+                                "tests_quality",
+                                _item(file, "DECLARED_TEST_COMMAND", "stack.node-web"),
+                            )
+                        )
+                    if isinstance(scripts, dict) and any(
+                        isinstance(command, str) and "coverage" in name.lower()
+                        for name, command in scripts.items()
+                    ):
+                        items.append(
+                            (
+                                "tests_quality",
+                                _item(file, "DECLARED_COVERAGE_COMMAND", "stack.node-web"),
+                            )
+                        )
+                    if any(
+                        isinstance(package.get(key), dict) and package[key]
+                        for key in ("ava", "jest", "mocha", "playwright", "vitest")
+                    ):
+                        items.append(
+                            (
+                                "tests_quality",
+                                _item(file, "TEST_CONFIGURATION", "stack.node-web"),
+                            )
+                        )
+                    if isinstance(package.get("nyc"), dict) and package["nyc"]:
+                        items.append(
+                            (
+                                "tests_quality",
+                                _item(file, "COVERAGE_CONFIGURATION", "stack.node-web"),
                             )
                         )
                 except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):

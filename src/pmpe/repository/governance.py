@@ -47,7 +47,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.2.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.3.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -1107,8 +1107,25 @@ class GovernanceCollector:
                             path=current["worktree"],
                             head_sha=current["HEAD"],
                             branch=current.get("branch", "DETACHED").removeprefix("refs/heads/"),
+                            bare="bare" in current,
+                            detached="detached" in current,
+                            locked="locked" in current,
+                            locked_reason=current.get("locked") or None,
+                            prunable="prunable" in current,
+                            prunable_reason=current.get("prunable") or None,
                         )
                     )
+                    if "prunable" in current:
+                        self._local_unknowns.append(
+                            UnknownFact(
+                                fact=f"worktree_prunable:{record_number}",
+                                status="BLOCKED",
+                                reason=(
+                                    "Git reports a prunable worktree; its lifecycle state is "
+                                    "preserved but cannot be represented as healthy active work."
+                                ),
+                            )
+                        )
                     current = {}
                 continue
             key, separator, value = field.partition(" ")

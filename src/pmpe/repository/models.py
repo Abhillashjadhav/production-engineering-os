@@ -229,6 +229,12 @@ class WorktreeObservation:
     path: str
     head_sha: str
     branch: str
+    bare: bool
+    detached: bool
+    locked: bool
+    locked_reason: str | None
+    prunable: bool
+    prunable_reason: str | None
 
 
 @dataclass(frozen=True)
