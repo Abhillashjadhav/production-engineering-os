@@ -15,12 +15,13 @@ import selectors
 import signal
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Callable, Sequence
 from contextlib import suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Protocol, cast
+from typing import Any, Protocol, cast, final
 
 import yaml
 
@@ -47,7 +48,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/1.9.0"
+SCANNER_VERSION = "repository-scanner/2.0.0"
 IMPLEMENTATION_MODULES = (
     "repository.adapters",
     "repository.models",
@@ -74,6 +75,32 @@ class CommandRunner(Protocol):
 
 class Cancellation(Protocol):
     def cancelled(self) -> bool: ...
+
+
+@final
+class CancellationSignal:
+    """Sealed cancellation capability with no caller-executed callback."""
+
+    __slots__ = ("_cancel_after_checks", "_checks", "_event", "_lock")
+
+    def __init__(self, *, cancel_after_checks: int | None = None) -> None:
+        if cancel_after_checks is not None and cancel_after_checks < 1:
+            raise ValueError("cancellation check limit must be positive")
+        self._cancel_after_checks = cancel_after_checks
+        self._checks = 0
+        self._event = threading.Event()
+        self._lock = threading.Lock()
+
+    def cancel(self) -> None:
+        self._event.set()
+
+    def cancelled(self) -> bool:
+        with self._lock:
+            self._checks += 1
+            threshold_reached = (
+                self._cancel_after_checks is not None and self._checks >= self._cancel_after_checks
+            )
+        return self._event.is_set() or threshold_reached
 
 
 _PROCESS_GROUP_GUARD = "import signal\nwhile True:\n signal.pause()"
@@ -156,6 +183,7 @@ class SubprocessCommandRunner:
     """Allowlisted local Git reader; it never invokes shells or project code."""
 
     identity = "git-readonly-subprocess/1.7.0"
+    __slots__ = ()
     _allowed = {"rev-parse", "ls-tree", "cat-file", "version"}
 
     @staticmethod
@@ -192,6 +220,8 @@ class SubprocessCommandRunner:
         *,
         cancellation: Cancellation | None = None,
     ) -> CommandResult:
+        if cancellation is not None and type(cancellation) is not CancellationSignal:
+            raise RepositorySecurityError("Git cancellation requires the sealed signal")
         if len(args) < 2 or args[0] != "git" or args[1] not in self._allowed:
             raise RepositorySecurityError("command is outside the read-only Git allowlist")
         process, guard = _spawn_guarded_git(args, cwd, self._environment())
@@ -251,6 +281,8 @@ class SubprocessCommandRunner:
     ) -> TreeListingResult:
         """Stream NUL-delimited tree records and stop before unbounded buffering."""
 
+        if cancellation is not None and type(cancellation) is not CancellationSignal:
+            raise RepositorySecurityError("Git cancellation requires the sealed signal")
         if len(args) < 2 or args[0:2] != ("git", "ls-tree"):
             raise RepositorySecurityError("bounded tree reader only accepts git ls-tree")
         process, guard = _spawn_guarded_git(args, cwd, self._environment())
@@ -609,7 +641,16 @@ def _snapshot_from_dict(value: dict[str, Any]) -> RepositorySnapshot:
         included_paths=tuple(value["included_paths"]),
         tooling_digest=str(value["tooling_digest"]),
         tool_versions=tuple(ToolVersion(**item) for item in value["tool_versions"]),
-        adapters=tuple(AdapterMetadata(**item) for item in value["adapters"]),
+        adapters=tuple(
+            AdapterMetadata(
+                **{
+                    **item,
+                    "file_patterns": tuple(item["file_patterns"]),
+                    "supported_categories": tuple(item["supported_categories"]),
+                }
+            )
+            for item in value["adapters"]
+        ),
         command_provenance=tuple(
             CommandProvenance(
                 args=tuple(item["args"]),
@@ -620,9 +661,13 @@ def _snapshot_from_dict(value: dict[str, Any]) -> RepositorySnapshot:
             for item in value["command_provenance"]
         ),
         inventory=inventory,
-        findings=tuple(Finding(**item) for item in value["findings"]),
+        findings=tuple(
+            Finding(**{**item, "evidence_refs": tuple(item["evidence_refs"])})
+            for item in value["findings"]
+        ),
         boundary_candidates=tuple(
-            BoundaryCandidate(**item) for item in value["boundary_candidates"]
+            BoundaryCandidate(**{**item, "evidence_paths": tuple(item["evidence_paths"])})
+            for item in value["boundary_candidates"]
         ),
         unsupported_categories=tuple(value["unsupported_categories"]),
         disposition=str(value["disposition"]),
@@ -666,6 +711,12 @@ class RepositoryScanner:
             for item in self.adapters
         ):
             raise RepositoryIntelligenceError("repository adapter declaration is invalid")
+        if command_runner is not None and type(command_runner) is not SubprocessCommandRunner:
+            raise RepositorySecurityError("repository scans require the sealed Git reader")
+        if redactor is not None and type(redactor) is not EvidenceRedactor:
+            raise RepositorySecurityError("repository scans require the sealed redactor")
+        if cancellation is not None and type(cancellation) is not CancellationSignal:
+            raise RepositorySecurityError("repository scans require the sealed cancellation signal")
         self.runner = command_runner or SubprocessCommandRunner()
         # Exact-SHA snapshots never capture host environment values; excluding them
         # from the default redaction context preserves cross-host determinism.
@@ -1347,9 +1398,23 @@ class RepositoryScanner:
                                 (str(category), EvidenceItem(**item))
                                 for category, item in raw_result["items"]
                             ),
-                            findings=tuple(Finding(**item) for item in raw_result["findings"]),
+                            findings=tuple(
+                                Finding(
+                                    **{
+                                        **item,
+                                        "evidence_refs": tuple(item["evidence_refs"]),
+                                    }
+                                )
+                                for item in raw_result["findings"]
+                            ),
                             boundaries=tuple(
-                                BoundaryCandidate(**item) for item in raw_result["boundaries"]
+                                BoundaryCandidate(
+                                    **{
+                                        **item,
+                                        "evidence_paths": tuple(item["evidence_paths"]),
+                                    }
+                                )
+                                for item in raw_result["boundaries"]
                             ),
                         )
                     except (KeyError, TypeError, ValueError):

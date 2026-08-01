@@ -3,11 +3,14 @@
 from pmpe.repository.adapters import RepositoryAdapter, default_adapters, repository_adapter
 from pmpe.repository.governance import (
     GovernanceCollector,
+    RecordedObservationIds,
     RecordedRemoteProvider,
+    RecordedUtcClock,
     observe_governance,
 )
 from pmpe.repository.models import AUDIT_CATEGORIES, CommandResult, ScanConfig
 from pmpe.repository.scanner import (
+    CancellationSignal,
     RepositoryIntelligenceError,
     RepositoryScanner,
     RepositorySecurityError,
@@ -17,9 +20,12 @@ from pmpe.repository.scanner import (
 
 __all__ = [
     "AUDIT_CATEGORIES",
+    "CancellationSignal",
     "CommandResult",
     "GovernanceCollector",
+    "RecordedObservationIds",
     "RecordedRemoteProvider",
+    "RecordedUtcClock",
     "RepositoryAdapter",
     "RepositoryIntelligenceError",
     "RepositoryScanner",

@@ -40,16 +40,6 @@ def _repo(tmp_path: Path) -> Path:
     return repo
 
 
-class FixedClock:
-    def now(self) -> str:
-        return "2026-08-01T12:00:00Z"
-
-
-class FixedIds:
-    def new_id(self) -> str:
-        return "OBS-INTEGRATION-001"
-
-
 def test_public_api_emits_separate_canonical_artifacts_without_mutating_repo(
     tmp_path: Path,
 ) -> None:
@@ -63,8 +53,8 @@ def test_public_api_emits_separate_canonical_artifacts_without_mutating_repo(
         repository="example/integration",
         ref="main",
         snapshot=snapshot,
-        clock=FixedClock(),
-        id_provider=FixedIds(),
+        clock=api.RecordedUtcClock("2026-08-01T12:00:00Z"),
+        id_provider=api.RecordedObservationIds("OBS-INTEGRATION-001"),
     )
     after = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
 
@@ -94,8 +84,8 @@ def test_dirty_state_is_only_in_governance_artifact(tmp_path: Path) -> None:
         repository="example/integration",
         ref="main",
         snapshot=snapshot,
-        clock=FixedClock(),
-        id_provider=FixedIds(),
+        clock=api.RecordedUtcClock("2026-08-01T12:00:00Z"),
+        id_provider=api.RecordedObservationIds("OBS-INTEGRATION-001"),
     )
     assert "dirty" not in snapshot.canonical_bytes().decode()
     assert observation.local_state.worktree_dirty is True

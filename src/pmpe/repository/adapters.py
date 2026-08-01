@@ -14,7 +14,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.6.0"
+DETECTOR_VERSION = "1.7.0"
 
 
 @dataclass(frozen=True)
@@ -163,7 +163,7 @@ def _test_signal_kind(path: str) -> str | None:
 
 @repository_adapter(
     adapter_id="core.repository-topology",
-    version="1.2.0",
+    version="1.3.0",
     file_patterns=("**/*", "*"),
     supported_categories=(
         "repository_topology",
@@ -366,13 +366,37 @@ def _topology(context: AdapterContext) -> AdapterResult:
             else:
                 kind = "PACKAGE"
             roots.setdefault((kind, root), set()).add(file.path)
+    boundary_roots = {root for _kind, root in roots}
+    for file in context.files:
+        name = PurePosixPath(file.path).name
+        if name not in {"package.json", "pyproject.toml", "Cargo.toml", "go.mod"}:
+            continue
+        parent = PurePosixPath(file.path).parent
+        root = "." if str(parent) == "." else str(parent)
+        matching = next((key for key in roots if key[1] == root), None)
+        if matching is not None:
+            roots[matching].add(file.path)
+        elif root not in boundary_roots:
+            roots[("PACKAGE", root)] = {file.path}
+            boundary_roots.add(root)
     for (kind, root), paths in sorted(roots.items()):
+        evidence_paths = tuple(sorted(paths))
+        confidence = (
+            "HIGH"
+            if evidence_paths
+            and all(
+                PurePosixPath(path).name
+                in {"package.json", "pyproject.toml", "Cargo.toml", "go.mod"}
+                for path in evidence_paths
+            )
+            else "MEDIUM"
+        )
         boundaries.append(
             BoundaryCandidate(
                 kind=kind,
                 name=root,
-                evidence_paths=tuple(sorted(paths)),
-                confidence="MEDIUM",
+                evidence_paths=evidence_paths,
+                confidence=confidence,
                 detector_id="core.repository-topology",
                 detector_version=DETECTOR_VERSION,
             )

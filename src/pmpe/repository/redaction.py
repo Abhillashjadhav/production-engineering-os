@@ -6,7 +6,7 @@ import os
 import re
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, final
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 
@@ -14,10 +14,12 @@ class RedactionError(RuntimeError):
     """Raised when evidence cannot be safely sanitized."""
 
 
+@final
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
     version = "central-redactor/1.7.0"
+    __slots__ = ("_environment_secrets", "_home")
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
         r"|glpat-[A-Za-z0-9_-]{16,}"

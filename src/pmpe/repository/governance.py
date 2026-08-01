@@ -37,6 +37,7 @@ from pmpe.repository.models import (
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 from pmpe.repository.scanner import (
     Cancellation,
+    CancellationSignal,
     RepositoryIntelligenceError,
     RepositorySecurityError,
     _cancellation_requested,
@@ -46,7 +47,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/1.9.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.0.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -174,14 +175,49 @@ class RecordedRemoteProvider:
         return cast(dict[str, Any], decoded)
 
 
+@final
 class SystemUtcClock:
+    __slots__ = ()
+
     def now(self) -> str:
         return datetime.now(tz=UTC).isoformat().replace("+00:00", "Z")
 
 
+@final
+class RecordedUtcClock:
+    """Data-only deterministic clock for reproducible observations."""
+
+    __slots__ = ("_value",)
+
+    def __init__(self, value: str) -> None:
+        _parse_utc(value, field="recorded observation time")
+        self._value = value
+
+    def now(self) -> str:
+        return self._value
+
+
+@final
 class UuidObservationIds:
+    __slots__ = ()
+
     def new_id(self) -> str:
         return f"OBS-{uuid.uuid4()}"
+
+
+@final
+class RecordedObservationIds:
+    """Data-only deterministic observation identifier provider."""
+
+    __slots__ = ("_value",)
+
+    def __init__(self, value: str) -> None:
+        if not re.fullmatch(r"OBS-[A-Za-z0-9._:-]{1,200}", value):
+            raise ValueError("recorded observation ID must be a safe opaque identifier")
+        self._value = value
+
+    def new_id(self) -> str:
+        return self._value
 
 
 class _SharedCancellation:
@@ -257,6 +293,7 @@ class GovernanceCommandRunner:
     """Allowlisted local Git observation commands with mutation subcommands refused."""
 
     identity = "git-governance-readonly/1.7.0"
+    __slots__ = ("max_output_bytes",)
     _allowed = {
         "config",
         "status",
@@ -283,6 +320,8 @@ class GovernanceCommandRunner:
         *,
         cancellation: Cancellation | None = None,
     ) -> CommandResult:
+        if cancellation is not None and type(cancellation) is not CancellationSignal:
+            raise RepositorySecurityError("governance cancellation requires the sealed signal")
         if len(args) < 2 or args[0] != "git" or args[1] not in self._allowed:
             raise RepositorySecurityError("command is outside the governance read-only allowlist")
         if args[1] == "config" and args[2:] != self._filter_probe:
@@ -713,6 +752,20 @@ class GovernanceCollector:
         if remote_provider is not None and type(remote_provider) is not RecordedRemoteProvider:
             raise RepositorySecurityError(
                 "remote observations require the sealed data-only provider"
+            )
+        if type(clock) not in {SystemUtcClock, RecordedUtcClock}:
+            raise RepositorySecurityError("governance observations require a sealed clock")
+        if type(id_provider) not in {UuidObservationIds, RecordedObservationIds}:
+            raise RepositorySecurityError(
+                "governance observations require a sealed observation ID provider"
+            )
+        if command_runner is not None and type(command_runner) is not GovernanceCommandRunner:
+            raise RepositorySecurityError("governance observations require the sealed Git reader")
+        if redactor is not None and type(redactor) is not EvidenceRedactor:
+            raise RepositorySecurityError("governance observations require the sealed redactor")
+        if cancellation is not None and type(cancellation) is not CancellationSignal:
+            raise RepositorySecurityError(
+                "governance observations require the sealed cancellation signal"
             )
         self.snapshot = snapshot
         self.clock = clock

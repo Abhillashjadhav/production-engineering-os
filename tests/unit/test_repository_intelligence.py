@@ -7,6 +7,7 @@ import json
 import os
 import signal
 import subprocess
+import threading
 import time
 from dataclasses import asdict, replace
 from pathlib import Path
@@ -388,6 +389,30 @@ def test_database_privacy_and_observability_subcategories_are_explicit(
         item.path == "prometheus.yml" and item.kind == "OBSERVABILITY_CONFIG_SIGNAL"
         for item in snapshot.inventory["observability_operations"].items
     )
+
+
+def test_nested_package_manifests_create_explicit_architecture_boundaries(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "products/example/backend/pyproject.toml", "[project]\nname='backend'\n")
+    _write(repo, "products/example/frontend/package.json", '{"name":"frontend"}\n')
+    _write(repo, "products/example/e2e/package.json", '{"name":"e2e"}\n')
+    _commit(repo, "nested package boundaries")
+    snapshot = _scan(repo)
+    boundaries = {item.name: item for item in snapshot.boundary_candidates}
+    assert {
+        "products/example/backend",
+        "products/example/frontend",
+        "products/example/e2e",
+    } <= set(boundaries)
+    assert boundaries["products/example/backend"].evidence_paths == (
+        "products/example/backend/pyproject.toml",
+    )
+    assert boundaries["products/example/frontend"].evidence_paths == (
+        "products/example/frontend/package.json",
+    )
+    assert boundaries["products/example/backend"].confidence == "HIGH"
 
 
 def test_unhandled_required_subcategory_is_blocked_not_silently_absent(
@@ -801,18 +826,19 @@ def test_planted_credentials_never_appear_in_snapshot(tmp_path: Path) -> None:
     assert "redaction" in payload.lower()
 
 
-def test_redaction_failure_blocks_artifact_creation(tmp_path: Path) -> None:
+def test_redaction_failure_blocks_artifact_creation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     api = _api()
+    redaction = importlib.import_module("pmpe.repository.redaction")
     repo = _init_repo(tmp_path)
 
-    class BrokenRedactor:
-        version = "broken"
+    def unavailable(_self: Any, _value: Any) -> Any:
+        raise RuntimeError("redaction unavailable")
 
-        def sanitize(self, _value: Any) -> Any:
-            raise RuntimeError("redaction unavailable")
-
+    monkeypatch.setattr(redaction.EvidenceRedactor, "sanitize", unavailable)
     with pytest.raises(api.RepositorySecurityError, match="redaction"):
-        api.RepositoryScanner(config=_config(), redactor=BrokenRedactor()).scan(repo, commit="HEAD")
+        api.RepositoryScanner(config=_config()).scan(repo, commit="HEAD")
 
 
 @pytest.mark.parametrize("field", ["token", "signature", "sig"])
@@ -834,14 +860,12 @@ def test_sensitive_environment_value_is_redacted_under_benign_field() -> None:
     assert sanitized["message"] == "provider returned [REDACTED_ENV]"
 
 
-class _FixedClock:
-    def now(self) -> str:
-        return "2026-08-01T00:00:00Z"
+def _fixed_clock() -> Any:
+    return _api().RecordedUtcClock("2026-08-01T00:00:00Z")
 
 
-class _FixedIds:
-    def new_id(self) -> str:
-        return "OBS-000001"
+def _fixed_ids() -> Any:
+    return _api().RecordedObservationIds("OBS-000001")
 
 
 class _FakeRemote:
@@ -1068,8 +1092,8 @@ def _observe(repo: Path, remote: Any = None) -> Any:
     api = _api()
     return api.GovernanceCollector(
         repository="example/fixture",
-        clock=_FixedClock(),
-        id_provider=_FixedIds(),
+        clock=_fixed_clock(),
+        id_provider=_fixed_ids(),
         remote_provider=_sealed_remote(remote) if remote is not None else None,
     ).observe(repo, ref="main")
 
@@ -1169,8 +1193,8 @@ def test_arbitrary_remote_provider_is_rejected_before_it_can_mutate_repository(
     with pytest.raises(api.RepositorySecurityError, match="sealed data-only provider"):
         api.GovernanceCollector(
             repository="example/fixture",
-            clock=_FixedClock(),
-            id_provider=_FixedIds(),
+            clock=_fixed_clock(),
+            id_provider=_fixed_ids(),
             remote_provider=MutatingRemote(),
         )
     assert not marker.exists()
@@ -1180,6 +1204,67 @@ def test_recorded_remote_provider_cannot_be_replaced_with_instance_code() -> Non
     provider = _sealed_remote(_FakeRemote())
     with pytest.raises(AttributeError):
         provider.collect = lambda *_args, **_kwargs: {}  # type: ignore[method-assign]
+
+
+def test_unsealed_parent_collaborators_are_rejected_before_execution(tmp_path: Path) -> None:
+    api = _api()
+    repo = _init_repo(tmp_path)
+    marker = repo / "collaborator-mutation.txt"
+
+    class MutatingCollaborator:
+        identity = "untrusted"
+        version = "untrusted"
+
+        def _mutate(self) -> None:
+            marker.write_text("mutated")
+
+        def run(self, *_args: Any, **_kwargs: Any) -> Any:
+            self._mutate()
+            return None
+
+        def sanitize(self, value: Any) -> Any:
+            self._mutate()
+            return value
+
+        def cancelled(self) -> bool:
+            self._mutate()
+            return False
+
+        def now(self) -> str:
+            self._mutate()
+            return "2026-08-01T00:00:00Z"
+
+        def new_id(self) -> str:
+            self._mutate()
+            return "OBS-UNTRUSTED"
+
+    untrusted = MutatingCollaborator()
+    for argument in (
+        {"command_runner": untrusted},
+        {"redactor": untrusted},
+        {"cancellation": untrusted},
+    ):
+        with pytest.raises(api.RepositorySecurityError, match="sealed"):
+            api.RepositoryScanner(config=_config(), **argument)
+    governance_arguments = (
+        {"clock": untrusted, "id_provider": _fixed_ids()},
+        {"clock": _fixed_clock(), "id_provider": untrusted},
+        {
+            "clock": _fixed_clock(),
+            "id_provider": _fixed_ids(),
+            "command_runner": untrusted,
+        },
+        {"clock": _fixed_clock(), "id_provider": _fixed_ids(), "redactor": untrusted},
+        {
+            "clock": _fixed_clock(),
+            "id_provider": _fixed_ids(),
+            "cancellation": untrusted,
+        },
+    )
+    for arguments in governance_arguments:
+        with pytest.raises(api.RepositorySecurityError, match="sealed"):
+            api.GovernanceCollector(repository="example/fixture", **arguments)
+    assert not marker.exists()
 
 
 def test_unproven_remote_pagination_is_blocked_not_complete(tmp_path: Path) -> None:
@@ -1220,8 +1305,8 @@ def test_remote_provider_timeout_is_bounded_and_visible(tmp_path: Path) -> None:
     started = time.monotonic()
     observation = api.GovernanceCollector(
         repository="example/fixture",
-        clock=_FixedClock(),
-        id_provider=_FixedIds(),
+        clock=_fixed_clock(),
+        id_provider=_fixed_ids(),
         remote_provider=_sealed_remote(_HangingRemote()),
         command_timeout_seconds=1,
     ).observe(repo, ref="main")
@@ -1234,8 +1319,8 @@ def test_remote_numeric_payload_cannot_bypass_parent_byte_bound(tmp_path: Path) 
     api = _api()
     observation = api.GovernanceCollector(
         repository="example/fixture",
-        clock=_FixedClock(),
-        id_provider=_FixedIds(),
+        clock=_fixed_clock(),
+        id_provider=_fixed_ids(),
         remote_provider=_sealed_remote(_HugeNumericRemote()),
         max_output_bytes=2_048,
     ).observe(_init_repo(tmp_path), ref="main")
@@ -1264,25 +1349,22 @@ def test_remote_identity_mismatch_or_duplicate_inventory_fails_closed(
 
 def test_remote_provider_cancellation_terminates_the_isolated_process() -> None:
     api = _api()
-
-    class CancelSoon:
-        def __init__(self) -> None:
-            self.started = time.monotonic()
-
-        def cancelled(self) -> bool:
-            return time.monotonic() - self.started > 0.2
+    cancellation = api.CancellationSignal()
+    timer = threading.Timer(0.2, cancellation.cancel)
+    timer.start()
 
     collector = api.GovernanceCollector(
         repository="example/fixture",
-        clock=_FixedClock(),
-        id_provider=_FixedIds(),
+        clock=_fixed_clock(),
+        id_provider=_fixed_ids(),
         remote_provider=_sealed_remote(_HangingRemote()),
         command_timeout_seconds=10,
-        cancellation=CancelSoon(),
+        cancellation=cancellation,
     )
     started = time.monotonic()
     with pytest.raises(api.RepositoryIntelligenceError, match="cancelled"):
         collector._collect_remote_bounded("main")
+    timer.join(timeout=1)
     assert time.monotonic() - started < 4
 
 
@@ -1312,8 +1394,8 @@ def test_observation_input_digest_binds_freshness_and_collector_budgets(tmp_path
     def observe(max_age: int) -> Any:
         return api.GovernanceCollector(
             repository="example/fixture",
-            clock=_FixedClock(),
-            id_provider=_FixedIds(),
+            clock=_fixed_clock(),
+            id_provider=_fixed_ids(),
             remote_provider=_sealed_remote(_AgeSensitiveRemote()),
             max_remote_age_seconds=max_age,
         ).observe(repo, ref="main")
@@ -1435,8 +1517,8 @@ def test_invalid_governance_ref_is_rejected_before_git_comparison(tmp_path: Path
     with pytest.raises(api.RepositorySecurityError, match="ref"):
         api.GovernanceCollector(
             repository="example/fixture",
-            clock=_FixedClock(),
-            id_provider=_FixedIds(),
+            clock=_fixed_clock(),
+            id_provider=_fixed_ids(),
         ).observe(repo, ref="--output=outside")
 
 
@@ -1449,36 +1531,55 @@ def test_scanner_does_not_execute_tracked_project_code(tmp_path: Path) -> None:
     assert not marker.exists()
 
 
-class _MissingGitRunner:
-    identity = "missing-git"
-
-    def run(self, _args: tuple[str, ...], _cwd: Path, _timeout: int) -> Any:
-        raise FileNotFoundError("git is not installed")
-
-
-class _TimeoutRunner:
-    identity = "timeout-git"
-
-    def run(self, args: tuple[str, ...], _cwd: Path, _timeout: int) -> Any:
-        return _api().CommandResult(args=args, returncode=124, stdout="", stderr="", timed_out=True)
-
-
-class _MalformedRunner:
-    identity = "malformed-git"
-
-    def run(self, args: tuple[str, ...], _cwd: Path, _timeout: int) -> Any:
-        return _api().CommandResult(args=args, returncode=0, stdout="not-a-sha\n", stderr="")
-
-
-@pytest.mark.parametrize("runner", [_MissingGitRunner(), _TimeoutRunner(), _MalformedRunner()])
-def test_missing_git_timeout_or_malformed_output_fails_closed(
-    tmp_path: Path,
-    runner: Any,
-) -> None:
+def test_missing_git_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     api = _api()
     repo = _init_repo(tmp_path)
+    empty_path = tmp_path / "empty-path"
+    empty_path.mkdir()
+    monkeypatch.setenv("PATH", str(empty_path))
     with pytest.raises(api.RepositoryIntelligenceError):
-        api.RepositoryScanner(config=_config(), command_runner=runner).scan(repo, commit="HEAD")
+        api.RepositoryScanner(config=_config()).scan(repo, commit="HEAD")
+
+
+def test_git_timeout_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    api = _api()
+    repo = _init_repo(tmp_path)
+    fake_bin = tmp_path / "timeout-bin"
+    fake_bin.mkdir()
+    fake_git = fake_bin / "git"
+    fake_git.write_text("#!/bin/sh\nsleep 30\n")
+    fake_git.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{fake_bin}:/usr/bin:/bin")
+    with pytest.raises(api.RepositoryIntelligenceError, match="timed out"):
+        api.RepositoryScanner(config=_config(command_timeout_seconds=1)).scan(repo, commit="HEAD")
+
+
+def test_malformed_git_output_fails_closed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    api = _api()
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    repo = _init_repo(tmp_path)
+    original = scanner.SubprocessCommandRunner.run
+
+    def malformed(
+        self: Any,
+        args: tuple[str, ...],
+        cwd: Path,
+        timeout: int,
+        *,
+        cancellation: Any = None,
+    ) -> Any:
+        if args[1] == "rev-parse" and "--show-object-format" in args:
+            return api.CommandResult(
+                args=args,
+                returncode=0,
+                stdout="not-a-sha\n",
+                stderr="",
+            )
+        return original(self, args, cwd, timeout, cancellation=cancellation)
+
+    monkeypatch.setattr(scanner.SubprocessCommandRunner, "run", malformed)
+    with pytest.raises(api.RepositoryIntelligenceError):
+        api.RepositoryScanner(config=_config()).scan(repo, commit="HEAD")
 
 
 def test_invalid_repository_fails_closed(tmp_path: Path) -> None:
@@ -1490,12 +1591,9 @@ def test_invalid_repository_fails_closed(tmp_path: Path) -> None:
 def test_cancellation_is_visible_and_never_silently_partial(tmp_path: Path) -> None:
     api = _api()
     repo = _init_repo(tmp_path)
-
-    class Cancelled:
-        def cancelled(self) -> bool:
-            return True
-
-    snapshot = api.RepositoryScanner(config=_config(), cancellation=Cancelled()).scan(
+    cancellation = api.CancellationSignal()
+    cancellation.cancel()
+    snapshot = api.RepositoryScanner(config=_config(), cancellation=cancellation).scan(
         repo, commit="HEAD"
     )
     assert snapshot.disposition == "BLOCKED"
@@ -1511,14 +1609,8 @@ def test_cancellation_terminates_bounded_enumeration_and_preserves_repository(
     before_index = (repo / ".git" / "index").read_bytes()
     before_status = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
 
-    class CancelDuringTree:
-        calls = 0
-
-        def cancelled(self) -> bool:
-            self.calls += 1
-            return self.calls > 1
-
-    snapshot = api.RepositoryScanner(config=_config(), cancellation=CancelDuringTree()).scan(
+    cancellation = api.CancellationSignal(cancel_after_checks=2)
+    snapshot = api.RepositoryScanner(config=_config(), cancellation=cancellation).scan(
         repo, commit="HEAD"
     )
     assert snapshot.disposition == "BLOCKED"
@@ -1546,17 +1638,22 @@ def test_cancellation_terminates_an_ordinary_bounded_git_command(
     fake_git.chmod(0o755)
     monkeypatch.setenv("PATH", f"{fake_bin}:/usr/bin:/bin")
 
-    class CancelSoon:
-        def __init__(self) -> None:
-            self.started = time.monotonic()
+    cancellation = _api().CancellationSignal()
 
-        def cancelled(self) -> bool:
-            return child_pid_path.exists() and time.monotonic() - self.started > 0.2
+    def cancel_after_start() -> None:
+        deadline = time.monotonic() + 2
+        while not child_pid_path.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        time.sleep(0.2)
+        cancellation.cancel()
 
+    cancellation_thread = threading.Thread(target=cancel_after_start, daemon=True)
+    cancellation_thread.start()
     started = time.monotonic()
     result = scanner.SubprocessCommandRunner().run(
-        ("git", "version"), tmp_path, 10, cancellation=CancelSoon()
+        ("git", "version"), tmp_path, 10, cancellation=cancellation
     )
+    cancellation_thread.join(timeout=1)
     assert time.monotonic() - started < 4
     assert result.returncode == 126
     assert result.timed_out is False
@@ -1581,13 +1678,9 @@ def test_cancellation_during_adapter_blocks_snapshot_finalization(
     before_head = _git(repo, "rev-parse", "HEAD")
     before_status = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
 
-    class CancellationAfterAdapter:
-        started = time.monotonic()
-
-        def cancelled(self) -> bool:
-            return time.monotonic() - self.started > 0.2
-
-    cancellation = CancellationAfterAdapter()
+    cancellation = api.CancellationSignal()
+    timer = threading.Timer(0.2, cancellation.cancel)
+    timer.start()
 
     def hanging_worker(_connection: Any, _adapter: Any, _context: Any) -> None:
         os.setsid()
@@ -1598,6 +1691,7 @@ def test_cancellation_during_adapter_blocks_snapshot_finalization(
         config=_config(),
         cancellation=cancellation,
     ).scan(repo, commit="HEAD")
+    timer.join(timeout=1)
     assert snapshot.disposition == "BLOCKED"
     assert any(item.code == "SCAN.CANCELLED" and item.blocking for item in snapshot.findings)
     assert _git(repo, "rev-parse", "HEAD") == before_head
@@ -1612,18 +1706,11 @@ def test_governance_cancellation_terminates_bounded_command_and_preserves_reposi
     before_head = _git(repo, "rev-parse", "HEAD")
     before_index = (repo / ".git" / "index").read_bytes()
 
-    class CancelInsideCommand:
-        calls = 0
-
-        def cancelled(self) -> bool:
-            self.calls += 1
-            return self.calls > 1
-
     collector = api.GovernanceCollector(
         repository="example/fixture",
-        clock=_FixedClock(),
-        id_provider=_FixedIds(),
-        cancellation=CancelInsideCommand(),
+        clock=_fixed_clock(),
+        id_provider=_fixed_ids(),
+        cancellation=api.CancellationSignal(cancel_after_checks=2),
     )
     with pytest.raises(api.RepositoryIntelligenceError, match="cancelled"):
         collector.observe(repo, ref="main")
@@ -1666,15 +1753,15 @@ def test_digest_bearing_artifacts_are_self_verified_before_reuse(tmp_path: Path)
         api.GovernanceCollector(
             repository="example/fixture",
             snapshot=tampered_snapshot,
-            clock=_FixedClock(),
-            id_provider=_FixedIds(),
+            clock=_fixed_clock(),
+            id_provider=_fixed_ids(),
         )
 
     observation = api.GovernanceCollector(
         repository="example/fixture",
         snapshot=snapshot,
-        clock=_FixedClock(),
-        id_provider=_FixedIds(),
+        clock=_fixed_clock(),
+        id_provider=_fixed_ids(),
     ).observe(repo, ref="main")
     tampered_observation = replace(observation, disposition="COMPLETE")
     assert tampered_observation.digest_is_valid() is False
@@ -1691,8 +1778,8 @@ def test_snapshot_and_observation_references_form_a_narrow_lifecycle_seam(
     observation = api.GovernanceCollector(
         repository="example/fixture",
         snapshot=snapshot,
-        clock=_FixedClock(),
-        id_provider=_FixedIds(),
+        clock=_fixed_clock(),
+        id_provider=_fixed_ids(),
     ).observe(repo, ref="main")
     reference = snapshot.assessment_reference(observation)
     assert reference == {
@@ -1712,8 +1799,8 @@ def test_snapshot_rejects_governance_observation_from_another_repository(
     snapshot = _scan(_init_repo(tmp_path))
     observation = api.GovernanceCollector(
         repository="different/repository",
-        clock=_FixedClock(),
-        id_provider=_FixedIds(),
+        clock=_fixed_clock(),
+        id_provider=_fixed_ids(),
     ).observe(tmp_path / "fixture-repo", ref="main")
     with pytest.raises(ValueError, match="repositories do not match"):
         snapshot.assessment_reference(observation)

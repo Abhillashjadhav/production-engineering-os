@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from pmpe.repository import (
+    RecordedObservationIds,
+    RecordedUtcClock,
     RepositoryIntelligenceError,
     RepositorySecurityError,
     ScanConfig,
@@ -20,22 +22,6 @@ from pmpe.repository import (
     scan_repository,
 )
 from pmpe.repository.governance import GovernanceCommandRunner
-
-
-class _ArgumentClock:
-    def __init__(self, value: str) -> None:
-        self.value = value
-
-    def now(self) -> str:
-        return self.value
-
-
-class _ArgumentIds:
-    def __init__(self, value: str) -> None:
-        self.value = value
-
-    def new_id(self) -> str:
-        return self.value
 
 
 def _git_output(runner: GovernanceCommandRunner, root: Path, *args: str) -> str:
@@ -243,8 +229,8 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         )
         observation = None
         if governance_path is not None:
-            clock = _ArgumentClock(args.observed_at) if args.observed_at else None
-            ids = _ArgumentIds(args.observation_id) if args.observation_id else None
+            clock = RecordedUtcClock(args.observed_at) if args.observed_at else None
+            ids = RecordedObservationIds(args.observation_id) if args.observation_id else None
             observation = observe_governance(
                 requested,
                 repository=args.repository,
