@@ -17,7 +17,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.18.0"
+DETECTOR_VERSION = "1.19.0"
 
 _PACKAGE_BOUNDARY_MANIFEST_NAMES = frozenset(
     {
@@ -1122,7 +1122,7 @@ def _containers(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="delivery.ci",
-    version="1.5.0",
+    version="1.6.0",
     file_patterns=(
         ".github/workflows/*.yml",
         ".github/workflows/*.yaml",
@@ -1308,6 +1308,16 @@ def _ci_action_has_content(value: object) -> bool:
     return False
 
 
+def _github_trigger_is_runnable(value: object) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list):
+        return any(isinstance(item, str) and bool(item.strip()) for item in value)
+    if isinstance(value, dict):
+        return bool(value) and any(isinstance(key, str) and bool(key.strip()) for key in value)
+    return False
+
+
 def _gitlab_job_is_runnable(job: dict[object, object]) -> bool:
     script = job.get("script")
     if isinstance(script, str) and bool(script.strip()):
@@ -1372,7 +1382,7 @@ def _valid_ci_structure(path: str, value: object) -> bool:
         return False
     lowered = path.lower()
     if lowered.startswith(".github/workflows/"):
-        event_declared = "on" in value or True in value
+        event_declared = _github_trigger_is_runnable(value.get("on", value.get(True)))
         jobs = value.get("jobs")
         return (
             event_declared

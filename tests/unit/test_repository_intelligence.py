@@ -860,6 +860,16 @@ def test_non_github_ci_is_not_reported_as_ci_absent(tmp_path: Path) -> None:
             ".github/workflows/ci.yml",
             "name: empty\non: [push]\njobs:\n  empty: {}\n",
         ),
+        (
+            ".github/workflows/ci.yml",
+            "name: empty trigger\non: []\njobs:\n  test:\n"
+            "    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "name: empty trigger\non: {}\njobs:\n  test:\n"
+            "    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n",
+        ),
         (".circleci/config.yml", "version: 2.1\njobs: []\n"),
         (
             ".circleci/config.yml",
@@ -1419,7 +1429,10 @@ def test_non_secret_boolean_control_with_sensitive_word_remains_typed() -> None:
     "url",
     [
         "https://hooks.slack.com/services/T000/B000/slack-webhook-secret",
+        "https://hooks.slack.com./services/T000/B000/slack-webhook-secret",
         "https://discord.com/api/webhooks/123/discord-webhook-secret",
+        "https://canary.discord.com/api/webhooks/123/discord-webhook-secret",
+        "https://ptb.discord.com./api/webhooks/123/discord-webhook-secret",
         "https://api.telegram.org/bottelegram-secret/sendMessage",
     ],
 )

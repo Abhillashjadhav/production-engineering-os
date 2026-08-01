@@ -17,7 +17,7 @@ class RedactionError(RuntimeError):
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
-    version = "central-redactor/2.1.0"
+    version = "central-redactor/2.2.0"
     __slots__ = ("_environment_secrets",)
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
@@ -75,6 +75,14 @@ class EvidenceRedactor:
         }
     )
 
+    @classmethod
+    def _host_has_secret_path(cls, hostname: str) -> bool:
+        normalized = hostname.rstrip(".").lower()
+        return any(
+            normalized == protected or normalized.endswith(f".{protected}")
+            for protected in cls._path_secret_hosts
+        )
+
     def __init__(self, *, environment: Mapping[str, str] | None = None) -> None:
         source = os.environ if environment is None else environment
         self._environment_secrets = tuple(
@@ -110,7 +118,7 @@ class EvidenceRedactor:
             return value
         try:
             parts = urlsplit(value)
-            hostname = parts.hostname or ""
+            hostname = (parts.hostname or "").rstrip(".").lower()
             if ":" in hostname and not hostname.startswith("["):
                 hostname = f"[{hostname}]"
             netloc = hostname
@@ -118,7 +126,7 @@ class EvidenceRedactor:
                 netloc = f"{netloc}:{parts.port}"
             path = (
                 "/[REDACTED_PATH]"
-                if parts.hostname in self._path_secret_hosts and parts.path not in {"", "/"}
+                if self._host_has_secret_path(hostname) and parts.path not in {"", "/"}
                 else parts.path
             )
             query = urlencode(
