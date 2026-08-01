@@ -47,7 +47,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.8.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.9.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -666,7 +666,7 @@ def _governance_content_is_complete(value: dict[str, Any]) -> bool:
     if (
         not isinstance(branch_protection, dict)
         or set(branch_protection) != {"observed", "required_checks"}
-        or not isinstance(branch_protection.get("observed"), bool)
+        or branch_protection.get("observed") is not True
         or not isinstance(branch_protection.get("required_checks"), list)
         or not all(_is_str(item) for item in branch_protection["required_checks"])
         or len(set(branch_protection["required_checks"]))

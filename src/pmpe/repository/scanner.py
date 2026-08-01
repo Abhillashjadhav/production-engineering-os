@@ -49,7 +49,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/2.4.0"
+SCANNER_VERSION = "repository-scanner/2.5.0"
 IMPLEMENTATION_MODULES = (
     "repository.adapters",
     "repository.models",
@@ -1508,9 +1508,39 @@ class RepositoryScanner:
                 (),
             ),
             (
+                "architecture_boundaries",
+                "CLI boundaries",
+                ("BOUNDARY_CLI",),
+            ),
+            (
+                "architecture_boundaries",
+                "worker boundaries",
+                ("BOUNDARY_WORKER",),
+            ),
+            (
+                "architecture_boundaries",
+                "library boundaries",
+                ("BOUNDARY_LIBRARY",),
+            ),
+            (
+                "architecture_boundaries",
+                "infrastructure-area boundaries",
+                ("BOUNDARY_INFRASTRUCTURE_AREA",),
+            ),
+            (
+                "architecture_boundaries",
+                "module boundaries",
+                ("BOUNDARY_MODULE",),
+            ),
+            (
+                "architecture_boundaries",
+                "bounded-context boundaries",
+                ("BOUNDARY_BOUNDED_CONTEXT",),
+            ),
+            (
                 "apis_data",
                 "storage models",
-                ("DATABASE_SCHEMA_SIGNAL", "MIGRATION_SIGNAL"),
+                (),
             ),
             (
                 "delivery_environments",

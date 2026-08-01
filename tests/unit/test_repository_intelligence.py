@@ -428,6 +428,7 @@ def test_api_codegen_declarations_bind_tracked_inputs_outputs_and_exporter(
         "CODE_GENERATOR_SIGNAL",
         "CODE_GENERATION_OUTPUT",
     }
+    assert all(item.confidence == "MEDIUM" for item in export_relationship)
 
 
 def test_openapi_named_source_or_documentation_is_not_parsed_as_a_contract(
@@ -441,6 +442,20 @@ def test_openapi_named_source_or_documentation_is_not_parsed_as_a_contract(
     assert not any(
         item.code == "INTERFACE.DECLARATION_INVALID"
         and set(item.evidence_refs) & {"docs/openapi-guide.md", "src/openapi_helpers.py"}
+        for item in snapshot.findings
+    )
+
+
+def test_binary_api_declaration_is_blocked_not_silently_omitted(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "openapi.json", b'{"openapi":"3.1.0"}\0')
+    _commit(repo, "binary API declaration")
+    snapshot = _scan(repo)
+    assert snapshot.disposition == "BLOCKED"
+    assert any(
+        item.code == "INTERFACE.DECLARATION_INVALID"
+        and item.evidence_refs == ("openapi.json",)
+        and item.blocking
         for item in snapshot.findings
     )
 
@@ -656,11 +671,53 @@ def test_every_required_internal_audit_subcategory_is_explicit(tmp_path: Path) -
             "ignored paths",
             "internal dependency direction",
             "shared-library relationships",
+            "CLI boundaries",
+            "worker boundaries",
+            "library boundaries",
+            "infrastructure-area boundaries",
+            "module boundaries",
+            "bounded-context boundaries",
             "storage models",
             "deployment-evidence mechanisms",
         )
     )
     assert snapshot.disposition == "BLOCKED"
+
+
+def test_worker_library_and_infrastructure_boundaries_are_typed(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "workers/queue/worker.py", "def run() -> None:\n    pass\n")
+    _write(repo, "libraries/shared/lib.py", "VALUE = 1\n")
+    _write(repo, "infra/runtime/main.tf", "terraform {}\n")
+    _commit(repo, "typed boundary areas")
+    snapshot = _scan(repo)
+    boundaries = {(item.kind, item.name) for item in snapshot.boundary_candidates}
+    assert {
+        ("WORKER", "workers/queue"),
+        ("LIBRARY", "libraries/shared"),
+        ("INFRASTRUCTURE_AREA", "infra/runtime"),
+    } <= boundaries
+    unsupported = {
+        item.explanation
+        for item in snapshot.findings
+        if item.code == "AUDIT.REQUIRED_SUBCATEGORY_UNSUPPORTED"
+    }
+    assert not any("worker boundaries" in explanation for explanation in unsupported)
+    assert not any("library boundaries" in explanation for explanation in unsupported)
+    assert not any("infrastructure-area boundaries" in explanation for explanation in unsupported)
+
+
+def test_migration_path_signal_cannot_prove_storage_model_coverage(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "migrations/README.md", "Migration process documentation only.\n")
+    _commit(repo, "migration documentation")
+    snapshot = _scan(repo)
+    assert any(
+        item.code == "AUDIT.REQUIRED_SUBCATEGORY_UNSUPPORTED"
+        and "storage models" in item.explanation
+        and item.blocking
+        for item in snapshot.findings
+    )
 
 
 def test_blocked_subcategory_status_survives_a_concurrent_partial_scan(
@@ -1187,6 +1244,10 @@ def test_home_path_minimization_is_host_state_independent(
         "/Users/repository-owner/work/repository"
     )
     assert first == second == "$HOME/work/repository"
+    embedded = redaction.EvidenceRedactor(environment={}).sanitize(
+        "command failed under /home/repository-owner/work/repository: permission denied"
+    )
+    assert embedded == "command failed under $HOME/work/repository: permission denied"
 
 
 def _fixed_clock() -> Any:
@@ -1322,6 +1383,17 @@ class _MissingSecuritySettingsRemote(_FakeRemote):
     def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
         payload = super().collect(repository, ref, **bounds)
         del payload["governance"]["security_settings"]
+        return payload
+
+
+class _UnobservedBranchProtectionRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["governance"]["branch_protection"] = {
+            "observed": False,
+            "required_checks": [],
+        }
+        payload["unknowns"] = []
         return payload
 
 
@@ -1850,7 +1922,12 @@ def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path:
 
 @pytest.mark.parametrize(
     "remote",
-    [_InvalidIssueStateRemote(), _ExtraCoverageRemote(), _MissingSecuritySettingsRemote()],
+    [
+        _InvalidIssueStateRemote(),
+        _ExtraCoverageRemote(),
+        _MissingSecuritySettingsRemote(),
+        _UnobservedBranchProtectionRemote(),
+    ],
 )
 def test_untyped_or_overbroad_remote_metadata_cannot_be_complete(
     tmp_path: Path,

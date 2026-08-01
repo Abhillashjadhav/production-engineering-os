@@ -17,7 +17,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.13.0"
+DETECTOR_VERSION = "1.14.0"
 
 _PACKAGE_BOUNDARY_MANIFEST_NAMES = frozenset(
     {
@@ -281,7 +281,7 @@ def _api_declaration_kind(path: str) -> str | None:
 
 @repository_adapter(
     adapter_id="core.repository-topology",
-    version="1.5.0",
+    version="1.6.0",
     file_patterns=("**/*", "*"),
     supported_categories=(
         "repository_topology",
@@ -507,10 +507,19 @@ def _topology(context: AdapterContext) -> AdapterResult:
             "apps",
             "libraries",
             "workers",
+            "infra",
+            "infrastructure",
+            "ops",
         }:
             root = "/".join(parts[:2])
             if parts[0] == "services":
                 kind = "SERVICE"
+            elif parts[0] == "workers":
+                kind = "WORKER"
+            elif parts[0] == "libraries":
+                kind = "LIBRARY"
+            elif parts[0] in {"infra", "infrastructure", "ops"}:
+                kind = "INFRASTRUCTURE_AREA"
             elif (
                 parts[0] == "apps"
                 or parts[0] == "packages"
@@ -1299,7 +1308,7 @@ def _valid_ci_structure(path: str, value: object) -> bool:
 
 @repository_adapter(
     adapter_id="interface.schema-api",
-    version="1.4.0",
+    version="1.5.0",
     file_patterns=(
         "package.json",
         "**/package.json",
@@ -1450,6 +1459,7 @@ def _interfaces(context: AdapterContext) -> AdapterResult:
                             target,
                             "CODE_GENERATION_OUTPUT",
                             "interface.schema-api",
+                            confidence="MEDIUM",
                             location=location,
                         ),
                     ),
@@ -1481,6 +1491,18 @@ def _interfaces(context: AdapterContext) -> AdapterResult:
             continue
         if kind in {"OPENAPI", "EVENT_CONTRACT"}:
             if file.content is None or file.binary:
+                findings.append(
+                    _finding(
+                        "INTERFACE.DECLARATION_INVALID",
+                        "apis_data",
+                        "A recognized tracked API declaration is unavailable as bounded UTF-8 "
+                        "text; no API evidence was inferred from it.",
+                        (file.path,),
+                        "interface.schema-api",
+                        severity="HIGH",
+                        blocking=True,
+                    )
+                )
                 continue
             try:
                 text = file.content.decode("utf-8")

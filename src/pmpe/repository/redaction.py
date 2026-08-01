@@ -17,7 +17,7 @@ class RedactionError(RuntimeError):
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
-    version = "central-redactor/1.8.0"
+    version = "central-redactor/1.9.0"
     __slots__ = ("_environment_secrets",)
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
@@ -62,7 +62,7 @@ class EvidenceRedactor:
         r"|redis[_-]?url|api[_-]?key|access[_-]?key|private[_-]?key|password|passwd"
         r"|pwd|secret|signature|token)"
     )
-    _home_path = re.compile(r"^(?:/Users|/home)/[^/]+(?=/|$)")
+    _home_path = re.compile(r"(?<![A-Za-z0-9_])(?:/Users|/home)/[^/\s]+")
 
     def __init__(self, *, environment: Mapping[str, str] | None = None) -> None:
         source = os.environ if environment is None else environment
