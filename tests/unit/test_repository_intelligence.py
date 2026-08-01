@@ -754,6 +754,30 @@ def test_shell_source_without_adapter_is_blocked_not_reported_absent(tmp_path: P
     assert any(item.code == "STACK.UNSUPPORTED_FILE_TYPE" for item in snapshot.findings)
 
 
+def test_adapter_classified_file_types_are_not_also_reported_unsupported(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "contracts/events.proto", 'syntax = "proto3";\n')
+    _write(repo, "contracts/query.graphql", "type Query { ready: Boolean! }\n")
+    _write(repo, "containers/Dockerfile.dev", "FROM scratch\n")
+    _write(repo, "config/.env.production", "DEPLOYMENT=production\n")
+    _commit(repo, "supported domain-specific files")
+    snapshot = _scan(repo)
+    unsupported_refs = {
+        ref
+        for finding in snapshot.findings
+        if finding.code == "STACK.UNSUPPORTED_FILE_TYPE"
+        for ref in finding.evidence_refs
+    }
+    assert unsupported_refs.isdisjoint(
+        {
+            "contracts/events.proto",
+            "contracts/query.graphql",
+            "containers/Dockerfile.dev",
+            "config/.env.production",
+        }
+    )
+
+
 @pytest.mark.parametrize(
     "manifest",
     ["Makefile", "WORKSPACE", "BUILD.bazel", "Jenkinsfile", "Rakefile", "Procfile"],
@@ -1382,7 +1406,7 @@ def test_worktree_lifecycle_flags_are_preserved_and_prunable_state_blocks(
                 stdout=(
                     f"worktree {repo}\0HEAD {head}\0detached\0locked maintenance\0"
                     "prunable gitdir-missing\0\0"
-                    f"worktree {repo.parent / 'bare.git'}\0HEAD {head}\0bare\0\0"
+                    f"worktree {repo.parent / 'bare.git'}\0bare\0\0"
                 ),
                 stderr="",
             )
@@ -1401,8 +1425,42 @@ def test_worktree_lifecycle_flags_are_preserved_and_prunable_state_blocks(
     assert bare.bare is True
     assert bare.detached is False
     assert bare.branch == "BARE"
+    assert bare.head_sha == ""
     assert observation.disposition == "BLOCKED"
     assert any(item.fact == "worktree_prunable:1" for item in observation.unknowns)
+
+
+def test_bare_worktree_with_fabricated_head_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    governance = importlib.import_module("pmpe.repository.governance")
+    repo = _init_repo(tmp_path)
+    head = _git(repo, "rev-parse", "HEAD")
+    original = governance.GovernanceCommandRunner.run
+
+    def invalid_bare_worktree(
+        self: Any,
+        args: tuple[str, ...],
+        cwd: Path,
+        timeout: int,
+        *,
+        cancellation: Any = None,
+    ) -> Any:
+        if args[1:3] == ("worktree", "list"):
+            return api.CommandResult(
+                args=args,
+                returncode=0,
+                stdout=f"worktree {repo.parent / 'bare.git'}\0HEAD {head}\0bare\0\0",
+                stderr="",
+            )
+        return original(self, args, cwd, timeout, cancellation=cancellation)
+
+    monkeypatch.setattr(governance.GovernanceCommandRunner, "run", invalid_bare_worktree)
+    observation = _observe(repo)
+    assert observation.disposition == "BLOCKED"
+    assert observation.worktrees == ()
+    assert any(item.fact == "worktree_record:1" for item in observation.unknowns)
 
 
 @pytest.mark.parametrize(

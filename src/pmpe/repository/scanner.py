@@ -49,7 +49,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/2.1.0"
+SCANNER_VERSION = "repository-scanner/2.2.0"
 IMPLEMENTATION_MODULES = (
     "repository.adapters",
     "repository.models",
@@ -1653,12 +1653,24 @@ class RepositoryScanner:
             ".dockerignore",
             ".typed",
         }
+        # A non-generic item from a sealed adapter proves that the file's role is
+        # already understood.  Do not then contradict that evidence merely because
+        # the file uses a domain-specific suffix (for example .proto, .graphql,
+        # Dockerfile.dev, or .env.production).  Repository-topology's TRACKED_FILE
+        # item is intentionally excluded because it says nothing about file type.
+        classified_paths = {
+            item.path
+            for category, category_items in inventory.items()
+            if category != "repository_topology"
+            for item in category_items
+        }
         unknown = [
             file.path
             for file in files
             if PurePosixPath(file.path).suffix
             and PurePosixPath(file.path).suffix.lower() not in known_suffixes
             and not file.binary
+            and file.path not in classified_paths
         ]
         unsupported_source_suffixes = {
             ".sh",

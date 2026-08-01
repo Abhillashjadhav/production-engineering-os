@@ -47,7 +47,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.3.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/2.4.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -1087,8 +1087,12 @@ class GovernanceCollector:
                         current = {}
                         record_invalid = False
                         continue
-                    missing = {"worktree", "HEAD"} - set(current)
                     lifecycle_states = sum(key in current for key in ("branch", "detached", "bare"))
+                    required_fields = {"worktree"}
+                    if "bare" not in current:
+                        required_fields.add("HEAD")
+                    missing = required_fields - set(current)
+                    invalid_identity_shape = "bare" in current and "HEAD" in current
                     if missing or lifecycle_states != 1:
                         self._local_unknowns.append(
                             UnknownFact(
@@ -1102,10 +1106,26 @@ class GovernanceCollector:
                         )
                         current = {}
                         continue
+                    if invalid_identity_shape:
+                        self._local_unknowns.append(
+                            UnknownFact(
+                                fact=f"worktree_record:{record_number}",
+                                status="BLOCKED",
+                                reason=(
+                                    "A bare Git worktree record contains an unexpected HEAD; "
+                                    "mutable worktree state was not inferred."
+                                ),
+                            )
+                        )
+                        current = {}
+                        continue
                     results.append(
                         WorktreeObservation(
                             path=current["worktree"],
-                            head_sha=current["HEAD"],
+                            # Git's documented bare-worktree porcelain form does not
+                            # contain HEAD.  Preserve that absence instead of inventing
+                            # an immutable revision for a mutable bare repository.
+                            head_sha=current.get("HEAD", ""),
                             branch=current.get(
                                 "branch", "BARE" if "bare" in current else "DETACHED"
                             ).removeprefix("refs/heads/"),
@@ -1305,7 +1325,9 @@ class GovernanceCollector:
         branches = self._branches(root, ref)
         worktrees = self._worktrees(root)
         if any(not _valid_object_id(item.sha, object_format) for item in branches) or any(
-            not _valid_object_id(item.head_sha, object_format) for item in worktrees
+            (item.bare and item.head_sha != "")
+            or (not item.bare and not _valid_object_id(item.head_sha, object_format))
+            for item in worktrees
         ):
             raise RepositoryIntelligenceError("local Git reference identity is malformed")
         observed_at = self.clock.now()
