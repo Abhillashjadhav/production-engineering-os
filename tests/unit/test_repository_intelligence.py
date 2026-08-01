@@ -425,6 +425,7 @@ def test_entry_points_and_test_coverage_configuration_are_explicit_inventory(
         (
             "[project]\nname='api'\nversion='1'\n"
             "[project.scripts]\napi='api.cli:main'\n"
+            "[project.entry-points.'api.plugins']\nfixture='api.plugin:load'\n"
             "[tool.pytest.ini_options]\ntestpaths=['tests']\n"
             "[tool.coverage.run]\nbranch=true\n"
         ),
@@ -435,6 +436,7 @@ def test_entry_points_and_test_coverage_configuration_are_explicit_inventory(
         (
             "[metadata]\nname = worker\n[tool:pytest]\ntestpaths = tests\n"
             "[coverage:run]\nbranch = true\n"
+            "[options.entry_points]\nconsole_scripts =\n    worker = worker.cli:main\n"
         ),
     )
     _write(repo, "services/api/src/api/__main__.py", "raise SystemExit(0)\n")
@@ -478,6 +480,7 @@ def test_entry_points_and_test_coverage_configuration_are_explicit_inventory(
     assert ("apps/web/package.json", "DECLARED_RUN_ENTRY_POINT") in architecture
     assert ("services/api/pyproject.toml", "TEST_CONFIGURATION") in quality
     assert ("services/api/pyproject.toml", "COVERAGE_CONFIGURATION") in quality
+    assert ("services/worker/setup.cfg", "DECLARED_ENTRY_POINT") in architecture
     assert ("services/worker/setup.cfg", "TEST_CONFIGURATION") in quality
     assert ("services/worker/setup.cfg", "COVERAGE_CONFIGURATION") in quality
     assert ("apps/web/package.json", "DECLARED_TEST_COMMAND") in quality
@@ -487,6 +490,20 @@ def test_entry_points_and_test_coverage_configuration_are_explicit_inventory(
     assert ("apps/web/playwright.config.ts", "TEST_CONFIGURATION") in quality
     assert ("apps/web/vitest.config.ts", "TEST_CONFIGURATION") in quality
     assert (".coveragerc", "COVERAGE_CONFIGURATION") in quality
+
+
+def test_dynamic_python_entry_points_are_explicitly_unsupported(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "setup.py", "from setuptools import setup\nsetup(name='fixture')\n")
+    _commit(repo, "dynamic Python packaging")
+    snapshot = _scan(repo)
+    assert snapshot.disposition == "BLOCKED"
+    assert any(
+        item.code == "ARCHITECTURE.DYNAMIC_ENTRY_POINTS_UNSUPPORTED"
+        and item.evidence_refs == ("setup.py",)
+        and item.blocking
+        for item in snapshot.findings
+    )
 
 
 def test_every_recognized_nested_python_manifest_creates_a_package_boundary(
@@ -1365,6 +1382,7 @@ def test_worktree_lifecycle_flags_are_preserved_and_prunable_state_blocks(
                 stdout=(
                     f"worktree {repo}\0HEAD {head}\0detached\0locked maintenance\0"
                     "prunable gitdir-missing\0\0"
+                    f"worktree {repo.parent / 'bare.git'}\0HEAD {head}\0bare\0\0"
                 ),
                 stderr="",
             )
@@ -1372,15 +1390,62 @@ def test_worktree_lifecycle_flags_are_preserved_and_prunable_state_blocks(
 
     monkeypatch.setattr(governance.GovernanceCommandRunner, "run", lifecycle_worktree)
     observation = _observe(repo)
-    worktree = observation.worktrees[0]
+    worktree = next(item for item in observation.worktrees if item.path == str(repo))
     assert worktree.detached is True
     assert worktree.bare is False
     assert worktree.locked is True
     assert worktree.locked_reason == "maintenance"
     assert worktree.prunable is True
     assert worktree.prunable_reason == "gitdir-missing"
+    bare = next(item for item in observation.worktrees if item.path.endswith("bare.git"))
+    assert bare.bare is True
+    assert bare.detached is False
+    assert bare.branch == "BARE"
     assert observation.disposition == "BLOCKED"
     assert any(item.fact == "worktree_prunable:1" for item in observation.unknowns)
+
+
+@pytest.mark.parametrize(
+    "lifecycle_fields",
+    [
+        "detached unexpected",
+        "branch refs/heads/main\0detached",
+        "branch refs/heads/main\0bare",
+    ],
+)
+def test_malformed_or_contradictory_worktree_lifecycle_fails_closed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    lifecycle_fields: str,
+) -> None:
+    api = _api()
+    governance = importlib.import_module("pmpe.repository.governance")
+    repo = _init_repo(tmp_path)
+    head = _git(repo, "rev-parse", "HEAD")
+    original = governance.GovernanceCommandRunner.run
+
+    def malformed_lifecycle(
+        self: Any,
+        args: tuple[str, ...],
+        cwd: Path,
+        timeout: int,
+        *,
+        cancellation: Any = None,
+    ) -> Any:
+        if args[1:3] == ("worktree", "list"):
+            return api.CommandResult(
+                args=args,
+                returncode=0,
+                stdout=f"worktree {repo}\0HEAD {head}\0{lifecycle_fields}\0\0",
+                stderr="",
+            )
+        return original(self, args, cwd, timeout, cancellation=cancellation)
+
+    monkeypatch.setattr(governance.GovernanceCommandRunner, "run", malformed_lifecycle)
+    observation = _observe(repo)
+    assert observation.disposition == "BLOCKED"
+    assert observation.worktrees == ()
+    assert any(item.fact == "worktree_record:1" for item in observation.unknowns)
 
 
 def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path: Path) -> None:

@@ -1088,8 +1088,8 @@ class GovernanceCollector:
                         record_invalid = False
                         continue
                     missing = {"worktree", "HEAD"} - set(current)
-                    detached = "detached" in current or "bare" in current
-                    if missing or ("branch" not in current and not detached):
+                    lifecycle_states = sum(key in current for key in ("branch", "detached", "bare"))
+                    if missing or lifecycle_states != 1:
                         self._local_unknowns.append(
                             UnknownFact(
                                 fact=f"worktree_record:{record_number}",
@@ -1106,7 +1106,9 @@ class GovernanceCollector:
                         WorktreeObservation(
                             path=current["worktree"],
                             head_sha=current["HEAD"],
-                            branch=current.get("branch", "DETACHED").removeprefix("refs/heads/"),
+                            branch=current.get(
+                                "branch", "BARE" if "bare" in current else "DETACHED"
+                            ).removeprefix("refs/heads/"),
                             bare="bare" in current,
                             detached="detached" in current,
                             locked="locked" in current,
@@ -1151,6 +1153,28 @@ class GovernanceCollector:
                         fact=f"worktree_record:{record_number + 1}",
                         status="BLOCKED",
                         reason="A required Git worktree field is malformed.",
+                    )
+                )
+                current = {}
+                record_invalid = True
+                continue
+            if key in {"bare", "detached"} and (separator or value):
+                self._local_unknowns.append(
+                    UnknownFact(
+                        fact=f"worktree_record:{record_number + 1}",
+                        status="BLOCKED",
+                        reason="A marker-only Git worktree field contains an unexpected value.",
+                    )
+                )
+                current = {}
+                record_invalid = True
+                continue
+            if key in {"locked", "prunable"} and separator and not value:
+                self._local_unknowns.append(
+                    UnknownFact(
+                        fact=f"worktree_record:{record_number + 1}",
+                        status="BLOCKED",
+                        reason="A Git worktree lifecycle reason is malformed.",
                     )
                 )
                 current = {}

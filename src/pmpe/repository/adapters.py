@@ -15,7 +15,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.10.0"
+DETECTOR_VERSION = "1.11.0"
 
 _PACKAGE_BOUNDARY_MANIFEST_NAMES = frozenset(
     {
@@ -487,7 +487,7 @@ def _topology(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="stack.python",
-    version="1.4.0",
+    version="1.5.0",
     file_patterns=(
         "*.py",
         "**/*.py",
@@ -547,12 +547,28 @@ def _python(context: AdapterContext) -> AdapterResult:
                     project = parsed.get("project", {})
                     if isinstance(project, dict) and any(
                         isinstance(project.get(key), dict) and project[key]
-                        for key in ("scripts", "gui-scripts")
+                        for key in ("scripts", "gui-scripts", "entry-points")
                     ):
                         items.append(
                             (
                                 "architecture_boundaries",
                                 _item(file, "DECLARED_ENTRY_POINT", "stack.python"),
+                            )
+                        )
+                    dynamic = project.get("dynamic", []) if isinstance(project, dict) else []
+                    if isinstance(dynamic, list) and any(
+                        item in {"scripts", "gui-scripts", "entry-points"} for item in dynamic
+                    ):
+                        findings.append(
+                            _finding(
+                                "ARCHITECTURE.DYNAMIC_ENTRY_POINTS_UNSUPPORTED",
+                                "architecture_boundaries",
+                                "Dynamic Python entry-point declarations are not executed or "
+                                "inferred by the read-only scanner.",
+                                (file.path,),
+                                "stack.python",
+                                severity="HIGH",
+                                blocking=True,
                             )
                         )
                     tool = parsed.get("tool", {})
@@ -590,6 +606,13 @@ def _python(context: AdapterContext) -> AdapterResult:
                     configuration = configparser.ConfigParser(interpolation=None)
                     configuration.read_string(file.content.decode("utf-8"))
                     sections = {section.lower() for section in configuration.sections()}
+                    if "options.entry_points" in sections:
+                        items.append(
+                            (
+                                "architecture_boundaries",
+                                _item(file, "DECLARED_ENTRY_POINT", "stack.python"),
+                            )
+                        )
                     if sections & {"pytest", "tool:pytest"}:
                         items.append(
                             (
@@ -616,6 +639,19 @@ def _python(context: AdapterContext) -> AdapterResult:
                             blocking=True,
                         )
                     )
+            if name == "setup.py":
+                findings.append(
+                    _finding(
+                        "ARCHITECTURE.DYNAMIC_ENTRY_POINTS_UNSUPPORTED",
+                        "architecture_boundaries",
+                        "Executable setup.py entry-point declarations are not executed or "
+                        "inferred by the read-only scanner.",
+                        (file.path,),
+                        "stack.python",
+                        severity="HIGH",
+                        blocking=True,
+                    )
+                )
         elif file.path.endswith(".py"):
             test_kind = _test_signal_kind(file.path)
             if test_kind is None:
