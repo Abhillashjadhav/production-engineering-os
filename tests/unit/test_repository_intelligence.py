@@ -389,6 +389,10 @@ def test_implementation_digest_binds_loaded_runtime_code_and_source_identity(
     with monkeypatch.context() as runtime_patch:
         runtime_patch.setattr(urllib_parse, "uses_netloc", [*urllib_parse.uses_netloc, "custom"])
         assert scanner._implementation_digest() != original
+    json_module = importlib.import_module("json")
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(json_module, "_default_decoder", json.JSONDecoder(strict=False))
+        assert scanner._implementation_digest() != original
     for module_name, attribute in (
         ("configparser", "ConfigParser"),
         ("datetime", "datetime"),
@@ -402,6 +406,8 @@ def test_implementation_digest_binds_loaded_runtime_code_and_source_identity(
         ("_json", "scanstring"),
         ("_sre", "compile"),
         ("math", "isfinite"),
+        ("re._compiler", "_compile"),
+        ("re._parser", "parse"),
     ):
         module = importlib.import_module(module_name)
         with monkeypatch.context() as runtime_patch:
@@ -1826,6 +1832,22 @@ def test_complete_authorization_header_is_redacted_for_every_scheme(
     assert all(secret not in sanitized for secret in secrets)
 
 
+@pytest.mark.parametrize(
+    "header",
+    [
+        "Cookie: session=primary-secret; csrf=secondary-secret",
+        "Set-Cookie: session=primary-secret; HttpOnly; csrf=secondary-secret",
+        "Cookie: session=primary-secret;\r\n csrf=folded-secondary-secret",
+    ],
+)
+def test_complete_cookie_header_is_redacted(header: str) -> None:
+    redaction = importlib.import_module("pmpe.repository.redaction")
+    sanitized = redaction.EvidenceRedactor(environment={}).sanitize(f"provider returned {header}")
+    assert sanitized == "provider returned Cookie: [REDACTED]"
+    assert "primary-secret" not in sanitized
+    assert "secondary-secret" not in sanitized
+
+
 def test_non_secret_boolean_control_with_sensitive_word_remains_typed() -> None:
     redaction = importlib.import_module("pmpe.repository.redaction")
     sanitized = redaction.EvidenceRedactor(environment={}).sanitize(
@@ -2017,6 +2039,9 @@ class _SecretBearingRemote(_FakeRemote):
                 "azure_note": "AccountName=demo;AccountKey=azure-secret-value==;Endpoint=x",
                 "odbc_note": "Driver=x;UID=demo;PWD={odbc secret value};Server=db",
                 "cookie_note": "Cookie: session=cookie-secret; theme=dark",
+                "folded_cookie_note": (
+                    "Set-Cookie: session=cookie-secret;\r\n csrf=secondary-cookie-secret"
+                ),
                 "aws_note": "aws_secret_access_key=aws-secret-value",
                 "safe_url": "https://user:password@example.invalid/repo?token=secret-value",
                 "signed_url": "https://storage.example.invalid/blob?sv=1&sig=signed-secret",
@@ -2671,6 +2696,7 @@ def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path:
     assert "azure-secret-value" not in payload
     assert "odbc secret value" not in payload
     assert "cookie-secret" not in payload
+    assert "secondary-cookie-secret" not in payload
     assert "aws-secret-value" not in payload
     assert "query-json-secret" not in payload
     assert "pass-json-secret" not in payload

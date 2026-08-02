@@ -17,7 +17,7 @@ class RedactionError(RuntimeError):
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
-    version = "central-redactor/2.4.0"
+    version = "central-redactor/2.5.0"
     __slots__ = ("_environment_secrets",)
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
@@ -27,6 +27,10 @@ class EvidenceRedactor:
     )
     _authorization = re.compile(
         r"(?im)\b(?:proxy-)?authorization[ \t]*:[ \t]*[^\r\n]*"
+        r"(?:\r?\n[ \t]+[^\r\n]*)*"
+    )
+    _cookie_header = re.compile(
+        r"(?im)\b(?:set-)?cookie[ \t]*:[ \t]*[^\r\n]*"
         r"(?:\r?\n[ \t]+[^\r\n]*)*"
     )
     _private_key = re.compile(
@@ -149,6 +153,7 @@ class EvidenceRedactor:
         sanitized = self._private_key.sub("[REDACTED_PRIVATE_KEY]", sanitized)
         sanitized = self._private_key_header.sub("[REDACTED_PRIVATE_KEY]", sanitized)
         sanitized = self._authorization.sub("Authorization: [REDACTED]", sanitized)
+        sanitized = self._cookie_header.sub("Cookie: [REDACTED]", sanitized)
         sanitized = self._url_credentials.sub(r"\1[REDACTED]@", sanitized)
         sanitized = self._common_access_key.sub("[REDACTED]", sanitized)
         sanitized = self._vendor_token.sub("[REDACTED]", sanitized)

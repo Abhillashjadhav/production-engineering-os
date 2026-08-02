@@ -52,7 +52,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/2.13.0"
+SCANNER_VERSION = "repository-scanner/2.14.0"
 _MAX_SCAN_BUDGETS = {
     "max_files": 100_000,
     "max_directories": 50_000,
@@ -129,6 +129,10 @@ _STDLIB_IMPLEMENTATION_MODULES = (
     "pathlib",
     "posixpath",
     "re",
+    "re._casefix",
+    "re._compiler",
+    "re._constants",
+    "re._parser",
     "shlex",
     "tomllib",
     "tomllib._parser",
@@ -145,6 +149,7 @@ _NATIVE_IMPLEMENTATION_MODULES = (
 )
 _RUNTIME_DEPENDENCY_GLOBALS = MappingProxyType(
     {
+        "json": ("_default_decoder", "_default_encoder"),
         "urllib.parse": (
             "_ALWAYS_SAFE",
             "_ALWAYS_SAFE_BYTES",
@@ -854,6 +859,64 @@ def _is_runtime_semantic_constant(
     return False
 
 
+def _runtime_configured_instance_evidence(value: Any, *, module_name: str) -> dict[str, Any]:
+    """Bind the deterministic configuration of a sealed parser/encoder instance."""
+
+    try:
+        state = vars(value)
+    except TypeError as exc:
+        raise RepositoryIntelligenceError(
+            f"{module_name} configured runtime state is unavailable for provenance binding"
+        ) from exc
+    if not state or len(state) > 1_024:
+        raise RepositoryIntelligenceError(
+            f"{module_name} configured runtime state is empty or unbounded"
+        )
+    members: list[dict[str, Any]] = []
+    for name, member in sorted(state.items()):
+        if _is_runtime_semantic_constant(member, module_name=module_name):
+            members.append(
+                {
+                    "member": name,
+                    "kind": "constant",
+                    "value": _runtime_value_evidence(member),
+                }
+            )
+            continue
+        implementation = member.__func__ if inspect.ismethod(member) else member
+        if inspect.isfunction(implementation):
+            members.append(
+                {
+                    "member": name,
+                    "kind": "function",
+                    "code": _runtime_code_evidence(implementation),
+                }
+            )
+            continue
+        if inspect.isclass(member) or inspect.isbuiltin(member) or callable(member):
+            callable_evidence: dict[str, Any] = {
+                "member": name,
+                "kind": "callable",
+                "module": str(getattr(member, "__module__", type(member).__module__)),
+                "qualname": str(getattr(member, "__qualname__", type(member).__qualname__)),
+                "type": f"{type(member).__module__}.{type(member).__qualname__}",
+            }
+            bound_state = getattr(member, "__self__", None)
+            if bound_state is not None and _is_runtime_semantic_constant(
+                bound_state, module_name=module_name
+            ):
+                callable_evidence["bound_state"] = _runtime_value_evidence(bound_state)
+            members.append(callable_evidence)
+            continue
+        raise RepositoryIntelligenceError(
+            f"{module_name}.{name} runtime state is unsupported for provenance binding"
+        )
+    return {
+        "type": f"{type(value).__module__}.{type(value).__qualname__}",
+        "members": members,
+    }
+
+
 def _runtime_dependency_module_digest(module: Any) -> str:
     """Bind a dependency module without recursively traversing arbitrary objects."""
 
@@ -938,9 +1001,23 @@ def _runtime_dependency_module_digest(module: Any) -> str:
                 }
             )
             continue
-        if (
-            name in explicit_globals or name.lstrip("_").isupper()
-        ) and _is_runtime_semantic_constant(target, module_name=module_name):
+        if name in explicit_globals:
+            value = (
+                _runtime_value_evidence(target)
+                if _is_runtime_semantic_constant(target, module_name=module_name)
+                else _runtime_configured_instance_evidence(target, module_name=module_name)
+            )
+            symbols.append(
+                {
+                    "symbol": name,
+                    "kind": "configured-global",
+                    "value": value,
+                }
+            )
+            continue
+        if name.lstrip("_").isupper() and _is_runtime_semantic_constant(
+            target, module_name=module_name
+        ):
             symbols.append(
                 {
                     "symbol": name,
