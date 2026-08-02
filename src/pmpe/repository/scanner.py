@@ -51,7 +51,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/2.11.0"
+SCANNER_VERSION = "repository-scanner/2.12.0"
 _MAX_SCAN_BUDGETS = {
     "max_files": 100_000,
     "max_directories": 50_000,
@@ -118,7 +118,9 @@ _RUNTIME_DEPENDENCY_MODULES = MappingProxyType(
 )
 _STDLIB_IMPLEMENTATION_MODULES = (
     "configparser",
+    "datetime",
     "fnmatch",
+    "hashlib",
     "json",
     "json.decoder",
     "json.encoder",
@@ -130,6 +132,15 @@ _STDLIB_IMPLEMENTATION_MODULES = (
     "tomllib",
     "tomllib._parser",
     "tomllib._re",
+    "urllib.parse",
+    "uuid",
+)
+_NATIVE_IMPLEMENTATION_MODULES = (
+    "_datetime",
+    "_hashlib",
+    "_json",
+    "_sre",
+    "math",
 )
 _OBJECT_FORMAT_LENGTH = {"sha1": 40, "sha256": 64}
 
@@ -564,8 +575,10 @@ def _stable_code_constant(value: Any) -> Any:
         }
     if value is Ellipsis:
         return {"singleton": "ELLIPSIS"}
-    if value is None or isinstance(value, (bool, int, str)):
+    if value is None or isinstance(value, (bool, str)):
         return value
+    if isinstance(value, int):
+        return {"integer": str(value)}
     if isinstance(value, (float, complex)):
         return {"numeric_type": type(value).__name__, "value": repr(value)}
     return {"unsupported_constant_type": f"{type(value).__module__}.{type(value).__qualname__}"}
@@ -654,8 +667,10 @@ def _runtime_value_evidence(value: Any, *, depth: int = 0) -> Any:
         raise RepositoryIntelligenceError("runtime implementation state exceeds depth limit")
     if isinstance(value, CodeType):
         return {"code": _code_object_evidence(value)}
-    if value is None or isinstance(value, (bool, int, str)):
+    if value is None or isinstance(value, (bool, str)):
         return value
+    if isinstance(value, int):
+        return {"integer": str(value)}
     if isinstance(value, bytes):
         return {"bytes": value.hex()}
     if isinstance(value, (float, complex)):
@@ -725,6 +740,91 @@ def _runtime_module_namespace_digest(module: Any) -> str:
                     "value": _runtime_value_evidence(target),
                 }
             )
+    return canonical_digest(symbols)
+
+
+def _runtime_dependency_module_digest(module: Any) -> str:
+    """Bind a dependency module without recursively traversing arbitrary objects."""
+
+    symbols: list[dict[str, Any]] = []
+    module_name = str(getattr(module, "__name__", "unknown"))
+    for name, target in sorted(vars(module).items()):
+        if name.startswith("__"):
+            continue
+        if inspect.isfunction(target):
+            symbols.append(
+                {
+                    "symbol": name,
+                    "kind": "function",
+                    "code": _runtime_code_evidence(target),
+                }
+            )
+            continue
+        if inspect.isclass(target):
+            methods: list[dict[str, Any]] = []
+            for method_name, member in sorted(vars(target).items()):
+                implementations: tuple[Any, ...]
+                if isinstance(member, (classmethod, staticmethod)):
+                    implementations = (member.__func__,)
+                elif isinstance(member, property):
+                    implementations = tuple(
+                        implementation
+                        for implementation in (member.fget, member.fset, member.fdel)
+                        if implementation is not None
+                    )
+                else:
+                    implementations = (member,)
+                for implementation in implementations:
+                    if inspect.isfunction(implementation):
+                        methods.append(
+                            {
+                                "method": method_name,
+                                "code": _runtime_code_evidence(implementation),
+                            }
+                        )
+            symbols.append(
+                {
+                    "symbol": name,
+                    "kind": "class",
+                    "module": str(getattr(target, "__module__", "unknown")),
+                    "qualname": str(getattr(target, "__qualname__", name)),
+                    "methods": methods,
+                }
+            )
+            continue
+        if inspect.isbuiltin(target):
+            symbols.append(
+                {
+                    "symbol": name,
+                    "kind": "builtin",
+                    "module": str(getattr(target, "__module__", module_name)),
+                    "qualname": str(getattr(target, "__qualname__", name)),
+                }
+            )
+            continue
+        wrapped = getattr(target, "__wrapped__", None)
+        if callable(target) and inspect.isfunction(wrapped):
+            symbols.append(
+                {
+                    "symbol": name,
+                    "kind": "wrapped-callable",
+                    "type": f"{type(target).__module__}.{type(target).__qualname__}",
+                    "code": _runtime_code_evidence(wrapped),
+                }
+            )
+            continue
+        if isinstance(target, (type(None), bool, int, float, complex, str, bytes, re.Pattern)):
+            symbols.append(
+                {
+                    "symbol": name,
+                    "kind": "constant",
+                    "value": _runtime_value_evidence(target),
+                }
+            )
+    if not symbols:
+        raise RepositoryIntelligenceError(
+            f"{module_name} runtime namespace is unavailable for provenance binding"
+        )
     return canonical_digest(symbols)
 
 
@@ -864,7 +964,25 @@ def _runtime_dependency_evidence() -> list[dict[str, str]]:
                 "label": f"python-stdlib.{module_name}",
                 "module": module_name,
                 "source_digest": source_digest,
-                "runtime_code_digest": _runtime_module_namespace_digest(module),
+                "runtime_code_digest": _runtime_dependency_module_digest(module),
+            }
+        )
+    for module_name in _NATIVE_IMPLEMENTATION_MODULES:
+        module = importlib.import_module(module_name)
+        module_file = getattr(module, "__file__", None)
+        binary_path = Path(module_file) if isinstance(module_file, str) else Path(sys.executable)
+        try:
+            binary_digest = _sha256(binary_path.read_bytes())
+        except OSError as exc:
+            raise RepositoryIntelligenceError(
+                f"{module_name} native bytes are unavailable for provenance binding"
+            ) from exc
+        evidence.append(
+            {
+                "label": f"python-native.{module_name}",
+                "module": module_name,
+                "source_digest": binary_digest,
+                "runtime_code_digest": _runtime_dependency_module_digest(module),
             }
         )
     return evidence

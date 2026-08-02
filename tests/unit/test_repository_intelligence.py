@@ -375,12 +375,28 @@ def test_implementation_digest_binds_loaded_runtime_code_and_source_identity(
     with monkeypatch.context() as runtime_patch:
         runtime_patch.setattr(rfc8785_impl, "_serialize_str", lambda value, sink: None)
         assert scanner._implementation_digest() != original
+    hashlib_module = importlib.import_module("hashlib")
+    original_sha256 = hashlib_module.sha256
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(
+            hashlib_module,
+            "sha256",
+            lambda payload=b"", *args, **kwargs: original_sha256(payload, *args, **kwargs),
+        )
+        assert scanner._implementation_digest() != original
     for module_name, attribute in (
         ("configparser", "ConfigParser"),
+        ("datetime", "datetime"),
         ("fnmatch", "fnmatch"),
         ("json", "loads"),
         ("shlex", "split"),
         ("tomllib", "loads"),
+        ("urllib.parse", "urlsplit"),
+        ("urllib.parse", "_coerce_args"),
+        ("_datetime", "datetime"),
+        ("_json", "scanstring"),
+        ("_sre", "compile"),
+        ("math", "isfinite"),
     ):
         module = importlib.import_module(module_name)
         with monkeypatch.context() as runtime_patch:
