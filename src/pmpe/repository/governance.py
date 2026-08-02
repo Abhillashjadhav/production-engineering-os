@@ -61,7 +61,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.17.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.18.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -1046,12 +1046,8 @@ def _governance_external_global_state_digest(names: tuple[str, ...]) -> str:
         evidence.append(
             {
                 "binding": name,
-                "state": (
-                    {"guard": "identity"}
-                    if type(target) is ModuleType or callable(target)
-                    else _module_attribute_value_evidence(
-                        "governance-imported-global", name, target
-                    )
+                "state": _module_attribute_value_evidence(
+                    "governance-imported-global", name, target
                 ),
             }
         )
@@ -1522,6 +1518,7 @@ class GovernanceCollector:
 
     def _collect_remote_bounded(self, ref: str) -> dict[str, Any]:
         self._assert_execution_collaborators_sealed()
+        _assert_governance_import_bindings_sealed(verify_state=True)
         remote_provider = self.remote_provider
         cancellation = self.cancellation
         if remote_provider is None:

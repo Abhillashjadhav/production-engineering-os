@@ -544,6 +544,27 @@ def test_implementation_digest_seals_returned_multiprocessing_context_members(
         assert callback_ran is False
 
     with monkeypatch.context() as runtime_patch:
+        runtime_patch.setitem(vars(context), "Lock", pipe_proxy)
+        with pytest.raises(
+            scanner.RepositorySecurityError, match="runtime or context instance changed"
+        ):
+            scanner._sealed_fork_event()
+        assert callback_ran is False
+
+    for member_name in ("Condition", "Lock", "Semaphore", "get_context"):
+        with monkeypatch.context() as runtime_patch:
+            runtime_patch.setattr(type(context), member_name, pipe_proxy)
+            with pytest.raises(scanner.RepositorySecurityError, match="context or members changed"):
+                scanner._sealed_fork_event()
+            assert callback_ran is False
+
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(scanner.multiprocessing, "get_context", pipe_proxy)
+        with pytest.raises(scanner.RepositorySecurityError, match="runtime or context"):
+            scanner._sealed_fork_event()
+        assert callback_ran is False
+
+    with monkeypatch.context() as runtime_patch:
         runtime_patch.setattr(scanner.multiprocessing_connection, "Pipe", pipe_proxy)
         with pytest.raises(scanner.RepositorySecurityError, match="runtime or context"):
             scanner._sealed_fork_pipe(duplex=False)
@@ -585,6 +606,66 @@ def test_artifact_digest_verification_rejects_same_code_forged_globals(
     with pytest.raises(scanner.RepositorySecurityError, match="model digest bindings changed"):
         scanner._implementation_digest()
     assert callback_ran is False
+
+
+def test_implementation_digest_rejects_forged_helper_global_namespaces(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    models = importlib.import_module("pmpe.repository.models")
+    callback_ran = False
+
+    original_hash = scanner._sha256
+    forged_hash_globals = dict(original_hash.__globals__)
+
+    class HashlibProxy:
+        def sha256(self, _payload: bytes) -> Any:
+            nonlocal callback_ran
+            callback_ran = True
+            return scanner.hashlib.sha256(b"forged")
+
+    forged_hash_globals["hashlib"] = HashlibProxy()
+    forged_hash = FunctionType(
+        original_hash.__code__,
+        forged_hash_globals,
+        name=original_hash.__name__,
+        argdefs=original_hash.__defaults__,
+        closure=original_hash.__closure__,
+    )
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(scanner, "_sha256", forged_hash)
+        with pytest.raises(scanner.RepositorySecurityError, match="digest helper binding changed"):
+            scanner._implementation_digest()
+        assert callback_ran is False
+
+    original_fields = models.fields
+    forged_fields_globals = dict(original_fields.__globals__)
+    builtins_value = forged_fields_globals["__builtins__"]
+    assert isinstance(builtins_value, dict)
+    forged_builtins = dict(builtins_value)
+    original_getattr = forged_builtins["getattr"]
+
+    def forged_getattr(*args: Any, **kwargs: Any) -> Any:
+        nonlocal callback_ran
+        callback_ran = True
+        return original_getattr(*args, **kwargs)
+
+    forged_builtins["getattr"] = forged_getattr
+    forged_fields_globals["__builtins__"] = forged_builtins
+    forged_fields = FunctionType(
+        original_fields.__code__,
+        forged_fields_globals,
+        name=original_fields.__name__,
+        argdefs=original_fields.__defaults__,
+        closure=original_fields.__closure__,
+    )
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(models, "fields", forged_fields)
+        with pytest.raises(
+            scanner.RepositorySecurityError, match="runtime function global namespace changed"
+        ):
+            scanner._implementation_digest()
+        assert callback_ran is False
 
 
 def test_imported_non_callable_globals_are_sealed_before_use(
@@ -711,6 +792,27 @@ def test_api_data_generated_client_migration_and_contract_sync_are_inventory_ite
         for item in snapshot.inventory["apis_data"].items
         if item.kind.endswith("_SIGNAL")
     )
+
+
+def test_path_only_generated_and_vendor_signals_are_heuristic_confidence(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "vendor/runtime/module.txt", "vendored signal\n")
+    _write(repo, "generated/client.py", "generated_signal = True\n")
+    _write(repo, "docs/not-generated.md", "path-name heuristic\n")
+    _commit(repo, "path-only topology signals")
+    snapshot = _scan(repo)
+    signals = {
+        (item.path, item.kind): item.confidence
+        for item in snapshot.inventory["repository_topology"].items
+        if item.kind in {"GENERATED_AREA", "VENDORED_AREA"}
+    }
+    assert signals == {
+        ("docs/not-generated.md", "GENERATED_AREA"): "MEDIUM",
+        ("generated/client.py", "GENERATED_AREA"): "MEDIUM",
+        ("vendor/runtime/module.txt", "VENDORED_AREA"): "MEDIUM",
+    }
 
 
 def test_api_codegen_declarations_bind_tracked_inputs_outputs_and_exporter(
@@ -4127,26 +4229,14 @@ def test_governance_cancellation_terminates_bounded_command_and_preserves_reposi
 
 
 def test_cancellation_during_observation_digest_loses_atomic_admission(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path,
 ) -> None:
     api = _api()
-    governance = importlib.import_module("pmpe.repository.governance")
     repo = _init_repo(tmp_path)
     before_head = _git(repo, "rev-parse", "HEAD")
     before_index = (repo / ".git" / "index").read_bytes()
     before_status = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
-    cancellation = api.CancellationSignal()
-    original_claim = governance.CancellationSignal.claim_completion
-    cancelled_at_admission = False
-
-    def cancel_before_claim(self: Any) -> bool:
-        nonlocal cancelled_at_admission
-        if not cancelled_at_admission:
-            cancelled_at_admission = True
-            self.cancel()
-        return original_claim(self)
-
-    monkeypatch.setattr(governance.CancellationSignal, "claim_completion", cancel_before_claim)
+    cancellation = api.CancellationSignal(cancel_after_checks=58)
     observation = api.GovernanceCollector(
         repository="example/fixture",
         clock=_fixed_clock(),
@@ -4154,7 +4244,7 @@ def test_cancellation_during_observation_digest_loses_atomic_admission(
         cancellation=cancellation,
     ).observe(repo, ref="main")
 
-    assert cancelled_at_admission
+    assert cancellation._checks == 58
     assert observation.disposition == "BLOCKED"
     assert any(
         item.fact == "observation_cancellation" and item.status == "BLOCKED"

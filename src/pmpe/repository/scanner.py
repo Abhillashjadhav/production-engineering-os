@@ -65,7 +65,7 @@ from pmpe.repository.redaction import (
     assert_distinct_identities_preserved,
 )
 
-SCANNER_VERSION = "repository-scanner/2.22.0"
+SCANNER_VERSION = "repository-scanner/2.23.0"
 _MAX_SCAN_BUDGETS = {
     "max_files": 100_000,
     "max_directories": 50_000,
@@ -204,6 +204,7 @@ _RUNTIME_CONFIGURED_CALLABLE_ATTRIBUTES = MappingProxyType(
         ),
     }
 )
+_SEALED_MODULE_REGISTRY_PROCESS_IDENTITY = id(sys.modules)
 _OBJECT_FORMAT_LENGTH = {"sha1": 40, "sha256": 64}
 
 
@@ -729,9 +730,33 @@ def _runtime_code_evidence(target: Any) -> list[dict[str, Any]]:
     if inspect.ismethod(target):
         target = target.__func__
     if inspect.isfunction(target):
+        module_registry = sys.modules
+        global_namespace_name = target.__globals__.get("__name__")
+        if (
+            type(module_registry) is not dict
+            or id(module_registry) != _SEALED_MODULE_REGISTRY_PROCESS_IDENTITY
+            or not isinstance(global_namespace_name, str)
+        ):
+            raise RepositorySecurityError("runtime module registry changed")
+        defining_module = module_registry.get(global_namespace_name)
+        if type(defining_module) is ModuleType:
+            if target.__globals__ is not vars(defining_module):
+                raise RepositorySecurityError("runtime function global namespace changed")
+            namespace_binding = "registered-module"
+        elif not (
+            global_namespace_name.startswith("namedtuple_")
+            and target.__module__ == global_namespace_name
+            and set(target.__globals__) == {"__builtins__", "__name__", "_tuple_new"}
+        ):
+            raise RepositorySecurityError("runtime function global namespace is unregistered")
+        else:
+            namespace_binding = "stdlib-namedtuple-factory"
         return [
             {
                 "qualname": target.__qualname__,
+                "declared_module": target.__module__,
+                "global_namespace": global_namespace_name,
+                "global_namespace_binding": namespace_binding,
                 "code": _code_object_evidence(target.__code__),
                 "defaults": _stable_code_constant(target.__defaults__),
                 "keyword_defaults": _stable_code_constant(
@@ -1182,6 +1207,13 @@ def _implementation_module_evidence(
 ) -> list[dict[str, str]]:
     """Bind import-time source, current source, and loaded runtime code fail closed."""
 
+    current_hash = _sha256
+    if (
+        id(current_hash),
+        id(current_hash.__code__),
+        id(current_hash.__globals__),
+    ) != _SEALED_SHA256_PROCESS_IDENTITY:
+        raise RepositorySecurityError("scanner digest helper binding changed")
     evidence: list[dict[str, str]] = []
     try:
         for name in paths:
@@ -1207,6 +1239,13 @@ def _implementation_module_evidence(
 def _implementation_source_evidence(label: str, target: Any) -> dict[str, str]:
     """Bind an injected output-affecting implementation without persisting its state."""
 
+    current_hash = _sha256
+    if (
+        id(current_hash),
+        id(current_hash.__code__),
+        id(current_hash.__globals__),
+    ) != _SEALED_SHA256_PROCESS_IDENTITY:
+        raise RepositorySecurityError("scanner digest helper binding changed")
     implementation = target if inspect.isfunction(target) else target.__class__
     try:
         source_path_value = inspect.getsourcefile(implementation)
@@ -1434,6 +1473,13 @@ def _stop_isolated_process(process: Any) -> None:
 
 def _sha256(payload: bytes) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+_SEALED_SHA256_PROCESS_IDENTITY = (
+    id(_sha256),
+    id(_sha256.__code__),
+    id(_sha256.__globals__),
+)
 
 
 def _text(value: str | bytes) -> str:
@@ -1682,7 +1728,7 @@ def _direct_imported_global_names(source_path: Path) -> tuple[str, ...]:
 
 
 def _external_global_binding_state_digest(names: tuple[str, ...]) -> str:
-    """Bind non-executable imported values; executable imports are identity-sealed."""
+    """Bind imported values and executable code to defining global namespaces."""
 
     evidence: list[dict[str, Any]] = []
     for name in names:
@@ -1692,17 +1738,21 @@ def _external_global_binding_state_digest(names: tuple[str, ...]) -> str:
         evidence.append(
             {
                 "binding": name,
-                "state": (
-                    {"guard": "identity"}
-                    if type(target) is ModuleType or callable(target)
-                    else _module_attribute_value_evidence("scanner-imported-global", name, target)
-                ),
+                "state": _module_attribute_value_evidence("scanner-imported-global", name, target),
             }
         )
     return canonical_digest(evidence)
 
 
-_MULTIPROCESSING_CONTEXT_MEMBER_NAMES = ("Event", "Pipe", "Process")
+_MULTIPROCESSING_CONTEXT_MEMBER_NAMES = (
+    "Condition",
+    "Event",
+    "Lock",
+    "Pipe",
+    "Process",
+    "Semaphore",
+    "get_context",
+)
 _MULTIPROCESSING_IMPLEMENTATION_MODULES = (
     multiprocessing,
     multiprocessing_connection,
@@ -1757,6 +1807,7 @@ def _multiprocessing_module_identities() -> tuple[tuple[str, int], ...]:
 
 def _multiprocessing_primitive_identities() -> tuple[tuple[str, int], ...]:
     return (
+        ("multiprocessing.get_context", id(multiprocessing.get_context)),
         ("connection.Pipe", id(multiprocessing_connection.Pipe)),
         ("context.ForkProcess", id(multiprocessing_context.ForkProcess)),
         ("synchronize.Event", id(multiprocessing_synchronize.Event)),
@@ -1773,11 +1824,7 @@ def _multiprocessing_context_instance_identities(
     """Bind context-instance shadows without inspecting hostile values."""
 
     instance_state = vars(context)
-    return tuple(
-        (name, id(instance_state[name]))
-        for name in _MULTIPROCESSING_CONTEXT_MEMBER_NAMES
-        if name in instance_state
-    )
+    return tuple((name, id(value)) for name, value in sorted(instance_state.items()))
 
 
 _SEALED_MULTIPROCESSING_CONTEXT_INSTANCE_IDENTITIES = _multiprocessing_context_instance_identities(
@@ -1799,7 +1846,7 @@ _SEALED_MULTIPROCESSING_CONTEXT_STATE_DIGEST = _multiprocessing_context_state_di
 def _assert_multiprocessing_context_sealed(*, verify_state: bool = True) -> None:
     """Reject replacement of the fork context or any primitive it constructs."""
 
-    current_context = multiprocessing.get_context("fork")
+    current_context = _SEALED_MULTIPROCESSING_CONTEXT
     current_identities = (
         ("context-global", id(_SEALED_MULTIPROCESSING_CONTEXT)),
         ("resolved-context", id(current_context)),
@@ -1861,6 +1908,13 @@ _SEALED_SCANNER_EXTERNAL_GLOBAL_STATE_DIGEST = _external_global_binding_state_di
 def _assert_scanner_import_bindings_sealed(*, verify_state: bool = False) -> None:
     """Reject replaced or mutated output-affecting imported modules before use."""
 
+    current_hash = _sha256
+    if (
+        id(current_hash),
+        id(current_hash.__code__),
+        id(current_hash.__globals__),
+    ) != _SEALED_SHA256_PROCESS_IDENTITY:
+        raise RepositorySecurityError("scanner digest helper binding changed")
     current_identities = tuple(
         (
             name,

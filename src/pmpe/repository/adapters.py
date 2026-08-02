@@ -470,7 +470,7 @@ def _api_declaration_kind(path: str) -> str | None:
 
 @repository_adapter(
     adapter_id="core.repository-topology",
-    version="1.6.0",
+    version="1.7.0",
     file_patterns=("**/*", "*"),
     supported_categories=(
         "repository_topology",
@@ -508,7 +508,19 @@ def _topology(context: AdapterContext) -> AdapterResult:
             kind = "PACKAGE_BOUNDARY_MANIFEST"
         else:
             kind = "TRACKED_FILE"
-        items.append(("repository_topology", _item(file, kind, "core.repository-topology")))
+        items.append(
+            (
+                "repository_topology",
+                _item(
+                    file,
+                    kind,
+                    "core.repository-topology",
+                    confidence=(
+                        "MEDIUM" if kind in {"GENERATED_AREA", "VENDORED_AREA"} else "HIGH"
+                    ),
+                ),
+            )
+        )
 
         test_configuration_kind = _test_configuration_kind(file.path)
         if test_configuration_kind is not None:
