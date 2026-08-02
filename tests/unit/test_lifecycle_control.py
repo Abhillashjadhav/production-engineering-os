@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import replace
+import json
+from dataclasses import asdict, replace
 from pathlib import Path
 
 import pytest
@@ -114,6 +115,11 @@ def evidence_for(source: LifecycleState, target: LifecycleState, *, reason: str)
         )
         for name in rule.required_evidence
     }
+
+
+def object_digest(value: object) -> str:
+    encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
 def test_phase_zero_policy_is_versioned_digest_bound_and_complete() -> None:
@@ -453,6 +459,13 @@ def test_external_mutation_requires_prejournaled_unique_attempt(tmp_path: Path) 
         step_plan_digest=OTHER_SHA,
         status="PLANNED",
     )
+    with pytest.raises(TransitionDeniedError, match="successful exact-attempt"):
+        cp.transition(
+            LifecycleState.STAGING_DEPLOYED,
+            context(evidence=required, mutation=attempt),
+            reason="staging_admitted",
+        )
+    cp.record_mutation_result(attempt, status="SUCCEEDED", result_digest=SHA)
     cp.transition(
         LifecycleState.STAGING_DEPLOYED,
         context(evidence=required, mutation=attempt),
@@ -622,7 +635,16 @@ def test_budget_resume_uses_only_the_recorded_safe_state(tmp_path: Path) -> None
     )
     with pytest.raises(TransitionDeniedError, match="recorded safe state"):
         cp.resume(context(resume_state=LifecycleState.REPAIR_IN_PROGRESS))
-    cp.resume(context(resume_state=LifecycleState.IMPLEMENTATION_IN_PROGRESS))
+    policy, _ = budgets()
+    cp.admit_budget_policy(
+        replace(policy, version="budget-v2", limits={**policy.limits, "tokens": 200})
+    )
+    cp.resume(
+        context(
+            usage=BudgetUsage(counters={"tokens": 101}),
+            resume_state=LifecycleState.IMPLEMENTATION_IN_PROGRESS,
+        )
+    )
     assert cp.state is LifecycleState.IMPLEMENTATION_IN_PROGRESS
 
 
@@ -644,6 +666,196 @@ def test_mutation_idempotency_binding_survives_replay(tmp_path: Path) -> None:
             status="SUCCEEDED",
             result_digest=SHA,
         )
+
+
+def test_concurrent_append_rejects_stale_writer_without_corrupting_chain(tmp_path: Path) -> None:
+    first = control_plane(tmp_path)
+    stale = LifecycleControlPlane.load(tmp_path)
+    first.record_observation(
+        source="watchdog-a",
+        subject_digest=SHA,
+        payload_digest=OTHER_SHA,
+        signature="sig:a",
+        observed_at="2026-08-02T00:03:00Z",
+    )
+    with pytest.raises(TransitionDeniedError, match="compare-and-swap"):
+        stale.record_observation(
+            source="watchdog-b",
+            subject_digest=SHA,
+            payload_digest=OTHER_SHA,
+            signature="sig:b",
+            observed_at="2026-08-02T00:03:01Z",
+        )
+    loaded = LifecycleControlPlane.load(tmp_path)
+    assert [event.reason for event in loaded.events] == ["create", "watchdog-a"]
+
+
+def test_budget_stop_rejects_state_skipping_resume_target(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.IMPLEMENTATION_IN_PROGRESS)
+    _, exhausted = budgets(tokens=100)
+    required = evidence_for(
+        LifecycleState.IMPLEMENTATION_IN_PROGRESS,
+        LifecycleState.BUDGET_EXCEEDED,
+        reason="delivery_budget_exhausted",
+    )
+    stopped = WorkStatus(
+        workers_stopped=True,
+        partial_output_disposition="frozen-unverified-non-admissible",
+    )
+    with pytest.raises(TransitionDeniedError, match="interrupted safe gate"):
+        cp.transition(
+            LifecycleState.BUDGET_EXCEEDED,
+            context(
+                usage=exhausted,
+                work=stopped,
+                evidence=required,
+                resume_state=LifecycleState.COMPLETED,
+            ),
+            reason="delivery_budget_exhausted",
+        )
+
+
+def test_budget_and_repair_usage_are_monotonic_and_replayed(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.VERIFICATION_FAILED)
+    finding = FindingSignal(
+        finding_id="finding-monotonic",
+        source="reviewer",
+        exact_subject_digest=SHA,
+        severity="HIGH",
+        credible=True,
+        blocking=True,
+        reviewer_eligible=True,
+    )
+    required = evidence_for(
+        LifecycleState.VERIFICATION_FAILED,
+        LifecycleState.REPAIR_IN_PROGRESS,
+        reason="accepted_finding",
+    )
+    cp.transition(
+        LifecycleState.REPAIR_IN_PROGRESS,
+        context(
+            usage=BudgetUsage(counters={"tokens": 10}),
+            evidence=required,
+            finding=finding,
+        ),
+        reason="accepted_finding",
+    )
+    assert cp.budget_usage.repair_attempts_by_finding["finding-monotonic"] == 1
+    loaded = LifecycleControlPlane.load(tmp_path)
+    assert loaded.budget_usage.counters["tokens"] == 10
+    assert loaded.budget_usage.repair_attempts_by_finding["finding-monotonic"] == 1
+    next_required = evidence_for(
+        LifecycleState.REPAIR_IN_PROGRESS,
+        LifecycleState.VERIFICATION_FAILED,
+        reason="repair_candidate_ready",
+    )
+    with pytest.raises(TransitionDeniedError, match="budget usage cannot decrease"):
+        loaded.transition(
+            LifecycleState.VERIFICATION_FAILED,
+            context(evidence=next_required),
+            reason="repair_candidate_ready",
+        )
+
+
+def test_same_attempt_id_cannot_rebind_a_complete_mutation_plan(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+    attempt = MutationAttempt(
+        attempt_id="attempt-complete-plan",
+        idempotency_key="deploy:run-65:1",
+        subject_digest=SHA,
+        action="deploy_staging",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+        steps=("create", "wait", "observe"),
+    )
+    cp.record_mutation_result(attempt, status="UNKNOWN", result_digest=None)
+    altered = replace(
+        attempt,
+        action="deploy_production",
+        step_plan_digest=SHA,
+        steps=("promote",),
+    )
+    with pytest.raises(TransitionDeniedError, match="complete mutation plan"):
+        cp.record_mutation_result(altered, status="UNKNOWN", result_digest=None)
+
+
+def test_mutation_admission_requires_persisted_success_after_replay(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
+    attempt = MutationAttempt(
+        attempt_id="attempt-stage-replay",
+        idempotency_key="stage:run-65:replay",
+        subject_digest=SHA,
+        action="deploy_staging",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+    cp.record_mutation_result(attempt, status="SUCCEEDED", result_digest=SHA)
+    loaded = LifecycleControlPlane.load(tmp_path)
+    required = evidence_for(
+        LifecycleState.PR_MERGED,
+        LifecycleState.STAGING_DEPLOYED,
+        reason="staging_admitted",
+    )
+    loaded.transition(
+        LifecycleState.STAGING_DEPLOYED,
+        context(evidence=required, mutation=attempt),
+        reason="staging_admitted",
+    )
+    assert loaded.state is LifecycleState.STAGING_DEPLOYED
+
+
+def test_safety_resume_is_bound_to_original_blocked_attempt(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.ROLLBACK_IN_PROGRESS)
+    attempt = MutationAttempt(
+        attempt_id="rollback-original",
+        idempotency_key="rollback:run-65:original",
+        subject_digest=SHA,
+        action="rollback",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+    blocked_evidence = evidence_for(
+        LifecycleState.ROLLBACK_IN_PROGRESS,
+        LifecycleState.BLOCKED,
+        reason="rollback_indeterminate",
+    )
+    blocked_evidence["original_attempt_digest"] = object_digest(asdict(attempt))
+    cp.transition(
+        LifecycleState.BLOCKED,
+        context(
+            evidence=blocked_evidence,
+            mutation=attempt,
+            resume_state=LifecycleState.ROLLBACK_IN_PROGRESS,
+        ),
+        reason="rollback_indeterminate",
+    )
+    resume_evidence = evidence_for(
+        LifecycleState.BLOCKED,
+        LifecycleState.ROLLBACK_IN_PROGRESS,
+        reason="resume_safety_rollback",
+    )
+    resume_evidence["original_attempt_digest"] = object_digest(asdict(attempt))
+    impostor = replace(attempt, attempt_id="rollback-impostor")
+    with pytest.raises(TransitionDeniedError, match="original blocked action"):
+        cp.transition(
+            LifecycleState.ROLLBACK_IN_PROGRESS,
+            context(
+                evidence=resume_evidence,
+                mutation=impostor,
+                resume_state=LifecycleState.ROLLBACK_IN_PROGRESS,
+            ),
+            reason="resume_safety_rollback",
+        )
+    cp.transition(
+        LifecycleState.ROLLBACK_IN_PROGRESS,
+        context(
+            evidence=resume_evidence,
+            mutation=attempt,
+            resume_state=LifecycleState.ROLLBACK_IN_PROGRESS,
+        ),
+        reason="resume_safety_rollback",
+    )
+    assert cp.budget_usage.safety_units_used == 1
 
 
 def test_unknown_policy_decisions_fail_closed() -> None:
