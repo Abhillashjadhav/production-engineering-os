@@ -76,6 +76,82 @@ def test_repository_scan_cli_writes_artifacts_outside_scanned_repo(
     assert output["governance_observation_id"] == "OBS-CLI-001"
 
 
+def test_repository_scan_cli_reports_malformed_observation_id_without_traceback(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    repo = _repo(tmp_path)
+    output_parent = tmp_path / "evidence"
+    output_parent.mkdir()
+
+    code = main(
+        [
+            "repository",
+            "scan",
+            "--repo",
+            str(repo),
+            "--repository",
+            "example/cli-fixture",
+            "--snapshot-out",
+            str(output_parent / "snapshot.json"),
+            "--governance-out",
+            str(output_parent / "governance.json"),
+            "--observation-id",
+            "not-an-observation-id",
+        ]
+    )
+
+    captured = capsys.readouterr()
+    assert code == 1
+    assert captured.out == ""
+    assert captured.err.startswith("repository intelligence blocked: ")
+    assert "recorded observation ID must be a safe opaque identifier" in captured.err
+    assert "Traceback" not in captured.err
+
+
+def test_repository_scan_cli_governance_binds_to_requested_commit(
+    tmp_path: Path,
+) -> None:
+    repo = _repo(tmp_path)
+    _git(repo, "switch", "-q", "-c", "feature")
+    (repo / "feature.txt").write_text("feature\n")
+    _git(repo, "add", "feature.txt")
+    _git(repo, "commit", "-q", "-m", "feature")
+    feature_sha = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "switch", "-q", "main")
+    output_parent = tmp_path / "evidence"
+    output_parent.mkdir()
+    snapshot_path = output_parent / "snapshot.json"
+    governance_path = output_parent / "governance.json"
+
+    code = main(
+        [
+            "repository",
+            "scan",
+            "--repo",
+            str(repo),
+            "--repository",
+            "example/cli-fixture",
+            "--commit",
+            feature_sha,
+            "--default-branch",
+            "main",
+            "--snapshot-out",
+            str(snapshot_path),
+            "--governance-out",
+            str(governance_path),
+            "--observed-at",
+            "2026-08-01T00:00:00Z",
+            "--observation-id",
+            "OBS-CLI-FEATURE",
+        ]
+    )
+
+    assert code == 3
+    assert json.loads(snapshot_path.read_text())["commit_sha"] == feature_sha
+    assert json.loads(governance_path.read_text())["commit_sha"] == feature_sha
+
+
 def test_repository_scan_cli_refuses_to_create_unpinned_output_parents(tmp_path: Path) -> None:
     repo = _repo(tmp_path)
     missing_parent = tmp_path / "untrusted-parent"
