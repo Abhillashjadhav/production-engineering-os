@@ -407,6 +407,11 @@ def test_governance_provenance_binds_every_material_repository_module() -> None:
         "repository.scanner",
         "contracts.canonical",
     }
+    original = governance._governance_implementation_digest()
+    rfc8785_module = importlib.import_module("rfc8785")
+    with pytest.MonkeyPatch.context() as runtime_patch:
+        runtime_patch.setattr(rfc8785_module, "dumps", lambda value: b"changed")
+        assert governance._governance_implementation_digest() != original
 
 
 def test_api_data_generated_client_migration_and_contract_sync_are_inventory_items(
@@ -1034,7 +1039,6 @@ def test_non_runnable_ci_scaffolds_do_not_suppress_missing_ci(
         "on:\n  pull_request:\n    types: [opened, synchronize, ready_for_review]\n"
         "jobs:\n  test:\n    runs-on: {group: trusted, labels: [linux, x64]}\n"
         "    steps:\n      - run: pytest\n",
-        "on: workflow_dispatch\njobs:\n  local:\n    uses: ./.github/workflows/build.yml\n",
         "on: workflow_dispatch\njobs:\n  remote:\n"
         "    uses: example/automation/.github/workflows/build.yml@v1\n",
     ],
@@ -1103,6 +1107,45 @@ def test_ambiguous_or_duplicate_github_workflow_keys_are_not_verified(
         item.code in {"WORKFLOW.MALFORMED", "WORKFLOW.STRUCTURE_UNPROVEN"}
         for item in snapshot.findings
     )
+
+
+@pytest.mark.parametrize(
+    ("path", "content"),
+    [
+        (
+            ".github/workflows/nested/ci.yml",
+            "on: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n"
+            "    steps:\n      - run: pytest\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "on: [push]\njobs:\n  missing:\n    uses: ./.github/workflows/missing.yml\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "on: [push]\njobs:\n  local:\n    runs-on: ubuntu-latest\n"
+            "    steps:\n      - uses: ./missing-action\n",
+        ),
+        (
+            ".github/workflows/ci.yml",
+            "true: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n"
+            "    steps:\n      - run: pytest\n",
+        ),
+    ],
+)
+def test_undiscoverable_or_unproven_local_github_targets_are_not_verified(
+    tmp_path: Path,
+    path: str,
+    content: str,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, path, content)
+    _commit(repo, "undiscoverable github workflow")
+    snapshot = _scan(repo)
+    assert not any(
+        item.kind == "CI_WORKFLOW" for item in snapshot.inventory["delivery_environments"].items
+    )
+    assert any(item.code == "WORKFLOW.STRUCTURE_UNPROVEN" for item in snapshot.findings)
 
 
 def test_supported_github_needs_graph_and_matrix_objects_are_verified(tmp_path: Path) -> None:

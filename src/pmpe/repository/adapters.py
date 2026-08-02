@@ -17,7 +17,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.24.0"
+DETECTOR_VERSION = "1.25.0"
 
 _GITHUB_EVENTS = frozenset(
     {
@@ -58,7 +58,8 @@ _GITHUB_EVENTS = frozenset(
         "workflow_run",
     }
 )
-_GITHUB_LOCAL_REUSABLE_WORKFLOW = re.compile(r"^\./\.github/workflows/[A-Za-z0-9_./-]+\.ya?ml$")
+_GITHUB_DIRECT_WORKFLOW_PATH = re.compile(r"^\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml$")
+_GITHUB_LOCAL_REUSABLE_WORKFLOW = re.compile(r"^\./\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml$")
 _GITHUB_REMOTE_REUSABLE_WORKFLOW = re.compile(
     r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/"
     r"[A-Za-z0-9_./-]+\.ya?ml@\S+$"
@@ -111,7 +112,7 @@ _GITHUB_PERMISSION_SCOPES = frozenset(
     }
 )
 _GITHUB_TOP_LEVEL_KEYS = frozenset(
-    {True, "on", "name", "run-name", "permissions", "env", "defaults", "concurrency", "jobs"}
+    {"on", "name", "run-name", "permissions", "env", "defaults", "concurrency", "jobs"}
 )
 _GITHUB_INLINE_JOB_KEYS = frozenset(
     {
@@ -1297,7 +1298,7 @@ def _containers(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="delivery.ci",
-    version="1.10.0",
+    version="1.11.0",
     file_patterns=(
         ".github/workflows/*.yml",
         ".github/workflows/*.yaml",
@@ -1706,8 +1707,8 @@ def _github_reusable_workflow_is_runnable(value: object) -> bool:
         return False
     reference = value.strip()
     if _GITHUB_LOCAL_REUSABLE_WORKFLOW.fullmatch(reference) is not None:
-        path = reference.removeprefix("./")
-    elif _GITHUB_REMOTE_REUSABLE_WORKFLOW.fullmatch(reference) is not None:
+        return False
+    if _GITHUB_REMOTE_REUSABLE_WORKFLOW.fullmatch(reference) is not None:
         path = reference.split("@", 1)[0].split("/", 2)[2]
     else:
         return False
@@ -1793,7 +1794,7 @@ def _github_step_is_runnable(value: object) -> bool:
         return False
     reference = uses.strip()
     if _GITHUB_LOCAL_ACTION.fullmatch(reference) is not None:
-        return ".." not in PurePosixPath(reference.removeprefix("./")).parts
+        return False
     if _GITHUB_REMOTE_ACTION.fullmatch(reference) is not None:
         action_path = reference.rsplit("@", 1)[0].split("/", 2)
         return len(action_path) < 3 or ".." not in PurePosixPath(action_path[2]).parts
@@ -1801,7 +1802,7 @@ def _github_step_is_runnable(value: object) -> bool:
 
 
 def _github_workflow_is_runnable(value: dict[object, object]) -> bool:
-    if not set(value) <= _GITHUB_TOP_LEVEL_KEYS or ("on" in value and True in value):
+    if not set(value) <= _GITHUB_TOP_LEVEL_KEYS:
         return False
     for key in ("name", "run-name"):
         item = value.get(key)
@@ -1815,7 +1816,7 @@ def _github_workflow_is_runnable(value: dict[object, object]) -> bool:
         return False
     if "concurrency" in value and not _github_concurrency_is_supported(value["concurrency"]):
         return False
-    event = value.get("on", value.get(True))
+    event = value.get("on")
     jobs = value.get("jobs")
     if not (
         _github_trigger_is_runnable(event)
@@ -1853,7 +1854,7 @@ def _valid_ci_structure(path: str, value: object) -> bool:
     if not isinstance(value, dict) or not value:
         return False
     lowered = path.lower()
-    if lowered.startswith(".github/workflows/"):
+    if _GITHUB_DIRECT_WORKFLOW_PATH.fullmatch(lowered) is not None:
         return _github_workflow_is_runnable(value)
     return False
 

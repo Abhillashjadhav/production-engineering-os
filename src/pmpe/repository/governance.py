@@ -45,12 +45,13 @@ from pmpe.repository.scanner import (
     _cancellation_requested,
     _implementation_module_evidence,
     _implementation_source_evidence,
+    _runtime_dependency_evidence,
     _spawn_guarded_git,
     _stop_guarded_process_group,
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.3.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.4.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -966,6 +967,7 @@ def _governance_implementation_digest(
         _GOVERNANCE_IMPLEMENTATION_PATHS,
         _GOVERNANCE_IMPORTED_SOURCE_DIGESTS,
     )
+    evidence.extend(_runtime_dependency_evidence())
     evidence.extend(extension_evidence)
     return canonical_digest(
         sorted(evidence, key=lambda item: (item.get("label", ""), item["module"]))
