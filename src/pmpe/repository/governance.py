@@ -61,7 +61,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.18.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.19.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -136,7 +136,7 @@ def _valid_branch_ref(value: str) -> bool:
     name = value.removeprefix(prefix)
     return (
         name != "HEAD"
-        and _valid_ref(name)
+        and (name == "@" or _valid_ref(name))
         and all(
             part and not part.startswith(".") and not part.endswith((".", ".lock"))
             for part in name.split("/")
@@ -1679,9 +1679,7 @@ class GovernanceCollector:
         return names
 
     def _branches(self, root: Path, reference_commit: str) -> tuple[BranchObservation, ...]:
-        raw = self._run(
-            root, "for-each-ref", "--format=%(refname:short) %(objectname)", "refs/heads"
-        )
+        raw = self._run(root, "for-each-ref", "--format=%(refname) %(objectname)", "refs/heads")
         branches: list[BranchObservation] = []
         lines = raw.splitlines()
         if len(lines) > self.max_branches:
@@ -1695,9 +1693,12 @@ class GovernanceCollector:
             lines = lines[: self.max_branches]
         for line in lines:
             try:
-                name, sha = line.rsplit(" ", 1)
+                full_ref, sha = line.rsplit(" ", 1)
             except ValueError as exc:
                 raise RepositoryIntelligenceError("local branch output is malformed") from exc
+            if not _valid_branch_ref(full_ref):
+                raise RepositoryIntelligenceError("local branch reference is malformed")
+            name = full_ref.removeprefix("refs/heads/")
             ahead = behind = 0
             status = "OBSERVED"
             comparison = self._execute(
@@ -1707,7 +1708,7 @@ class GovernanceCollector:
                     "rev-list",
                     "--left-right",
                     "--count",
-                    f"{reference_commit}...refs/heads/{name}",
+                    f"{reference_commit}...{full_ref}",
                 ),
             )
             if comparison.returncode == 0 and not comparison.timed_out:

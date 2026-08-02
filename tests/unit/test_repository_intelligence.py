@@ -2912,7 +2912,9 @@ def test_branch_tag_name_collision_uses_full_ref_for_divergence(tmp_path: Path) 
 
     assert collision.status == "OBSERVED"
     assert (collision.ahead, collision.behind) == (1, 1)
-    assert not any(item.fact == "local_branch_divergence:collision" for item in observation.unknowns)
+    assert not any(
+        item.fact == "local_branch_divergence:collision" for item in observation.unknowns
+    )
 
 
 def test_malformed_worktree_record_is_blocked_without_placeholder_facts(
