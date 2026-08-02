@@ -13,6 +13,16 @@ The normative definitions are the
 [manifest schema](../schemas/pmos_contract_manifest.schema.json); this guide
 explains those definitions but does not replace them.
 
+**Runtime boundary:** Direct canonical-bundle intake is not implemented at this
+repository version. `PmosCompilationService` sends input to `CanonicalCompiler`,
+whose format detector accepts only the V1, V2, and V3 markers listed below. If
+the canonical example is passed to that service, it fails with
+`AMBIGUOUS_SOURCE_FORMAT`; it is not an end-to-end admission request. Authors can
+use the canonical example for schema authoring and deterministic semantic-rule
+validation, but PEOS cannot yet admit a natively authored canonical bundle into
+engineering. That production intake gap is an explicit blocker, not permission
+to relabel canonical content as a legacy version or bypass durable intake.
+
 ## Ownership boundary
 
 PMOS or an explicitly named product authority owns product truth: the problem,
@@ -48,6 +58,13 @@ The schema has two structural states:
 2. A compiler-produced incomplete bundle contains the identity/provenance core
    plus one or more blocking `unresolved_product_truth` records. It is valid
    evidence of a loss-aware conversion, but is not engineering-admissible.
+
+The synthetic canonical example is structurally valid and its approval subjects
+and extension payload carry their exact RFC 8785 digests. The executable example
+test also runs every registered deterministic semantic rule with explicit,
+matching synthetic authority grants. Those grants exist only in the test and do
+not represent real authority evidence. The example therefore demonstrates valid
+content authoring, not a deployable or currently intake-admissible contract.
 
 Top-level fields are:
 
@@ -246,12 +263,13 @@ pmpe contract digest examples/v2-demo/contract.json
 ```
 
 That CLI validates the V2 ProductDecisionContract; it is not a canonical-bundle
-admission command. The current full API workflow is
-`PmosCompilationService.process(IntakeRequest(...))`: it reserves and admits the
-input, calls `CanonicalCompiler`, persists compiler evidence, and passes the
-result to `CanonicalContractAdmission`. Callers must provide configured intake,
-fingerprint, evidence, authority, and validation collaborators; this guide does
-not invent infrastructure or credentials.
+admission command. For supported V1/V2/V3 source payloads, the current full API
+workflow is `PmosCompilationService.process(IntakeRequest(...))`: it reserves and
+admits the input, calls `CanonicalCompiler`, persists compiler evidence, and
+passes the result to `CanonicalContractAdmission`. It does not accept a natively
+authored canonical bundle. Callers must provide configured intake, fingerprint,
+evidence, authority, and validation collaborators; this guide does not invent
+infrastructure or credentials.
 
 Interpret outcomes conservatively:
 

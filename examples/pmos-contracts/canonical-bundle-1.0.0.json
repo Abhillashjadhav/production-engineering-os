@@ -27,7 +27,7 @@
       "role": "PRODUCT_OWNER",
       "status": "ACTIVE",
       "subject": {
-        "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "digest": "sha256:b2d550b3e3a10e56ec8c26d2f81a7b8eee694530d65d978753f1c2a364636275",
         "digest_scope": "CANONICAL_BUNDLE_EXCLUDING_APPROVALS",
         "id": "BUNDLE-SYNTHETIC-PMOS-001",
         "version": "1.0.0"
@@ -46,7 +46,7 @@
       "role": "METRIC_POLICY_OWNER",
       "status": "ACTIVE",
       "subject": {
-        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "digest": "sha256:182c18730b2a3b6bc4c76c77b2f7d75e5598947e1ccee9cbb7bc9bd20af0355a",
         "digest_scope": "NAMED_METRIC_MATURITY_POLICY",
         "id": "POLICY-METRIC-EADPR",
         "version": "1.0.0"
@@ -65,7 +65,7 @@
       "role": "METRIC_POLICY_OWNER",
       "status": "ACTIVE",
       "subject": {
-        "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "digest": "sha256:131e73dbcc1c0b9513b4ad1422af238f33a0e2f1721517ce1b4951dc9af57fc3",
         "digest_scope": "NAMED_METRIC_MATURITY_POLICY",
         "id": "POLICY-METRIC-FIRST-PASS",
         "version": "1.0.0"
@@ -84,7 +84,7 @@
       "role": "METRIC_POLICY_OWNER",
       "status": "ACTIVE",
       "subject": {
-        "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "digest": "sha256:7872e1652e3bfc544d9413b59ade290294b703ce98455f454325dcccb43d7c71",
         "digest_scope": "NAMED_METRIC_MATURITY_POLICY",
         "id": "POLICY-METRIC-VAPDR",
         "version": "1.0.0"
@@ -103,7 +103,7 @@
       "role": "METRIC_POLICY_OWNER",
       "status": "ACTIVE",
       "subject": {
-        "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "digest": "sha256:3c33eb3c6d453c6b30a794a798c3bdbd6f61daa9b37b505ab979ea8dbe82d2b7",
         "digest_scope": "NAMED_METRIC_REPORTING_POLICY",
         "id": "POLICY-REPORTING-END-STATE",
         "version": "1.0.0"
@@ -122,7 +122,7 @@
       "role": "METRIC_POLICY_OWNER",
       "status": "ACTIVE",
       "subject": {
-        "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "digest": "sha256:456fb86b0b1360d5226de05fd5d5c8e2932e53e4f57af5ee2a3ee748971f969a",
         "digest_scope": "NAMED_METRIC_REPORTING_POLICY",
         "id": "POLICY-REPORTING-LEADING",
         "version": "1.0.0"
@@ -141,7 +141,7 @@
       "role": "METRIC_POLICY_OWNER",
       "status": "ACTIVE",
       "subject": {
-        "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "digest": "sha256:6b692f5e4fcb6c2daaf26a802a4363484761005fadb08c2ee39b617d371b41f3",
         "digest_scope": "NAMED_METRIC_REPORTING_POLICY",
         "id": "POLICY-REPORTING-MVP",
         "version": "1.0.0"
@@ -211,7 +211,7 @@
           }
         }
       },
-      "payload_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "payload_digest": "sha256:aaa09d5f401133df24e31b67ef60c0ac885a7016b80b5725f389454ac9ce8296",
       "schema_id": "https://example.invalid/schemas/repository-extension.schema.json",
       "schema_version": "1.0.0",
       "target_refs": [
@@ -288,9 +288,10 @@
           "time_zone": "UTC"
         },
         "target": {
-          "baseline_plan": "Approve a prospective EADPR target after the first fixed due cohort matures.",
-          "status": "BASELINE_REQUIRED",
-          "unit": "ratio"
+          "operator": "AT_LEAST",
+          "status": "APPROVED",
+          "unit": "ratio",
+          "value": 0.8
         }
       },
       "POLICY-METRIC-FIRST-PASS": {
@@ -324,9 +325,10 @@
           "time_zone": "UTC"
         },
         "target": {
-          "baseline_plan": "Approve a prospective first-pass validation target after the initial intake cohort.",
-          "status": "BASELINE_REQUIRED",
-          "unit": "ratio"
+          "operator": "AT_LEAST",
+          "status": "APPROVED",
+          "unit": "ratio",
+          "value": 0.8
         }
       },
       "POLICY-METRIC-VAPDR": {
@@ -362,9 +364,10 @@
           "time_zone": "UTC"
         },
         "target": {
-          "baseline_plan": "Approve a prospective VAPDR target after the first fixed production due cohort matures.",
-          "status": "BASELINE_REQUIRED",
-          "unit": "ratio"
+          "operator": "AT_LEAST",
+          "status": "APPROVED",
+          "unit": "ratio",
+          "value": 0.8
         }
       }
     },

@@ -1,10 +1,10 @@
 {
-  "approval_digest": "sha256:6c4a6bc57b79222caefc7af6b9284def65f5380de99953f4918ff51618bd268c",
+  "approval_digest": "sha256:634203930c3a86fd78a5346de6d7c0798c8d6d1cc3dd327a908aca1c86d68df9",
   "approval_digest_scope": "CANONICAL_BUNDLE_APPROVALS_RFC8785",
   "bundle": {
     "bundle_id": "BUNDLE-SYNTHETIC-PMOS-001",
     "bundle_version": "1.0.0",
-    "content_digest": "sha256:3c3e8dc5336de1e50016a7c6c9ba17b1427e52a5a2b1e86bad5415ae87e84f51",
+    "content_digest": "sha256:bb44581ea3dc37aafdc1cf97b331343aeb2f4c66df7f05773d207bf2094c2f48",
     "media_type": "application/json",
     "member_id": "MEMBER-CANONICAL-BUNDLE",
     "schema_id": "https://github.com/Abhillashjadhav/production-engineering-os/schemas/pmos_contract_bundle.schema.json",
@@ -12,7 +12,7 @@
   },
   "canonical_json_profile": "RFC8785",
   "created_at": "2026-07-30T00:00:00Z",
-  "manifest_digest": "sha256:93c4602c108367557dcf0fa53bbcc6c39de196d05fd9be62ac84570ff28ee192",
+  "manifest_digest": "sha256:cccd0420d080fb4dcbed49cdeb71c507e1a45ff774a76bdd2bc1eea4e08495cf",
   "manifest_id": "MANIFEST-TASKFLOW-001",
   "manifest_version": "1.0.0",
   "members": {
