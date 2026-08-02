@@ -375,6 +375,17 @@ def test_implementation_digest_binds_loaded_runtime_code_and_source_identity(
     with monkeypatch.context() as runtime_patch:
         runtime_patch.setattr(rfc8785_impl, "_serialize_str", lambda value, sink: None)
         assert scanner._implementation_digest() != original
+    for module_name, attribute in (
+        ("configparser", "ConfigParser"),
+        ("fnmatch", "fnmatch"),
+        ("json", "loads"),
+        ("shlex", "split"),
+        ("tomllib", "loads"),
+    ):
+        module = importlib.import_module(module_name)
+        with monkeypatch.context() as runtime_patch:
+            runtime_patch.setattr(module, attribute, lambda *_args, **_kwargs: {})
+            assert scanner._implementation_digest() != original
     runtime_digest = scanner._module_runtime_digest("repository.scanner")
     with monkeypatch.context() as runtime_patch:
         runtime_patch.setattr(
@@ -1158,6 +1169,10 @@ def test_undiscoverable_or_unproven_local_github_targets_are_not_verified(
         "owner/repository/action@refs/heads/.hidden",
         "owner/repository/action@refs/heads/foo./bar",
         "owner/repository/action@refs/heads/topic.lock/child",
+        "bad_owner/repository/action@v1",
+        "bad.owner/repository/action@v1",
+        "bad--owner/repository/action@v1",
+        f"{'a' * 40}/repository/action@v1",
     ],
 )
 def test_malformed_remote_github_references_are_not_verified(
@@ -1756,6 +1771,11 @@ def test_sensitive_mapping_fields_are_redacted_before_persistence(field: str) ->
             'Authorization: Digest username="user", nonce="nonce-secret", '
             'response="response-secret"',
             ("username", "user", "nonce-secret", "response-secret"),
+        ),
+        (
+            'Authorization: Digest username="user",\r\n nonce="folded-nonce",\r\n'
+            ' response="folded-response"',
+            ("username", "user", "folded-nonce", "folded-response"),
         ),
         ("Proxy-Authorization: Custom proxy-secret", ("Custom", "proxy-secret")),
     ],

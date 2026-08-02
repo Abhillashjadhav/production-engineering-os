@@ -51,7 +51,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/2.10.0"
+SCANNER_VERSION = "repository-scanner/2.11.0"
 _MAX_SCAN_BUDGETS = {
     "max_files": 100_000,
     "max_directories": 50_000,
@@ -115,6 +115,21 @@ _RUNTIME_DEPENDENCY_MODULES = MappingProxyType(
         ),
         "rfc8785": ("rfc8785", "rfc8785._impl"),
     }
+)
+_STDLIB_IMPLEMENTATION_MODULES = (
+    "configparser",
+    "fnmatch",
+    "json",
+    "json.decoder",
+    "json.encoder",
+    "json.scanner",
+    "pathlib",
+    "posixpath",
+    "re",
+    "shlex",
+    "tomllib",
+    "tomllib._parser",
+    "tomllib._re",
 )
 _OBJECT_FORMAT_LENGTH = {"sha1": 40, "sha256": 64}
 
@@ -648,7 +663,10 @@ def _runtime_value_evidence(value: Any, *, depth: int = 0) -> Any:
     if isinstance(value, PurePosixPath):
         return {"path": value.as_posix()}
     if isinstance(value, re.Pattern):
-        return {"pattern": value.pattern, "flags": value.flags}
+        return {
+            "pattern": _runtime_value_evidence(value.pattern, depth=depth + 1),
+            "flags": value.flags,
+        }
     if isinstance(value, Mapping):
         return {
             "mapping": [
@@ -828,6 +846,25 @@ def _runtime_dependency_evidence() -> list[dict[str, str]]:
                 "module": package_name,
                 "source_digest": canonical_digest(source_evidence),
                 "runtime_code_digest": canonical_digest(loaded_modules),
+            }
+        )
+    for module_name in _STDLIB_IMPLEMENTATION_MODULES:
+        module = importlib.import_module(module_name)
+        try:
+            source_path_value = inspect.getsourcefile(module)
+            if source_path_value is None:
+                raise OSError("stdlib implementation source path is unavailable")
+            source_digest = _sha256(Path(source_path_value).read_bytes())
+        except (OSError, TypeError) as exc:
+            raise RepositoryIntelligenceError(
+                f"{module_name} stdlib bytes are unavailable for provenance binding"
+            ) from exc
+        evidence.append(
+            {
+                "label": f"python-stdlib.{module_name}",
+                "module": module_name,
+                "source_digest": source_digest,
+                "runtime_code_digest": _runtime_module_namespace_digest(module),
             }
         )
     return evidence

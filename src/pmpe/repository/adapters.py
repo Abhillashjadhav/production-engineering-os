@@ -17,7 +17,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.27.0"
+DETECTOR_VERSION = "1.28.0"
 
 _GITHUB_EVENTS = frozenset(
     {
@@ -67,6 +67,7 @@ _GITHUB_REMOTE_REUSABLE_WORKFLOW = re.compile(
 _GITHUB_LOCAL_ACTION = re.compile(r"^\./[A-Za-z0-9_./-]+$")
 _GITHUB_REMOTE_ACTION = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_./-]+)?@\S+$")
 _GITHUB_DOCKER_ACTION = re.compile(r"^docker://\S+$")
+_GITHUB_OWNER = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$")
 _GITHUB_REPOSITORY_COMPONENT = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,98}[A-Za-z0-9])?$")
 _GITHUB_REMOTE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$")
 _GITHUB_PULL_REQUEST_TYPES = frozenset(
@@ -1300,7 +1301,7 @@ def _containers(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="delivery.ci",
-    version="1.13.0",
+    version="1.14.0",
     file_patterns=(
         ".github/workflows/*.yml",
         ".github/workflows/*.yaml",
@@ -1728,7 +1729,10 @@ def _github_remote_reference_is_supported(
     parts = target.split("/")
     if len(parts) < 2 or any(not part or part in {".", ".."} for part in parts):
         return False
-    if any(_GITHUB_REPOSITORY_COMPONENT.fullmatch(part) is None for part in parts[:2]):
+    if (
+        _GITHUB_OWNER.fullmatch(parts[0]) is None
+        or _GITHUB_REPOSITORY_COMPONENT.fullmatch(parts[1]) is None
+    ):
         return False
     remaining = parts[2:]
     if reusable_workflow:
