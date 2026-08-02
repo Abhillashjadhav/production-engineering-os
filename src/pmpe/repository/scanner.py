@@ -57,7 +57,7 @@ from pmpe.repository.redaction import (
     assert_distinct_identities_preserved,
 )
 
-SCANNER_VERSION = "repository-scanner/2.20.0"
+SCANNER_VERSION = "repository-scanner/2.21.0"
 _MAX_SCAN_BUDGETS = {
     "max_files": 100_000,
     "max_directories": 50_000,
@@ -1626,7 +1626,7 @@ def _module_attribute_value_evidence(module_name: str, attribute_name: str, targ
         return {"type": f"{type(target).__module__}.{type(target).__qualname__}"}
     if module_name == "sys" and attribute_name == "executable":
         return {"type": "python-executable", "binary_digest": _sha256(Path(target).read_bytes())}
-    if isinstance(target, (type(None), bool, int, float, complex, str, bytes, tuple, frozenset)):
+    if _is_runtime_semantic_constant(target, module_name=module_name):
         return _runtime_value_evidence(target)
     return {
         "type": f"{type(target).__module__}.{type(target).__qualname__}",
@@ -1635,20 +1635,109 @@ def _module_attribute_value_evidence(module_name: str, attribute_name: str, targ
     }
 
 
-def _external_global_binding_names() -> tuple[str, ...]:
-    return tuple(
-        sorted(
-            name
-            for name, target in globals().items()
-            if (
-                type(target) is ModuleType
-                or inspect.isfunction(target)
-                or inspect.isclass(target)
-                or inspect.isbuiltin(target)
+def _direct_imported_global_names(source_path: Path) -> tuple[str, ...]:
+    """Derive every top-level name introduced by an import statement."""
+
+    try:
+        tree = ast.parse(source_path.read_text())
+    except (OSError, SyntaxError, UnicodeError) as exc:
+        raise RepositoryIntelligenceError(
+            "implementation imports are unavailable for provenance binding"
+        ) from exc
+    names: set[str] = set()
+    for node in tree.body:
+        if isinstance(node, ast.Import):
+            names.update(
+                alias.asname or alias.name.split(".", maxsplit=1)[0] for alias in node.names
             )
-            and str(getattr(target, "__module__", "")) != __name__
+        elif isinstance(node, ast.ImportFrom) and node.module != "__future__":
+            names.update(alias.asname or alias.name for alias in node.names if alias.name != "*")
+    return tuple(sorted(names))
+
+
+def _external_global_binding_state_digest(names: tuple[str, ...]) -> str:
+    """Bind non-executable imported values; executable imports are identity-sealed."""
+
+    evidence: list[dict[str, Any]] = []
+    for name in names:
+        if name not in globals():
+            raise RepositorySecurityError("scanner imported global binding is unavailable")
+        target = globals()[name]
+        evidence.append(
+            {
+                "binding": name,
+                "state": (
+                    {"guard": "identity"}
+                    if type(target) is ModuleType or callable(target)
+                    else _module_attribute_value_evidence("scanner-imported-global", name, target)
+                ),
+            }
         )
+    return canonical_digest(evidence)
+
+
+_MULTIPROCESSING_CONTEXT_MEMBER_NAMES = ("Event", "Pipe", "Process")
+_SEALED_MULTIPROCESSING_CONTEXT = multiprocessing.get_context("fork")
+
+
+def _multiprocessing_context_member_identities(context: Any) -> tuple[tuple[str, int], ...]:
+    context_type = type(context)
+    return tuple(
+        (name, id(inspect.getattr_static(context_type, name)))
+        for name in _MULTIPROCESSING_CONTEXT_MEMBER_NAMES
     )
+
+
+def _multiprocessing_context_state_digest(context: Any) -> str:
+    context_type = type(context)
+    return canonical_digest(
+        [
+            {
+                "member": name,
+                "state": _module_attribute_value_evidence(
+                    "multiprocessing-context",
+                    name,
+                    inspect.getattr_static(context_type, name),
+                ),
+            }
+            for name in _MULTIPROCESSING_CONTEXT_MEMBER_NAMES
+        ]
+    )
+
+
+_SEALED_MULTIPROCESSING_CONTEXT_PROCESS_IDENTITIES = (
+    ("context-global", id(_SEALED_MULTIPROCESSING_CONTEXT)),
+    ("resolved-context", id(_SEALED_MULTIPROCESSING_CONTEXT)),
+    ("context-type", id(type(_SEALED_MULTIPROCESSING_CONTEXT))),
+    *_multiprocessing_context_member_identities(_SEALED_MULTIPROCESSING_CONTEXT),
+)
+_SEALED_MULTIPROCESSING_CONTEXT_STATE_DIGEST = _multiprocessing_context_state_digest(
+    _SEALED_MULTIPROCESSING_CONTEXT
+)
+
+
+def _assert_multiprocessing_context_sealed(*, verify_state: bool = True) -> None:
+    """Reject replacement of the fork context or any primitive it constructs."""
+
+    current_context = multiprocessing.get_context("fork")
+    current_identities = (
+        ("context-global", id(_SEALED_MULTIPROCESSING_CONTEXT)),
+        ("resolved-context", id(current_context)),
+        ("context-type", id(type(current_context))),
+        *_multiprocessing_context_member_identities(current_context),
+    )
+    if current_identities != _SEALED_MULTIPROCESSING_CONTEXT_PROCESS_IDENTITIES:
+        raise RepositorySecurityError("multiprocessing context or members changed")
+    if verify_state and (
+        _multiprocessing_context_state_digest(current_context)
+        != _SEALED_MULTIPROCESSING_CONTEXT_STATE_DIGEST
+    ):
+        raise RepositorySecurityError("multiprocessing context member state changed")
+
+
+def _sealed_multiprocessing_context() -> Any:
+    _assert_multiprocessing_context_sealed()
+    return _SEALED_MULTIPROCESSING_CONTEXT
 
 
 _SEALED_SCANNER_MODULE_ATTRIBUTE_NAMES = _direct_module_attribute_names(
@@ -1660,9 +1749,14 @@ _SEALED_SCANNER_MODULE_ATTRIBUTE_STATE_DIGEST = _module_attribute_binding_state_
 _SEALED_SCANNER_MODULE_ATTRIBUTE_PROCESS_IDENTITIES = _module_attribute_binding_identities(
     _SEALED_SCANNER_MODULE_ATTRIBUTE_NAMES
 )
-_SEALED_SCANNER_EXTERNAL_GLOBAL_NAMES = _external_global_binding_names()
+_SEALED_SCANNER_EXTERNAL_GLOBAL_NAMES = _direct_imported_global_names(
+    _IMPLEMENTATION_PATHS["repository.scanner"]
+)
 _SEALED_SCANNER_EXTERNAL_GLOBAL_PROCESS_IDENTITIES = tuple(
     (name, id(globals()[name])) for name in _SEALED_SCANNER_EXTERNAL_GLOBAL_NAMES
+)
+_SEALED_SCANNER_EXTERNAL_GLOBAL_STATE_DIGEST = _external_global_binding_state_digest(
+    _SEALED_SCANNER_EXTERNAL_GLOBAL_NAMES
 )
 
 
@@ -1684,6 +1778,7 @@ def _assert_scanner_import_bindings_sealed(*, verify_state: bool = False) -> Non
         != _SEALED_SCANNER_MODULE_ATTRIBUTE_PROCESS_IDENTITIES
     ):
         raise RepositorySecurityError("scanner imported-module attributes changed")
+    _assert_multiprocessing_context_sealed(verify_state=verify_state)
     if (
         tuple((name, id(globals().get(name))) for name in _SEALED_SCANNER_EXTERNAL_GLOBAL_NAMES)
         != _SEALED_SCANNER_EXTERNAL_GLOBAL_PROCESS_IDENTITIES
@@ -1694,6 +1789,11 @@ def _assert_scanner_import_bindings_sealed(*, verify_state: bool = False) -> Non
         != _SEALED_SCANNER_MODULE_ATTRIBUTE_STATE_DIGEST
     ):
         raise RepositorySecurityError("scanner imported-module attribute state changed")
+    if verify_state and (
+        _external_global_binding_state_digest(_SEALED_SCANNER_EXTERNAL_GLOBAL_NAMES)
+        != _SEALED_SCANNER_EXTERNAL_GLOBAL_STATE_DIGEST
+    ):
+        raise RepositorySecurityError("scanner imported global binding state changed")
 
 
 def _snapshot_identity_groups(
@@ -2693,7 +2793,7 @@ class RepositoryScanner:
         expected_adapter_identity, expected_evaluator_identity, expected_state_digest = (
             sealed_guards[adapter.adapter_id]
         )
-        process_context = multiprocessing.get_context("fork")
+        process_context = _sealed_multiprocessing_context()
         receiver, sender = process_context.Pipe(duplex=False)
         process = process_context.Process(
             target=_adapter_worker,

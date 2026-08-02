@@ -6,7 +6,6 @@ import ast
 import hashlib
 import json
 import math
-import multiprocessing
 import os
 import re
 import selectors
@@ -48,16 +47,18 @@ from pmpe.repository.scanner import (
     RepositoryIntelligenceError,
     RepositorySecurityError,
     _cancellation_requested,
+    _direct_imported_global_names,
     _implementation_module_evidence,
     _implementation_source_evidence,
     _module_attribute_value_evidence,
     _runtime_dependency_evidence,
+    _sealed_multiprocessing_context,
     _spawn_guarded_git,
     _stop_guarded_process_group,
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.15.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.16.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -1030,17 +1031,28 @@ def _governance_module_attribute_state_digest(
 
 
 def _governance_external_global_names() -> tuple[str, ...]:
-    return tuple(
-        sorted(
-            name
-            for name, target in globals().items()
-            if (
-                type(target) is ModuleType
-                or callable(target)
-                and str(getattr(target, "__module__", "")) != __name__
-            )
+    return _direct_imported_global_names(_GOVERNANCE_IMPLEMENTATION_PATHS["repository.governance"])
+
+
+def _governance_external_global_state_digest(names: tuple[str, ...]) -> str:
+    evidence: list[dict[str, Any]] = []
+    for name in names:
+        if name not in globals():
+            raise RepositorySecurityError("governance imported global binding is unavailable")
+        target = globals()[name]
+        evidence.append(
+            {
+                "binding": name,
+                "state": (
+                    {"guard": "identity"}
+                    if type(target) is ModuleType or callable(target)
+                    else _module_attribute_value_evidence(
+                        "governance-imported-global", name, target
+                    )
+                ),
+            }
         )
-    )
+    return canonical_digest(evidence)
 
 
 _SEALED_GOVERNANCE_MODULE_ATTRIBUTE_NAMES = _governance_direct_module_attribute_names()
@@ -1053,6 +1065,9 @@ _SEALED_GOVERNANCE_MODULE_ATTRIBUTE_PROCESS_IDENTITIES = _governance_module_attr
 _SEALED_GOVERNANCE_EXTERNAL_GLOBAL_NAMES = _governance_external_global_names()
 _SEALED_GOVERNANCE_EXTERNAL_GLOBAL_PROCESS_IDENTITIES = tuple(
     (name, id(globals()[name])) for name in _SEALED_GOVERNANCE_EXTERNAL_GLOBAL_NAMES
+)
+_SEALED_GOVERNANCE_EXTERNAL_GLOBAL_STATE_DIGEST = _governance_external_global_state_digest(
+    _SEALED_GOVERNANCE_EXTERNAL_GLOBAL_NAMES
 )
 
 
@@ -1082,12 +1097,18 @@ def _assert_governance_import_bindings_sealed(*, verify_state: bool = False) -> 
         != _SEALED_GOVERNANCE_MODULE_ATTRIBUTE_STATE_DIGEST
     ):
         raise RepositorySecurityError("governance imported-module attribute state changed")
+    if verify_state and (
+        _governance_external_global_state_digest(_SEALED_GOVERNANCE_EXTERNAL_GLOBAL_NAMES)
+        != _SEALED_GOVERNANCE_EXTERNAL_GLOBAL_STATE_DIGEST
+    ):
+        raise RepositorySecurityError("governance imported global binding state changed")
 
 
 def _governance_implementation_digest(
     extension_evidence: tuple[dict[str, str], ...] = (),
 ) -> str:
     _assert_governance_import_bindings_sealed(verify_state=True)
+    _sealed_multiprocessing_context()
     evidence = _implementation_module_evidence(
         _GOVERNANCE_IMPLEMENTATION_PATHS,
         _GOVERNANCE_IMPORTED_SOURCE_DIGESTS,
@@ -1503,7 +1524,7 @@ class GovernanceCollector:
             raise RepositoryIntelligenceError(
                 "bounded remote provider execution is unsupported on this platform"
             )
-        context = multiprocessing.get_context("fork")
+        context = _sealed_multiprocessing_context()
         receiver, sender = context.Pipe(duplex=False)
         cancellation_event = context.Event()
         process = context.Process(

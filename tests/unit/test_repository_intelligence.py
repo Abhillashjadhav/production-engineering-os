@@ -11,7 +11,7 @@ import subprocess
 import threading
 import time
 from dataclasses import asdict, replace
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -356,7 +356,7 @@ def test_implementation_digest_binds_loaded_runtime_code_and_source_identity(
         try:
             candidate = scanner._implementation_digest()
         except scanner.RepositorySecurityError as exc:
-            assert "imported-module" in str(exc)
+            assert "changed" in str(exc)
         else:
             assert candidate != original
 
@@ -517,6 +517,64 @@ def test_implementation_digest_seals_adapter_isolation_and_yaml_version(
             scanner._implementation_digest()
 
 
+def test_implementation_digest_seals_returned_multiprocessing_context_members(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    context = scanner._SEALED_MULTIPROCESSING_CONTEXT
+    callback_ran = False
+
+    def pipe_proxy(*args: Any, **kwargs: Any) -> Any:
+        nonlocal callback_ran
+        callback_ran = True
+        return scanner.multiprocessing.Pipe(*args, **kwargs)
+
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(type(context), "Pipe", pipe_proxy)
+        with pytest.raises(scanner.RepositorySecurityError, match="context or members changed"):
+            scanner._implementation_digest()
+        assert callback_ran is False
+
+    replacement_context = type(context)()
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(scanner, "_SEALED_MULTIPROCESSING_CONTEXT", replacement_context)
+        with pytest.raises(scanner.RepositorySecurityError, match="context or members changed"):
+            scanner._implementation_digest()
+
+
+def test_imported_non_callable_globals_are_sealed_before_use(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    governance = importlib.import_module("pmpe.repository.governance")
+    assert "AUDIT_CATEGORIES" in scanner._SEALED_SCANNER_EXTERNAL_GLOBAL_NAMES
+    assert "UTC" in governance._SEALED_GOVERNANCE_EXTERNAL_GLOBAL_NAMES
+
+    monkeypatch.setattr(scanner, "AUDIT_CATEGORIES", ("forged",))
+    with pytest.raises(scanner.RepositorySecurityError, match="imported global bindings changed"):
+        scanner._implementation_digest()
+
+
+def test_governance_rejects_replaced_timezone_before_callbacks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    governance = importlib.import_module("pmpe.repository.governance")
+    callback_ran = False
+
+    class TimezoneProxy(tzinfo):
+        def utcoffset(self, value: datetime | None) -> timedelta:
+            nonlocal callback_ran
+            callback_ran = True
+            return timedelta(0)
+
+    monkeypatch.setattr(governance, "UTC", TimezoneProxy())
+    with pytest.raises(
+        governance.RepositorySecurityError, match="imported global bindings changed"
+    ):
+        governance._governance_implementation_digest()
+    assert callback_ran is False
+
+
 def test_governance_digest_rejects_replaced_output_module_before_use(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -541,7 +599,7 @@ def test_governance_digest_rejects_in_place_module_attribute_before_use(
     governance = importlib.import_module("pmpe.repository.governance")
     attributes = dict(governance._SEALED_GOVERNANCE_MODULE_ATTRIBUTE_NAMES)
     assert "uuid4" in attributes["uuid"]
-    assert "get_context" in attributes["multiprocessing"]
+    assert "_sealed_multiprocessing_context" in governance._SEALED_GOVERNANCE_EXTERNAL_GLOBAL_NAMES
     callback_ran = False
     original_uuid4 = governance.uuid.uuid4
 
@@ -583,7 +641,7 @@ def test_governance_provenance_binds_every_material_repository_module() -> None:
         try:
             candidate = governance._governance_implementation_digest()
         except governance.RepositorySecurityError as exc:
-            assert "imported-module" in str(exc)
+            assert "imported" in str(exc)
         else:
             assert candidate != original
 
