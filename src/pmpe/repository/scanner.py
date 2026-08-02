@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import _thread
+import ast
 import datetime as datetime_module
 import hashlib
 import importlib
@@ -56,7 +57,7 @@ from pmpe.repository.redaction import (
     assert_distinct_identities_preserved,
 )
 
-SCANNER_VERSION = "repository-scanner/2.19.0"
+SCANNER_VERSION = "repository-scanner/2.20.0"
 _MAX_SCAN_BUDGETS = {
     "max_files": 100_000,
     "max_directories": 50_000,
@@ -1549,12 +1550,119 @@ _SEALED_ADAPTER_IMPORT_PROCESS_IDENTITIES = _module_import_binding_identities(
 _SEALED_SCANNER_IMPORT_NAMES = tuple(
     sorted(name for name, target in globals().items() if type(target) is ModuleType)
 )
-_SEALED_SCANNER_IMPORT_STATE_NAMES = ("importlib_metadata", "platform")
-_SEALED_SCANNER_IMPORT_STATE_DIGEST = _module_import_binding_state_digest(
-    "repository.scanner", _SEALED_SCANNER_IMPORT_STATE_NAMES
-)
 _SEALED_SCANNER_IMPORT_PROCESS_IDENTITIES = tuple(
     (name, id(globals()[name])) for name in _SEALED_SCANNER_IMPORT_NAMES
+)
+
+
+def _direct_module_attribute_names(
+    source_path: Path, module_names: tuple[str, ...]
+) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Derive direct module-attribute dependencies from the loaded implementation."""
+
+    try:
+        tree = ast.parse(source_path.read_text())
+    except (OSError, SyntaxError, UnicodeError) as exc:
+        raise RepositoryIntelligenceError(
+            "implementation module attributes are unavailable for provenance binding"
+        ) from exc
+    attributes: dict[str, set[str]] = {name: set() for name in module_names}
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id in attributes
+        ):
+            attributes[node.value.id].add(node.attr)
+    return tuple(
+        (name, tuple(sorted(names))) for name, names in sorted(attributes.items()) if names
+    )
+
+
+def _module_attribute_binding_identities(
+    attribute_names: tuple[tuple[str, tuple[str, ...]], ...],
+) -> tuple[tuple[str, str, int], ...]:
+    identities: list[tuple[str, str, int]] = []
+    for module_name, names in attribute_names:
+        module = globals().get(module_name)
+        namespace = vars(module) if type(module) is ModuleType else {}
+        for name in names:
+            target = namespace.get(name)
+            identities.append((module_name, name, id(target) if target is not None else -1))
+    return tuple(identities)
+
+
+def _module_attribute_binding_state_digest(
+    attribute_names: tuple[tuple[str, tuple[str, ...]], ...],
+) -> str:
+    evidence: list[dict[str, Any]] = []
+    for module_name, names in attribute_names:
+        module = globals().get(module_name)
+        if type(module) is not ModuleType:
+            raise RepositorySecurityError("scanner imported-module binding changed")
+        namespace = vars(module)
+        for name in names:
+            if name not in namespace:
+                raise RepositorySecurityError("scanner imported-module attribute is unavailable")
+            evidence.append(
+                {
+                    "module": module_name,
+                    "attribute": name,
+                    "state": _module_attribute_value_evidence(module_name, name, namespace[name]),
+                }
+            )
+    return canonical_digest(evidence)
+
+
+def _module_attribute_value_evidence(module_name: str, attribute_name: str, target: Any) -> Any:
+    """Bind executable or immutable attribute state without host caches or secrets."""
+
+    code = _runtime_code_evidence(target)
+    if code:
+        return {"runtime_code": code}
+    if type(target) is ModuleType:
+        return {"module": target.__name__}
+    if module_name == "os" and attribute_name == "environ":
+        return {"type": f"{type(target).__module__}.{type(target).__qualname__}"}
+    if module_name == "sys" and attribute_name == "executable":
+        return {"type": "python-executable", "binary_digest": _sha256(Path(target).read_bytes())}
+    if isinstance(target, (type(None), bool, int, float, complex, str, bytes, tuple, frozenset)):
+        return _runtime_value_evidence(target)
+    return {
+        "type": f"{type(target).__module__}.{type(target).__qualname__}",
+        "module": str(getattr(target, "__module__", type(target).__module__)),
+        "qualname": str(getattr(target, "__qualname__", type(target).__qualname__)),
+    }
+
+
+def _external_global_binding_names() -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            name
+            for name, target in globals().items()
+            if (
+                type(target) is ModuleType
+                or inspect.isfunction(target)
+                or inspect.isclass(target)
+                or inspect.isbuiltin(target)
+            )
+            and str(getattr(target, "__module__", "")) != __name__
+        )
+    )
+
+
+_SEALED_SCANNER_MODULE_ATTRIBUTE_NAMES = _direct_module_attribute_names(
+    _IMPLEMENTATION_PATHS["repository.scanner"], _SEALED_SCANNER_IMPORT_NAMES
+)
+_SEALED_SCANNER_MODULE_ATTRIBUTE_STATE_DIGEST = _module_attribute_binding_state_digest(
+    _SEALED_SCANNER_MODULE_ATTRIBUTE_NAMES
+)
+_SEALED_SCANNER_MODULE_ATTRIBUTE_PROCESS_IDENTITIES = _module_attribute_binding_identities(
+    _SEALED_SCANNER_MODULE_ATTRIBUTE_NAMES
+)
+_SEALED_SCANNER_EXTERNAL_GLOBAL_NAMES = _external_global_binding_names()
+_SEALED_SCANNER_EXTERNAL_GLOBAL_PROCESS_IDENTITIES = tuple(
+    (name, id(globals()[name])) for name in _SEALED_SCANNER_EXTERNAL_GLOBAL_NAMES
 )
 
 
@@ -1571,13 +1679,21 @@ def _assert_scanner_import_bindings_sealed(*, verify_state: bool = False) -> Non
     )
     if current_identities != _SEALED_SCANNER_IMPORT_PROCESS_IDENTITIES:
         raise RepositorySecurityError("scanner imported-module bindings changed")
-    if verify_state and (
-        _module_import_binding_state_digest(
-            "repository.scanner", _SEALED_SCANNER_IMPORT_STATE_NAMES
-        )
-        != _SEALED_SCANNER_IMPORT_STATE_DIGEST
+    if (
+        _module_attribute_binding_identities(_SEALED_SCANNER_MODULE_ATTRIBUTE_NAMES)
+        != _SEALED_SCANNER_MODULE_ATTRIBUTE_PROCESS_IDENTITIES
     ):
-        raise RepositorySecurityError("scanner imported-module state changed")
+        raise RepositorySecurityError("scanner imported-module attributes changed")
+    if (
+        tuple((name, id(globals().get(name))) for name in _SEALED_SCANNER_EXTERNAL_GLOBAL_NAMES)
+        != _SEALED_SCANNER_EXTERNAL_GLOBAL_PROCESS_IDENTITIES
+    ):
+        raise RepositorySecurityError("scanner imported global bindings changed")
+    if verify_state and (
+        _module_attribute_binding_state_digest(_SEALED_SCANNER_MODULE_ATTRIBUTE_NAMES)
+        != _SEALED_SCANNER_MODULE_ATTRIBUTE_STATE_DIGEST
+    ):
+        raise RepositorySecurityError("scanner imported-module attribute state changed")
 
 
 def _snapshot_identity_groups(
@@ -3342,6 +3458,7 @@ class RepositoryScanner:
 
     def scan(self, repository_root: Path | str, *, commit: str = "HEAD") -> RepositorySnapshot:
         self._assert_execution_collaborators_sealed()
+        _assert_scanner_import_bindings_sealed(verify_state=True)
         self._validate_config()
         self._commands = 0
         self._command_provenance = []

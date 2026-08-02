@@ -356,7 +356,7 @@ def test_implementation_digest_binds_loaded_runtime_code_and_source_identity(
         try:
             candidate = scanner._implementation_digest()
         except scanner.RepositorySecurityError as exc:
-            assert "imported-module state changed" in str(exc)
+            assert "imported-module" in str(exc)
         else:
             assert candidate != original
 
@@ -470,6 +470,53 @@ def test_implementation_digest_rejects_replaced_output_module_before_use(
     assert callback_ran is False
 
 
+def test_implementation_digest_seals_every_direct_module_attribute_before_use(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    attributes = dict(scanner._SEALED_SCANNER_MODULE_ATTRIBUTE_NAMES)
+    assert {"version", "PackageNotFoundError"} <= set(attributes["importlib_metadata"])
+    assert "python_version" in attributes["platform"]
+    assert "get_context" in attributes["multiprocessing"]
+    assert "__version__" in attributes["yaml"]
+
+    callback_ran = False
+    original_version = scanner.importlib_metadata.version
+
+    def version_proxy(distribution: str) -> str:
+        nonlocal callback_ran
+        callback_ran = True
+        return original_version(distribution)
+
+    monkeypatch.setattr(scanner.importlib_metadata, "version", version_proxy)
+    with pytest.raises(scanner.RepositorySecurityError, match="attributes changed"):
+        scanner.RepositoryScanner(config=_config())
+    assert callback_ran is False
+
+
+def test_implementation_digest_seals_adapter_isolation_and_yaml_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    callback_ran = False
+    original_context = scanner.multiprocessing.get_context
+
+    def context_proxy(*args: Any, **kwargs: Any) -> Any:
+        nonlocal callback_ran
+        callback_ran = True
+        return original_context(*args, **kwargs)
+
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(scanner.multiprocessing, "get_context", context_proxy)
+        with pytest.raises(scanner.RepositorySecurityError, match="attributes changed"):
+            scanner._implementation_digest()
+        assert callback_ran is False
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(scanner.yaml, "__version__", "forged-version")
+        with pytest.raises(scanner.RepositorySecurityError, match="attributes changed"):
+            scanner._implementation_digest()
+
+
 def test_governance_digest_rejects_replaced_output_module_before_use(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -484,6 +531,27 @@ def test_governance_digest_rejects_replaced_output_module_before_use(
 
     monkeypatch.setattr(governance, "uuid", UuidProxy())
     with pytest.raises(governance.RepositorySecurityError, match="imported-module"):
+        governance._governance_implementation_digest()
+    assert callback_ran is False
+
+
+def test_governance_digest_rejects_in_place_module_attribute_before_use(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    governance = importlib.import_module("pmpe.repository.governance")
+    attributes = dict(governance._SEALED_GOVERNANCE_MODULE_ATTRIBUTE_NAMES)
+    assert "uuid4" in attributes["uuid"]
+    assert "get_context" in attributes["multiprocessing"]
+    callback_ran = False
+    original_uuid4 = governance.uuid.uuid4
+
+    def uuid_proxy() -> Any:
+        nonlocal callback_ran
+        callback_ran = True
+        return original_uuid4()
+
+    monkeypatch.setattr(governance.uuid, "uuid4", uuid_proxy)
+    with pytest.raises(governance.RepositorySecurityError, match="attributes changed"):
         governance._governance_implementation_digest()
     assert callback_ran is False
 
@@ -515,7 +583,7 @@ def test_governance_provenance_binds_every_material_repository_module() -> None:
         try:
             candidate = governance._governance_implementation_digest()
         except governance.RepositorySecurityError as exc:
-            assert "imported-module state changed" in str(exc)
+            assert "imported-module" in str(exc)
         else:
             assert candidate != original
 
@@ -3904,22 +3972,17 @@ def test_cancellation_during_snapshot_digest_loses_atomic_admission(
     before_index = (repo / ".git" / "index").read_bytes()
     before_status = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
     cancellation = api.CancellationSignal()
-    original_digest = scanner.canonical_digest
+    original_claim = scanner.CancellationSignal.claim_completion
     cancelled_at_admission = False
 
-    def cancel_before_digest(value: Any) -> str:
+    def cancel_before_claim(self: Any) -> bool:
         nonlocal cancelled_at_admission
-        if (
-            not cancelled_at_admission
-            and isinstance(value, dict)
-            and value.get("artifact_kind") == "REPOSITORY_SNAPSHOT"
-            and "snapshot_digest" not in value
-        ):
+        if not cancelled_at_admission:
             cancelled_at_admission = True
-            cancellation.cancel()
-        return original_digest(value)
+            self.cancel()
+        return original_claim(self)
 
-    monkeypatch.setattr(scanner, "canonical_digest", cancel_before_digest)
+    monkeypatch.setattr(scanner.CancellationSignal, "claim_completion", cancel_before_claim)
     snapshot = api.RepositoryScanner(config=_config(), cancellation=cancellation).scan(
         repo, commit="HEAD"
     )
@@ -3969,22 +4032,17 @@ def test_cancellation_during_observation_digest_loses_atomic_admission(
     before_index = (repo / ".git" / "index").read_bytes()
     before_status = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
     cancellation = api.CancellationSignal()
-    original_digest = governance.canonical_digest
+    original_claim = governance.CancellationSignal.claim_completion
     cancelled_at_admission = False
 
-    def cancel_before_digest(value: Any) -> str:
+    def cancel_before_claim(self: Any) -> bool:
         nonlocal cancelled_at_admission
-        if (
-            not cancelled_at_admission
-            and isinstance(value, dict)
-            and value.get("artifact_kind") == "GOVERNANCE_OBSERVATION"
-            and "observation_output_digest" not in value
-        ):
+        if not cancelled_at_admission:
             cancelled_at_admission = True
-            cancellation.cancel()
-        return original_digest(value)
+            self.cancel()
+        return original_claim(self)
 
-    monkeypatch.setattr(governance, "canonical_digest", cancel_before_digest)
+    monkeypatch.setattr(governance.CancellationSignal, "claim_completion", cancel_before_claim)
     observation = api.GovernanceCollector(
         repository="example/fixture",
         clock=_fixed_clock(),

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import math
@@ -49,14 +50,14 @@ from pmpe.repository.scanner import (
     _cancellation_requested,
     _implementation_module_evidence,
     _implementation_source_evidence,
+    _module_attribute_value_evidence,
     _runtime_dependency_evidence,
-    _runtime_dependency_module_digest,
     _spawn_guarded_git,
     _stop_guarded_process_group,
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.14.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.15.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -965,32 +966,93 @@ def _validate_remote_payload_types(value: dict[str, Any]) -> None:
         raise ValueError("remote default branch is malformed")
 
 
-def _governance_import_binding_state_digest(names: tuple[str, ...]) -> str:
-    evidence: list[dict[str, str]] = []
-    for name in names:
-        target = globals().get(name)
-        if type(target) is not ModuleType:
-            evidence.append({"binding": name, "module": "INVALID", "runtime_digest": "INVALID"})
-            continue
-        evidence.append(
-            {
-                "binding": name,
-                "module": target.__name__,
-                "runtime_digest": _runtime_dependency_module_digest(target),
-            }
-        )
-    return canonical_digest(evidence)
-
-
 _SEALED_GOVERNANCE_IMPORT_NAMES = tuple(
     sorted(name for name, target in globals().items() if type(target) is ModuleType)
 )
-_SEALED_GOVERNANCE_IMPORT_STATE_NAMES = ("json", "math", "os", "re", "time", "uuid")
-_SEALED_GOVERNANCE_IMPORT_STATE_DIGEST = _governance_import_binding_state_digest(
-    _SEALED_GOVERNANCE_IMPORT_STATE_NAMES
-)
 _SEALED_GOVERNANCE_IMPORT_PROCESS_IDENTITIES = tuple(
     (name, id(globals()[name])) for name in _SEALED_GOVERNANCE_IMPORT_NAMES
+)
+
+
+def _governance_direct_module_attribute_names() -> tuple[tuple[str, tuple[str, ...]], ...]:
+    try:
+        tree = ast.parse(_GOVERNANCE_IMPLEMENTATION_PATHS["repository.governance"].read_text())
+    except (OSError, SyntaxError, UnicodeError) as exc:
+        raise RepositoryIntelligenceError(
+            "governance module attributes are unavailable for provenance binding"
+        ) from exc
+    attributes: dict[str, set[str]] = {name: set() for name in _SEALED_GOVERNANCE_IMPORT_NAMES}
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Attribute)
+            and isinstance(node.value, ast.Name)
+            and node.value.id in attributes
+        ):
+            attributes[node.value.id].add(node.attr)
+    return tuple(
+        (name, tuple(sorted(names))) for name, names in sorted(attributes.items()) if names
+    )
+
+
+def _governance_module_attribute_identities(
+    attribute_names: tuple[tuple[str, tuple[str, ...]], ...],
+) -> tuple[tuple[str, str, int], ...]:
+    identities: list[tuple[str, str, int]] = []
+    for module_name, names in attribute_names:
+        module = globals().get(module_name)
+        namespace = vars(module) if type(module) is ModuleType else {}
+        for name in names:
+            target = namespace.get(name)
+            identities.append((module_name, name, id(target) if target is not None else -1))
+    return tuple(identities)
+
+
+def _governance_module_attribute_state_digest(
+    attribute_names: tuple[tuple[str, tuple[str, ...]], ...],
+) -> str:
+    evidence: list[dict[str, Any]] = []
+    for module_name, names in attribute_names:
+        module = globals().get(module_name)
+        if type(module) is not ModuleType:
+            raise RepositorySecurityError("governance imported-module binding changed")
+        namespace = vars(module)
+        for name in names:
+            if name not in namespace:
+                raise RepositorySecurityError("governance imported-module attribute is unavailable")
+            evidence.append(
+                {
+                    "module": module_name,
+                    "attribute": name,
+                    "state": _module_attribute_value_evidence(module_name, name, namespace[name]),
+                }
+            )
+    return canonical_digest(evidence)
+
+
+def _governance_external_global_names() -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            name
+            for name, target in globals().items()
+            if (
+                type(target) is ModuleType
+                or callable(target)
+                and str(getattr(target, "__module__", "")) != __name__
+            )
+        )
+    )
+
+
+_SEALED_GOVERNANCE_MODULE_ATTRIBUTE_NAMES = _governance_direct_module_attribute_names()
+_SEALED_GOVERNANCE_MODULE_ATTRIBUTE_STATE_DIGEST = _governance_module_attribute_state_digest(
+    _SEALED_GOVERNANCE_MODULE_ATTRIBUTE_NAMES
+)
+_SEALED_GOVERNANCE_MODULE_ATTRIBUTE_PROCESS_IDENTITIES = _governance_module_attribute_identities(
+    _SEALED_GOVERNANCE_MODULE_ATTRIBUTE_NAMES
+)
+_SEALED_GOVERNANCE_EXTERNAL_GLOBAL_NAMES = _governance_external_global_names()
+_SEALED_GOVERNANCE_EXTERNAL_GLOBAL_PROCESS_IDENTITIES = tuple(
+    (name, id(globals()[name])) for name in _SEALED_GOVERNANCE_EXTERNAL_GLOBAL_NAMES
 )
 
 
@@ -1005,11 +1067,21 @@ def _assert_governance_import_bindings_sealed(*, verify_state: bool = False) -> 
     )
     if current_identities != _SEALED_GOVERNANCE_IMPORT_PROCESS_IDENTITIES:
         raise RepositorySecurityError("governance imported-module bindings changed")
-    if verify_state and (
-        _governance_import_binding_state_digest(_SEALED_GOVERNANCE_IMPORT_STATE_NAMES)
-        != _SEALED_GOVERNANCE_IMPORT_STATE_DIGEST
+    if (
+        _governance_module_attribute_identities(_SEALED_GOVERNANCE_MODULE_ATTRIBUTE_NAMES)
+        != _SEALED_GOVERNANCE_MODULE_ATTRIBUTE_PROCESS_IDENTITIES
     ):
-        raise RepositorySecurityError("governance imported-module state changed")
+        raise RepositorySecurityError("governance imported-module attributes changed")
+    if (
+        tuple((name, id(globals().get(name))) for name in _SEALED_GOVERNANCE_EXTERNAL_GLOBAL_NAMES)
+        != _SEALED_GOVERNANCE_EXTERNAL_GLOBAL_PROCESS_IDENTITIES
+    ):
+        raise RepositorySecurityError("governance imported global bindings changed")
+    if verify_state and (
+        _governance_module_attribute_state_digest(_SEALED_GOVERNANCE_MODULE_ATTRIBUTE_NAMES)
+        != _SEALED_GOVERNANCE_MODULE_ATTRIBUTE_STATE_DIGEST
+    ):
+        raise RepositorySecurityError("governance imported-module attribute state changed")
 
 
 def _governance_implementation_digest(
@@ -1787,6 +1859,7 @@ class GovernanceCollector:
 
     def observe(self, repository_root: Path | str, *, ref: str) -> GovernanceObservation:
         self._assert_execution_collaborators_sealed()
+        _assert_governance_import_bindings_sealed(verify_state=True)
         self._assert_bound_snapshot_valid()
         self._command_provenance = []
         self._commands = 0
