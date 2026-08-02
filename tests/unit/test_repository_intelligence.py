@@ -504,9 +504,15 @@ def test_runtime_code_evidence_rejects_registered_function_with_copied_globals()
     scanner = importlib.import_module("pmpe.repository.scanner")
     models = importlib.import_module("pmpe.repository.models")
     original_fields = models.fields
+    forged_globals = dict(original_fields.__globals__)
+    builtins_value = forged_globals["__builtins__"]
+    assert isinstance(builtins_value, dict)
+    forged_builtins = dict(builtins_value)
+    forged_builtins["getattr"] = lambda *_args, **_kwargs: None
+    forged_globals["__builtins__"] = forged_builtins
     forged_fields = FunctionType(
         original_fields.__code__,
-        dict(original_fields.__globals__),
+        forged_globals,
         name=original_fields.__name__,
         argdefs=original_fields.__defaults__,
         closure=original_fields.__closure__,

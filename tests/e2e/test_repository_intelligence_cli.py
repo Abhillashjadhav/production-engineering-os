@@ -149,7 +149,7 @@ def test_repository_scan_cli_governance_binds_to_requested_commit(
 
     assert code == 3
     assert json.loads(snapshot_path.read_text())["commit_sha"] == feature_sha
-    assert json.loads(governance_path.read_text())["commit_sha"] == feature_sha
+    assert json.loads(governance_path.read_text())["repository_snapshot_commit"] == feature_sha
 
 
 def test_repository_scan_cli_refuses_to_create_unpinned_output_parents(tmp_path: Path) -> None:

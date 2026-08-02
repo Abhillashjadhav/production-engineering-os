@@ -61,7 +61,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.17.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.18.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -1707,7 +1707,7 @@ class GovernanceCollector:
                     "rev-list",
                     "--left-right",
                     "--count",
-                    f"{reference_commit}...{name}",
+                    f"{reference_commit}...refs/heads/{name}",
                 ),
             )
             if comparison.returncode == 0 and not comparison.timed_out:
