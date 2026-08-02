@@ -33,6 +33,24 @@ _DECISION_CLASSES_REQUIRING_APPROVAL = frozenset(
         "VENDOR_LOCKING",
     }
 )
+_APPROVAL_OWNERS = {
+    "PRODUCTION_INFRASTRUCTURE": "INFRASTRUCTURE",
+    "SECURITY_POLICY": "SECURITY",
+    "DATA_RETENTION": "PRODUCT",
+    "IRREVERSIBLE": "PRODUCT",
+    "USER_VISIBLE": "PRODUCT",
+    "VENDOR_LOCKING": "PRODUCT",
+}
+_STRIDE_CATEGORIES = frozenset(
+    {
+        "SPOOFING",
+        "TAMPERING",
+        "REPUDIATION",
+        "INFORMATION_DISCLOSURE",
+        "DENIAL_OF_SERVICE",
+        "ELEVATION_OF_PRIVILEGE",
+    }
+)
 _LIST_SECTIONS = (
     "components",
     "data_architecture",
@@ -60,7 +78,9 @@ class ArchitectureApprovalVerifier(Protocol):
         *,
         approval_ref: str,
         adr: Mapping[str, Any],
+        category: str,
         contract_digest: str,
+        owner: str,
         repository_snapshot_digest: str,
     ) -> bool: ...
 
@@ -155,6 +175,12 @@ def _sort_strings(value: Any) -> Any:
 def _valid_boundary_path(path: str) -> bool:
     candidate = PurePosixPath(path)
     return bool(path) and not candidate.is_absolute() and ".." not in candidate.parts
+
+
+def _normalize_boundary_name(name: str) -> str:
+    candidate = PurePosixPath(name)
+    normalized = candidate.as_posix()
+    return normalized if normalized != "." and _valid_boundary_path(normalized) else ""
 
 
 def _item_ids(items: Any) -> set[str]:
@@ -256,6 +282,21 @@ class ArchitectureCompiler:
         normalized["artifact_kind"] = "ARCHITECTURE_PACK"
         normalized["compiler_version"] = ARCHITECTURE_COMPILER_VERSION
         normalized.setdefault("approval_requests", [])
+        normalized["repository_boundary_evidence"] = sorted(
+            (
+                {
+                    "boundary": boundary,
+                    "confidence": candidate.confidence,
+                    "detector_id": candidate.detector_id,
+                    "detector_version": candidate.detector_version,
+                    "evidence_paths": sorted(candidate.evidence_paths),
+                    "kind": candidate.kind,
+                }
+                for candidate in repository_snapshot.boundary_candidates
+                if (boundary := _normalize_boundary_name(candidate.name))
+            ),
+            key=lambda item: str(item["boundary"]),
+        )
         normalized["disposition"] = ArchitectureDisposition.ADMITTED.value
         normalized["pack_digest"] = "sha256:" + "0" * 64
 
@@ -265,9 +306,7 @@ class ArchitectureCompiler:
 
         references = _architecture_references(contract)
         observed_boundaries = {
-            path
-            for candidate in repository_snapshot.boundary_candidates
-            for path in candidate.evidence_paths
+            str(item["boundary"]) for item in normalized["repository_boundary_evidence"]
         }
         self._validate_identifiers(normalized, diagnostics)
         self._validate_references(normalized, references, observed_boundaries, diagnostics)
@@ -770,8 +809,14 @@ class ArchitectureCompiler:
     ) -> None:
         component_ids = _item_ids(pack.get("components"))
         boundary_ids = _item_ids(pack.get("security_boundaries"))
-        threats = pack.get("threat_model", {}).get("threats", [])
+        threat_model = pack.get("threat_model", {})
+        threats = threat_model.get("threats", [])
         threat_ids = _item_ids(threats)
+        boundaries_by_id = {
+            str(boundary.get("id")): boundary
+            for boundary in pack.get("security_boundaries", [])
+            if isinstance(boundary, Mapping)
+        }
         threat_boundaries = {
             str(boundary)
             for threat in threats
@@ -818,7 +863,7 @@ class ArchitectureCompiler:
                         owner="SECURITY",
                     )
                 )
-        declared_model_boundaries = set(pack.get("threat_model", {}).get("trust_boundary_refs", []))
+        declared_model_boundaries = set(threat_model.get("trust_boundary_refs", []))
         if declared_model_boundaries != boundary_ids:
             diagnostics.append(
                 _error(
@@ -857,6 +902,25 @@ class ArchitectureCompiler:
                     )
                 )
                 continue
+            endpoint_mismatches = {
+                boundary_id
+                for boundary_id in flow_boundaries
+                if str(flow.get("source_component_id", ""))
+                not in boundaries_by_id[boundary_id].get("source_component_ids", [])
+                or str(flow.get("target_component_id", ""))
+                not in boundaries_by_id[boundary_id].get("target_component_ids", [])
+            }
+            if endpoint_mismatches:
+                diagnostics.append(
+                    _error(
+                        "ARCH.SECURITY.BOUNDARY",
+                        f"/data_flows/{flow.get('id', '?')}/trust_boundary_refs",
+                        "Data flow endpoints do not cross the referenced boundary direction: "
+                        + ", ".join(sorted(endpoint_mismatches)),
+                        "Match each flow source and target to its trust-boundary endpoints.",
+                        owner="SECURITY",
+                    )
+                )
             covered = {
                 str(boundary)
                 for threat in threats
@@ -873,6 +937,56 @@ class ArchitectureCompiler:
                         owner="SECURITY",
                     )
                 )
+        assessments = threat_model.get("category_assessments", [])
+        assessment_pairs = [
+            (str(item.get("trust_boundary_ref", "")), str(item.get("category", "")))
+            for item in assessments
+            if isinstance(item, Mapping)
+        ]
+        expected_pairs = {
+            (boundary_id, category)
+            for boundary_id in boundary_ids
+            for category in _STRIDE_CATEGORIES
+        }
+        invalid_assessments = False
+        threats_by_id = {
+            str(threat.get("id")): threat for threat in threats if isinstance(threat, Mapping)
+        }
+        for item in assessments:
+            if not isinstance(item, Mapping):
+                continue
+            boundary_ref = str(item.get("trust_boundary_ref", ""))
+            category = str(item.get("category", ""))
+            threat_refs = {str(ref) for ref in item.get("threat_refs", [])}
+            disposition = str(item.get("disposition", ""))
+            if disposition == "MITIGATED" and (
+                not threat_refs
+                or any(
+                    ref not in threats_by_id
+                    or threats_by_id[ref].get("category") != category
+                    or boundary_ref not in threats_by_id[ref].get("trust_boundary_refs", [])
+                    for ref in threat_refs
+                )
+            ):
+                invalid_assessments = True
+            if disposition == "NOT_APPLICABLE" and threat_refs:
+                invalid_assessments = True
+        if (
+            set(assessment_pairs) != expected_pairs
+            or len(assessment_pairs) != len(set(assessment_pairs))
+            or invalid_assessments
+        ):
+            diagnostics.append(
+                _error(
+                    "ARCH.THREAT.STRIDE_COVERAGE",
+                    "/threat_model/category_assessments",
+                    "Every trust boundary requires exactly one valid disposition for each "
+                    "STRIDE category.",
+                    "Record a matching mitigation or justified NOT_APPLICABLE disposition "
+                    "for every boundary-category pair.",
+                    owner="SECURITY",
+                )
+            )
 
     def _validate_approval_boundaries(
         self,
@@ -881,8 +995,8 @@ class ArchitectureCompiler:
         snapshot_digest: str,
         diagnostics: list[ArchitectureDiagnostic],
     ) -> None:
-        requests_by_decision = {
-            str(item.get("decision_ref")): item
+        requests_by_domain = {
+            (str(item.get("decision_ref")), str(item.get("category")), str(item.get("owner")))
             for item in pack.get("approval_requests", [])
             if isinstance(item, Mapping)
         }
@@ -891,66 +1005,55 @@ class ArchitectureCompiler:
                 continue
             decision_classes = set(adr.get("decision_classes", []))
             reversibility = str(adr.get("reversibility", ""))
-            requires_approval = reversibility != "REVERSIBLE" or bool(
-                decision_classes & _DECISION_CLASSES_REQUIRING_APPROVAL
-            )
-            if not requires_approval:
+            categories = decision_classes & _DECISION_CLASSES_REQUIRING_APPROVAL
+            if reversibility != "REVERSIBLE":
+                categories.add(reversibility)
+            if not categories:
                 continue
             approval_refs = [str(item) for item in adr.get("approval_refs", [])]
             verifier = self._approval_verifier
-            verified = bool(approval_refs) and verifier is not None
-            if approval_refs and verifier is not None:
-                try:
-                    verified = all(
-                        verifier.verify(
-                            approval_ref=approval_ref,
-                            adr=copy.deepcopy(dict(adr)),
-                            contract_digest=contract_digest,
-                            repository_snapshot_digest=snapshot_digest,
-                        )
-                        for approval_ref in approval_refs
-                    )
-                except Exception:
-                    verified = False
-            if verified:
-                continue
             adr_id = str(adr.get("id", "UNKNOWN"))
-            owner = self._approval_owner(decision_classes)
-            if adr_id not in requests_by_decision:
-                request = {
-                    "id": f"INPUT-{adr_id}",
-                    "category": self._approval_category(reversibility, decision_classes),
-                    "decision_ref": adr_id,
-                    "owner": owner,
-                    "reason": (
-                        "The proposed decision is irreversible, vendor-locking, retention, "
-                        "user-visible, security-policy, or production-infrastructure owned."
-                    ),
-                    "status": "INPUT_REQUIRED",
-                }
-                pack["approval_requests"].append(request)
-                requests_by_decision[adr_id] = request
-            diagnostics.append(
-                _diagnostic(
-                    "ARCH.APPROVAL.REQUIRED",
-                    ArchitectureDisposition.PRODUCT_INPUT_REQUIRED,
-                    f"/adrs/{adr_id}/approval_refs",
-                    owner,
-                    "A decision outside reversible technical authority lacks verified approval.",
-                    "Obtain named, exact-subject approval through an external authority verifier.",
+            for category in sorted(categories):
+                owner = _APPROVAL_OWNERS[category]
+                verified = False
+                if approval_refs and verifier is not None:
+                    try:
+                        verified = any(
+                            verifier.verify(
+                                approval_ref=approval_ref,
+                                adr=copy.deepcopy(dict(adr)),
+                                category=category,
+                                contract_digest=contract_digest,
+                                owner=owner,
+                                repository_snapshot_digest=snapshot_digest,
+                            )
+                            for approval_ref in approval_refs
+                        )
+                    except Exception:
+                        verified = False
+                if verified:
+                    continue
+                domain = (adr_id, category, owner)
+                if domain not in requests_by_domain:
+                    pack["approval_requests"].append(
+                        {
+                            "id": f"INPUT-{adr_id}-{category.replace('_', '-')}",
+                            "category": category,
+                            "decision_ref": adr_id,
+                            "owner": owner,
+                            "reason": f"The {category} decision requires {owner} authority.",
+                            "status": "INPUT_REQUIRED",
+                        }
+                    )
+                    requests_by_domain.add(domain)
+                diagnostics.append(
+                    _diagnostic(
+                        "ARCH.APPROVAL.REQUIRED",
+                        ArchitectureDisposition.PRODUCT_INPUT_REQUIRED,
+                        f"/adrs/{adr_id}/approval_refs",
+                        owner,
+                        f"The {category} decision lacks verified {owner} approval.",
+                        "Obtain named, exact-subject approval through an external authority "
+                        "verifier.",
+                    )
                 )
-            )
-
-    @staticmethod
-    def _approval_owner(decision_classes: set[str]) -> str:
-        if "SECURITY_POLICY" in decision_classes:
-            return "SECURITY"
-        if "PRODUCTION_INFRASTRUCTURE" in decision_classes:
-            return "INFRASTRUCTURE"
-        return "PRODUCT"
-
-    @staticmethod
-    def _approval_category(reversibility: str, decision_classes: set[str]) -> str:
-        if decision_classes:
-            return sorted(decision_classes)[0]
-        return "IRREVERSIBLE" if reversibility == "IRREVERSIBLE" else reversibility

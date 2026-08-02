@@ -72,7 +72,7 @@ def _snapshot() -> RepositorySnapshot:
         boundary_candidates=(
             BoundaryCandidate(
                 kind="PACKAGE",
-                name="contracts",
+                name="src/pmpe/contracts",
                 evidence_paths=("src/pmpe/contracts/model.py",),
                 confidence="HIGH",
                 detector_id="python",
@@ -136,7 +136,7 @@ def _governance(snapshot: RepositorySnapshot) -> GovernanceObservation:
 def _proposal(
     contract: dict[str, Any], snapshot: RepositorySnapshot, governance: Any
 ) -> dict[str, Any]:
-    boundary = "src/pmpe/contracts/model.py"
+    boundary = "src/pmpe/contracts"
     components = [
         {
             "id": f"COMP-{plane}",
@@ -252,6 +252,27 @@ def _proposal(
         "threat_model": {
             "methodology": "STRIDE",
             "trust_boundary_refs": ["TB-001"],
+            "category_assessments": [
+                {
+                    "trust_boundary_ref": "TB-001",
+                    "category": category,
+                    "disposition": "MITIGATED" if category == "TAMPERING" else "NOT_APPLICABLE",
+                    "rationale": (
+                        "Integrity risk is mitigated by digest validation."
+                        if category == "TAMPERING"
+                        else "No applicable attack path exists in the admitted local boundary."
+                    ),
+                    "threat_refs": ["THREAT-001"] if category == "TAMPERING" else [],
+                }
+                for category in (
+                    "SPOOFING",
+                    "TAMPERING",
+                    "REPUDIATION",
+                    "INFORMATION_DISCLOSURE",
+                    "DENIAL_OF_SERVICE",
+                    "ELEVATION_OF_PRIVILEGE",
+                )
+            ],
             "threats": [
                 {
                     "id": "THREAT-001",
@@ -410,6 +431,83 @@ def test_user_visible_or_retention_decisions_are_not_silently_defaulted() -> Non
 
     assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
     assert "ARCH.APPROVAL.REQUIRED" in {item.rule_id for item in result.diagnostics}
+
+
+def test_each_approval_authority_gets_a_separate_request() -> None:
+    contract = _contract()
+    snapshot = _snapshot()
+    governance = _governance(snapshot)
+    proposal = _proposal(contract, snapshot, governance)
+    proposal["adrs"][0]["decision_classes"] = [
+        "PRODUCTION_INFRASTRUCTURE",
+        "SECURITY_POLICY",
+    ]
+
+    result = _compile(proposal)
+
+    assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
+    assert result.pack is not None
+    assert {
+        (request["category"], request["owner"]) for request in result.pack.approval_requests
+    } == {
+        ("PRODUCTION_INFRASTRUCTURE", "INFRASTRUCTURE"),
+        ("SECURITY_POLICY", "SECURITY"),
+    }
+
+
+def test_data_flow_must_match_referenced_boundary_endpoints() -> None:
+    contract = _contract()
+    snapshot = _snapshot()
+    governance = _governance(snapshot)
+    proposal = _proposal(contract, snapshot, governance)
+    proposal["security_boundaries"][0].update(
+        source_component_ids=["COMP-EVIDENCE"],
+        target_component_ids=["COMP-SECURITY"],
+    )
+
+    result = _compile(proposal)
+
+    assert result.disposition.value == "ERROR"
+    assert "ARCH.SECURITY.BOUNDARY" in {item.rule_id for item in result.diagnostics}
+
+
+def test_stride_requires_explicit_category_disposition_per_boundary() -> None:
+    contract = _contract()
+    snapshot = _snapshot()
+    governance = _governance(snapshot)
+    proposal = _proposal(contract, snapshot, governance)
+    proposal["threat_model"]["category_assessments"].pop()
+
+    result = _compile(proposal)
+
+    assert result.disposition.value == "ERROR"
+    assert "ARCH.THREAT.STRIDE_COVERAGE" in {item.rule_id for item in result.diagnostics}
+
+
+def test_boundary_names_are_admitted_and_evidence_paths_are_preserved() -> None:
+    contract = _contract()
+    snapshot = _snapshot()
+    governance = _governance(snapshot)
+    proposal = _proposal(contract, snapshot, governance)
+
+    result = _compile(proposal)
+
+    assert result.pack is not None
+    assert result.pack.repository_boundary_evidence == (
+        {
+            "boundary": "src/pmpe/contracts",
+            "confidence": "HIGH",
+            "detector_id": "python",
+            "detector_version": "1.0.0",
+            "evidence_paths": ("src/pmpe/contracts/model.py",),
+            "kind": "PACKAGE",
+        },
+    )
+
+    proposal["components"][0]["repository_boundaries"] = ["src/pmpe/contracts/model.py"]
+    rejected = _compile(proposal)
+    assert rejected.disposition.value == "ERROR"
+    assert "ARCH.REFERENCE.BOUNDARY" in {item.rule_id for item in rejected.diagnostics}
 
 
 def test_duplicate_component_is_rejected_as_unnecessary_complexity() -> None:

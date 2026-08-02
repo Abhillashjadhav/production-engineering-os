@@ -13,6 +13,7 @@
     "repository_commit",
     "governance_observation_digest",
     "disposition",
+    "repository_boundary_evidence",
     "components",
     "data_architecture",
     "api_architecture",
@@ -37,6 +38,11 @@
     "repository_commit": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"},
     "governance_observation_digest": {"$ref": "#/$defs/digest"},
     "disposition": {"enum": ["ADMITTED", "PRODUCT_INPUT_REQUIRED"]},
+    "repository_boundary_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/repositoryBoundaryEvidence"}
+    },
     "components": {
       "type": "array",
       "minItems": 6,
@@ -99,6 +105,26 @@
       "type": "array",
       "uniqueItems": true,
       "items": {"type": "string", "minLength": 1}
+    },
+    "repositoryBoundaryEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "boundary",
+        "confidence",
+        "detector_id",
+        "detector_version",
+        "evidence_paths",
+        "kind"
+      ],
+      "properties": {
+        "boundary": {"type": "string", "minLength": 1},
+        "confidence": {"type": "string", "minLength": 1},
+        "detector_id": {"type": "string", "minLength": 1},
+        "detector_version": {"type": "string", "minLength": 1},
+        "evidence_paths": {"$ref": "#/$defs/nonEmptyStrings"},
+        "kind": {"type": "string", "minLength": 1}
+      }
     },
     "component": {
       "type": "object",
@@ -368,15 +394,47 @@
     "threatModel": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["methodology", "trust_boundary_refs", "threats"],
+      "required": ["methodology", "trust_boundary_refs", "category_assessments", "threats"],
       "properties": {
-        "methodology": {"type": "string", "minLength": 1},
+        "methodology": {"const": "STRIDE"},
         "trust_boundary_refs": {"$ref": "#/$defs/nonEmptyStrings"},
+        "category_assessments": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/categoryAssessment"}
+        },
         "threats": {
           "type": "array",
           "minItems": 1,
           "items": {"$ref": "#/$defs/threat"}
         }
+      }
+    },
+    "categoryAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trust_boundary_ref",
+        "category",
+        "disposition",
+        "rationale",
+        "threat_refs"
+      ],
+      "properties": {
+        "trust_boundary_ref": {"$ref": "#/$defs/id"},
+        "category": {
+          "enum": [
+            "SPOOFING",
+            "TAMPERING",
+            "REPUDIATION",
+            "INFORMATION_DISCLOSURE",
+            "DENIAL_OF_SERVICE",
+            "ELEVATION_OF_PRIVILEGE"
+          ]
+        },
+        "disposition": {"enum": ["MITIGATED", "NOT_APPLICABLE"]},
+        "rationale": {"type": "string", "minLength": 1},
+        "threat_refs": {"$ref": "#/$defs/strings"}
       }
     },
     "approvalRequest": {

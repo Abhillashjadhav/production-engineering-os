@@ -68,6 +68,7 @@ class ArchitecturePack:
     repository_commit: str
     governance_observation_digest: str
     disposition: str
+    repository_boundary_evidence: tuple[Mapping[str, Any], ...]
     components: tuple[Mapping[str, Any], ...]
     data_architecture: tuple[Mapping[str, Any], ...]
     api_architecture: tuple[Mapping[str, Any], ...]
@@ -86,6 +87,7 @@ class ArchitecturePack:
     def __post_init__(self) -> None:
         for name in (
             "components",
+            "repository_boundary_evidence",
             "data_architecture",
             "api_architecture",
             "integration_architecture",
@@ -109,6 +111,7 @@ class ArchitecturePack:
             repository_commit=str(value["repository_commit"]),
             governance_observation_digest=str(value["governance_observation_digest"]),
             disposition=str(value["disposition"]),
+            repository_boundary_evidence=tuple(value["repository_boundary_evidence"]),
             components=tuple(value["components"]),
             data_architecture=tuple(value["data_architecture"]),
             api_architecture=tuple(value["api_architecture"]),
@@ -144,6 +147,7 @@ class ArchitecturePack:
             "pack_digest": self.pack_digest,
             "pack_id": self.pack_id,
             "repository_commit": self.repository_commit,
+            "repository_boundary_evidence": _plain(self.repository_boundary_evidence),
             "repository_snapshot_digest": self.repository_snapshot_digest,
             "rollback": _plain(self.rollback),
             "schema_version": self.schema_version,
