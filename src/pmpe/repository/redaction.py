@@ -17,7 +17,7 @@ class RedactionError(RuntimeError):
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
-    version = "central-redactor/2.2.0"
+    version = "central-redactor/2.3.0"
     __slots__ = ("_environment_secrets",)
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
@@ -25,7 +25,7 @@ class EvidenceRedactor:
         r"|(?:api[_-]?key|token|secret|password)\s*[=:]\s*[^\s,;]+"
         r"|(?:basic|bearer)\s+[A-Za-z0-9._~+\-/=]{8,})"
     )
-    _authorization = re.compile(r"(?i)authorization\s*:\s*(?:basic|bearer|digest)\s+[^\s,;]+")
+    _authorization = re.compile(r"(?i)\b(?:proxy-)?authorization\s*:\s*[^\r\n]*")
     _private_key = re.compile(
         r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*?-----END [A-Z ]*PRIVATE KEY-----",
         re.DOTALL,

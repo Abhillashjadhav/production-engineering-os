@@ -17,7 +17,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.26.0"
+DETECTOR_VERSION = "1.27.0"
 
 _GITHUB_EVENTS = frozenset(
     {
@@ -1300,7 +1300,7 @@ def _containers(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="delivery.ci",
-    version="1.12.0",
+    version="1.13.0",
     file_patterns=(
         ".github/workflows/*.yml",
         ".github/workflows/*.yaml",
@@ -1722,9 +1722,7 @@ def _github_remote_reference_is_supported(
     if (
         not separator
         or _GITHUB_REMOTE_REF.fullmatch(ref) is None
-        or ".." in ref
-        or "//" in ref
-        or ref.endswith(("/", ".", ".lock"))
+        or not _git_reference_is_valid(ref)
     ):
         return False
     parts = target.split("/")
@@ -1740,6 +1738,22 @@ def _github_remote_reference_is_supported(
             and re.fullmatch(r"[A-Za-z0-9_.-]+\.ya?ml", remaining[2]) is not None
         )
     return all(re.fullmatch(r"[A-Za-z0-9_.-]+", part) is not None for part in remaining)
+
+
+def _git_reference_is_valid(ref: str) -> bool:
+    """Apply Git's ref-name safety rules without executing Git during detection."""
+
+    if ref == "@" or ref.startswith(("-", "/")) or ref.endswith("/"):
+        return False
+    if ".." in ref or "//" in ref or "@{" in ref:
+        return False
+    if any(ord(char) < 32 or ord(char) == 127 or char in " ~^:?*[\\" for char in ref):
+        return False
+    components = ref.split("/")
+    return all(
+        component and not component.startswith(".") and not component.endswith((".", ".lock"))
+        for component in components
+    )
 
 
 def _github_job_is_runnable(value: object) -> bool:

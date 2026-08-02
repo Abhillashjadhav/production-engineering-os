@@ -1155,6 +1155,9 @@ def test_undiscoverable_or_unproven_local_github_targets_are_not_verified(
         "../../.github/workflows/x.yml@v1",
         "owner/repository/.github/workflows/nested/x.yml@v1",
         "owner/repository/action@../v1",
+        "owner/repository/action@refs/heads/.hidden",
+        "owner/repository/action@refs/heads/foo./bar",
+        "owner/repository/action@refs/heads/topic.lock/child",
     ],
 )
 def test_malformed_remote_github_references_are_not_verified(
@@ -1745,6 +1748,28 @@ def test_sensitive_mapping_fields_are_redacted_before_persistence(field: str) ->
     assert secret not in json.dumps(sanitized)
 
 
+@pytest.mark.parametrize(
+    ("header", "secrets"),
+    [
+        ("Authorization: Token opaque-secret", ("Token", "opaque-secret")),
+        (
+            'Authorization: Digest username="user", nonce="nonce-secret", '
+            'response="response-secret"',
+            ("username", "user", "nonce-secret", "response-secret"),
+        ),
+        ("Proxy-Authorization: Custom proxy-secret", ("Custom", "proxy-secret")),
+    ],
+)
+def test_complete_authorization_header_is_redacted_for_every_scheme(
+    header: str,
+    secrets: tuple[str, ...],
+) -> None:
+    redaction = importlib.import_module("pmpe.repository.redaction")
+    sanitized = redaction.EvidenceRedactor(environment={}).sanitize(f"provider returned {header}")
+    assert sanitized == "provider returned Authorization: [REDACTED]"
+    assert all(secret not in sanitized for secret in secrets)
+
+
 def test_non_secret_boolean_control_with_sensitive_word_remains_typed() -> None:
     redaction = importlib.import_module("pmpe.repository.redaction")
     sanitized = redaction.EvidenceRedactor(environment={}).sanitize(
@@ -1942,6 +1967,11 @@ class _SecretBearingRemote(_FakeRemote):
                 "authorization": "Basic dXNlcjpwYXNzd29yZA==",
                 "x-api-key": "unstructured-bare-secret",
                 "note": "Authorization: Basic dXNlcjpwYXNzd29yZA==",
+                "custom_auth_note": "Authorization: Token opaque-authorization-secret",
+                "digest_auth_note": (
+                    'Authorization: Digest username="user", nonce="nonce-secret", '
+                    'response="response-secret"'
+                ),
                 "comment": "glpat-0123456789abcdefghijkl",
             }
         )
@@ -2552,6 +2582,9 @@ def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path:
     assert any(item.fact == "remote_collection_attestation" for item in observation.unknowns)
     assert "ghp_0123456789abcdefghijklmnop" not in payload
     assert "dXNlcjpwYXNzd29yZA==" not in payload
+    assert "opaque-authorization-secret" not in payload
+    assert "nonce-secret" not in payload
+    assert "response-secret" not in payload
     assert "secret-value" not in payload
     assert "signed-secret" not in payload
     assert "unstructured-bare-secret" not in payload
