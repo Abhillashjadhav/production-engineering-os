@@ -51,7 +51,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.10.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.11.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -1093,12 +1093,12 @@ class GovernanceCollector:
             raise RepositorySecurityError(
                 "governance observations require the sealed cancellation signal"
             )
-        self.snapshot = snapshot
-        self.clock = clock
-        self.id_provider = id_provider
-        self.remote_provider = remote_provider
-        self.runner = command_runner or GovernanceCommandRunner(max_output_bytes=max_output_bytes)
-        self.redactor = EvidenceRedactor(environment={})
+        self._snapshot = snapshot
+        self._clock = clock
+        self._id_provider = id_provider
+        self._remote_provider = remote_provider
+        self._runner = command_runner or GovernanceCommandRunner(max_output_bytes=max_output_bytes)
+        self._redactor = EvidenceRedactor(environment={})
         self.timeout = command_timeout_seconds
         self.max_commands = max_commands
         self.max_branches = max_branches
@@ -1106,7 +1106,7 @@ class GovernanceCollector:
         self.max_remote_items = max_remote_items
         self.max_remote_age_seconds = max_remote_age_seconds
         self.stale_pull_request_after_seconds = stale_pull_request_after_seconds
-        self.cancellation = cancellation
+        self._cancellation = cancellation
         self._command_provenance: list[CommandProvenance] = []
         self._commands = 0
         self._local_unknowns: list[UnknownFact] = []
@@ -1121,8 +1121,116 @@ class GovernanceCollector:
         self._extension_implementation_evidence = tuple(
             _implementation_source_evidence(label, target) for label, target in extension_targets
         )
+        self._sealed_extension_evidence_digest = canonical_digest(
+            self._extension_implementation_evidence
+        )
+        self._sealed_execution_collaborators = (
+            self.snapshot,
+            self.clock,
+            self.id_provider,
+            self.remote_provider,
+            self.runner,
+            self.redactor,
+            self.cancellation,
+            self._extension_implementation_evidence,
+        )
+        self._sealed_execution_configuration = (
+            self.repository,
+            self.timeout,
+            self.max_commands,
+            self.max_branches,
+            self.max_output_bytes,
+            self.max_remote_items,
+            self.max_remote_age_seconds,
+            self.stale_pull_request_after_seconds,
+        )
+
+    @property
+    def snapshot(self) -> RepositorySnapshot | None:
+        return self._snapshot
+
+    @property
+    def clock(self) -> Clock:
+        return self._clock
+
+    @property
+    def id_provider(self) -> IdProvider:
+        return self._id_provider
+
+    @property
+    def remote_provider(self) -> RecordedRemoteProvider | None:
+        return self._remote_provider
+
+    @property
+    def runner(self) -> GovernanceCommandRunner:
+        return self._runner
+
+    @property
+    def redactor(self) -> EvidenceRedactor:
+        return self._redactor
+
+    @property
+    def cancellation(self) -> CancellationSignal | None:
+        return self._cancellation
+
+    def _assert_execution_collaborators_sealed(self) -> None:
+        current = (
+            self.snapshot,
+            self.clock,
+            self.id_provider,
+            self.remote_provider,
+            self.runner,
+            self.redactor,
+            self.cancellation,
+            self._extension_implementation_evidence,
+        )
+        if any(
+            observed is not expected
+            for observed, expected in zip(
+                current, self._sealed_execution_collaborators, strict=True
+            )
+        ):
+            raise RepositorySecurityError(
+                "governance execution collaborators changed after provenance binding"
+            )
+        try:
+            extension_evidence_digest = canonical_digest(self._extension_implementation_evidence)
+        except Exception as exc:
+            raise RepositorySecurityError(
+                "governance implementation provenance evidence is malformed"
+            ) from exc
+        if (
+            self._sealed_execution_configuration
+            != (
+                self.repository,
+                self.timeout,
+                self.max_commands,
+                self.max_branches,
+                self.max_output_bytes,
+                self.max_remote_items,
+                self.max_remote_age_seconds,
+                self.stale_pull_request_after_seconds,
+            )
+            or extension_evidence_digest != self._sealed_extension_evidence_digest
+            or self.redactor._environment_secrets != ()
+            or type(self.clock) not in {SystemUtcClock, RecordedUtcClock}
+            or type(self.id_provider) not in {UuidObservationIds, RecordedObservationIds}
+            or (
+                self.remote_provider is not None
+                and type(self.remote_provider) is not RecordedRemoteProvider
+            )
+            or type(self.runner) is not GovernanceCommandRunner
+            or type(self.redactor) is not EvidenceRedactor
+            or (self.cancellation is not None and type(self.cancellation) is not CancellationSignal)
+        ):
+            raise RepositorySecurityError("governance execution collaborators are no longer sealed")
+
+    def _assert_bound_snapshot_valid(self) -> None:
+        if self.snapshot is not None and not self.snapshot.digest_is_valid():
+            raise RepositorySecurityError("bound repository snapshot digest is invalid")
 
     def _is_cancelled(self) -> bool:
+        self._assert_execution_collaborators_sealed()
         if self.cancellation is None:
             return False
         try:
@@ -1131,29 +1239,33 @@ class GovernanceCollector:
             return True
 
     def _execute(self, root: Path, command: tuple[str, ...]) -> CommandResult:
+        self._assert_execution_collaborators_sealed()
+        runner = self.runner
+        cancellation = self.cancellation
         if self._is_cancelled():
             raise RepositoryIntelligenceError("governance observation was cancelled")
-        if self.runner.max_output_bytes != self.max_output_bytes:
+        if runner.max_output_bytes != self.max_output_bytes:
             raise RepositorySecurityError(
                 "governance command runner output budget changed after collector construction"
             )
         if self._commands >= self.max_commands:
             raise RepositoryIntelligenceError("governance command budget was exhausted")
         self._commands += 1
-        result = self.runner.run(
+        result = runner.run(
             command,
             root,
             self.timeout,
-            cancellation=self.cancellation,
+            cancellation=cancellation,
         )
         self._command_provenance.append(
             CommandProvenance(
                 args=command,
-                tool_identity=self.runner.identity,
+                tool_identity=runner.identity,
                 exit_status=result.returncode,
                 timed_out=result.timed_out,
             )
         )
+        self._assert_execution_collaborators_sealed()
         return result
 
     def _run(self, root: Path, *args: str) -> str:
@@ -1165,7 +1277,10 @@ class GovernanceCollector:
             raise RepositoryIntelligenceError("local Git observation is unavailable") from exc
 
     def _collect_remote_bounded(self, ref: str) -> dict[str, Any]:
-        if self.remote_provider is None:
+        self._assert_execution_collaborators_sealed()
+        remote_provider = self.remote_provider
+        cancellation = self.cancellation
+        if remote_provider is None:
             raise RepositoryIntelligenceError("no remote provider was configured")
         if not hasattr(os, "fork") or not hasattr(os, "setsid"):
             raise RepositoryIntelligenceError(
@@ -1178,7 +1293,7 @@ class GovernanceCollector:
             target=_remote_provider_worker,
             args=(
                 sender,
-                self.remote_provider,
+                remote_provider,
                 self.repository,
                 ref,
                 self.timeout,
@@ -1202,7 +1317,8 @@ class GovernanceCollector:
         ready = False
         try:
             while True:
-                if self._is_cancelled():
+                self._assert_execution_collaborators_sealed()
+                if _cancellation_requested(cancellation):
                     cancellation_event.set()
                     raise RepositoryIntelligenceError(
                         "bounded remote provider observation was cancelled"
@@ -1259,6 +1375,7 @@ class GovernanceCollector:
                             max_bytes=self.max_output_bytes,
                             max_items=self.max_remote_items,
                         )
+                        self._assert_execution_collaborators_sealed()
                         return cast(dict[str, Any], decoded)
                     if status == "PERMISSION":
                         raise PermissionError("bounded remote provider denied access")
@@ -1524,6 +1641,8 @@ class GovernanceCollector:
         return tuple(sorted(results, key=lambda item: item.path))
 
     def observe(self, repository_root: Path | str, *, ref: str) -> GovernanceObservation:
+        self._assert_execution_collaborators_sealed()
+        self._assert_bound_snapshot_valid()
         self._command_provenance = []
         self._commands = 0
         self._local_unknowns = []
@@ -1669,8 +1788,11 @@ class GovernanceCollector:
             for item in worktrees
         ):
             raise RepositoryIntelligenceError("local Git reference identity is malformed")
-        observed_at = self.clock.now()
-        observation_id = self.id_provider.new_id()
+        clock = self.clock
+        id_provider = self.id_provider
+        observed_at = clock.now()
+        observation_id = id_provider.new_id()
+        self._assert_execution_collaborators_sealed()
         observed_at_value = _parse_utc(observed_at, field="observation time")
 
         remote_branches: tuple[RemoteBranchObservation, ...] = ()
@@ -1702,6 +1824,7 @@ class GovernanceCollector:
             remote_collection_status = "STARTED"
             try:
                 raw_remote = self._collect_remote_bounded(ref)
+                self._assert_execution_collaborators_sealed()
             except (PermissionError, OSError):
                 remote_collection_status = "PERMISSION_OR_IO_BLOCKED"
                 disposition = "BLOCKED"
@@ -1729,11 +1852,13 @@ class GovernanceCollector:
                 )
             else:
                 try:
-                    sanitized_remote = cast(dict[str, Any], self.redactor.sanitize(raw_remote))
+                    redactor = self.redactor
+                    sanitized_remote = cast(dict[str, Any], redactor.sanitize(raw_remote))
                 except (RedactionError, Exception) as exc:
                     raise RepositorySecurityError(
                         "remote evidence redaction failed; observation was not created"
                     ) from exc
+                self._assert_execution_collaborators_sealed()
                 try:
                     _validate_remote_payload_types(raw_remote)
                     _validate_remote_payload_types(sanitized_remote)
@@ -2072,9 +2197,12 @@ class GovernanceCollector:
             "collector_implementation_digest": collector_digest,
         }
         try:
-            sanitized_inputs = self.redactor.sanitize(inputs)
+            redactor = self.redactor
+            sanitized_inputs = redactor.sanitize(inputs)
         except (RedactionError, Exception) as exc:
             raise RepositorySecurityError("observation redaction failed") from exc
+        self._assert_execution_collaborators_sealed()
+        self._assert_bound_snapshot_valid()
         input_digest = canonical_digest(sanitized_inputs)
         draft = GovernanceObservation(
             observation_id=observation_id,
@@ -2111,16 +2239,18 @@ class GovernanceCollector:
             observation_output_digest="",
             disposition=disposition,
             redaction={
-                "version": str(getattr(self.redactor, "version", "unknown")),
+                "version": str(getattr(redactor, "version", "unknown")),
                 "status": "SANITIZED_BEFORE_PERSISTENCE",
                 "marker": "[REDACTED]",
                 "mutable_truth": "TIME_BOUND_OBSERVATION_ONLY",
             },
         )
         try:
-            sanitized = cast(dict[str, Any], self.redactor.sanitize(draft.as_dict()))
+            sanitized = cast(dict[str, Any], redactor.sanitize(draft.as_dict()))
         except (RedactionError, Exception) as exc:
             raise RepositorySecurityError("observation redaction failed") from exc
+        self._assert_execution_collaborators_sealed()
+        self._assert_bound_snapshot_valid()
         if self._is_cancelled() and not any(
             item.get("fact") == "observation_cancellation"
             for item in cast(list[dict[str, Any]], sanitized["unknowns"])

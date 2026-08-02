@@ -52,7 +52,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/2.15.0"
+SCANNER_VERSION = "repository-scanner/2.16.0"
 _MAX_SCAN_BUDGETS = {
     "max_files": 100_000,
     "max_directories": 50_000,
@@ -1477,7 +1477,7 @@ class RepositoryScanner:
             raise RepositorySecurityError(
                 "repository scans only execute the sealed built-in adapter registry"
             )
-        self.adapters = tuple(sorted(requested_adapters, key=lambda item: item.adapter_id))
+        self._adapters = tuple(sorted(requested_adapters, key=lambda item: item.adapter_id))
         adapter_ids = [item.adapter_id for item in self.adapters]
         if len(set(adapter_ids)) != len(adapter_ids) or any(
             not item.adapter_id
@@ -1497,11 +1497,11 @@ class RepositoryScanner:
             )
         if cancellation is not None and type(cancellation) is not CancellationSignal:
             raise RepositorySecurityError("repository scans require the sealed cancellation signal")
-        self.runner = command_runner or SubprocessCommandRunner()
+        self._runner = command_runner or SubprocessCommandRunner()
         # Exact-SHA snapshots never capture host environment values; excluding them
         # from the default redaction context preserves cross-host determinism.
-        self.redactor = EvidenceRedactor(environment={})
-        self.cancellation = cancellation
+        self._redactor = EvidenceRedactor(environment={})
+        self._cancellation = cancellation
         extension_targets: list[tuple[str, Any]] = [
             ("command_runner", self.runner),
             ("redactor", self.redactor),
@@ -1510,12 +1510,75 @@ class RepositoryScanner:
         self._extension_implementation_evidence = tuple(
             _implementation_source_evidence(label, target) for label, target in extension_targets
         )
+        self._sealed_extension_evidence_digest = canonical_digest(
+            self._extension_implementation_evidence
+        )
+        self._sealed_execution_collaborators = (
+            self.adapters,
+            self.runner,
+            self.redactor,
+            self.cancellation,
+            self._extension_implementation_evidence,
+        )
+        self._sealed_execution_config = self.config
         self._commands = 0
         self._command_provenance: list[CommandProvenance] = []
         self._tool_versions: tuple[ToolVersion, ...] = ()
         self._identity_resolved = False
 
+    @property
+    def adapters(self) -> tuple[RepositoryAdapter, ...]:
+        return self._adapters
+
+    @property
+    def runner(self) -> SubprocessCommandRunner:
+        return self._runner
+
+    @property
+    def redactor(self) -> EvidenceRedactor:
+        return self._redactor
+
+    @property
+    def cancellation(self) -> CancellationSignal | None:
+        return self._cancellation
+
+    def _assert_execution_collaborators_sealed(self) -> None:
+        current = (
+            self.adapters,
+            self.runner,
+            self.redactor,
+            self.cancellation,
+            self._extension_implementation_evidence,
+        )
+        if any(
+            observed is not expected
+            for observed, expected in zip(
+                current, self._sealed_execution_collaborators, strict=True
+            )
+        ):
+            raise RepositorySecurityError(
+                "repository scan execution collaborators changed after provenance binding"
+            )
+        try:
+            extension_evidence_digest = canonical_digest(self._extension_implementation_evidence)
+        except Exception as exc:
+            raise RepositorySecurityError(
+                "repository scan implementation provenance evidence is malformed"
+            ) from exc
+        if (
+            self.config is not self._sealed_execution_config
+            or extension_evidence_digest != self._sealed_extension_evidence_digest
+            or self.redactor._environment_secrets != ()
+            or type(self.runner) is not SubprocessCommandRunner
+            or type(self.redactor) is not EvidenceRedactor
+            or (self.cancellation is not None and type(self.cancellation) is not CancellationSignal)
+        ):
+            raise RepositorySecurityError(
+                "repository scan execution collaborators are no longer sealed"
+            )
+
     def _is_cancelled(self) -> bool:
+        self._assert_execution_collaborators_sealed()
         if self.cancellation is None:
             return False
         try:
@@ -1536,31 +1599,35 @@ class RepositoryScanner:
     def _run(
         self, args: tuple[str, ...], root: Path, *, essential: bool = False
     ) -> CommandResult | None:
+        self._assert_execution_collaborators_sealed()
+        runner = self.runner
+        cancellation = self.cancellation
         if self._commands >= self.config.max_commands:
             if essential:
                 raise RepositoryIntelligenceError("read-only Git command budget was exhausted")
             return None
         self._commands += 1
         try:
-            if isinstance(self.runner, SubprocessCommandRunner):
-                result = self.runner.run(
+            if isinstance(runner, SubprocessCommandRunner):
+                result = runner.run(
                     args,
                     root,
                     self.config.command_timeout_seconds,
-                    cancellation=self.cancellation,
+                    cancellation=cancellation,
                 )
             else:
-                result = self.runner.run(args, root, self.config.command_timeout_seconds)
+                result = runner.run(args, root, self.config.command_timeout_seconds)
         except (FileNotFoundError, OSError) as exc:
             raise RepositoryIntelligenceError("read-only Git command is unavailable") from exc
         self._command_provenance.append(
             CommandProvenance(
                 args=args,
-                tool_identity=self.runner.identity,
+                tool_identity=runner.identity,
                 exit_status=result.returncode,
                 timed_out=result.timed_out,
             )
         )
+        self._assert_execution_collaborators_sealed()
         if result.timed_out:
             raise RepositoryIntelligenceError("read-only Git command timed out")
         if result.returncode == 126:
@@ -1574,22 +1641,25 @@ class RepositoryScanner:
         return result
 
     def _list_tree(self, args: tuple[str, ...], root: Path) -> TreeListingResult | None:
+        self._assert_execution_collaborators_sealed()
+        runner = self.runner
+        cancellation = self.cancellation
         if self._commands >= self.config.max_commands:
             return None
         self._commands += 1
         try:
-            if isinstance(self.runner, SubprocessCommandRunner):
-                listing = self.runner.list_tree(
+            if isinstance(runner, SubprocessCommandRunner):
+                listing = runner.list_tree(
                     args,
                     root,
                     self.config.command_timeout_seconds,
                     max_records=self.config.max_files + 1,
                     max_output_bytes=self.config.max_tree_output_bytes,
-                    cancellation=self.cancellation,
+                    cancellation=cancellation,
                 )
             else:
                 listing = TreeListingResult(
-                    result=self.runner.run(args, root, self.config.command_timeout_seconds),
+                    result=runner.run(args, root, self.config.command_timeout_seconds),
                     record_limit_exceeded=False,
                     byte_limit_exceeded=False,
                     cancelled=False,
@@ -1600,11 +1670,12 @@ class RepositoryScanner:
         self._command_provenance.append(
             CommandProvenance(
                 args=args,
-                tool_identity=self.runner.identity,
+                tool_identity=runner.identity,
                 exit_status=result.returncode,
                 timed_out=result.timed_out,
             )
         )
+        self._assert_execution_collaborators_sealed()
         if result.timed_out:
             raise RepositoryIntelligenceError("bounded tracked-tree enumeration timed out")
         if listing.cancelled:
@@ -2042,12 +2113,15 @@ class RepositoryScanner:
     def _apply_adapters(
         self, files: tuple[TrackedFile, ...]
     ) -> tuple[dict[str, list[EvidenceItem]], list[Finding], list[BoundaryCandidate], set[str]]:
+        self._assert_execution_collaborators_sealed()
+        adapters = self.adapters
         inventory: dict[str, list[EvidenceItem]] = {name: [] for name in AUDIT_CATEGORIES}
         findings: list[Finding] = []
         boundaries: list[BoundaryCandidate] = []
         supported: set[str] = set()
         context = AdapterContext(files=files)
-        for adapter in self.adapters:
+        for adapter in adapters:
+            self._assert_execution_collaborators_sealed()
             if self._is_cancelled():
                 findings.append(
                     _finding(
@@ -2068,6 +2142,7 @@ class RepositoryScanner:
                 adapter,
                 matched_context,
             )
+            self._assert_execution_collaborators_sealed()
             if status == "CANCELLED":
                 findings.append(self._cancelled_finding(f"adapter:{adapter.adapter_id}"))
                 break
@@ -2115,6 +2190,7 @@ class RepositoryScanner:
             )
             for item in boundaries
         )
+        self._assert_execution_collaborators_sealed()
         return inventory, findings, boundaries, supported
 
     @staticmethod
@@ -2805,6 +2881,10 @@ class RepositoryScanner:
         tracked_tree_digest: str | None = None,
         scanned_content_digest: str | None = None,
     ) -> RepositorySnapshot:
+        self._assert_execution_collaborators_sealed()
+        adapters = self.adapters
+        runner = self.runner
+        redactor = self.redactor
         findings = list(findings)
         statuses = dict(statuses)
         reasons = dict(reasons)
@@ -2847,13 +2927,13 @@ class RepositoryScanner:
                     "scanner_version": SCANNER_VERSION,
                     "adapter_set_digest": adapter_digest,
                     "implementation_digest": implementation_digest,
-                    "command_runner": self.runner.identity,
-                    "redactor_version": str(getattr(self.redactor, "version", "unknown")),
+                    "command_runner": runner.identity,
+                    "redactor_version": str(getattr(redactor, "version", "unknown")),
                     "tool_versions": [asdict(item) for item in self._tool_versions],
                 }
             ),
             tool_versions=self._tool_versions,
-            adapters=tuple(_metadata(adapter) for adapter in self.adapters),
+            adapters=tuple(_metadata(adapter) for adapter in adapters),
             command_provenance=tuple(self._command_provenance),
             inventory=inventory,
             findings=tuple(
@@ -2869,7 +2949,7 @@ class RepositoryScanner:
             ),
             disposition=disposition,
             redaction={
-                "version": str(getattr(self.redactor, "version", "unknown")),
+                "version": str(getattr(redactor, "version", "unknown")),
                 "status": "SANITIZED_BEFORE_PERSISTENCE",
                 "read_only_method": (
                     "allowlisted immutable Git object reads; project code not executed"
@@ -2878,11 +2958,12 @@ class RepositoryScanner:
             snapshot_digest="",
         )
         try:
-            sanitized = cast(dict[str, Any], self.redactor.sanitize(draft.as_dict()))
+            sanitized = cast(dict[str, Any], redactor.sanitize(draft.as_dict()))
         except (RedactionError, Exception) as exc:
             raise RepositorySecurityError(
                 "evidence redaction failed; artifact was not created"
             ) from exc
+        self._assert_execution_collaborators_sealed()
         if self._is_cancelled() and not any(item.code == "SCAN.CANCELLED" for item in findings):
             return self._finalize(
                 commit_sha=commit_sha,
@@ -2905,6 +2986,7 @@ class RepositoryScanner:
         return _snapshot_from_dict(sanitized)
 
     def scan(self, repository_root: Path | str, *, commit: str = "HEAD") -> RepositorySnapshot:
+        self._assert_execution_collaborators_sealed()
         self._validate_config()
         self._commands = 0
         self._command_provenance = []
@@ -2917,6 +2999,7 @@ class RepositoryScanner:
         # commit-stable provenance because equivalent refs (HEAD versus the exact SHA)
         # must yield byte-equivalent snapshots. Remaining commands are SHA-bound.
         self._command_provenance = self._command_provenance[2:]
+        self._assert_execution_collaborators_sealed()
         adapter_digest = canonical_digest([asdict(_metadata(item)) for item in self.adapters])
         config_digest = canonical_digest(asdict(self.config))
         try:

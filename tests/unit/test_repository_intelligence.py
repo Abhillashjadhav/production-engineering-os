@@ -2934,6 +2934,103 @@ def test_unsealed_parent_collaborators_are_rejected_before_execution(tmp_path: P
     assert not marker.exists()
 
 
+def test_scanner_rejects_post_construction_adapter_substitution_before_mutation(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    adapters = importlib.import_module("pmpe.repository.adapters")
+    repo = _init_repo(tmp_path)
+    marker = repo / "adapter-substitution.txt"
+    before_head = _git(repo, "rev-parse", "HEAD")
+    before_status = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
+    candidate = api.RepositoryScanner(config=_config())
+
+    def mutating_evaluator(_context: Any) -> Any:
+        marker.write_text("mutated")
+        return adapters.AdapterResult()
+
+    replacement = replace(candidate.adapters[0], evaluator=mutating_evaluator)
+    substituted = (replacement, *candidate.adapters[1:])
+    with pytest.raises(AttributeError):
+        candidate.adapters = substituted
+    object.__setattr__(candidate, "_adapters", substituted)
+
+    with pytest.raises(api.RepositorySecurityError, match="provenance binding"):
+        candidate.scan(repo, commit="HEAD")
+    assert not marker.exists()
+    assert _git(repo, "rev-parse", "HEAD") == before_head
+    assert _git(repo, "status", "--porcelain=v1", "--untracked-files=all") == before_status
+
+
+def test_scanner_rejects_every_replaced_execution_collaborator(tmp_path: Path) -> None:
+    api = _api()
+    scanner_module = importlib.import_module("pmpe.repository.scanner")
+    redaction = importlib.import_module("pmpe.repository.redaction")
+    repo = _init_repo(tmp_path)
+    replacements = {
+        "config": replace(_config()),
+        "_runner": scanner_module.SubprocessCommandRunner(),
+        "_redactor": redaction.EvidenceRedactor(environment={}),
+        "_cancellation": api.CancellationSignal(),
+        "_extension_implementation_evidence": (),
+    }
+    for attribute, replacement in replacements.items():
+        candidate = api.RepositoryScanner(config=_config())
+        object.__setattr__(candidate, attribute, replacement)
+        with pytest.raises(api.RepositorySecurityError, match="sealed|provenance binding"):
+            candidate.scan(repo, commit="HEAD")
+
+    candidate = api.RepositoryScanner(config=_config())
+    candidate._extension_implementation_evidence[0]["source_digest"] = "sha256:tampered"
+    with pytest.raises(api.RepositorySecurityError, match="sealed"):
+        candidate.scan(repo, commit="HEAD")
+
+    candidate = api.RepositoryScanner(config=_config())
+    object.__setattr__(candidate.redactor, "_environment_secrets", ("tampered",))
+    with pytest.raises(api.RepositorySecurityError, match="sealed"):
+        candidate.scan(repo, commit="HEAD")
+
+
+def test_governance_rejects_every_replaced_execution_collaborator(tmp_path: Path) -> None:
+    api = _api()
+    governance = importlib.import_module("pmpe.repository.governance")
+    redaction = importlib.import_module("pmpe.repository.redaction")
+    repo = _init_repo(tmp_path)
+    snapshot = _scan(repo)
+    remote = _sealed_remote(_FakeRemote())
+    replacements = {
+        "_snapshot": replace(snapshot),
+        "_clock": _fixed_clock(),
+        "_id_provider": _fixed_ids(),
+        "_remote_provider": remote,
+        "_runner": governance.GovernanceCommandRunner(),
+        "_redactor": redaction.EvidenceRedactor(environment={}),
+        "_cancellation": api.CancellationSignal(),
+        "_extension_implementation_evidence": (),
+        "max_commands": 1,
+    }
+    for attribute, replacement in replacements.items():
+        candidate = api.GovernanceCollector(
+            repository="example/fixture",
+            snapshot=snapshot,
+            clock=_fixed_clock(),
+            id_provider=_fixed_ids(),
+        )
+        object.__setattr__(candidate, attribute, replacement)
+        with pytest.raises(api.RepositorySecurityError, match="sealed|provenance binding"):
+            candidate.observe(repo, ref="main")
+
+    candidate = api.GovernanceCollector(
+        repository="example/fixture",
+        snapshot=snapshot,
+        clock=_fixed_clock(),
+        id_provider=_fixed_ids(),
+    )
+    candidate._extension_implementation_evidence[0]["source_digest"] = "sha256:tampered"
+    with pytest.raises(api.RepositorySecurityError, match="sealed"):
+        candidate.observe(repo, ref="main")
+
+
 def test_unproven_remote_pagination_is_blocked_not_complete(tmp_path: Path) -> None:
     observation = _observe(_init_repo(tmp_path), _PartialRemote())
     assert observation.disposition == "BLOCKED"
