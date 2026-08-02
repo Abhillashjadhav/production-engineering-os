@@ -30,6 +30,19 @@ def _schema(name: str) -> dict[str, object]:
     return _json(ROOT / "schemas" / name)
 
 
+def _required_field_names(node: object) -> set[str]:
+    if isinstance(node, dict):
+        own = {
+            item
+            for item in node.get("required", [])
+            if isinstance(node.get("required"), list) and isinstance(item, str)
+        }
+        return own | set().union(*(_required_field_names(value) for value in node.values()))
+    if isinstance(node, list):
+        return set().union(*(_required_field_names(value) for value in node))
+    return set()
+
+
 def _diagnostic_codes(path: Path) -> set[str]:
     compiler = CanonicalCompiler()
     with pytest.raises(CompilationBlocked) as raised:
@@ -61,9 +74,14 @@ def test_documentation_covers_the_versioned_contract_and_operator_workflow() -> 
     assert "UNSUPPORTED_SOURCE_VERSION" in text
     assert "SOURCE_SCHEMA_INVALID" in text
 
-    bundle_properties = set(_schema("pmos_contract_bundle.schema.json")["properties"])
-    manifest_properties = set(_schema("pmos_contract_manifest.schema.json")["properties"])
-    for field in bundle_properties | manifest_properties:
+    schemas = (
+        _schema("pmos_contract_bundle.schema.json"),
+        _schema("pmos_contract_manifest.schema.json"),
+    )
+    documented_fields = set().union(
+        *(set(schema["properties"]) | _required_field_names(schema) for schema in schemas)
+    )
+    for field in documented_fields:
         assert f"`{field}`" in text, f"undocumented canonical field: {field}"
 
     for linked_path in (
@@ -81,8 +99,18 @@ def test_documentation_covers_the_versioned_contract_and_operator_workflow() -> 
 def test_canonical_examples_validate_and_the_manifest_binds_the_bundle() -> None:
     bundle = _json(VALID_BUNDLE)
     manifest = _json(VALID_MANIFEST)
-    assert list(Draft202012Validator(_schema("pmos_contract_bundle.schema.json")).iter_errors(bundle)) == []
-    assert list(Draft202012Validator(_schema("pmos_contract_manifest.schema.json")).iter_errors(manifest)) == []
+    assert (
+        list(Draft202012Validator(_schema("pmos_contract_bundle.schema.json")).iter_errors(bundle))
+        == []
+    )
+    assert (
+        list(
+            Draft202012Validator(_schema("pmos_contract_manifest.schema.json")).iter_errors(
+                manifest
+            )
+        )
+        == []
+    )
 
     assert manifest["bundle"]["content_digest"] == canonical_digest(bundle)  # type: ignore[index]
     assert manifest["approval_digest"] == canonical_digest(bundle["approvals"])

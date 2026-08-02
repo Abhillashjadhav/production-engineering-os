@@ -1,0 +1,734 @@
+{
+  "acceptance_criteria": {
+    "AC-001": {
+      "criterion": "Given an approved contract, when intake runs, then every required product-truth section is admitted without loss.",
+      "requirement_refs": [
+        "FR-001"
+      ],
+      "verification_method": "Automated schema fixture"
+    }
+  },
+  "api_contracts": {
+    "API-CONTRACT-INTAKE": {
+      "method": "POST",
+      "path": "/contracts",
+      "purpose": "Receive an approved PMOS contract bundle."
+    }
+  },
+  "approvals": {
+    "APR-CONTRACT-001": {
+      "actor_id": "OWNER-PRODUCT-001",
+      "approval_version": "1.0.0",
+      "approved_at": "2026-07-30T00:00:00Z",
+      "authority_policy_ref": "AUTH-POLICY-CONTRACT-001",
+      "authority_policy_version": "1.0.0",
+      "decision": "APPROVED",
+      "expires_at": "2027-07-30T00:00:00Z",
+      "role": "PRODUCT_OWNER",
+      "status": "ACTIVE",
+      "subject": {
+        "digest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "digest_scope": "CANONICAL_BUNDLE_EXCLUDING_APPROVALS",
+        "id": "BUNDLE-SYNTHETIC-PMOS-001",
+        "version": "1.0.0"
+      },
+      "supersedes_approval_refs": [],
+      "valid_from": "2026-07-30T00:00:00Z"
+    },
+    "APR-METRIC-EADPR": {
+      "actor_id": "OWNER-PRODUCT-001",
+      "approval_version": "1.0.0",
+      "approved_at": "2026-07-30T00:00:00Z",
+      "authority_policy_ref": "AUTH-POLICY-METRIC-001",
+      "authority_policy_version": "1.0.0",
+      "decision": "APPROVED",
+      "expires_at": "2027-07-30T00:00:00Z",
+      "role": "METRIC_POLICY_OWNER",
+      "status": "ACTIVE",
+      "subject": {
+        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "digest_scope": "NAMED_METRIC_MATURITY_POLICY",
+        "id": "POLICY-METRIC-EADPR",
+        "version": "1.0.0"
+      },
+      "supersedes_approval_refs": [],
+      "valid_from": "2026-07-30T00:00:00Z"
+    },
+    "APR-METRIC-FIRST-PASS": {
+      "actor_id": "OWNER-PRODUCT-001",
+      "approval_version": "1.0.0",
+      "approved_at": "2026-07-30T00:00:00Z",
+      "authority_policy_ref": "AUTH-POLICY-METRIC-001",
+      "authority_policy_version": "1.0.0",
+      "decision": "APPROVED",
+      "expires_at": "2027-07-30T00:00:00Z",
+      "role": "METRIC_POLICY_OWNER",
+      "status": "ACTIVE",
+      "subject": {
+        "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "digest_scope": "NAMED_METRIC_MATURITY_POLICY",
+        "id": "POLICY-METRIC-FIRST-PASS",
+        "version": "1.0.0"
+      },
+      "supersedes_approval_refs": [],
+      "valid_from": "2026-07-30T00:00:00Z"
+    },
+    "APR-METRIC-VAPDR": {
+      "actor_id": "OWNER-PRODUCT-001",
+      "approval_version": "1.0.0",
+      "approved_at": "2026-07-30T00:00:00Z",
+      "authority_policy_ref": "AUTH-POLICY-METRIC-001",
+      "authority_policy_version": "1.0.0",
+      "decision": "APPROVED",
+      "expires_at": "2027-07-30T00:00:00Z",
+      "role": "METRIC_POLICY_OWNER",
+      "status": "ACTIVE",
+      "subject": {
+        "digest": "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "digest_scope": "NAMED_METRIC_MATURITY_POLICY",
+        "id": "POLICY-METRIC-VAPDR",
+        "version": "1.0.0"
+      },
+      "supersedes_approval_refs": [],
+      "valid_from": "2026-07-30T00:00:00Z"
+    },
+    "APR-REPORTING-END-STATE": {
+      "actor_id": "OWNER-PRODUCT-001",
+      "approval_version": "1.0.0",
+      "approved_at": "2026-07-30T00:00:00Z",
+      "authority_policy_ref": "AUTH-POLICY-METRIC-001",
+      "authority_policy_version": "1.0.0",
+      "decision": "APPROVED",
+      "expires_at": "2027-07-30T00:00:00Z",
+      "role": "METRIC_POLICY_OWNER",
+      "status": "ACTIVE",
+      "subject": {
+        "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "digest_scope": "NAMED_METRIC_REPORTING_POLICY",
+        "id": "POLICY-REPORTING-END-STATE",
+        "version": "1.0.0"
+      },
+      "supersedes_approval_refs": [],
+      "valid_from": "2026-07-30T00:00:00Z"
+    },
+    "APR-REPORTING-LEADING": {
+      "actor_id": "OWNER-PRODUCT-001",
+      "approval_version": "1.0.0",
+      "approved_at": "2026-07-30T00:00:00Z",
+      "authority_policy_ref": "AUTH-POLICY-METRIC-001",
+      "authority_policy_version": "1.0.0",
+      "decision": "APPROVED",
+      "expires_at": "2027-07-30T00:00:00Z",
+      "role": "METRIC_POLICY_OWNER",
+      "status": "ACTIVE",
+      "subject": {
+        "digest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "digest_scope": "NAMED_METRIC_REPORTING_POLICY",
+        "id": "POLICY-REPORTING-LEADING",
+        "version": "1.0.0"
+      },
+      "supersedes_approval_refs": [],
+      "valid_from": "2026-07-30T00:00:00Z"
+    },
+    "APR-REPORTING-MVP": {
+      "actor_id": "OWNER-PRODUCT-001",
+      "approval_version": "1.0.0",
+      "approved_at": "2026-07-30T00:00:00Z",
+      "authority_policy_ref": "AUTH-POLICY-METRIC-001",
+      "authority_policy_version": "1.0.0",
+      "decision": "APPROVED",
+      "expires_at": "2027-07-30T00:00:00Z",
+      "role": "METRIC_POLICY_OWNER",
+      "status": "ACTIVE",
+      "subject": {
+        "digest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+        "digest_scope": "NAMED_METRIC_REPORTING_POLICY",
+        "id": "POLICY-REPORTING-MVP",
+        "version": "1.0.0"
+      },
+      "supersedes_approval_refs": [],
+      "valid_from": "2026-07-30T00:00:00Z"
+    }
+  },
+  "assumptions": {
+    "ASM-001": {
+      "statement": "Approved PMOS contracts contain no credentials or customer records.",
+      "validation_plan": "Reject raw secret values and accept only governed references."
+    }
+  },
+  "backend_capabilities": {
+    "CAPABILITY-CONTRACT-INTAKE": {
+      "description": "Receive and structurally admit canonical PMOS contract bundles."
+    }
+  },
+  "bundle_id": "BUNDLE-SYNTHETIC-PMOS-001",
+  "bundle_version": "1.0.0",
+  "canonical_json_profile": "RFC8785",
+  "contract_status": "APPROVED",
+  "data": {
+    "entities": {
+      "ENTITY-CONTRACT": {
+        "fields": {
+          "bundle_id": {
+            "required": true,
+            "type": "string"
+          },
+          "schema_version": {
+            "required": true,
+            "type": "string"
+          }
+        },
+        "name": "Contract bundle",
+        "persistence": "PERMANENT"
+      }
+    },
+    "requirements": {
+      "DATA-001": {
+        "classification": "INTERNAL",
+        "purpose": "Trace approved product intent through engineering evidence.",
+        "requirement": "Retain contract metadata and digests without embedding customer records.",
+        "retention": "PROJECT_LIFETIME"
+      }
+    }
+  },
+  "dependencies": {
+    "DEP-PMOS": {
+      "description": "PM Agent OS publishes approved product truth.",
+      "kind": "SERVICE",
+      "owner_ref": "OWNER-PRODUCT-001"
+    }
+  },
+  "extensions": {
+    "EXT-REPOSITORY-001": {
+      "effect": "ADD_CONSTRAINTS_ONLY",
+      "payload": {
+        "constraints": {
+          "EXT-CONSTRAINT-001": {
+            "constraint_value": "^PM_AGENT_OS$",
+            "operator": "MATCH_PATTERN",
+            "rationale": "The repository extension cannot change ownership of product truth.",
+            "target_pointer": "/provenance/source_system"
+          }
+        }
+      },
+      "payload_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "schema_id": "https://example.invalid/schemas/repository-extension.schema.json",
+      "schema_version": "1.0.0",
+      "target_refs": [
+        "FR-001"
+      ]
+    }
+  },
+  "functional_requirements": {
+    "FR-001": {
+      "acceptance_criterion_refs": [
+        "AC-001"
+      ],
+      "capability": "contract.intake",
+      "entity_ref": "ENTITY-CONTRACT",
+      "priority": "MUST",
+      "statement": "Accept one canonical PMOS contract bundle without inventing missing product truth.",
+      "title": "Canonical contract intake"
+    }
+  },
+  "guardrails": {
+    "GUARD-SECURITY-001": {
+      "category": "SECURITY",
+      "description": "Contracts must contain references to secrets, never secret values.",
+      "response": "BLOCK",
+      "threshold": "Zero embedded credentials"
+    }
+  },
+  "integrations": {
+    "INT-PMOS-001": {
+      "authentication": "GOVERNED_REFERENCE_ONLY",
+      "direction": "INBOUND",
+      "name": "PM Agent OS",
+      "purpose": "Publish approved product truth bundles."
+    }
+  },
+  "metrics": {
+    "leading": {
+      "METRIC-LEAD-001": {
+        "definition": "Share of received bundles that pass structural validation on first submission.",
+        "direction": "INCREASE",
+        "maturity_policy_ref": "POLICY-METRIC-FIRST-PASS",
+        "name": "First-pass contract validation rate"
+      }
+    },
+    "maturity_policies": {
+      "POLICY-METRIC-EADPR": {
+        "applicable_autonomy_stages": [
+          "DRAFT_PR"
+        ],
+        "approval_ref": "APR-METRIC-EADPR",
+        "delivery_window": {
+          "anchor_event": "CONTRACT_APPROVED",
+          "duration": "P7D",
+          "time_zone": "UTC"
+        },
+        "evaluation_window": {
+          "anchor_event": "CONTRACT_APPROVED",
+          "duration": "P7D",
+          "time_zone": "America/Argentina/Buenos_Aires"
+        },
+        "metric_ref": "METRIC-NSM-MVP-EADPR",
+        "name": "Evidence-backed autonomous draft PR maturity",
+        "observation_window": {
+          "anchor_event": "PR_READY",
+          "duration": "P1D",
+          "time_zone": "UTC"
+        },
+        "owner_ref": "OWNER-PRODUCT-001",
+        "policy_version": "1.0.0",
+        "reporting_policy_ref": "POLICY-REPORTING-MVP",
+        "reporting_window": {
+          "anchor_event": "EVALUATION_WINDOW_CLOSED",
+          "duration": "P1D",
+          "time_zone": "UTC"
+        },
+        "target": {
+          "baseline_plan": "Approve a prospective EADPR target after the first fixed due cohort matures.",
+          "status": "BASELINE_REQUIRED",
+          "unit": "ratio"
+        }
+      },
+      "POLICY-METRIC-FIRST-PASS": {
+        "applicable_autonomy_stages": [
+          "DRAFT_PR"
+        ],
+        "approval_ref": "APR-METRIC-FIRST-PASS",
+        "delivery_window": {
+          "anchor_event": "CONTRACT_RECEIVED",
+          "duration": "P1D",
+          "time_zone": "UTC"
+        },
+        "evaluation_window": {
+          "anchor_event": "CONTRACT_RECEIVED",
+          "duration": "P1D",
+          "time_zone": "UTC"
+        },
+        "metric_ref": "METRIC-LEAD-001",
+        "name": "First-pass contract validation maturity",
+        "observation_window": {
+          "anchor_event": "CONTRACT_VALIDATION_COMPLETED",
+          "duration": "P1D",
+          "time_zone": "UTC"
+        },
+        "owner_ref": "OWNER-PRODUCT-001",
+        "policy_version": "1.0.0",
+        "reporting_policy_ref": "POLICY-REPORTING-LEADING",
+        "reporting_window": {
+          "anchor_event": "OBSERVATION_WINDOW_CLOSED",
+          "duration": "P1D",
+          "time_zone": "UTC"
+        },
+        "target": {
+          "baseline_plan": "Approve a prospective first-pass validation target after the initial intake cohort.",
+          "status": "BASELINE_REQUIRED",
+          "unit": "ratio"
+        }
+      },
+      "POLICY-METRIC-VAPDR": {
+        "applicable_autonomy_stages": [
+          "STAGING",
+          "CANARY",
+          "PRODUCTION"
+        ],
+        "approval_ref": "APR-METRIC-VAPDR",
+        "delivery_window": {
+          "anchor_event": "CONTRACT_APPROVED",
+          "duration": "P30D",
+          "time_zone": "UTC"
+        },
+        "evaluation_window": {
+          "anchor_event": "CONTRACT_APPROVED",
+          "duration": "P30D",
+          "time_zone": "UTC"
+        },
+        "metric_ref": "METRIC-NSM-END-VAPDR",
+        "name": "Verified autonomous production delivery maturity",
+        "observation_window": {
+          "anchor_event": "PRODUCTION_DEPLOYED",
+          "duration": "P7D",
+          "time_zone": "UTC"
+        },
+        "owner_ref": "OWNER-PRODUCT-001",
+        "policy_version": "1.0.0",
+        "reporting_policy_ref": "POLICY-REPORTING-END-STATE",
+        "reporting_window": {
+          "anchor_event": "OBSERVATION_WINDOW_CLOSED",
+          "duration": "P1D",
+          "time_zone": "UTC"
+        },
+        "target": {
+          "baseline_plan": "Approve a prospective VAPDR target after the first fixed production due cohort matures.",
+          "status": "BASELINE_REQUIRED",
+          "unit": "ratio"
+        }
+      }
+    },
+    "north_stars": {
+      "end_state": {
+        "definition": "Percentage of approved contract slices deployed with acceptance, SLO, and evidence gates satisfied without manual code modification.",
+        "direction": "INCREASE",
+        "maturity_policy_ref": "POLICY-METRIC-VAPDR",
+        "metric_id": "METRIC-NSM-END-VAPDR",
+        "name": "Verified autonomous production delivery rate",
+        "outcome_scope": "PRODUCTION"
+      },
+      "mvp": {
+        "definition": "Percentage of approved contracts that produce a green, traceable, evidence-backed draft PR without manual engineering handholding.",
+        "direction": "INCREASE",
+        "maturity_policy_ref": "POLICY-METRIC-EADPR",
+        "metric_id": "METRIC-NSM-MVP-EADPR",
+        "name": "Evidence-backed autonomous draft PR rate",
+        "outcome_scope": "DRAFT_PR"
+      }
+    },
+    "reporting_policies": {
+      "POLICY-REPORTING-END-STATE": {
+        "approval_ref": "APR-REPORTING-END-STATE",
+        "calculation": "Count eligible production-due slices meeting every acceptance, SLO, evidence, and autonomy condition divided by the fixed eligible denominator.",
+        "denominator": "Approved contract slices whose production delivery window closed in the reporting cohort.",
+        "exclusions": [
+          "Slices superseded before engineering work began"
+        ],
+        "inclusion_criteria": [
+          "Production delivery window closed",
+          "Required observation window closed"
+        ],
+        "owner_ref": "OWNER-PRODUCT-001",
+        "policy_version": "1.0.0"
+      },
+      "POLICY-REPORTING-LEADING": {
+        "approval_ref": "APR-REPORTING-LEADING",
+        "calculation": "Count first-pass structurally valid received bundles divided by all eligible received bundles.",
+        "denominator": "Received bundles whose validation window closed in the reporting cohort.",
+        "exclusions": [],
+        "inclusion_criteria": [
+          "Validation attempt reached a terminal outcome"
+        ],
+        "owner_ref": "OWNER-PRODUCT-001",
+        "policy_version": "1.0.0"
+      },
+      "POLICY-REPORTING-MVP": {
+        "approval_ref": "APR-REPORTING-MVP",
+        "calculation": "Count eligible approved contracts producing a green, traceable, evidence-backed draft PR without manual engineering handholding divided by the fixed eligible denominator.",
+        "denominator": "Approved contracts whose draft-PR delivery window closed in the reporting cohort.",
+        "exclusions": [
+          "Contracts revoked before repository work began"
+        ],
+        "inclusion_criteria": [
+          "Draft-PR delivery window closed",
+          "Review observation window closed"
+        ],
+        "owner_ref": "OWNER-PRODUCT-001",
+        "policy_version": "1.0.0"
+      }
+    },
+    "success": {
+      "METRIC-SUCCESS-001": {
+        "definition": "Approved product truth is admitted without loss or invented decisions.",
+        "name": "Lossless contract admission"
+      }
+    }
+  },
+  "non_functional_requirements": {
+    "NFR-001": {
+      "category": "RELIABILITY",
+      "evidence_expectation": "Deterministic schema and fixture checks pass at the exact commit.",
+      "requirement": "The same canonical bytes must produce the same validation result.",
+      "target": "100 percent deterministic"
+    },
+    "NFR-LEGACY-CATEGORY": {
+      "category": "OTHER",
+      "evidence_expectation": "The exact source category remains machine-readable after canonical compilation.",
+      "requirement": "Preserve valid legacy non-functional-requirement categories without reinterpretation.",
+      "source_category": "operability",
+      "target": "No source category is discarded"
+    }
+  },
+  "observability": {
+    "requirements": {
+      "OBS-001": {
+        "alert_condition": "Any admitted bundle lacks a required evidence reference.",
+        "requirement": "Record contract admission outcomes and stable subject identifiers.",
+        "signal": "contract_admission_total"
+      }
+    }
+  },
+  "open_questions": {
+    "QUESTION-001": {
+      "blocking": false,
+      "owner_ref": "OWNER-PRODUCT-001",
+      "question": "Which optional repository extensions will be standardized after MVP?",
+      "resolution": "Defer until extension usage evidence exists."
+    }
+  },
+  "privacy": {
+    "contract_data_policy": "CLASSIFICATION_AND_PURPOSE_ONLY_NO_PERSONAL_RECORDS",
+    "data_residency": {
+      "allowed_regions": [
+        "IN"
+      ],
+      "cross_border_transfer_policy": "No cross-border transfer without a new product and privacy approval."
+    },
+    "deletion": {
+      "deadline": "P30D",
+      "trigger": "Approved deletion request or contract-retention expiry",
+      "verification": "Digest-bound deletion attestation"
+    },
+    "requirements": {
+      "PRIV-001": {
+        "data_category": "CONTRACT_METADATA",
+        "lawful_purpose": "Product-to-engineering traceability",
+        "requirement": "Do not embed personal records in the contract bundle."
+      }
+    },
+    "retention": {
+      "duration": "P1Y",
+      "owner_ref": "OWNER-PRODUCT-001",
+      "policy": "Retain approved contract metadata for the project lifetime or one year, whichever is shorter."
+    },
+    "telemetry": {
+      "allowed_fields": [
+        "bundle_id",
+        "schema_version",
+        "validation_outcome"
+      ],
+      "prohibited_fields": [
+        "credentials",
+        "customer_records"
+      ],
+      "purpose": "Measure contract admission quality without collecting product payload values.",
+      "retention_duration": "P30D"
+    }
+  },
+  "product": {
+    "hypothesis": {
+      "falsification_condition": "Approved bundles still require engineers to infer material product decisions.",
+      "statement": "A complete canonical contract will reduce manual engineering handholding."
+    },
+    "outcome": {
+      "business_outcome": "Engineering delivery becomes faster and more reliable without transferring product decisions to implementers.",
+      "customer_outcome": "Product owners can hand an approved contract to engineering without repeated clarification.",
+      "measurable_change": "More approved slices reach evidence-backed draft PRs without manual engineering intervention.",
+      "statement": "Engineering can begin from explicit, approved, traceable product truth."
+    },
+    "priority": "P0",
+    "problem": {
+      "affected_customers": "Product owners and engineering teams using PM Agent OS.",
+      "statement": "Separate legacy contracts omit required product truth and use incompatible version semantics."
+    },
+    "product_name": "Synthetic PMOS Contract Example (NON-PRODUCTION)",
+    "target_customers": [
+      "Synthetic product owners publishing demonstration PMOS contracts",
+      "Synthetic engineering teams consuming demonstration product truth"
+    ],
+    "target_platform": {
+      "description": "Repository-integrated agentic engineering control plane and CLI.",
+      "kind": "CLI"
+    }
+  },
+  "product_decisions": {
+    "DECISION-CANONICAL-SCHEMA": {
+      "approval_ref": "APR-CONTRACT-001",
+      "decision": "Use one canonical versioned PMOS-to-PEOS bundle with a non-weakenable typed core.",
+      "rationale": "Lossless compilation and deterministic validation require one explicit boundary contract."
+    }
+  },
+  "provenance": {
+    "published_at": "2026-07-30T00:00:00Z",
+    "source_digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "source_id": "PMOS-SYNTHETIC-CONTRACT-001",
+    "source_system": "PM_AGENT_OS",
+    "source_version": "1.0.0"
+  },
+  "quality_assurance": {
+    "evaluation_rubrics": {
+      "EVAL-LOSSLESSNESS": {
+        "criterion": "Every product-truth field survives canonical compilation without reinterpretation.",
+        "scale": "Binary pass or fail"
+      }
+    },
+    "expectations": {
+      "QA-001": {
+        "evidence_type": "AUTOMATED_TEST",
+        "expectation": "Valid and invalid canonical fixtures produce deterministic outcomes.",
+        "requirement_refs": [
+          "FR-001",
+          "NFR-001"
+        ]
+      }
+    },
+    "golden_cases": {
+      "GOLDEN-CANONICAL-BUNDLE": {
+        "expected_outcome": "The complete approved bundle validates and remains traceable.",
+        "scenario": "A complete approved PMOS contract enters canonical schema admission."
+      }
+    },
+    "release_gates": {
+      "GATE-SCHEMA": {
+        "description": "Every valid and planted-invalid schema fixture produces its expected deterministic result.",
+        "evidence_expectation": "Exact-head schema test evidence"
+      }
+    }
+  },
+  "release": {
+    "approval_refs": [
+      "APR-CONTRACT-001"
+    ],
+    "deployment_target": {
+      "description": "Documentation and schema verification on the repository draft-PR surface only.",
+      "environment": "LOCAL",
+      "kind": "LOCAL_PREVIEW"
+    },
+    "eligible_audiences": [
+      "Repository maintainers evaluating the draft contract schema"
+    ],
+    "expectations": {
+      "REL-001": {
+        "environment": "DRAFT_PR",
+        "expectation": "Open one focused draft PR with exact-head evidence."
+      }
+    },
+    "guardrail_refs": [
+      "GUARD-SECURITY-001"
+    ],
+    "launch_intent": "INTERNAL_PREVIEW",
+    "requested_autonomy_stage": "DRAFT_PR"
+  },
+  "required_approvals": {
+    "APPROVAL-REQ-CONTRACT": {
+      "purpose": "Authorize the exact canonical product-truth bundle before engineering execution.",
+      "required_before": "CONTRACT_APPROVAL",
+      "role": "PRODUCT_OWNER"
+    }
+  },
+  "risks": {
+    "RISK-001": {
+      "description": "An incomplete schema could falsely admit missing product truth.",
+      "mitigation": "Require every Phase 0 section and exercise planted invalid fixtures.",
+      "severity": "HIGH"
+    }
+  },
+  "rollback": {
+    "customer_communication_intent": "STATUS_PAGE",
+    "data_loss_tolerance": "No rewrite or loss of already registered contract records.",
+    "requirements": {
+      "ROLLBACK-001": {
+        "recovery_evidence": "Prior schema remains addressable and registered contracts remain unchanged.",
+        "requirement": "Revert the schema PR without rewriting previously registered contracts.",
+        "trigger": "Canonical schema admits invalid product truth or breaks declared compatibility."
+      }
+    },
+    "rpo": "PT0S",
+    "rto": "P1D"
+  },
+  "schema_id": "https://github.com/Abhillashjadhav/production-engineering-os/schemas/pmos_contract_bundle.schema.json",
+  "schema_version": "1.0.0",
+  "scope": {
+    "in_scope": [
+      "Canonical PMOS contract bundle schema",
+      "Canonical bundle manifest schema",
+      "Schema-only fixtures and tests"
+    ],
+    "non_goals": [
+      "Runtime compiler or migrations",
+      "Semantic contradiction detection",
+      "Implementation or deployment"
+    ]
+  },
+  "security": {
+    "requirements": {
+      "SEC-001": {
+        "requirement": "Reject embedded credentials and preserve only governed secret references.",
+        "threat": "Credential disclosure through contract content",
+        "verification": "Secret-scanning and schema-policy evidence"
+      }
+    },
+    "secret_handling": "REFERENCES_ONLY_NO_SECRET_VALUES"
+  },
+  "source_identity_mappings": {},
+  "technical_constraints": {
+    "CONSTRAINT-001": {
+      "constraint": "Use JSON Schema draft 2020-12 as the normative wire contract.",
+      "reason": "Provide deterministic, tool-neutral structural validation."
+    }
+  },
+  "unresolved_product_truth": {},
+  "ux": {
+    "accessibility": {
+      "A11Y-001": {
+        "evidence_expectation": "Automated and manual accessibility evidence",
+        "level": "AA",
+        "requirement": "Generated user experiences must satisfy WCAG 2.2 AA.",
+        "standard": "WCAG-2.2"
+      }
+    },
+    "edge_cases": {
+      "EDGE-001": {
+        "condition": "A required product decision is absent.",
+        "expected_behavior": "Stop with PRODUCT_INPUT_REQUIRED rather than inventing a value.",
+        "requirement_refs": [
+          "FR-001"
+        ]
+      }
+    },
+    "flows": {
+      "UX-FLOW-001": {
+        "actor": "Product owner",
+        "goal": "Publish an approved contract for engineering intake.",
+        "name": "Approve and publish contract",
+        "steps": [
+          {
+            "action": "Approve explicit product truth",
+            "expected_outcome": "Approval metadata binds the contract subject."
+          },
+          {
+            "action": "Publish the canonical bundle",
+            "expected_outcome": "PEOS receives versioned canonical bytes and provenance."
+          }
+        ]
+      }
+    },
+    "primary_journey": {
+      "JOURNEY-STEP-PUBLISH": {
+        "description": "Publish the approved canonical contract bundle.",
+        "screen_ref": "SCREEN-CONTRACT-STATUS",
+        "sequence": 1
+      }
+    },
+    "responsive_requirements": {
+      "RESP-001": {
+        "requirement": "Any generated browser experience must remain usable at supported mobile and desktop widths."
+      }
+    },
+    "screens": {
+      "SCREEN-CONTRACT-STATUS": {
+        "name": "Contract status",
+        "purpose": "Show contract admission and blocking-product-input state.",
+        "state_refs": [
+          "UI-STATE-BLOCKED",
+          "UI-STATE-READY"
+        ]
+      }
+    },
+    "ui_states": {
+      "UI-STATE-BLOCKED": {
+        "description": "A required product decision is missing or invalid."
+      },
+      "UI-STATE-READY": {
+        "description": "The contract is structurally admitted for engineering validation."
+      }
+    },
+    "user_stories": {
+      "US-001": {
+        "as_a": "product owner",
+        "i_want": "to publish one complete approved contract",
+        "so_that": "engineering can execute without inventing product truth"
+      }
+    }
+  }
+}

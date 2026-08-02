@@ -1,0 +1,93 @@
+{
+  "contract_version": 1,
+  "contract_id": "PDC-DEMO-001",
+  "contract_status": "APPROVED",
+  "approved_at": "2026-07-16T09:00:00Z",
+  "approved_by": "abhillash (PM Agent OS — synthetic demo approval)",
+  "source_digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+  "product_name": "Demo Pinger (SYNTHETIC DEMONSTRATION)",
+  "problem": "SYNTHETIC DEMO: operators need a heartbeat endpoint and safe operator-config parsing; this contract exists to demonstrate the engineering pipeline, not to ship a product.",
+  "target_user": "Operators monitoring small self-hosted services (synthetic persona).",
+  "desired_outcome": "An operator can verify liveness with one call and load configuration without code execution risk.",
+  "scope": [
+    "Health endpoint",
+    "Operator config parsing"
+  ],
+  "out_of_scope": [
+    "Metrics dashboards",
+    "Authentication"
+  ],
+  "functional_requirements": [
+    {
+      "id": "FR-001",
+      "title": "Health endpoint",
+      "description": "health() reports service status 'ok'.",
+      "capability": "health.check"
+    },
+    {
+      "id": "FR-002",
+      "title": "Safe config parsing",
+      "description": "parse_config() turns an operator-supplied config string into a dict without executing it.",
+      "capability": "config.parse"
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "requirement": "FR-001",
+      "criterion": "Given the service is running, when health() is called, then the result reports status \"ok\"."
+    },
+    {
+      "id": "AC-002",
+      "requirement": "FR-002",
+      "criterion": "Given an operator config string, when parse_config() is called, then the result is a dict and no part of the input is ever executed as code."
+    }
+  ],
+  "binary_release_gates": [
+    {
+      "id": "GATE-001",
+      "description": "Every acceptance criterion has an executed passing test."
+    },
+    {
+      "id": "GATE-002",
+      "description": "Zero blocking security findings."
+    }
+  ],
+  "scored_eval_rubric": [
+    {
+      "id": "RUB-001",
+      "criterion": "Error messages are actionable",
+      "scale": "1-5"
+    }
+  ],
+  "golden_cases": [
+    "golden/health-basic.json"
+  ],
+  "north_star_metric": "Synthetic demo metric: percentage of planted defects caught before the draft PR.",
+  "leading_metrics": [
+    "Median detection latency (synthetic)"
+  ],
+  "guardrails": [
+    "No config input is ever passed to eval/exec"
+  ],
+  "non_functional_requirements": [
+    {
+      "id": "NFR-001",
+      "category": "reliability",
+      "requirement": "Survives process restart."
+    }
+  ],
+  "known_risks": [
+    {
+      "description": "Synthetic demo workspace contains deliberately planted defects.",
+      "level": "low"
+    }
+  ],
+  "approved_product_decisions": [
+    {
+      "id": "APD-001",
+      "decision": "Health endpoint is public (no auth) for this demo."
+    }
+  ],
+  "unresolved_questions": []
+}
