@@ -210,7 +210,7 @@ paths. Its fields are:
 | `canonical_json_profile` | Must be `RFC8785`. |
 | `created_at` | UTC RFC 3339 creation instant. |
 | `bundle` | Required canonical member binding. |
-| `members` | Optional attachment/extension-schema registry keyed by non-bundle member IDs. |
+| `members` | Required attachment/extension-schema registry keyed by non-bundle member IDs; it may be empty. |
 | `provenance` | Same required source publication fields as the bundle. |
 | `approval_digest` | RFC 8785 digest of the bundle's `approvals` registry. |
 | `approval_digest_scope` | Must be `CANONICAL_BUNDLE_APPROVALS_RFC8785`. |
@@ -220,7 +220,8 @@ paths. Its fields are:
 `member_id`, `schema_id`, and `schema_version`. Every `members` record requires
 `content_digest`, `kind`, `media_type`, `schema_id`, and `schema_version`.
 The bundle member ID is always `MEMBER-CANONICAL-BUNDLE` and cannot be repeated
-inside `members`.
+inside `members`. `members` is a required registry; it may be empty when the
+manifest binds no attachments or extension schemas.
 
 To update content, create a new immutable bundle/manifest version and recompute
 the approval and content bindings. Do not edit an already registered contract or
@@ -308,19 +309,24 @@ therefore produce a schema-valid bundle while remaining blocked. Resolve each
 diagnostic in PMOS and publish a new source attempt; do not edit compiler output
 or let PEOS fabricate missing sections.
 
-The migration registry is forward-only, pure, ordered, and versioned. A
-downgrade, missing path, ambiguous path, cycle, overshoot, or failed/non-object
-transform raises a migration error. Existing V1/V2/V3 inputs remain addressable;
+The current compiler resolves source versions through `AdapterRegistry`, not `MigrationRegistry`.
+An unsupported source version remains rejected until a reviewed adapter for that
+exact format/version is implemented and registered. `MigrationRegistry` is a
+forward-only, pure, ordered, and versioned primitive, but the current compilation
+path does not call it; registering a migration step alone cannot make the input
+admissible. Integrating that registry into compilation requires a separate
+reviewed production-logic change. Existing V1/V2/V3 inputs remain addressable;
 they are not silently rewritten. The compiler evidence binds source format and
-version, source digest, adapter/migration path, compiler/rule version, canonical
-bundle digest, manifest digest, and diagnostics.
+version, source digest, adapter path, compiler/rule version, canonical bundle
+digest, manifest digest, and diagnostics.
 
 The [outdated-version example](../examples/pmos-contracts/invalid/outdated-v2-contract.json)
 is a planted V2-shaped contract with `contract_version` set to `99`. The current
 compiler selects the V2 shape but has no registered adapter for version `99`, so
 it fails with exactly `UNSUPPORTED_SOURCE_VERSION` at `/contract_version` and
 targets `/schema_version`. Never relabel old content as version 1 to bypass this
-failure; author a reviewed migration or republish a truthful supported source.
+failure; implement and register a reviewed adapter for the exact source version,
+or republish a truthful supported source.
 
 Rollback selects a previously supported compiler/adapter registry for a new
 attempt. It never downgrades or rewrites already stored canonical artifacts.
