@@ -36,7 +36,11 @@ from pmpe.repository.models import (
     UnknownFact,
     WorktreeObservation,
 )
-from pmpe.repository.redaction import EvidenceRedactor, RedactionError
+from pmpe.repository.redaction import (
+    EvidenceRedactor,
+    RedactionError,
+    assert_distinct_identities_preserved,
+)
 from pmpe.repository.scanner import (
     Cancellation,
     CancellationSignal,
@@ -51,7 +55,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.11.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.12.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -1037,6 +1041,47 @@ def _observation_from_dict(value: dict[str, Any]) -> GovernanceObservation:
         redaction=cast(dict[str, Any], value["redaction"]),
         artifact_kind=str(value["artifact_kind"]),
     )
+
+
+def _observation_identity_groups(
+    original: Mapping[str, Any], sanitized: Mapping[str, Any]
+) -> dict[str, list[tuple[str, str]]]:
+    """Pair mutable-observation identities before and after redaction."""
+
+    groups: dict[str, list[tuple[str, str]]] = {
+        "configured remotes": [],
+        "branch references": [],
+        "worktree paths": [],
+        "query cursors": [],
+        "unknown facts": [],
+    }
+    try:
+        for raw_remote, safe_remote in zip(
+            cast(list[str], original["configured_remotes"]),
+            cast(list[str], sanitized["configured_remotes"]),
+            strict=True,
+        ):
+            groups["configured remotes"].append((raw_remote, safe_remote))
+        for collection, field, namespace in (
+            ("local_branches", "name", "branch references"),
+            ("remote_branches", "name", "branch references"),
+            ("worktrees", "branch", "branch references"),
+            ("worktrees", "path", "worktree paths"),
+            ("query_provenance", "cursor", "query cursors"),
+            ("unknowns", "fact", "unknown facts"),
+        ):
+            for raw_item, safe_item in zip(
+                cast(list[dict[str, Any]], original[collection]),
+                cast(list[dict[str, Any]], sanitized[collection]),
+                strict=True,
+            ):
+                raw_value = raw_item[field]
+                safe_value = safe_item[field]
+                if raw_value is not None and safe_value is not None:
+                    groups[namespace].append((str(raw_value), str(safe_value)))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RedactionError("redaction changed observation identity structure") from exc
+    return groups
 
 
 class GovernanceCollector:
@@ -2245,8 +2290,11 @@ class GovernanceCollector:
                 "mutable_truth": "TIME_BOUND_OBSERVATION_ONLY",
             },
         )
+        original = draft.as_dict()
         try:
-            sanitized = cast(dict[str, Any], redactor.sanitize(draft.as_dict()))
+            sanitized = cast(dict[str, Any], redactor.sanitize(original))
+            for namespace, identities in _observation_identity_groups(original, sanitized).items():
+                assert_distinct_identities_preserved(namespace, identities)
         except (RedactionError, Exception) as exc:
             raise RepositorySecurityError("observation redaction failed") from exc
         self._assert_execution_collaborators_sealed()

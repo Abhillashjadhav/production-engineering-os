@@ -1622,7 +1622,15 @@ def test_adapter_failure_is_visible_and_cannot_remove_categories(
     scanner = importlib.import_module("pmpe.repository.scanner")
     repo = _init_repo(tmp_path)
 
-    def failing_worker(connection: Any, _adapter: Any, _context: Any) -> None:
+    def failing_worker(
+        connection: Any,
+        _adapter: Any,
+        _context: Any,
+        _expected_state_digest: str,
+        _expected_adapter_identity: int,
+        _expected_evaluator_identity: int,
+        _expected_module_state_digest: str,
+    ) -> None:
         os.setsid()
         connection.send_bytes(b'{"error_type":"RuntimeError","status":"ERROR"}')
         connection.close()
@@ -1819,6 +1827,8 @@ def test_sensitive_mapping_fields_are_redacted_before_persistence(field: str) ->
         "sk-svcacct-abcdefghijklmnopqrstuvwxyz0123456789",
         "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789",
         "sk-abcdefghijklmnopqrstuvwxyz0123456789",
+        "sk-or-v1-abcdefghijklmnopqrstuvwxyz0123456789",
+        "hf_abcdefghijklmnopqrstuvwxyz0123456789",
     ],
 )
 def test_modern_service_tokens_are_redacted_without_field_labels(secret: str) -> None:
@@ -1835,6 +1845,12 @@ def test_modern_service_tokens_are_redacted_without_field_labels(secret: str) ->
         ("password hunter2", "hunter2"),
         ('credential "opaque credential material"', "opaque credential material"),
         ("note: access_token opaque-token-material", "opaque-token-material"),
+        ("provider returned token opaqueCredentialMaterial123", "opaqueCredentialMaterial123"),
+        ("provider returned secret opaqueSecretMaterial123", "opaqueSecretMaterial123"),
+        (
+            "provider returned cookie session=opaque-cookie-material",
+            "session=opaque-cookie-material",
+        ),
     ],
 )
 def test_whitespace_delimited_sensitive_assignments_are_redacted(
@@ -1849,7 +1865,10 @@ def test_whitespace_delimited_sensitive_assignments_are_redacted(
 
 def test_whitespace_redaction_preserves_noncredential_audit_phrases() -> None:
     redaction = importlib.import_module("pmpe.repository.redaction")
-    evidence = "credential boundaries and password policy and api_key ownership"
+    evidence = (
+        "credential boundaries and password policy and api_key ownership and "
+        "secret scanning and token policy and cookie controls"
+    )
     assert redaction.EvidenceRedactor(environment={}).sanitize(evidence) == evidence
 
 
@@ -2105,6 +2124,8 @@ class _SecretBearingRemote(_FakeRemote):
                 "modern_key_note": (
                     "collector exposed api_key sk-proj-abcdefghijklmnopqrstuvwxyz0123456789"
                 ),
+                "generic_token_note": ("provider returned token opaqueCredentialMaterial123"),
+                "hugging_face_note": "provider returned hf_abcdefghijklmnopqrstuvwxyz0123456789",
             }
         )
         payload["unknowns"].append(
@@ -2759,6 +2780,8 @@ def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path:
     assert "query-json-secret" not in payload
     assert "pass-json-secret" not in payload
     assert "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789" not in payload
+    assert "opaqueCredentialMaterial123" not in payload
+    assert "hf_abcdefghijklmnopqrstuvwxyz0123456789" not in payload
     assert "hunter2" not in payload
     assert "[REDACTED_URL]" in payload
     assert "[REDACTED]" in payload
@@ -3011,6 +3034,82 @@ def test_scanner_rejects_post_construction_adapter_substitution_before_mutation(
     with pytest.raises(api.RepositorySecurityError, match="provenance binding"):
         candidate.scan(repo, commit="HEAD")
     assert not marker.exists()
+    assert _git(repo, "rev-parse", "HEAD") == before_head
+    assert _git(repo, "status", "--porcelain=v1", "--untracked-files=all") == before_status
+
+
+def test_scanner_rejects_in_place_adapter_mutation_before_evaluator_runs(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    adapters = importlib.import_module("pmpe.repository.adapters")
+    repo = _init_repo(tmp_path)
+    marker = repo / "adapter-in-place-mutation.txt"
+    candidate = api.RepositoryScanner(config=_config())
+    adapter = candidate.adapters[0]
+    original_evaluator = adapter.evaluator
+
+    def mutating_evaluator(_context: Any) -> Any:
+        marker.write_text("mutated")
+        return adapters.AdapterResult()
+
+    try:
+        object.__setattr__(adapter, "evaluator", mutating_evaluator)
+        with pytest.raises(api.RepositorySecurityError, match="sealed|provenance"):
+            candidate.scan(repo, commit="HEAD")
+    finally:
+        object.__setattr__(adapter, "evaluator", original_evaluator)
+    assert not marker.exists()
+
+
+def test_scanner_rejects_mutated_cancellation_state_before_callback_use(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    repo = _init_repo(tmp_path)
+    marker = repo / "cancellation-callback-ran.txt"
+    cancellation = api.CancellationSignal()
+
+    class MutatingEvent:
+        def is_set(self) -> bool:
+            marker.write_text("mutated")
+            return False
+
+    object.__setattr__(cancellation, "_event", MutatingEvent())
+    with pytest.raises(api.RepositorySecurityError, match="sealed"):
+        api.RepositoryScanner(config=_config(), cancellation=cancellation).scan(repo, commit="HEAD")
+    assert not marker.exists()
+
+
+def test_redaction_collision_between_tracked_paths_blocks_snapshot(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "docs/token=firstsecretvalue/report.md", "first\n")
+    _write(repo, "docs/token=secondsecretvalue/report.md", "second\n")
+    _commit(repo, "credential-shaped path identities")
+    before_head = _git(repo, "rev-parse", "HEAD")
+    before_status = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
+
+    with pytest.raises(api.RepositorySecurityError, match="redaction"):
+        _scan(repo)
+    assert _git(repo, "rev-parse", "HEAD") == before_head
+    assert _git(repo, "status", "--porcelain=v1", "--untracked-files=all") == before_status
+
+
+def test_redaction_collision_between_branch_names_blocks_observation(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    repo = _init_repo(tmp_path)
+    _git(repo, "branch", "token=firstsecretvalue")
+    _git(repo, "branch", "token=secondsecretvalue")
+    before_head = _git(repo, "rev-parse", "HEAD")
+    before_status = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
+
+    with pytest.raises(api.RepositorySecurityError, match="redaction"):
+        _observe(repo)
     assert _git(repo, "rev-parse", "HEAD") == before_head
     assert _git(repo, "status", "--porcelain=v1", "--untracked-files=all") == before_status
 
@@ -3614,7 +3713,15 @@ def test_cancellation_during_adapter_blocks_snapshot_finalization(
     timer = threading.Timer(0.2, cancellation.cancel)
     timer.start()
 
-    def hanging_worker(_connection: Any, _adapter: Any, _context: Any) -> None:
+    def hanging_worker(
+        _connection: Any,
+        _adapter: Any,
+        _context: Any,
+        _expected_state_digest: str,
+        _expected_adapter_identity: int,
+        _expected_evaluator_identity: int,
+        _expected_module_state_digest: str,
+    ) -> None:
         os.setsid()
         time.sleep(30)
 

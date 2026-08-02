@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any, final
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -13,11 +13,24 @@ class RedactionError(RuntimeError):
     """Raised when evidence cannot be safely sanitized."""
 
 
+def assert_distinct_identities_preserved(
+    namespace: str,
+    identities: Iterable[tuple[str, str]],
+) -> None:
+    """Fail when redaction maps different persisted identities to one value."""
+
+    originals_by_sanitized: dict[str, str] = {}
+    for original, sanitized in identities:
+        previous = originals_by_sanitized.setdefault(sanitized, original)
+        if previous != original:
+            raise RedactionError(f"redaction collapsed distinct identities in {namespace}")
+
+
 @final
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
-    version = "central-redactor/2.6.0"
+    version = "central-redactor/2.7.0"
     __slots__ = ("_environment_secrets",)
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
@@ -48,7 +61,8 @@ class EvidenceRedactor:
     )
     _modern_service_token = re.compile(
         r"(?i)(?:sk-(?:proj|svcacct|ant)-[A-Za-z0-9_-]{16,}"
-        r"|sk-[A-Za-z0-9]{20,})"
+        r"|sk-or-v1-[A-Za-z0-9_-]{16,}|sk-[A-Za-z0-9]{20,}"
+        r"|hf_[A-Za-z0-9_-]{20,})"
     )
     _sensitive_assignment = re.compile(
         r"(?i)(?P<quote>[\"']?)\b(?P<key>accountkey|sharedaccesskey|sharedaccesssignature"
@@ -62,7 +76,8 @@ class EvidenceRedactor:
     _sensitive_whitespace_assignment = re.compile(
         r"(?i)(?P<prefix>^|[\s,;({\[])(?P<key>authorization|credential|password|passwd|pwd"
         r"|api[-_]?key|x-api-key|access[-_]?token|refresh[-_]?token|client[-_]?secret"
-        r"|private[-_]?key|aws_access_key_id|aws_secret_access_key|aws_session_token)"
+        r"|private[-_]?key|aws_access_key_id|aws_secret_access_key|aws_session_token"
+        r"|token|secret|cookie|set-cookie)"
         r"(?P<separator>[ \t]+)"
         r"(?P<value>\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|\{[^}]*\}|[^\s,;]+)"
     )

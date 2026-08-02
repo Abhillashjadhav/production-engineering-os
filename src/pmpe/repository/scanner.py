@@ -50,9 +50,13 @@ from pmpe.repository.models import (
     ScanConfig,
     ToolVersion,
 )
-from pmpe.repository.redaction import EvidenceRedactor, RedactionError
+from pmpe.repository.redaction import (
+    EvidenceRedactor,
+    RedactionError,
+    assert_distinct_identities_preserved,
+)
 
-SCANNER_VERSION = "repository-scanner/2.16.0"
+SCANNER_VERSION = "repository-scanner/2.17.0"
 _MAX_SCAN_BUDGETS = {
     "max_files": 100_000,
     "max_directories": 50_000,
@@ -223,7 +227,15 @@ class Cancellation(Protocol):
 class CancellationSignal:
     """Sealed cancellation capability with no caller-executed callback."""
 
-    __slots__ = ("_cancel_after_checks", "_checks", "_event", "_lock")
+    __slots__ = (
+        "_cancel_after_checks",
+        "_checks",
+        "_event",
+        "_lock",
+        "_sealed_cancel_after_checks",
+        "_sealed_event",
+        "_sealed_lock",
+    )
 
     def __init__(self, *, cancel_after_checks: int | None = None) -> None:
         if cancel_after_checks is not None and cancel_after_checks < 1:
@@ -232,17 +244,34 @@ class CancellationSignal:
         self._checks = 0
         self._event = threading.Event()
         self._lock = threading.Lock()
+        self._sealed_cancel_after_checks = cancel_after_checks
+        self._sealed_event = self._event
+        self._sealed_lock = self._lock
+
+    def _integrity_is_valid(self) -> bool:
+        return (
+            self._event is self._sealed_event
+            and self._lock is self._sealed_lock
+            and self._cancel_after_checks == self._sealed_cancel_after_checks
+            and isinstance(self._checks, int)
+            and self._checks >= 0
+        )
 
     def cancel(self) -> None:
-        self._event.set()
+        if not self._integrity_is_valid():
+            raise RepositorySecurityError("cancellation signal integrity is invalid")
+        self._sealed_event.set()
 
     def cancelled(self) -> bool:
-        with self._lock:
+        if not self._integrity_is_valid():
+            raise RepositorySecurityError("cancellation signal integrity is invalid")
+        with self._sealed_lock:
             self._checks += 1
             threshold_reached = (
-                self._cancel_after_checks is not None and self._checks >= self._cancel_after_checks
+                self._sealed_cancel_after_checks is not None
+                and self._checks >= self._sealed_cancel_after_checks
             )
-        return self._event.is_set() or threshold_reached
+        return self._sealed_event.is_set() or threshold_reached
 
 
 _PROCESS_GROUP_GUARD = "import signal\nwhile True:\n signal.pause()"
@@ -1258,7 +1287,15 @@ def _implementation_digest(
     )
 
 
-def _adapter_worker(connection: Any, adapter: RepositoryAdapter, context: AdapterContext) -> None:
+def _adapter_worker(
+    connection: Any,
+    adapter: RepositoryAdapter,
+    context: AdapterContext,
+    expected_state_digest: str,
+    expected_adapter_identity: int,
+    expected_evaluator_identity: int,
+    expected_module_state_digest: str,
+) -> None:
     """Evaluate one adapter in a killable, environment-isolated process."""
 
     isolated = False
@@ -1267,6 +1304,13 @@ def _adapter_worker(connection: Any, adapter: RepositoryAdapter, context: Adapte
         isolated = True
         os.environ.clear()
         os.environ.update({"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+        if (
+            id(adapter) != expected_adapter_identity
+            or id(adapter.evaluator) != expected_evaluator_identity
+            or _adapter_execution_state_digest((adapter,)) != expected_state_digest
+            or _module_runtime_digest("repository.adapters") != expected_module_state_digest
+        ):
+            raise RepositorySecurityError("adapter execution state changed before evaluation")
         result = adapter.evaluator(context)
         if not isinstance(result, AdapterResult):
             raise TypeError("adapter result has an invalid type")
@@ -1393,6 +1437,82 @@ def _metadata(adapter: RepositoryAdapter) -> AdapterMetadata:
     )
 
 
+def _adapter_execution_state_digest(adapters: Sequence[RepositoryAdapter]) -> str:
+    """Bind declarations and live evaluator code for every executable adapter."""
+
+    return canonical_digest(
+        [
+            {
+                "declaration": asdict(_metadata(adapter)),
+                "evaluator": _implementation_source_evidence(
+                    f"adapter:{adapter.adapter_id}", adapter.evaluator
+                ),
+            }
+            for adapter in adapters
+        ]
+    )
+
+
+_SEALED_BUILTIN_ADAPTERS = default_adapters()
+_SEALED_BUILTIN_ADAPTER_STATE_DIGEST = _adapter_execution_state_digest(_SEALED_BUILTIN_ADAPTERS)
+_SEALED_ADAPTER_MODULE_STATE_DIGEST = _module_runtime_digest("repository.adapters")
+
+
+def _snapshot_identity_groups(
+    original: Mapping[str, Any], sanitized: Mapping[str, Any]
+) -> dict[str, list[tuple[str, str]]]:
+    """Pair persisted snapshot identities before and after redaction."""
+
+    groups: dict[str, list[tuple[str, str]]] = {
+        "snapshot paths": [],
+        "boundary names": [],
+    }
+    try:
+        for raw_included_path, safe_included_path in zip(
+            cast(list[str], original["included_paths"]),
+            cast(list[str], sanitized["included_paths"]),
+            strict=True,
+        ):
+            groups["snapshot paths"].append((raw_included_path, safe_included_path))
+        original_inventory = cast(dict[str, dict[str, Any]], original["inventory"])
+        sanitized_inventory = cast(dict[str, dict[str, Any]], sanitized["inventory"])
+        if set(original_inventory) != set(sanitized_inventory):
+            raise ValueError("inventory categories changed during redaction")
+        for category in original_inventory:
+            for raw_item, safe_item in zip(
+                cast(list[dict[str, Any]], original_inventory[category]["items"]),
+                cast(list[dict[str, Any]], sanitized_inventory[category]["items"]),
+                strict=True,
+            ):
+                groups["snapshot paths"].append((str(raw_item["path"]), str(safe_item["path"])))
+        for raw_finding, safe_finding in zip(
+            cast(list[dict[str, Any]], original["findings"]),
+            cast(list[dict[str, Any]], sanitized["findings"]),
+            strict=True,
+        ):
+            for raw_ref, safe_ref in zip(
+                cast(list[str], raw_finding["evidence_refs"]),
+                cast(list[str], safe_finding["evidence_refs"]),
+                strict=True,
+            ):
+                groups["snapshot paths"].append((raw_ref, safe_ref))
+        for raw_boundary, safe_boundary in zip(
+            cast(list[dict[str, Any]], original["boundary_candidates"]),
+            cast(list[dict[str, Any]], sanitized["boundary_candidates"]),
+            strict=True,
+        ):
+            groups["boundary names"].append((str(raw_boundary["name"]), str(safe_boundary["name"])))
+            for raw_path, safe_path in zip(
+                cast(list[str], raw_boundary["evidence_paths"]),
+                cast(list[str], safe_boundary["evidence_paths"]),
+                strict=True,
+            ):
+                groups["snapshot paths"].append((raw_path, safe_path))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RedactionError("redaction changed snapshot identity structure") from exc
+    return groups
+
+
 def _snapshot_from_dict(value: dict[str, Any]) -> RepositorySnapshot:
     inventory = {
         name: InventoryCategory(
@@ -1468,7 +1588,13 @@ class RepositoryScanner:
         cancellation: Cancellation | None = None,
     ) -> None:
         self.config = config
-        registered_adapters = default_adapters()
+        registered_adapters = _SEALED_BUILTIN_ADAPTERS
+        if (
+            _adapter_execution_state_digest(registered_adapters)
+            != _SEALED_BUILTIN_ADAPTER_STATE_DIGEST
+            or _module_runtime_digest("repository.adapters") != _SEALED_ADAPTER_MODULE_STATE_DIGEST
+        ):
+            raise RepositorySecurityError("sealed built-in adapter registry integrity failed")
         requested_adapters = tuple(adapters) if adapters is not None else registered_adapters
         registered_by_id = {item.adapter_id: item for item in registered_adapters}
         if len(requested_adapters) != len(registered_adapters) or any(
@@ -1513,12 +1639,23 @@ class RepositoryScanner:
         self._sealed_extension_evidence_digest = canonical_digest(
             self._extension_implementation_evidence
         )
+        self._sealed_adapter_execution_state_digest = _adapter_execution_state_digest(self.adapters)
+        self._sealed_adapter_runtime_guards = tuple(
+            (
+                item.adapter_id,
+                id(item),
+                id(item.evaluator),
+                _adapter_execution_state_digest((item,)),
+            )
+            for item in self.adapters
+        )
         self._sealed_execution_collaborators = (
             self.adapters,
             self.runner,
             self.redactor,
             self.cancellation,
             self._extension_implementation_evidence,
+            self._sealed_adapter_runtime_guards,
         )
         self._sealed_execution_config = self.config
         self._commands = 0
@@ -1549,6 +1686,7 @@ class RepositoryScanner:
             self.redactor,
             self.cancellation,
             self._extension_implementation_evidence,
+            self._sealed_adapter_runtime_guards,
         )
         if any(
             observed is not expected
@@ -1561,6 +1699,16 @@ class RepositoryScanner:
             )
         try:
             extension_evidence_digest = canonical_digest(self._extension_implementation_evidence)
+            adapter_execution_state_digest = _adapter_execution_state_digest(self.adapters)
+            adapter_runtime_guards = tuple(
+                (
+                    item.adapter_id,
+                    id(item),
+                    id(item.evaluator),
+                    _adapter_execution_state_digest((item,)),
+                )
+                for item in self.adapters
+            )
         except Exception as exc:
             raise RepositorySecurityError(
                 "repository scan implementation provenance evidence is malformed"
@@ -1568,10 +1716,15 @@ class RepositoryScanner:
         if (
             self.config is not self._sealed_execution_config
             or extension_evidence_digest != self._sealed_extension_evidence_digest
+            or adapter_execution_state_digest != self._sealed_adapter_execution_state_digest
+            or adapter_execution_state_digest != _SEALED_BUILTIN_ADAPTER_STATE_DIGEST
+            or adapter_runtime_guards != self._sealed_adapter_runtime_guards
+            or _module_runtime_digest("repository.adapters") != _SEALED_ADAPTER_MODULE_STATE_DIGEST
             or self.redactor._environment_secrets != ()
             or type(self.runner) is not SubprocessCommandRunner
             or type(self.redactor) is not EvidenceRedactor
             or (self.cancellation is not None and type(self.cancellation) is not CancellationSignal)
+            or (self.cancellation is not None and not self.cancellation._integrity_is_valid())
         ):
             raise RepositorySecurityError(
                 "repository scan execution collaborators are no longer sealed"
@@ -2252,13 +2405,31 @@ class RepositoryScanner:
     def _run_adapter_bounded(
         self, adapter: RepositoryAdapter, context: AdapterContext
     ) -> tuple[str, AdapterResult | None]:
+        self._assert_execution_collaborators_sealed()
         if not hasattr(os, "fork") or not hasattr(os, "setsid"):
             return "ERROR", None
+        sealed_guards = {
+            adapter_id: (adapter_identity, evaluator_identity, state_digest)
+            for adapter_id, adapter_identity, evaluator_identity, state_digest in (
+                self._sealed_adapter_runtime_guards
+            )
+        }
+        expected_adapter_identity, expected_evaluator_identity, expected_state_digest = (
+            sealed_guards[adapter.adapter_id]
+        )
         process_context = multiprocessing.get_context("fork")
         receiver, sender = process_context.Pipe(duplex=False)
         process = process_context.Process(
             target=_adapter_worker,
-            args=(sender, adapter, context),
+            args=(
+                sender,
+                adapter,
+                context,
+                expected_state_digest,
+                expected_adapter_identity,
+                expected_evaluator_identity,
+                _SEALED_ADAPTER_MODULE_STATE_DIGEST,
+            ),
             daemon=True,
             name=f"pmpe-readonly-adapter-{adapter.adapter_id}",
         )
@@ -2957,8 +3128,11 @@ class RepositoryScanner:
             },
             snapshot_digest="",
         )
+        original = draft.as_dict()
         try:
-            sanitized = cast(dict[str, Any], redactor.sanitize(draft.as_dict()))
+            sanitized = cast(dict[str, Any], redactor.sanitize(original))
+            for namespace, identities in _snapshot_identity_groups(original, sanitized).items():
+                assert_distinct_identities_preserved(namespace, identities)
         except (RedactionError, Exception) as exc:
             raise RepositorySecurityError(
                 "evidence redaction failed; artifact was not created"
