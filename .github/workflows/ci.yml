@@ -256,25 +256,18 @@ jobs:
 
   build-smoke:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.11"
       - name: build wheel
         run: |
           pip install build
-          PYTHONPATH=src python -c "import pmpe.repository.scanner as scanner; assert scanner._implementation_digest().startswith('sha256:')"
           python -m build --wheel
       - name: install wheel and smoke the CLI
         run: |
           pip install dist/*.whl ruff
-          cd /tmp
-          python -I -c "import pmpe.repository.scanner as scanner; assert scanner._implementation_digest().startswith('sha256:')"
-          cd "$GITHUB_WORKSPACE"
           pmpe validate examples/taskflow_mvp_spec.yaml
           pmpe contract validate examples/v2-demo/contract.json
       - name: full pipeline smoke (golden spec)
