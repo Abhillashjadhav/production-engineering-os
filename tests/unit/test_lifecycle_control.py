@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
+
 from pmpe.orchestration.lifecycle import (
     PHASE_ZERO_POLICY,
     Approval,
@@ -18,11 +20,10 @@ from pmpe.orchestration.lifecycle import (
     MutationAttempt,
     RolloutStatus,
     TransitionContext,
-    TransitionDenied,
+    TransitionDeniedError,
     WorkStatus,
     migrate_legacy_state,
 )
-
 from pmpe.policies.engine import PolicyEngine
 
 SHA = "sha256:" + "a" * 64
@@ -105,7 +106,14 @@ def control_plane(
 
 def evidence_for(source: LifecycleState, target: LifecycleState, *, reason: str) -> dict[str, str]:
     rule = PHASE_ZERO_POLICY.rule(source, target, reason=reason)
-    return {name: f"sha256:{name}" for name in rule.required_evidence}
+    return {
+        name: (
+            "a" * 40
+            if name == "release_sha"
+            else "sha256:" + hashlib.sha256(name.encode()).hexdigest()
+        )
+        for name in rule.required_evidence
+    }
 
 
 def test_phase_zero_policy_is_versioned_digest_bound_and_complete() -> None:
@@ -171,9 +179,9 @@ def test_transition_table_contains_key_forward_failure_and_recovery_edges() -> N
 
 def test_illegal_skip_and_missing_exact_evidence_fail_closed(tmp_path: Path) -> None:
     cp = control_plane(tmp_path)
-    with pytest.raises(TransitionDenied, match="illegal transition"):
+    with pytest.raises(TransitionDeniedError, match="illegal transition"):
         cp.transition(LifecycleState.IMPLEMENTATION_IN_PROGRESS, context(), reason="begin_work")
-    with pytest.raises(TransitionDenied, match="required evidence"):
+    with pytest.raises(TransitionDeniedError, match="required evidence"):
         cp.transition(
             LifecycleState.CONTRACT_APPROVED,
             context(evidence={"subject_digest": SHA}),
@@ -183,6 +191,46 @@ def test_illegal_skip_and_missing_exact_evidence_fail_closed(tmp_path: Path) -> 
     assert cp.events[-1].outcome == "DENIED"
 
 
+def test_noncanonical_evidence_digest_fails_closed(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+    required = evidence_for(
+        LifecycleState.CONTRACT_RECEIVED,
+        LifecycleState.CONTRACT_APPROVED,
+        reason="contract_admitted",
+    )
+    required["contract_digest"] = "looks-like-evidence-but-is-not-a-digest"
+    with pytest.raises(TransitionDeniedError, match="canonical digest"):
+        cp.transition(
+            LifecycleState.CONTRACT_APPROVED,
+            context(evidence=required),
+            reason="contract_admitted",
+        )
+
+
+def test_draft_pr_side_effect_plan_has_one_enforced_order(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.IMPLEMENTATION_PLANNED)
+    required = evidence_for(
+        LifecycleState.IMPLEMENTATION_PLANNED,
+        LifecycleState.DRAFT_PR_OPEN,
+        reason="draft_pr_admitted",
+    )
+    out_of_order = MutationAttempt(
+        attempt_id="draft-1",
+        idempotency_key="draft:run-65:1",
+        subject_digest=SHA,
+        action="open_draft_pr",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+        steps=("branch", "issue", "red_commit", "draft_pr"),
+    )
+    with pytest.raises(TransitionDeniedError, match="issue, branch"):
+        cp.transition(
+            LifecycleState.DRAFT_PR_OPEN,
+            context(evidence=required, mutation=out_of_order),
+            reason="draft_pr_admitted",
+        )
+
+
 def test_forward_work_revalidates_contract_and_publisher_authority(tmp_path: Path) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.DRAFT_PR_OPEN)
     required = evidence_for(
@@ -190,7 +238,7 @@ def test_forward_work_revalidates_contract_and_publisher_authority(tmp_path: Pat
         LifecycleState.IMPLEMENTATION_IN_PROGRESS,
         reason="begin_work",
     )
-    with pytest.raises(TransitionDenied, match="authority"):
+    with pytest.raises(TransitionDeniedError, match="authority"):
         cp.transition(
             LifecycleState.IMPLEMENTATION_IN_PROGRESS,
             context(current_authority=False, evidence=required),
@@ -224,7 +272,7 @@ def test_every_budget_dimension_must_be_approved_and_within_limit(tmp_path: Path
         reason="begin_work",
     )
     _, exhausted = budgets(tokens=100)
-    with pytest.raises(TransitionDenied, match="budget"):
+    with pytest.raises(TransitionDeniedError, match="budget"):
         cp.transition(
             LifecycleState.IMPLEMENTATION_IN_PROGRESS,
             context(usage=exhausted, evidence=required),
@@ -241,7 +289,7 @@ def test_budget_stop_requires_worker_quiescence_and_safe_disposition(tmp_path: P
         reason="delivery_budget_exhausted",
     )
     active = WorkStatus(worker_leases_active=1, partial_output_disposition="frozen")
-    with pytest.raises(TransitionDenied, match="worker"):
+    with pytest.raises(TransitionDeniedError, match="worker"):
         cp.transition(
             LifecycleState.BUDGET_EXCEEDED,
             context(usage=exhausted, work=active, evidence=required),
@@ -274,7 +322,7 @@ def test_reserved_safety_budget_cannot_authorize_forward_work(tmp_path: Path) ->
         LifecycleState.CANARY_DEPLOYED,
         reason="canary_admitted",
     )
-    with pytest.raises(TransitionDenied, match="budget"):
+    with pytest.raises(TransitionDeniedError, match="budget"):
         cp.transition(
             LifecycleState.CANARY_DEPLOYED,
             context(usage=exhausted, rollout=rollout, evidence=forward),
@@ -322,7 +370,7 @@ def test_repair_is_bounded_per_finding_and_stage(tmp_path: Path) -> None:
         repair_attempts_by_finding={"finding-1": 2},
         repair_attempts_by_stage={LifecycleState.REVIEW_FAILED.value: 2},
     )
-    with pytest.raises(TransitionDenied, match="repair attempt"):
+    with pytest.raises(TransitionDeniedError, match="repair attempt"):
         cp.transition(
             LifecycleState.REPAIR_IN_PROGRESS,
             context(usage=at_limit, evidence=required, finding=finding),
@@ -370,7 +418,7 @@ def test_pr_ready_requires_eligible_exact_subject_review(tmp_path: Path) -> None
         eligible=False,
         active=True,
     )
-    with pytest.raises(TransitionDenied, match="eligible formal review"):
+    with pytest.raises(TransitionDeniedError, match="eligible formal review"):
         cp.transition(
             LifecycleState.PR_READY,
             context(evidence=required, approvals=(ineligible,)),
@@ -391,7 +439,7 @@ def test_external_mutation_requires_prejournaled_unique_attempt(tmp_path: Path) 
         LifecycleState.STAGING_DEPLOYED,
         reason="staging_admitted",
     )
-    with pytest.raises(TransitionDenied, match="mutation attempt"):
+    with pytest.raises(TransitionDeniedError, match="mutation attempt"):
         cp.transition(
             LifecycleState.STAGING_DEPLOYED,
             context(evidence=required),
@@ -410,7 +458,7 @@ def test_external_mutation_requires_prejournaled_unique_attempt(tmp_path: Path) 
         context(evidence=required, mutation=attempt),
         reason="staging_admitted",
     )
-    with pytest.raises(TransitionDenied, match="idempotency key"):
+    with pytest.raises(TransitionDeniedError, match="idempotency key"):
         cp.record_mutation_result(
             replace(attempt, attempt_id="attempt-stage-2"),
             status="SUCCEEDED",
@@ -438,13 +486,13 @@ def test_active_exposure_cannot_stop_or_request_product_input_before_rollback(
 ) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.CANARY_DEPLOYED)
     rollout = RolloutStatus(staging="ACTIVE", canary="ACTIVE")
-    with pytest.raises(TransitionDenied, match="rollback"):
+    with pytest.raises(TransitionDeniedError, match="rollback"):
         cp.transition(
             LifecycleState.BLOCKED,
             context(rollout=rollout),
             reason="external_dependency",
         )
-    with pytest.raises(TransitionDenied, match="rollback"):
+    with pytest.raises(TransitionDeniedError, match="rollback"):
         cp.transition(
             LifecycleState.PRODUCT_INPUT_REQUIRED,
             context(rollout=rollout),
@@ -463,7 +511,7 @@ def test_completed_requires_exact_release_live_rollback_and_observation_evidence
     )
     missing = dict(required)
     missing.pop("rollback_readiness_digest")
-    with pytest.raises(TransitionDenied, match="required evidence"):
+    with pytest.raises(TransitionDeniedError, match="required evidence"):
         cp.transition(
             LifecycleState.COMPLETED,
             context(evidence=missing),
@@ -548,6 +596,54 @@ def test_persistence_replay_detects_tampering(tmp_path: Path) -> None:
     ledger.write_text(ledger.read_text().replace("CONTRACT_APPROVED", "COMPLETED", 1))
     with pytest.raises(ValueError, match="digest chain"):
         LifecycleControlPlane.load(tmp_path)
+
+
+def test_budget_resume_uses_only_the_recorded_safe_state(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.IMPLEMENTATION_IN_PROGRESS)
+    _, exhausted = budgets(tokens=101)
+    required = evidence_for(
+        LifecycleState.IMPLEMENTATION_IN_PROGRESS,
+        LifecycleState.BUDGET_EXCEEDED,
+        reason="delivery_budget_exhausted",
+    )
+    stopped = WorkStatus(
+        workers_stopped=True,
+        partial_output_disposition="frozen-unverified-non-admissible",
+    )
+    cp.transition(
+        LifecycleState.BUDGET_EXCEEDED,
+        context(
+            usage=exhausted,
+            work=stopped,
+            evidence=required,
+            resume_state=LifecycleState.IMPLEMENTATION_IN_PROGRESS,
+        ),
+        reason="delivery_budget_exhausted",
+    )
+    with pytest.raises(TransitionDeniedError, match="recorded safe state"):
+        cp.resume(context(resume_state=LifecycleState.REPAIR_IN_PROGRESS))
+    cp.resume(context(resume_state=LifecycleState.IMPLEMENTATION_IN_PROGRESS))
+    assert cp.state is LifecycleState.IMPLEMENTATION_IN_PROGRESS
+
+
+def test_mutation_idempotency_binding_survives_replay(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+    attempt = MutationAttempt(
+        attempt_id="attempt-1",
+        idempotency_key="cleanup:run-65:1",
+        subject_digest=SHA,
+        action="cleanup",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+    cp.record_mutation_result(attempt, status="UNKNOWN", result_digest=None)
+    loaded = LifecycleControlPlane.load(tmp_path)
+    with pytest.raises(TransitionDeniedError, match="idempotency key"):
+        loaded.record_mutation_result(
+            replace(attempt, attempt_id="attempt-2"),
+            status="SUCCEEDED",
+            result_digest=SHA,
+        )
 
 
 def test_unknown_policy_decisions_fail_closed() -> None:
