@@ -8,6 +8,7 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import threading
 import time
 from dataclasses import asdict, replace
@@ -470,6 +471,100 @@ def test_implementation_digest_rejects_replaced_output_module_before_use(
     assert callback_ran is False
 
 
+def test_implementation_digest_rejects_forged_scanner_helper_global_namespace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    callback_ran = False
+    original_hash = scanner._sha256
+    forged_globals = dict(original_hash.__globals__)
+
+    class HashlibProxy:
+        def sha256(self, _payload: bytes) -> Any:
+            nonlocal callback_ran
+            callback_ran = True
+            return scanner.hashlib.sha256(b"forged")
+
+    forged_globals["hashlib"] = HashlibProxy()
+    forged_hash = FunctionType(
+        original_hash.__code__,
+        forged_globals,
+        name=original_hash.__name__,
+        argdefs=original_hash.__defaults__,
+        closure=original_hash.__closure__,
+    )
+    monkeypatch.setattr(scanner, "_sha256", forged_hash)
+
+    with pytest.raises(scanner.RepositorySecurityError, match="digest helper binding changed"):
+        scanner._implementation_digest()
+    assert callback_ran is False
+
+
+def test_runtime_code_evidence_rejects_registered_function_with_copied_globals() -> None:
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    models = importlib.import_module("pmpe.repository.models")
+    original_fields = models.fields
+    forged_globals = dict(original_fields.__globals__)
+    builtins_value = forged_globals["__builtins__"]
+    assert isinstance(builtins_value, dict)
+    forged_builtins = dict(builtins_value)
+    forged_builtins["getattr"] = lambda *_args, **_kwargs: None
+    forged_globals["__builtins__"] = forged_builtins
+    forged_fields = FunctionType(
+        original_fields.__code__,
+        forged_globals,
+        name=original_fields.__name__,
+        argdefs=original_fields.__defaults__,
+        closure=original_fields.__closure__,
+    )
+
+    with pytest.raises(
+        scanner.RepositorySecurityError, match="runtime function global namespace changed"
+    ):
+        scanner._runtime_code_evidence(forged_fields)
+
+
+def test_runtime_code_evidence_normalizes_equivalent_copied_builtin_global() -> None:
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    models = importlib.import_module("pmpe.repository.models")
+    original_fields = models.fields
+    copied_globals = dict(original_fields.__globals__)
+    copied_globals["getattr"] = getattr
+    copied_fields = FunctionType(
+        original_fields.__code__,
+        copied_globals,
+        name=original_fields.__name__,
+        argdefs=original_fields.__defaults__,
+        closure=original_fields.__closure__,
+    )
+
+    assert scanner._runtime_code_evidence(copied_fields) == scanner._runtime_code_evidence(
+        original_fields
+    )
+
+
+def test_runtime_code_evidence_normalizes_equivalent_loader_created_global() -> None:
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    models = importlib.import_module("pmpe.repository.models")
+    original_fields = models.fields
+    copied_globals = dict(original_fields.__globals__)
+    copied_fields_name = bytes(copied_globals["_FIELDS"], "utf-8").decode("utf-8")
+    assert copied_fields_name == copied_globals["_FIELDS"]
+    assert copied_fields_name is not copied_globals["_FIELDS"]
+    copied_globals["_FIELDS"] = copied_fields_name
+    copied_fields = FunctionType(
+        original_fields.__code__,
+        copied_globals,
+        name=original_fields.__name__,
+        argdefs=original_fields.__defaults__,
+        closure=original_fields.__closure__,
+    )
+
+    assert scanner._runtime_code_evidence(copied_fields) == scanner._runtime_code_evidence(
+        original_fields
+    )
+
+
 def test_implementation_digest_seals_every_direct_module_attribute_before_use(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -547,6 +642,20 @@ def test_implementation_digest_seals_returned_multiprocessing_context_members(
         runtime_patch.setattr(scanner.multiprocessing_connection, "Pipe", pipe_proxy)
         with pytest.raises(scanner.RepositorySecurityError, match="runtime or context"):
             scanner._sealed_fork_pipe(duplex=False)
+        assert callback_ran is False
+
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setitem(vars(context), "Lock", pipe_proxy)
+        with pytest.raises(
+            scanner.RepositorySecurityError, match="runtime or context instance changed"
+        ):
+            scanner._sealed_fork_event()
+        assert callback_ran is False
+
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(scanner.multiprocessing, "get_context", pipe_proxy)
+        with pytest.raises(scanner.RepositorySecurityError, match="runtime or context"):
+            scanner._sealed_fork_event()
         assert callback_ran is False
 
     replacement_context = type(context)()
@@ -2768,6 +2877,46 @@ def test_branch_divergence_and_additional_worktrees_are_mutable_observations(
     assert "local_branches" not in _scan(repo).as_dict()
 
 
+def test_branch_named_at_is_compared_as_a_fully_qualified_local_ref(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    _git(repo, "switch", "-q", "-c", "@")
+    _write(repo, "at-branch.txt", "at branch\n")
+    _commit(repo, "at branch")
+    _git(repo, "switch", "-q", "main")
+    _write(repo, "main-branch.txt", "main branch\n")
+    _commit(repo, "main branch")
+
+    observation = _observe(repo)
+    at_branch = next(item for item in observation.local_branches if item.name == "@")
+
+    assert at_branch.status == "OBSERVED"
+    assert (at_branch.ahead, at_branch.behind) == (1, 1)
+
+
+def test_branch_tag_name_collision_uses_full_ref_for_divergence(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    _git(repo, "switch", "-q", "-c", "collision")
+    _write(repo, "collision-branch.txt", "branch\n")
+    _commit(repo, "collision branch")
+    _git(repo, "tag", "collision")
+    _git(repo, "switch", "-q", "main")
+    _write(repo, "main-after-collision.txt", "main\n")
+    _commit(repo, "main after collision")
+
+    assert (
+        _git(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads/collision")
+        == "heads/collision"
+    )
+    observation = _observe(repo)
+    collision = next(item for item in observation.local_branches if item.name == "collision")
+
+    assert collision.status == "OBSERVED"
+    assert (collision.ahead, collision.behind) == (1, 1)
+    assert not any(
+        item.fact == "local_branch_divergence:collision" for item in observation.unknowns
+    )
+
+
 def test_malformed_worktree_record_is_blocked_without_placeholder_facts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -3886,6 +4035,42 @@ def test_git_timeout_is_bounded_and_visible(tmp_path: Path) -> None:
     result = scanner.SubprocessCommandRunner().run(("git", "version"), tmp_path, 0)
     assert result.timed_out
     assert result.returncode == 124
+
+
+def test_tracked_blob_within_configured_file_budget_is_not_cut_off_at_eight_megabytes(
+    tmp_path: Path,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, "large.bin", b"x" * 8_100_000)
+    commit_sha = _commit(repo, "large tracked blob")
+
+    snapshot = _scan(
+        repo,
+        max_file_bytes=10_000_000,
+        max_total_bytes=20_000_000,
+    )
+
+    assert snapshot.commit_sha == commit_sha
+    assert not any(item.timed_out for item in snapshot.command_provenance)
+
+
+def test_repository_intelligence_source_tree_import_computes_provenance() -> None:
+    source_root = Path(__file__).resolve().parents[2] / "src"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import pmpe.repository.scanner as scanner; "
+                "assert scanner._implementation_digest().startswith('sha256:')"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        env={**os.environ, "PYTHONPATH": str(source_root)},
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_caller_path_cannot_select_the_git_executable(

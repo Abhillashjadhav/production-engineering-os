@@ -245,11 +245,14 @@ def _cmd_scan(args: argparse.Namespace) -> int:
         observation = None
         if governance_path is not None:
             clock = RecordedUtcClock(args.observed_at) if args.observed_at else None
-            ids = RecordedObservationIds(args.observation_id) if args.observation_id else None
+            try:
+                ids = RecordedObservationIds(args.observation_id) if args.observation_id else None
+            except ValueError as exc:
+                raise RepositoryIntelligenceError(str(exc)) from exc
             observation = observe_governance(
                 requested,
                 repository=args.repository,
-                ref=args.default_branch or args.commit,
+                ref=snapshot.commit_sha,
                 snapshot=snapshot,
                 clock=clock,
                 id_provider=ids,
