@@ -524,6 +524,25 @@ def test_runtime_code_evidence_rejects_registered_function_with_copied_globals()
         scanner._runtime_code_evidence(forged_fields)
 
 
+def test_runtime_code_evidence_normalizes_equivalent_copied_builtin_global() -> None:
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    models = importlib.import_module("pmpe.repository.models")
+    original_fields = models.fields
+    copied_globals = dict(original_fields.__globals__)
+    copied_globals["getattr"] = getattr
+    copied_fields = FunctionType(
+        original_fields.__code__,
+        copied_globals,
+        name=original_fields.__name__,
+        argdefs=original_fields.__defaults__,
+        closure=original_fields.__closure__,
+    )
+
+    assert scanner._runtime_code_evidence(copied_fields) == scanner._runtime_code_evidence(
+        original_fields
+    )
+
+
 def test_implementation_digest_seals_every_direct_module_attribute_before_use(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
