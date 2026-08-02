@@ -13,6 +13,7 @@ import signal
 import subprocess
 import time
 import uuid
+from collections.abc import Mapping
 from contextlib import suppress
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -49,7 +50,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.2.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.3.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -209,10 +210,17 @@ class RecordedRemoteProvider:
         "_delay_seconds",
         "_payload",
         "_permission_denied",
+        "_sealed",
         "api_version",
     )
 
     tool_identity = "recorded-remote-payload/2.0.0"
+    _collection_provenance: Mapping[str, Any]
+    _delay_seconds: float
+    _payload: bytes
+    _permission_denied: bool
+    _sealed: bool
+    api_version: str
 
     def __init__(
         self,
@@ -227,7 +235,7 @@ class RecordedRemoteProvider:
         if not math.isfinite(delay_seconds) or not 0 <= delay_seconds <= 300:
             raise ValueError("recorded remote delay must be bounded")
         try:
-            self._payload = json.dumps(
+            canonical_payload = json.dumps(
                 payload,
                 allow_nan=False,
                 ensure_ascii=False,
@@ -236,19 +244,39 @@ class RecordedRemoteProvider:
             ).encode("utf-8")
         except (TypeError, ValueError) as exc:
             raise ValueError("recorded remote payload is not canonical JSON") from exc
-        self.api_version = api_version
-        self._collection_provenance = {
+        provenance = {
             "source_kind": "RECORDED_UNATTESTED",
             "replay_provider": self.tool_identity,
             "api_version": api_version,
+            "recorded_payload_digest": "sha256:" + hashlib.sha256(canonical_payload).hexdigest(),
+            "attestation": "ABSENT",
+        }
+        object.__setattr__(self, "_payload", canonical_payload)
+        object.__setattr__(self, "api_version", api_version)
+        object.__setattr__(self, "_collection_provenance", MappingProxyType(provenance))
+        object.__setattr__(self, "_delay_seconds", delay_seconds)
+        object.__setattr__(self, "_permission_denied", permission_denied)
+        object.__setattr__(self, "_sealed", True)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if getattr(self, "_sealed", False):
+            raise AttributeError("recorded remote input is immutable")
+        object.__setattr__(self, name, value)
+
+    def _assert_integrity(self) -> None:
+        expected = {
+            "source_kind": "RECORDED_UNATTESTED",
+            "replay_provider": self.tool_identity,
+            "api_version": self.api_version,
             "recorded_payload_digest": "sha256:" + hashlib.sha256(self._payload).hexdigest(),
             "attestation": "ABSENT",
         }
-        self._delay_seconds = delay_seconds
-        self._permission_denied = permission_denied
+        if dict(self._collection_provenance) != expected:
+            raise RepositorySecurityError("recorded remote provenance integrity check failed")
 
     @property
     def collection_provenance(self) -> dict[str, Any]:
+        self._assert_integrity()
         return dict(self._collection_provenance)
 
     def collect(
@@ -262,6 +290,7 @@ class RecordedRemoteProvider:
         cancellation: Cancellation | None,
     ) -> dict[str, Any]:
         del repository, ref
+        self._assert_integrity()
         if (
             timeout_seconds > _MAX_GOVERNANCE_BUDGETS["command_timeout_seconds"]
             or max_output_bytes > _MAX_GOVERNANCE_BUDGETS["max_output_bytes"]

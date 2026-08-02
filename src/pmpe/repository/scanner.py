@@ -51,7 +51,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/2.9.0"
+SCANNER_VERSION = "repository-scanner/2.10.0"
 _MAX_SCAN_BUDGETS = {
     "max_files": 100_000,
     "max_directories": 50_000,
@@ -90,6 +90,30 @@ _RUNTIME_DEPENDENCY_PATHS = MappingProxyType(
     {
         "pyyaml.safe_load": ("yaml", "safe_load"),
         "rfc8785.dumps": ("rfc8785", "dumps"),
+    }
+)
+_RUNTIME_DEPENDENCY_MODULES = MappingProxyType(
+    {
+        "yaml": (
+            "yaml",
+            "yaml.composer",
+            "yaml.constructor",
+            "yaml.cyaml",
+            "yaml.dumper",
+            "yaml.emitter",
+            "yaml.error",
+            "yaml.events",
+            "yaml.loader",
+            "yaml.nodes",
+            "yaml.parser",
+            "yaml.reader",
+            "yaml.representer",
+            "yaml.resolver",
+            "yaml.scanner",
+            "yaml.serializer",
+            "yaml.tokens",
+        ),
+        "rfc8785": ("rfc8785", "rfc8785._impl"),
     }
 )
 _OBJECT_FORMAT_LENGTH = {"sha1": 40, "sha256": 64}
@@ -661,10 +685,9 @@ def _runtime_value_evidence(value: Any, *, depth: int = 0) -> Any:
     return {"type": f"{type(value).__module__}.{type(value).__qualname__}"}
 
 
-def _module_runtime_digest(module_name: str) -> str:
-    """Bind the loaded module namespace rather than only its current source file."""
+def _runtime_module_namespace_digest(module: Any) -> str:
+    """Bind the loaded executable namespace of one implementation module."""
 
-    module = importlib.import_module(f"pmpe.{module_name}")
     symbols: list[dict[str, Any]] = []
     for name, target in sorted(vars(module).items()):
         if (
@@ -685,6 +708,12 @@ def _module_runtime_digest(module_name: str) -> str:
                 }
             )
     return canonical_digest(symbols)
+
+
+def _module_runtime_digest(module_name: str) -> str:
+    """Bind the loaded PMPE module namespace rather than only its source file."""
+
+    return _runtime_module_namespace_digest(importlib.import_module(f"pmpe.{module_name}"))
 
 
 def _implementation_module_evidence(
@@ -742,7 +771,7 @@ def _implementation_source_evidence(label: str, target: Any) -> dict[str, str]:
 
 
 def _runtime_dependency_evidence() -> list[dict[str, str]]:
-    """Bind live third-party callables that materially affect canonical scan output."""
+    """Bind third-party package bytes and their complete loaded implementation closure."""
 
     evidence: list[dict[str, str]] = []
     for label, (module_name, attribute_name) in _RUNTIME_DEPENDENCY_PATHS.items():
@@ -753,6 +782,54 @@ def _runtime_dependency_evidence() -> list[dict[str, str]]:
                 f"{label} runtime dependency is unavailable for provenance binding"
             ) from exc
         evidence.append(_implementation_source_evidence(label, dependency))
+    for package_name, implementation_modules in _RUNTIME_DEPENDENCY_MODULES.items():
+        package = importlib.import_module(package_name)
+        package_file = getattr(package, "__file__", None)
+        if not isinstance(package_file, str):
+            raise RepositoryIntelligenceError(
+                f"{package_name} package bytes are unavailable for provenance binding"
+            )
+        package_root = Path(package_file).resolve().parent
+        try:
+            source_files = tuple(sorted(package_root.rglob("*.py")))
+            if not source_files or len(source_files) > 10_000:
+                raise OSError("dependency source inventory is unavailable or unbounded")
+            source_evidence: list[dict[str, str]] = []
+            for path in source_files:
+                resolved_path = path.resolve()
+                if not path.is_file() or package_root not in resolved_path.parents:
+                    raise OSError("dependency source path escaped its package root")
+                source_evidence.append(
+                    {
+                        "path": path.relative_to(package_root).as_posix(),
+                        "digest": _sha256(path.read_bytes()),
+                    }
+                )
+        except (OSError, ValueError) as exc:
+            raise RepositoryIntelligenceError(
+                f"{package_name} package bytes are unavailable for provenance binding"
+            ) from exc
+        loaded_modules = [
+            {
+                "module": module_name,
+                "runtime_digest": _runtime_module_namespace_digest(
+                    importlib.import_module(module_name)
+                ),
+            }
+            for module_name in implementation_modules
+        ]
+        if not loaded_modules:
+            raise RepositoryIntelligenceError(
+                f"{package_name} runtime closure is unavailable for provenance binding"
+            )
+        evidence.append(
+            {
+                "label": f"{package_name}.implementation-closure",
+                "module": package_name,
+                "source_digest": canonical_digest(source_evidence),
+                "runtime_code_digest": canonical_digest(loaded_modules),
+            }
+        )
     return evidence
 
 

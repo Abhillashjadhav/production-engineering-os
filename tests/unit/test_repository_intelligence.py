@@ -364,9 +364,16 @@ def test_implementation_digest_binds_loaded_runtime_code_and_source_identity(
     with monkeypatch.context() as runtime_patch:
         runtime_patch.setattr(yaml_module, "safe_load", lambda value: value)
         assert scanner._implementation_digest() != original
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(yaml_module, "load", lambda value, **_kwargs: value)
+        assert scanner._implementation_digest() != original
     rfc8785_module = importlib.import_module("rfc8785")
     with monkeypatch.context() as runtime_patch:
         runtime_patch.setattr(rfc8785_module, "dumps", lambda value: b"changed")
+        assert scanner._implementation_digest() != original
+    rfc8785_impl = importlib.import_module("rfc8785._impl")
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(rfc8785_impl, "_serialize_str", lambda value, sink: None)
         assert scanner._implementation_digest() != original
     runtime_digest = scanner._module_runtime_digest("repository.scanner")
     with monkeypatch.context() as runtime_patch:
@@ -1071,6 +1078,31 @@ def test_unproven_github_relationships_and_scopes_are_not_verified(
         item.kind == "CI_WORKFLOW" for item in snapshot.inventory["delivery_environments"].items
     )
     assert any(item.code == "WORKFLOW.STRUCTURE_UNPROVEN" for item in snapshot.findings)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "yes: push\njobs:\n  test:\n    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n",
+        "on: [push]\njobs:\n  ignored: {}\njobs:\n  test:\n"
+        "    runs-on: ubuntu-latest\n    steps:\n      - run: pytest\n",
+    ],
+)
+def test_ambiguous_or_duplicate_github_workflow_keys_are_not_verified(
+    tmp_path: Path,
+    content: str,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(repo, ".github/workflows/ci.yml", content)
+    _commit(repo, "ambiguous github workflow")
+    snapshot = _scan(repo)
+    assert not any(
+        item.kind == "CI_WORKFLOW" for item in snapshot.inventory["delivery_environments"].items
+    )
+    assert any(
+        item.code in {"WORKFLOW.MALFORMED", "WORKFLOW.STRUCTURE_UNPROVEN"}
+        for item in snapshot.findings
+    )
 
 
 def test_supported_github_needs_graph_and_matrix_objects_are_verified(tmp_path: Path) -> None:
@@ -2592,6 +2624,26 @@ def test_recorded_remote_provider_checks_cancellation_before_deserialization(
             max_items=100,
             cancellation=cancellation,
         )
+
+
+def test_recorded_remote_provider_is_immutable_and_self_verifying() -> None:
+    api = _api()
+    provider = api.RecordedRemoteProvider({"safe": True}, api_version="fixture/1")
+    original_provenance = provider.collection_provenance
+
+    for attribute, value in (
+        ("_payload", b'{"changed":true}'),
+        ("_collection_provenance", {}),
+        ("api_version", "fixture/2"),
+    ):
+        with pytest.raises(AttributeError, match="immutable"):
+            setattr(provider, attribute, value)
+
+    assert provider.collection_provenance == original_provenance
+
+    object.__setattr__(provider, "_payload", b'{"changed":true}')
+    with pytest.raises(api.RepositorySecurityError, match="provenance integrity"):
+        _ = provider.collection_provenance
 
 
 def test_unsealed_parent_collaborators_are_rejected_before_execution(tmp_path: Path) -> None:

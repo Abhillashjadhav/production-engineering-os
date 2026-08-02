@@ -17,7 +17,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.23.0"
+DETECTOR_VERSION = "1.24.0"
 
 _GITHUB_EVENTS = frozenset(
     {
@@ -141,6 +141,58 @@ _GITHUB_STEP_KEYS = frozenset(
         "timeout-minutes",
     }
 )
+
+
+class _UniqueGithubWorkflowLoader(yaml.SafeLoader):
+    """Parse GitHub workflow YAML without YAML 1.1 booleans or duplicate keys."""
+
+
+_UniqueGithubWorkflowLoader.yaml_implicit_resolvers = {
+    key: [resolver for resolver in resolvers if resolver[0] != "tag:yaml.org,2002:bool"]
+    for key, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+_GITHUB_BOOLEAN_RESOLVER = (
+    "tag:yaml.org,2002:bool",
+    re.compile(r"^(?:true|false|True|False|TRUE|FALSE)$"),
+)
+for _github_boolean_initial in "tTfF":
+    _UniqueGithubWorkflowLoader.yaml_implicit_resolvers.setdefault(
+        _github_boolean_initial, []
+    ).append(_GITHUB_BOOLEAN_RESOLVER)
+
+
+def _construct_unique_github_mapping(
+    loader: yaml.SafeLoader,
+    node: yaml.MappingNode,
+    deep: bool = False,
+) -> dict[object, object]:
+    mapping: dict[object, object] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            duplicate = key in mapping
+        except TypeError as exc:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                "found an unhashable mapping key",
+                key_node.start_mark,
+            ) from exc
+        if duplicate:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"found duplicate key {key!r}",
+                key_node.start_mark,
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_UniqueGithubWorkflowLoader.yaml_constructors = {
+    **yaml.SafeLoader.yaml_constructors,
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG: _construct_unique_github_mapping,
+}
 
 _PACKAGE_BOUNDARY_MANIFEST_NAMES = frozenset(
     {
@@ -1245,7 +1297,7 @@ def _containers(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="delivery.ci",
-    version="1.9.0",
+    version="1.10.0",
     file_patterns=(
         ".github/workflows/*.yml",
         ".github/workflows/*.yaml",
@@ -1266,7 +1318,11 @@ def _ci_workflows(context: AdapterContext) -> AdapterResult:
         parsed: object | None = None
         if file.content is not None and file.path.endswith((".yml", ".yaml")):
             try:
-                parsed = yaml.safe_load(file.content)
+                parsed = (
+                    yaml.load(file.content, Loader=_UniqueGithubWorkflowLoader)
+                    if file.path.startswith(".github/workflows/")
+                    else yaml.safe_load(file.content)
+                )
                 if not isinstance(parsed, dict):
                     raise ValueError
             except (yaml.YAMLError, UnicodeDecodeError, ValueError):
