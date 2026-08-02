@@ -1,0 +1,2242 @@
+"""Versioned, deterministic stack adapters for repository evidence."""
+
+from __future__ import annotations
+
+import configparser
+import fnmatch
+import json
+import posixpath
+import re
+import shlex
+import tomllib
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import PurePosixPath
+
+import yaml
+
+from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
+
+DETECTOR_VERSION = "1.28.0"
+
+_GITHUB_EVENTS = frozenset(
+    {
+        "branch_protection_rule",
+        "check_run",
+        "check_suite",
+        "create",
+        "delete",
+        "deployment",
+        "deployment_status",
+        "discussion",
+        "discussion_comment",
+        "fork",
+        "gollum",
+        "issue_comment",
+        "issues",
+        "label",
+        "merge_group",
+        "milestone",
+        "page_build",
+        "project",
+        "project_card",
+        "project_column",
+        "public",
+        "pull_request",
+        "pull_request_review",
+        "pull_request_review_comment",
+        "pull_request_target",
+        "push",
+        "registry_package",
+        "release",
+        "repository_dispatch",
+        "schedule",
+        "status",
+        "watch",
+        "workflow_call",
+        "workflow_dispatch",
+        "workflow_run",
+    }
+)
+_GITHUB_DIRECT_WORKFLOW_PATH = re.compile(r"^\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml$")
+_GITHUB_LOCAL_REUSABLE_WORKFLOW = re.compile(r"^\./\.github/workflows/[A-Za-z0-9_.-]+\.ya?ml$")
+_GITHUB_REMOTE_REUSABLE_WORKFLOW = re.compile(
+    r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/\.github/workflows/"
+    r"[A-Za-z0-9_./-]+\.ya?ml@\S+$"
+)
+_GITHUB_LOCAL_ACTION = re.compile(r"^\./[A-Za-z0-9_./-]+$")
+_GITHUB_REMOTE_ACTION = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_./-]+)?@\S+$")
+_GITHUB_DOCKER_ACTION = re.compile(r"^docker://\S+$")
+_GITHUB_OWNER = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$")
+_GITHUB_REPOSITORY_COMPONENT = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,98}[A-Za-z0-9])?$")
+_GITHUB_REMOTE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$")
+_GITHUB_PULL_REQUEST_TYPES = frozenset(
+    {
+        "assigned",
+        "auto_merge_disabled",
+        "auto_merge_enabled",
+        "closed",
+        "converted_to_draft",
+        "demilestoned",
+        "dequeued",
+        "edited",
+        "enqueued",
+        "labeled",
+        "locked",
+        "milestoned",
+        "opened",
+        "ready_for_review",
+        "reopened",
+        "review_request_removed",
+        "review_requested",
+        "synchronize",
+        "unassigned",
+        "unlabeled",
+        "unlocked",
+    }
+)
+_GITHUB_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
+_GITHUB_PERMISSION_SCOPES = frozenset(
+    {
+        "actions",
+        "attestations",
+        "checks",
+        "contents",
+        "deployments",
+        "discussions",
+        "id-token",
+        "issues",
+        "models",
+        "packages",
+        "pages",
+        "pull-requests",
+        "security-events",
+        "statuses",
+    }
+)
+_GITHUB_TOP_LEVEL_KEYS = frozenset(
+    {"on", "name", "run-name", "permissions", "env", "defaults", "concurrency", "jobs"}
+)
+_GITHUB_INLINE_JOB_KEYS = frozenset(
+    {
+        "name",
+        "if",
+        "runs-on",
+        "timeout-minutes",
+        "steps",
+        "strategy",
+        "defaults",
+        "needs",
+    }
+)
+_GITHUB_REUSABLE_JOB_KEYS = frozenset({"name", "if", "needs", "uses", "with", "secrets"})
+_GITHUB_STEP_KEYS = frozenset(
+    {
+        "name",
+        "id",
+        "if",
+        "uses",
+        "run",
+        "with",
+        "env",
+        "working-directory",
+        "shell",
+        "continue-on-error",
+        "timeout-minutes",
+    }
+)
+
+
+class _UniqueGithubWorkflowLoader(yaml.SafeLoader):
+    """Parse GitHub workflow YAML without YAML 1.1 booleans or duplicate keys."""
+
+
+_UniqueGithubWorkflowLoader.yaml_implicit_resolvers = {
+    key: [resolver for resolver in resolvers if resolver[0] != "tag:yaml.org,2002:bool"]
+    for key, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+_GITHUB_BOOLEAN_RESOLVER = (
+    "tag:yaml.org,2002:bool",
+    re.compile(r"^(?:true|false|True|False|TRUE|FALSE)$"),
+)
+for _github_boolean_initial in "tTfF":
+    _UniqueGithubWorkflowLoader.yaml_implicit_resolvers.setdefault(
+        _github_boolean_initial, []
+    ).append(_GITHUB_BOOLEAN_RESOLVER)
+
+
+def _construct_unique_github_mapping(
+    loader: yaml.SafeLoader,
+    node: yaml.MappingNode,
+    deep: bool = False,
+) -> dict[object, object]:
+    mapping: dict[object, object] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            duplicate = key in mapping
+        except TypeError as exc:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                "found an unhashable mapping key",
+                key_node.start_mark,
+            ) from exc
+        if duplicate:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"found duplicate key {key!r}",
+                key_node.start_mark,
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_UniqueGithubWorkflowLoader.yaml_constructors = {
+    **yaml.SafeLoader.yaml_constructors,
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG: _construct_unique_github_mapping,
+}
+
+_PACKAGE_BOUNDARY_MANIFEST_NAMES = frozenset(
+    {
+        "package.json",
+        "pyproject.toml",
+        "Cargo.toml",
+        "go.mod",
+        "Pipfile",
+        "setup.cfg",
+        "setup.py",
+    }
+)
+
+
+def _is_package_boundary_manifest(path: str) -> bool:
+    name = PurePosixPath(path).name
+    return name in _PACKAGE_BOUNDARY_MANIFEST_NAMES or (
+        name.startswith("requirements") and name.endswith(".txt")
+    )
+
+
+@dataclass(frozen=True)
+class TrackedFile:
+    path: str
+    mode: str
+    object_id: str
+    digest: str
+    content: bytes | None
+    binary: bool
+    oversized: bool = False
+
+
+@dataclass(frozen=True)
+class AdapterContext:
+    files: tuple[TrackedFile, ...]
+    repository_files: tuple[TrackedFile, ...] = ()
+
+    def matching(self, patterns: tuple[str, ...]) -> tuple[TrackedFile, ...]:
+        return tuple(
+            item
+            for item in self.files
+            if any(fnmatch.fnmatch(item.path, pattern) for pattern in patterns)
+        )
+
+
+@dataclass(frozen=True)
+class AdapterResult:
+    items: tuple[tuple[str, EvidenceItem], ...] = ()
+    findings: tuple[Finding, ...] = ()
+    boundaries: tuple[BoundaryCandidate, ...] = ()
+
+
+AdapterEvaluator = Callable[[AdapterContext], AdapterResult]
+
+
+@dataclass(frozen=True)
+class RepositoryAdapter:
+    adapter_id: str
+    version: str
+    file_patterns: tuple[str, ...]
+    supported_categories: tuple[str, ...]
+    evaluator: AdapterEvaluator
+    detector_version: str = DETECTOR_VERSION
+    failure_behavior: str = "VISIBLE_PARTIAL_OR_BLOCKED"
+    detection_logic: str = "TRACKED_PATH_AND_SAFE_STRUCTURE_ONLY"
+    evidence_emitted: str = "DIGEST_BOUND_FILE_EVIDENCE"
+    confidence_semantics: str = "HIGH_EXACT_MEDIUM_HEURISTIC_LOW_SIGNAL"
+
+
+def repository_adapter(
+    *,
+    adapter_id: str,
+    version: str,
+    file_patterns: tuple[str, ...],
+    supported_categories: tuple[str, ...],
+) -> Callable[[AdapterEvaluator], RepositoryAdapter]:
+    """Declare an immutable adapter with visible failure semantics."""
+
+    def decorate(evaluator: AdapterEvaluator) -> RepositoryAdapter:
+        return RepositoryAdapter(
+            adapter_id=adapter_id,
+            version=version,
+            file_patterns=file_patterns,
+            supported_categories=supported_categories,
+            evaluator=evaluator,
+            detector_version=DETECTOR_VERSION,
+        )
+
+    return decorate
+
+
+def _item(
+    file: TrackedFile,
+    kind: str,
+    detector: str,
+    version: str = DETECTOR_VERSION,
+    *,
+    confidence: str = "HIGH",
+    location: str = "file",
+) -> EvidenceItem:
+    return EvidenceItem(
+        kind=kind,
+        path=file.path,
+        file_digest=file.digest,
+        detector_id=detector,
+        detector_version=version,
+        location=location,
+        confidence=confidence,
+    )
+
+
+def _finding(
+    code: str,
+    category: str,
+    explanation: str,
+    evidence: tuple[str, ...],
+    detector: str,
+    *,
+    severity: str = "MEDIUM",
+    confidence: str = "HIGH",
+    blocking: bool = False,
+) -> Finding:
+    return Finding(
+        code=code,
+        category=category,
+        severity=severity,
+        confidence=confidence,
+        explanation=explanation,
+        evidence_refs=evidence,
+        detector_id=detector,
+        detector_version=DETECTOR_VERSION,
+        blocking=blocking,
+    )
+
+
+def _test_signal_kind(path: str) -> str | None:
+    """Classify conventional test paths/names as medium-confidence signals only."""
+
+    pure = PurePosixPath(path)
+    lowered_parts = tuple(part.lower() for part in pure.parts)
+    name = pure.name.lower()
+    in_test_area = any(part in {"test", "tests", "__tests__"} for part in lowered_parts[:-1])
+    named_test = (
+        name.startswith("test_")
+        or name.endswith("_test.py")
+        or any(marker in name for marker in (".test.", ".spec."))
+    )
+    if not (in_test_area or named_test):
+        return None
+    if "unit" in lowered_parts:
+        return "UNIT_TEST_FILE_SIGNAL"
+    if "integration" in lowered_parts:
+        return "INTEGRATION_TEST_FILE_SIGNAL"
+    if "e2e" in lowered_parts or "end_to_end" in lowered_parts:
+        return "E2E_TEST_FILE_SIGNAL"
+    if "contract" in lowered_parts or "contract" in name:
+        return "CONTRACT_TEST_FILE_SIGNAL"
+    if "security" in lowered_parts or "security" in name:
+        return "SECURITY_TEST_FILE_SIGNAL"
+    if any(token in lowered_parts for token in ("performance", "perf", "benchmarks")):
+        return "PERFORMANCE_TEST_FILE_SIGNAL"
+    if "mutation" in lowered_parts or "mutation" in name:
+        return "MUTATION_TEST_FILE_SIGNAL"
+    return "TEST_FILE_SIGNAL"
+
+
+def _test_configuration_kind(path: str) -> str | None:
+    """Classify explicit test and coverage configuration without executing it."""
+
+    name = PurePosixPath(path).name.lower()
+    if name in {"pytest.ini", "tox.ini", "noxfile.py", "conftest.py"} or any(
+        fnmatch.fnmatch(name, pattern)
+        for pattern in (
+            "jest.config.*",
+            "karma.conf.*",
+            "playwright.config.*",
+            "vitest.config.*",
+        )
+    ):
+        return "TEST_CONFIGURATION"
+    if name in {".coveragerc", ".nycrc", "coverage.ini", "coverage.toml"} or any(
+        fnmatch.fnmatch(name, pattern) for pattern in (".codecov.*", "codecov.*", "nyc.config.*")
+    ):
+        return "COVERAGE_CONFIGURATION"
+    return None
+
+
+def _entry_point_signal_kind(path: str) -> str | None:
+    """Return a bounded conventional entry-point signal, never a recommendation."""
+
+    name = PurePosixPath(path).name.lower()
+    if name in {"__main__.py", "app.py", "cli.py", "main.py", "manage.py", "server.py"}:
+        return "ENTRY_POINT_FILE_SIGNAL"
+    return None
+
+
+def _manifest_relative_path(manifest_path: str, declared_path: str) -> str | None:
+    """Resolve a simple manifest-relative path without allowing root escape."""
+
+    if (
+        not declared_path
+        or "\0" in declared_path
+        or "\\" in declared_path
+        or PurePosixPath(declared_path).is_absolute()
+    ):
+        return None
+    parent = str(PurePosixPath(manifest_path).parent)
+    resolved = posixpath.normpath(posixpath.join(parent, declared_path))
+    if resolved in {"", ".", ".."} or resolved.startswith("../"):
+        return None
+    return resolved
+
+
+def _openapi_typescript_relationship(command: str) -> tuple[str, str] | None:
+    """Parse the supported data-only openapi-typescript invocation shape."""
+
+    try:
+        tokens = shlex.split(command, posix=True)
+    except ValueError:
+        return None
+    if tokens[:1] == ["npx"]:
+        tokens = tokens[1:]
+    if not tokens or tokens[0] != "openapi-typescript":
+        return None
+    if any(token in {"&&", "||", ";", "|", ">", ">>"} for token in tokens):
+        return None
+    output: str | None = None
+    positional: list[str] = []
+    index = 1
+    while index < len(tokens):
+        token = tokens[index]
+        if token in {"-o", "--output"}:
+            if output is not None or index + 1 >= len(tokens):
+                return None
+            output = tokens[index + 1]
+            index += 2
+            continue
+        if token.startswith("-"):
+            return None
+        positional.append(token)
+        index += 1
+    if len(positional) != 1 or output is None:
+        return None
+    return positional[0], output
+
+
+def _api_declaration_kind(path: str) -> str | None:
+    """Return a declaration kind only for supported API document filenames."""
+
+    name = PurePosixPath(path).name.lower()
+    suffix = PurePosixPath(name).suffix
+    if suffix not in {".json", ".yaml", ".yml"}:
+        return None
+    stem = name[: -len(suffix)]
+    if (
+        stem == "openapi"
+        or stem.endswith(".openapi")
+        or stem.startswith(("openapi-", "openapi_"))
+        or stem == "swagger"
+        or stem.startswith(("swagger-", "swagger_"))
+    ):
+        return "OPENAPI"
+    if (
+        stem == "asyncapi"
+        or stem.endswith(".asyncapi")
+        or stem.startswith(("asyncapi-", "asyncapi_"))
+    ):
+        return "EVENT_CONTRACT"
+    return None
+
+
+@repository_adapter(
+    adapter_id="core.repository-topology",
+    version="1.6.0",
+    file_patterns=("**/*", "*"),
+    supported_categories=(
+        "repository_topology",
+        "architecture_boundaries",
+        "delivery_environments",
+        "documentation_governance",
+        "debt_risk",
+        "observability_operations",
+        "security_privacy",
+        "tests_quality",
+    ),
+)
+def _topology(context: AdapterContext) -> AdapterResult:
+    items: list[tuple[str, EvidenceItem]] = []
+    boundaries: list[BoundaryCandidate] = []
+    findings: list[Finding] = []
+    for file in context.files:
+        name = PurePosixPath(file.path).name
+        lowered = file.path.lower()
+        if file.mode == "160000":
+            kind = "SUBMODULE"
+        elif file.mode == "120000":
+            kind = "SYMLINK"
+        elif file.binary:
+            kind = "BINARY_FILE"
+        elif any(part in {"vendor", "vendored", "node_modules"} for part in file.path.split("/")):
+            kind = "VENDORED_AREA"
+        elif "generated" in file.path.lower() or file.path.endswith("_generated.py"):
+            kind = "GENERATED_AREA"
+        elif name == ".gitignore":
+            kind = "IGNORE_POLICY"
+        elif name == ".gitmodules":
+            kind = "SUBMODULE_CONFIG"
+        elif _is_package_boundary_manifest(file.path):
+            kind = "PACKAGE_BOUNDARY_MANIFEST"
+        else:
+            kind = "TRACKED_FILE"
+        items.append(("repository_topology", _item(file, kind, "core.repository-topology")))
+
+        test_configuration_kind = _test_configuration_kind(file.path)
+        if test_configuration_kind is not None:
+            items.append(
+                (
+                    "tests_quality",
+                    _item(file, test_configuration_kind, "core.repository-topology"),
+                )
+            )
+        entry_point_kind = _entry_point_signal_kind(file.path)
+        if entry_point_kind is not None:
+            items.append(
+                (
+                    "architecture_boundaries",
+                    _item(
+                        file,
+                        entry_point_kind,
+                        "core.repository-topology",
+                        confidence="MEDIUM",
+                    ),
+                )
+            )
+
+        if file.path in {"README.md", "CONTRIBUTING.md", "SECURITY.md"}:
+            items.append(
+                (
+                    "documentation_governance",
+                    _item(file, "POLICY_DOCUMENT", "core.repository-topology"),
+                )
+            )
+        if lowered.startswith("docs/adr/") or "/adr/" in lowered:
+            items.append(
+                ("documentation_governance", _item(file, "ADR", "core.repository-topology"))
+            )
+        if file.path in {".github/CODEOWNERS", "CODEOWNERS"}:
+            items.append(
+                ("documentation_governance", _item(file, "CODEOWNERS", "core.repository-topology"))
+            )
+            items.append(
+                ("security_privacy", _item(file, "OWNERSHIP_CONTROL", "core.repository-topology"))
+            )
+            if file.content is not None:
+                try:
+                    for line in file.content.decode("utf-8").splitlines():
+                        stripped = line.strip()
+                        if not stripped or stripped.startswith("#"):
+                            continue
+                        codeowners_parts = stripped.split()
+                        if len(codeowners_parts) < 2:
+                            findings.append(
+                                _finding(
+                                    "OWNERSHIP.CODEOWNERS_MALFORMED",
+                                    "architecture_boundaries",
+                                    "A CODEOWNERS rule has no declared owner.",
+                                    (file.path,),
+                                    "core.repository-topology",
+                                    severity="HIGH",
+                                    blocking=True,
+                                )
+                            )
+                            continue
+                        boundaries.append(
+                            BoundaryCandidate(
+                                kind="OWNERSHIP_AREA",
+                                name=codeowners_parts[0],
+                                evidence_paths=(file.path,),
+                                confidence="HIGH",
+                                detector_id="core.repository-topology",
+                                detector_version=DETECTOR_VERSION,
+                            )
+                        )
+                except UnicodeDecodeError:
+                    findings.append(
+                        _finding(
+                            "OWNERSHIP.CODEOWNERS_MALFORMED",
+                            "architecture_boundaries",
+                            "CODEOWNERS is not valid UTF-8.",
+                            (file.path,),
+                            "core.repository-topology",
+                            severity="HIGH",
+                            blocking=True,
+                        )
+                    )
+        if lowered.startswith(".github/issue_template/"):
+            items.append(
+                (
+                    "documentation_governance",
+                    _item(file, "ISSUE_TEMPLATE", "core.repository-topology"),
+                )
+            )
+        if lowered in {".github/pull_request_template.md", "pull_request_template.md"}:
+            items.append(
+                (
+                    "documentation_governance",
+                    _item(file, "PR_TEMPLATE", "core.repository-topology"),
+                )
+            )
+        if any(
+            token in lowered
+            for token in (
+                "/alerts",
+                "/slo",
+                "/metrics",
+                "/traces",
+                "prometheus",
+                "grafana",
+                "opentelemetry",
+                "otel",
+            )
+        ):
+            items.append(
+                (
+                    "observability_operations",
+                    _item(
+                        file,
+                        "OBSERVABILITY_CONFIG_SIGNAL",
+                        "core.repository-topology",
+                        confidence="MEDIUM",
+                    ),
+                )
+            )
+        if any(
+            token in lowered
+            for token in ("security", "dependabot", "codeql", "secret-scan", "permissions")
+        ):
+            items.append(
+                (
+                    "security_privacy",
+                    _item(
+                        file,
+                        "SECURITY_CONTROL_SIGNAL",
+                        "core.repository-topology",
+                        confidence="MEDIUM",
+                    ),
+                )
+            )
+        if any(
+            token in lowered
+            for token in ("privacy", "data-retention", "data_retention", "gdpr", "pii")
+        ):
+            items.append(
+                (
+                    "security_privacy",
+                    _item(
+                        file,
+                        "PRIVACY_CONTROL_SIGNAL",
+                        "core.repository-topology",
+                        confidence="MEDIUM",
+                    ),
+                )
+            )
+        if any(token in lowered for token in ("terraform", "kubernetes", "helm", "/deploy")):
+            items.append(
+                (
+                    "delivery_environments",
+                    _item(
+                        file,
+                        "DEPLOYMENT_DEFINITION_SIGNAL",
+                        "core.repository-topology",
+                        confidence="MEDIUM",
+                    ),
+                )
+            )
+        if name == ".env" or name.startswith(".env."):
+            items.append(
+                (
+                    "delivery_environments",
+                    _item(file, "ENVIRONMENT_CONFIGURATION_SHAPE", "core.repository-topology"),
+                )
+            )
+            items.append(
+                (
+                    "security_privacy",
+                    _item(file, "SECRET_CONFIGURATION_BOUNDARY", "core.repository-topology"),
+                )
+            )
+
+    roots: dict[tuple[str, str], set[str]] = {}
+    for file in context.files:
+        parts = PurePosixPath(file.path).parts
+        if len(parts) >= 2 and parts[0] in {
+            "src",
+            "packages",
+            "services",
+            "apps",
+            "libraries",
+            "workers",
+            "infra",
+            "infrastructure",
+            "ops",
+        }:
+            root = "/".join(parts[:2])
+            if parts[0] == "services":
+                kind = "SERVICE"
+            elif parts[0] == "workers":
+                kind = "WORKER"
+            elif parts[0] == "libraries":
+                kind = "LIBRARY"
+            elif parts[0] in {"infra", "infrastructure", "ops"}:
+                kind = "INFRASTRUCTURE_AREA"
+            elif (
+                parts[0] == "apps"
+                or parts[0] == "packages"
+                and any(candidate.path == f"{root}/package.json" for candidate in context.files)
+            ):
+                kind = "APPLICATION"
+            else:
+                kind = "PACKAGE"
+            roots.setdefault((kind, root), set()).add(file.path)
+    boundary_roots = {root for _kind, root in roots}
+    for file in context.files:
+        if not _is_package_boundary_manifest(file.path):
+            continue
+        parent = PurePosixPath(file.path).parent
+        root = "." if str(parent) == "." else str(parent)
+        matching = next((key for key in roots if key[1] == root), None)
+        if matching is not None:
+            roots[matching].add(file.path)
+        elif root not in boundary_roots:
+            roots[("PACKAGE", root)] = {file.path}
+            boundary_roots.add(root)
+    for (kind, root), paths in sorted(roots.items()):
+        evidence_paths = tuple(sorted(paths))
+        confidence = (
+            "HIGH"
+            if evidence_paths
+            and all(_is_package_boundary_manifest(path) for path in evidence_paths)
+            else "MEDIUM"
+        )
+        boundaries.append(
+            BoundaryCandidate(
+                kind=kind,
+                name=root,
+                evidence_paths=evidence_paths,
+                confidence=confidence,
+                detector_id="core.repository-topology",
+                detector_version=DETECTOR_VERSION,
+            )
+        )
+    return AdapterResult(items=tuple(items), findings=tuple(findings), boundaries=tuple(boundaries))
+
+
+@repository_adapter(
+    adapter_id="stack.python",
+    version="1.6.0",
+    file_patterns=(
+        "*.py",
+        "**/*.py",
+        "*.pyi",
+        "**/*.pyi",
+        "pyproject.toml",
+        "**/pyproject.toml",
+        "requirements*.txt",
+        "**/requirements*.txt",
+        "requirements*.lock",
+        "**/requirements*.lock",
+        "Pipfile",
+        "**/Pipfile",
+        "Pipfile.lock",
+        "**/Pipfile.lock",
+        "poetry.lock",
+        "**/poetry.lock",
+        "setup.cfg",
+        "**/setup.cfg",
+        "setup.py",
+        "**/setup.py",
+        "uv.lock",
+        "**/uv.lock",
+        ".python-version",
+        "**/.python-version",
+    ),
+    supported_categories=(
+        "languages_build_ecosystems",
+        "architecture_boundaries",
+        "tests_quality",
+        "debt_risk",
+    ),
+)
+def _python(context: AdapterContext) -> AdapterResult:
+    items: list[tuple[str, EvidenceItem]] = []
+    findings: list[Finding] = []
+    for file in context.files:
+        name = PurePosixPath(file.path).name
+        is_requirement_manifest = name.startswith("requirements") and name.endswith(
+            (".txt", ".lock")
+        )
+        if name in {"Pipfile.lock", "poetry.lock", "uv.lock"} or (
+            is_requirement_manifest and name.endswith(".lock")
+        ):
+            items.append(
+                ("languages_build_ecosystems", _item(file, "PYTHON_LOCKFILE", "stack.python"))
+            )
+        elif name in {"Pipfile", "pyproject.toml", "setup.cfg", "setup.py"} or (
+            is_requirement_manifest and name.endswith(".txt")
+        ):
+            items.append(
+                ("languages_build_ecosystems", _item(file, "PYTHON_MANIFEST", "stack.python"))
+            )
+            if name in {"Pipfile", "pyproject.toml"} and file.content is not None:
+                try:
+                    parsed = tomllib.loads(file.content.decode("utf-8"))
+                    if not isinstance(parsed, dict):
+                        raise ValueError
+                    project = parsed.get("project", {})
+                    if isinstance(project, dict) and any(
+                        isinstance(project.get(key), dict) and project[key]
+                        for key in ("scripts", "gui-scripts", "entry-points")
+                    ):
+                        items.append(
+                            (
+                                "architecture_boundaries",
+                                _item(file, "DECLARED_ENTRY_POINT", "stack.python"),
+                            )
+                        )
+                    dynamic = project.get("dynamic", []) if isinstance(project, dict) else []
+                    if isinstance(dynamic, list) and any(
+                        item in {"scripts", "gui-scripts", "entry-points"} for item in dynamic
+                    ):
+                        findings.append(
+                            _finding(
+                                "ARCHITECTURE.DYNAMIC_ENTRY_POINTS_UNSUPPORTED",
+                                "architecture_boundaries",
+                                "Dynamic Python entry-point declarations are not executed or "
+                                "inferred by the read-only scanner.",
+                                (file.path,),
+                                "stack.python",
+                                severity="HIGH",
+                                blocking=True,
+                            )
+                        )
+                    tool = parsed.get("tool", {})
+                    if isinstance(tool, dict):
+                        pytest_configuration = tool.get("pytest")
+                        if isinstance(pytest_configuration, dict) and pytest_configuration:
+                            items.append(
+                                (
+                                    "tests_quality",
+                                    _item(file, "TEST_CONFIGURATION", "stack.python"),
+                                )
+                            )
+                        coverage_configuration = tool.get("coverage")
+                        if isinstance(coverage_configuration, dict) and coverage_configuration:
+                            items.append(
+                                (
+                                    "tests_quality",
+                                    _item(file, "COVERAGE_CONFIGURATION", "stack.python"),
+                                )
+                            )
+                except (tomllib.TOMLDecodeError, UnicodeDecodeError, ValueError):
+                    findings.append(
+                        _finding(
+                            "MANIFEST.MALFORMED",
+                            "languages_build_ecosystems",
+                            "A tracked Python manifest cannot be parsed deterministically.",
+                            (file.path,),
+                            "stack.python",
+                            severity="HIGH",
+                            blocking=True,
+                        )
+                    )
+            if name == "setup.cfg" and file.content is not None:
+                try:
+                    configuration = configparser.ConfigParser(interpolation=None)
+                    configuration.read_string(file.content.decode("utf-8"))
+                    sections = {section.lower() for section in configuration.sections()}
+                    if "options.entry_points" in sections:
+                        items.append(
+                            (
+                                "architecture_boundaries",
+                                _item(file, "DECLARED_ENTRY_POINT", "stack.python"),
+                            )
+                        )
+                    if sections & {"pytest", "tool:pytest"}:
+                        items.append(
+                            (
+                                "tests_quality",
+                                _item(file, "TEST_CONFIGURATION", "stack.python"),
+                            )
+                        )
+                    if any(section.startswith("coverage:") for section in sections):
+                        items.append(
+                            (
+                                "tests_quality",
+                                _item(file, "COVERAGE_CONFIGURATION", "stack.python"),
+                            )
+                        )
+                except (configparser.Error, UnicodeDecodeError):
+                    findings.append(
+                        _finding(
+                            "MANIFEST.MALFORMED",
+                            "languages_build_ecosystems",
+                            "A tracked Python manifest cannot be parsed deterministically.",
+                            (file.path,),
+                            "stack.python",
+                            severity="HIGH",
+                            blocking=True,
+                        )
+                    )
+            if name == "setup.py":
+                findings.append(
+                    _finding(
+                        "ARCHITECTURE.DYNAMIC_ENTRY_POINTS_UNSUPPORTED",
+                        "architecture_boundaries",
+                        "Executable setup.py entry-point declarations are not executed or "
+                        "inferred by the read-only scanner.",
+                        (file.path,),
+                        "stack.python",
+                        severity="HIGH",
+                        blocking=True,
+                    )
+                )
+        elif file.path.endswith((".py", ".pyi")):
+            items.append(
+                (
+                    "languages_build_ecosystems",
+                    _item(file, "PYTHON_SOURCE", "stack.python"),
+                )
+            )
+            test_kind = _test_signal_kind(file.path)
+            if test_kind is not None:
+                items.append(
+                    (
+                        "tests_quality",
+                        _item(
+                            file,
+                            test_kind,
+                            "stack.python",
+                            confidence="MEDIUM",
+                        ),
+                    )
+                )
+        elif name == ".python-version":
+            items.append(
+                ("languages_build_ecosystems", _item(file, "RUNTIME_VERSION", "stack.python"))
+            )
+    return AdapterResult(items=tuple(items), findings=tuple(findings))
+
+
+@repository_adapter(
+    adapter_id="stack.node-web",
+    version="1.4.0",
+    file_patterns=(
+        "**/*.js",
+        "*.js",
+        "**/*.mjs",
+        "*.mjs",
+        "**/*.cjs",
+        "*.cjs",
+        "**/*.jsx",
+        "*.jsx",
+        "**/*.ts",
+        "*.ts",
+        "**/*.tsx",
+        "*.tsx",
+        "package.json",
+        "**/package.json",
+        "package-lock.json",
+        "**/package-lock.json",
+        "yarn.lock",
+        "**/yarn.lock",
+        "pnpm-lock.yaml",
+        "**/pnpm-lock.yaml",
+    ),
+    supported_categories=(
+        "languages_build_ecosystems",
+        "architecture_boundaries",
+        "tests_quality",
+        "debt_risk",
+    ),
+)
+def _node(context: AdapterContext) -> AdapterResult:
+    items: list[tuple[str, EvidenceItem]] = []
+    findings: list[Finding] = []
+    lock_paths: dict[str, list[str]] = {}
+    runtime_declarations: dict[str, str] = {}
+    for file in context.files:
+        name = PurePosixPath(file.path).name
+        if name == "package.json":
+            items.append(
+                ("languages_build_ecosystems", _item(file, "NODE_MANIFEST", "stack.node-web"))
+            )
+            if file.content is not None:
+                try:
+                    package = json.loads(file.content)
+                    if not isinstance(package, dict):
+                        raise AttributeError
+                    engine = package.get("engines", {}).get("node")
+                    if isinstance(engine, str):
+                        runtime_declarations[file.path] = engine
+                    if any(
+                        package.get(key) not in (None, "", {}, [])
+                        for key in ("bin", "main", "module", "exports")
+                    ):
+                        items.append(
+                            (
+                                "architecture_boundaries",
+                                _item(file, "DECLARED_ENTRY_POINT", "stack.node-web"),
+                            )
+                        )
+                    scripts = package.get("scripts", {})
+                    if isinstance(scripts, dict) and isinstance(scripts.get("start"), str):
+                        items.append(
+                            (
+                                "architecture_boundaries",
+                                _item(file, "DECLARED_RUN_ENTRY_POINT", "stack.node-web"),
+                            )
+                        )
+                    if isinstance(scripts, dict) and any(
+                        isinstance(command, str) and (name == "test" or name.startswith("test:"))
+                        for name, command in scripts.items()
+                    ):
+                        items.append(
+                            (
+                                "tests_quality",
+                                _item(file, "DECLARED_TEST_COMMAND", "stack.node-web"),
+                            )
+                        )
+                    if isinstance(scripts, dict) and any(
+                        isinstance(command, str) and "coverage" in name.lower()
+                        for name, command in scripts.items()
+                    ):
+                        items.append(
+                            (
+                                "tests_quality",
+                                _item(file, "DECLARED_COVERAGE_COMMAND", "stack.node-web"),
+                            )
+                        )
+                    if any(
+                        isinstance(package.get(key), dict) and package[key]
+                        for key in ("ava", "jest", "mocha", "playwright", "vitest")
+                    ):
+                        items.append(
+                            (
+                                "tests_quality",
+                                _item(file, "TEST_CONFIGURATION", "stack.node-web"),
+                            )
+                        )
+                    if isinstance(package.get("nyc"), dict) and package["nyc"]:
+                        items.append(
+                            (
+                                "tests_quality",
+                                _item(file, "COVERAGE_CONFIGURATION", "stack.node-web"),
+                            )
+                        )
+                except (json.JSONDecodeError, UnicodeDecodeError, AttributeError):
+                    findings.append(
+                        _finding(
+                            "MANIFEST.MALFORMED",
+                            "languages_build_ecosystems",
+                            "A tracked Node manifest cannot be parsed deterministically.",
+                            (file.path,),
+                            "stack.node-web",
+                            severity="HIGH",
+                            blocking=True,
+                        )
+                    )
+        elif name in {"package-lock.json", "yarn.lock", "pnpm-lock.yaml"}:
+            lock_paths.setdefault(name, []).append(file.path)
+            items.append(("languages_build_ecosystems", _item(file, "LOCKFILE", "stack.node-web")))
+        elif file.path.endswith((".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx")):
+            items.append(
+                (
+                    "languages_build_ecosystems",
+                    _item(file, "NODE_SOURCE", "stack.node-web"),
+                )
+            )
+            test_kind = _test_signal_kind(file.path)
+            if test_kind is not None:
+                items.append(
+                    (
+                        "tests_quality",
+                        _item(
+                            file,
+                            test_kind,
+                            "stack.node-web",
+                            confidence="MEDIUM",
+                        ),
+                    )
+                )
+    if len(lock_paths) > 1:
+        findings.append(
+            _finding(
+                "DEPENDENCY.MULTIPLE_LOCK_ECOSYSTEMS",
+                "debt_risk",
+                "Multiple Node lockfile ecosystems are tracked; this is a drift signal, "
+                "not proof of a defect.",
+                tuple(sorted(path for paths in lock_paths.values() for path in paths)),
+                "stack.node-web",
+                confidence="MEDIUM",
+            )
+        )
+    if len(set(runtime_declarations.values())) > 1:
+        findings.append(
+            _finding(
+                "RUNTIME.VERSION_DRIFT_SIGNAL",
+                "debt_risk",
+                "Multiple declared Node runtime constraints were observed.",
+                tuple(sorted(runtime_declarations)),
+                "stack.node-web",
+                confidence="MEDIUM",
+            )
+        )
+    return AdapterResult(items=tuple(items), findings=tuple(findings))
+
+
+@repository_adapter(
+    adapter_id="integration.manifest-declarations",
+    version="1.2.0",
+    file_patterns=(
+        "pyproject.toml",
+        "**/pyproject.toml",
+        "package.json",
+        "**/package.json",
+        "*openapi*.json",
+        "**/*openapi*.json",
+        "*openapi*.yaml",
+        "*openapi*.yml",
+        "**/*openapi*.yaml",
+        "**/*openapi*.yml",
+    ),
+    supported_categories=("integrations",),
+)
+def _integration_declarations(context: AdapterContext) -> AdapterResult:
+    items: list[tuple[str, EvidenceItem]] = []
+    findings: list[Finding] = []
+    for file in context.files:
+        if file.content is None or file.binary:
+            continue
+        name = PurePosixPath(file.path).name
+        try:
+            if name == "pyproject.toml":
+                payload = tomllib.loads(file.content.decode("utf-8"))
+                dependencies = payload.get("project", {}).get("dependencies", [])
+                if isinstance(dependencies, list):
+                    for index, dependency in enumerate(dependencies):
+                        if isinstance(dependency, str):
+                            items.append(
+                                (
+                                    "integrations",
+                                    _item(
+                                        file,
+                                        "EXTERNAL_DEPENDENCY_DECLARATION",
+                                        "integration.manifest-declarations",
+                                        confidence="LOW",
+                                        location=f"project.dependencies[{index}]",
+                                    ),
+                                )
+                            )
+            elif name == "package.json":
+                payload = json.loads(file.content)
+                for group in ("dependencies", "optionalDependencies", "peerDependencies"):
+                    dependencies = payload.get(group, {})
+                    if isinstance(dependencies, dict):
+                        for dependency in sorted(dependencies):
+                            items.append(
+                                (
+                                    "integrations",
+                                    _item(
+                                        file,
+                                        "EXTERNAL_DEPENDENCY_DECLARATION",
+                                        "integration.manifest-declarations",
+                                        confidence="LOW",
+                                        location=f"{group}.{dependency}",
+                                    ),
+                                )
+                            )
+            elif "openapi" in name.lower():
+                text = file.content.decode("utf-8")
+                payload = json.loads(text) if name.endswith(".json") else yaml.safe_load(text)
+                servers = payload.get("servers", []) if isinstance(payload, dict) else []
+                if isinstance(servers, list):
+                    for index, server in enumerate(servers):
+                        if isinstance(server, dict) and isinstance(server.get("url"), str):
+                            items.append(
+                                (
+                                    "integrations",
+                                    _item(
+                                        file,
+                                        "EXTERNAL_API_SERVER_DECLARATION",
+                                        "integration.manifest-declarations",
+                                        confidence="MEDIUM",
+                                        location=f"servers[{index}]",
+                                    ),
+                                )
+                            )
+        except (json.JSONDecodeError, tomllib.TOMLDecodeError, UnicodeDecodeError, yaml.YAMLError):
+            findings.append(
+                _finding(
+                    "INTEGRATION.DECLARATION_MALFORMED",
+                    "integrations",
+                    "A tracked integration declaration cannot be parsed; no integration "
+                    "evidence was inferred from it.",
+                    (file.path,),
+                    "integration.manifest-declarations",
+                    severity="HIGH",
+                    blocking=True,
+                )
+            )
+    return AdapterResult(items=tuple(items), findings=tuple(findings))
+
+
+@repository_adapter(
+    adapter_id="stack.docker-compose",
+    version="1.1.0",
+    file_patterns=(
+        "Dockerfile",
+        "Dockerfile.*",
+        "compose.y*ml",
+        "docker-compose.y*ml",
+        "**/Dockerfile",
+        "**/Dockerfile.*",
+        "**/compose.y*ml",
+        "**/docker-compose.y*ml",
+    ),
+    supported_categories=(
+        "languages_build_ecosystems",
+        "delivery_environments",
+        "observability_operations",
+    ),
+)
+def _containers(context: AdapterContext) -> AdapterResult:
+    items: list[tuple[str, EvidenceItem]] = []
+    findings: list[Finding] = []
+    for file in context.files:
+        name = PurePosixPath(file.path).name.lower()
+        if "dockerfile" in name:
+            items.append(
+                (
+                    "languages_build_ecosystems",
+                    _item(file, "CONTAINER_BUILD", "stack.docker-compose"),
+                )
+            )
+            items.append(
+                (
+                    "delivery_environments",
+                    _item(file, "CONTAINER_DEFINITION", "stack.docker-compose"),
+                )
+            )
+            health_instructions = (
+                tuple(
+                    line.lstrip().upper()
+                    for line in file.content.splitlines()
+                    if line.lstrip().upper().startswith(b"HEALTHCHECK ")
+                )
+                if file.content
+                else ()
+            )
+            if any(line != b"HEALTHCHECK NONE" for line in health_instructions):
+                items.append(
+                    (
+                        "observability_operations",
+                        _item(file, "HEALTH_CHECK", "stack.docker-compose"),
+                    )
+                )
+            elif health_instructions:
+                items.append(
+                    (
+                        "observability_operations",
+                        _item(
+                            file,
+                            "HEALTH_CHECK_DISABLED_SIGNAL",
+                            "stack.docker-compose",
+                            confidence="MEDIUM",
+                        ),
+                    )
+                )
+        elif "compose" in name:
+            items.append(
+                ("delivery_environments", _item(file, "LOCAL_COMPOSE", "stack.docker-compose"))
+            )
+            if file.content is not None:
+                try:
+                    parsed = yaml.safe_load(file.content)
+                    if not isinstance(parsed, dict):
+                        raise ValueError
+                except (yaml.YAMLError, UnicodeDecodeError, ValueError):
+                    findings.append(
+                        _finding(
+                            "MANIFEST.MALFORMED",
+                            "delivery_environments",
+                            "A tracked Compose manifest cannot be parsed deterministically.",
+                            (file.path,),
+                            "stack.docker-compose",
+                            severity="HIGH",
+                            blocking=True,
+                        )
+                    )
+    return AdapterResult(items=tuple(items), findings=tuple(findings))
+
+
+@repository_adapter(
+    adapter_id="delivery.ci",
+    version="1.14.0",
+    file_patterns=(
+        ".github/workflows/*.yml",
+        ".github/workflows/*.yaml",
+        ".gitlab-ci.yml",
+        ".circleci/config.yml",
+        "azure-pipelines.yml",
+        "bitbucket-pipelines.yml",
+        "Jenkinsfile",
+    ),
+    supported_categories=("delivery_environments", "tests_quality", "security_privacy"),
+)
+def _ci_workflows(context: AdapterContext) -> AdapterResult:
+    items: list[tuple[str, EvidenceItem]] = []
+    findings: list[Finding] = []
+    workflows = list(context.files)
+    verified_workflows = 0
+    for file in workflows:
+        parsed: object | None = None
+        if file.content is not None and file.path.endswith((".yml", ".yaml")):
+            try:
+                parsed = (
+                    yaml.load(file.content, Loader=_UniqueGithubWorkflowLoader)
+                    if file.path.startswith(".github/workflows/")
+                    else yaml.safe_load(file.content)
+                )
+                if not isinstance(parsed, dict):
+                    raise ValueError
+            except (yaml.YAMLError, UnicodeDecodeError, ValueError):
+                findings.append(
+                    _finding(
+                        "WORKFLOW.MALFORMED",
+                        "delivery_environments",
+                        "A tracked workflow cannot be parsed deterministically.",
+                        (file.path,),
+                        "delivery.ci",
+                        severity="HIGH",
+                        blocking=True,
+                    )
+                )
+                continue
+        if parsed is None or not _valid_ci_structure(file.path, parsed):
+            items.append(
+                (
+                    "delivery_environments",
+                    _item(
+                        file,
+                        "CI_CONFIGURATION_SIGNAL",
+                        "delivery.ci",
+                        confidence="MEDIUM",
+                    ),
+                )
+            )
+            findings.append(
+                _finding(
+                    "WORKFLOW.STRUCTURE_UNPROVEN",
+                    "delivery_environments",
+                    "A tracked CI configuration could not be proven to contain the required "
+                    "provider structure; it remains a signal, not a verified workflow.",
+                    (file.path,),
+                    "delivery.ci",
+                    confidence="MEDIUM",
+                )
+            )
+            continue
+        verified_workflows += 1
+        items.append(
+            (
+                "delivery_environments",
+                _item(file, "CI_WORKFLOW", "delivery.ci"),
+            )
+        )
+        if any(token in file.path.lower() for token in ("release", "deploy", "publish")):
+            items.append(
+                (
+                    "delivery_environments",
+                    _item(
+                        file,
+                        "RELEASE_WORKFLOW_SIGNAL",
+                        "delivery.ci",
+                        confidence="MEDIUM",
+                    ),
+                )
+            )
+        try:
+            signals = _structured_text(parsed)
+        except ValueError:
+            findings.append(
+                _finding(
+                    "WORKFLOW.STRUCTURE_BUDGET_EXCEEDED",
+                    "delivery_environments",
+                    "Parsed workflow structure exceeded the deterministic adapter budget.",
+                    (file.path,),
+                    "delivery.ci",
+                    severity="HIGH",
+                    blocking=True,
+                )
+            )
+            continue
+        if re.search(r"\b(pytest|vitest|playwright|test)\b", signals, re.I):
+            items.append(
+                (
+                    "tests_quality",
+                    _item(
+                        file,
+                        "CI_TEST_MAPPING_SIGNAL",
+                        "delivery.ci",
+                        confidence="MEDIUM",
+                        location="parsed-workflow",
+                    ),
+                )
+            )
+        if re.search(r"\b(audit|bandit|secret|security)\b", signals, re.I):
+            items.append(
+                (
+                    "security_privacy",
+                    _item(
+                        file,
+                        "SECURITY_CONTROL_SIGNAL",
+                        "delivery.ci",
+                        confidence="MEDIUM",
+                        location="parsed-workflow",
+                    ),
+                )
+            )
+        if re.search(r"\b(rollback|revert)\b", signals, re.I):
+            items.append(
+                (
+                    "delivery_environments",
+                    _item(
+                        file,
+                        "ROLLBACK_SIGNAL",
+                        "delivery.ci",
+                        confidence="MEDIUM",
+                        location="parsed-workflow",
+                    ),
+                )
+            )
+    if not verified_workflows:
+        findings.append(
+            _finding(
+                "DELIVERY.CI_ABSENT",
+                "delivery_environments",
+                "No tracked supported CI workflow was observed.",
+                ("repository:tracked-tree",),
+                "delivery.ci",
+            )
+        )
+    return AdapterResult(items=tuple(items), findings=tuple(findings))
+
+
+def _structured_text(value: object) -> str:
+    """Return only parsed keys/scalars; comments and unparsed source never become controls."""
+
+    pending = [value]
+    strings: list[str] = []
+    seen: set[int] = set()
+    visited = 0
+    while pending:
+        current = pending.pop()
+        visited += 1
+        if visited > 50_000:
+            raise ValueError("workflow structure budget exceeded")
+        if isinstance(current, dict):
+            if id(current) in seen:
+                continue
+            seen.add(id(current))
+            for key, item in current.items():
+                strings.append(str(key))
+                pending.append(item)
+        elif isinstance(current, list):
+            if id(current) in seen:
+                continue
+            seen.add(id(current))
+            pending.extend(current)
+        elif isinstance(current, (str, int, float, bool)):
+            strings.append(str(current))
+    return "\n".join(strings)
+
+
+def _nonempty_string_list(value: object) -> bool:
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(isinstance(item, str) and bool(item.strip()) for item in value)
+    )
+
+
+def _github_scalar_mapping(value: object) -> bool:
+    return isinstance(value, dict) and all(
+        isinstance(key, str)
+        and bool(key.strip())
+        and (item is None or isinstance(item, (str, int, float, bool)))
+        for key, item in value.items()
+    )
+
+
+def _github_permissions_are_supported(value: object) -> bool:
+    if isinstance(value, str):
+        return value in {"read-all", "write-all"}
+    return isinstance(value, dict) and all(
+        isinstance(key, str)
+        and key in _GITHUB_PERMISSION_SCOPES
+        and isinstance(item, str)
+        and item in {"read", "write", "none"}
+        for key, item in value.items()
+    )
+
+
+def _github_concurrency_is_supported(value: object) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if not isinstance(value, dict) or not set(value) <= {"group", "cancel-in-progress"}:
+        return False
+    group = value.get("group")
+    cancel = value.get("cancel-in-progress", False)
+    return (
+        isinstance(group, str)
+        and bool(group.strip())
+        and (isinstance(cancel, bool) or isinstance(cancel, str) and bool(cancel.strip()))
+    )
+
+
+def _github_defaults_are_supported(value: object) -> bool:
+    if not isinstance(value, dict) or set(value) != {"run"}:
+        return False
+    run = value.get("run")
+    return (
+        isinstance(run, dict)
+        and bool(run)
+        and set(run) <= {"shell", "working-directory"}
+        and all(isinstance(item, str) and bool(item.strip()) for item in run.values())
+    )
+
+
+def _github_needs_are_supported(value: object) -> bool:
+    if isinstance(value, str):
+        return _GITHUB_IDENTIFIER.fullmatch(value) is not None
+    return (
+        isinstance(value, list)
+        and bool(value)
+        and all(
+            isinstance(item, str) and _GITHUB_IDENTIFIER.fullmatch(item) is not None
+            for item in value
+        )
+    )
+
+
+def _github_strategy_is_supported(value: object) -> bool:
+    if (
+        not isinstance(value, dict)
+        or not value
+        or not set(value)
+        <= {
+            "matrix",
+            "fail-fast",
+            "max-parallel",
+        }
+    ):
+        return False
+    fail_fast = value.get("fail-fast", True)
+    max_parallel = value.get("max-parallel", 1)
+    matrix = value.get("matrix")
+    return (
+        isinstance(fail_fast, bool)
+        and isinstance(max_parallel, int)
+        and not isinstance(max_parallel, bool)
+        and max_parallel > 0
+        and isinstance(matrix, dict)
+        and bool(matrix)
+        and all(_github_matrix_entry_is_supported(key, items) for key, items in matrix.items())
+    )
+
+
+def _github_matrix_entry_is_supported(key: object, items: object) -> bool:
+    if not isinstance(key, str) or not isinstance(items, list) or not items:
+        return False
+    if key in {"include", "exclude"}:
+        return all(
+            isinstance(item, dict) and bool(item) and _github_scalar_mapping(item) for item in items
+        )
+    return _GITHUB_IDENTIFIER.fullmatch(key) is not None and all(
+        isinstance(item, (str, int, float, bool)) for item in items
+    )
+
+
+def _github_cron_is_supported(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    fields = value.split()
+    limits = ((0, 59), (0, 23), (1, 31), (1, 12), (0, 7))
+    if len(fields) != len(limits):
+        return False
+    for field, (minimum, maximum) in zip(fields, limits, strict=True):
+        if re.fullmatch(r"[0-9*/,-]+", field) is None:
+            return False
+        for segment in field.split(","):
+            base, separator, step = segment.partition("/")
+            if separator and (not step.isdigit() or int(step) <= 0):
+                return False
+            if base == "*":
+                continue
+            endpoints = base.split("-")
+            if len(endpoints) not in {1, 2} or not all(item.isdigit() for item in endpoints):
+                return False
+            numbers = [int(item) for item in endpoints]
+            if not all(minimum <= item <= maximum for item in numbers):
+                return False
+            if len(numbers) == 2 and numbers[0] > numbers[1]:
+                return False
+    return True
+
+
+def _github_event_configuration_is_supported(event: str, value: object) -> bool:
+    if value is None:
+        return True
+    if event == "schedule":
+        return (
+            isinstance(value, list)
+            and bool(value)
+            and all(
+                isinstance(item, dict)
+                and set(item) == {"cron"}
+                and _github_cron_is_supported(item["cron"])
+                for item in value
+            )
+        )
+    if event in {"workflow_call", "workflow_dispatch"}:
+        return isinstance(value, dict) and not value
+    if not isinstance(value, dict):
+        return False
+    permitted = (
+        {"branches", "branches-ignore", "paths", "paths-ignore", "tags", "tags-ignore"}
+        if event == "push"
+        else {"branches", "branches-ignore", "paths", "paths-ignore", "types"}
+        if event in {"pull_request", "pull_request_target"}
+        else {"branches", "branches-ignore", "types", "workflows"}
+        if event == "workflow_run"
+        else {"types"}
+        if event == "repository_dispatch"
+        else set()
+    )
+    if not set(value) <= permitted or not all(
+        _nonempty_string_list(item) for item in value.values()
+    ):
+        return False
+    for positive, negative in (
+        ("branches", "branches-ignore"),
+        ("paths", "paths-ignore"),
+        ("tags", "tags-ignore"),
+    ):
+        if positive in value and negative in value:
+            return False
+    types = value.get("types")
+    if types is None or event == "repository_dispatch":
+        return True
+    allowed_types = (
+        _GITHUB_PULL_REQUEST_TYPES
+        if event in {"pull_request", "pull_request_target"}
+        else {"completed", "in_progress", "requested"}
+    )
+    return all(item in allowed_types for item in types)
+
+
+def _github_trigger_is_runnable(value: object) -> bool:
+    if isinstance(value, str):
+        return value.strip() in _GITHUB_EVENTS
+    if isinstance(value, list):
+        return bool(value) and all(
+            isinstance(item, str) and item.strip() in _GITHUB_EVENTS for item in value
+        )
+    if isinstance(value, dict):
+        return bool(value) and all(
+            isinstance(event, str)
+            and event.strip() in _GITHUB_EVENTS
+            and _github_event_configuration_is_supported(event.strip(), configuration)
+            for event, configuration in value.items()
+        )
+    return False
+
+
+def _github_runner_is_runnable(value: object) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list):
+        return _nonempty_string_list(value)
+    if isinstance(value, dict):
+        if not value or not set(value) <= {"group", "labels"}:
+            return False
+        group = value.get("group")
+        labels = value.get("labels")
+        return (
+            (group is None or isinstance(group, str) and bool(group.strip()))
+            and (
+                labels is None
+                or isinstance(labels, str)
+                and bool(labels.strip())
+                or _nonempty_string_list(labels)
+            )
+            and (group is not None or labels is not None)
+        )
+    return False
+
+
+def _github_reusable_workflow_is_runnable(value: object) -> bool:
+    if not isinstance(value, str):
+        return False
+    reference = value.strip()
+    if _GITHUB_LOCAL_REUSABLE_WORKFLOW.fullmatch(reference) is not None:
+        return False
+    return _github_remote_reference_is_supported(reference, reusable_workflow=True)
+
+
+def _github_remote_reference_is_supported(
+    reference: str,
+    *,
+    reusable_workflow: bool,
+) -> bool:
+    target, separator, ref = reference.rpartition("@")
+    if (
+        not separator
+        or _GITHUB_REMOTE_REF.fullmatch(ref) is None
+        or not _git_reference_is_valid(ref)
+    ):
+        return False
+    parts = target.split("/")
+    if len(parts) < 2 or any(not part or part in {".", ".."} for part in parts):
+        return False
+    if (
+        _GITHUB_OWNER.fullmatch(parts[0]) is None
+        or _GITHUB_REPOSITORY_COMPONENT.fullmatch(parts[1]) is None
+    ):
+        return False
+    remaining = parts[2:]
+    if reusable_workflow:
+        return (
+            len(remaining) == 3
+            and remaining[:2] == [".github", "workflows"]
+            and re.fullmatch(r"[A-Za-z0-9_.-]+\.ya?ml", remaining[2]) is not None
+        )
+    return all(re.fullmatch(r"[A-Za-z0-9_.-]+", part) is not None for part in remaining)
+
+
+def _git_reference_is_valid(ref: str) -> bool:
+    """Apply Git's ref-name safety rules without executing Git during detection."""
+
+    if ref == "@" or ref.startswith(("-", "/")) or ref.endswith("/"):
+        return False
+    if ".." in ref or "//" in ref or "@{" in ref:
+        return False
+    if any(ord(char) < 32 or ord(char) == 127 or char in " ~^:?*[\\" for char in ref):
+        return False
+    components = ref.split("/")
+    return all(
+        component and not component.startswith(".") and not component.endswith((".", ".lock"))
+        for component in components
+    )
+
+
+def _github_job_is_runnable(value: object) -> bool:
+    if not isinstance(value, dict):
+        return False
+    name = value.get("name")
+    condition = value.get("if")
+    needs = value.get("needs")
+    if name is not None and (not isinstance(name, str) or not name.strip()):
+        return False
+    if condition is not None and (not isinstance(condition, str) or not condition.strip()):
+        return False
+    if needs is not None and not _github_needs_are_supported(needs):
+        return False
+    if "uses" in value:
+        return (
+            bool(value)
+            and set(value) <= _GITHUB_REUSABLE_JOB_KEYS
+            and _github_reusable_workflow_is_runnable(value.get("uses"))
+            and ("with" not in value or _github_scalar_mapping(value["with"]))
+            and (
+                "secrets" not in value
+                or value["secrets"] == "inherit"
+                or _github_scalar_mapping(value["secrets"])
+            )
+        )
+    if not set(value) <= _GITHUB_INLINE_JOB_KEYS:
+        return False
+    timeout = value.get("timeout-minutes", 1)
+    strategy = value.get("strategy")
+    defaults = value.get("defaults")
+    steps = value.get("steps")
+    return (
+        isinstance(timeout, int)
+        and not isinstance(timeout, bool)
+        and timeout > 0
+        and (strategy is None or _github_strategy_is_supported(strategy))
+        and (defaults is None or _github_defaults_are_supported(defaults))
+        and _github_runner_is_runnable(value.get("runs-on"))
+        and isinstance(steps, list)
+        and bool(steps)
+        and all(_github_step_is_runnable(step) for step in steps)
+    )
+
+
+def _github_step_is_runnable(value: object) -> bool:
+    if not isinstance(value, dict) or not value or not set(value) <= _GITHUB_STEP_KEYS:
+        return False
+    name = value.get("name")
+    step_id = value.get("id")
+    condition = value.get("if")
+    for key in ("working-directory", "shell"):
+        item = value.get(key)
+        if item is not None and (not isinstance(item, str) or not item.strip()):
+            return False
+    if name is not None and (not isinstance(name, str) or not name.strip()):
+        return False
+    if step_id is not None and (
+        not isinstance(step_id, str) or _GITHUB_IDENTIFIER.fullmatch(step_id) is None
+    ):
+        return False
+    if condition is not None and (not isinstance(condition, str) or not condition.strip()):
+        return False
+    if "with" in value and not _github_scalar_mapping(value["with"]):
+        return False
+    if "env" in value and not _github_scalar_mapping(value["env"]):
+        return False
+    continue_on_error = value.get("continue-on-error", False)
+    timeout = value.get("timeout-minutes", 1)
+    if not isinstance(continue_on_error, bool) or (
+        not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0
+    ):
+        return False
+    run = value.get("run")
+    uses = value.get("uses")
+    if run is not None:
+        return uses is None and isinstance(run, str) and bool(run.strip())
+    if not isinstance(uses, str):
+        return False
+    reference = uses.strip()
+    if _GITHUB_LOCAL_ACTION.fullmatch(reference) is not None:
+        return False
+    if _GITHUB_REMOTE_ACTION.fullmatch(reference) is not None:
+        return _github_remote_reference_is_supported(reference, reusable_workflow=False)
+    return _GITHUB_DOCKER_ACTION.fullmatch(reference) is not None
+
+
+def _github_workflow_is_runnable(value: dict[object, object]) -> bool:
+    if not set(value) <= _GITHUB_TOP_LEVEL_KEYS:
+        return False
+    for key in ("name", "run-name"):
+        item = value.get(key)
+        if item is not None and (not isinstance(item, str) or not item.strip()):
+            return False
+    if "permissions" in value and not _github_permissions_are_supported(value["permissions"]):
+        return False
+    if "env" in value and not _github_scalar_mapping(value["env"]):
+        return False
+    if "defaults" in value and not _github_defaults_are_supported(value["defaults"]):
+        return False
+    if "concurrency" in value and not _github_concurrency_is_supported(value["concurrency"]):
+        return False
+    event = value.get("on")
+    jobs = value.get("jobs")
+    if not (
+        _github_trigger_is_runnable(event)
+        and isinstance(jobs, dict)
+        and bool(jobs)
+        and all(
+            isinstance(job_id, str)
+            and _GITHUB_IDENTIFIER.fullmatch(job_id) is not None
+            and _github_job_is_runnable(job)
+            for job_id, job in jobs.items()
+        )
+    ):
+        return False
+    job_ids = set(jobs)
+    dependencies: dict[str, set[str]] = {}
+    for job_id, job in jobs.items():
+        assert isinstance(job_id, str) and isinstance(job, dict)
+        needs = job.get("needs")
+        required = {needs} if isinstance(needs, str) else set(needs or ())
+        if not required <= job_ids or job_id in required:
+            return False
+        dependencies[job_id] = required
+    remaining = set(job_ids)
+    completed: set[str] = set()
+    while remaining:
+        ready = {job_id for job_id in remaining if dependencies[job_id] <= completed}
+        if not ready:
+            return False
+        completed.update(ready)
+        remaining.difference_update(ready)
+    return True
+
+
+def _valid_ci_structure(path: str, value: object) -> bool:
+    if not isinstance(value, dict) or not value:
+        return False
+    lowered = path.lower()
+    if _GITHUB_DIRECT_WORKFLOW_PATH.fullmatch(lowered) is not None:
+        return _github_workflow_is_runnable(value)
+    return False
+
+
+@repository_adapter(
+    adapter_id="interface.schema-api",
+    version="1.6.0",
+    file_patterns=(
+        "package.json",
+        "**/package.json",
+        "*openapi*",
+        "**/*openapi*",
+        "*swagger*.json",
+        "**/*swagger*.json",
+        "*swagger*.yaml",
+        "**/*swagger*.yaml",
+        "*swagger*.yml",
+        "**/*swagger*.yml",
+        "*asyncapi*",
+        "**/*asyncapi*",
+        "*.proto",
+        "**/*.proto",
+        "*.graphql",
+        "**/*.graphql",
+        "*.gql",
+        "**/*.gql",
+        "*.sql",
+        "**/*.sql",
+        "*.gen.*",
+        "**/*.gen.*",
+        "schemas/**",
+        "**/schemas/**",
+        "migrations/**",
+        "**/migrations/**",
+        "generate*",
+        "**/generate*",
+        "scripts/**",
+        "**/scripts/**",
+    ),
+    supported_categories=("apis_data", "languages_build_ecosystems"),
+)
+def _interfaces(context: AdapterContext) -> AdapterResult:
+    items: list[tuple[str, EvidenceItem]] = []
+    findings: list[Finding] = []
+    files_by_path = {file.path: file for file in (context.repository_files or context.files)}
+    for file in context.files:
+        lowered = file.path.lower()
+        confidence = "HIGH"
+        location = "file"
+        if PurePosixPath(lowered).name == "package.json":
+            if file.content is None or file.binary:
+                continue
+            try:
+                manifest = json.loads(file.content)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+            scripts = manifest.get("scripts") if isinstance(manifest, dict) else None
+            if not isinstance(scripts, dict):
+                continue
+            for script_name, command in sorted(scripts.items()):
+                if not isinstance(script_name, str) or not isinstance(command, str):
+                    continue
+                codegen_relevant = "openapi-typescript" in command or (
+                    "api" in script_name.lower() and "generat" in script_name.lower()
+                )
+                if not codegen_relevant:
+                    continue
+                relationship = _openapi_typescript_relationship(command)
+                if relationship is None:
+                    findings.append(
+                        _finding(
+                            "INTERFACE.CODEGEN_RELATIONSHIP_UNSUPPORTED",
+                            "apis_data",
+                            "A tracked API-client generation declaration cannot be represented "
+                            "by the supported deterministic command grammar.",
+                            (file.path,),
+                            "interface.schema-api",
+                            severity="HIGH",
+                            blocking=True,
+                        )
+                    )
+                    continue
+                raw_input, raw_output = relationship
+                input_path = _manifest_relative_path(file.path, raw_input)
+                output_path = _manifest_relative_path(file.path, raw_output)
+                if (
+                    input_path is None
+                    or output_path is None
+                    or input_path not in files_by_path
+                    or output_path not in files_by_path
+                ):
+                    findings.append(
+                        _finding(
+                            "INTERFACE.CODEGEN_RELATIONSHIP_INCOMPLETE",
+                            "apis_data",
+                            "A tracked API-client generation declaration does not bind one "
+                            "existing tracked input to one existing tracked output.",
+                            (file.path,),
+                            "interface.schema-api",
+                            severity="HIGH",
+                            blocking=True,
+                        )
+                    )
+                    continue
+                relationship_location = f"{file.path}#scripts.{script_name}"
+                for related, kind in (
+                    (file, "CODE_GENERATION_DECLARATION"),
+                    (files_by_path[input_path], "CODE_GENERATION_INPUT"),
+                    (files_by_path[output_path], "CODE_GENERATION_OUTPUT"),
+                ):
+                    items.append(
+                        (
+                            "apis_data",
+                            _item(
+                                related,
+                                kind,
+                                "interface.schema-api",
+                                location=relationship_location,
+                            ),
+                        )
+                    )
+            continue
+        if lowered == "scripts/export_openapi.py" or lowered.endswith("/scripts/export_openapi.py"):
+            target_path = str(PurePosixPath(file.path).parent.parent / "openapi.json")
+            target = files_by_path.get(target_path)
+            content = (
+                file.content.decode("utf-8", errors="strict")
+                if file.content is not None and not file.binary
+                else ""
+            )
+            if target is None or "openapi.json" not in content or "write_text" not in content:
+                findings.append(
+                    _finding(
+                        "INTERFACE.CODEGEN_RELATIONSHIP_INCOMPLETE",
+                        "apis_data",
+                        "The tracked OpenAPI export entry point does not bind to its expected "
+                        "tracked OpenAPI output using a supported deterministic signal.",
+                        tuple(sorted({file.path, target_path})),
+                        "interface.schema-api",
+                        severity="HIGH",
+                        blocking=True,
+                    )
+                )
+                continue
+            location = f"{file.path}#export"
+            items.extend(
+                (
+                    (
+                        "apis_data",
+                        _item(
+                            file,
+                            "CODE_GENERATOR_SIGNAL",
+                            "interface.schema-api",
+                            confidence="MEDIUM",
+                            location=location,
+                        ),
+                    ),
+                    (
+                        "apis_data",
+                        _item(
+                            target,
+                            "CODE_GENERATION_OUTPUT",
+                            "interface.schema-api",
+                            confidence="MEDIUM",
+                            location=location,
+                        ),
+                    ),
+                )
+            )
+            continue
+        declaration_kind = _api_declaration_kind(lowered)
+        if declaration_kind is not None:
+            kind = declaration_kind
+        elif lowered.endswith((".proto", ".graphql", ".gql")):
+            kind = "INTERFACE_DEFINITION_SIGNAL"
+            confidence = "MEDIUM"
+        elif "/migrations/" in f"/{lowered}":
+            kind = "MIGRATION_SIGNAL"
+            confidence = "MEDIUM"
+        elif lowered.endswith(".sql"):
+            kind = "DATABASE_SCHEMA_SIGNAL"
+            confidence = "MEDIUM"
+        elif "generate" in PurePosixPath(lowered).name:
+            kind = "CODE_GENERATOR_SIGNAL"
+            confidence = "MEDIUM"
+        elif ".gen." in lowered or "generated_client" in lowered:
+            kind = "GENERATED_CLIENT_SIGNAL"
+            confidence = "MEDIUM"
+        elif "/schemas/" in f"/{lowered}" or lowered.endswith(".schema.json"):
+            kind = "SCHEMA_SIGNAL"
+            confidence = "MEDIUM"
+        else:
+            continue
+        if kind in {"OPENAPI", "EVENT_CONTRACT"}:
+            if file.content is None or file.binary:
+                findings.append(
+                    _finding(
+                        "INTERFACE.DECLARATION_INVALID",
+                        "apis_data",
+                        "A recognized tracked API declaration is unavailable as bounded UTF-8 "
+                        "text; no API evidence was inferred from it.",
+                        (file.path,),
+                        "interface.schema-api",
+                        severity="HIGH",
+                        blocking=True,
+                    )
+                )
+                continue
+            try:
+                text = file.content.decode("utf-8")
+                payload = json.loads(text) if lowered.endswith(".json") else yaml.safe_load(text)
+                if kind == "OPENAPI":
+                    version_key = (
+                        "openapi"
+                        if isinstance(payload, dict) and isinstance(payload.get("openapi"), str)
+                        else "swagger"
+                    )
+                else:
+                    version_key = "asyncapi"
+                info = payload.get("info") if isinstance(payload, dict) else None
+                if (
+                    not isinstance(payload, dict)
+                    or not isinstance(payload.get(version_key), str)
+                    or not isinstance(info, dict)
+                    or not isinstance(info.get("title"), str)
+                    or not info["title"].strip()
+                    or not isinstance(info.get("version"), str)
+                    or not info["version"].strip()
+                ):
+                    raise ValueError
+                declared_version = str(payload[version_key])
+                if kind == "OPENAPI":
+                    version_pattern = (
+                        r"3\.(?:0|1)\.\d+(?:[-+][0-9A-Za-z.-]+)?"
+                        if version_key == "openapi"
+                        else r"2\.0"
+                    )
+                    supported_version = re.fullmatch(version_pattern, declared_version)
+                else:
+                    supported_version = re.fullmatch(
+                        r"(?:2\.\d+\.\d+|3\.0\.\d+)(?:[-+][0-9A-Za-z.-]+)?",
+                        declared_version,
+                    )
+                if supported_version is None:
+                    raise ValueError
+                if kind == "OPENAPI":
+                    paths = payload.get("paths")
+                    if not isinstance(paths, dict) or any(
+                        not isinstance(path, str)
+                        or not path.startswith("/")
+                        or not isinstance(operation, dict)
+                        for path, operation in paths.items()
+                    ):
+                        raise ValueError
+                elif not isinstance(payload.get("channels"), dict):
+                    raise ValueError
+            except (json.JSONDecodeError, UnicodeDecodeError, yaml.YAMLError, ValueError):
+                findings.append(
+                    _finding(
+                        "INTERFACE.DECLARATION_INVALID",
+                        "apis_data",
+                        "A tracked API declaration is malformed or lacks required structural "
+                        "identity; no API evidence was inferred from it.",
+                        (file.path,),
+                        "interface.schema-api",
+                        severity="HIGH",
+                        blocking=True,
+                    )
+                )
+                continue
+        elif lowered.endswith(".schema.json"):
+            if file.content is None or file.binary:
+                continue
+            try:
+                schema = json.loads(file.content)
+                if not isinstance(schema, dict) or not isinstance(schema.get("$schema"), str):
+                    raise ValueError
+            except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
+                findings.append(
+                    _finding(
+                        "INTERFACE.DECLARATION_INVALID",
+                        "apis_data",
+                        "A tracked JSON Schema declaration is malformed or lacks a dialect.",
+                        (file.path,),
+                        "interface.schema-api",
+                        severity="HIGH",
+                        blocking=True,
+                    )
+                )
+                continue
+            kind = "JSON_SCHEMA"
+            confidence = "HIGH"
+        items.append(
+            (
+                "apis_data",
+                _item(
+                    file,
+                    kind,
+                    "interface.schema-api",
+                    confidence=confidence,
+                    location=location,
+                ),
+            )
+        )
+    return AdapterResult(items=tuple(items), findings=tuple(findings))
+
+
+@repository_adapter(
+    adapter_id="repository.pmpe",
+    version="1.1.0",
+    file_patterns=("src/pmpe/**", "state/**", "docs/**"),
+    supported_categories=("architecture_boundaries", "documentation_governance", "debt_risk"),
+)
+def _pmpe(context: AdapterContext) -> AdapterResult:
+    items: list[tuple[str, EvidenceItem]] = []
+    for file in context.files:
+        if file.path.startswith("src/pmpe/"):
+            items.append(("architecture_boundaries", _item(file, "PMPE_MODULE", "repository.pmpe")))
+        elif file.path.startswith("state/"):
+            items.append(
+                ("documentation_governance", _item(file, "DURABLE_STATE", "repository.pmpe"))
+            )
+    return AdapterResult(items=tuple(items))
+
+
+def default_adapters() -> tuple[RepositoryAdapter, ...]:
+    return tuple(
+        sorted(
+            (
+                _topology,
+                _python,
+                _node,
+                _integration_declarations,
+                _containers,
+                _ci_workflows,
+                _interfaces,
+                _pmpe,
+            ),
+            key=lambda adapter: adapter.adapter_id,
+        )
+    )
