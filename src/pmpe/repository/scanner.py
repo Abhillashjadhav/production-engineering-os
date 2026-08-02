@@ -794,9 +794,9 @@ def _code_global_names(code: CodeType) -> tuple[str, ...]:
     return tuple(sorted(names))
 
 
-def _namespace_value(namespace: Mapping[str, Any], name: str) -> tuple[bool, Any]:
+def _namespace_value(namespace: Mapping[str, Any], name: str) -> tuple[str, Any]:
     if name in namespace:
-        return True, namespace[name]
+        return "global", namespace[name]
     builtins_value = namespace.get("__builtins__")
     if type(builtins_value) is ModuleType:
         builtins_namespace: Mapping[str, Any] = vars(builtins_value)
@@ -804,7 +804,34 @@ def _namespace_value(namespace: Mapping[str, Any], name: str) -> tuple[bool, Any
         builtins_namespace = builtins_value
     else:
         builtins_namespace = {}
-    return (True, builtins_namespace[name]) if name in builtins_namespace else (False, None)
+    return (
+        ("builtin", builtins_namespace[name]) if name in builtins_namespace else ("missing", None)
+    )
+
+
+def _shallow_runtime_value_evidence(value: Any) -> Any:
+    if inspect.ismethod(value):
+        value = value.__func__
+    if inspect.isfunction(value):
+        return {
+            "type": "function",
+            "module": value.__module__,
+            "qualname": value.__qualname__,
+            "code": _code_object_evidence(value.__code__),
+            "defaults": _stable_code_constant(value.__defaults__),
+            "keyword_defaults": _stable_code_constant(
+                tuple(sorted((value.__kwdefaults__ or {}).items()))
+            ),
+        }
+    if type(value) is ModuleType:
+        return {"type": "module", "module": value.__name__}
+    if _is_runtime_semantic_constant(value, module_name="runtime-function-global"):
+        return {"type": "constant", "value": _runtime_value_evidence(value)}
+    return {
+        "type": f"{type(value).__module__}.{type(value).__qualname__}",
+        "module": str(getattr(value, "__module__", type(value).__module__)),
+        "qualname": str(getattr(value, "__qualname__", type(value).__qualname__)),
+    }
 
 
 def _runtime_function_namespace_binding(target: Any) -> str:
@@ -824,14 +851,38 @@ def _runtime_function_namespace_binding(target: Any) -> str:
         registered_namespace = vars(defining_module)
         if target.__globals__ is registered_namespace:
             return "registered-module"
+        namespace_differences: list[dict[str, Any]] = []
         for name in _code_global_names(target.__code__):
-            candidate_present, candidate = _namespace_value(target.__globals__, name)
-            registered_present, registered = _namespace_value(registered_namespace, name)
-            if candidate_present != registered_present or (
-                candidate_present and candidate is not registered
+            candidate_scope, candidate = _namespace_value(target.__globals__, name)
+            registered_scope, registered = _namespace_value(registered_namespace, name)
+            if candidate_scope == registered_scope == "missing":
+                continue
+            if (
+                candidate_scope != "missing"
+                and registered_scope != "missing"
+                and candidate is registered
             ):
+                continue
+            if candidate_scope != registered_scope and "builtin" in {
+                candidate_scope,
+                registered_scope,
+            }:
                 raise RepositorySecurityError("runtime function global namespace changed")
-        return "registered-module-equivalent-globals"
+            if candidate_scope == registered_scope == "builtin" and candidate is not registered:
+                raise RepositorySecurityError("runtime function global namespace changed")
+            if candidate_scope != registered_scope or candidate is not registered:
+                namespace_differences.append(
+                    {
+                        "name": name,
+                        "candidate_scope": candidate_scope,
+                        "candidate": _shallow_runtime_value_evidence(candidate),
+                        "registered_scope": registered_scope,
+                        "registered": _shallow_runtime_value_evidence(registered),
+                    }
+                )
+        if namespace_differences:
+            return "registered-module-loader-globals:" + canonical_digest(namespace_differences)
+        return "registered-module"
     if (
         global_namespace_name.startswith("namedtuple_")
         and target.__module__ == global_namespace_name
@@ -842,9 +893,11 @@ def _runtime_function_namespace_binding(target: Any) -> str:
     if type(builtins_module) is ModuleType:
         builtins_namespace = vars(builtins_module)
         for name in _code_global_names(target.__code__):
-            candidate_present, candidate = _namespace_value(target.__globals__, name)
-            builtin_present, builtin = _namespace_value(builtins_namespace, name)
-            if candidate_present and (not builtin_present or candidate is not builtin):
+            candidate_scope, candidate = _namespace_value(target.__globals__, name)
+            builtin_scope, builtin = _namespace_value(builtins_namespace, name)
+            if candidate_scope != "missing" and (
+                builtin_scope == "missing" or candidate is not builtin
+            ):
                 break
         else:
             return "isolated-builtin-only-namespace"
