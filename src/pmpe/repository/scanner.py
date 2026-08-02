@@ -52,7 +52,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/2.14.0"
+SCANNER_VERSION = "repository-scanner/2.15.0"
 _MAX_SCAN_BUDGETS = {
     "max_files": 100_000,
     "max_directories": 50_000,
@@ -162,6 +162,18 @@ _RUNTIME_DEPENDENCY_GLOBALS = MappingProxyType(
             "uses_params",
             "uses_query",
             "uses_relative",
+        ),
+    }
+)
+_RUNTIME_CONFIGURED_CALLABLE_ATTRIBUTES = MappingProxyType(
+    {
+        "_json.Scanner": (
+            "object_hook",
+            "object_pairs_hook",
+            "parse_constant",
+            "parse_float",
+            "parse_int",
+            "strict",
         ),
     }
 )
@@ -894,18 +906,58 @@ def _runtime_configured_instance_evidence(value: Any, *, module_name: str) -> di
             )
             continue
         if inspect.isclass(member) or inspect.isbuiltin(member) or callable(member):
+            callable_type = f"{type(member).__module__}.{type(member).__qualname__}"
             callable_evidence: dict[str, Any] = {
                 "member": name,
                 "kind": "callable",
                 "module": str(getattr(member, "__module__", type(member).__module__)),
                 "qualname": str(getattr(member, "__qualname__", type(member).__qualname__)),
-                "type": f"{type(member).__module__}.{type(member).__qualname__}",
+                "type": callable_type,
             }
             bound_state = getattr(member, "__self__", None)
             if bound_state is not None and _is_runtime_semantic_constant(
                 bound_state, module_name=module_name
             ):
                 callable_evidence["bound_state"] = _runtime_value_evidence(bound_state)
+            configured_attributes = _RUNTIME_CONFIGURED_CALLABLE_ATTRIBUTES.get(callable_type, ())
+            if configured_attributes:
+                configured_state: list[dict[str, Any]] = []
+                for attribute_name in configured_attributes:
+                    try:
+                        attribute = getattr(member, attribute_name)
+                    except (AttributeError, RuntimeError) as exc:
+                        raise RepositoryIntelligenceError(
+                            f"{callable_type}.{attribute_name} state is unavailable"
+                        ) from exc
+                    if _is_runtime_semantic_constant(attribute, module_name=module_name):
+                        attribute_evidence: Any = _runtime_value_evidence(attribute)
+                    elif inspect.isclass(attribute) or inspect.isbuiltin(attribute):
+                        attribute_evidence = {
+                            "module": str(
+                                getattr(attribute, "__module__", type(attribute).__module__)
+                            ),
+                            "qualname": str(
+                                getattr(attribute, "__qualname__", type(attribute).__qualname__)
+                            ),
+                            "type": (
+                                f"{type(attribute).__module__}.{type(attribute).__qualname__}"
+                            ),
+                        }
+                        attribute_bound_state = getattr(attribute, "__self__", None)
+                        if attribute_bound_state is not None and _is_runtime_semantic_constant(
+                            attribute_bound_state, module_name=module_name
+                        ):
+                            attribute_evidence["bound_state"] = _runtime_value_evidence(
+                                attribute_bound_state
+                            )
+                    else:
+                        raise RepositoryIntelligenceError(
+                            f"{callable_type}.{attribute_name} state is unsupported"
+                        )
+                    configured_state.append(
+                        {"attribute": attribute_name, "value": attribute_evidence}
+                    )
+                callable_evidence["configured_state"] = configured_state
             members.append(callable_evidence)
             continue
         raise RepositoryIntelligenceError(

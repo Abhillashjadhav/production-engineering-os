@@ -393,6 +393,13 @@ def test_implementation_digest_binds_loaded_runtime_code_and_source_identity(
     with monkeypatch.context() as runtime_patch:
         runtime_patch.setattr(json_module, "_default_decoder", json.JSONDecoder(strict=False))
         assert scanner._implementation_digest() != original
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(
+            json_module._default_decoder,
+            "scan_once",
+            json.JSONDecoder(strict=False).scan_once,
+        )
+        assert scanner._implementation_digest() != original
     for module_name, attribute in (
         ("configparser", "ConfigParser"),
         ("datetime", "datetime"),
