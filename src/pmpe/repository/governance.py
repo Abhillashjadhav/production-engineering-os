@@ -18,7 +18,7 @@ from contextlib import suppress
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
-from types import MappingProxyType
+from types import MappingProxyType, ModuleType
 from typing import Any, Protocol, cast, final
 
 from pmpe.contracts.canonical import canonical_digest
@@ -50,12 +50,13 @@ from pmpe.repository.scanner import (
     _implementation_module_evidence,
     _implementation_source_evidence,
     _runtime_dependency_evidence,
+    _runtime_dependency_module_digest,
     _spawn_guarded_git,
     _stop_guarded_process_group,
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.13.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.14.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -964,9 +965,57 @@ def _validate_remote_payload_types(value: dict[str, Any]) -> None:
         raise ValueError("remote default branch is malformed")
 
 
+def _governance_import_binding_state_digest(names: tuple[str, ...]) -> str:
+    evidence: list[dict[str, str]] = []
+    for name in names:
+        target = globals().get(name)
+        if type(target) is not ModuleType:
+            evidence.append({"binding": name, "module": "INVALID", "runtime_digest": "INVALID"})
+            continue
+        evidence.append(
+            {
+                "binding": name,
+                "module": target.__name__,
+                "runtime_digest": _runtime_dependency_module_digest(target),
+            }
+        )
+    return canonical_digest(evidence)
+
+
+_SEALED_GOVERNANCE_IMPORT_NAMES = tuple(
+    sorted(name for name, target in globals().items() if type(target) is ModuleType)
+)
+_SEALED_GOVERNANCE_IMPORT_STATE_NAMES = ("json", "math", "os", "re", "time", "uuid")
+_SEALED_GOVERNANCE_IMPORT_STATE_DIGEST = _governance_import_binding_state_digest(
+    _SEALED_GOVERNANCE_IMPORT_STATE_NAMES
+)
+_SEALED_GOVERNANCE_IMPORT_PROCESS_IDENTITIES = tuple(
+    (name, id(globals()[name])) for name in _SEALED_GOVERNANCE_IMPORT_NAMES
+)
+
+
+def _assert_governance_import_bindings_sealed(*, verify_state: bool = False) -> None:
+    current_identities = tuple(
+        (
+            name,
+            id(target) if type(target) is ModuleType else -1,
+        )
+        for name in _SEALED_GOVERNANCE_IMPORT_NAMES
+        for target in (globals().get(name),)
+    )
+    if current_identities != _SEALED_GOVERNANCE_IMPORT_PROCESS_IDENTITIES:
+        raise RepositorySecurityError("governance imported-module bindings changed")
+    if verify_state and (
+        _governance_import_binding_state_digest(_SEALED_GOVERNANCE_IMPORT_STATE_NAMES)
+        != _SEALED_GOVERNANCE_IMPORT_STATE_DIGEST
+    ):
+        raise RepositorySecurityError("governance imported-module state changed")
+
+
 def _governance_implementation_digest(
     extension_evidence: tuple[dict[str, str], ...] = (),
 ) -> str:
+    _assert_governance_import_bindings_sealed(verify_state=True)
     evidence = _implementation_module_evidence(
         _GOVERNANCE_IMPLEMENTATION_PATHS,
         _GOVERNANCE_IMPORTED_SOURCE_DIGESTS,
@@ -1141,6 +1190,7 @@ class GovernanceCollector:
         stale_pull_request_after_seconds: int = 2_592_000,
         cancellation: Cancellation | None = None,
     ) -> None:
+        _assert_governance_import_bindings_sealed()
         self.repository = repository
         if snapshot is not None:
             if snapshot.repository != repository:
@@ -1187,6 +1237,9 @@ class GovernanceCollector:
         self.max_remote_age_seconds = max_remote_age_seconds
         self.stale_pull_request_after_seconds = stale_pull_request_after_seconds
         self._cancellation = cancellation
+        self._sealed_cancellation_lock = (
+            cancellation._lock if type(cancellation) is CancellationSignal else None
+        )
         self._command_provenance: list[CommandProvenance] = []
         self._commands = 0
         self._local_unknowns: list[UnknownFact] = []
@@ -1212,6 +1265,7 @@ class GovernanceCollector:
             self.runner,
             self.redactor,
             self.cancellation,
+            self._sealed_cancellation_lock,
             self._extension_implementation_evidence,
         )
         self._sealed_execution_configuration = (
@@ -1254,6 +1308,7 @@ class GovernanceCollector:
         return self._cancellation
 
     def _assert_execution_collaborators_sealed(self) -> None:
+        _assert_governance_import_bindings_sealed()
         current = (
             self.snapshot,
             self.clock,
@@ -1262,6 +1317,7 @@ class GovernanceCollector:
             self.runner,
             self.redactor,
             self.cancellation,
+            (self.cancellation._lock if type(self.cancellation) is CancellationSignal else None),
             self._extension_implementation_evidence,
         )
         if any(
@@ -1317,6 +1373,15 @@ class GovernanceCollector:
             return self.cancellation.cancelled()
         except Exception:
             return True
+
+    def _claim_completion(self) -> bool:
+        self._assert_execution_collaborators_sealed()
+        if self.cancellation is None:
+            return True
+        try:
+            return self.cancellation.claim_completion()
+        except Exception:
+            return False
 
     def _execute(self, root: Path, command: tuple[str, ...]) -> CommandResult:
         self._assert_execution_collaborators_sealed()
@@ -2360,6 +2425,35 @@ class GovernanceCollector:
         sanitized["observation_output_digest"] = canonical_digest(
             {key: value for key, value in sanitized.items() if key != "observation_output_digest"}
         )
+        if (
+            not any(
+                item.get("fact") == "observation_cancellation"
+                for item in cast(list[dict[str, Any]], sanitized["unknowns"])
+            )
+            and not self._claim_completion()
+        ):
+            cast(list[dict[str, Any]], sanitized["unknowns"]).append(
+                {
+                    "fact": "observation_cancellation",
+                    "status": "BLOCKED",
+                    "reason": "Mutable governance observation was cancelled before finalization.",
+                }
+            )
+            sanitized["unknowns"] = sorted(
+                cast(list[dict[str, Any]], sanitized["unknowns"]),
+                key=lambda item: (item["fact"], item["status"], item["reason"]),
+            )
+            sanitized["disposition"] = "BLOCKED"
+            sanitized["observation_input_digest"] = _late_cancellation_input_digest(
+                sanitized_inputs
+            )
+            sanitized["observation_output_digest"] = canonical_digest(
+                {
+                    key: value
+                    for key, value in sanitized.items()
+                    if key != "observation_output_digest"
+                }
+            )
         return _observation_from_dict(sanitized)
 
 

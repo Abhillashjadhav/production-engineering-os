@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import _thread
 import datetime as datetime_module
 import hashlib
 import importlib
-import importlib.metadata
+import importlib.metadata as importlib_metadata
 import inspect
 import json
 import multiprocessing
@@ -55,7 +56,7 @@ from pmpe.repository.redaction import (
     assert_distinct_identities_preserved,
 )
 
-SCANNER_VERSION = "repository-scanner/2.18.0"
+SCANNER_VERSION = "repository-scanner/2.19.0"
 _MAX_SCAN_BUDGETS = {
     "max_files": 100_000,
     "max_directories": 50_000,
@@ -125,11 +126,14 @@ _STDLIB_IMPLEMENTATION_MODULES = (
     "datetime",
     "fnmatch",
     "hashlib",
+    "importlib.metadata",
     "json",
     "json.decoder",
     "json.encoder",
     "json.scanner",
+    "os",
     "pathlib",
+    "platform",
     "posixpath",
     "re",
     "re._casefix",
@@ -149,6 +153,7 @@ _NATIVE_IMPLEMENTATION_MODULES = (
     "_json",
     "_sre",
     "math",
+    "time",
 )
 _RUNTIME_DEPENDENCY_GLOBALS = MappingProxyType(
     {
@@ -224,38 +229,82 @@ class Cancellation(Protocol):
 
 @final
 class CancellationSignal:
-    """Scalar-only cancellation capability with no nested executable state."""
+    """Cancellation capability with an atomic terminal-state handoff."""
 
-    __slots__ = ("_cancel_after_checks", "_cancelled", "_checks")
+    __slots__ = ("_cancel_after_checks", "_checks", "_lock", "_state")
+
+    _ACTIVE = 0
+    _CANCELLED = 1
+    _COMPLETED = 2
 
     def __init__(self, *, cancel_after_checks: int | None = None) -> None:
         if cancel_after_checks is not None and cancel_after_checks < 1:
             raise ValueError("cancellation check limit must be positive")
         self._cancel_after_checks = cancel_after_checks
-        self._cancelled = False
         self._checks = 0
+        self._lock = _thread.allocate_lock()
+        self._state = self._ACTIVE
 
     def _integrity_is_valid(self) -> bool:
         return (
             (self._cancel_after_checks is None or type(self._cancel_after_checks) is int)
-            and type(self._cancelled) is bool
             and type(self._checks) is int
             and self._checks >= 0
+            and type(self._lock) is _thread.LockType
+            and type(self._state) is int
+            and self._state in {self._ACTIVE, self._CANCELLED, self._COMPLETED}
         )
 
     def cancel(self) -> None:
         if not self._integrity_is_valid():
             raise RepositorySecurityError("cancellation signal integrity is invalid")
-        self._cancelled = True
+        lock = self._lock
+        with lock:
+            if not self._integrity_is_valid():
+                raise RepositorySecurityError("cancellation signal integrity is invalid")
+            if self._state == self._ACTIVE:
+                self._state = self._CANCELLED
 
     def cancelled(self) -> bool:
         if not self._integrity_is_valid():
             raise RepositorySecurityError("cancellation signal integrity is invalid")
-        self._checks += 1
-        threshold_reached = (
-            self._cancel_after_checks is not None and self._checks >= self._cancel_after_checks
-        )
-        return self._cancelled or threshold_reached
+        lock = self._lock
+        with lock:
+            if not self._integrity_is_valid():
+                raise RepositorySecurityError("cancellation signal integrity is invalid")
+            if self._state == self._COMPLETED:
+                return False
+            self._checks += 1
+            if (
+                self._state == self._ACTIVE
+                and self._cancel_after_checks is not None
+                and self._checks >= self._cancel_after_checks
+            ):
+                self._state = self._CANCELLED
+            return self._state == self._CANCELLED
+
+    def claim_completion(self) -> bool:
+        """Atomically let either cancellation or artifact admission win."""
+
+        if not self._integrity_is_valid():
+            raise RepositorySecurityError("cancellation signal integrity is invalid")
+        lock = self._lock
+        with lock:
+            if not self._integrity_is_valid():
+                raise RepositorySecurityError("cancellation signal integrity is invalid")
+            if self._state == self._COMPLETED:
+                return True
+            self._checks += 1
+            if (
+                self._state == self._ACTIVE
+                and self._cancel_after_checks is not None
+                and self._checks >= self._cancel_after_checks
+            ):
+                self._state = self._CANCELLED
+            if self._state == self._CANCELLED:
+                return False
+            self._state = self._COMPLETED
+            return True
 
 
 _PROCESS_GROUP_GUARD = "import signal\nwhile True:\n signal.pause()"
@@ -1261,6 +1310,7 @@ def _runtime_dependency_evidence() -> list[dict[str, str]]:
 def _implementation_digest(
     extension_evidence: Sequence[dict[str, str]] = (),
 ) -> str:
+    _assert_scanner_import_bindings_sealed(verify_state=True)
     evidence = _implementation_module_evidence(
         _IMPLEMENTATION_PATHS,
         _IMPORTED_SOURCE_DIGESTS,
@@ -1496,6 +1546,38 @@ _SEALED_ADAPTER_IMPORT_STATE_DIGEST = _module_import_binding_state_digest(
 _SEALED_ADAPTER_IMPORT_PROCESS_IDENTITIES = _module_import_binding_identities(
     "repository.adapters", _SEALED_ADAPTER_IMPORT_NAMES
 )
+_SEALED_SCANNER_IMPORT_NAMES = tuple(
+    sorted(name for name, target in globals().items() if type(target) is ModuleType)
+)
+_SEALED_SCANNER_IMPORT_STATE_NAMES = ("importlib_metadata", "platform")
+_SEALED_SCANNER_IMPORT_STATE_DIGEST = _module_import_binding_state_digest(
+    "repository.scanner", _SEALED_SCANNER_IMPORT_STATE_NAMES
+)
+_SEALED_SCANNER_IMPORT_PROCESS_IDENTITIES = tuple(
+    (name, id(globals()[name])) for name in _SEALED_SCANNER_IMPORT_NAMES
+)
+
+
+def _assert_scanner_import_bindings_sealed(*, verify_state: bool = False) -> None:
+    """Reject replaced or mutated output-affecting imported modules before use."""
+
+    current_identities = tuple(
+        (
+            name,
+            id(target) if type(target) is ModuleType else -1,
+        )
+        for name in _SEALED_SCANNER_IMPORT_NAMES
+        for target in (globals().get(name),)
+    )
+    if current_identities != _SEALED_SCANNER_IMPORT_PROCESS_IDENTITIES:
+        raise RepositorySecurityError("scanner imported-module bindings changed")
+    if verify_state and (
+        _module_import_binding_state_digest(
+            "repository.scanner", _SEALED_SCANNER_IMPORT_STATE_NAMES
+        )
+        != _SEALED_SCANNER_IMPORT_STATE_DIGEST
+    ):
+        raise RepositorySecurityError("scanner imported-module state changed")
 
 
 def _snapshot_identity_groups(
@@ -1505,6 +1587,7 @@ def _snapshot_identity_groups(
 
     groups: dict[str, list[tuple[str, str]]] = {
         "snapshot paths": [],
+        "evidence locations": [],
         "boundary names": [],
     }
     try:
@@ -1525,6 +1608,9 @@ def _snapshot_identity_groups(
                 strict=True,
             ):
                 groups["snapshot paths"].append((str(raw_item["path"]), str(safe_item["path"])))
+                groups["evidence locations"].append(
+                    (str(raw_item["location"]), str(safe_item["location"]))
+                )
         for raw_finding, safe_finding in zip(
             cast(list[dict[str, Any]], original["findings"]),
             cast(list[dict[str, Any]], sanitized["findings"]),
@@ -1627,6 +1713,7 @@ class RepositoryScanner:
         redactor: Any | None = None,
         cancellation: Cancellation | None = None,
     ) -> None:
+        _assert_scanner_import_bindings_sealed()
         self.config = config
         registered_adapters = _SEALED_BUILTIN_ADAPTERS
         if (
@@ -1676,6 +1763,9 @@ class RepositoryScanner:
         # from the default redaction context preserves cross-host determinism.
         self._redactor = EvidenceRedactor(environment={})
         self._cancellation = cancellation
+        self._sealed_cancellation_lock = (
+            cancellation._lock if type(cancellation) is CancellationSignal else None
+        )
         extension_targets: list[tuple[str, Any]] = [
             ("command_runner", self.runner),
             ("redactor", self.redactor),
@@ -1702,6 +1792,7 @@ class RepositoryScanner:
             self.runner,
             self.redactor,
             self.cancellation,
+            self._sealed_cancellation_lock,
             self._extension_implementation_evidence,
             self._sealed_adapter_runtime_guards,
         )
@@ -1728,11 +1819,13 @@ class RepositoryScanner:
         return self._cancellation
 
     def _assert_execution_collaborators_sealed(self) -> None:
+        _assert_scanner_import_bindings_sealed()
         current = (
             self.adapters,
             self.runner,
             self.redactor,
             self.cancellation,
+            (self.cancellation._lock if type(self.cancellation) is CancellationSignal else None),
             self._extension_implementation_evidence,
             self._sealed_adapter_runtime_guards,
         )
@@ -1786,6 +1879,15 @@ class RepositoryScanner:
             return self.cancellation.cancelled()
         except Exception:
             return True
+
+    def _claim_completion(self) -> bool:
+        self._assert_execution_collaborators_sealed()
+        if self.cancellation is None:
+            return True
+        try:
+            return self.cancellation.claim_completion()
+        except Exception:
+            return False
 
     @staticmethod
     def _cancelled_finding(evidence_ref: str) -> Finding:
@@ -1921,6 +2023,7 @@ class RepositoryScanner:
                 )
 
     def _collect_tool_versions(self, root: Path) -> tuple[ToolVersion, ...]:
+        _assert_scanner_import_bindings_sealed()
         try:
             git_result = self._run(("git", "version"), root)
             if git_result is None:
@@ -1928,12 +2031,12 @@ class RepositoryScanner:
                     "Git version could not be observed within the command budget"
                 )
             git_version = _text(git_result.stdout).strip()
-            canonicalizer_version = importlib.metadata.version("rfc8785")
+            canonicalizer_version = importlib_metadata.version("rfc8785")
         except (
             FileNotFoundError,
             OSError,
             UnicodeDecodeError,
-            importlib.metadata.PackageNotFoundError,
+            importlib_metadata.PackageNotFoundError,
         ) as exc:
             raise RepositoryIntelligenceError("scanner tool versions are unavailable") from exc
         if not git_version.startswith("git version "):
@@ -3216,6 +3319,25 @@ class RepositoryScanner:
         sanitized["snapshot_digest"] = canonical_digest(
             {key: value for key, value in sanitized.items() if key != "snapshot_digest"}
         )
+        if (
+            not any(item.code == "SCAN.CANCELLED" for item in findings)
+            and not self._claim_completion()
+        ):
+            return self._finalize(
+                commit_sha=commit_sha,
+                tree_sha=tree_sha,
+                git_object_format=git_object_format,
+                config_digest=config_digest,
+                adapter_digest=adapter_digest,
+                inventory_items=inventory_items,
+                findings=[*findings, self._cancelled_finding("repository:artifact-admission")],
+                boundaries=boundaries,
+                statuses=dict.fromkeys(AUDIT_CATEGORIES, "BLOCKED"),
+                reasons=dict.fromkeys(AUDIT_CATEGORIES, "scan cancelled"),
+                disposition="BLOCKED",
+                tracked_tree_digest=tracked_tree_digest,
+                scanned_content_digest=scanned_content_digest,
+            )
         return _snapshot_from_dict(sanitized)
 
     def scan(self, repository_root: Path | str, *, commit: str = "HEAD") -> RepositorySnapshot:
