@@ -207,6 +207,7 @@ def _proposal(
         ],
         "deployment": {
             "design": "Use only the contract-declared local preview target.",
+            "release_refs": ["REL-001"],
             "requirement_ids": ["FR-001"],
             "repository_boundaries": [boundary],
         },
@@ -258,7 +259,7 @@ def _proposal(
                     "asset": "Admitted contract",
                     "entry_point": "Contract intake boundary",
                     "trust_boundary_refs": ["TB-001"],
-                    "requirement_ids": ["FR-001"],
+                    "requirement_ids": ["FR-001", "PRIV-001", "SEC-001"],
                     "mitigation": "Validate the immutable contract digest before use.",
                     "residual_risk": (
                         "Malformed inputs are rejected; parser defects remain possible."
@@ -314,6 +315,13 @@ def test_valid_architecture_pack_is_admitted_digest_bound_and_deterministic() ->
     assert first.pack.contract_digest == canonical_digest(contract)
     assert first.pack.repository_snapshot_digest == snapshot.snapshot_digest
     assert {item["plane"] for item in first.pack.components} == set(api.ARCHITECTURE_PLANES)
+    boundary_contract = first.pack.boundary_contract()
+    assert boundary_contract["architecture_pack_digest"] == first.pack.pack_digest
+    assert {item["component_id"] for item in boundary_contract["components"]} == {
+        item["id"] for item in first.pack.components
+    }
+    with pytest.raises(TypeError):
+        first.pack.components[0]["plane"] = "MUTATED"
 
 
 def test_compiler_does_not_mutate_any_input() -> None:
@@ -382,11 +390,13 @@ def test_irreversible_or_vendor_locking_choice_requests_named_input() -> None:
 
     assert result.disposition.value == "PRODUCT_INPUT_REQUIRED"
     assert result.pack is not None
+    assert result.pack.digest_is_valid()
     blocker = next(item for item in result.diagnostics if item.rule_id == "ARCH.APPROVAL.REQUIRED")
     assert blocker.owner == "PRODUCT"
     assert blocker.field_path == "/adrs/ADR-ARCH-001/approval_refs"
     assert blocker.next_action
     assert result.pack.disposition == "PRODUCT_INPUT_REQUIRED"
+    assert result.pack.approval_requests[0]["decision_ref"] == "ADR-ARCH-001"
 
 
 def test_user_visible_or_retention_decisions_are_not_silently_defaulted() -> None:
