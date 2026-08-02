@@ -2893,6 +2893,28 @@ def test_branch_named_at_is_compared_as_a_fully_qualified_local_ref(tmp_path: Pa
     assert (at_branch.ahead, at_branch.behind) == (1, 1)
 
 
+def test_branch_tag_name_collision_uses_full_ref_for_divergence(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path)
+    _git(repo, "switch", "-q", "-c", "collision")
+    _write(repo, "collision-branch.txt", "branch\n")
+    _commit(repo, "collision branch")
+    _git(repo, "tag", "collision")
+    _git(repo, "switch", "-q", "main")
+    _write(repo, "main-after-collision.txt", "main\n")
+    _commit(repo, "main after collision")
+
+    assert (
+        _git(repo, "for-each-ref", "--format=%(refname:short)", "refs/heads/collision")
+        == "heads/collision"
+    )
+    observation = _observe(repo)
+    collision = next(item for item in observation.local_branches if item.name == "collision")
+
+    assert collision.status == "OBSERVED"
+    assert (collision.ahead, collision.behind) == (1, 1)
+    assert not any(item.fact == "local_branch_divergence:collision" for item in observation.unknowns)
+
+
 def test_malformed_worktree_record_is_blocked_without_placeholder_facts(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
