@@ -871,13 +871,25 @@ def _runtime_function_namespace_binding(target: Any) -> str:
             if candidate_scope == registered_scope == "builtin" and candidate is not registered:
                 raise RepositorySecurityError("runtime function global namespace changed")
             if candidate_scope != registered_scope or candidate is not registered:
+                candidate_evidence = _shallow_runtime_value_evidence(candidate)
+                registered_evidence = _shallow_runtime_value_evidence(registered)
+                if (
+                    candidate_evidence == registered_evidence
+                    and _is_runtime_semantic_constant(
+                        candidate, module_name="runtime-function-global"
+                    )
+                    and _is_runtime_semantic_constant(
+                        registered, module_name="runtime-function-global"
+                    )
+                ):
+                    continue
                 namespace_differences.append(
                     {
                         "name": name,
                         "candidate_scope": candidate_scope,
-                        "candidate": _shallow_runtime_value_evidence(candidate),
+                        "candidate": candidate_evidence,
                         "registered_scope": registered_scope,
-                        "registered": _shallow_runtime_value_evidence(registered),
+                        "registered": registered_evidence,
                     }
                 )
         if namespace_differences:
