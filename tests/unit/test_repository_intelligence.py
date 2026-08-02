@@ -1813,6 +1813,47 @@ def test_sensitive_mapping_fields_are_redacted_before_persistence(field: str) ->
 
 
 @pytest.mark.parametrize(
+    "secret",
+    [
+        "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789",
+        "sk-svcacct-abcdefghijklmnopqrstuvwxyz0123456789",
+        "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789",
+        "sk-abcdefghijklmnopqrstuvwxyz0123456789",
+    ],
+)
+def test_modern_service_tokens_are_redacted_without_field_labels(secret: str) -> None:
+    redaction = importlib.import_module("pmpe.repository.redaction")
+    sanitized = redaction.EvidenceRedactor(environment={}).sanitize(f"provider returned {secret}")
+    assert secret not in sanitized
+    assert sanitized == "provider returned [REDACTED]"
+
+
+@pytest.mark.parametrize(
+    ("evidence", "secret"),
+    [
+        ("collector exposed api_key opaque-key-material", "opaque-key-material"),
+        ("password hunter2", "hunter2"),
+        ('credential "opaque credential material"', "opaque credential material"),
+        ("note: access_token opaque-token-material", "opaque-token-material"),
+    ],
+)
+def test_whitespace_delimited_sensitive_assignments_are_redacted(
+    evidence: str,
+    secret: str,
+) -> None:
+    redaction = importlib.import_module("pmpe.repository.redaction")
+    sanitized = redaction.EvidenceRedactor(environment={}).sanitize(evidence)
+    assert secret not in sanitized
+    assert "[REDACTED]" in sanitized
+
+
+def test_whitespace_redaction_preserves_noncredential_audit_phrases() -> None:
+    redaction = importlib.import_module("pmpe.repository.redaction")
+    evidence = "credential boundaries and password policy and api_key ownership"
+    assert redaction.EvidenceRedactor(environment={}).sanitize(evidence) == evidence
+
+
+@pytest.mark.parametrize(
     ("header", "secrets"),
     [
         ("Authorization: Token opaque-secret", ("Token", "opaque-secret")),
@@ -2061,6 +2102,16 @@ class _SecretBearingRemote(_FakeRemote):
                     'response="response-secret"'
                 ),
                 "comment": "glpat-0123456789abcdefghijkl",
+                "modern_key_note": (
+                    "collector exposed api_key sk-proj-abcdefghijklmnopqrstuvwxyz0123456789"
+                ),
+            }
+        )
+        payload["unknowns"].append(
+            {
+                "fact": "credential_diagnostic",
+                "status": "BLOCKED",
+                "reason": "provider returned password hunter2",
             }
         )
         return payload
@@ -2707,6 +2758,8 @@ def test_remote_metadata_records_tool_query_cursor_and_redacts_secrets(tmp_path:
     assert "aws-secret-value" not in payload
     assert "query-json-secret" not in payload
     assert "pass-json-secret" not in payload
+    assert "sk-proj-abcdefghijklmnopqrstuvwxyz0123456789" not in payload
+    assert "hunter2" not in payload
     assert "[REDACTED_URL]" in payload
     assert "[REDACTED]" in payload
 

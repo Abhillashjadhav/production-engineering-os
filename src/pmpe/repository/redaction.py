@@ -17,7 +17,7 @@ class RedactionError(RuntimeError):
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
-    version = "central-redactor/2.5.0"
+    version = "central-redactor/2.6.0"
     __slots__ = ("_environment_secrets",)
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
@@ -46,6 +46,10 @@ class EvidenceRedactor:
         r"|rk_(?:live|test)_[0-9A-Za-z]{16,}|npm_[0-9A-Za-z]{20,}"
         r"|pypi-[0-9A-Za-z_-]{20,})"
     )
+    _modern_service_token = re.compile(
+        r"(?i)(?:sk-(?:proj|svcacct|ant)-[A-Za-z0-9_-]{16,}"
+        r"|sk-[A-Za-z0-9]{20,})"
+    )
     _sensitive_assignment = re.compile(
         r"(?i)(?P<quote>[\"']?)\b(?P<key>accountkey|sharedaccesskey|sharedaccesssignature"
         r"|pwd|password|passwd"
@@ -53,6 +57,13 @@ class EvidenceRedactor:
         r"|client_secret|private_key|api[-_]?key|access[-_]?token|refresh[-_]?token"
         r"|token|secret|signature|sig|credential)"
         r"(?P=quote)(?P<separator>\s*[=:]\s*)"
+        r"(?P<value>\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|\{[^}]*\}|[^\s,;]+)"
+    )
+    _sensitive_whitespace_assignment = re.compile(
+        r"(?i)(?P<prefix>^|[\s,;({\[])(?P<key>authorization|credential|password|passwd|pwd"
+        r"|api[-_]?key|x-api-key|access[-_]?token|refresh[-_]?token|client[-_]?secret"
+        r"|private[-_]?key|aws_access_key_id|aws_secret_access_key|aws_session_token)"
+        r"(?P<separator>[ \t]+)"
         r"(?P<value>\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'|\{[^}]*\}|[^\s,;]+)"
     )
     _sensitive_query = re.compile(
@@ -120,6 +131,20 @@ class EvidenceRedactor:
             f"{match.group('separator')}{replacement}"
         )
 
+    @staticmethod
+    def _redact_whitespace_assignment(match: re.Match[str]) -> str:
+        value = match.group("value")
+        unquoted = value.strip("\"'{}")
+        credential_like = (
+            value[:1] in {'"', "'", "{"}
+            or len(unquoted) >= 16
+            or any(character.isdigit() for character in unquoted)
+            or any(character in "_-+=/@." for character in unquoted)
+        )
+        if not credential_like:
+            return match.group(0)
+        return f"{match.group('prefix')}{match.group('key')}{match.group('separator')}[REDACTED]"
+
     def _sanitize_url(self, value: str) -> str:
         if "://" not in value:
             return value
@@ -157,7 +182,11 @@ class EvidenceRedactor:
         sanitized = self._url_credentials.sub(r"\1[REDACTED]@", sanitized)
         sanitized = self._common_access_key.sub("[REDACTED]", sanitized)
         sanitized = self._vendor_token.sub("[REDACTED]", sanitized)
+        sanitized = self._modern_service_token.sub("[REDACTED]", sanitized)
         sanitized = self._sensitive_assignment.sub(self._redact_assignment, sanitized)
+        sanitized = self._sensitive_whitespace_assignment.sub(
+            self._redact_whitespace_assignment, sanitized
+        )
         sanitized = self._token.sub("[REDACTED]", sanitized)
         sanitized = self._embedded_url.sub(
             lambda match: self._sanitize_url(match.group(0)), sanitized
