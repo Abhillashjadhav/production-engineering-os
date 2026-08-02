@@ -11,6 +11,7 @@ import subprocess
 import threading
 import time
 from dataclasses import asdict, replace
+from datetime import timedelta, timezone
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -384,6 +385,10 @@ def test_implementation_digest_binds_loaded_runtime_code_and_source_identity(
             lambda payload=b"", *args, **kwargs: original_sha256(payload, *args, **kwargs),
         )
         assert scanner._implementation_digest() != original
+    urllib_parse = importlib.import_module("urllib.parse")
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(urllib_parse, "uses_netloc", [*urllib_parse.uses_netloc, "custom"])
+        assert scanner._implementation_digest() != original
     for module_name, attribute in (
         ("configparser", "ConfigParser"),
         ("datetime", "datetime"),
@@ -425,6 +430,18 @@ def test_implementation_digest_binds_loaded_runtime_code_and_source_identity(
         )
 
 
+def test_dormant_cancellation_signal_does_not_change_exact_snapshot(tmp_path: Path) -> None:
+    api = _api()
+    repo = _init_repo(tmp_path)
+    baseline = api.RepositoryScanner(config=_config()).scan(repo, commit="HEAD")
+    cancellable = api.RepositoryScanner(
+        config=_config(),
+        cancellation=api.CancellationSignal(),
+    ).scan(repo, commit="HEAD")
+    assert cancellable.canonical_bytes() == baseline.canonical_bytes()
+    assert cancellable.implementation_digest == baseline.implementation_digest
+
+
 def test_governance_provenance_binds_every_material_repository_module() -> None:
     governance = importlib.import_module("pmpe.repository.governance")
     assert set(governance.GOVERNANCE_IMPLEMENTATION_MODULES) == {
@@ -438,6 +455,9 @@ def test_governance_provenance_binds_every_material_repository_module() -> None:
     rfc8785_module = importlib.import_module("rfc8785")
     with pytest.MonkeyPatch.context() as runtime_patch:
         runtime_patch.setattr(rfc8785_module, "dumps", lambda value: b"changed")
+        assert governance._governance_implementation_digest() != original
+    with pytest.MonkeyPatch.context() as runtime_patch:
+        runtime_patch.setattr(governance, "UTC", timezone(timedelta(hours=1)))
         assert governance._governance_implementation_digest() != original
 
 
@@ -2242,6 +2262,26 @@ def _observe(repo: Path, remote: Any = None) -> Any:
         id_provider=_fixed_ids(),
         remote_provider=_sealed_remote(remote) if remote is not None else None,
     ).observe(repo, ref="main")
+
+
+def test_dormant_cancellation_signal_does_not_change_governance_observation(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    repo = _init_repo(tmp_path)
+    baseline = api.GovernanceCollector(
+        repository="example/fixture",
+        clock=_fixed_clock(),
+        id_provider=_fixed_ids(),
+    ).observe(repo, ref="main")
+    cancellable = api.GovernanceCollector(
+        repository="example/fixture",
+        clock=_fixed_clock(),
+        id_provider=_fixed_ids(),
+        cancellation=api.CancellationSignal(),
+    ).observe(repo, ref="main")
+    assert cancellable.canonical_bytes() == baseline.canonical_bytes()
+    assert cancellable.collector_implementation_digest == baseline.collector_implementation_digest
 
 
 def test_governance_observation_records_dirty_index_worktree_and_untracked_state(

@@ -51,7 +51,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.7.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.8.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -1118,8 +1118,6 @@ class GovernanceCollector:
         ]
         if self.remote_provider is not None:
             extension_targets.append(("remote_provider", self.remote_provider))
-        if self.cancellation is not None:
-            extension_targets.append(("cancellation", self.cancellation))
         self._extension_implementation_evidence = tuple(
             _implementation_source_evidence(label, target) for label, target in extension_targets
         )

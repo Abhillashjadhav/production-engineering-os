@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as datetime_module
 import hashlib
 import importlib
 import importlib.metadata
@@ -51,7 +52,7 @@ from pmpe.repository.models import (
 )
 from pmpe.repository.redaction import EvidenceRedactor, RedactionError
 
-SCANNER_VERSION = "repository-scanner/2.12.0"
+SCANNER_VERSION = "repository-scanner/2.13.0"
 _MAX_SCAN_BUDGETS = {
     "max_files": 100_000,
     "max_directories": 50_000,
@@ -141,6 +142,23 @@ _NATIVE_IMPLEMENTATION_MODULES = (
     "_json",
     "_sre",
     "math",
+)
+_RUNTIME_DEPENDENCY_GLOBALS = MappingProxyType(
+    {
+        "urllib.parse": (
+            "_ALWAYS_SAFE",
+            "_ALWAYS_SAFE_BYTES",
+            "_UNSAFE_URL_BYTES_TO_REMOVE",
+            "_WHATWG_C0_CONTROL_OR_SPACE",
+            "non_hierarchical",
+            "scheme_chars",
+            "uses_fragment",
+            "uses_netloc",
+            "uses_params",
+            "uses_query",
+            "uses_relative",
+        ),
+    }
 )
 _OBJECT_FORMAT_LENGTH = {"sha1": 40, "sha256": 64}
 
@@ -677,6 +695,31 @@ def _runtime_value_evidence(value: Any, *, depth: int = 0) -> Any:
         return {"numeric_type": type(value).__name__, "value": repr(value)}
     if isinstance(value, PurePosixPath):
         return {"path": value.as_posix()}
+    if isinstance(value, datetime_module.tzinfo):
+        try:
+            offset = value.utcoffset(None)
+            daylight = value.dst(None)
+            name = value.tzname(None)
+        except Exception as exc:
+            raise RepositoryIntelligenceError(
+                "runtime timezone state is unavailable for provenance binding"
+            ) from exc
+
+        def duration_evidence(duration: datetime_module.timedelta | None) -> Any:
+            if duration is None:
+                return None
+            return {
+                "days": duration.days,
+                "seconds": duration.seconds,
+                "microseconds": duration.microseconds,
+            }
+
+        return {
+            "timezone_type": f"{type(value).__module__}.{type(value).__qualname__}",
+            "offset": duration_evidence(offset),
+            "daylight": duration_evidence(daylight),
+            "name": name,
+        }
     if isinstance(value, re.Pattern):
         return {
             "pattern": _runtime_value_evidence(value.pattern, depth=depth + 1),
@@ -743,11 +786,80 @@ def _runtime_module_namespace_digest(module: Any) -> str:
     return canonical_digest(symbols)
 
 
+def _is_runtime_semantic_constant(
+    value: Any,
+    *,
+    module_name: str,
+    depth: int = 0,
+    seen: frozenset[int] = frozenset(),
+) -> bool:
+    """Recognize bounded state whose value, rather than identity, affects execution."""
+
+    if depth > 16:
+        raise RepositoryIntelligenceError(
+            f"{module_name} runtime semantic state exceeds depth limit"
+        )
+    if isinstance(
+        value,
+        (
+            type(None),
+            bool,
+            int,
+            float,
+            complex,
+            str,
+            bytes,
+            PurePosixPath,
+            re.Pattern,
+            datetime_module.tzinfo,
+        ),
+    ):
+        return True
+    if isinstance(value, Mapping):
+        if len(value) > 4_096 or id(value) in seen:
+            raise RepositoryIntelligenceError(
+                f"{module_name} runtime semantic mapping is cyclic or unbounded"
+            )
+        nested_seen = seen | {id(value)}
+        return all(
+            _is_runtime_semantic_constant(
+                key,
+                module_name=module_name,
+                depth=depth + 1,
+                seen=nested_seen,
+            )
+            and _is_runtime_semantic_constant(
+                item,
+                module_name=module_name,
+                depth=depth + 1,
+                seen=nested_seen,
+            )
+            for key, item in value.items()
+        )
+    if isinstance(value, (list, tuple, set, frozenset)):
+        if len(value) > 4_096 or id(value) in seen:
+            raise RepositoryIntelligenceError(
+                f"{module_name} runtime semantic sequence is cyclic or unbounded"
+            )
+        nested_seen = seen | {id(value)}
+        return all(
+            _is_runtime_semantic_constant(
+                item,
+                module_name=module_name,
+                depth=depth + 1,
+                seen=nested_seen,
+            )
+            for item in value
+        )
+    return False
+
+
 def _runtime_dependency_module_digest(module: Any) -> str:
     """Bind a dependency module without recursively traversing arbitrary objects."""
 
     symbols: list[dict[str, Any]] = []
     module_name = str(getattr(module, "__name__", "unknown"))
+    explicit_globals = frozenset(_RUNTIME_DEPENDENCY_GLOBALS.get(module_name, ()))
     for name, target in sorted(vars(module).items()):
         if name.startswith("__"):
             continue
@@ -762,6 +874,7 @@ def _runtime_dependency_module_digest(module: Any) -> str:
             continue
         if inspect.isclass(target):
             methods: list[dict[str, Any]] = []
+            constants: list[dict[str, Any]] = []
             for method_name, member in sorted(vars(target).items()):
                 implementations: tuple[Any, ...]
                 if isinstance(member, (classmethod, staticmethod)):
@@ -782,6 +895,17 @@ def _runtime_dependency_module_digest(module: Any) -> str:
                                 "code": _runtime_code_evidence(implementation),
                             }
                         )
+                if (
+                    method_name.lstrip("_").isupper()
+                    and not callable(member)
+                    and _is_runtime_semantic_constant(member, module_name=module_name)
+                ):
+                    constants.append(
+                        {
+                            "member": method_name,
+                            "value": _runtime_value_evidence(member),
+                        }
+                    )
             symbols.append(
                 {
                     "symbol": name,
@@ -789,6 +913,7 @@ def _runtime_dependency_module_digest(module: Any) -> str:
                     "module": str(getattr(target, "__module__", "unknown")),
                     "qualname": str(getattr(target, "__qualname__", name)),
                     "methods": methods,
+                    "constants": constants,
                 }
             )
             continue
@@ -813,7 +938,9 @@ def _runtime_dependency_module_digest(module: Any) -> str:
                 }
             )
             continue
-        if isinstance(target, (type(None), bool, int, float, complex, str, bytes, re.Pattern)):
+        if (
+            name in explicit_globals or name.lstrip("_").isupper()
+        ) and _is_runtime_semantic_constant(target, module_name=module_name):
             symbols.append(
                 {
                     "symbol": name,
@@ -1251,8 +1378,6 @@ class RepositoryScanner:
             ("redactor", self.redactor),
             *((f"adapter:{item.adapter_id}", item.evaluator) for item in self.adapters),
         ]
-        if cancellation is not None:
-            extension_targets.append(("cancellation", cancellation))
         self._extension_implementation_evidence = tuple(
             _implementation_source_evidence(label, target) for label, target in extension_targets
         )
