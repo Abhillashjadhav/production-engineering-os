@@ -82,6 +82,7 @@ def test_documentation_covers_the_versioned_contract_and_operator_workflow() -> 
     assert "SOURCE_SCHEMA_INVALID" in text
     assert "Direct canonical-bundle intake is not implemented" in text
     assert "AMBIGUOUS_SOURCE_FORMAT" in text
+    assert "`members` is a required registry; it may be empty" in text
 
     schemas = (
         _schema("pmos_contract_bundle.schema.json"),
@@ -123,6 +124,7 @@ def test_canonical_examples_validate_and_the_manifest_binds_the_bundle() -> None
 
     assert manifest["bundle"]["content_digest"] == canonical_digest(bundle)  # type: ignore[index]
     assert manifest["approval_digest"] == canonical_digest(bundle["approvals"])
+    assert manifest["members"] == {}
     projection = dict(manifest)
     manifest_digest = projection.pop("manifest_digest")
     assert manifest_digest == canonical_digest(projection)
@@ -164,6 +166,14 @@ def test_canonical_examples_validate_and_the_manifest_binds_the_bundle() -> None
         if rule_findings:
             findings[rule.rule_id] = rule_findings
     assert findings == {}, tuple(findings)
+
+
+def test_migration_guidance_names_the_connected_adapter_registry() -> None:
+    text = DOC.read_text()
+    assert (
+        "The current compiler resolves source versions through `AdapterRegistry`, "
+        "not `MigrationRegistry`." in text
+    )
 
 
 def test_direct_canonical_service_input_is_honestly_documented_as_unsupported() -> None:
