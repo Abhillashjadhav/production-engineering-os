@@ -644,7 +644,8 @@ def test_governance_digest_rejects_in_place_module_attribute_before_use(
     governance = importlib.import_module("pmpe.repository.governance")
     attributes = dict(governance._SEALED_GOVERNANCE_MODULE_ATTRIBUTE_NAMES)
     assert "uuid4" in attributes["uuid"]
-    assert "_sealed_multiprocessing_context" in governance._SEALED_GOVERNANCE_EXTERNAL_GLOBAL_NAMES
+    for helper_name in ("_sealed_fork_event", "_sealed_fork_pipe", "_sealed_fork_process"):
+        assert helper_name in governance._SEALED_GOVERNANCE_EXTERNAL_GLOBAL_NAMES
     callback_ran = False
     original_uuid4 = governance.uuid.uuid4
 
