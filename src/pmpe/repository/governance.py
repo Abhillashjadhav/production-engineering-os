@@ -51,7 +51,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.4.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.5.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -972,6 +972,27 @@ def _governance_implementation_digest(
     return canonical_digest(
         sorted(evidence, key=lambda item: (item.get("label", ""), item["module"]))
     )
+
+
+def _late_cancellation_input_digest(sanitized_inputs: dict[str, Any]) -> str:
+    """Bind a cancellation first observed after the initial input digest fence."""
+
+    rebound = dict(sanitized_inputs)
+    unknowns = [dict(item) for item in cast(list[dict[str, Any]], rebound["evaluation_unknowns"])]
+    if not any(item.get("fact") == "observation_cancellation" for item in unknowns):
+        unknowns.append(
+            {
+                "fact": "observation_cancellation",
+                "status": "BLOCKED",
+                "reason": "Mutable governance observation was cancelled before finalization.",
+            }
+        )
+    rebound["evaluation_unknowns"] = sorted(
+        unknowns,
+        key=lambda item: (item["fact"], item["status"], item["reason"]),
+    )
+    rebound["evaluation_disposition"] = "BLOCKED"
+    return canonical_digest(rebound)
 
 
 def _observation_from_dict(value: dict[str, Any]) -> GovernanceObservation:
@@ -2118,6 +2139,9 @@ class GovernanceCollector:
                 key=lambda item: (item["fact"], item["status"], item["reason"]),
             )
             sanitized["disposition"] = "BLOCKED"
+            sanitized["observation_input_digest"] = _late_cancellation_input_digest(
+                sanitized_inputs
+            )
         sanitized["observation_output_digest"] = canonical_digest(
             {key: value for key, value in sanitized.items() if key != "observation_output_digest"}
         )

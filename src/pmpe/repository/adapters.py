@@ -17,7 +17,7 @@ import yaml
 
 from pmpe.repository.models import BoundaryCandidate, EvidenceItem, Finding
 
-DETECTOR_VERSION = "1.25.0"
+DETECTOR_VERSION = "1.26.0"
 
 _GITHUB_EVENTS = frozenset(
     {
@@ -67,6 +67,8 @@ _GITHUB_REMOTE_REUSABLE_WORKFLOW = re.compile(
 _GITHUB_LOCAL_ACTION = re.compile(r"^\./[A-Za-z0-9_./-]+$")
 _GITHUB_REMOTE_ACTION = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_./-]+)?@\S+$")
 _GITHUB_DOCKER_ACTION = re.compile(r"^docker://\S+$")
+_GITHUB_REPOSITORY_COMPONENT = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_.-]{0,98}[A-Za-z0-9])?$")
+_GITHUB_REMOTE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,254}$")
 _GITHUB_PULL_REQUEST_TYPES = frozenset(
     {
         "assigned",
@@ -1298,7 +1300,7 @@ def _containers(context: AdapterContext) -> AdapterResult:
 
 @repository_adapter(
     adapter_id="delivery.ci",
-    version="1.11.0",
+    version="1.12.0",
     file_patterns=(
         ".github/workflows/*.yml",
         ".github/workflows/*.yaml",
@@ -1708,11 +1710,36 @@ def _github_reusable_workflow_is_runnable(value: object) -> bool:
     reference = value.strip()
     if _GITHUB_LOCAL_REUSABLE_WORKFLOW.fullmatch(reference) is not None:
         return False
-    if _GITHUB_REMOTE_REUSABLE_WORKFLOW.fullmatch(reference) is not None:
-        path = reference.split("@", 1)[0].split("/", 2)[2]
-    else:
+    return _github_remote_reference_is_supported(reference, reusable_workflow=True)
+
+
+def _github_remote_reference_is_supported(
+    reference: str,
+    *,
+    reusable_workflow: bool,
+) -> bool:
+    target, separator, ref = reference.rpartition("@")
+    if (
+        not separator
+        or _GITHUB_REMOTE_REF.fullmatch(ref) is None
+        or ".." in ref
+        or "//" in ref
+        or ref.endswith(("/", ".", ".lock"))
+    ):
         return False
-    return ".." not in PurePosixPath(path).parts
+    parts = target.split("/")
+    if len(parts) < 2 or any(not part or part in {".", ".."} for part in parts):
+        return False
+    if any(_GITHUB_REPOSITORY_COMPONENT.fullmatch(part) is None for part in parts[:2]):
+        return False
+    remaining = parts[2:]
+    if reusable_workflow:
+        return (
+            len(remaining) == 3
+            and remaining[:2] == [".github", "workflows"]
+            and re.fullmatch(r"[A-Za-z0-9_.-]+\.ya?ml", remaining[2]) is not None
+        )
+    return all(re.fullmatch(r"[A-Za-z0-9_.-]+", part) is not None for part in remaining)
 
 
 def _github_job_is_runnable(value: object) -> bool:
@@ -1796,8 +1823,7 @@ def _github_step_is_runnable(value: object) -> bool:
     if _GITHUB_LOCAL_ACTION.fullmatch(reference) is not None:
         return False
     if _GITHUB_REMOTE_ACTION.fullmatch(reference) is not None:
-        action_path = reference.rsplit("@", 1)[0].split("/", 2)
-        return len(action_path) < 3 or ".." not in PurePosixPath(action_path[2]).parts
+        return _github_remote_reference_is_supported(reference, reusable_workflow=False)
     return _GITHUB_DOCKER_ACTION.fullmatch(reference) is not None
 
 

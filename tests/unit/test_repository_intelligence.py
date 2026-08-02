@@ -1148,6 +1148,48 @@ def test_undiscoverable_or_unproven_local_github_targets_are_not_verified(
     assert any(item.code == "WORKFLOW.STRUCTURE_UNPROVEN" for item in snapshot.findings)
 
 
+@pytest.mark.parametrize(
+    "uses",
+    [
+        "../..@v1",
+        "../../.github/workflows/x.yml@v1",
+        "owner/repository/.github/workflows/nested/x.yml@v1",
+        "owner/repository/action@../v1",
+    ],
+)
+def test_malformed_remote_github_references_are_not_verified(
+    tmp_path: Path,
+    uses: str,
+) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    is_workflow = ".github/workflows" in uses
+    job = (
+        f"  invalid:\n    uses: {uses}\n"
+        if is_workflow
+        else f"  invalid:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: {uses}\n"
+    )
+    _write(repo, ".github/workflows/ci.yml", f"on: [push]\njobs:\n{job}")
+    _commit(repo, "invalid remote github reference")
+    snapshot = _scan(repo)
+    assert not any(
+        item.kind == "CI_WORKFLOW" for item in snapshot.inventory["delivery_environments"].items
+    )
+    assert any(item.code == "WORKFLOW.STRUCTURE_UNPROVEN" for item in snapshot.findings)
+
+
+def test_late_governance_cancellation_changes_the_input_binding() -> None:
+    governance = importlib.import_module("pmpe.repository.governance")
+    inputs = {
+        "evaluation_disposition": "COMPLETE",
+        "evaluation_unknowns": [],
+        "safe": True,
+    }
+    initial = importlib.import_module("pmpe.contracts.canonical").canonical_digest(inputs)
+    rebound = governance._late_cancellation_input_digest(inputs)
+    assert rebound != initial
+    assert rebound == governance._late_cancellation_input_digest(inputs)
+
+
 def test_supported_github_needs_graph_and_matrix_objects_are_verified(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path, mixed=False)
     _write(
