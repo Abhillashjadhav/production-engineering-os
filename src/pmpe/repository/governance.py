@@ -1696,7 +1696,7 @@ class GovernanceCollector:
                 full_ref, sha = line.rsplit(" ", 1)
             except ValueError as exc:
                 raise RepositoryIntelligenceError("local branch output is malformed") from exc
-            if not _valid_branch_ref(full_ref):
+            if not full_ref.startswith("refs/heads/") or full_ref == "refs/heads/":
                 raise RepositoryIntelligenceError("local branch reference is malformed")
             name = full_ref.removeprefix("refs/heads/")
             ahead = behind = 0
