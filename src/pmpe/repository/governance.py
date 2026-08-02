@@ -55,7 +55,7 @@ from pmpe.repository.scanner import (
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.12.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.13.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -1084,6 +1084,41 @@ def _observation_identity_groups(
     return groups
 
 
+def _remote_identity_groups(
+    original: Mapping[str, Any], sanitized: Mapping[str, Any]
+) -> dict[str, list[tuple[str, str]]]:
+    """Pair remote identities at their first redaction boundary."""
+
+    groups: dict[str, list[tuple[str, str]]] = {
+        "remote branch references": [],
+        "remote query surfaces": [],
+        "remote query expressions": [],
+        "remote query cursors": [],
+        "remote unknown facts": [],
+    }
+    try:
+        for collection, field, namespace in (
+            ("remote_branches", "name", "remote branch references"),
+            ("remote_branches", "comparison_ref", "remote branch references"),
+            ("query_provenance", "surface", "remote query surfaces"),
+            ("query_provenance", "query", "remote query expressions"),
+            ("query_provenance", "cursor", "remote query cursors"),
+            ("unknowns", "fact", "remote unknown facts"),
+        ):
+            for raw_item, safe_item in zip(
+                cast(list[dict[str, Any]], original[collection]),
+                cast(list[dict[str, Any]], sanitized[collection]),
+                strict=True,
+            ):
+                raw_value = raw_item.get(field)
+                safe_value = safe_item.get(field)
+                if raw_value is not None and safe_value is not None:
+                    groups[namespace].append((str(raw_value), str(safe_value)))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise RedactionError("redaction changed remote identity structure") from exc
+    return groups
+
+
 class GovernanceCollector:
     """Collect mutable local and injected remote observations without mutation."""
 
@@ -1899,6 +1934,10 @@ class GovernanceCollector:
                 try:
                     redactor = self.redactor
                     sanitized_remote = cast(dict[str, Any], redactor.sanitize(raw_remote))
+                    for namespace, identities in _remote_identity_groups(
+                        raw_remote, sanitized_remote
+                    ).items():
+                        assert_distinct_identities_preserved(namespace, identities)
                 except (RedactionError, Exception) as exc:
                     raise RepositorySecurityError(
                         "remote evidence redaction failed; observation was not created"

@@ -18,13 +18,12 @@ import signal
 import stat
 import subprocess
 import sys
-import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import asdict, dataclass, fields, is_dataclass
 from pathlib import Path, PurePosixPath
-from types import CodeType, MappingProxyType
+from types import CodeType, MappingProxyType, ModuleType
 from typing import Any, Protocol, cast, final
 
 import yaml
@@ -56,7 +55,7 @@ from pmpe.repository.redaction import (
     assert_distinct_identities_preserved,
 )
 
-SCANNER_VERSION = "repository-scanner/2.17.0"
+SCANNER_VERSION = "repository-scanner/2.18.0"
 _MAX_SCAN_BUDGETS = {
     "max_files": 100_000,
     "max_directories": 50_000,
@@ -225,53 +224,38 @@ class Cancellation(Protocol):
 
 @final
 class CancellationSignal:
-    """Sealed cancellation capability with no caller-executed callback."""
+    """Scalar-only cancellation capability with no nested executable state."""
 
-    __slots__ = (
-        "_cancel_after_checks",
-        "_checks",
-        "_event",
-        "_lock",
-        "_sealed_cancel_after_checks",
-        "_sealed_event",
-        "_sealed_lock",
-    )
+    __slots__ = ("_cancel_after_checks", "_cancelled", "_checks")
 
     def __init__(self, *, cancel_after_checks: int | None = None) -> None:
         if cancel_after_checks is not None and cancel_after_checks < 1:
             raise ValueError("cancellation check limit must be positive")
         self._cancel_after_checks = cancel_after_checks
+        self._cancelled = False
         self._checks = 0
-        self._event = threading.Event()
-        self._lock = threading.Lock()
-        self._sealed_cancel_after_checks = cancel_after_checks
-        self._sealed_event = self._event
-        self._sealed_lock = self._lock
 
     def _integrity_is_valid(self) -> bool:
         return (
-            self._event is self._sealed_event
-            and self._lock is self._sealed_lock
-            and self._cancel_after_checks == self._sealed_cancel_after_checks
-            and isinstance(self._checks, int)
+            (self._cancel_after_checks is None or type(self._cancel_after_checks) is int)
+            and type(self._cancelled) is bool
+            and type(self._checks) is int
             and self._checks >= 0
         )
 
     def cancel(self) -> None:
         if not self._integrity_is_valid():
             raise RepositorySecurityError("cancellation signal integrity is invalid")
-        self._sealed_event.set()
+        self._cancelled = True
 
     def cancelled(self) -> bool:
         if not self._integrity_is_valid():
             raise RepositorySecurityError("cancellation signal integrity is invalid")
-        with self._sealed_lock:
-            self._checks += 1
-            threshold_reached = (
-                self._sealed_cancel_after_checks is not None
-                and self._checks >= self._sealed_cancel_after_checks
-            )
-        return self._sealed_event.is_set() or threshold_reached
+        self._checks += 1
+        threshold_reached = (
+            self._cancel_after_checks is not None and self._checks >= self._cancel_after_checks
+        )
+        return self._cancelled or threshold_reached
 
 
 _PROCESS_GROUP_GUARD = "import signal\nwhile True:\n signal.pause()"
@@ -816,6 +800,7 @@ def _runtime_module_namespace_digest(module: Any) -> str:
             name.startswith("__")
             or name.endswith("IMPLEMENTATION_PATHS")
             or name.endswith("IMPORTED_SOURCE_DIGESTS")
+            or name.endswith("PROCESS_IDENTITIES")
         ):
             continue
         if inspect.isfunction(target) or inspect.isclass(target) or callable(target):
@@ -1295,6 +1280,8 @@ def _adapter_worker(
     expected_adapter_identity: int,
     expected_evaluator_identity: int,
     expected_module_state_digest: str,
+    expected_import_state_digest: str,
+    expected_import_identities: tuple[tuple[str, int], ...],
 ) -> None:
     """Evaluate one adapter in a killable, environment-isolated process."""
 
@@ -1309,6 +1296,16 @@ def _adapter_worker(
             or id(adapter.evaluator) != expected_evaluator_identity
             or _adapter_execution_state_digest((adapter,)) != expected_state_digest
             or _module_runtime_digest("repository.adapters") != expected_module_state_digest
+            or _module_import_binding_state_digest(
+                "repository.adapters",
+                tuple(name for name, _identity in expected_import_identities),
+            )
+            != expected_import_state_digest
+            or _module_import_binding_identities(
+                "repository.adapters",
+                tuple(name for name, _identity in expected_import_identities),
+            )
+            != expected_import_identities
         ):
             raise RepositorySecurityError("adapter execution state changed before evaluation")
         result = adapter.evaluator(context)
@@ -1453,9 +1450,52 @@ def _adapter_execution_state_digest(adapters: Sequence[RepositoryAdapter]) -> st
     )
 
 
+def _module_import_binding_state_digest(module_name: str, names: tuple[str, ...]) -> str:
+    """Bind imported modules that adapter functions resolve through globals."""
+
+    module = importlib.import_module(f"pmpe.{module_name}")
+    evidence: list[dict[str, str]] = []
+    for name in names:
+        target = vars(module).get(name)
+        if type(target) is not ModuleType:
+            evidence.append({"binding": name, "module": "INVALID", "runtime_digest": "INVALID"})
+            continue
+        evidence.append(
+            {
+                "binding": name,
+                "module": target.__name__,
+                "runtime_digest": _runtime_dependency_module_digest(target),
+            }
+        )
+    return canonical_digest(evidence)
+
+
+def _module_import_binding_identities(
+    module_name: str, names: tuple[str, ...]
+) -> tuple[tuple[str, int], ...]:
+    """Guard same-code imported-module substitution inside a forked worker."""
+
+    module = importlib.import_module(f"pmpe.{module_name}")
+    return tuple(
+        (name, id(target) if type(target) is ModuleType else -1)
+        for name in names
+        for target in (vars(module).get(name),)
+    )
+
+
 _SEALED_BUILTIN_ADAPTERS = default_adapters()
 _SEALED_BUILTIN_ADAPTER_STATE_DIGEST = _adapter_execution_state_digest(_SEALED_BUILTIN_ADAPTERS)
 _SEALED_ADAPTER_MODULE_STATE_DIGEST = _module_runtime_digest("repository.adapters")
+_ADAPTER_MODULE = importlib.import_module("pmpe.repository.adapters")
+_SEALED_ADAPTER_IMPORT_NAMES = tuple(
+    sorted(name for name, target in vars(_ADAPTER_MODULE).items() if type(target) is ModuleType)
+)
+_SEALED_ADAPTER_IMPORT_STATE_DIGEST = _module_import_binding_state_digest(
+    "repository.adapters", _SEALED_ADAPTER_IMPORT_NAMES
+)
+_SEALED_ADAPTER_IMPORT_PROCESS_IDENTITIES = _module_import_binding_identities(
+    "repository.adapters", _SEALED_ADAPTER_IMPORT_NAMES
+)
 
 
 def _snapshot_identity_groups(
@@ -1593,6 +1633,14 @@ class RepositoryScanner:
             _adapter_execution_state_digest(registered_adapters)
             != _SEALED_BUILTIN_ADAPTER_STATE_DIGEST
             or _module_runtime_digest("repository.adapters") != _SEALED_ADAPTER_MODULE_STATE_DIGEST
+            or _module_import_binding_state_digest(
+                "repository.adapters", _SEALED_ADAPTER_IMPORT_NAMES
+            )
+            != _SEALED_ADAPTER_IMPORT_STATE_DIGEST
+            or _module_import_binding_identities(
+                "repository.adapters", _SEALED_ADAPTER_IMPORT_NAMES
+            )
+            != _SEALED_ADAPTER_IMPORT_PROCESS_IDENTITIES
         ):
             raise RepositorySecurityError("sealed built-in adapter registry integrity failed")
         requested_adapters = tuple(adapters) if adapters is not None else registered_adapters
@@ -2406,6 +2454,15 @@ class RepositoryScanner:
         self, adapter: RepositoryAdapter, context: AdapterContext
     ) -> tuple[str, AdapterResult | None]:
         self._assert_execution_collaborators_sealed()
+        if (
+            _module_import_binding_state_digest("repository.adapters", _SEALED_ADAPTER_IMPORT_NAMES)
+            != _SEALED_ADAPTER_IMPORT_STATE_DIGEST
+            or _module_import_binding_identities(
+                "repository.adapters", _SEALED_ADAPTER_IMPORT_NAMES
+            )
+            != _SEALED_ADAPTER_IMPORT_PROCESS_IDENTITIES
+        ):
+            raise RepositorySecurityError("adapter imported-module bindings changed")
         if not hasattr(os, "fork") or not hasattr(os, "setsid"):
             return "ERROR", None
         sealed_guards = {
@@ -2429,6 +2486,8 @@ class RepositoryScanner:
                 expected_adapter_identity,
                 expected_evaluator_identity,
                 _SEALED_ADAPTER_MODULE_STATE_DIGEST,
+                _SEALED_ADAPTER_IMPORT_STATE_DIGEST,
+                _SEALED_ADAPTER_IMPORT_PROCESS_IDENTITIES,
             ),
             daemon=True,
             name=f"pmpe-readonly-adapter-{adapter.adapter_id}",

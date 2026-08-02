@@ -1630,6 +1630,8 @@ def test_adapter_failure_is_visible_and_cannot_remove_categories(
         _expected_adapter_identity: int,
         _expected_evaluator_identity: int,
         _expected_module_state_digest: str,
+        _expected_import_state_digest: str,
+        _expected_import_identities: tuple[tuple[str, int], ...],
     ) -> None:
         os.setsid()
         connection.send_bytes(b'{"error_type":"RuntimeError","status":"ERROR"}')
@@ -2295,6 +2297,14 @@ class _DuplicateRemote(_FakeRemote):
         payload = super().collect(repository, ref, **bounds)
         payload["remote_branches"].append(dict(payload["remote_branches"][0]))
         payload["query_provenance"][0]["result_count"] = 2
+        return payload
+
+
+class _CollidingCursorRemote(_FakeRemote):
+    def collect(self, repository: str, ref: str, **bounds: Any) -> dict[str, Any]:
+        payload = super().collect(repository, ref, **bounds)
+        payload["query_provenance"][0]["cursor"] = "token=firstsecretvalue123"
+        payload["query_provenance"][1]["cursor"] = "token=secondsecretvalue456"
         return payload
 
 
@@ -3062,6 +3072,26 @@ def test_scanner_rejects_in_place_adapter_mutation_before_evaluator_runs(
     assert not marker.exists()
 
 
+def test_scanner_rejects_adapter_import_proxy_before_callback_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    adapters = importlib.import_module("pmpe.repository.adapters")
+    repo = _init_repo(tmp_path)
+    marker = repo / "adapter-import-proxy-ran.txt"
+    candidate = api.RepositoryScanner(config=_config())
+
+    class YamlProxy:
+        def safe_load(self, _value: Any) -> Any:
+            marker.write_text("mutated")
+            return {}
+
+    monkeypatch.setattr(adapters, "yaml", YamlProxy())
+    with pytest.raises(api.RepositorySecurityError, match="adapter|registry"):
+        candidate.scan(repo, commit="HEAD")
+    assert not marker.exists()
+
+
 def test_scanner_rejects_mutated_cancellation_state_before_callback_use(
     tmp_path: Path,
 ) -> None:
@@ -3070,12 +3100,14 @@ def test_scanner_rejects_mutated_cancellation_state_before_callback_use(
     marker = repo / "cancellation-callback-ran.txt"
     cancellation = api.CancellationSignal()
 
-    class MutatingEvent:
-        def is_set(self) -> bool:
+    class MutatingState:
+        def __bool__(self) -> bool:
             marker.write_text("mutated")
             return False
 
-    object.__setattr__(cancellation, "_event", MutatingEvent())
+    with pytest.raises(AttributeError):
+        object.__setattr__(cancellation, "_event", MutatingState())
+    object.__setattr__(cancellation, "_cancelled", MutatingState())
     with pytest.raises(api.RepositorySecurityError, match="sealed"):
         api.RepositoryScanner(config=_config(), cancellation=cancellation).scan(repo, commit="HEAD")
     assert not marker.exists()
@@ -3110,6 +3142,20 @@ def test_redaction_collision_between_branch_names_blocks_observation(
 
     with pytest.raises(api.RepositorySecurityError, match="redaction"):
         _observe(repo)
+    assert _git(repo, "rev-parse", "HEAD") == before_head
+    assert _git(repo, "status", "--porcelain=v1", "--untracked-files=all") == before_status
+
+
+def test_remote_cursor_redaction_collision_blocks_before_provenance_construction(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    repo = _init_repo(tmp_path)
+    before_head = _git(repo, "rev-parse", "HEAD")
+    before_status = _git(repo, "status", "--porcelain=v1", "--untracked-files=all")
+
+    with pytest.raises(api.RepositorySecurityError, match="remote evidence redaction"):
+        _observe(repo, _CollidingCursorRemote())
     assert _git(repo, "rev-parse", "HEAD") == before_head
     assert _git(repo, "status", "--porcelain=v1", "--untracked-files=all") == before_status
 
@@ -3721,6 +3767,8 @@ def test_cancellation_during_adapter_blocks_snapshot_finalization(
         _expected_adapter_identity: int,
         _expected_evaluator_identity: int,
         _expected_module_state_digest: str,
+        _expected_import_state_digest: str,
+        _expected_import_identities: tuple[tuple[str, int], ...],
     ) -> None:
         os.setsid()
         time.sleep(30)
