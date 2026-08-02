@@ -11,6 +11,13 @@ import importlib.metadata as importlib_metadata
 import inspect
 import json
 import multiprocessing
+import multiprocessing.connection as multiprocessing_connection
+import multiprocessing.context as multiprocessing_context
+import multiprocessing.popen_fork as multiprocessing_popen_fork
+import multiprocessing.process as multiprocessing_process
+import multiprocessing.reduction as multiprocessing_reduction
+import multiprocessing.synchronize as multiprocessing_synchronize
+import multiprocessing.util as multiprocessing_util
 import os
 import platform
 import posixpath
@@ -50,6 +57,7 @@ from pmpe.repository.models import (
     RepositorySnapshot,
     ScanConfig,
     ToolVersion,
+    _assert_repository_model_bindings_sealed,
 )
 from pmpe.repository.redaction import (
     EvidenceRedactor,
@@ -57,7 +65,7 @@ from pmpe.repository.redaction import (
     assert_distinct_identities_preserved,
 )
 
-SCANNER_VERSION = "repository-scanner/2.21.0"
+SCANNER_VERSION = "repository-scanner/2.22.0"
 _MAX_SCAN_BUDGETS = {
     "max_files": 100_000,
     "max_directories": 50_000,
@@ -100,6 +108,16 @@ _RUNTIME_DEPENDENCY_PATHS = MappingProxyType(
 )
 _RUNTIME_DEPENDENCY_MODULES = MappingProxyType(
     {
+        "multiprocessing": (
+            "multiprocessing",
+            "multiprocessing.connection",
+            "multiprocessing.context",
+            "multiprocessing.popen_fork",
+            "multiprocessing.process",
+            "multiprocessing.reduction",
+            "multiprocessing.synchronize",
+            "multiprocessing.util",
+        ),
         "yaml": (
             "yaml",
             "yaml.composer",
@@ -724,7 +742,11 @@ def _runtime_code_evidence(target: Any) -> list[dict[str, Any]]:
     if inspect.isclass(target):
         evidence: list[dict[str, Any]] = []
         for name, member in sorted(vars(target).items()):
-            if name.startswith("__") and name.endswith("__"):
+            if (
+                name.startswith("__")
+                and name.endswith("__")
+                and not (name == "__init__" and inspect.isfunction(member))
+            ):
                 continue
             if isinstance(member, (staticmethod, classmethod)):
                 member = member.__func__
@@ -1312,6 +1334,10 @@ def _implementation_digest(
     extension_evidence: Sequence[dict[str, str]] = (),
 ) -> str:
     _assert_scanner_import_bindings_sealed(verify_state=True)
+    try:
+        _assert_repository_model_bindings_sealed()
+    except ValueError as exc:
+        raise RepositorySecurityError("repository model digest bindings changed") from exc
     evidence = _implementation_module_evidence(
         _IMPLEMENTATION_PATHS,
         _IMPORTED_SOURCE_DIGESTS,
@@ -1677,6 +1703,16 @@ def _external_global_binding_state_digest(names: tuple[str, ...]) -> str:
 
 
 _MULTIPROCESSING_CONTEXT_MEMBER_NAMES = ("Event", "Pipe", "Process")
+_MULTIPROCESSING_IMPLEMENTATION_MODULES = (
+    multiprocessing,
+    multiprocessing_connection,
+    multiprocessing_context,
+    multiprocessing_popen_fork,
+    multiprocessing_process,
+    multiprocessing_reduction,
+    multiprocessing_synchronize,
+    multiprocessing_util,
+)
 _SEALED_MULTIPROCESSING_CONTEXT = multiprocessing.get_context("fork")
 
 
@@ -1689,20 +1725,64 @@ def _multiprocessing_context_member_identities(context: Any) -> tuple[tuple[str,
 
 
 def _multiprocessing_context_state_digest(context: Any) -> str:
-    context_type = type(context)
     return canonical_digest(
-        [
-            {
-                "member": name,
-                "state": _module_attribute_value_evidence(
-                    "multiprocessing-context",
-                    name,
-                    inspect.getattr_static(context_type, name),
-                ),
-            }
-            for name in _MULTIPROCESSING_CONTEXT_MEMBER_NAMES
-        ]
+        {
+            "context_members": [
+                {
+                    "member": name,
+                    "state": _module_attribute_value_evidence(
+                        "multiprocessing-context",
+                        name,
+                        inspect.getattr_static(type(context), name),
+                    ),
+                }
+                for name in _MULTIPROCESSING_CONTEXT_MEMBER_NAMES
+            ],
+            "implementation_modules": [
+                {
+                    "module": module.__name__,
+                    "runtime_digest": _runtime_module_namespace_digest(module),
+                }
+                for module in _MULTIPROCESSING_IMPLEMENTATION_MODULES
+            ],
+        }
     )
+
+
+def _multiprocessing_module_identities() -> tuple[tuple[str, int], ...]:
+    return tuple(
+        (module.__name__, id(module)) for module in _MULTIPROCESSING_IMPLEMENTATION_MODULES
+    )
+
+
+def _multiprocessing_primitive_identities() -> tuple[tuple[str, int], ...]:
+    return (
+        ("connection.Pipe", id(multiprocessing_connection.Pipe)),
+        ("context.ForkProcess", id(multiprocessing_context.ForkProcess)),
+        ("synchronize.Event", id(multiprocessing_synchronize.Event)),
+    )
+
+
+_SEALED_MULTIPROCESSING_MODULE_PROCESS_IDENTITIES = _multiprocessing_module_identities()
+_SEALED_MULTIPROCESSING_PRIMITIVE_PROCESS_IDENTITIES = _multiprocessing_primitive_identities()
+
+
+def _multiprocessing_context_instance_identities(
+    context: Any,
+) -> tuple[tuple[str, int], ...]:
+    """Bind context-instance shadows without inspecting hostile values."""
+
+    instance_state = vars(context)
+    return tuple(
+        (name, id(instance_state[name]))
+        for name in _MULTIPROCESSING_CONTEXT_MEMBER_NAMES
+        if name in instance_state
+    )
+
+
+_SEALED_MULTIPROCESSING_CONTEXT_INSTANCE_IDENTITIES = _multiprocessing_context_instance_identities(
+    _SEALED_MULTIPROCESSING_CONTEXT
+)
 
 
 _SEALED_MULTIPROCESSING_CONTEXT_PROCESS_IDENTITIES = (
@@ -1728,6 +1808,14 @@ def _assert_multiprocessing_context_sealed(*, verify_state: bool = True) -> None
     )
     if current_identities != _SEALED_MULTIPROCESSING_CONTEXT_PROCESS_IDENTITIES:
         raise RepositorySecurityError("multiprocessing context or members changed")
+    if (
+        _multiprocessing_module_identities() != _SEALED_MULTIPROCESSING_MODULE_PROCESS_IDENTITIES
+        or _multiprocessing_primitive_identities()
+        != _SEALED_MULTIPROCESSING_PRIMITIVE_PROCESS_IDENTITIES
+        or _multiprocessing_context_instance_identities(current_context)
+        != _SEALED_MULTIPROCESSING_CONTEXT_INSTANCE_IDENTITIES
+    ):
+        raise RepositorySecurityError("multiprocessing runtime or context instance changed")
     if verify_state and (
         _multiprocessing_context_state_digest(current_context)
         != _SEALED_MULTIPROCESSING_CONTEXT_STATE_DIGEST
@@ -1735,9 +1823,19 @@ def _assert_multiprocessing_context_sealed(*, verify_state: bool = True) -> None
         raise RepositorySecurityError("multiprocessing context member state changed")
 
 
-def _sealed_multiprocessing_context() -> Any:
+def _sealed_fork_pipe(*, duplex: bool) -> tuple[Any, Any]:
     _assert_multiprocessing_context_sealed()
-    return _SEALED_MULTIPROCESSING_CONTEXT
+    return multiprocessing_connection.Pipe(duplex=duplex)
+
+
+def _sealed_fork_event() -> Any:
+    _assert_multiprocessing_context_sealed()
+    return multiprocessing_synchronize.Event(ctx=_SEALED_MULTIPROCESSING_CONTEXT)
+
+
+def _sealed_fork_process(**kwargs: Any) -> Any:
+    _assert_multiprocessing_context_sealed()
+    return multiprocessing_context.ForkProcess(**kwargs)
 
 
 _SEALED_SCANNER_MODULE_ATTRIBUTE_NAMES = _direct_module_attribute_names(
@@ -2793,9 +2891,8 @@ class RepositoryScanner:
         expected_adapter_identity, expected_evaluator_identity, expected_state_digest = (
             sealed_guards[adapter.adapter_id]
         )
-        process_context = _sealed_multiprocessing_context()
-        receiver, sender = process_context.Pipe(duplex=False)
-        process = process_context.Process(
+        receiver, sender = _sealed_fork_pipe(duplex=False)
+        process = _sealed_fork_process(
             target=_adapter_worker,
             args=(
                 sender,

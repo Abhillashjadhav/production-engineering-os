@@ -35,6 +35,7 @@ from pmpe.repository.models import (
     RepositorySnapshot,
     UnknownFact,
     WorktreeObservation,
+    _assert_repository_model_bindings_sealed,
 )
 from pmpe.repository.redaction import (
     EvidenceRedactor,
@@ -52,13 +53,15 @@ from pmpe.repository.scanner import (
     _implementation_source_evidence,
     _module_attribute_value_evidence,
     _runtime_dependency_evidence,
-    _sealed_multiprocessing_context,
+    _sealed_fork_event,
+    _sealed_fork_pipe,
+    _sealed_fork_process,
     _spawn_guarded_git,
     _stop_guarded_process_group,
     _wait_for_exit_without_reaping,
 )
 
-GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.16.0"
+GOVERNANCE_COLLECTOR_VERSION = "repository-governance/4.17.0"
 GOVERNANCE_IMPLEMENTATION_MODULES = (
     "repository.governance",
     "repository.models",
@@ -1108,7 +1111,10 @@ def _governance_implementation_digest(
     extension_evidence: tuple[dict[str, str], ...] = (),
 ) -> str:
     _assert_governance_import_bindings_sealed(verify_state=True)
-    _sealed_multiprocessing_context()
+    try:
+        _assert_repository_model_bindings_sealed()
+    except ValueError as exc:
+        raise RepositorySecurityError("repository model digest bindings changed") from exc
     evidence = _implementation_module_evidence(
         _GOVERNANCE_IMPLEMENTATION_PATHS,
         _GOVERNANCE_IMPORTED_SOURCE_DIGESTS,
@@ -1524,10 +1530,9 @@ class GovernanceCollector:
             raise RepositoryIntelligenceError(
                 "bounded remote provider execution is unsupported on this platform"
             )
-        context = _sealed_multiprocessing_context()
-        receiver, sender = context.Pipe(duplex=False)
-        cancellation_event = context.Event()
-        process = context.Process(
+        receiver, sender = _sealed_fork_pipe(duplex=False)
+        cancellation_event = _sealed_fork_event()
+        process = _sealed_fork_process(
             target=_remote_provider_worker,
             args=(
                 sender,

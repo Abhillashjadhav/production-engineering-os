@@ -2,12 +2,52 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass, field, fields, is_dataclass
 from types import MappingProxyType
 from typing import Any, cast
 
+import rfc8785
+
+from pmpe.contracts import canonical as canonical_module
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
+
+_SEALED_MODEL_DIGEST_PROCESS_IDENTITIES = (
+    ("canonical-module", id(canonical_module)),
+    ("canonical-digest", id(canonical_digest)),
+    ("canonical-json-bytes", id(canonical_json_bytes)),
+    ("hashlib-module", id(hashlib)),
+    ("hashlib-sha256", id(hashlib.sha256)),
+    ("rfc8785-module", id(rfc8785)),
+    ("rfc8785-dumps", id(rfc8785.dumps)),
+)
+
+
+def _assert_repository_model_bindings_sealed() -> None:
+    """Reject forged digest callables or globals before artifact verification."""
+
+    identities = (
+        ("canonical-module", id(canonical_module)),
+        ("canonical-digest", id(canonical_digest)),
+        ("canonical-json-bytes", id(canonical_json_bytes)),
+        ("hashlib-module", id(hashlib)),
+        ("hashlib-sha256", id(hashlib.sha256)),
+        ("rfc8785-module", id(rfc8785)),
+        ("rfc8785-dumps", id(rfc8785.dumps)),
+    )
+    canonical_namespace = vars(canonical_module)
+    if (
+        identities != _SEALED_MODEL_DIGEST_PROCESS_IDENTITIES
+        or canonical_digest is not canonical_namespace.get("canonical_digest")
+        or canonical_json_bytes is not canonical_namespace.get("canonical_json_bytes")
+        or canonical_namespace.get("hashlib") is not hashlib
+        or canonical_namespace.get("rfc8785") is not rfc8785
+        or canonical_digest.__globals__ is not canonical_namespace
+        or canonical_json_bytes.__globals__ is not canonical_namespace
+    ):
+        raise ValueError("repository artifact digest bindings changed")
+
 
 AUDIT_CATEGORIES = (
     "repository_topology",
@@ -175,9 +215,11 @@ class RepositorySnapshot:
         return cast(dict[str, Any], _plain(self))
 
     def canonical_bytes(self) -> bytes:
+        _assert_repository_model_bindings_sealed()
         return canonical_json_bytes(self.as_dict())
 
     def digest_is_valid(self) -> bool:
+        _assert_repository_model_bindings_sealed()
         payload = self.as_dict()
         claimed = str(payload.pop("snapshot_digest", ""))
         return bool(claimed) and claimed == canonical_digest(payload)
@@ -185,6 +227,7 @@ class RepositorySnapshot:
     def assessment_reference(self, observation: GovernanceObservation) -> dict[str, Any]:
         """Return the narrow evidence seam consumed by later lifecycle work."""
 
+        _assert_repository_model_bindings_sealed()
         if not self.digest_is_valid():
             raise ValueError("repository snapshot digest is invalid")
         if not observation.digest_is_valid():
@@ -341,9 +384,11 @@ class GovernanceObservation:
         return cast(dict[str, Any], _plain(self))
 
     def canonical_bytes(self) -> bytes:
+        _assert_repository_model_bindings_sealed()
         return canonical_json_bytes(self.as_dict())
 
     def digest_is_valid(self) -> bool:
+        _assert_repository_model_bindings_sealed()
         payload = self.as_dict()
         claimed = str(payload.pop("observation_output_digest", ""))
         return bool(claimed) and claimed == canonical_digest(payload)

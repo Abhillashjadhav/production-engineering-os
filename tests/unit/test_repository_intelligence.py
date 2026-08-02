@@ -13,7 +13,7 @@ import time
 from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone, tzinfo
 from pathlib import Path
-from types import ModuleType
+from types import FunctionType, ModuleType
 from typing import Any
 
 import pytest
@@ -535,11 +535,56 @@ def test_implementation_digest_seals_returned_multiprocessing_context_members(
             scanner._implementation_digest()
         assert callback_ran is False
 
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setitem(vars(context), "Pipe", pipe_proxy)
+        with pytest.raises(
+            scanner.RepositorySecurityError, match="runtime or context instance changed"
+        ):
+            scanner._sealed_fork_pipe(duplex=False)
+        assert callback_ran is False
+
+    with monkeypatch.context() as runtime_patch:
+        runtime_patch.setattr(scanner.multiprocessing_connection, "Pipe", pipe_proxy)
+        with pytest.raises(scanner.RepositorySecurityError, match="runtime or context"):
+            scanner._sealed_fork_pipe(duplex=False)
+        assert callback_ran is False
+
     replacement_context = type(context)()
     with monkeypatch.context() as runtime_patch:
         runtime_patch.setattr(scanner, "_SEALED_MULTIPROCESSING_CONTEXT", replacement_context)
         with pytest.raises(scanner.RepositorySecurityError, match="context or members changed"):
             scanner._implementation_digest()
+
+
+def test_artifact_digest_verification_rejects_same_code_forged_globals(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    scanner = importlib.import_module("pmpe.repository.scanner")
+    models = importlib.import_module("pmpe.repository.models")
+    snapshot = _scan(_init_repo(tmp_path))
+    callback_ran = False
+    original = models.canonical_digest
+    forged_globals = dict(original.__globals__)
+
+    def forged_json_bytes(_value: Any) -> bytes:
+        nonlocal callback_ran
+        callback_ran = True
+        return b"forged"
+
+    forged_globals["canonical_json_bytes"] = forged_json_bytes
+    forged = FunctionType(
+        original.__code__,
+        forged_globals,
+        name=original.__name__,
+        argdefs=original.__defaults__,
+        closure=original.__closure__,
+    )
+    monkeypatch.setattr(models, "canonical_digest", forged)
+    with pytest.raises(ValueError, match="artifact digest bindings changed"):
+        snapshot.digest_is_valid()
+    with pytest.raises(scanner.RepositorySecurityError, match="model digest bindings changed"):
+        scanner._implementation_digest()
+    assert callback_ran is False
 
 
 def test_imported_non_callable_globals_are_sealed_before_use(
