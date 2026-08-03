@@ -2151,3 +2151,182 @@ def test_quarantine_disposition_failure_enters_bound_security_block(
         )
     )
     assert resumed.target is LifecycleState.CONTRACT_RECEIVED
+
+
+def test_repository_drift_requires_quiesced_digest_bound_work(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.IMPLEMENTATION_IN_PROGRESS)
+    required = evidence_for(
+        LifecycleState.IMPLEMENTATION_IN_PROGRESS,
+        LifecycleState.REPOSITORY_ANALYSED,
+        reason="repository_drift",
+    )
+
+    with pytest.raises(TransitionDeniedError, match="drift"):
+        cp.transition(
+            LifecycleState.REPOSITORY_ANALYSED,
+            context(
+                evidence=required,
+                work=WorkStatus(
+                    worker_leases_active=1,
+                    workers_stopped=False,
+                    mutation_capability_active=True,
+                    partial_output_disposition="unverified",
+                ),
+            ),
+            reason="repository_drift",
+        )
+
+    assert cp.state is LifecycleState.IMPLEMENTATION_IN_PROGRESS
+
+
+def test_production_approval_cannot_be_reused_for_an_unbound_rollout(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PRODUCTION_APPROVAL_REQUIRED)
+    attempt = MutationAttempt(
+        attempt_id="attempt-production-unbound",
+        idempotency_key="production:run-65:unbound",
+        subject_digest=SHA,
+        action="deploy_production",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(attempt)
+    cp.record_mutation_result(attempt, status="SUCCEEDED", result_digest=SHA)
+    required = evidence_for(
+        LifecycleState.PRODUCTION_APPROVAL_REQUIRED,
+        LifecycleState.PRODUCTION_DEPLOYED,
+        reason="production_admitted",
+    )
+    required.update(record_active_canary_binding(cp))
+    required.update(
+        {
+            "production_attempt_digest": object_digest(asdict(attempt)),
+            "production_result_digest": SHA,
+        }
+    )
+    stale_approval = Approval(
+        approval_id="production-approval-stale",
+        actor="release-owner",
+        subject_digest=SHA,
+        kind="PRODUCTION",
+        eligible=True,
+        active=True,
+    )
+    required["production_approval_digest"] = object_digest(asdict(stale_approval))
+
+    with pytest.raises(TransitionDeniedError, match="production approval"):
+        cp.transition(
+            LifecycleState.PRODUCTION_DEPLOYED,
+            context(
+                evidence=required,
+                mutation=attempt,
+                approvals=(stale_approval,),
+                rollout=RolloutStatus(canary="ACTIVE"),
+            ),
+            reason="production_admitted",
+        )
+
+    assert cp.state is LifecycleState.PRODUCTION_APPROVAL_REQUIRED
+
+
+def test_product_input_requires_revoked_digest_bound_mutation_capability(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.IMPLEMENTATION_IN_PROGRESS)
+    required = evidence_for(
+        LifecycleState.IMPLEMENTATION_IN_PROGRESS,
+        LifecycleState.PRODUCT_INPUT_REQUIRED,
+        reason="authority_invalidated",
+    )
+
+    with pytest.raises(TransitionDeniedError, match="product input"):
+        cp.transition(
+            LifecycleState.PRODUCT_INPUT_REQUIRED,
+            context(
+                evidence=required,
+                work=WorkStatus(
+                    workers_stopped=True,
+                    mutation_capability_active=True,
+                    partial_output_disposition="frozen-unverified-non-admissible",
+                ),
+            ),
+            reason="authority_invalidated",
+        )
+
+    assert cp.state is LifecycleState.IMPLEMENTATION_IN_PROGRESS
+
+
+def test_concurrent_creation_cannot_diverge_metadata_from_initial_event(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original_append = LifecycleControlPlane._append
+    entrants = threading.Barrier(2)
+
+    def synchronized_initial_append(
+        self: LifecycleControlPlane, **kwargs: object
+    ) -> lifecycle.LifecycleEvent:
+        if kwargs.get("kind") == "STATE_CREATED":
+            with suppress(threading.BrokenBarrierError):
+                entrants.wait(timeout=0.25)
+        return original_append(self, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(LifecycleControlPlane, "_append", synchronized_initial_append)
+    policy, _ = budgets()
+    barrier = threading.Barrier(2)
+
+    def create(run_id: str, subject_digest: str) -> LifecycleControlPlane:
+        barrier.wait()
+        return LifecycleControlPlane.create(
+            tmp_path,
+            run_id=run_id,
+            subject_digest=subject_digest,
+            initial_state=LifecycleState.CONTRACT_RECEIVED,
+            budget_policy=policy,
+        )
+
+    successes: list[LifecycleControlPlane] = []
+    failures: list[BaseException] = []
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        futures = (
+            executor.submit(create, "run-winner-a", SHA),
+            executor.submit(create, "run-winner-b", OTHER_SHA),
+        )
+        for future in futures:
+            try:
+                successes.append(future.result())
+            except BaseException as exc:  # noqa: BLE001 - capture the losing creator
+                failures.append(exc)
+
+    assert len(successes) == 1
+    assert len(failures) == 1
+    assert isinstance(failures[0], (TransitionDeniedError, ValueError))
+    replayed = LifecycleControlPlane.load(tmp_path)
+    assert replayed.run_id == successes[0].run_id
+    assert replayed.subject_digest == successes[0].subject_digest
+
+
+def test_completion_revocation_requires_active_claim_and_monitor_authority(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PRODUCTION_DEPLOYED)
+    cp.transition(
+        LifecycleState.COMPLETED,
+        context(evidence=completion_evidence_with_review_binding(cp)),
+        reason="observation_window_passed",
+    )
+    invalidation = evidence_for(
+        LifecycleState.COMPLETED,
+        LifecycleState.LIVE_VERIFICATION_FAILED,
+        reason="completion_evidence_invalidated",
+    )
+
+    with pytest.raises(TransitionDeniedError, match="completion"):
+        cp.transition(
+            LifecycleState.LIVE_VERIFICATION_FAILED,
+            context(evidence=invalidation),
+            reason="completion_evidence_invalidated",
+        )
+
+    assert cp.state is LifecycleState.COMPLETED
+    assert cp.completion_claim_active
