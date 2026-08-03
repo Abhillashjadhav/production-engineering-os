@@ -16,9 +16,9 @@
 - **Security gate on every build.** The built-in scanner (named regex rules: hardcoded
   secrets, eval/exec, `shell=True`, pickle, SQL interpolation) runs as a required gate;
   a finding is a blocking review finding and a NO_MERGE.
-- **Human gates.** Security-sensitive changes beyond what the spec explicitly requires,
-  production deploy requests, and anything irreversible are HIGH-risk and stop the run
-  until `pmpe approve` records a named human decision.
+- **Human gates.** Security-sensitive, production, and irreversible decisions require
+  authenticated, digest-bound approval evidence admitted by Phase Zero. Historical
+  V1 fixture approvals cannot authorize shipped execution.
 
 ## CI scanning
 

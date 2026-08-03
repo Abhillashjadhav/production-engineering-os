@@ -13,7 +13,7 @@ import pytest
 
 from pmpe.config import PipelineConfig
 from pmpe.gitops.local import LocalGitAdapter
-from pmpe.orchestration.workflow import WorkflowEngine
+from tests.legacy_v1.workflow import WorkflowEngine
 
 pytestmark = pytest.mark.e2e
 

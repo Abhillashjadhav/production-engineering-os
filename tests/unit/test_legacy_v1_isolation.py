@@ -40,6 +40,13 @@ def test_shipped_package_does_not_export_or_contain_v1_workflow_engine() -> None
     }
     assert references == set()
 
+    command_references = {
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "src" / "pmpe").rglob("*.py")
+        if any(marker in path.read_text() for marker in ("pmpe run", "pmpe resume", "pmpe approve"))
+    }
+    assert command_references == set()
+
 
 def test_legacy_workflow_requires_explicit_test_harness_import() -> None:
     legacy = importlib.import_module("tests.legacy_v1.workflow")
@@ -50,8 +57,11 @@ def test_legacy_workflow_requires_explicit_test_harness_import() -> None:
 def test_ci_and_current_user_docs_do_not_advertise_v1_execution() -> None:
     surfaces = [
         ROOT / ".github" / "workflows" / "ci.yml",
+        ROOT / "ARCHITECTURE.md",
         ROOT / "README.md",
+        ROOT / "SECURITY.md",
         ROOT / "examples" / "README.md",
+        ROOT / "examples" / "taskflow_mvp_spec.yaml",
         ROOT / "docs" / "assumptions.md",
         ROOT / "docs" / "human-approval-model.md",
         ROOT / "docs" / "product-requirements-interpretation.md",

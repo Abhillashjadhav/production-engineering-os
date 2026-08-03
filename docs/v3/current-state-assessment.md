@@ -5,8 +5,8 @@ Measured on `main` at `e94502b` (final V2 maintenance merge), 2026-07-16.
 ## Baseline verification
 
 - Full V1+V2 suite: **338 passed** (`.venv/bin/python -m pytest`), exit 0.
-- `pmpe run examples/taskflow_mvp_spec.yaml` → success; `pmpe demo` → all
-  planted failures caught, verdict READY_FOR_PRODUCTION_APPROVAL.
+- Historical V1 fixture pipeline → success; `pmpe demo` → all planted failures
+  caught, verdict READY_FOR_PRODUCTION_APPROVAL. The V1 command is now retired.
 - CI green on the merge commit (format-lint, types, tests 3.11/3.12, security,
   build-smoke including evals + pinned drift-HOLD + demo).
 

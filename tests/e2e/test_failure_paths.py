@@ -10,8 +10,8 @@ import pytest
 
 from pmpe.config import PipelineConfig
 from pmpe.domain.errors import SpecError
-from pmpe.orchestration.workflow import WorkflowEngine
 from tests.conftest import mutate_contradictory, mutate_production_target
+from tests.legacy_v1.workflow import WorkflowEngine
 
 pytestmark = pytest.mark.e2e
 

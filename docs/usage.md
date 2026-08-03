@@ -1,59 +1,39 @@
 # Usage — pmpe CLI
 
-## Commands
+## Legacy-compatible commands
 
 | Command | Purpose | Exit codes |
 |---|---|---|
 | `pmpe validate <spec>` | structure + semantic validation only | 0 ok · 2 malformed · 3 errors/questions |
-| `pmpe run <spec>` | full 18-step lifecycle | 0 success · 1 failed · 2 malformed · 3 blocked · 4 NO_MERGE |
-| `pmpe resume <run_id>` | continue after approval/fix/crash | same as run |
-| `pmpe approve <run_id> <ESC-ID> --approver NAME --reason TEXT [--reject]` | record a human decision | 0 |
-| `pmpe status <run_id>` | step statuses + open escalations | 0 |
-| `pmpe report <run_id>` | print the final build report | 0 · 1 if not produced yet |
+| `pmpe status <run_id>` | read historical V1 step status and escalations | 0 |
+| `pmpe report <run_id>` | read a historical V1 final report | 0 · 1 if absent |
 
-Common flags: `--runs-dir DIR`, `--config FILE`.
+Common read-only flags: `--runs-dir DIR`, `--config FILE`.
 
-## The lifecycle a run executes
+## V1 execution is retired
 
-ingest → validate → plan → architecture → acceptance → generate_tests → confirm_red
-(generated tests must FAIL before implementation) → implement (commit per task) →
-quality_gates → create_pr → review → fix (safe fixes only) → retest → merge_gate →
-merge → deploy (local, verified) → verify → report.
+The installed package does not expose commands that start, continue, or approve a
+V1 workflow. The legacy executor lives only in `tests.legacy_v1`, which is outside
+the packaged `src/pmpe` tree and excluded from the wheel. Its E2E fixtures preserve
+compatibility and migration evidence without creating a production path.
 
-## When a run blocks (exit 3)
+Phase Zero is the sole admissible shipped lifecycle authority. Missing contract,
+publisher, budget, approval, GitHub, deployment, or observation authority must stop
+the control plane; the retired V1 files are never admissible substitutes.
 
-A HIGH-risk decision needs a human. The run wrote `runs/<id>/escalations/ESC-xxx.json`:
+## Historical artifacts
 
-```bash
-pmpe status <run_id>                       # see what is open and why
-pmpe approve <run_id> ESC-001 --approver "abhillash" \
-    --reason "local deploy fallback accepted for the pilot"
-pmpe resume <run_id>
-```
-
-Rejecting (`--reject`) fails the run explicitly. Approvals never turn a failing
-quality gate green — they only resolve the waiting-for-human check, and the merge
-gate re-verifies every escalation has a decision.
-
-## When a run ends NO_MERGE (exit 4)
-
-The build completed but did not earn a merge: read
-`runs/<id>/artifacts/merge_decision.json` for the exact reasons (failing gate,
-blocking finding, traceability gap, or unresolved escalation). Nothing was merged or
-deployed; the final report still exists for the audit trail. Fix the spec (or the
-pipeline finding) and start a new run.
-
-## Key artifacts per run
+Read-only commands can inspect these artifacts from an existing V1 run:
 
 | Artifact | Content |
 |---|---|
-| `validation_report.json` | errors / warnings / questions with rule codes |
-| `engineering_plan.{json,md}` | tasks, dependency graph, order, complexity |
-| `architecture.md`, `adr/ADR-*.md` | architecture + decision records |
-| `confirm_red.json` | proof tests failed before implementation |
-| `gate_results{,_retest}.json` | every gate's result, duration, details |
-| `pull_request.{json,md}` | PR record with commits and diff stat |
-| `review_report{,_final}.{json,md}` | findings with rules and blocking flags |
-| `merge_decision.{json,md}` | MERGE / NO_MERGE with reasons |
-| `deployment_result.json`, `verification.json` | health, journey, rollback path |
-| `traceability.{json,md}`, `final_report.md`, `metrics.json` | the audit trail |
+| `state.json` | legacy step projection |
+| `validation_report.json` | errors, warnings, and questions |
+| `engineering_plan.{json,md}` | tasks and dependency order |
+| `architecture.md`, `adr/ADR-*.md` | historical architecture evidence |
+| `gate_results{,_retest}.json` | historical local gate results |
+| `merge_decision.{json,md}` | legacy recommendation record |
+| `traceability.{json,md}`, `final_report.md` | historical audit output |
+
+These files remain readable but cannot authorize new execution, approval, merge,
+deployment, or completion claims.
