@@ -226,6 +226,24 @@ def test_diagnostic_outcomes_and_format_discriminators_match_runtime() -> None:
     assert "matching both discriminator sets is ambiguous" in text
 
 
+def test_service_terminal_statuses_are_all_documented() -> None:
+    text = DOC.read_text()
+    statuses = {
+        "INTAKE_REJECTED",
+        "INTAKE_SECURITY_BLOCKED",
+        "EVIDENCE_SECURITY_BLOCKED",
+        "COMPILATION_BLOCKED",
+        "COMPILATION_SECURITY_BLOCKED",
+        "VALIDATION_BLOCKED",
+        "VALIDATION_SECURITY_BLOCKED",
+        "COMPILED_BLOCKED",
+        "ENGINEERING_ADMITTED_WITH_WARNINGS",
+        "ENGINEERING_ADMITTED",
+    }
+    for status in statuses:
+        assert f"| `{status}` |" in text
+
+
 def test_direct_canonical_service_input_is_honestly_documented_as_unsupported() -> None:
     assert _diagnostic_codes(VALID_BUNDLE) == {"AMBIGUOUS_SOURCE_FORMAT"}
 
