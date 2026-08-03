@@ -1,15 +1,15 @@
 """Record/verify digest-bound preview evidence for pm-evals Web.
 
-The source digest covers the CONTENT of every git-tracked file under
-backend/ and frontend/ as it exists on disk — the exact inputs the preview
-was built from. Recording binds that digest, the served artifact
+The source digest covers the content of every tracked or unignored source file
+under backend/ and frontend/ as it exists on disk — the exact inputs the
+preview was built from. Recording binds that digest, the served artifact
 fingerprints, and the executed journey results through
 ``pmpe.fullstack.preview`` (which fails closed on any dishonesty); ``verify``
 recomputes the digest and refuses a preview built from anything else.
 
 Usage:
   python preview_evidence.py record --kind local_preview \\
-      --build-id <next BUILD_ID> --out preview-evidence.json \\
+      --build-id <frontend BUILD_ID> --out preview-evidence.json \\
       --journeys a11y=passed keyboard=passed responsive=passed journeys=passed
   python preview_evidence.py verify --path preview-evidence.json
 """
@@ -33,7 +33,16 @@ SOURCE_SCOPES = ("products/pm-evals-web/backend", "products/pm-evals-web/fronten
 
 def source_digest() -> str:
     tracked = subprocess.run(
-        ["git", "ls-files", "-z", *SOURCE_SCOPES],
+        [
+            "git",
+            "ls-files",
+            "-z",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "--",
+            *SOURCE_SCOPES,
+        ],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -43,7 +52,9 @@ def source_digest() -> str:
     for rel in tracked.split("\0"):
         if not rel:
             continue
-        mapping[rel] = hashlib.sha256((ROOT / rel).read_bytes()).hexdigest()
+        source = ROOT / rel
+        if source.is_file():
+            mapping[rel] = hashlib.sha256(source.read_bytes()).hexdigest()
     if not mapping:
         raise SystemExit("no tracked source files found — refusing an empty digest")
     return canonical_digest(mapping)
@@ -72,7 +83,7 @@ def main() -> int:
             source_digest=digest,
             deployment_kind=args.kind,
             artifacts={
-                "frontend-next-build-id": args.build_id,
+                "frontend-build-id": args.build_id,
                 "source-tree": digest,
             },
             journeys=journeys,
