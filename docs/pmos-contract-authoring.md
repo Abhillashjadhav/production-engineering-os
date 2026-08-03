@@ -281,6 +281,7 @@ Interpret outcomes conservatively:
 | Outcome or diagnostic | Meaning and next action |
 | --- | --- |
 | `ENGINEERING_ADMITTED` | Structural, compiler, and deterministic semantic boundaries admit the exact evidence-bound input. |
+| `COMPILATION_BLOCKED` | Format detection, source-version lookup, or source-schema validation failed before a canonical bundle could be admitted. Inspect the compiler diagnostics; this is distinct from a successfully compiled but semantically blocked bundle. |
 | `PRODUCT_INPUT_REQUIRED` / `COMPILED_BLOCKED` | PMOS or the named product authority must supply or reconcile truth. No eligibility or due time is assigned. |
 | `UNSUPPORTED_REPOSITORY_EXTENSION` | A repository owner must register/review the exact extension schema/version. |
 | `SOURCE_SCHEMA_INVALID` | Validate the source against its exact versioned schema. A root-level missing required property currently reports an empty `source_path`, so compare the payload with that schema's `required` list. |
@@ -311,9 +312,18 @@ The admitted adapter registry is explicit:
 
 | Source | Version marker | Admitted value | Compiler rule |
 | --- | --- | --- | --- |
-| V1 MvpSpec | `spec_version` | string `1.0` | `PMOS-V1-1.0-TO-CANONICAL-1.0.0` |
-| V2 ProductDecisionContract | `contract_version` | integer `1` | `PMOS-V2-1-TO-CANONICAL-1.0.0` |
-| V3 FullStackProductContract | `contract_version` | integer `1` | `PMOS-V3-1-TO-CANONICAL-1.0.0` |
+| [V1 MvpSpec](../schemas/mvp_spec.schema.json) | `spec_version` | string `1.0` | `PMOS-V1-1.0-TO-CANONICAL-1.0.0` |
+| [V2 ProductDecisionContract](../schemas/product_decision_contract.schema.json) | `contract_version` | integer `1` | `PMOS-V2-1-TO-CANONICAL-1.0.0` |
+| [V3 FullStackProductContract](../schemas/fullstack_product_contract.schema.json) | `contract_version` | integer `1` | `PMOS-V3-1-TO-CANONICAL-1.0.0` |
+
+`contract_version` alone does not distinguish V2 from V3.
+V2 discriminator fields: `desired_outcome`, `functional_requirements`, and `scored_eval_rubric`;
+any one selects the V2 candidate.
+V3 discriminator fields: `primary_journey`, `screens`, and `api_contracts`;
+any one selects the V3 candidate. A payload matching neither set is ambiguous.
+Likewise, matching both discriminator sets is ambiguous. A payload containing both `spec_version` and
+`contract_version` is also ambiguous. Remove mixed markers; do not guess or
+relabel the source format.
 
 The compiler detects one format, validates its original versioned schema,
 rejects unknown fields, applies the registered adapter, preserves stable source
