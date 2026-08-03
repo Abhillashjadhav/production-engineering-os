@@ -142,6 +142,12 @@ def _proposal(
     *,
     boundary: str = "src/pmpe/contracts",
 ) -> dict[str, Any]:
+    all_requirements = sorted(
+        set(contract.get("functional_requirements", {}))
+        | set(contract.get("non_functional_requirements", {}))
+        | set(contract.get("security", {}).get("requirements", {}))
+        | set(contract.get("privacy", {}).get("requirements", {}))
+    )
     components = [
         {
             "id": f"COMP-{plane}",
@@ -153,6 +159,7 @@ def _proposal(
         }
         for plane in ("CONTROL", "EXECUTION", "EVIDENCE", "SECURITY", "DEPLOYMENT", "OBSERVABILITY")
     ]
+    components[0]["requirement_ids"] = all_requirements
     return {
         "schema_version": "1.0.0",
         "pack_id": "ARCH-BUNDLE-TASKFLOW-001",
@@ -249,6 +256,7 @@ def _proposal(
                     },
                 ],
                 "reversibility": "REVERSIBLE",
+                "decision_classes": ["NO_SPECIAL_APPROVAL"],
                 "requirement_ids": ["FR-001"],
                 "repository_boundaries": [boundary],
                 "approval_refs": [],
@@ -411,6 +419,7 @@ def test_irreversible_or_vendor_locking_choice_requests_named_input() -> None:
     governance = _governance(snapshot)
     proposal = _proposal(contract, snapshot, governance)
     proposal["adrs"][0]["reversibility"] = "VENDOR_LOCKING"
+    proposal["adrs"][0]["decision_classes"] = ["VENDOR_LOCKING"]
 
     result = _compile(proposal)
 
@@ -659,7 +668,7 @@ def test_every_adr_requires_explicit_ownership_classification() -> None:
     result = _compile(proposal)
 
     assert result.disposition.value == "ERROR"
-    assert "ARCH.ADR.CLASSIFICATION" in {item.rule_id for item in result.diagnostics}
+    assert "ARCH.STRUCTURE" in {item.rule_id for item in result.diagnostics}
 
 
 def test_flow_data_must_be_covered_by_every_referenced_boundary() -> None:

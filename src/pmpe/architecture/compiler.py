@@ -723,6 +723,21 @@ class ArchitectureCompiler:
         for adr in pack.get("adrs", []):
             if not isinstance(adr, Mapping):
                 continue
+            decision_classes = set(adr.get("decision_classes", []))
+            if "NO_SPECIAL_APPROVAL" in decision_classes and (
+                len(decision_classes) != 1 or adr.get("reversibility") != "REVERSIBLE"
+            ):
+                diagnostics.append(
+                    _error(
+                        "ARCH.ADR.CLASSIFICATION",
+                        f"/adrs/{adr.get('id', '?')}/decision_classes",
+                        "NO_SPECIAL_APPROVAL cannot accompany an approval domain or "
+                        "a non-reversible decision.",
+                        "Classify the ADR under every applicable approval domain, or use "
+                        "NO_SPECIAL_APPROVAL only for a reversible decision with none.",
+                        owner="PRODUCT",
+                    )
+                )
             alternatives = adr.get("alternatives", [])
             outcomes = [
                 str(item.get("outcome", "")) for item in alternatives if isinstance(item, Mapping)
@@ -784,7 +799,42 @@ class ArchitectureCompiler:
                         owner="PRODUCT",
                     )
                 )
+        requirement_items: list[Mapping[str, Any]] = []
+        for section in (
+            "components",
+            "data_architecture",
+            "api_architecture",
+            "integration_architecture",
+            "security_boundaries",
+            "data_flows",
+            "adrs",
+            "deployment",
+            "observability",
+            "rollback",
+        ):
+            raw = pack.get(section, [])
+            items = raw if isinstance(raw, list) else [raw]
+            requirement_items.extend(item for item in items if isinstance(item, Mapping))
         threats = pack.get("threat_model", {}).get("threats", [])
+        requirement_items.extend(item for item in threats if isinstance(item, Mapping))
+        covered_requirements = {
+            str(requirement)
+            for item in requirement_items
+            for requirement in item.get("requirement_ids", [])
+        }
+        missing_requirements = references["requirements"] - covered_requirements
+        if missing_requirements:
+            diagnostics.append(
+                _error(
+                    "ARCH.CONTRACT.COVERAGE",
+                    "/components",
+                    "Architecture omits contract requirements: "
+                    + ", ".join(sorted(missing_requirements)),
+                    "Map every applicable requirement to an architecture element and "
+                    "repository impact.",
+                    owner="PRODUCT",
+                )
+            )
         covered_security = {
             str(requirement)
             for threat in threats
@@ -823,6 +873,21 @@ class ArchitectureCompiler:
             if isinstance(threat, Mapping)
             for boundary in threat.get("trust_boundary_refs", [])
         }
+        for threat in threats:
+            if not isinstance(threat, Mapping):
+                continue
+            unknown_boundaries = set(threat.get("trust_boundary_refs", [])) - boundary_ids
+            if unknown_boundaries:
+                diagnostics.append(
+                    _error(
+                        "ARCH.THREAT.GAP",
+                        f"/threat_model/threats/{threat.get('id', '?')}/trust_boundary_refs",
+                        "Threat references undeclared trust boundary or boundaries: "
+                        + ", ".join(sorted(str(item) for item in unknown_boundaries)),
+                        "Reference only trust boundaries declared by this architecture pack.",
+                        owner="SECURITY",
+                    )
+                )
         for boundary in pack.get("security_boundaries", []):
             if not isinstance(boundary, Mapping):
                 continue
@@ -921,6 +986,24 @@ class ArchitectureCompiler:
                         owner="SECURITY",
                     )
                 )
+            flow_data = {str(item) for item in flow.get("data_refs", [])}
+            data_mismatches = {
+                boundary_id
+                for boundary_id in flow_boundaries
+                if not flow_data
+                <= {str(item) for item in boundaries_by_id[boundary_id].get("data_refs", [])}
+            }
+            if data_mismatches:
+                diagnostics.append(
+                    _error(
+                        "ARCH.SECURITY.BOUNDARY",
+                        f"/data_flows/{flow.get('id', '?')}/data_refs",
+                        "Data flow carries data not declared by referenced boundary or "
+                        "boundaries: " + ", ".join(sorted(data_mismatches)),
+                        "Declare every flow data reference on each trust boundary it crosses.",
+                        owner="SECURITY",
+                    )
+                )
             covered = {
                 str(boundary)
                 for threat in threats
@@ -995,11 +1078,8 @@ class ArchitectureCompiler:
         snapshot_digest: str,
         diagnostics: list[ArchitectureDiagnostic],
     ) -> None:
-        requests_by_domain = {
-            (str(item.get("decision_ref")), str(item.get("category")), str(item.get("owner")))
-            for item in pack.get("approval_requests", [])
-            if isinstance(item, Mapping)
-        }
+        pack["approval_requests"] = []
+        requests_by_domain: set[tuple[str, str, str]] = set()
         for adr in pack.get("adrs", []):
             if not isinstance(adr, Mapping):
                 continue
