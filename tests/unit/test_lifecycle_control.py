@@ -433,7 +433,11 @@ def test_repair_is_bounded_per_finding_and_stage(tmp_path: Path) -> None:
         credible=True,
         blocking=True,
         reviewer_eligible=False,
+        category="ENGINEERING",
+        disposition="ACCEPTED_FOR_REPAIR",
+        affected_scope_digest=OTHER_SHA,
     )
+    required["finding_digest"] = object_digest(asdict(finding))
     _, at_limit = budgets()
     at_limit = replace(
         at_limit,
@@ -463,7 +467,11 @@ def test_blocking_finding_is_independent_of_reviewer_approval_eligibility(tmp_pa
         credible=True,
         blocking=True,
         reviewer_eligible=False,
+        category="ENGINEERING",
+        disposition="ACCEPTED",
+        affected_scope_digest=OTHER_SHA,
     )
+    required["finding_digest"] = object_digest(asdict(signal))
     cp.transition(
         LifecycleState.REVIEW_FAILED,
         context(evidence=required, finding=signal),
@@ -829,7 +837,17 @@ def test_budget_resume_uses_only_the_recorded_safe_state(tmp_path: Path) -> None
         authority=authority(observed_at="2026-08-02T12:00:00Z"),
         observed_at="2026-08-02T12:00:00Z",
     )
-    cp.resume(context(usage=BudgetUsage(counters={"tokens": 101})))
+    cp.resume(
+        context(
+            usage=BudgetUsage(counters={"tokens": 101}),
+            evidence={
+                "subject_digest": SHA,
+                "incident_closure_digest": SHA,
+                "restored_capability_digest": OTHER_SHA,
+                "unchanged_inputs_digest": SHA,
+            },
+        )
+    )
     assert cp.state is LifecycleState.IMPLEMENTATION_IN_PROGRESS
 
 
@@ -906,12 +924,16 @@ def test_budget_and_repair_usage_are_monotonic_and_replayed(tmp_path: Path) -> N
         credible=True,
         blocking=True,
         reviewer_eligible=True,
+        category="ENGINEERING",
+        disposition="ACCEPTED_FOR_REPAIR",
+        affected_scope_digest=OTHER_SHA,
     )
     required = evidence_for(
         LifecycleState.VERIFICATION_FAILED,
         LifecycleState.REPAIR_IN_PROGRESS,
         reason="accepted_finding",
     )
+    required["finding_digest"] = object_digest(asdict(finding))
     cp.transition(
         LifecycleState.REPAIR_IN_PROGRESS,
         context(
@@ -1381,11 +1403,14 @@ def test_post_merge_blocking_finding_enters_safe_blocked_state(tmp_path: Path) -
         credible=True,
         blocking=True,
         reviewer_eligible=True,
+        category="ENGINEERING",
+        disposition="ACCEPTED_FOR_REPAIR",
+        affected_scope_digest=OTHER_SHA,
     )
     evidence = {
         "subject_digest": SHA,
         "finding_digest": object_digest(asdict(finding)),
-        "worker_quiescence_digest": SHA,
+        "worker_quiescence_digest": object_digest(asdict(WorkStatus())),
         "mutation_revocation_digest": OTHER_SHA,
         "zero_resource_digest": SHA,
     }
@@ -1399,6 +1424,19 @@ def test_post_merge_blocking_finding_enters_safe_blocked_state(tmp_path: Path) -
     assert event.evidence_refs["finding_digest"] == object_digest(asdict(finding))
     assert event.resume_state is LifecycleState.REPOSITORY_ANALYSED
 
+    resumed = cp.resume(
+        context(
+            evidence={
+                "subject_digest": SHA,
+                "incident_closure_digest": SHA,
+                "restored_capability_digest": OTHER_SHA,
+                "unchanged_inputs_digest": SHA,
+                "finding_disposition_digest": OTHER_SHA,
+            }
+        )
+    )
+    assert resumed.target is LifecycleState.REPOSITORY_ANALYSED
+
 
 def test_staging_rejects_a_pending_post_merge_blocker(tmp_path: Path) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
@@ -1410,6 +1448,9 @@ def test_staging_rejects_a_pending_post_merge_blocker(tmp_path: Path) -> None:
         credible=True,
         blocking=True,
         reviewer_eligible=True,
+        category="ENGINEERING",
+        disposition="ACCEPTED_FOR_REPAIR",
+        affected_scope_digest=OTHER_SHA,
     )
     attempt = MutationAttempt(
         attempt_id="staging-pending-finding",
@@ -1492,7 +1533,7 @@ def test_safe_stop_requires_worker_quiescence_and_revoked_mutation_capability(
         reason="verification_infrastructure_missing",
     )
     required.update(
-        worker_quiescence_digest=SHA,
+        worker_quiescence_digest=object_digest(asdict(WorkStatus())),
         mutation_revocation_digest=OTHER_SHA,
     )
     with pytest.raises(TransitionDeniedError, match="workers must be quiescent"):
@@ -1604,7 +1645,7 @@ def test_ordinary_safe_stop_resumes_only_through_its_admitted_safe_gate(
         reason="verification_infrastructure_missing",
     )
     stop_evidence.update(
-        worker_quiescence_digest=SHA,
+        worker_quiescence_digest=object_digest(asdict(WorkStatus())),
         mutation_revocation_digest=OTHER_SHA,
     )
     stopped = cp.transition(

@@ -190,6 +190,7 @@ class RolloutStatus:
 class WorkStatus:
     worker_leases_active: int = 0
     workers_stopped: bool = True
+    mutation_capability_active: bool = False
     partial_output_disposition: str = "none"
 
     def __post_init__(self) -> None:
@@ -250,6 +251,9 @@ class FindingSignal:
     credible: bool
     blocking: bool
     reviewer_eligible: bool
+    category: str = ""
+    disposition: str = ""
+    affected_scope_digest: str = ""
 
 
 @dataclass(frozen=True)
@@ -337,6 +341,32 @@ def _actor_evidence_digest(actor: TransitionActor) -> str:
 
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _GIT_SHA = re.compile(r"^[0-9a-f]{40,64}$")
+_FINDING_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+_FINDING_SOURCE = re.compile(r"^[a-z0-9][a-z0-9._:-]*$")
+
+
+def _normalized_engineering_finding(
+    finding: FindingSignal | None,
+    subject_digest: str,
+    *,
+    accepted_for_repair: bool,
+) -> bool:
+    if finding is None:
+        return False
+    admitted_dispositions = (
+        {"ACCEPTED_FOR_REPAIR"} if accepted_for_repair else {"ACCEPTED", "ACCEPTED_FOR_REPAIR"}
+    )
+    return bool(
+        _FINDING_ID.fullmatch(finding.finding_id)
+        and _FINDING_SOURCE.fullmatch(finding.source)
+        and finding.exact_subject_digest == subject_digest
+        and finding.severity.upper() in {"CRITICAL", "HIGH", "MEDIUM"}
+        and finding.credible
+        and finding.blocking
+        and finding.category == "ENGINEERING"
+        and finding.disposition in admitted_dispositions
+        and _SHA256.fullmatch(finding.affected_scope_digest)
+    )
 
 
 def _malformed_evidence(evidence: dict[str, str], names: tuple[str, ...]) -> tuple[str, ...]:
@@ -792,10 +822,25 @@ _RULES: tuple[TransitionRule, ...] = (
     ),
     _r(
         S.PR_MERGED,
+        S.BLOCKED,
+        "post_merge_blocking_finding",
+        (
+            "subject_digest",
+            "finding_digest",
+            "worker_quiescence_digest",
+            "mutation_revocation_digest",
+            "zero_resource_digest",
+        ),
+        "blocking_finding",
+        "safe_stop",
+    ),
+    _r(
+        S.PR_MERGED,
         S.STAGING_DEPLOYED,
         "staging_admitted",
         ("merge_digest", "artifact_digest", "staging_attempt_digest", "staging_result_digest"),
         *_MUTATION,
+        "no_blocking_finding",
         mutation="deploy_staging",
     ),
     _r(
@@ -1185,6 +1230,28 @@ _AUTHORITY_SOURCES = (
     S.PR_MERGED,
     S.BUDGET_EXCEEDED,
 )
+_ORDINARY_SAFE_RESUME_TARGETS = (
+    S.CONTRACT_APPROVED,
+    S.REPOSITORY_ANALYSED,
+    S.VERIFICATION_FAILED,
+    S.PR_READY,
+    S.PR_MERGED,
+    S.PRODUCTION_DEPLOYED,
+)
+_BUDGET_SAFE_RESUME_TARGETS = (
+    S.DRAFT_PR_OPEN,
+    S.IMPLEMENTATION_IN_PROGRESS,
+    S.VERIFICATION_FAILED,
+    S.REPAIR_IN_PROGRESS,
+    S.PR_MERGED,
+    S.ROLLED_BACK,
+)
+_RECORDED_RESUME_EVIDENCE = (
+    "subject_digest",
+    "incident_closure_digest",
+    "restored_capability_digest",
+    "unchanged_inputs_digest",
+)
 
 PHASE_ZERO_POLICY = LifecyclePolicy(
     "phase-zero-v1",
@@ -1220,6 +1287,28 @@ PHASE_ZERO_POLICY = LifecyclePolicy(
             and rule.reason == "authority_invalidated"
             for rule in _RULES
         )
+    )
+    + tuple(
+        _r(
+            S.BLOCKED,
+            target,
+            "recorded_safe_resume",
+            _RECORDED_RESUME_EVIDENCE,
+            "authority",
+            "budget",
+        )
+        for target in _ORDINARY_SAFE_RESUME_TARGETS
+    )
+    + tuple(
+        _r(
+            S.BUDGET_EXCEEDED,
+            target,
+            "recorded_safe_resume",
+            _RECORDED_RESUME_EVIDENCE,
+            "authority",
+            "budget",
+        )
+        for target in _BUDGET_SAFE_RESUME_TARGETS
     ),
 )
 
@@ -1380,6 +1469,17 @@ class LifecycleControlPlane:
         )
         return cp
 
+    @staticmethod
+    def _budget_policy_from_dict(raw_policy: dict[str, Any]) -> BudgetPolicy:
+        return BudgetPolicy(
+            version=str(raw_policy["version"]),
+            limits={str(key): int(value) for key, value in dict(raw_policy["limits"]).items()},
+            repair_attempts_per_finding=int(raw_policy["repair_attempts_per_finding"]),
+            repair_attempts_per_stage=int(raw_policy["repair_attempts_per_stage"]),
+            reserved_safety_units=int(raw_policy["reserved_safety_units"]),
+            approved_by=str(raw_policy["approved_by"]),
+        )
+
     @classmethod
     def load(cls, run_dir: Path) -> LifecycleControlPlane:
         path = Path(run_dir)
@@ -1404,14 +1504,7 @@ class LifecycleControlPlane:
         raw_policy = dict(metadata["budget_policy"])
         if _digest(raw_policy) != metadata.get("budget_policy_digest"):
             raise ValueError("lifecycle budget policy digest is invalid")
-        budget_policy = BudgetPolicy(
-            version=str(raw_policy["version"]),
-            limits={str(key): int(value) for key, value in dict(raw_policy["limits"]).items()},
-            repair_attempts_per_finding=int(raw_policy["repair_attempts_per_finding"]),
-            repair_attempts_per_stage=int(raw_policy["repair_attempts_per_stage"]),
-            reserved_safety_units=int(raw_policy["reserved_safety_units"]),
-            approved_by=str(raw_policy["approved_by"]),
-        )
+        budget_policy = cls._budget_policy_from_dict(raw_policy)
         cp = cls(
             path,
             run_id=str(metadata["run_id"]),
@@ -1442,6 +1535,33 @@ class LifecycleControlPlane:
                             else None
                         ),
                     )
+            if event.kind == "BUDGET_POLICY_ADMITTED":
+                policy_json = event.evidence_refs.get("budget_policy_json", "")
+                if policy_json:
+                    try:
+                        admitted_raw = json.loads(policy_json)
+                    except json.JSONDecodeError as exc:
+                        raise ValueError("admitted budget policy is not valid JSON") from exc
+                    if (
+                        not isinstance(admitted_raw, dict)
+                        or json.dumps(admitted_raw, sort_keys=True, separators=(",", ":"))
+                        != policy_json
+                    ):
+                        raise ValueError("admitted budget policy is not canonical")
+                    admitted = cls._budget_policy_from_dict(admitted_raw)
+                    prior_digest = _digest(asdict(cp.budget_policy))
+                    admitted_digest = _digest(asdict(admitted))
+                    if (
+                        event.evidence_refs.get("prior_policy_digest") != prior_digest
+                        or event.evidence_refs.get("proposed_policy_digest") != admitted_digest
+                        or event.evidence_refs.get("budget_policy_digest") != admitted_digest
+                        or _SHA256.fullmatch(
+                            event.evidence_refs.get("authorization_evidence_digest", "")
+                        )
+                        is None
+                    ):
+                        raise ValueError("admitted budget policy evidence is inconsistent")
+                    cp.budget_policy = admitted
             if event.kind == "COMPLETION_CLAIMED":
                 cp.completion_claim_active = True
             elif event.kind == "COMPLETION_REVOKED":
@@ -1566,18 +1686,19 @@ class LifecycleControlPlane:
                 "authority_digest": authorization.authority_digest,
                 "prior_policy_digest": current_digest,
                 "proposed_policy_digest": proposed_digest,
+                "budget_policy_digest": proposed_digest,
+                "budget_policy_json": json.dumps(
+                    asdict(policy), sort_keys=True, separators=(",", ":")
+                ),
                 "amounts_digest": _digest(amounts),
                 "authorization_evidence_digest": authorization.evidence_digest,
                 "valid_from": authorization.valid_from,
                 "valid_until": authorization.valid_until,
             },
             observed_at=observed_at,
+            expected_budget_policy_digest=current_digest,
+            admitted_budget_policy=policy,
         )
-        metadata = json.loads((self.run_dir / self._META_NAME).read_text())
-        metadata["budget_policy"] = asdict(policy)
-        metadata["budget_policy_digest"] = _digest(asdict(policy))
-        atomic_write_json(self.run_dir / self._META_NAME, metadata)
-        self.budget_policy = policy
 
     def _merge_budget_usage(self, supplied: BudgetUsage, *, reject_lower: bool) -> BudgetUsage:
         prior = self.budget_usage
@@ -1669,6 +1790,8 @@ class LifecycleControlPlane:
         budget_usage: BudgetUsage | None = None,
         resume_state: LifecycleState | None = None,
         detail: str = "",
+        expected_budget_policy_digest: str | None = None,
+        admitted_budget_policy: BudgetPolicy | None = None,
     ) -> LifecycleEvent:
         with self._exclusive_lock():
             persisted = (
@@ -1686,6 +1809,11 @@ class LifecycleControlPlane:
                 raise TransitionDeniedError(
                     "stale lifecycle writer lost the append compare-and-swap"
                 )
+            if (
+                expected_budget_policy_digest is not None
+                and _digest(asdict(self.budget_policy)) != expected_budget_policy_digest
+            ):
+                raise TransitionDeniedError("stale budget policy admission lost compare-and-swap")
             body: dict[str, Any] = {
                 "sequence": len(self.events) + 1,
                 "kind": kind,
@@ -1710,7 +1838,9 @@ class LifecycleControlPlane:
                 stream.write(json.dumps(body, sort_keys=True, separators=(",", ":")) + "\n")
                 stream.flush()
                 os.fsync(stream.fileno())
-        self.events.append(event)
+            self.events.append(event)
+            if admitted_budget_policy is not None:
+                self.budget_policy = admitted_budget_policy
         return event
 
     def _deny(
@@ -1801,6 +1931,16 @@ class LifecycleControlPlane:
                 reason,
                 "required evidence is not a canonical digest: " + ", ".join(malformed),
             )
+        if (
+            "subject_digest" in context.evidence
+            and context.evidence["subject_digest"] != self.subject_digest
+        ):
+            self._deny(
+                target,
+                context,
+                reason,
+                "subject evidence does not match the lifecycle subject",
+            )
         guards = rule.guards
         admitted_resume_state: LifecycleState | None = None
         if source is S.CANARY_DEPLOYED and context.rollout.canary not in {
@@ -1827,8 +1967,54 @@ class LifecycleControlPlane:
         exhausted = usage.exhausted_dimensions(self.budget_policy)
         if "budget" in guards and exhausted:
             self._deny(target, context, reason, "delivery budget is exhausted")
-        if "safe_stop" in guards and context.rollout.has_resources:
-            self._deny(target, context, reason, "safe stop requires zero rollout-owned resources")
+        if "no_blocking_finding" in guards and context.finding is not None:
+            finding = context.finding
+            if finding.credible and finding.blocking:
+                if finding.exact_subject_digest != self.subject_digest:
+                    self._deny(
+                        target,
+                        context,
+                        reason,
+                        "blocking finding subject does not match the lifecycle subject",
+                    )
+                self._deny(target, context, reason, "a pending blocking finding prohibits staging")
+        if "safe_stop" in guards and target in {
+            S.BLOCKED,
+            S.PRODUCT_INPUT_REQUIRED,
+            S.BUDGET_EXCEEDED,
+        }:
+            if context.rollout.has_resources:
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "safe stop requires zero rollout-owned resources",
+                )
+            if context.work.worker_leases_active or not context.work.workers_stopped:
+                self._deny(target, context, reason, "safe-stop workers must be quiescent")
+            if context.work.mutation_capability_active:
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "safe-stop candidate mutation capability remains active",
+                )
+            if (
+                context.evidence.get("worker_quiescence_digest") != _digest(asdict(context.work))
+                or _SHA256.fullmatch(context.evidence.get("mutation_revocation_digest", "")) is None
+            ):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "safe-stop quiescence evidence is missing or inconsistent",
+                )
+            if target is S.BLOCKED:
+                admitted_resume_state = {
+                    (S.PR_MERGED, "post_merge_blocking_finding"): S.REPOSITORY_ANALYSED,
+                    (S.STAGING_DEPLOYED, "canary_authorization_missing"): S.PR_MERGED,
+                    (S.COMPLETED, "completion_evidence_unavailable"): S.PRODUCTION_DEPLOYED,
+                }.get((source, reason), source)
         if "product_input" in guards:
             if context.rollout.has_resources:
                 self._deny(target, context, reason, "product input requires cleanup or rollback")
@@ -1864,10 +2050,25 @@ class LifecycleControlPlane:
                 )
             admitted_resume_state = safe_resume
         if "repair" in guards:
-            finding = context.finding
-            if finding is None or finding.exact_subject_digest != self.subject_digest:
-                self._deny(target, context, reason, "repair requires an exact-subject finding")
-            finding_attempts = usage.repair_attempts_by_finding.get(finding.finding_id, 0)
+            repair_finding = context.finding
+            if not _normalized_engineering_finding(
+                repair_finding, self.subject_digest, accepted_for_repair=True
+            ):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "repair requires a complete accepted engineering finding",
+                )
+            assert repair_finding is not None
+            if context.evidence.get("finding_digest") != _digest(asdict(repair_finding)):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "repair finding evidence does not match the normalized finding",
+                )
+            finding_attempts = usage.repair_attempts_by_finding.get(repair_finding.finding_id, 0)
             stage_attempts = usage.repair_attempts_by_stage.get(source.value, 0)
             if (
                 finding_attempts >= self.budget_policy.repair_attempts_per_finding
@@ -1875,15 +2076,19 @@ class LifecycleControlPlane:
             ):
                 self._deny(target, context, reason, "repair attempt limit is exhausted")
         if "blocking_finding" in guards:
-            finding = context.finding
-            if (
-                finding is None
-                or finding.exact_subject_digest != self.subject_digest
-                or not finding.credible
-                or not finding.blocking
-                or finding.severity.upper() not in {"CRITICAL", "HIGH", "MEDIUM"}
+            blocking_finding = context.finding
+            if not _normalized_engineering_finding(
+                blocking_finding, self.subject_digest, accepted_for_repair=False
             ):
                 self._deny(target, context, reason, "no normalized exact-subject blocker")
+            assert blocking_finding is not None
+            if context.evidence.get("finding_digest") != _digest(asdict(blocking_finding)):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "blocking finding evidence does not match the normalized finding",
+                )
         if "review_clear" in guards and not any(
             approval.kind == "FORMAL_REVIEW"
             and approval.eligible
@@ -2209,9 +2414,9 @@ class LifecycleControlPlane:
             self._deny(self.state, context, "resume", "actor authority is invalid for this subject")
         if self.state not in {S.BLOCKED, S.BUDGET_EXCEEDED}:
             self._deny(self.state, context, "resume", "only a stopped lifecycle can resume")
-        recorded = next(
+        stopped_event = next(
             (
-                event.resume_state
+                event
                 for event in reversed(self.events)
                 if event.outcome == "APPLIED"
                 and event.target is self.state
@@ -2219,12 +2424,48 @@ class LifecycleControlPlane:
             ),
             None,
         )
-        if recorded is None:
+        if stopped_event is None or stopped_event.resume_state is None:
             self._deny(
                 self.state,
                 context,
                 "resume",
                 "the stopped lifecycle has no recorded safe state",
+            )
+        recorded = stopped_event.resume_state
+        try:
+            rule = PHASE_ZERO_POLICY.rule(self.state, recorded, reason="recorded_safe_resume")
+        except TransitionDeniedError as exc:
+            self._deny(recorded, context, "resume", str(exc))
+            raise AssertionError("unreachable") from exc
+        if rule.permission not in actor.capabilities:
+            self._deny(recorded, context, "resume", "resume authority lacks required capability")
+        missing = [name for name in rule.required_evidence if not context.evidence.get(name)]
+        if missing:
+            self._deny(
+                recorded,
+                context,
+                "resume",
+                "required resume evidence is missing: " + ", ".join(sorted(missing)),
+            )
+        malformed = _malformed_evidence(context.evidence, rule.required_evidence)
+        if malformed:
+            self._deny(
+                recorded,
+                context,
+                "resume",
+                "resume evidence is not canonical: " + ", ".join(malformed),
+            )
+        if context.evidence.get("subject_digest") != self.subject_digest:
+            self._deny(recorded, context, "resume", "resume subject evidence does not match")
+        if (
+            stopped_event.reason == "post_merge_blocking_finding"
+            and _SHA256.fullmatch(context.evidence.get("finding_disposition_digest", "")) is None
+        ):
+            self._deny(
+                recorded,
+                context,
+                "resume",
+                "post-merge finding disposition evidence is required before resume",
             )
         if context.rollout.has_resources:
             self._deny(
