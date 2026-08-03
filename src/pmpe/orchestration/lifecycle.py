@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
@@ -206,6 +207,9 @@ class Approval:
     kind: str
     eligible: bool
     active: bool
+    reviewed_commit_sha: str = ""
+    reviewed_candidate_digest: str = ""
+    review_evidence_digest: str = ""
 
 
 @dataclass(frozen=True)
@@ -456,6 +460,24 @@ _RULES: tuple[TransitionRule, ...] = (
         ("intake_receipt_digest", "diagnostic_digest", "deletion_attestation_digest"),
     ),
     _r(
+        S.CONTRACT_RECEIVED,
+        S.BLOCKED,
+        "quarantine_disposition_indeterminate",
+        (
+            "subject_digest",
+            "intake_receipt_digest",
+            "affected_artifact_digest",
+            "quarantine_disposition_status",
+            "quarantine_disposition_digest",
+            "exposure_digest",
+            "incident_digest",
+            "worker_quiescence_digest",
+            "mutation_revocation_digest",
+            "retry_gate_digest",
+        ),
+        "security_incident_block",
+    ),
+    _r(
         S.CONTRACT_INVALID,
         S.CONTRACT_RECEIVED,
         "corrected_contract",
@@ -701,7 +723,13 @@ _RULES: tuple[TransitionRule, ...] = (
         S.REVIEW_REQUIRED,
         S.PR_READY,
         "formal_review_clear",
-        ("review_digest", "verification_bundle_digest", "prospective_tree_digest"),
+        (
+            "subject_digest",
+            "review_digest",
+            "verification_bundle_digest",
+            "prospective_tree_digest",
+            "reviewed_commit_sha",
+        ),
         "authority",
         "budget",
         "review_clear",
@@ -864,12 +892,16 @@ _RULES: tuple[TransitionRule, ...] = (
         S.CANARY_DEPLOYED,
         "canary_admitted",
         (
+            "subject_digest",
             "staging_digest",
             "canary_authorization_digest",
+            "canary_id_digest",
             "canary_attempt_digest",
             "canary_result_digest",
+            "canary_status_digest",
         ),
         *_MUTATION,
+        "canary_binding",
         mutation="deploy_canary",
     ),
     _r(
@@ -949,14 +981,26 @@ _RULES: tuple[TransitionRule, ...] = (
         S.CANARY_DEPLOYED,
         S.PRODUCTION_APPROVAL_REQUIRED,
         "canary_window_passed",
-        ("canary_digest", "slo_window_digest", "approval_request_digest"),
+        (
+            "subject_digest",
+            "canary_digest",
+            "canary_id_digest",
+            "canary_attempt_digest",
+            "canary_status_digest",
+            "slo_window_digest",
+            "approval_request_digest",
+        ),
         *_FORWARD,
+        "active_canary",
     ),
     _r(
         S.CANARY_DEPLOYED,
         S.ROLLBACK_IN_PROGRESS,
         "canary_failed",
         (
+            "subject_digest",
+            "canary_id_digest",
+            "canary_status_digest",
             "canary_attempt_digest",
             "canary_result_digest",
             "canary_failure_digest",
@@ -964,14 +1008,23 @@ _RULES: tuple[TransitionRule, ...] = (
             "resource_status_digest",
         ),
         *_SAFETY,
+        "active_canary",
         mutation="rollback",
     ),
     _r(
         S.CANARY_DEPLOYED,
         S.ROLLBACK_IN_PROGRESS,
         "governance_stop",
-        ("governance_stop_digest", "rollback_attempt_digest"),
+        (
+            "subject_digest",
+            "canary_id_digest",
+            "canary_attempt_digest",
+            "canary_status_digest",
+            "governance_stop_digest",
+            "rollback_attempt_digest",
+        ),
         *_SAFETY,
+        "active_canary",
         mutation="rollback",
     ),
     _r(
@@ -987,6 +1040,10 @@ _RULES: tuple[TransitionRule, ...] = (
         S.PRODUCTION_DEPLOYED,
         "production_admitted",
         (
+            "subject_digest",
+            "canary_id_digest",
+            "canary_attempt_digest",
+            "canary_status_digest",
             "production_approval_digest",
             "authority_fence_digest",
             "production_attempt_digest",
@@ -994,6 +1051,7 @@ _RULES: tuple[TransitionRule, ...] = (
         ),
         *_MUTATION,
         "production_approval",
+        "active_canary",
         mutation="deploy_production",
     ),
     _r(
@@ -1001,6 +1059,9 @@ _RULES: tuple[TransitionRule, ...] = (
         S.ROLLBACK_IN_PROGRESS,
         "canary_breach",
         (
+            "subject_digest",
+            "canary_id_digest",
+            "canary_status_digest",
             "canary_attempt_digest",
             "canary_result_digest",
             "canary_failure_digest",
@@ -1008,6 +1069,7 @@ _RULES: tuple[TransitionRule, ...] = (
             "resource_status_digest",
         ),
         *_SAFETY,
+        "active_canary",
         mutation="rollback",
     ),
     _r(
@@ -1046,7 +1108,11 @@ _RULES: tuple[TransitionRule, ...] = (
         S.COMPLETED,
         "observation_window_passed",
         (
+            "subject_digest",
             "release_sha",
+            "reviewed_commit_sha",
+            "reviewed_candidate_digest",
+            "review_evidence_digest",
             "live_verification_digest",
             "rollback_readiness_digest",
             "observation_window_digest",
@@ -1082,13 +1148,16 @@ _RULES: tuple[TransitionRule, ...] = (
         S.ROLLED_BACK,
         "rollback_verified",
         (
+            "subject_digest",
             "rollback_attempt_digest",
             "rollback_result_digest",
+            "rollback_exposure_digest",
             "restoration_verification_digest",
             "incident_digest",
         ),
         "safety",
         "mutation",
+        "zero_exposure",
         mutation="rollback",
     ),
     _r(
@@ -1231,6 +1300,7 @@ _AUTHORITY_SOURCES = (
     S.BUDGET_EXCEEDED,
 )
 _ORDINARY_SAFE_RESUME_TARGETS = (
+    S.CONTRACT_RECEIVED,
     S.CONTRACT_APPROVED,
     S.REPOSITORY_ANALYSED,
     S.VERIFICATION_FAILED,
@@ -1400,6 +1470,7 @@ class LifecycleControlPlane:
         self.state = state
         self.budget_policy = budget_policy
         self.events = events or []
+        self._operation_lock = threading.RLock()
         self.completion_claim_active = False
         self._mutation_keys: dict[str, str] = {}
         self._mutation_attempts: dict[str, MutationAttempt] = {}
@@ -1515,8 +1586,12 @@ class LifecycleControlPlane:
         )
         cp._load_mutations()
         for event in events[1:]:
+            if event.source is not cp.state:
+                raise ValueError("lifecycle event source does not match replay state")
             if event.outcome == "APPLIED":
                 cp.state = event.target
+            elif event.outcome == "RECORDED" and event.target is not cp.state:
+                raise ValueError("recorded lifecycle event cannot change replay state")
             if event.budget_usage is not None:
                 cp.budget_usage = cp._merge_budget_usage(
                     BudgetUsage(**event.budget_usage), reject_lower=True
@@ -1793,7 +1868,7 @@ class LifecycleControlPlane:
         expected_budget_policy_digest: str | None = None,
         admitted_budget_policy: BudgetPolicy | None = None,
     ) -> LifecycleEvent:
-        with self._exclusive_lock():
+        with self._operation_lock, self._exclusive_lock():
             persisted = (
                 [
                     json.loads(line)
@@ -1870,7 +1945,43 @@ class LifecycleControlPlane:
         self.budget_usage = persisted_usage
         raise TransitionDeniedError(detail)
 
+    def _latest_canary_binding(self) -> LifecycleEvent | None:
+        return next(
+            (
+                event
+                for event in reversed(self.events)
+                if event.reason == "canary_admitted"
+                and (
+                    (event.outcome == "APPLIED" and event.target is S.CANARY_DEPLOYED)
+                    or event.kind == "CANARY_BINDING_ADMITTED"
+                )
+            ),
+            None,
+        )
+
+    def _latest_review_binding(self) -> LifecycleEvent | None:
+        return next(
+            (
+                event
+                for event in reversed(self.events)
+                if event.reason == "formal_review_clear"
+                and (
+                    (event.outcome == "APPLIED" and event.target is S.PR_READY)
+                    or event.kind == "REVIEW_BINDING_ADMITTED"
+                )
+            ),
+            None,
+        )
+
     def transition(
+        self, target: LifecycleState, context: TransitionContext, *, reason: str
+    ) -> LifecycleEvent:
+        """Validate and append one transition against one serialized source state."""
+
+        with self._operation_lock:
+            return self._transition_locked(target, context, reason=reason)
+
+    def _transition_locked(
         self, target: LifecycleState, context: TransitionContext, *, reason: str
     ) -> LifecycleEvent:
         source = self.state
@@ -1897,15 +2008,19 @@ class LifecycleControlPlane:
         except TransitionDeniedError as exc:
             self._deny(target, context, reason, str(exc))
             raise AssertionError("unreachable") from exc
-        unresolved_safety_block = (
+        exposure_preserving_block = (
             source is S.ROLLBACK_IN_PROGRESS
             and target is S.BLOCKED
             and reason == "rollback_indeterminate"
+        ) or (
+            source is S.CONTRACT_RECEIVED
+            and target is S.BLOCKED
+            and reason == "quarantine_disposition_indeterminate"
         )
         if (
             context.rollout.has_exposure
             and target in {S.BLOCKED, S.PRODUCT_INPUT_REQUIRED, S.BUDGET_EXCEEDED}
-            and not unresolved_safety_block
+            and not exposure_preserving_block
         ):
             self._deny(target, context, reason, "active rollout exposure requires rollback")
         try:
@@ -1978,6 +2093,67 @@ class LifecycleControlPlane:
                         "blocking finding subject does not match the lifecycle subject",
                     )
                 self._deny(target, context, reason, "a pending blocking finding prohibits staging")
+        if "security_incident_block" in guards:
+            artifact_digest = context.evidence.get("affected_artifact_digest", "")
+            disposition_status = context.evidence.get("quarantine_disposition_status", "")
+            if disposition_status not in {"FAILED", "UNKNOWN"}:
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "quarantine disposition failure must be failed or indeterminate",
+                )
+            if context.work.worker_leases_active or not context.work.workers_stopped:
+                self._deny(target, context, reason, "security-incident workers must be quiescent")
+            if context.work.mutation_capability_active:
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "security-incident mutation capability remains active",
+                )
+            if context.work.partial_output_disposition != "quarantined-unresolved":
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "affected artifact must remain truthfully quarantined and unresolved",
+                )
+            expected_disposition = _digest(
+                {
+                    "affected_artifact_digest": artifact_digest,
+                    "subject_digest": self.subject_digest,
+                    "status": disposition_status,
+                }
+            )
+            expected_exposure = _digest(
+                {
+                    "affected_artifact_digest": artifact_digest,
+                    "subject_digest": self.subject_digest,
+                    "rollout": asdict(context.rollout),
+                }
+            )
+            expected_retry_gate = _digest(
+                {
+                    "affected_artifact_digest": artifact_digest,
+                    "gate": "AUTHORITATIVE_DISPOSITION_REQUIRED",
+                    "subject_digest": self.subject_digest,
+                }
+            )
+            if (
+                context.evidence.get("quarantine_disposition_digest") != expected_disposition
+                or context.evidence.get("exposure_digest") != expected_exposure
+                or context.evidence.get("retry_gate_digest") != expected_retry_gate
+                or context.evidence.get("worker_quiescence_digest") != _digest(asdict(context.work))
+                or _SHA256.fullmatch(context.evidence.get("mutation_revocation_digest", "")) is None
+            ):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "security incident evidence is not bound to its artifact and exposure",
+                )
+            admitted_resume_state = S.CONTRACT_RECEIVED
         if "safe_stop" in guards and target in {
             S.BLOCKED,
             S.PRODUCT_INPUT_REQUIRED,
@@ -2089,14 +2265,89 @@ class LifecycleControlPlane:
                     reason,
                     "blocking finding evidence does not match the normalized finding",
                 )
-        if "review_clear" in guards and not any(
-            approval.kind == "FORMAL_REVIEW"
-            and approval.eligible
-            and approval.active
-            and approval.subject_digest == self.subject_digest
-            for approval in context.approvals
-        ):
-            self._deny(target, context, reason, "eligible formal review is required")
+        if "review_clear" in guards:
+            matching_review = next(
+                (
+                    approval
+                    for approval in context.approvals
+                    if approval.approval_id
+                    and approval.actor
+                    and approval.kind == "FORMAL_REVIEW"
+                    and approval.eligible
+                    and approval.active
+                    and approval.subject_digest == self.subject_digest
+                    and _GIT_SHA.fullmatch(approval.reviewed_commit_sha)
+                    and _SHA256.fullmatch(approval.reviewed_candidate_digest)
+                    and _SHA256.fullmatch(approval.review_evidence_digest)
+                    and context.evidence.get("reviewed_commit_sha") == approval.reviewed_commit_sha
+                    and context.evidence.get("prospective_tree_digest")
+                    == approval.reviewed_candidate_digest
+                    and context.evidence.get("verification_bundle_digest")
+                    == approval.review_evidence_digest
+                    and context.evidence.get("review_digest") == _digest(asdict(approval))
+                ),
+                None,
+            )
+            if matching_review is None:
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "eligible formal review bound to the exact candidate is required",
+                )
+        if "canary_binding" in guards:
+            attempt = context.mutation
+            attempt_digest = _digest(asdict(attempt)) if attempt is not None else ""
+            result = (
+                self._mutation_results.get(attempt.idempotency_key) if attempt is not None else None
+            )
+            expected_status = _digest(
+                {
+                    "canary_id_digest": context.evidence.get("canary_id_digest", ""),
+                    "deployment_attempt_digest": attempt_digest,
+                    "deployment_result_digest": (
+                        result.result_digest if result is not None else None
+                    ),
+                    "subject_digest": self.subject_digest,
+                    "status": "ACTIVE",
+                }
+            )
+            if (
+                context.rollout.canary != "ACTIVE"
+                or context.evidence.get("canary_attempt_digest") != attempt_digest
+                or context.evidence.get("canary_status_digest") != expected_status
+            ):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "canary admission requires exact active canary proof",
+                )
+        if "active_canary" in guards:
+            canary_binding = self._latest_canary_binding()
+            proof_fields = (
+                "subject_digest",
+                "canary_id_digest",
+                "canary_attempt_digest",
+                "canary_status_digest",
+            )
+            allowed_observed_status = (
+                {"ACTIVE", "UNKNOWN"} if target is S.ROLLBACK_IN_PROGRESS else {"ACTIVE"}
+            )
+            if (
+                canary_binding is None
+                or context.rollout.canary not in allowed_observed_status
+                or any(
+                    context.evidence.get(name) != canary_binding.evidence_refs.get(name)
+                    for name in proof_fields
+                )
+            ):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "transition requires replayable exact-subject active canary proof",
+                )
         if "production_approval" in guards and not any(
             approval.approval_id
             and approval.actor
@@ -2169,6 +2420,23 @@ class LifecycleControlPlane:
                     reason,
                     "transition evidence does not match the persisted mutation result",
                 )
+            attempt_evidence_name = {
+                "open_draft_pr": "governance_attempt_digest",
+                "deploy_staging": "staging_attempt_digest",
+                "deploy_canary": "canary_attempt_digest",
+                "deploy_production": "production_attempt_digest",
+                "cleanup_staging": "cleanup_attempt_digest",
+                "rollback": "rollback_attempt_digest",
+            }.get(attempt.action)
+            if attempt_evidence_name in rule.required_evidence and context.evidence.get(
+                str(attempt_evidence_name)
+            ) != _digest(asdict(attempt)):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "transition mutation attempt evidence does not match",
+                )
         if "safety_block" in guards:
             attempt = context.mutation
             if attempt is None or rule.mutation_action != attempt.action:
@@ -2215,8 +2483,70 @@ class LifecycleControlPlane:
                 self._require_prejournaled(attempt)
             except TransitionDeniedError as exc:
                 self._deny(target, context, reason, str(exc))
+        if "zero_exposure" in guards:
+            attempt = context.mutation
+            result = (
+                self._mutation_results.get(attempt.idempotency_key) if attempt is not None else None
+            )
+            if context.rollout.canary not in {"NONE", "REMOVED"} or (
+                context.rollout.changed_production not in {"NONE", "REMOVED"}
+            ):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "rollback has unresolved exposure",
+                )
+            attempt_digest = _digest(asdict(attempt)) if attempt is not None else ""
+            result_digest = result.result_digest if result is not None else None
+            expected_exposure = _digest(
+                {
+                    "subject_digest": self.subject_digest,
+                    "rollback_attempt_digest": attempt_digest,
+                    "rollback_result_digest": result_digest,
+                    "canary": context.rollout.canary,
+                    "changed_production": context.rollout.changed_production,
+                }
+            )
+            if context.evidence.get("rollback_exposure_digest") != expected_exposure:
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "rollback exposure evidence is not bound to the exact attempt and subject",
+                )
         if "completion" in guards and self.completion_claim_active:
             self._deny(target, context, reason, "completion claim is already active")
+        if "completion" in guards:
+            review_binding = self._latest_review_binding()
+            invalidating_reasons = {"blocking_finding", "check_stale", "head_changed"}
+            invalidated = review_binding is not None and any(
+                event.sequence > review_binding.sequence
+                and event.outcome == "APPLIED"
+                and event.reason in invalidating_reasons
+                for event in self.events
+            )
+            if (
+                review_binding is None
+                or invalidated
+                or context.evidence.get("release_sha")
+                != review_binding.evidence_refs.get("reviewed_commit_sha")
+                or context.evidence.get("reviewed_commit_sha")
+                != review_binding.evidence_refs.get("reviewed_commit_sha")
+                or context.evidence.get("reviewed_candidate_digest")
+                != review_binding.evidence_refs.get("prospective_tree_digest")
+                or context.evidence.get("review_evidence_digest")
+                != review_binding.evidence_refs.get("verification_bundle_digest")
+                or context.evidence.get("evidence_bundle_digest")
+                != review_binding.evidence_refs.get("verification_bundle_digest")
+                or review_binding.evidence_refs.get("subject_digest") != self.subject_digest
+            ):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "completion is not bound to the exact reviewed candidate and evidence",
+                )
 
         kind = "TRANSITION"
         if target is S.COMPLETED:
@@ -2329,6 +2659,22 @@ class LifecycleControlPlane:
         status: str,
         result_digest: str | None,
     ) -> MutationResult:
+        """Serialize result sealing so one exact mutation receives one outcome."""
+
+        with self._operation_lock:
+            return self._record_mutation_result_locked(
+                attempt,
+                status=status,
+                result_digest=result_digest,
+            )
+
+    def _record_mutation_result_locked(
+        self,
+        attempt: MutationAttempt,
+        *,
+        status: str,
+        result_digest: str | None,
+    ) -> MutationResult:
         if status not in {"SUCCEEDED", "FAILED", "UNKNOWN"}:
             raise TransitionDeniedError("mutation result status is not admitted")
         if attempt.subject_digest != self.subject_digest:
@@ -2398,6 +2744,12 @@ class LifecycleControlPlane:
         )
 
     def resume(self, context: TransitionContext) -> LifecycleEvent:
+        """Serialize resume admission with every other same-instance transition."""
+
+        with self._operation_lock:
+            return self._resume_locked(context)
+
+    def _resume_locked(self, context: TransitionContext) -> LifecycleEvent:
         """Resume only the exact safe gate recorded by a prior stop event."""
 
         actor = context.actor
@@ -2467,12 +2819,46 @@ class LifecycleControlPlane:
                 "resume",
                 "post-merge finding disposition evidence is required before resume",
             )
+        if stopped_event.reason == "quarantine_disposition_indeterminate":
+            affected_artifact = stopped_event.evidence_refs.get("affected_artifact_digest", "")
+            disposition_authority = context.actor.authentication_evidence_digest
+            expected_disposition = _digest(
+                {
+                    "affected_artifact_digest": affected_artifact,
+                    "authority_evidence_digest": disposition_authority,
+                    "subject_digest": self.subject_digest,
+                    "status": "AUTHORITATIVELY_DISPOSED",
+                }
+            )
+            if (
+                "lifecycle.quarantine.disposition" not in context.actor.capabilities
+                or context.evidence.get("affected_artifact_digest") != affected_artifact
+                or context.evidence.get("quarantine_disposition_status")
+                != "AUTHORITATIVELY_DISPOSED"
+                or context.evidence.get("quarantine_disposition_authority_digest")
+                != disposition_authority
+                or context.evidence.get("quarantine_disposition_evidence_digest")
+                != expected_disposition
+            ):
+                self._deny(
+                    recorded,
+                    context,
+                    "resume",
+                    "authoritative exact-artifact quarantine disposition evidence is required",
+                )
         if context.rollout.has_resources:
             self._deny(
                 recorded, context, "resume", "ordinary resume requires zero rollout resources"
             )
         if context.work.worker_leases_active or not context.work.workers_stopped:
             self._deny(recorded, context, "resume", "ordinary resume requires stopped workers")
+        if context.work.mutation_capability_active:
+            self._deny(
+                recorded,
+                context,
+                "resume",
+                "ordinary resume requires revoked candidate mutation capability",
+            )
         if not context.authority.current_at(context.observed_at):
             self._deny(recorded, context, "resume", "authority must be current before resume")
         if context.budget_usage.safety_units_used != self.budget_usage.safety_units_used:

@@ -6,6 +6,7 @@ import hashlib
 import json
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import suppress
 from dataclasses import asdict, fields, replace
 from pathlib import Path
 
@@ -134,9 +135,13 @@ def evidence_for(source: LifecycleState, target: LifecycleState, *, reason: str)
     rule = PHASE_ZERO_POLICY.rule(source, target, reason=reason)
     return {
         name: (
-            "a" * 40
-            if name == "release_sha"
-            else "sha256:" + hashlib.sha256(name.encode()).hexdigest()
+            SHA
+            if name == "subject_digest"
+            else (
+                "a" * 40
+                if name.endswith("_sha")
+                else "sha256:" + hashlib.sha256(name.encode()).hexdigest()
+            )
         )
         for name in rule.required_evidence
     }
@@ -145,6 +150,76 @@ def evidence_for(source: LifecycleState, target: LifecycleState, *, reason: str)
 def object_digest(value: object) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def record_active_canary_binding(
+    cp: LifecycleControlPlane,
+    *,
+    attempt_digest: str = OTHER_SHA,
+) -> dict[str, str]:
+    evidence = {
+        "subject_digest": SHA,
+        "canary_id_digest": object_digest("canary-run-65-fixture"),
+        "canary_attempt_digest": attempt_digest,
+    }
+    evidence["canary_status_digest"] = object_digest(
+        {
+            "canary_id_digest": evidence["canary_id_digest"],
+            "deployment_attempt_digest": attempt_digest,
+            "deployment_result_digest": SHA,
+            "subject_digest": SHA,
+            "status": "ACTIVE",
+        }
+    )
+    cp._append(
+        kind="CANARY_BINDING_ADMITTED",
+        outcome="RECORDED",
+        source=cp.state,
+        target=cp.state,
+        reason="canary_admitted",
+        actor="fixture",
+        evidence_refs=evidence,
+        observed_at="2026-08-02T00:01:00Z",
+    )
+    return evidence
+
+
+def completion_evidence_with_review_binding(cp: LifecycleControlPlane) -> dict[str, str]:
+    reviewed_commit = "a" * 40
+    reviewed_candidate = object_digest({"tree": "reviewed-candidate"})
+    review_evidence = object_digest({"bundle": "reviewed-evidence"})
+    cp._append(
+        kind="REVIEW_BINDING_ADMITTED",
+        outcome="RECORDED",
+        source=cp.state,
+        target=cp.state,
+        reason="formal_review_clear",
+        actor="codex",
+        evidence_refs={
+            "subject_digest": SHA,
+            "reviewed_commit_sha": reviewed_commit,
+            "prospective_tree_digest": reviewed_candidate,
+            "verification_bundle_digest": review_evidence,
+            "review_digest": object_digest("codex-review-fixture"),
+        },
+        observed_at="2026-08-02T00:01:00Z",
+    )
+    evidence = evidence_for(
+        LifecycleState.PRODUCTION_DEPLOYED,
+        LifecycleState.COMPLETED,
+        reason="observation_window_passed",
+    )
+    evidence.update(
+        {
+            "subject_digest": SHA,
+            "release_sha": reviewed_commit,
+            "reviewed_commit_sha": reviewed_commit,
+            "reviewed_candidate_digest": reviewed_candidate,
+            "review_evidence_digest": review_evidence,
+            "evidence_bundle_digest": review_evidence,
+        }
+    )
+    return evidence
 
 
 def extension_authorization(
@@ -412,6 +487,7 @@ def test_reserved_safety_budget_cannot_authorize_forward_work(tmp_path: Path) ->
         LifecycleState.ROLLBACK_IN_PROGRESS,
         reason="canary_mutation_indeterminate",
     )
+    safety["rollback_attempt_digest"] = object_digest(asdict(attempt))
     cp.prejournal_mutation(attempt)
     cp.transition(
         LifecycleState.ROLLBACK_IN_PROGRESS,
@@ -497,7 +573,11 @@ def test_pr_ready_requires_eligible_exact_subject_review(tmp_path: Path) -> None
         kind="FORMAL_REVIEW",
         eligible=False,
         active=True,
+        reviewed_commit_sha=required["reviewed_commit_sha"],
+        reviewed_candidate_digest=required["prospective_tree_digest"],
+        review_evidence_digest=required["verification_bundle_digest"],
     )
+    required["review_digest"] = object_digest(asdict(ineligible))
     with pytest.raises(TransitionDeniedError, match="eligible formal review"):
         cp.transition(
             LifecycleState.PR_READY,
@@ -505,6 +585,7 @@ def test_pr_ready_requires_eligible_exact_subject_review(tmp_path: Path) -> None
             reason="formal_review_clear",
         )
     eligible = replace(ineligible, approval_id="review-2", actor="reviewer", eligible=True)
+    required["review_digest"] = object_digest(asdict(eligible))
     cp.transition(
         LifecycleState.PR_READY,
         context(evidence=required, approvals=(eligible,)),
@@ -542,6 +623,7 @@ def test_external_mutation_requires_prejournaled_unique_attempt(tmp_path: Path) 
         )
     cp.record_mutation_result(attempt, status="SUCCEEDED", result_digest=SHA)
     required["staging_result_digest"] = SHA
+    required["staging_attempt_digest"] = object_digest(asdict(attempt))
     cp.transition(
         LifecycleState.STAGING_DEPLOYED,
         context(evidence=required, mutation=attempt),
@@ -573,11 +655,17 @@ def test_production_admission_requires_live_exact_subject_approval(tmp_path: Pat
         reason="production_admitted",
     )
     required["production_result_digest"] = SHA
+    required["production_attempt_digest"] = object_digest(asdict(attempt))
+    required.update(record_active_canary_binding(cp))
 
     with pytest.raises(TransitionDeniedError, match="production approval"):
         cp.transition(
             LifecycleState.PRODUCTION_DEPLOYED,
-            context(evidence=required, mutation=attempt),
+            context(
+                evidence=required,
+                mutation=attempt,
+                rollout=RolloutStatus(canary="ACTIVE"),
+            ),
             reason="production_admitted",
         )
 
@@ -592,7 +680,12 @@ def test_production_admission_requires_live_exact_subject_approval(tmp_path: Pat
     required["production_approval_digest"] = object_digest(asdict(approval))
     cp.transition(
         LifecycleState.PRODUCTION_DEPLOYED,
-        context(evidence=required, mutation=attempt, approvals=(approval,)),
+        context(
+            evidence=required,
+            mutation=attempt,
+            approvals=(approval,),
+            rollout=RolloutStatus(canary="ACTIVE"),
+        ),
         reason="production_admitted",
     )
 
@@ -670,6 +763,7 @@ def test_mutation_admission_binds_evidence_to_persisted_result(tmp_path: Path) -
         )
 
     required["staging_result_digest"] = SHA
+    required["staging_attempt_digest"] = object_digest(asdict(attempt))
     cp.transition(
         LifecycleState.STAGING_DEPLOYED,
         context(evidence=required, mutation=attempt),
@@ -716,11 +810,7 @@ def test_completed_requires_exact_release_live_rollback_and_observation_evidence
     tmp_path: Path,
 ) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.PRODUCTION_DEPLOYED)
-    required = evidence_for(
-        LifecycleState.PRODUCTION_DEPLOYED,
-        LifecycleState.COMPLETED,
-        reason="observation_window_passed",
-    )
+    required = completion_evidence_with_review_binding(cp)
     missing = dict(required)
     missing.pop("rollback_readiness_digest")
     with pytest.raises(TransitionDeniedError, match="required evidence"):
@@ -740,11 +830,7 @@ def test_completed_requires_exact_release_live_rollback_and_observation_evidence
 
 def test_completion_claim_is_revoked_append_only_on_admitted_invalidation(tmp_path: Path) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.PRODUCTION_DEPLOYED)
-    done = evidence_for(
-        LifecycleState.PRODUCTION_DEPLOYED,
-        LifecycleState.COMPLETED,
-        reason="observation_window_passed",
-    )
+    done = completion_evidence_with_review_binding(cp)
     cp.transition(
         LifecycleState.COMPLETED,
         context(evidence=done),
@@ -1004,6 +1090,7 @@ def test_mutation_admission_requires_persisted_success_after_replay(tmp_path: Pa
         reason="staging_admitted",
     )
     required["staging_result_digest"] = SHA
+    required["staging_attempt_digest"] = object_digest(asdict(attempt))
     loaded.transition(
         LifecycleState.STAGING_DEPLOYED,
         context(evidence=required, mutation=attempt),
@@ -1116,6 +1203,7 @@ def test_safety_mutations_are_explicitly_prejournaled_before_adapter_execution(
         LifecycleState.ROLLBACK_IN_PROGRESS,
         reason="rollback_started",
     )
+    start_evidence["rollback_attempt_digest"] = object_digest(asdict(attempt))
 
     with pytest.raises(TransitionDeniedError, match="durably pre-journaled"):
         cp.transition(
@@ -1305,6 +1393,8 @@ def test_canary_failure_with_mutation_or_indeterminate_exposure_enters_rollback(
         LifecycleState.ROLLBACK_IN_PROGRESS,
         reason="canary_failed",
     )
+    required.update(record_active_canary_binding(cp))
+    required["rollback_attempt_digest"] = object_digest(asdict(rollback))
     event = cp.transition(
         LifecycleState.ROLLBACK_IN_PROGRESS,
         context(
@@ -1691,10 +1781,8 @@ def test_same_instance_serializes_competing_transitions_before_validation(
         source: LifecycleState, target: LifecycleState, *, reason: str
     ) -> lifecycle.TransitionRule:
         if source is LifecycleState.CONTRACT_RECEIVED:
-            try:
+            with suppress(threading.BrokenBarrierError):
                 barrier.wait(timeout=0.5)
-            except threading.BrokenBarrierError:
-                pass
         return original_rule(source, target, reason=reason)
 
     monkeypatch.setattr(PHASE_ZERO_POLICY, "rule", synchronized_rule)
@@ -1787,6 +1875,30 @@ def test_rollback_completion_requires_exact_attempt_bound_zero_exposure(
             ),
             reason="rollback_verified",
         )
+    required["rollback_exposure_digest"] = object_digest(
+        {
+            "subject_digest": SHA,
+            "rollback_attempt_digest": object_digest(asdict(attempt)),
+            "rollback_result_digest": SHA,
+            "canary": "REMOVED",
+            "changed_production": "REMOVED",
+        }
+    )
+    admitted = cp.transition(
+        LifecycleState.ROLLED_BACK,
+        context(
+            evidence=required,
+            mutation=attempt,
+            rollout=RolloutStatus(
+                staging="REMOVED",
+                canary="REMOVED",
+                changed_production="REMOVED",
+            ),
+            usage=cp.budget_usage,
+        ),
+        reason="rollback_verified",
+    )
+    assert admitted.target is LifecycleState.ROLLED_BACK
 
 
 def test_canary_progression_rejects_foreign_or_stale_active_canary_proof(
@@ -1818,6 +1930,7 @@ def test_canary_progression_rejects_foreign_or_stale_active_canary_proof(
                 {
                     "canary_id_digest": object_digest("canary-run-65-1"),
                     "deployment_attempt_digest": object_digest(asdict(attempt)),
+                    "deployment_result_digest": SHA,
                     "subject_digest": SHA,
                     "status": "ACTIVE",
                 }
@@ -1847,12 +1960,28 @@ def test_canary_progression_rejects_foreign_or_stale_active_canary_proof(
         }
     )
 
-    with pytest.raises(TransitionDeniedError, match="active canary proof"):
+    with pytest.raises(TransitionDeniedError, match="canary"):
         cp.transition(
             LifecycleState.PRODUCTION_APPROVAL_REQUIRED,
             context(
                 evidence=promotion,
                 rollout=RolloutStatus(staging="ACTIVE", canary="ACTIVE"),
+            ),
+            reason="canary_window_passed",
+        )
+
+    promotion.update(
+        {
+            "canary_id_digest": admitted["canary_id_digest"],
+            "canary_status_digest": admitted["canary_status_digest"],
+        }
+    )
+    with pytest.raises(TransitionDeniedError, match="canary"):
+        cp.transition(
+            LifecycleState.PRODUCTION_APPROVAL_REQUIRED,
+            context(
+                evidence=promotion,
+                rollout=RolloutStatus(staging="ACTIVE", canary="REMOVED"),
             ),
             reason="canary_window_passed",
         )
@@ -1906,6 +2035,7 @@ def test_completion_rejects_review_binding_from_a_different_frozen_candidate(
             "reviewed_commit_sha": reviewed_commit,
             "reviewed_candidate_digest": OTHER_SHA,
             "review_evidence_digest": review_evidence,
+            "evidence_bundle_digest": review_evidence,
         }
     )
 
@@ -1933,12 +2063,31 @@ def test_quarantine_disposition_failure_enters_bound_security_block(
         "subject_digest": SHA,
         "intake_receipt_digest": object_digest("receipt"),
         "affected_artifact_digest": affected_artifact,
-        "quarantine_disposition_digest": object_digest("UNKNOWN"),
-        "exposure_digest": object_digest("QUARANTINED_UNKNOWN"),
+        "quarantine_disposition_status": "UNKNOWN",
+        "quarantine_disposition_digest": object_digest(
+            {
+                "affected_artifact_digest": affected_artifact,
+                "subject_digest": SHA,
+                "status": "UNKNOWN",
+            }
+        ),
+        "exposure_digest": object_digest(
+            {
+                "affected_artifact_digest": affected_artifact,
+                "subject_digest": SHA,
+                "rollout": asdict(RolloutStatus(changed_production="UNKNOWN")),
+            }
+        ),
         "incident_digest": object_digest("incident-1"),
         "worker_quiescence_digest": object_digest(asdict(stopped_work)),
         "mutation_revocation_digest": object_digest("revoked"),
-        "retry_gate_digest": object_digest("authoritative-disposition-required"),
+        "retry_gate_digest": object_digest(
+            {
+                "affected_artifact_digest": affected_artifact,
+                "gate": "AUTHORITATIVE_DISPOSITION_REQUIRED",
+                "subject_digest": SHA,
+            }
+        ),
     }
     blocked = cp.transition(
         LifecycleState.BLOCKED,
@@ -1959,12 +2108,34 @@ def test_quarantine_disposition_failure_enters_bound_security_block(
     }
     with pytest.raises(TransitionDeniedError, match="quarantine disposition"):
         cp.resume(context(evidence=resume_evidence, work=stopped_work))
+    base_actor = context().actor
+    disposition_capabilities = frozenset(
+        {"lifecycle.transition", "lifecycle.quarantine.disposition"}
+    )
+    disposition_authority = object_digest(
+        {
+            "actor_id": base_actor.actor_id,
+            "role": base_actor.role,
+            "authenticated": base_actor.authenticated,
+            "capabilities": sorted(disposition_capabilities),
+            "subject_digest": base_actor.subject_digest,
+            "authority_digest": base_actor.authority_digest,
+        }
+    )
+    disposition_actor = replace(
+        base_actor,
+        capabilities=disposition_capabilities,
+        authentication_evidence_digest=disposition_authority,
+    )
     resume_evidence.update(
         {
             "affected_artifact_digest": affected_artifact,
+            "quarantine_disposition_status": "AUTHORITATIVELY_DISPOSED",
+            "quarantine_disposition_authority_digest": disposition_authority,
             "quarantine_disposition_evidence_digest": object_digest(
                 {
                     "affected_artifact_digest": affected_artifact,
+                    "authority_evidence_digest": disposition_authority,
                     "subject_digest": SHA,
                     "status": "AUTHORITATIVELY_DISPOSED",
                 }
@@ -1976,6 +2147,7 @@ def test_quarantine_disposition_failure_enters_bound_security_block(
             evidence=resume_evidence,
             work=stopped_work,
             rollout=RolloutStatus(changed_production="REMOVED"),
+            actor=disposition_actor,
         )
     )
     assert resumed.target is LifecycleState.CONTRACT_RECEIVED
