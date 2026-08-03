@@ -78,6 +78,7 @@ class AuthoritySnapshot:
     contract_active: bool
     publisher_active: bool
     observed_at: str
+    valid_until: str
     digest: str
 
     @property
@@ -88,8 +89,28 @@ class AuthoritySnapshot:
             and self.contract_version
             and self.publisher_version
             and self.observed_at
+            and self.valid_until
             and self.digest
         )
+
+    def current_at(self, transition_observed_at: str) -> bool:
+        """Require an unexpired authority observation made for this transition."""
+
+        if not self.current or not transition_observed_at:
+            return False
+        try:
+            authority_observed = datetime.fromisoformat(self.observed_at.replace("Z", "+00:00"))
+            valid_until = datetime.fromisoformat(self.valid_until.replace("Z", "+00:00"))
+            transition_observed = datetime.fromisoformat(
+                transition_observed_at.replace("Z", "+00:00")
+            )
+        except ValueError:
+            return False
+        if any(
+            value.tzinfo is None for value in (authority_observed, valid_until, transition_observed)
+        ):
+            return False
+        return authority_observed == transition_observed < valid_until
 
 
 @dataclass(frozen=True)
@@ -927,6 +948,7 @@ _RULES: tuple[TransitionRule, ...] = (
             "production_result_digest",
         ),
         *_MUTATION,
+        "production_approval",
         mutation="deploy_production",
     ),
     _r(
@@ -1469,7 +1491,7 @@ class LifecycleControlPlane:
         ):
             raise TransitionDeniedError("budget extension run or subject does not match")
         if (
-            not authority.current
+            not authority.current_at(observed_at)
             or authorization.authority_digest != authority.digest
             or authorization.owner_id != policy.approved_by
         ):
@@ -1715,6 +1737,7 @@ class LifecycleControlPlane:
             budget_usage=persisted_usage,
             detail=detail,
         )
+        self.budget_usage = persisted_usage
         raise TransitionDeniedError(detail)
 
     def transition(
@@ -1794,7 +1817,7 @@ class LifecycleControlPlane:
             )
         if reason == "canary_breach" and context.rollout.canary not in {"ACTIVE", "UNKNOWN"}:
             self._deny(target, context, reason, "canary breach requires evidenced exposure")
-        if "authority" in guards and not context.authority.current:
+        if "authority" in guards and not context.authority.current_at(context.observed_at):
             self._deny(target, context, reason, "contract or publisher authority is not current")
         exhausted = usage.exhausted_dimensions(self.budget_policy)
         if "budget" in guards and exhausted:
@@ -1864,6 +1887,22 @@ class LifecycleControlPlane:
             for approval in context.approvals
         ):
             self._deny(target, context, reason, "eligible formal review is required")
+        if "production_approval" in guards and not any(
+            approval.approval_id
+            and approval.actor
+            and approval.kind == "PRODUCTION"
+            and approval.eligible
+            and approval.active
+            and approval.subject_digest == self.subject_digest
+            and context.evidence.get("production_approval_digest") == _digest(asdict(approval))
+            for approval in context.approvals
+        ):
+            self._deny(
+                target,
+                context,
+                reason,
+                "a live exact-subject production approval is required",
+            )
         if "mutation" in guards:
             attempt = context.mutation
             if attempt is None or attempt.status != "PLANNED":
@@ -1899,6 +1938,27 @@ class LifecycleControlPlane:
                 )
             if result is not None and result.attempt_id != attempt.attempt_id:
                 self._deny(target, context, reason, "mutation result attempt does not match")
+            result_evidence_name = {
+                "deploy_staging": "staging_result_digest",
+                "deploy_canary": "canary_result_digest",
+                "deploy_production": "production_result_digest",
+                "cleanup_staging": "cleanup_result_digest",
+                "rollback": "rollback_result_digest",
+                "teardown_canary": "canary_teardown_digest",
+            }.get(attempt.action)
+            if (
+                not starts_safety_action
+                and result is not None
+                and result.successful
+                and result_evidence_name in rule.required_evidence
+                and context.evidence.get(result_evidence_name) != result.result_digest
+            ):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "transition evidence does not match the persisted mutation result",
+                )
         if "safety_block" in guards:
             attempt = context.mutation
             if attempt is None or rule.mutation_action != attempt.action:
@@ -2167,7 +2227,7 @@ class LifecycleControlPlane:
             )
         if context.work.worker_leases_active or not context.work.workers_stopped:
             self._deny(recorded, context, "resume", "ordinary resume requires stopped workers")
-        if not context.authority.current:
+        if not context.authority.current_at(context.observed_at):
             self._deny(recorded, context, "resume", "authority must be current before resume")
         if context.budget_usage.safety_units_used != self.budget_usage.safety_units_used:
             self._deny(

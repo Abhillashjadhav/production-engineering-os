@@ -32,13 +32,19 @@ SHA = "sha256:" + "a" * 64
 OTHER_SHA = "sha256:" + "b" * 64
 
 
-def authority(*, current: bool = True) -> AuthoritySnapshot:
+def authority(
+    *,
+    current: bool = True,
+    observed_at: str = "2026-08-02T00:01:00Z",
+    valid_until: str = "2026-08-03T00:00:00Z",
+) -> AuthoritySnapshot:
     return AuthoritySnapshot(
         contract_version="contract-v1",
         publisher_version="publisher-v1",
         contract_active=current,
         publisher_active=current,
-        observed_at="2026-08-02T00:00:00Z",
+        observed_at=observed_at,
+        valid_until=valid_until,
         digest=SHA,
     )
 
@@ -525,6 +531,7 @@ def test_external_mutation_requires_prejournaled_unique_attempt(tmp_path: Path) 
             reason="staging_admitted",
         )
     cp.record_mutation_result(attempt, status="SUCCEEDED", result_digest=SHA)
+    required["staging_result_digest"] = SHA
     cp.transition(
         LifecycleState.STAGING_DEPLOYED,
         context(evidence=required, mutation=attempt),
@@ -819,7 +826,7 @@ def test_budget_resume_uses_only_the_recorded_safe_state(tmp_path: Path) -> None
     cp.admit_budget_policy(
         extended,
         authorization=extension_authorization(cp, extended, amounts={"tokens": 100}),
-        authority=authority(),
+        authority=authority(observed_at="2026-08-02T12:00:00Z"),
         observed_at="2026-08-02T12:00:00Z",
     )
     cp.resume(context(usage=BudgetUsage(counters={"tokens": 101})))
@@ -972,6 +979,7 @@ def test_mutation_admission_requires_persisted_success_after_replay(tmp_path: Pa
         LifecycleState.STAGING_DEPLOYED,
         reason="staging_admitted",
     )
+    required["staging_result_digest"] = SHA
     loaded.transition(
         LifecycleState.STAGING_DEPLOYED,
         context(evidence=required, mutation=attempt),
@@ -1283,34 +1291,37 @@ def test_budget_extensions_require_named_authenticated_exact_subject_authority(
         cp.admit_budget_policy(
             extended,
             authorization=replace(authorization, subject_digest=OTHER_SHA),
-            authority=authority(),
+            authority=authority(observed_at="2026-08-02T12:00:00Z"),
             observed_at="2026-08-02T12:00:00Z",
         )
     with pytest.raises(TransitionDeniedError, match="amount"):
         cp.admit_budget_policy(
             extended,
             authorization=extension_authorization(cp, extended, amounts={"tokens": 26}),
-            authority=authority(),
+            authority=authority(observed_at="2026-08-02T12:00:00Z"),
             observed_at="2026-08-02T12:00:00Z",
         )
     with pytest.raises(TransitionDeniedError, match="reason"):
         cp.admit_budget_policy(
             extended,
             authorization=replace(authorization, reason=""),
-            authority=authority(),
+            authority=authority(observed_at="2026-08-02T12:00:00Z"),
             observed_at="2026-08-02T12:00:00Z",
         )
     with pytest.raises(TransitionDeniedError, match="validity"):
         cp.admit_budget_policy(
             extended,
             authorization=authorization,
-            authority=authority(),
+            authority=authority(
+                observed_at="2026-08-04T12:00:00Z",
+                valid_until="2026-08-05T00:00:00Z",
+            ),
             observed_at="2026-08-04T12:00:00Z",
         )
     cp.admit_budget_policy(
         extended,
         authorization=authorization,
-        authority=authority(),
+        authority=authority(observed_at="2026-08-02T12:00:00Z"),
         observed_at="2026-08-02T12:00:00Z",
     )
     assert cp.budget_policy == extended
