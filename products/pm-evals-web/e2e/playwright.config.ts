@@ -1,5 +1,5 @@
-// Browser-level verification harness: REAL frontend (production build via
-// `next start`) proxying to the REAL backend (uvicorn) — no mocks anywhere
+// Browser-level verification harness: REAL frontend (production Vite build)
+// proxying to the REAL backend (uvicorn) — no mocks anywhere
 // (PD-V3-10). Locally the pre-installed Chromium is used via
 // PLAYWRIGHT_CHROMIUM_PATH when the packaged browser build is absent; CI
 // installs the matching browser and leaves the variable unset.
@@ -44,10 +44,8 @@ export default defineConfig({
       testMatch: /responsive\.spec\.ts/,
     },
   ],
-  // Default ports on purpose: `next start` bakes the rewrite target at BUILD
-  // time (next.config.mjs rewrites are evaluated during `next build`), so the
-  // e2e servers run where the committed default points — backend 8000,
-  // frontend 3000. A BACKEND_URL set only at start time would be ignored.
+  // Default ports preserve the public journey: Vite preview proxies same-origin
+  // /api requests to the real backend on 8000, while the SPA remains on 3000.
   webServer: externalServers ? undefined : [
     {
       // E2E_PYTHON lets the local run use the repo venv; CI installs the
@@ -61,7 +59,7 @@ export default defineConfig({
       env: { ...process.env, PYTHONPATH: "src" },
     },
     {
-      command: "cd ../frontend && npx next start --hostname 127.0.0.1 --port 3000",
+      command: "cd ../frontend && BACKEND_URL=http://127.0.0.1:8000 npm run start",
       url: "http://127.0.0.1:3000",
       reuseExistingServer: false,
       timeout: 60_000,
