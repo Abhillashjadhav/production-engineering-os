@@ -180,7 +180,7 @@ def _valid_boundary_path(path: str) -> bool:
 def _normalize_boundary_name(name: str) -> str:
     candidate = PurePosixPath(name)
     normalized = candidate.as_posix()
-    return normalized if normalized != "." and _valid_boundary_path(normalized) else ""
+    return normalized if _valid_boundary_path(normalized) else ""
 
 
 def _item_ids(items: Any) -> set[str]:
@@ -1015,6 +1015,7 @@ class ArchitectureCompiler:
             adr_id = str(adr.get("id", "UNKNOWN"))
             for category in sorted(categories):
                 owner = _APPROVAL_OWNERS[category]
+                domain = (adr_id, category, owner)
                 verified = False
                 if approval_refs and verifier is not None:
                     try:
@@ -1032,8 +1033,21 @@ class ArchitectureCompiler:
                     except Exception:
                         verified = False
                 if verified:
+                    pack["approval_requests"] = [
+                        request
+                        for request in pack.get("approval_requests", [])
+                        if not (
+                            isinstance(request, Mapping)
+                            and (
+                                str(request.get("decision_ref")),
+                                str(request.get("category")),
+                                str(request.get("owner")),
+                            )
+                            == domain
+                        )
+                    ]
+                    requests_by_domain.discard(domain)
                     continue
-                domain = (adr_id, category, owner)
                 if domain not in requests_by_domain:
                     pack["approval_requests"].append(
                         {

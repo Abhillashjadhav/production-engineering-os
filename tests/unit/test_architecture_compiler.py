@@ -530,11 +530,21 @@ def test_root_package_manifest_boundary_is_preserved_and_compiles(tmp_path: Path
     subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
     subprocess.run(["git", "commit", "-q", "-m", "fixture"], cwd=repo, check=True)
 
-    snapshot = RepositoryScanner(
+    scanned = RepositoryScanner(
         config=ScanConfig(repository="example/root-package", default_branch="main")
     ).scan(repo, commit="HEAD")
-    root = next(candidate for candidate in snapshot.boundary_candidates if candidate.name == ".")
+    root = next(candidate for candidate in scanned.boundary_candidates if candidate.name == ".")
     assert root.evidence_paths == ("pyproject.toml",)
+    snapshot = replace(
+        scanned,
+        disposition="COMPLETE",
+        unsupported_categories=(),
+        findings=(),
+        snapshot_digest="",
+    )
+    snapshot_payload = snapshot.as_dict()
+    snapshot_payload.pop("snapshot_digest")
+    snapshot = replace(snapshot, snapshot_digest=canonical_digest(snapshot_payload))
 
     contract = _contract()
     governance = _governance(snapshot)
@@ -546,7 +556,9 @@ def test_root_package_manifest_boundary_is_preserved_and_compiles(tmp_path: Path
         _api().ArchitectureCompiler().compile(contract, validation, snapshot, governance, proposal)
     )
 
-    assert result.disposition.value == "ADMITTED"
+    assert result.disposition.value == "ADMITTED", [
+        (item.explanation, item.next_action) for item in result.diagnostics
+    ]
     assert result.pack is not None
     assert result.pack.repository_boundary_evidence[0]["boundary"] == "."
     assert result.pack.repository_boundary_evidence[0]["evidence_paths"] == ("pyproject.toml",)
