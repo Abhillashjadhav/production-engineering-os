@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 FRONTEND = ROOT / "products" / "pm-evals-web" / "frontend"
 CI_WORKFLOW = ROOT / ".github" / "workflows" / "ci.yml"
 PREVIEW = ROOT / "products" / "pm-evals-web" / "scripts" / "preview.sh"
+PREVIEW_EVIDENCE = ROOT / "products" / "pm-evals-web" / "scripts" / "preview_evidence.py"
 
 
 def _manifest() -> dict[str, object]:
@@ -72,11 +73,16 @@ def test_container_and_local_preview_serve_dist_without_next_runtime() -> None:
 
 def test_ci_build_and_preview_contract_has_no_next_specific_path() -> None:
     workflow = CI_WORKFLOW.read_text()
+    evidence = PREVIEW_EVIDENCE.read_text()
+    workflow_lines = {line.strip() for line in workflow.splitlines()}
 
     assert "npm run build" in workflow
     assert "npx next build" not in workflow
     assert ".next/BUILD_ID" not in workflow
     assert "/usr/share/nginx/html/BUILD_ID" in workflow
+    assert "git diff --exit-code src/lib/api-types" in workflow_lines
+    assert '"frontend-build-id"' in evidence
+    assert "frontend-next-build-id" not in evidence
 
 
 def test_lock_and_generated_surface_exclude_retired_dependency_chains() -> None:

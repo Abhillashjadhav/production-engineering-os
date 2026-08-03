@@ -18,10 +18,10 @@ def test_workflow_keeps_stable_job_and_all_frontend_gates() -> None:
     assert "npm ci" in workflow
     assert "npm audit --audit-level=high" in workflow
     assert "npm run generate:api-types" in workflow
-    assert "git diff --exit-code src/lib/api-types.gen.ts" in workflow
+    assert "git diff --exit-code src/lib/api-types" in workflow
     assert "npx tsc --noEmit" in workflow
     assert "npx vitest run" in workflow
-    assert "npx next build" in workflow
+    assert "npm run build" in workflow
     assert workflow.count(FULL_SUITE_CONDITION) == 7
 
 
