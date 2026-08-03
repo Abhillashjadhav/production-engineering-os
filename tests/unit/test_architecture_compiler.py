@@ -596,6 +596,85 @@ def test_verified_approval_removes_matching_stale_input_request() -> None:
     assert result.pack.approval_requests == ()
 
 
+def test_every_contract_requirement_requires_architecture_coverage() -> None:
+    contract = _contract()
+    snapshot = _snapshot()
+    governance = _governance(snapshot)
+    proposal = _proposal(contract, snapshot, governance)
+    for component in proposal["components"]:
+        component["requirement_ids"] = [
+            requirement for requirement in component["requirement_ids"] if requirement != "NFR-001"
+        ]
+
+    result = _compile(proposal)
+
+    assert result.disposition.value == "ERROR"
+    coverage = [item for item in result.diagnostics if item.rule_id == "ARCH.CONTRACT.COVERAGE"]
+    assert any("NFR-001" in item.explanation for item in coverage)
+
+
+def test_unrelated_or_orphaned_approval_requests_are_not_admitted() -> None:
+    contract = _contract()
+    snapshot = _snapshot()
+    governance = _governance(snapshot)
+    proposal = _proposal(contract, snapshot, governance)
+    proposal["approval_requests"] = [
+        {
+            "id": "INPUT-ADR-GHOST-SECURITY-POLICY",
+            "category": "SECURITY_POLICY",
+            "decision_ref": "ADR-GHOST",
+            "owner": "SECURITY",
+            "reason": "Stale request for a removed ADR.",
+            "status": "INPUT_REQUIRED",
+        }
+    ]
+
+    result = _compile(proposal)
+
+    assert result.disposition.value == "ADMITTED"
+    assert result.pack is not None
+    assert result.pack.approval_requests == ()
+
+
+def test_threat_cannot_reference_an_undeclared_boundary() -> None:
+    contract = _contract()
+    snapshot = _snapshot()
+    governance = _governance(snapshot)
+    proposal = _proposal(contract, snapshot, governance)
+    proposal["threat_model"]["threats"][0]["trust_boundary_refs"].append("TB-GHOST")
+
+    result = _compile(proposal)
+
+    assert result.disposition.value == "ERROR"
+    assert "ARCH.THREAT.GAP" in {item.rule_id for item in result.diagnostics}
+
+
+def test_every_adr_requires_explicit_ownership_classification() -> None:
+    contract = _contract()
+    snapshot = _snapshot()
+    governance = _governance(snapshot)
+    proposal = _proposal(contract, snapshot, governance)
+    proposal["adrs"][0].pop("decision_classes", None)
+
+    result = _compile(proposal)
+
+    assert result.disposition.value == "ERROR"
+    assert "ARCH.ADR.CLASSIFICATION" in {item.rule_id for item in result.diagnostics}
+
+
+def test_flow_data_must_be_covered_by_every_referenced_boundary() -> None:
+    contract = _contract()
+    snapshot = _snapshot()
+    governance = _governance(snapshot)
+    proposal = _proposal(contract, snapshot, governance)
+    proposal["data_flows"][0]["data_refs"] = ["DATA-001"]
+
+    result = _compile(proposal)
+
+    assert result.disposition.value == "ERROR"
+    assert "ARCH.SECURITY.BOUNDARY" in {item.rule_id for item in result.diagnostics}
+
+
 def test_duplicate_component_is_rejected_as_unnecessary_complexity() -> None:
     contract = _contract()
     snapshot = _snapshot()
