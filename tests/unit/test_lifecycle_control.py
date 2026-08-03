@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, fields, replace
 from pathlib import Path
 
@@ -1676,3 +1678,304 @@ def test_unknown_policy_decisions_fail_closed() -> None:
     decision = PolicyEngine().classify("operation.never.registered")
     assert decision.level.value == "high"
     assert PolicyEngine().requires_approval(decision.level)
+
+
+def test_same_instance_serializes_competing_transitions_before_validation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cp = control_plane(tmp_path)
+    barrier = threading.Barrier(2)
+    original_rule = PHASE_ZERO_POLICY.rule
+
+    def synchronized_rule(
+        source: LifecycleState, target: LifecycleState, *, reason: str
+    ) -> lifecycle.TransitionRule:
+        if source is LifecycleState.CONTRACT_RECEIVED:
+            try:
+                barrier.wait(timeout=0.5)
+            except threading.BrokenBarrierError:
+                pass
+        return original_rule(source, target, reason=reason)
+
+    monkeypatch.setattr(PHASE_ZERO_POLICY, "rule", synchronized_rule)
+    transitions = (
+        (
+            LifecycleState.CONTRACT_INVALID,
+            "contract_rejected",
+            evidence_for(
+                LifecycleState.CONTRACT_RECEIVED,
+                LifecycleState.CONTRACT_INVALID,
+                reason="contract_rejected",
+            ),
+        ),
+        (
+            LifecycleState.CONTRACT_APPROVED,
+            "contract_admitted",
+            evidence_for(
+                LifecycleState.CONTRACT_RECEIVED,
+                LifecycleState.CONTRACT_APPROVED,
+                reason="contract_admitted",
+            ),
+        ),
+    )
+
+    def apply(item: tuple[LifecycleState, str, dict[str, str]]) -> str:
+        target, reason, evidence = item
+        try:
+            cp.transition(target, context(evidence=evidence), reason=reason)
+        except TransitionDeniedError:
+            return "denied"
+        return "applied"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = tuple(executor.map(apply, transitions))
+
+    assert sorted(outcomes) == ["applied", "denied"]
+    loaded = LifecycleControlPlane.load(tmp_path)
+    applied = [event for event in loaded.events if event.outcome == "APPLIED"]
+    assert len(applied) == 2  # STATE_CREATED plus exactly one competing transition.
+    assert applied[-1].source is LifecycleState.CONTRACT_RECEIVED
+
+
+def test_rollback_completion_requires_exact_attempt_bound_zero_exposure(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.ROLLBACK_IN_PROGRESS)
+    attempt = MutationAttempt(
+        attempt_id="rollback-exposure-1",
+        idempotency_key="rollback:run-65:exposure-1",
+        subject_digest=SHA,
+        action="rollback",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(attempt)
+    cp.record_mutation_result(attempt, status="SUCCEEDED", result_digest=SHA)
+    required = evidence_for(
+        LifecycleState.ROLLBACK_IN_PROGRESS,
+        LifecycleState.ROLLED_BACK,
+        reason="rollback_verified",
+    )
+    required.update(
+        {
+            "subject_digest": SHA,
+            "rollback_attempt_digest": object_digest(asdict(attempt)),
+            "rollback_result_digest": SHA,
+            "rollback_exposure_digest": object_digest(
+                {
+                    "subject_digest": SHA,
+                    "rollback_attempt_digest": object_digest(asdict(attempt)),
+                    "rollback_result_digest": SHA,
+                    "canary": "ACTIVE",
+                    "changed_production": "UNKNOWN",
+                }
+            ),
+        }
+    )
+
+    with pytest.raises(TransitionDeniedError, match="unresolved exposure"):
+        cp.transition(
+            LifecycleState.ROLLED_BACK,
+            context(
+                evidence=required,
+                mutation=attempt,
+                rollout=RolloutStatus(
+                    staging="REMOVED",
+                    canary="ACTIVE",
+                    changed_production="UNKNOWN",
+                ),
+            ),
+            reason="rollback_verified",
+        )
+
+
+def test_canary_progression_rejects_foreign_or_stale_active_canary_proof(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.STAGING_DEPLOYED)
+    attempt = MutationAttempt(
+        attempt_id="canary-deploy-1",
+        idempotency_key="canary:run-65:deploy-1",
+        subject_digest=SHA,
+        action="deploy_canary",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(attempt)
+    cp.record_mutation_result(attempt, status="SUCCEEDED", result_digest=SHA)
+    admitted = evidence_for(
+        LifecycleState.STAGING_DEPLOYED,
+        LifecycleState.CANARY_DEPLOYED,
+        reason="canary_admitted",
+    )
+    admitted.update(
+        {
+            "subject_digest": SHA,
+            "canary_id_digest": object_digest("canary-run-65-1"),
+            "canary_attempt_digest": object_digest(asdict(attempt)),
+            "canary_result_digest": SHA,
+            "canary_status_digest": object_digest(
+                {
+                    "canary_id_digest": object_digest("canary-run-65-1"),
+                    "deployment_attempt_digest": object_digest(asdict(attempt)),
+                    "subject_digest": SHA,
+                    "status": "ACTIVE",
+                }
+            ),
+        }
+    )
+    cp.transition(
+        LifecycleState.CANARY_DEPLOYED,
+        context(
+            evidence=admitted,
+            mutation=attempt,
+            rollout=RolloutStatus(staging="ACTIVE", canary="ACTIVE"),
+        ),
+        reason="canary_admitted",
+    )
+    promotion = evidence_for(
+        LifecycleState.CANARY_DEPLOYED,
+        LifecycleState.PRODUCTION_APPROVAL_REQUIRED,
+        reason="canary_window_passed",
+    )
+    promotion.update(
+        {
+            "subject_digest": SHA,
+            "canary_id_digest": object_digest("foreign-canary"),
+            "canary_attempt_digest": object_digest(asdict(attempt)),
+            "canary_status_digest": admitted["canary_status_digest"],
+        }
+    )
+
+    with pytest.raises(TransitionDeniedError, match="active canary proof"):
+        cp.transition(
+            LifecycleState.PRODUCTION_APPROVAL_REQUIRED,
+            context(
+                evidence=promotion,
+                rollout=RolloutStatus(staging="ACTIVE", canary="ACTIVE"),
+            ),
+            reason="canary_window_passed",
+        )
+
+    assert LifecycleControlPlane.load(tmp_path).state is LifecycleState.CANARY_DEPLOYED
+
+
+def test_completion_rejects_review_binding_from_a_different_frozen_candidate(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PRODUCTION_DEPLOYED)
+    reviewed_commit = "a" * 40
+    reviewed_candidate = object_digest({"tree": "reviewed-candidate"})
+    review_evidence = object_digest({"bundle": "reviewed-evidence"})
+    approval = Approval(
+        approval_id="codex-review-1",
+        actor="codex",
+        subject_digest=SHA,
+        kind="FORMAL_REVIEW",
+        eligible=True,
+        active=True,
+        reviewed_commit_sha=reviewed_commit,
+        reviewed_candidate_digest=reviewed_candidate,
+        review_evidence_digest=review_evidence,
+    )
+    cp._append(
+        kind="REVIEW_BINDING_ADMITTED",
+        outcome="RECORDED",
+        source=LifecycleState.PRODUCTION_DEPLOYED,
+        target=LifecycleState.PRODUCTION_DEPLOYED,
+        reason="formal_review_clear",
+        actor=approval.actor,
+        evidence_refs={
+            "subject_digest": SHA,
+            "reviewed_commit_sha": reviewed_commit,
+            "prospective_tree_digest": reviewed_candidate,
+            "verification_bundle_digest": review_evidence,
+            "review_digest": object_digest(asdict(approval)),
+        },
+        observed_at="2026-08-02T00:01:00Z",
+    )
+    completion = evidence_for(
+        LifecycleState.PRODUCTION_DEPLOYED,
+        LifecycleState.COMPLETED,
+        reason="observation_window_passed",
+    )
+    completion.update(
+        {
+            "subject_digest": SHA,
+            "release_sha": reviewed_commit,
+            "reviewed_commit_sha": reviewed_commit,
+            "reviewed_candidate_digest": OTHER_SHA,
+            "review_evidence_digest": review_evidence,
+        }
+    )
+
+    with pytest.raises(TransitionDeniedError, match="reviewed candidate"):
+        cp.transition(
+            LifecycleState.COMPLETED,
+            context(evidence=completion),
+            reason="observation_window_passed",
+        )
+    assert not cp.completion_claim_active
+
+
+def test_quarantine_disposition_failure_enters_bound_security_block(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path)
+    stopped_work = WorkStatus(
+        worker_leases_active=0,
+        workers_stopped=True,
+        mutation_capability_active=False,
+        partial_output_disposition="quarantined-unresolved",
+    )
+    affected_artifact = object_digest({"artifact": "untrusted-contract"})
+    blocked_evidence = {
+        "subject_digest": SHA,
+        "intake_receipt_digest": object_digest("receipt"),
+        "affected_artifact_digest": affected_artifact,
+        "quarantine_disposition_digest": object_digest("UNKNOWN"),
+        "exposure_digest": object_digest("QUARANTINED_UNKNOWN"),
+        "incident_digest": object_digest("incident-1"),
+        "worker_quiescence_digest": object_digest(asdict(stopped_work)),
+        "mutation_revocation_digest": object_digest("revoked"),
+        "retry_gate_digest": object_digest("authoritative-disposition-required"),
+    }
+    blocked = cp.transition(
+        LifecycleState.BLOCKED,
+        context(
+            evidence=blocked_evidence,
+            work=stopped_work,
+            rollout=RolloutStatus(changed_production="UNKNOWN"),
+        ),
+        reason="quarantine_disposition_indeterminate",
+    )
+    assert blocked.resume_state is LifecycleState.CONTRACT_RECEIVED
+    assert blocked.evidence_refs["affected_artifact_digest"] == affected_artifact
+    resume_evidence = {
+        "subject_digest": SHA,
+        "incident_closure_digest": object_digest("incident-closed"),
+        "restored_capability_digest": object_digest("intake-only"),
+        "unchanged_inputs_digest": object_digest("same-artifact"),
+    }
+    with pytest.raises(TransitionDeniedError, match="quarantine disposition"):
+        cp.resume(context(evidence=resume_evidence, work=stopped_work))
+    resume_evidence.update(
+        {
+            "affected_artifact_digest": affected_artifact,
+            "quarantine_disposition_evidence_digest": object_digest(
+                {
+                    "affected_artifact_digest": affected_artifact,
+                    "subject_digest": SHA,
+                    "status": "AUTHORITATIVELY_DISPOSED",
+                }
+            ),
+        }
+    )
+    resumed = cp.resume(
+        context(
+            evidence=resume_evidence,
+            work=stopped_work,
+            rollout=RolloutStatus(changed_production="REMOVED"),
+        )
+    )
+    assert resumed.target is LifecycleState.CONTRACT_RECEIVED
