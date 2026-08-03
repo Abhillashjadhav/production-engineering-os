@@ -279,12 +279,20 @@ Interpret outcomes conservatively:
 | `ENGINEERING_ADMITTED` | Structural, compiler, and deterministic semantic boundaries admit the exact evidence-bound input. |
 | `PRODUCT_INPUT_REQUIRED` / `COMPILED_BLOCKED` | PMOS or the named product authority must supply or reconcile truth. No eligibility or due time is assigned. |
 | `UNSUPPORTED_REPOSITORY_EXTENSION` | A repository owner must register/review the exact extension schema/version. |
-| `SOURCE_SCHEMA_INVALID` | Fix the source field at the diagnostic `source_path`; do not ask PEOS to default it. |
-| `SOURCE_FIELD_UNKNOWN` | Remove the unknown versioned field or publish through a reviewed extension/migration path. |
+| `SOURCE_SCHEMA_INVALID` | Validate the source against its exact versioned schema. A root-level missing required property currently reports an empty `source_path`, so compare the payload with that schema's `required` list. |
+| `SOURCE_FIELD_UNKNOWN` | For unknown fields, update the exact versioned source schema and its registered adapter before republishing, or remove the field. |
 | `SOURCE_FIELD_UNMAPPED` | The compiler preserved truth in an unresolved record because no exact canonical mapping exists. |
 | `REQUIRED_PRODUCT_TRUTH_ABSENT` | Supply the named canonical section and obtain required approval. |
-| `UNSUPPORTED_SOURCE_VERSION` | Use a registered version or add a separately reviewed adapter/migration. |
+| `UNSUPPORTED_SOURCE_VERSION` | For unsupported versions, register an exact reviewed adapter or use a registered version; the compiler does not execute migration-registry steps. |
 | `AMBIGUOUS_SOURCE_FORMAT` | Supply exactly one recognized V1, V2, or V3 marker set. |
+
+The current diagnostic may use an empty `source_path` for a root-level missing required property.
+In that case its message identifies only the schema rule, so inspect the linked
+schema's top-level `required` array and compare it with the submitted object; do
+not infer the missing field from an empty pointer. For unknown fields, update the
+exact versioned source schema and its registered adapter in one separately
+reviewed compatibility change, or remove the field. For unsupported versions,
+register an exact reviewed adapter for that source format and version.
 
 Compiler diagnostics identify `source_path` and `target_path`. Semantic
 diagnostics additionally identify the rule, disposition/severity, owner, and
