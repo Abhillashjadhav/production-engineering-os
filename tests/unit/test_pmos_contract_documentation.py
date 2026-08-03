@@ -176,6 +176,23 @@ def test_migration_guidance_names_the_connected_adapter_registry() -> None:
     )
 
 
+def test_required_property_diagnostic_limitation_is_documented() -> None:
+    text = DOC.read_text()
+    assert (
+        "The current diagnostic may use an empty `source_path` for a root-level "
+        "missing required property." in text
+    )
+
+
+def test_diagnostic_remedies_use_only_connected_compiler_paths() -> None:
+    text = DOC.read_text()
+    assert (
+        "For unknown fields, update the exact versioned source schema and its "
+        "registered adapter" in text
+    )
+    assert "For unsupported versions, register an exact reviewed adapter" in text
+
+
 def test_direct_canonical_service_input_is_honestly_documented_as_unsupported() -> None:
     assert _diagnostic_codes(VALID_BUNDLE) == {"AMBIGUOUS_SOURCE_FORMAT"}
 
