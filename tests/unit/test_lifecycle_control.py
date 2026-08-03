@@ -1371,6 +1371,266 @@ def test_budget_extensions_require_named_authenticated_exact_subject_authority(
     )
 
 
+def test_post_merge_blocking_finding_enters_safe_blocked_state(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
+    finding = FindingSignal(
+        finding_id="post-merge-1",
+        source="security-scanner",
+        exact_subject_digest=SHA,
+        severity="HIGH",
+        credible=True,
+        blocking=True,
+        reviewer_eligible=True,
+    )
+    evidence = {
+        "subject_digest": SHA,
+        "finding_digest": object_digest(asdict(finding)),
+        "worker_quiescence_digest": SHA,
+        "mutation_revocation_digest": OTHER_SHA,
+        "zero_resource_digest": SHA,
+    }
+
+    event = cp.transition(
+        LifecycleState.BLOCKED,
+        context(evidence=evidence, finding=finding),
+        reason="post_merge_blocking_finding",
+    )
+    assert event.evidence_refs["subject_digest"] == SHA
+    assert event.evidence_refs["finding_digest"] == object_digest(asdict(finding))
+    assert event.resume_state is LifecycleState.REPOSITORY_ANALYSED
+
+
+def test_staging_rejects_a_pending_post_merge_blocker(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
+    finding = FindingSignal(
+        finding_id="post-merge-2",
+        source="security-scanner",
+        exact_subject_digest=SHA,
+        severity="HIGH",
+        credible=True,
+        blocking=True,
+        reviewer_eligible=True,
+    )
+    attempt = MutationAttempt(
+        attempt_id="staging-pending-finding",
+        idempotency_key="staging:run-65:pending-finding",
+        subject_digest=SHA,
+        action="deploy_staging",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(attempt)
+    cp.record_mutation_result(attempt, status="SUCCEEDED", result_digest=SHA)
+    evidence = evidence_for(
+        LifecycleState.PR_MERGED,
+        LifecycleState.STAGING_DEPLOYED,
+        reason="staging_admitted",
+    )
+    evidence["staging_result_digest"] = SHA
+    with pytest.raises(TransitionDeniedError, match="blocking finding"):
+        cp.transition(
+            LifecycleState.STAGING_DEPLOYED,
+            context(evidence=evidence, finding=finding, mutation=attempt),
+            reason="staging_admitted",
+        )
+
+
+def test_required_subject_evidence_rejects_cross_run_substitution(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.REPOSITORY_ANALYSED)
+    evidence = evidence_for(
+        LifecycleState.REPOSITORY_ANALYSED,
+        LifecycleState.ARCHITECTURE_PROPOSED,
+        reason="architecture_compiled",
+    )
+    evidence["subject_digest"] = OTHER_SHA
+    with pytest.raises(TransitionDeniedError, match="subject evidence"):
+        cp.transition(
+            LifecycleState.ARCHITECTURE_PROPOSED,
+            context(evidence=evidence),
+            reason="architecture_compiled",
+        )
+
+
+@pytest.mark.parametrize(
+    "finding",
+    [
+        FindingSignal("", "codex", SHA, "HIGH", True, True, True),
+        FindingSignal("finding-source", "", SHA, "HIGH", True, True, True),
+        FindingSignal("finding-credible", "codex", SHA, "HIGH", False, True, True),
+        FindingSignal("finding-blocking", "codex", SHA, "HIGH", True, False, True),
+        FindingSignal("finding-product", "product-decision", SHA, "HIGH", True, True, True),
+    ],
+    ids=("empty-id", "empty-source", "not-credible", "not-blocking", "product-decision"),
+)
+def test_repair_rejects_unaccepted_or_incomplete_findings_without_consuming_budget(
+    tmp_path: Path, finding: FindingSignal
+) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.REVIEW_FAILED)
+    required = evidence_for(
+        LifecycleState.REVIEW_FAILED,
+        LifecycleState.REPAIR_IN_PROGRESS,
+        reason="accepted_finding",
+    )
+    before = cp.budget_usage
+    with pytest.raises(TransitionDeniedError, match="accepted engineering finding"):
+        cp.transition(
+            LifecycleState.REPAIR_IN_PROGRESS,
+            context(evidence=required, finding=finding),
+            reason="accepted_finding",
+        )
+    assert cp.state is LifecycleState.REVIEW_FAILED
+    assert cp.budget_usage == before
+
+
+def test_safe_stop_requires_worker_quiescence_and_revoked_mutation_capability(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.VERIFICATION_FAILED)
+    required = evidence_for(
+        LifecycleState.VERIFICATION_FAILED,
+        LifecycleState.BLOCKED,
+        reason="verification_infrastructure_missing",
+    )
+    required.update(
+        worker_quiescence_digest=SHA,
+        mutation_revocation_digest=OTHER_SHA,
+    )
+    with pytest.raises(TransitionDeniedError, match="workers must be quiescent"):
+        cp.transition(
+            LifecycleState.BLOCKED,
+            context(
+                evidence=required,
+                work=WorkStatus(worker_leases_active=1, workers_stopped=False),
+            ),
+            reason="verification_infrastructure_missing",
+        )
+
+    assert "mutation_capability_active" in {field.name for field in fields(WorkStatus)}
+    with pytest.raises(TransitionDeniedError, match="mutation capability"):
+        cp.transition(
+            LifecycleState.BLOCKED,
+            context(
+                evidence=required,
+                work=WorkStatus(mutation_capability_active=True),
+            ),
+            reason="verification_infrastructure_missing",
+        )
+
+
+def test_safe_stop_requires_digest_bound_quiescence_evidence(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.VERIFICATION_FAILED)
+    required = evidence_for(
+        LifecycleState.VERIFICATION_FAILED,
+        LifecycleState.BLOCKED,
+        reason="verification_infrastructure_missing",
+    )
+    with pytest.raises(TransitionDeniedError, match="quiescence evidence"):
+        cp.transition(
+            LifecycleState.BLOCKED,
+            context(evidence=required),
+            reason="verification_infrastructure_missing",
+        )
+
+
+def test_budget_policy_admission_replays_after_post_append_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cp = control_plane(tmp_path)
+    extended = replace(
+        cp.budget_policy,
+        version="budget-v2",
+        limits={**cp.budget_policy.limits, "tokens": 125},
+        approved_by="owner-alice",
+    )
+    authorization = extension_authorization(cp, extended, amounts={"tokens": 25})
+    original_append = cp._append
+
+    def crash_after_admission(**kwargs: object) -> object:
+        event = original_append(**kwargs)  # type: ignore[arg-type]
+        if kwargs.get("kind") == "BUDGET_POLICY_ADMITTED":
+            raise RuntimeError("simulated crash after fsynced admission")
+        return event
+
+    monkeypatch.setattr(cp, "_append", crash_after_admission)
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        cp.admit_budget_policy(
+            extended,
+            authorization=authorization,
+            authority=authority(observed_at="2026-08-02T12:00:00Z"),
+            observed_at="2026-08-02T12:00:00Z",
+        )
+
+    loaded = LifecycleControlPlane.load(tmp_path)
+    assert loaded.budget_policy == extended
+    assert loaded.events[-1].evidence_refs["budget_policy_digest"] == object_digest(
+        asdict(extended)
+    )
+
+
+def test_concurrent_budget_extensions_cannot_overwrite_the_admitted_policy(
+    tmp_path: Path,
+) -> None:
+    first = control_plane(tmp_path)
+    stale = LifecycleControlPlane.load(tmp_path)
+    extended = replace(
+        first.budget_policy,
+        version="budget-v2",
+        limits={**first.budget_policy.limits, "tokens": 125},
+        approved_by="owner-alice",
+    )
+    first.admit_budget_policy(
+        extended,
+        authorization=extension_authorization(first, extended, amounts={"tokens": 25}),
+        authority=authority(observed_at="2026-08-02T12:00:00Z"),
+        observed_at="2026-08-02T12:00:00Z",
+    )
+    with pytest.raises(TransitionDeniedError, match="compare-and-swap"):
+        stale.admit_budget_policy(
+            extended,
+            authorization=extension_authorization(stale, extended, amounts={"tokens": 25}),
+            authority=authority(observed_at="2026-08-02T12:00:00Z"),
+            observed_at="2026-08-02T12:00:00Z",
+        )
+    assert LifecycleControlPlane.load(tmp_path).budget_policy == extended
+
+
+def test_ordinary_safe_stop_resumes_only_through_its_admitted_safe_gate(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.VERIFICATION_FAILED)
+    stop_evidence = evidence_for(
+        LifecycleState.VERIFICATION_FAILED,
+        LifecycleState.BLOCKED,
+        reason="verification_infrastructure_missing",
+    )
+    stop_evidence.update(
+        worker_quiescence_digest=SHA,
+        mutation_revocation_digest=OTHER_SHA,
+    )
+    stopped = cp.transition(
+        LifecycleState.BLOCKED,
+        context(evidence=stop_evidence),
+        reason="verification_infrastructure_missing",
+    )
+    assert stopped.resume_state is LifecycleState.VERIFICATION_FAILED
+    PHASE_ZERO_POLICY.rule(
+        LifecycleState.BLOCKED,
+        LifecycleState.VERIFICATION_FAILED,
+        reason="recorded_safe_resume",
+    )
+
+    resume_evidence = {
+        "subject_digest": SHA,
+        "incident_closure_digest": SHA,
+        "restored_capability_digest": OTHER_SHA,
+        "unchanged_inputs_digest": SHA,
+    }
+    resumed = cp.resume(context(evidence=resume_evidence))
+    assert resumed.source is LifecycleState.BLOCKED
+    assert resumed.target is LifecycleState.VERIFICATION_FAILED
+    assert cp.state is LifecycleState.VERIFICATION_FAILED
+
+
 def test_unknown_policy_decisions_fail_closed() -> None:
     decision = PolicyEngine().classify("operation.never.registered")
     assert decision.level.value == "high"
