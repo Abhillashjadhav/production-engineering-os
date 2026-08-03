@@ -83,6 +83,10 @@ def test_documentation_covers_the_versioned_contract_and_operator_workflow() -> 
     assert "Direct canonical-bundle intake is not implemented" in text
     assert "AMBIGUOUS_SOURCE_FORMAT" in text
     assert "`members` is a required registry; it may be empty" in text
+    assert (
+        "`schema_version` must remain `1.0.0`; `bundle_version` is the "
+        "author-controlled semantic version of this immutable bundle instance." in text
+    )
 
     schemas = (
         _schema("pmos_contract_bundle.schema.json"),
