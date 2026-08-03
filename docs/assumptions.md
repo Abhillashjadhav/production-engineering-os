@@ -12,7 +12,7 @@ behavior is listed under "Decisions that would normally need the PM".
 | A3 | Reference product = `python-stdlib-crud-api`: token-auth + SQLite CRUD API ("basic CRUD product with authentication and persistence" from the task's suggested list) | Hermetic: generated product has zero third-party deps, runs/tests anywhere | Low |
 | A4 | "PR" in V1 = local git branch + PR record artifact; no remote calls | Task forbids assuming remote permissions | Low — `GitAdapter` seam exists |
 | A5 | "Deploy" in V1 = local process on a free localhost port + deployable artifact (run script, Dockerfile, instructions) | Task: "deploy to a safe environment where supported" | Low — `DeploymentAdapter` seam exists |
-| A6 | Human approvals are file/CLI-based (`pmpe approve`), not interactive prompts | Pipeline must be resumable and CI-safe | Low |
+| A6 | Historical V1 approvals are file-based fixtures with no shipped mutation command | V1 is test-only; Phase Zero owns admissible execution authority | Retired from product surface |
 | A7 | YAML input supported via PyYAML (present in env, declared as dependency); JSON via stdlib | Task: "Support JSON or YAML" | Low |
 | A8 | Run outputs live under `./runs/` (gitignored); the repo itself is never the build workspace | Keeps the OS repo clean; test isolation | Low |
 | A9 | Security gate uses bandit when available and always runs the built-in deterministic scanner | bandit not preinstalled everywhere; CI installs it | Low |

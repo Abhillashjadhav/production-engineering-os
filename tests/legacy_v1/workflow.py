@@ -1,15 +1,8 @@
-"""The workflow engine: 18 idempotent steps, persisted state, human gates.
+"""Test-only V1 workflow harness retained for legacy fixtures and migrations.
 
-Design rules (see ARCHITECTURE.md):
-- steps communicate through artifacts, never in-memory state that a resume would lose;
-  deterministic products (plan, architecture, generated files) are recomputed from the
-  spec on demand (ADR-002)
-- a HIGH-risk decision writes an Escalation and blocks; `approve` + `resume` continue
-- gate failures never stop the pipeline silently: the run completes through the merge
-  gate, which says NO_MERGE with reasons, and the final report still lands
-
-Step bodies live in steps_build.py / steps_ship.py; run-scoped machinery in
-context.py; artifact markdown in render.py.
+This module is deliberately outside ``src/pmpe`` and is not included in the
+wheel. Production code must never import it. The Phase Zero lifecycle control
+plane is the sole admissible shipped execution authority.
 """
 
 from __future__ import annotations
@@ -23,11 +16,7 @@ from pathlib import Path
 
 from pmpe.config import PipelineConfig
 from pmpe.domain.errors import SpecError, StepFailure
-from pmpe.domain.models import (
-    Approval,
-    MergeRecommendation,
-    StepStatus,
-)
+from pmpe.domain.models import Approval, MergeRecommendation, StepStatus
 from pmpe.domain.serialize import atomic_write_json
 from pmpe.orchestration import decoders
 from pmpe.orchestration.context import RunContext, _Blocked, _Rejected
@@ -41,17 +30,17 @@ from pmpe.telemetry.events import EventLog, utc_now
 @dataclass
 class RunResult:
     run_id: str
-    status: str  # success | no_merge | blocked | failed
+    status: str
     run_dir: Path
     state: RunState
 
 
 class WorkflowEngine:
+    """Legacy V1 executor available only to explicit test fixtures."""
+
     def __init__(self, config: PipelineConfig) -> None:
         self.config = config
         self.policy = PolicyEngine()
-
-    # --- public API -----------------------------------------------------------------
 
     def run(self, spec_path: Path) -> RunResult:
         spec_path = Path(spec_path)
@@ -73,7 +62,6 @@ class WorkflowEngine:
 
     def resume(self, run_id: str) -> RunResult:
         state = RunState.load(self.config.runs_dir / run_id)
-        # blocked/failed steps are re-executed; done/skipped steps never are
         return self._execute(state)
 
     def approve(
@@ -103,8 +91,6 @@ class WorkflowEngine:
             approved=approved,
         )
         return approval
-
-    # --- engine loop ------------------------------------------------------------------
 
     def _execute(self, state: RunState) -> RunResult:
         ctx = RunContext(self.config, state)

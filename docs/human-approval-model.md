@@ -25,15 +25,13 @@ autonomously and stops only where policy says a human owns the decision.
 ## The approval flow
 
 ```
-pipeline blocks → runs/<id>/escalations/ESC-001.json written, run exits with code 3
-$ pmpe status <run_id>            # shows the blocked step + open escalations
-$ pmpe approve <run_id> ESC-001 --approver "name" --reason "why this is acceptable"
-$ pmpe resume <run_id>            # re-enters at the blocked step
+legacy fixture blocks → runs/<id>/escalations/ESC-001.json written
+$ pmpe status <run_id>            # read-only inspection of historical state
 ```
 
-Approvals are stored in `runs/<id>/approvals/ESC-001.json` (approver, reason, UTC
-timestamp) and echoed into the final build report. Rejecting is `pmpe approve ... --reject`,
-which marks the run failed with the rejection recorded.
+Legacy approval records remain readable for migration tests, but the installed CLI
+cannot create them or continue the V1 executor. New approval evidence must be
+authenticated, digest-bound, and admitted by the Phase Zero control plane.
 
 Rules that never bend:
 

@@ -13,7 +13,7 @@ def atomic_write_json(path: Path, obj: Any) -> None:
     """Write JSON via tmp+rename so a crash never leaves a torn file.
 
     Every persistence site (state, escalations, approvals, artifacts) uses this —
-    a torn escalation/approval file would wedge `pmpe resume` permanently.
+    a torn escalation/approval file would make legacy state unreadable.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")

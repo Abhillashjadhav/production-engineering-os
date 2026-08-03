@@ -267,14 +267,15 @@ jobs:
           python -m build --wheel
       - name: install wheel and smoke the CLI
         run: |
-          pip install dist/*.whl ruff
+          pip install dist/*.whl ruff pytest
           pmpe validate examples/taskflow_mvp_spec.yaml
           pmpe contract validate examples/v2-demo/contract.json
-      - name: full pipeline smoke (golden spec)
+          python -c 'import importlib.util; assert importlib.util.find_spec("pmpe.orchestration.workflow") is None'
+      - name: explicit legacy fixture smoke (not shipped)
         run: |
           git config --global user.email ci@localhost
           git config --global user.name ci
-          pmpe run examples/taskflow_mvp_spec.yaml --runs-dir /tmp/ci-runs
+          python -m pytest -q tests/e2e/test_full_pipeline.py
       - name: eval suites (agents + planted trajectory fixture)
         run: |
           pmpe evals run --suite all --ledger evals/fixtures/trajectory/good_run.jsonl

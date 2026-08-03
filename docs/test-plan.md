@@ -37,7 +37,8 @@ user journey (create task → list → complete) passes over real HTTP.
 - Malformed spec (missing required fields / bad types) → ingestion rejects.
 - Planted blocking review finding → merge gate returns NO_MERGE.
 - Simulated crash mid-run → `resume` completes without re-executing done steps.
-- High-risk escalation → run blocks until `pmpe approve`, then resumes.
+- Legacy high-risk escalation and continuation behavior is exercised only through
+  the explicit test harness; no installed command can mutate or continue it.
 
 ## Quality bars for this repo's CI
 

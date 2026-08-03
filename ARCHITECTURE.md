@@ -1,8 +1,8 @@
 # PM Production Engineering OS — Architecture
 
-V1 converts an approved PM OS MVP specification into tested, reviewed, deployable
-software with engineering involvement only for exceptions, high-risk decisions, or
-failed automated checks.
+Phase Zero is the sole admissible shipped lifecycle authority. The architecture below
+documents the historical V1 fixture retained under `tests.legacy_v1`; it is not an
+installed execution path.
 
 Principles, in priority order: **extensibility → reliability → simplicity → speed →
 low cost**. Extensibility comes from interfaces and adapters, not frameworks.
@@ -14,9 +14,9 @@ full build. Everything an engineer would audit — state, artifacts, logs, appro
 is a file under the run directory.
 
 ```
-                                pmpe (CLI)
+                         tests.legacy_v1 (test fixture)
                                     │
-                          WorkflowEngine (orchestration/)
+                           legacy workflow harness
               state machine · idempotent steps · resume · escalation pauses
                                     │
  ┌──────────┬──────────┬───────────┼───────────┬──────────┬───────────┐
@@ -49,12 +49,12 @@ is a file under the run directory.
 | `stacks/` | Everything specific to a generated product's technology: naming, code templates, test templates. V1 ships `python-stdlib-crud-api`; new stacks land here without touching the stages | naming helpers, `stdlib_code`, `stdlib_tests` |
 | `gitops/` | Git adapter interface; V1: local repo per workspace, branch per run, commit per task, diff, local PR record | `GitAdapter`, `LocalGitAdapter` |
 | `deployment/` | Deployment adapter interface; V1: local process deploy, health check, user-journey smoke test, rollback instructions, deployable artifact (run script + Dockerfile) | `DeploymentAdapter`, `LocalProcessDeployer` |
-| `orchestration/` | The workflow state machine; step registry; persisted `RunState`; resume; escalation pause/approve | `WorkflowEngine`, `RunState` |
+| `orchestration/` | Read-only legacy `RunState` projection and fixture support modules | `RunState` |
 | `policies/` | Risk classification (low/medium/high) from declarative rules; approval requirements; every decision explainable | `PolicyEngine` |
 | `telemetry/` | Structured JSONL event log per run; metric hooks for NSM, leading metrics, guardrails | `EventLog`, `MetricsRecorder` |
 | `artifacts/` | Artifact store: writes every produced document under `runs/<id>/artifacts/` with an index | `ArtifactStore` |
 | `audit/` | Traceability matrix (requirement → ADR → task → code → tests → findings → deployment) and final build report | `TraceabilityBuilder` |
-| `cli.py` | `pmpe validate | run | resume | approve | status | report` | — |
+| `cli.py` | legacy validation and read-only `status` / `report`; no V1 execution commands | — |
 
 Rules that hold everywhere:
 
@@ -92,11 +92,9 @@ Steps execute strictly in order; each is idempotent and persisted before/after:
 18 report            traceability matrix + final build report + metrics
 ```
 
-State transitions: `pending → running → done | failed | blocked`. A `blocked` step
-means a human gate: the run stops, an `Escalation` file is written, and the run resumes
-only after `pmpe approve` (or spec fix + new run). `pmpe resume <run_id>` re-enters at
-the first step that is not `done` — completed steps are never re-executed, and every
-step re-reads its inputs from artifacts, so resumes are deterministic.
+Historical fixture transitions are `pending → running → done | failed | blocked`.
+The test harness can exercise continuation semantics for compatibility, but shipped
+code treats `RunState` as read-only evidence and cannot replay handlers.
 
 ## Risk model and human gates
 
@@ -104,8 +102,8 @@ Three levels, enforced by `policies/`:
 
 - **low** — proceed automatically (logged).
 - **medium** — proceed with an explicit, logged justification attached to the decision.
-- **high** — write an `Escalation`, block the run, require `pmpe approve` with an
-  approver name and reason.
+- **high** — write an `Escalation` and block the historical fixture; only test data
+  can resolve it. Shipped approval authority belongs to Phase Zero.
 
 High by default: contradictory requirements, missing product decisions, irreversible
 architecture choices, security-sensitive changes beyond the spec's explicit scope,

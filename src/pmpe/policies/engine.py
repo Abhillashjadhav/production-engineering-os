@@ -3,7 +3,7 @@
 Levels (docs/human-approval-model.md):
 - low    -> proceed automatically
 - medium -> proceed with an explicit logged justification
-- high   -> block until a human approves (pmpe approve)
+- high   -> block until explicit approval evidence exists
 
 Unknown decision types default to MEDIUM: conservative enough to leave a written
 justification in the log, without stalling the pipeline on a taxonomy gap.

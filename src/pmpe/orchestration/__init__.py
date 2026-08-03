@@ -1,6 +1,5 @@
-"""Workflow orchestration: the 18-step state machine and its engine."""
+"""Read-only legacy state types; shipped execution is owned by Phase Zero."""
 
 from pmpe.orchestration.state import STEP_ORDER, RunState
-from pmpe.orchestration.workflow import RunResult, WorkflowEngine
 
-__all__ = ["STEP_ORDER", "RunResult", "RunState", "WorkflowEngine"]
+__all__ = ["STEP_ORDER", "RunState"]

@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from pathlib import Path
 
 import pytest
 
 from pmpe.cli import main
+from pmpe.config import PipelineConfig
 from tests.conftest import mutate_contradictory
+from tests.legacy_v1.workflow import WorkflowEngine
 
 pytestmark = pytest.mark.e2e
 
@@ -28,19 +29,23 @@ def test_validate_contradictory_spec_exits_three(
     assert main(["validate", str(make_spec_file(mutate_contradictory))]) == 3
 
 
-def test_full_run_status_and_report_via_cli(
+def test_historical_run_status_and_report_remain_read_only_cli_commands(
     golden_spec_path: Path, pipeline_workdir: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    code = main(["run", str(golden_spec_path), "--runs-dir", str(pipeline_workdir)])
-    assert code == 0
-    out = capsys.readouterr().out
-    run_id = json.loads(out.strip().splitlines()[-1])["run_id"]
+    repo_root = Path(__file__).resolve().parents[2]
+    result = WorkflowEngine(
+        PipelineConfig(
+            runs_dir=pipeline_workdir,
+            schema_path=repo_root / "schemas" / "mvp_spec.schema.json",
+        )
+    ).run(golden_spec_path)
+    assert result.status == "success"
 
-    assert main(["status", run_id, "--runs-dir", str(pipeline_workdir)]) == 0
+    assert main(["status", result.run_id, "--runs-dir", str(pipeline_workdir)]) == 0
     status_out = capsys.readouterr().out
     assert "report" in status_out and "done" in status_out
 
-    assert main(["report", run_id, "--runs-dir", str(pipeline_workdir)]) == 0
+    assert main(["report", result.run_id, "--runs-dir", str(pipeline_workdir)]) == 0
     report_out = capsys.readouterr().out
     assert "FR-001" in report_out
 

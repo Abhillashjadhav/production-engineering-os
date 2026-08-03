@@ -1,19 +1,14 @@
-"""V1 (product-build) CLI commands: validate/run/resume/approve/status/report."""
+"""Legacy input validation and read-only run inspection commands."""
 
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 from pmpe.config import PipelineConfig, packaged_schema_path
-from pmpe.domain.serialize import jsonable
 from pmpe.ingestion import ingest
 from pmpe.orchestration import decoders
-from pmpe.orchestration.workflow import WorkflowEngine
 from pmpe.validation.validator import RequirementValidator
-
-_EXIT_BY_OUTCOME = {"success": 0, "failed": 1, "blocked": 3, "no_merge": 4}
 
 
 def _config(args: argparse.Namespace) -> PipelineConfig:
@@ -40,47 +35,6 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         )
         return 0
     return 3
-
-
-def _cmd_run(args: argparse.Namespace) -> int:
-    result = WorkflowEngine(_config(args)).run(Path(args.spec))
-    print(
-        json.dumps(
-            {
-                "run_id": result.run_id,
-                "status": result.status,
-                "run_dir": str(result.run_dir),
-            }
-        )
-    )
-    return _EXIT_BY_OUTCOME.get(result.status, 1)
-
-
-def _cmd_resume(args: argparse.Namespace) -> int:
-    result = WorkflowEngine(_config(args)).resume(args.run_id)
-    print(
-        json.dumps(
-            {
-                "run_id": result.run_id,
-                "status": result.status,
-                "run_dir": str(result.run_dir),
-            }
-        )
-    )
-    return _EXIT_BY_OUTCOME.get(result.status, 1)
-
-
-def _cmd_approve(args: argparse.Namespace) -> int:
-    approval = WorkflowEngine(_config(args)).approve(
-        args.run_id,
-        args.escalation_id,
-        approver=args.approver,
-        reason=args.reason,
-        approved=not args.reject,
-    )
-    print(json.dumps(jsonable(approval)))
-    print(f"recorded. resume with: pmpe resume {args.run_id}")
-    return 0
 
 
 def _cmd_status(args: argparse.Namespace) -> int:
@@ -116,34 +70,11 @@ def _cmd_report(args: argparse.Namespace) -> int:
 
 
 def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
-    """V1 product-build commands (behaviour unchanged from V1)."""
+    """Register non-mutating compatibility commands only."""
     p_validate = sub.add_parser("validate", help="validate a specification only")
     p_validate.add_argument("spec")
     p_validate.add_argument("--schema", default=None)
     p_validate.set_defaults(fn=_cmd_validate)
-
-    for name, fn, needs_spec in (
-        ("run", _cmd_run, True),
-        ("resume", _cmd_resume, False),
-    ):
-        p = sub.add_parser(name, help=f"{name} the full pipeline")
-        if needs_spec:
-            p.add_argument("spec")
-        else:
-            p.add_argument("run_id")
-        p.add_argument("--runs-dir", default=None)
-        p.add_argument("--config", default=None)
-        p.set_defaults(fn=fn)
-
-    p_approve = sub.add_parser("approve", help="record a human decision on an escalation")
-    p_approve.add_argument("run_id")
-    p_approve.add_argument("escalation_id")
-    p_approve.add_argument("--approver", required=True)
-    p_approve.add_argument("--reason", required=True)
-    p_approve.add_argument("--reject", action="store_true")
-    p_approve.add_argument("--runs-dir", default=None)
-    p_approve.add_argument("--config", default=None)
-    p_approve.set_defaults(fn=_cmd_approve)
 
     for name, fn in (("status", _cmd_status), ("report", _cmd_report)):
         p = sub.add_parser(name, help=f"show run {name}")

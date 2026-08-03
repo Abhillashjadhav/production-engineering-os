@@ -4,7 +4,7 @@ How the V1 build reads the product brief — what each requirement means operati
 
 | Brief requirement | V1 interpretation |
 |---|---|
-| "PM converts MVP spec into production-ready software" | `pmpe run spec.yaml` executes the full 18-step lifecycle and either finishes with a verified local deployment + report, or stops at a named human gate |
+| "PM converts MVP spec into production-ready software" | Phase Zero is the only admissible shipped lifecycle authority; the retired V1 executor remains a test fixture only |
 | "Engineering involvement only for exceptions" | exceptions == escalation files; everything else is automatic and logged |
 | "Validate specification" | schema validation (structure) + semantic validation (contradictions, testability, NSM quality, dependencies, unsupported decisions) |
 | "Tests before implementation" | test architect writes workspace tests, `confirm_red` proves they fail, only then does implementation run — enforced by step order and checked by the E2E suite against git history |
