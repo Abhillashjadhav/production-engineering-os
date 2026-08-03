@@ -240,10 +240,14 @@ subject version, digest, and digest scope. Revoked, superseded, expired,
 wrong-authority, or stale-subject approvals do not satisfy a requirement.
 
 Keep unresolved decisions in `open_questions` with a named `owner_ref` and
-truthful `blocking` value. Do not place `TBD`, “engineering will decide,” or a
-fabricated resolution in product-owned sections. Missing required truth,
-blocking questions, or missing approvals lead to `PRODUCT_INPUT_REQUIRED`; PEOS
-must return the field path, owner, rule, and requested remediation without
+truthful `blocking` value.
+Every unresolved question blocks semantic admission, regardless of its declared `blocking` value.
+The flag records publisher intent but cannot downgrade
+the `QUESTION.UNRESOLVED` rule; only a substantive product-owned resolution
+clears that finding. Do not place `TBD`, “engineering will decide,” or a
+fabricated resolution in product-owned sections. Missing required truth, any
+unresolved question, or missing approvals lead to `PRODUCT_INPUT_REQUIRED`;
+PEOS must return the field path, owner, rule, and requested remediation without
 inventing an answer.
 
 The [missing-approval example](../examples/pmos-contracts/invalid/missing-approval-v2-contract.json)
