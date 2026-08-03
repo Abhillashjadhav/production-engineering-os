@@ -281,8 +281,8 @@ Interpret outcomes conservatively:
 | `UNSUPPORTED_REPOSITORY_EXTENSION` | A repository owner must register/review the exact extension schema/version. |
 | `SOURCE_SCHEMA_INVALID` | Validate the source against its exact versioned schema. A root-level missing required property currently reports an empty `source_path`, so compare the payload with that schema's `required` list. |
 | `SOURCE_FIELD_UNKNOWN` | For unknown fields, update the exact versioned source schema and its registered adapter before republishing, or remove the field. |
-| `SOURCE_FIELD_UNMAPPED` | The compiler preserved truth in an unresolved record because no exact canonical mapping exists. |
-| `REQUIRED_PRODUCT_TRUTH_ABSENT` | Supply the named canonical section and obtain required approval. |
+| `SOURCE_FIELD_UNMAPPED` | The compiler preserved truth because the current adapter has no exact mapping. Add that field to the exact source schema and adapter in a reviewed compatibility change, or use a future canonical-intake path. |
+| `REQUIRED_PRODUCT_TRUTH_ABSENT` | The current source schema/adapter cannot supply the named canonical section. Extend both in a reviewed change, or use a future canonical-intake path, then obtain required approval. |
 | `UNSUPPORTED_SOURCE_VERSION` | For unsupported versions, register an exact reviewed adapter or use a registered version; the compiler does not execute migration-registry steps. |
 | `AMBIGUOUS_SOURCE_FORMAT` | Supply exactly one recognized V1, V2, or V3 marker set. |
 
@@ -293,6 +293,8 @@ not infer the missing field from an empty pointer. For unknown fields, update th
 exact versioned source schema and its registered adapter in one separately
 reviewed compatibility change, or remove the field. For unsupported versions,
 register an exact reviewed adapter for that source format and version.
+Resolving `SOURCE_FIELD_UNMAPPED` or `REQUIRED_PRODUCT_TRUTH_ABSENT` requires a reviewed source-schema/adapter change or the future canonical intake path.
+Reposting an unchanged V1/V2/V3 shape cannot supply canonical-only fields.
 
 Compiler diagnostics identify `source_path` and `target_path`. Semantic
 diagnostics additionally identify the rule, disposition/severity, owner, and
@@ -313,9 +315,12 @@ The compiler detects one format, validates its original versioned schema,
 rejects unknown fields, applies the registered adapter, preserves stable source
 identities, emits bundle/manifest/compiler evidence, and records every unmapped
 or absent canonical section under `unresolved_product_truth`. A compilation may
-therefore produce a schema-valid bundle while remaining blocked. Resolve each
-diagnostic in PMOS and publish a new source attempt; do not edit compiler output
-or let PEOS fabricate missing sections.
+therefore produce a schema-valid bundle while remaining blocked. A corrected new
+source attempt is sufficient only for fields the registered source schema and
+adapter already support. Unmapped or absent canonical-only truth requires a
+reviewed source-schema/adapter change, or the future direct canonical-intake path,
+before PMOS can publish an admissible new attempt. Do not edit compiler output or
+let PEOS fabricate missing sections.
 
 The current compiler resolves source versions through `AdapterRegistry`, not `MigrationRegistry`.
 An unsupported source version remains rejected until a reviewed adapter for that

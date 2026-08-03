@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
-from pmpe.contracts import canonical_digest
+from pmpe.contracts.canonical import canonical_digest
 from pmpe.contracts.compiler import CanonicalCompiler, CompilationBlocked
 from pmpe.validation import (
     ApprovalAuthorityGrant,
