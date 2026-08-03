@@ -87,6 +87,10 @@ def test_documentation_covers_the_versioned_contract_and_operator_workflow() -> 
         "`schema_version` must remain `1.0.0`; `bundle_version` is the "
         "author-controlled semantic version of this immutable bundle instance." in text
     )
+    assert (
+        "Every unresolved question blocks semantic admission, regardless of its "
+        "declared `blocking` value." in text
+    )
 
     schemas = (
         _schema("pmos_contract_bundle.schema.json"),
