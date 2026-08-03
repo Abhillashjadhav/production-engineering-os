@@ -168,6 +168,12 @@ def test_canonical_examples_validate_and_the_manifest_binds_the_bundle() -> None
     assert findings == {}, tuple(findings)
 
 
+def test_example_bindings_use_the_runtime_rfc8785_digest() -> None:
+    assert canonical_digest({"value": 1.0}) == (
+        "sha256:48208f9428d64634bd8e28ff345bf0eab60d53c18fa2fbdb0b9bc1e84df2b5f6"
+    )
+
+
 def test_migration_guidance_names_the_connected_adapter_registry() -> None:
     text = DOC.read_text()
     assert (
@@ -191,6 +197,11 @@ def test_diagnostic_remedies_use_only_connected_compiler_paths() -> None:
         "registered adapter" in text
     )
     assert "For unsupported versions, register an exact reviewed adapter" in text
+    assert (
+        "Resolving `SOURCE_FIELD_UNMAPPED` or `REQUIRED_PRODUCT_TRUTH_ABSENT` "
+        "requires a reviewed source-schema/adapter change or the future canonical "
+        "intake path." in text
+    )
 
 
 def test_direct_canonical_service_input_is_honestly_documented_as_unsupported() -> None:
