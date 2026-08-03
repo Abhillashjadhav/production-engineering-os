@@ -46,8 +46,10 @@ the contract cannot manufacture them.
 
 Author JSON against schema ID
 `https://github.com/Abhillashjadhav/production-engineering-os/schemas/pmos_contract_bundle.schema.json`
-with `schema_version` and `bundle_version` equal to `1.0.0`, and
-`canonical_json_profile` equal to `RFC8785`.
+with `schema_version` equal to `1.0.0` and `canonical_json_profile` equal to
+`RFC8785`. `schema_version` must remain `1.0.0`; `bundle_version` is the author-controlled semantic version of this immutable bundle instance.
+The synthetic example starts at bundle version `1.0.0`, but revised content must
+use a new semantic version rather than reuse that instance version.
 
 The schema has two structural states:
 
@@ -71,7 +73,7 @@ Top-level fields are:
 | Field | Owner and meaning |
 | --- | --- |
 | `bundle_id` | Stable bundle identifier; content identity is carried by a digest. |
-| `bundle_version` | Version of this bundle instance, currently `1.0.0`. |
+| `bundle_version` | Author-controlled semantic version of the immutable bundle instance; the synthetic example uses `1.0.0`. |
 | `schema_id` | Exact normative bundle schema ID. |
 | `schema_version` | Supported normative schema version, currently `1.0.0`. |
 | `canonical_json_profile` | Digest serialization profile; must be `RFC8785`. |
@@ -223,9 +225,11 @@ The bundle member ID is always `MEMBER-CANONICAL-BUNDLE` and cannot be repeated
 inside `members`. `members` is a required registry; it may be empty when the
 manifest binds no attachments or extension schemas.
 
-To update content, create a new immutable bundle/manifest version and recompute
-the approval and content bindings. Do not edit an already registered contract or
-reuse its digest as though the content were unchanged.
+To update content, increment the bundle and manifest instance versions, create
+new immutable artifacts, and recompute the approval and content bindings. Keep
+the schema version at the exact supported value unless a new normative schema is
+admitted. Do not edit an already registered contract or reuse its instance
+version or digest as though changed content were unchanged.
 
 ## Approvals and open questions
 
