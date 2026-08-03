@@ -343,6 +343,25 @@ def _actor_evidence_digest(actor: TransitionActor) -> str:
     )
 
 
+_PRODUCTION_APPROVAL_SCOPE_FIELDS = (
+    "subject_digest",
+    "merge_commit_sha",
+    "merge_digest",
+    "artifact_digest",
+    "configuration_digest",
+    "migration_plan_digest",
+    "deployment_target_digest",
+    "rollout_plan_digest",
+    "canary_id_digest",
+    "canary_attempt_digest",
+    "canary_status_digest",
+)
+
+
+def _production_approval_scope_digest(evidence: dict[str, str]) -> str:
+    return _digest({name: evidence.get(name, "") for name in _PRODUCTION_APPROVAL_SCOPE_FIELDS})
+
+
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
 _GIT_SHA = re.compile(r"^[0-9a-f]{40,64}$")
 _FINDING_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
@@ -377,7 +396,7 @@ def _malformed_evidence(evidence: dict[str, str], names: tuple[str, ...]) -> tup
     malformed: list[str] = []
     for name in names:
         value = evidence.get(name, "")
-        if name == "release_sha":
+        if name == "release_sha" or name.endswith("_commit_sha"):
             if not _GIT_SHA.fullmatch(value):
                 malformed.append(name)
         elif name.endswith("_digest") and not _SHA256.fullmatch(value):
@@ -435,12 +454,34 @@ def _r(
     *guards: str,
     mutation: str | None = None,
 ) -> TransitionRule:
+    guard_set = frozenset(guards)
+    guard_evidence: tuple[str, ...] = ()
+    if "drift" in guard_set:
+        guard_evidence += (
+            "work_disposition_digest",
+            "worker_quiescence_digest",
+            "mutation_revocation_digest",
+            "review_invalidation_digest",
+        )
+    if "product_input" in guard_set:
+        guard_evidence += (
+            "work_disposition_digest",
+            "worker_quiescence_digest",
+            "mutation_revocation_digest",
+        )
+    if "revoke_completion" in guard_set:
+        guard_evidence += (
+            "subject_digest",
+            "monitor_identity_digest",
+            "monitor_authentication_evidence_digest",
+        )
+    required_evidence = tuple(dict.fromkeys((*evidence, *guard_evidence)))
     return TransitionRule(
         source,
         target,
         reason,
-        evidence,
-        frozenset(guards),
+        required_evidence,
+        guard_set,
         mutation_action=mutation,
     )
 
@@ -1041,6 +1082,13 @@ _RULES: tuple[TransitionRule, ...] = (
         "production_admitted",
         (
             "subject_digest",
+            "merge_commit_sha",
+            "merge_digest",
+            "artifact_digest",
+            "configuration_digest",
+            "migration_plan_digest",
+            "deployment_target_digest",
+            "rollout_plan_digest",
             "canary_id_digest",
             "canary_attempt_digest",
             "canary_status_digest",
@@ -1511,9 +1559,6 @@ class LifecycleControlPlane:
     ) -> LifecycleControlPlane:
         path = Path(run_dir)
         path.mkdir(parents=True, exist_ok=True)
-        ledger = path / cls._LEDGER_NAME
-        if ledger.exists():
-            raise ValueError("lifecycle ledger already exists")
         cp = cls(
             path,
             run_id=run_id,
@@ -1527,17 +1572,26 @@ class LifecycleControlPlane:
             "budget_policy": asdict(budget_policy),
             "budget_policy_digest": _digest(asdict(budget_policy)),
         }
-        atomic_write_json(path / cls._META_NAME, metadata)
-        cp._append(
-            kind="STATE_CREATED",
-            outcome="APPLIED",
-            source=initial_state,
-            target=initial_state,
-            reason="create",
-            actor="control-plane",
-            evidence_refs={"budget_policy_digest": str(metadata["budget_policy_digest"])},
-            observed_at="",
-        )
+        with cp._operation_lock, cp._exclusive_lock():
+            ledger = path / cls._LEDGER_NAME
+            metadata_path = path / cls._META_NAME
+            if ledger.exists() or metadata_path.exists():
+                raise ValueError("lifecycle run already exists")
+            atomic_write_json(metadata_path, metadata)
+            cp._append_locked(
+                kind="STATE_CREATED",
+                outcome="APPLIED",
+                source=initial_state,
+                target=initial_state,
+                reason="create",
+                actor="control-plane",
+                evidence_refs={
+                    "budget_policy_digest": str(metadata["budget_policy_digest"]),
+                    "run_id_digest": _digest(run_id),
+                    "metadata_digest": _digest(metadata),
+                },
+                observed_at="",
+            )
         return cp
 
     @staticmethod
@@ -1575,6 +1629,17 @@ class LifecycleControlPlane:
         raw_policy = dict(metadata["budget_policy"])
         if _digest(raw_policy) != metadata.get("budget_policy_digest"):
             raise ValueError("lifecycle budget policy digest is invalid")
+        initial = events[0]
+        if (
+            initial.kind != "STATE_CREATED"
+            or initial.subject_digest != metadata.get("subject_digest")
+            or initial.evidence_refs.get("budget_policy_digest")
+            != metadata.get("budget_policy_digest")
+            or initial.evidence_refs.get("run_id_digest")
+            != _digest(str(metadata.get("run_id", "")))
+            or initial.evidence_refs.get("metadata_digest") != _digest(metadata)
+        ):
+            raise ValueError("lifecycle metadata is not bound to the initial event")
         budget_policy = cls._budget_policy_from_dict(raw_policy)
         cp = cls(
             path,
@@ -1869,53 +1934,82 @@ class LifecycleControlPlane:
         admitted_budget_policy: BudgetPolicy | None = None,
     ) -> LifecycleEvent:
         with self._operation_lock, self._exclusive_lock():
-            persisted = (
-                [
-                    json.loads(line)
-                    for line in self.ledger_path.read_text().splitlines()
-                    if line.strip()
-                ]
-                if self.ledger_path.exists()
-                else []
+            return self._append_locked(
+                kind=kind,
+                outcome=outcome,
+                source=source,
+                target=target,
+                reason=reason,
+                actor=actor,
+                evidence_refs=evidence_refs,
+                observed_at=observed_at,
+                budget_usage=budget_usage,
+                resume_state=resume_state,
+                detail=detail,
+                expected_budget_policy_digest=expected_budget_policy_digest,
+                admitted_budget_policy=admitted_budget_policy,
             )
-            expected_previous = self.events[-1].event_digest if self.events else ""
-            persisted_previous = str(persisted[-1].get("event_digest", "")) if persisted else ""
-            if len(persisted) != len(self.events) or persisted_previous != expected_previous:
-                raise TransitionDeniedError(
-                    "stale lifecycle writer lost the append compare-and-swap"
-                )
-            if (
-                expected_budget_policy_digest is not None
-                and _digest(asdict(self.budget_policy)) != expected_budget_policy_digest
-            ):
-                raise TransitionDeniedError("stale budget policy admission lost compare-and-swap")
-            body: dict[str, Any] = {
-                "sequence": len(self.events) + 1,
-                "kind": kind,
-                "outcome": outcome,
-                "source": source.value,
-                "target": target.value,
-                "reason": reason,
-                "actor": actor,
-                "subject_digest": self.subject_digest,
-                "policy_digest": PHASE_ZERO_POLICY.digest,
-                "evidence_digest": _digest(evidence_refs),
-                "evidence_refs": evidence_refs,
-                "budget_usage": asdict(budget_usage) if budget_usage is not None else None,
-                "observed_at": observed_at,
-                "resume_state": resume_state.value if resume_state else None,
-                "previous_digest": expected_previous,
-                "detail": detail,
-            }
-            body["event_digest"] = _digest(body)
-            event = self._event_from_dict(body)
-            with self.ledger_path.open("a") as stream:
-                stream.write(json.dumps(body, sort_keys=True, separators=(",", ":")) + "\n")
-                stream.flush()
-                os.fsync(stream.fileno())
-            self.events.append(event)
-            if admitted_budget_policy is not None:
-                self.budget_policy = admitted_budget_policy
+
+    def _append_locked(
+        self,
+        *,
+        kind: str,
+        outcome: str,
+        source: LifecycleState,
+        target: LifecycleState,
+        reason: str,
+        actor: str,
+        evidence_refs: dict[str, str],
+        observed_at: str,
+        budget_usage: BudgetUsage | None = None,
+        resume_state: LifecycleState | None = None,
+        detail: str = "",
+        expected_budget_policy_digest: str | None = None,
+        admitted_budget_policy: BudgetPolicy | None = None,
+    ) -> LifecycleEvent:
+        """Append while both the instance and lifecycle file locks are held."""
+
+        persisted = (
+            [json.loads(line) for line in self.ledger_path.read_text().splitlines() if line.strip()]
+            if self.ledger_path.exists()
+            else []
+        )
+        expected_previous = self.events[-1].event_digest if self.events else ""
+        persisted_previous = str(persisted[-1].get("event_digest", "")) if persisted else ""
+        if len(persisted) != len(self.events) or persisted_previous != expected_previous:
+            raise TransitionDeniedError("stale lifecycle writer lost the append compare-and-swap")
+        if (
+            expected_budget_policy_digest is not None
+            and _digest(asdict(self.budget_policy)) != expected_budget_policy_digest
+        ):
+            raise TransitionDeniedError("stale budget policy admission lost compare-and-swap")
+        body: dict[str, Any] = {
+            "sequence": len(self.events) + 1,
+            "kind": kind,
+            "outcome": outcome,
+            "source": source.value,
+            "target": target.value,
+            "reason": reason,
+            "actor": actor,
+            "subject_digest": self.subject_digest,
+            "policy_digest": PHASE_ZERO_POLICY.digest,
+            "evidence_digest": _digest(evidence_refs),
+            "evidence_refs": evidence_refs,
+            "budget_usage": asdict(budget_usage) if budget_usage is not None else None,
+            "observed_at": observed_at,
+            "resume_state": resume_state.value if resume_state else None,
+            "previous_digest": expected_previous,
+            "detail": detail,
+        }
+        body["event_digest"] = _digest(body)
+        event = self._event_from_dict(body)
+        with self.ledger_path.open("a") as stream:
+            stream.write(json.dumps(body, sort_keys=True, separators=(",", ":")) + "\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        self.events.append(event)
+        if admitted_budget_policy is not None:
+            self.budget_policy = admitted_budget_policy
         return event
 
     def _deny(
@@ -2093,6 +2187,56 @@ class LifecycleControlPlane:
                         "blocking finding subject does not match the lifecycle subject",
                     )
                 self._deny(target, context, reason, "a pending blocking finding prohibits staging")
+        if "drift" in guards:
+            candidate_states = {
+                S.DRAFT_PR_OPEN,
+                S.IMPLEMENTATION_IN_PROGRESS,
+                S.VERIFICATION_FAILED,
+                S.REPAIR_IN_PROGRESS,
+                S.REVIEW_REQUIRED,
+                S.REVIEW_FAILED,
+                S.PR_READY,
+            }
+            admitted_dispositions = (
+                {"frozen-unverified-non-admissible", "disposed-unverified-non-admissible"}
+                if source in candidate_states
+                else {
+                    "none",
+                    "frozen-unverified-non-admissible",
+                    "disposed-unverified-non-admissible",
+                }
+            )
+            if context.rollout.has_resources:
+                self._deny(
+                    target, context, reason, "repository drift requires zero rollout resources"
+                )
+            if context.work.worker_leases_active or not context.work.workers_stopped:
+                self._deny(target, context, reason, "repository drift workers are not quiescent")
+            if context.work.mutation_capability_active:
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "repository drift mutation capability remains active",
+                )
+            if context.work.partial_output_disposition not in admitted_dispositions:
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "repository drift partial work has no safe disposition",
+                )
+            work_digest = _digest(asdict(context.work))
+            if (
+                context.evidence.get("work_disposition_digest") != work_digest
+                or context.evidence.get("worker_quiescence_digest") != work_digest
+            ):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "repository drift work evidence is not bound to the quiesced state",
+                )
         if "security_incident_block" in guards:
             artifact_digest = context.evidence.get("affected_artifact_digest", "")
             disposition_status = context.evidence.get("quarantine_disposition_status", "")
@@ -2196,6 +2340,24 @@ class LifecycleControlPlane:
                 self._deny(target, context, reason, "product input requires cleanup or rollback")
             if context.work.worker_leases_active or not context.work.workers_stopped:
                 self._deny(target, context, reason, "product input requires stopped workers")
+            if context.work.mutation_capability_active:
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "product input requires revoked candidate mutation capability",
+                )
+            work_digest = _digest(asdict(context.work))
+            if (
+                context.evidence.get("work_disposition_digest") != work_digest
+                or context.evidence.get("worker_quiescence_digest") != work_digest
+            ):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "product input work evidence is not bound to worker quiescence",
+                )
         if "budget_stop" in guards:
             if not exhausted:
                 self._deny(target, context, reason, "budget stop requires proven exhaustion")
@@ -2355,6 +2517,13 @@ class LifecycleControlPlane:
             and approval.eligible
             and approval.active
             and approval.subject_digest == self.subject_digest
+            and _GIT_SHA.fullmatch(approval.reviewed_commit_sha)
+            and _SHA256.fullmatch(approval.reviewed_candidate_digest)
+            and _SHA256.fullmatch(approval.review_evidence_digest)
+            and approval.reviewed_commit_sha == context.evidence.get("merge_commit_sha")
+            and approval.reviewed_candidate_digest == context.evidence.get("artifact_digest")
+            and approval.review_evidence_digest
+            == _production_approval_scope_digest(context.evidence)
             and context.evidence.get("production_approval_digest") == _digest(asdict(approval))
             for approval in context.approvals
         ):
@@ -2362,7 +2531,7 @@ class LifecycleControlPlane:
                 target,
                 context,
                 reason,
-                "a live exact-subject production approval is required",
+                "a live production approval bound to the exact rollout is required",
             )
         if "mutation" in guards:
             attempt = context.mutation
@@ -2546,6 +2715,55 @@ class LifecycleControlPlane:
                     context,
                     reason,
                     "completion is not bound to the exact reviewed candidate and evidence",
+                )
+        if "revoke_completion" in guards:
+            completion_event = next(
+                (
+                    event
+                    for event in reversed(self.events)
+                    if event.kind == "COMPLETION_CLAIMED" and event.outcome == "APPLIED"
+                ),
+                None,
+            )
+            monitor_identity = _digest(
+                {
+                    "actor_id": actor.actor_id,
+                    "role": actor.role,
+                    "subject_digest": actor.subject_digest,
+                }
+            )
+            trigger_digest = context.evidence.get(
+                "incident_digest", context.evidence.get("safe_state_digest", "")
+            )
+            expected_invalidation = _digest(
+                {
+                    "completion_event_digest": (
+                        completion_event.event_digest if completion_event is not None else ""
+                    ),
+                    "monitor_authentication_evidence_digest": (
+                        actor.authentication_evidence_digest
+                    ),
+                    "monitor_identity_digest": monitor_identity,
+                    "subject_digest": self.subject_digest,
+                    "trigger_digest": trigger_digest,
+                }
+            )
+            if (
+                not self.completion_claim_active
+                or completion_event is None
+                or "lifecycle.completion.revoke" not in actor.capabilities
+                or not context.authority.current_at(context.observed_at)
+                or context.evidence.get("completion_event_digest") != completion_event.event_digest
+                or context.evidence.get("monitor_identity_digest") != monitor_identity
+                or context.evidence.get("monitor_authentication_evidence_digest")
+                != actor.authentication_evidence_digest
+                or context.evidence.get("invalidation_digest") != expected_invalidation
+            ):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "completion revocation lacks an active claim and attributable monitor evidence",
                 )
 
         kind = "TRANSITION"

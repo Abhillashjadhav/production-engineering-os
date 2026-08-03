@@ -222,6 +222,77 @@ def completion_evidence_with_review_binding(cp: LifecycleControlPlane) -> dict[s
     return evidence
 
 
+def production_approval_for(evidence: dict[str, str]) -> Approval:
+    return Approval(
+        approval_id="production-approval-1",
+        actor="release-owner",
+        subject_digest=SHA,
+        kind="PRODUCTION",
+        eligible=True,
+        active=True,
+        reviewed_commit_sha=evidence["merge_commit_sha"],
+        reviewed_candidate_digest=evidence["artifact_digest"],
+        review_evidence_digest=lifecycle._production_approval_scope_digest(evidence),
+    )
+
+
+def completion_invalidation_context(
+    cp: LifecycleControlPlane,
+    *,
+    target: LifecycleState = LifecycleState.LIVE_VERIFICATION_FAILED,
+    reason: str = "completion_evidence_invalidated",
+) -> TransitionContext:
+    base_actor = context().actor
+    capabilities = frozenset({"lifecycle.transition", "lifecycle.completion.revoke"})
+    actor_claims = {
+        "actor_id": "monitor-1",
+        "role": "lifecycle-monitor",
+        "authenticated": True,
+        "capabilities": sorted(capabilities),
+        "subject_digest": SHA,
+        "authority_digest": base_actor.authority_digest,
+    }
+    monitor = replace(
+        base_actor,
+        actor_id="monitor-1",
+        role="lifecycle-monitor",
+        capabilities=capabilities,
+        authentication_evidence_digest=object_digest(actor_claims),
+    )
+    completion_event = next(
+        event for event in reversed(cp.events) if event.kind == "COMPLETION_CLAIMED"
+    )
+    evidence = evidence_for(LifecycleState.COMPLETED, target, reason=reason)
+    identity_digest = object_digest(
+        {
+            "actor_id": monitor.actor_id,
+            "role": monitor.role,
+            "subject_digest": monitor.subject_digest,
+        }
+    )
+    trigger_digest = evidence.get("incident_digest", evidence.get("safe_state_digest", ""))
+    evidence.update(
+        {
+            "subject_digest": SHA,
+            "completion_event_digest": completion_event.event_digest,
+            "monitor_identity_digest": identity_digest,
+            "monitor_authentication_evidence_digest": (monitor.authentication_evidence_digest),
+            "invalidation_digest": object_digest(
+                {
+                    "completion_event_digest": completion_event.event_digest,
+                    "monitor_authentication_evidence_digest": (
+                        monitor.authentication_evidence_digest
+                    ),
+                    "monitor_identity_digest": identity_digest,
+                    "subject_digest": SHA,
+                    "trigger_digest": trigger_digest,
+                }
+            ),
+        }
+    )
+    return context(actor=monitor, evidence=evidence)
+
+
 def extension_authorization(
     cp: LifecycleControlPlane,
     proposed: BudgetPolicy,
@@ -669,14 +740,7 @@ def test_production_admission_requires_live_exact_subject_approval(tmp_path: Pat
             reason="production_admitted",
         )
 
-    approval = Approval(
-        approval_id="production-approval-1",
-        actor="release-owner",
-        subject_digest=SHA,
-        kind="PRODUCTION",
-        eligible=True,
-        active=True,
-    )
+    approval = production_approval_for(required)
     required["production_approval_digest"] = object_digest(asdict(approval))
     cp.transition(
         LifecycleState.PRODUCTION_DEPLOYED,
@@ -837,14 +901,9 @@ def test_completion_claim_is_revoked_append_only_on_admitted_invalidation(tmp_pa
         reason="observation_window_passed",
     )
     before = len(cp.events)
-    invalid = evidence_for(
-        LifecycleState.COMPLETED,
-        LifecycleState.LIVE_VERIFICATION_FAILED,
-        reason="completion_evidence_invalidated",
-    )
     cp.transition(
         LifecycleState.LIVE_VERIFICATION_FAILED,
-        context(evidence=invalid),
+        completion_invalidation_context(cp),
         reason="completion_evidence_invalidated",
     )
     assert not cp.completion_claim_active
@@ -2177,6 +2236,19 @@ def test_repository_drift_requires_quiesced_digest_bound_work(tmp_path: Path) ->
         )
 
     assert cp.state is LifecycleState.IMPLEMENTATION_IN_PROGRESS
+    stopped_work = WorkStatus(
+        workers_stopped=True,
+        mutation_capability_active=False,
+        partial_output_disposition="frozen-unverified-non-admissible",
+    )
+    required["work_disposition_digest"] = object_digest(asdict(stopped_work))
+    required["worker_quiescence_digest"] = object_digest(asdict(stopped_work))
+    admitted = cp.transition(
+        LifecycleState.REPOSITORY_ANALYSED,
+        context(evidence=required, work=stopped_work),
+        reason="repository_drift",
+    )
+    assert admitted.target is LifecycleState.REPOSITORY_ANALYSED
 
 
 def test_production_approval_cannot_be_reused_for_an_unbound_rollout(
@@ -2205,13 +2277,11 @@ def test_production_approval_cannot_be_reused_for_an_unbound_rollout(
             "production_result_digest": SHA,
         }
     )
-    stale_approval = Approval(
+    prior_rollout = dict(required)
+    prior_rollout["configuration_digest"] = object_digest("prior-production-config")
+    stale_approval = replace(
+        production_approval_for(prior_rollout),
         approval_id="production-approval-stale",
-        actor="release-owner",
-        subject_digest=SHA,
-        kind="PRODUCTION",
-        eligible=True,
-        active=True,
     )
     required["production_approval_digest"] = object_digest(asdict(stale_approval))
 
@@ -2255,6 +2325,19 @@ def test_product_input_requires_revoked_digest_bound_mutation_capability(
         )
 
     assert cp.state is LifecycleState.IMPLEMENTATION_IN_PROGRESS
+    stopped_work = WorkStatus(
+        workers_stopped=True,
+        mutation_capability_active=False,
+        partial_output_disposition="frozen-unverified-non-admissible",
+    )
+    required["work_disposition_digest"] = object_digest(asdict(stopped_work))
+    required["worker_quiescence_digest"] = object_digest(asdict(stopped_work))
+    admitted = cp.transition(
+        LifecycleState.PRODUCT_INPUT_REQUIRED,
+        context(evidence=required, work=stopped_work),
+        reason="authority_invalidated",
+    )
+    assert admitted.target is LifecycleState.PRODUCT_INPUT_REQUIRED
 
 
 def test_concurrent_creation_cannot_diverge_metadata_from_initial_event(
