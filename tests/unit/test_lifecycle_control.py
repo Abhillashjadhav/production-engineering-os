@@ -1040,6 +1040,41 @@ def test_safety_resume_is_bound_to_original_blocked_attempt(tmp_path: Path) -> N
     assert cp.budget_usage.safety_units_used == 1
 
 
+def test_indeterminate_rollback_retains_truthful_unresolved_exposure(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.ROLLBACK_IN_PROGRESS)
+    attempt = MutationAttempt(
+        attempt_id="rollback-unresolved-exposure",
+        idempotency_key="rollback:run-65:unresolved-exposure",
+        subject_digest=SHA,
+        action="rollback",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(attempt)
+    required = evidence_for(
+        LifecycleState.ROLLBACK_IN_PROGRESS,
+        LifecycleState.BLOCKED,
+        reason="rollback_indeterminate",
+    )
+    required["original_attempt_digest"] = object_digest(asdict(attempt))
+
+    event = cp.transition(
+        LifecycleState.BLOCKED,
+        context(
+            evidence=required,
+            mutation=attempt,
+            rollout=RolloutStatus(
+                staging="ACTIVE",
+                canary="UNKNOWN",
+                changed_production="UNKNOWN",
+            ),
+        ),
+        reason="rollback_indeterminate",
+    )
+    assert event.target is LifecycleState.BLOCKED
+    assert event.resume_state is LifecycleState.ROLLBACK_IN_PROGRESS
+
+
 def test_safety_mutations_are_explicitly_prejournaled_before_adapter_execution(
     tmp_path: Path,
 ) -> None:
