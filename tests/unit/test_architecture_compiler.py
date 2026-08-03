@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ import pytest
 from jsonschema import Draft202012Validator
 
 from pmpe.contracts.canonical import canonical_digest
+from pmpe.repository import RepositoryScanner, ScanConfig
 from pmpe.repository.models import (
     AdapterMetadata,
     BoundaryCandidate,
@@ -134,9 +136,12 @@ def _governance(snapshot: RepositorySnapshot) -> GovernanceObservation:
 
 
 def _proposal(
-    contract: dict[str, Any], snapshot: RepositorySnapshot, governance: Any
+    contract: dict[str, Any],
+    snapshot: RepositorySnapshot,
+    governance: Any,
+    *,
+    boundary: str = "src/pmpe/contracts",
 ) -> dict[str, Any]:
-    boundary = "src/pmpe/contracts"
     components = [
         {
             "id": f"COMP-{plane}",
@@ -508,6 +513,75 @@ def test_boundary_names_are_admitted_and_evidence_paths_are_preserved() -> None:
     rejected = _compile(proposal)
     assert rejected.disposition.value == "ERROR"
     assert "ARCH.REFERENCE.BOUNDARY" in {item.rule_id for item in rejected.diagnostics}
+
+
+def test_root_package_manifest_boundary_is_preserved_and_compiles(tmp_path: Path) -> None:
+    repo = tmp_path / "root-package"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", "--initial-branch=main"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "fixture@localhost"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "Fixture"], cwd=repo, check=True)
+    (repo / "pyproject.toml").write_text(
+        "[project]\nname='root-package'\nversion='1.0.0'\ndependencies=[]\n"
+    )
+    package = repo / "src" / "root_package"
+    package.mkdir(parents=True)
+    (package / "__init__.py").write_text('"""Root package."""\n')
+    subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "fixture"], cwd=repo, check=True)
+
+    snapshot = RepositoryScanner(
+        config=ScanConfig(repository="example/root-package", default_branch="main")
+    ).scan(repo, commit="HEAD")
+    root = next(candidate for candidate in snapshot.boundary_candidates if candidate.name == ".")
+    assert root.evidence_paths == ("pyproject.toml",)
+
+    contract = _contract()
+    governance = _governance(snapshot)
+    proposal = _proposal(contract, snapshot, governance, boundary=".")
+    validation = SimpleNamespace(
+        bundle_digest=canonical_digest(contract), engineering_admissible=True
+    )
+    result = (
+        _api().ArchitectureCompiler().compile(contract, validation, snapshot, governance, proposal)
+    )
+
+    assert result.disposition.value == "ADMITTED"
+    assert result.pack is not None
+    assert result.pack.repository_boundary_evidence[0]["boundary"] == "."
+    assert result.pack.repository_boundary_evidence[0]["evidence_paths"] == ("pyproject.toml",)
+
+
+def test_verified_approval_removes_matching_stale_input_request() -> None:
+    api = _api()
+    contract = _contract()
+    snapshot = _snapshot()
+    governance = _governance(snapshot)
+    proposal = _proposal(contract, snapshot, governance)
+    proposal["adrs"][0]["decision_classes"] = ["SECURITY_POLICY"]
+    proposal["adrs"][0]["approval_refs"] = ["APR-SECURITY-001"]
+    proposal["approval_requests"] = [
+        {
+            "id": "INPUT-ADR-ARCH-001-SECURITY-POLICY",
+            "category": "SECURITY_POLICY",
+            "decision_ref": "ADR-ARCH-001",
+            "owner": "SECURITY",
+            "reason": "Previously required security approval.",
+            "status": "INPUT_REQUIRED",
+        }
+    ]
+    validation = SimpleNamespace(
+        bundle_digest=canonical_digest(contract), engineering_admissible=True
+    )
+    verifier = SimpleNamespace(verify=lambda **_arguments: True)
+
+    result = api.ArchitectureCompiler(approval_verifier=verifier).compile(
+        contract, validation, snapshot, governance, proposal
+    )
+
+    assert result.disposition.value == "ADMITTED"
+    assert result.pack is not None
+    assert result.pack.approval_requests == ()
 
 
 def test_duplicate_component_is_rejected_as_unnecessary_complexity() -> None:
