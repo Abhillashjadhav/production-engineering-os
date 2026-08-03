@@ -10,7 +10,6 @@ from pathlib import Path
 import pytest
 
 import pmpe.orchestration.lifecycle as lifecycle
-
 from pmpe.orchestration.lifecycle import (
     PHASE_ZERO_POLICY,
     Approval,
@@ -69,25 +68,41 @@ def context(
     rollout: RolloutStatus | None = None,
     work: WorkStatus | None = None,
     permission: str = "lifecycle.transition",
+    actor: lifecycle.TransitionActor | None = None,
     evidence: dict[str, str] | None = None,
     approvals: tuple[Approval, ...] = (),
     finding: FindingSignal | None = None,
     mutation: MutationAttempt | None = None,
-    resume_state: LifecycleState | None = None,
 ) -> TransitionContext:
     _, default_usage = budgets()
+    authority_snapshot = authority(current=current_authority)
+    actor_claims = {
+        "actor_id": "control-plane",
+        "role": "lifecycle-controller",
+        "authenticated": True,
+        "capabilities": [permission],
+        "subject_digest": SHA,
+        "authority_digest": authority_snapshot.digest,
+    }
     return TransitionContext(
-        actor="control-plane",
-        permissions=frozenset({permission}),
+        actor=actor
+        or lifecycle.TransitionActor(
+            actor_id=str(actor_claims["actor_id"]),
+            role=str(actor_claims["role"]),
+            authenticated=bool(actor_claims["authenticated"]),
+            capabilities=frozenset({permission}),
+            subject_digest=str(actor_claims["subject_digest"]),
+            authority_digest=str(actor_claims["authority_digest"]),
+            authentication_evidence_digest=object_digest(actor_claims),
+        ),
         evidence=evidence or {"subject_digest": SHA, "evidence_bundle_digest": OTHER_SHA},
-        authority=authority(current=current_authority),
+        authority=authority_snapshot,
         budget_usage=usage or default_usage,
         rollout=rollout or RolloutStatus(),
         work=work or WorkStatus(),
         approvals=approvals,
         finding=finding,
         mutation=mutation,
-        resume_state=resume_state,
         observed_at="2026-08-02T00:01:00Z",
     )
 
@@ -122,6 +137,47 @@ def evidence_for(source: LifecycleState, target: LifecycleState, *, reason: str)
 def object_digest(value: object) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def extension_authorization(
+    cp: LifecycleControlPlane,
+    proposed: BudgetPolicy,
+    *,
+    amounts: dict[str, int],
+) -> lifecycle.BudgetExtensionAuthorization:
+    body = {
+        "extension_id": f"extension:{proposed.version}",
+        "owner_id": proposed.approved_by,
+        "owner_role": "delivery-owner",
+        "authenticated": True,
+        "capabilities": ["lifecycle.budget.extend"],
+        "run_id": cp.run_id,
+        "subject_digest": cp.subject_digest,
+        "authority_digest": SHA,
+        "prior_policy_digest": object_digest(asdict(cp.budget_policy)),
+        "proposed_policy_digest": object_digest(asdict(proposed)),
+        "amounts": amounts,
+        "reason": "owner-approved bounded continuation",
+        "valid_from": "2026-08-02T00:00:00Z",
+        "valid_until": "2026-08-03T00:00:00Z",
+    }
+    return lifecycle.BudgetExtensionAuthorization(
+        extension_id=str(body["extension_id"]),
+        owner_id=str(body["owner_id"]),
+        owner_role=str(body["owner_role"]),
+        authenticated=bool(body["authenticated"]),
+        capabilities=frozenset({"lifecycle.budget.extend"}),
+        run_id=str(body["run_id"]),
+        subject_digest=str(body["subject_digest"]),
+        authority_digest=str(body["authority_digest"]),
+        prior_policy_digest=str(body["prior_policy_digest"]),
+        proposed_policy_digest=str(body["proposed_policy_digest"]),
+        amounts=amounts,
+        reason=str(body["reason"]),
+        valid_from=str(body["valid_from"]),
+        valid_until=str(body["valid_until"]),
+        evidence_digest=object_digest(body),
+    )
 
 
 def test_phase_zero_policy_is_versioned_digest_bound_and_complete() -> None:
@@ -314,7 +370,6 @@ def test_budget_stop_requires_worker_quiescence_and_safe_disposition(tmp_path: P
             usage=exhausted,
             work=stopped,
             evidence=required,
-            resume_state=LifecycleState.IMPLEMENTATION_IN_PROGRESS,
         ),
         reason="delivery_budget_exhausted",
     )
@@ -324,7 +379,7 @@ def test_budget_stop_requires_worker_quiescence_and_safe_disposition(tmp_path: P
 def test_reserved_safety_budget_cannot_authorize_forward_work(tmp_path: Path) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.STAGING_DEPLOYED)
     _, exhausted = budgets(tokens=100)
-    rollout = RolloutStatus(staging="ACTIVE")
+    rollout = RolloutStatus(staging="ACTIVE", canary="UNKNOWN")
     forward = evidence_for(
         LifecycleState.STAGING_DEPLOYED,
         LifecycleState.CANARY_DEPLOYED,
@@ -349,6 +404,7 @@ def test_reserved_safety_budget_cannot_authorize_forward_work(tmp_path: Path) ->
         LifecycleState.ROLLBACK_IN_PROGRESS,
         reason="canary_mutation_indeterminate",
     )
+    cp.prejournal_mutation(attempt)
     cp.transition(
         LifecycleState.ROLLBACK_IN_PROGRESS,
         context(usage=exhausted, rollout=rollout, evidence=safety, mutation=attempt),
@@ -461,6 +517,7 @@ def test_external_mutation_requires_prejournaled_unique_attempt(tmp_path: Path) 
         step_plan_digest=OTHER_SHA,
         status="PLANNED",
     )
+    cp.prejournal_mutation(attempt)
     with pytest.raises(TransitionDeniedError, match="successful exact-attempt"):
         cp.transition(
             LifecycleState.STAGING_DEPLOYED,
@@ -491,6 +548,7 @@ def test_missing_adapter_response_never_implies_success(tmp_path: Path) -> None:
         step_plan_digest=OTHER_SHA,
         status="PLANNED",
     )
+    cp.prejournal_mutation(attempt)
     result = cp.record_mutation_result(attempt, status="UNKNOWN", result_digest=None)
     assert result.status == "UNKNOWN"
     assert not result.successful
@@ -631,22 +689,18 @@ def test_budget_resume_uses_only_the_recorded_safe_state(tmp_path: Path) -> None
             usage=exhausted,
             work=stopped,
             evidence=required,
-            resume_state=LifecycleState.IMPLEMENTATION_IN_PROGRESS,
         ),
         reason="delivery_budget_exhausted",
     )
-    with pytest.raises(TransitionDeniedError, match="recorded safe state"):
-        cp.resume(context(resume_state=LifecycleState.REPAIR_IN_PROGRESS))
     policy, _ = budgets()
+    extended = replace(policy, version="budget-v2", limits={**policy.limits, "tokens": 200})
     cp.admit_budget_policy(
-        replace(policy, version="budget-v2", limits={**policy.limits, "tokens": 200})
+        extended,
+        authorization=extension_authorization(cp, extended, amounts={"tokens": 100}),
+        authority=authority(),
+        observed_at="2026-08-02T12:00:00Z",
     )
-    cp.resume(
-        context(
-            usage=BudgetUsage(counters={"tokens": 101}),
-            resume_state=LifecycleState.IMPLEMENTATION_IN_PROGRESS,
-        )
-    )
+    cp.resume(context(usage=BudgetUsage(counters={"tokens": 101})))
     assert cp.state is LifecycleState.IMPLEMENTATION_IN_PROGRESS
 
 
@@ -660,6 +714,7 @@ def test_mutation_idempotency_binding_survives_replay(tmp_path: Path) -> None:
         step_plan_digest=OTHER_SHA,
         status="PLANNED",
     )
+    cp.prejournal_mutation(attempt)
     cp.record_mutation_result(attempt, status="UNKNOWN", result_digest=None)
     loaded = LifecycleControlPlane.load(tmp_path)
     with pytest.raises(TransitionDeniedError, match="idempotency key"):
@@ -692,7 +747,7 @@ def test_concurrent_append_rejects_stale_writer_without_corrupting_chain(tmp_pat
     assert [event.reason for event in loaded.events] == ["create", "watchdog-a"]
 
 
-def test_budget_stop_rejects_state_skipping_resume_target(tmp_path: Path) -> None:
+def test_budget_stop_derives_the_interrupted_safe_gate(tmp_path: Path) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.IMPLEMENTATION_IN_PROGRESS)
     _, exhausted = budgets(tokens=100)
     required = evidence_for(
@@ -704,17 +759,12 @@ def test_budget_stop_rejects_state_skipping_resume_target(tmp_path: Path) -> Non
         workers_stopped=True,
         partial_output_disposition="frozen-unverified-non-admissible",
     )
-    with pytest.raises(TransitionDeniedError, match="interrupted safe gate"):
-        cp.transition(
-            LifecycleState.BUDGET_EXCEEDED,
-            context(
-                usage=exhausted,
-                work=stopped,
-                evidence=required,
-                resume_state=LifecycleState.COMPLETED,
-            ),
-            reason="delivery_budget_exhausted",
-        )
+    event = cp.transition(
+        LifecycleState.BUDGET_EXCEEDED,
+        context(usage=exhausted, work=stopped, evidence=required),
+        reason="delivery_budget_exhausted",
+    )
+    assert event.resume_state is LifecycleState.IMPLEMENTATION_IN_PROGRESS
 
 
 def test_budget_and_repair_usage_are_monotonic_and_replayed(tmp_path: Path) -> None:
@@ -770,6 +820,7 @@ def test_same_attempt_id_cannot_rebind_a_complete_mutation_plan(tmp_path: Path) 
         status="PLANNED",
         steps=("create", "wait", "observe"),
     )
+    cp.prejournal_mutation(attempt)
     cp.record_mutation_result(attempt, status="UNKNOWN", result_digest=None)
     altered = replace(
         attempt,
@@ -791,6 +842,7 @@ def test_mutation_admission_requires_persisted_success_after_replay(tmp_path: Pa
         step_plan_digest=OTHER_SHA,
         status="PLANNED",
     )
+    cp.prejournal_mutation(attempt)
     cp.record_mutation_result(attempt, status="SUCCEEDED", result_digest=SHA)
     loaded = LifecycleControlPlane.load(tmp_path)
     required = evidence_for(
@@ -822,12 +874,12 @@ def test_safety_resume_is_bound_to_original_blocked_attempt(tmp_path: Path) -> N
         reason="rollback_indeterminate",
     )
     blocked_evidence["original_attempt_digest"] = object_digest(asdict(attempt))
+    cp.prejournal_mutation(attempt)
     cp.transition(
         LifecycleState.BLOCKED,
         context(
             evidence=blocked_evidence,
             mutation=attempt,
-            resume_state=LifecycleState.ROLLBACK_IN_PROGRESS,
         ),
         reason="rollback_indeterminate",
     )
@@ -844,7 +896,6 @@ def test_safety_resume_is_bound_to_original_blocked_attempt(tmp_path: Path) -> N
             context(
                 evidence=resume_evidence,
                 mutation=impostor,
-                resume_state=LifecycleState.ROLLBACK_IN_PROGRESS,
             ),
             reason="resume_safety_rollback",
         )
@@ -853,7 +904,6 @@ def test_safety_resume_is_bound_to_original_blocked_attempt(tmp_path: Path) -> N
         context(
             evidence=resume_evidence,
             mutation=attempt,
-            resume_state=LifecycleState.ROLLBACK_IN_PROGRESS,
         ),
         reason="resume_safety_rollback",
     )
@@ -906,7 +956,11 @@ def test_safety_mutations_are_explicitly_prejournaled_before_adapter_execution(
     with pytest.raises(TransitionDeniedError, match="successful exact-attempt"):
         cp.transition(
             LifecycleState.ROLLED_BACK,
-            context(evidence=verified_evidence, mutation=attempt),
+            context(
+                evidence=verified_evidence,
+                mutation=attempt,
+                usage=cp.budget_usage,
+            ),
             reason="rollback_verified",
         )
 
@@ -983,7 +1037,14 @@ def test_reserved_safety_budget_is_control_plane_bounded_and_not_caller_capacity
             reason="contract_admitted",
         )
 
-    blocked = control_plane(tmp_path / "resume", state=LifecycleState.ROLLBACK_IN_PROGRESS)
+    policy, _ = budgets()
+    blocked = LifecycleControlPlane.create(
+        tmp_path / "resume",
+        run_id="run-65",
+        subject_digest=SHA,
+        initial_state=LifecycleState.ROLLBACK_IN_PROGRESS,
+        budget_policy=replace(policy, reserved_safety_units=1),
+    )
     attempt = MutationAttempt(
         attempt_id="rollback-safety-cap",
         idempotency_key="rollback:run-65:safety-cap",
@@ -998,13 +1059,10 @@ def test_reserved_safety_budget_is_control_plane_bounded_and_not_caller_capacity
         reason="rollback_indeterminate",
     )
     blocked_evidence["original_attempt_digest"] = object_digest(asdict(attempt))
+    blocked.prejournal_mutation(attempt)
     blocked.transition(
         LifecycleState.BLOCKED,
-        context(
-            evidence=blocked_evidence,
-            mutation=attempt,
-            resume_state=LifecycleState.ROLLBACK_IN_PROGRESS,
-        ),
+        context(evidence=blocked_evidence, mutation=attempt),
         reason="rollback_indeterminate",
     )
     resume_evidence = evidence_for(
@@ -1013,14 +1071,28 @@ def test_reserved_safety_budget_is_control_plane_bounded_and_not_caller_capacity
         reason="resume_safety_rollback",
     )
     resume_evidence["original_attempt_digest"] = object_digest(asdict(attempt))
+    blocked.transition(
+        LifecycleState.ROLLBACK_IN_PROGRESS,
+        context(evidence=resume_evidence, mutation=attempt),
+        reason="resume_safety_rollback",
+    )
+    assert blocked.budget_usage.safety_units_used == 1
+    blocked.transition(
+        LifecycleState.BLOCKED,
+        context(
+            evidence=blocked_evidence,
+            mutation=attempt,
+            usage=blocked.budget_usage,
+        ),
+        reason="rollback_indeterminate",
+    )
     with pytest.raises(TransitionDeniedError, match="reserved safety budget is exhausted"):
         blocked.transition(
             LifecycleState.ROLLBACK_IN_PROGRESS,
             context(
                 evidence=resume_evidence,
                 mutation=attempt,
-                resume_state=LifecycleState.ROLLBACK_IN_PROGRESS,
-                usage=BudgetUsage(safety_units_used=10),
+                usage=blocked.budget_usage,
             ),
             reason="resume_safety_rollback",
         )
@@ -1084,23 +1156,35 @@ def test_budget_extensions_require_named_authenticated_exact_subject_authority(
     with pytest.raises(TransitionDeniedError, match="authenticated budget owner"):
         cp.admit_budget_policy(extended)
 
-    authorization = lifecycle.BudgetExtensionAuthorization(
-        extension_id="budget-extension-1",
-        owner_id="owner-alice",
-        owner_role="delivery-owner",
-        authenticated=True,
-        capabilities=frozenset({"lifecycle.budget.extend"}),
-        run_id="run-65",
-        subject_digest=SHA,
-        authority_digest=SHA,
-        prior_policy_digest=object_digest(asdict(cp.budget_policy)),
-        proposed_policy_digest=object_digest(asdict(extended)),
-        amounts={"tokens": 25},
-        reason="owner-approved bounded continuation",
-        valid_from="2026-08-02T00:00:00Z",
-        valid_until="2026-08-03T00:00:00Z",
-        evidence_digest=OTHER_SHA,
-    )
+    authorization = extension_authorization(cp, extended, amounts={"tokens": 25})
+    with pytest.raises(TransitionDeniedError, match="run or subject"):
+        cp.admit_budget_policy(
+            extended,
+            authorization=replace(authorization, subject_digest=OTHER_SHA),
+            authority=authority(),
+            observed_at="2026-08-02T12:00:00Z",
+        )
+    with pytest.raises(TransitionDeniedError, match="amount"):
+        cp.admit_budget_policy(
+            extended,
+            authorization=extension_authorization(cp, extended, amounts={"tokens": 26}),
+            authority=authority(),
+            observed_at="2026-08-02T12:00:00Z",
+        )
+    with pytest.raises(TransitionDeniedError, match="reason"):
+        cp.admit_budget_policy(
+            extended,
+            authorization=replace(authorization, reason=""),
+            authority=authority(),
+            observed_at="2026-08-02T12:00:00Z",
+        )
+    with pytest.raises(TransitionDeniedError, match="validity"):
+        cp.admit_budget_policy(
+            extended,
+            authorization=authorization,
+            authority=authority(),
+            observed_at="2026-08-04T12:00:00Z",
+        )
     cp.admit_budget_policy(
         extended,
         authorization=authorization,
@@ -1110,6 +1194,13 @@ def test_budget_extensions_require_named_authenticated_exact_subject_authority(
     assert cp.budget_policy == extended
     assert cp.events[-1].kind == "BUDGET_POLICY_ADMITTED"
     assert cp.events[-1].actor == "owner-alice"
+    loaded = LifecycleControlPlane.load(tmp_path)
+    assert loaded.budget_policy == extended
+    assert loaded.events[-1].kind == "BUDGET_POLICY_ADMITTED"
+    assert (
+        loaded.events[-1].evidence_refs["authorization_evidence_digest"]
+        == authorization.evidence_digest
+    )
 
 
 def test_unknown_policy_decisions_fail_closed() -> None:
