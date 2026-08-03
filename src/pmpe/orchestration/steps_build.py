@@ -95,9 +95,7 @@ class BuildSteps:
                 )
         if pending:
             raise _Blocked(
-                "waiting for human approval: "
-                + ", ".join(pending)
-                + f" (pmpe approve {ctx.state.run_id} <ESC-ID> --approver ... --reason ...)"
+                "legacy test harness waiting for fixture approval: " + ", ".join(pending)
             )
 
     def _step_ingest(self, ctx: RunContext) -> None:

@@ -129,7 +129,7 @@ jobs:
         if: steps.frontend-paths.outcome != 'success' || steps.frontend-paths.outputs.applicable != 'false'
         run: |
           npm run generate:api-types
-          git diff --exit-code src/lib/api-types.gen.ts
+          git diff --exit-code src/lib/api-types
       - name: typecheck
         if: steps.frontend-paths.outcome != 'success' || steps.frontend-paths.outputs.applicable != 'false'
         run: npx tsc --noEmit
@@ -138,7 +138,7 @@ jobs:
         run: npx vitest run
       - name: production build
         if: steps.frontend-paths.outcome != 'success' || steps.frontend-paths.outputs.applicable != 'false'
-        run: npx next build
+        run: npm run build
       - name: frontend CI routing result
         if: always()
         working-directory: .
@@ -173,7 +173,7 @@ jobs:
         working-directory: products/pm-evals-web/frontend
         run: |
           npm ci
-          npx next build
+          npm run build
       - name: install e2e harness and browser
         working-directory: products/pm-evals-web/e2e
         run: |
@@ -217,7 +217,7 @@ jobs:
           E2E_EXTERNAL_SERVERS=1 npx playwright test
       - name: record and verify digest-bound preview evidence
         run: |
-          BUILD_ID="$(docker compose -f products/pm-evals-web/docker-compose.yml exec -T frontend cat .next/BUILD_ID)"
+          BUILD_ID="$(docker compose -f products/pm-evals-web/docker-compose.yml exec -T frontend cat /usr/share/nginx/html/BUILD_ID)"
           python products/pm-evals-web/scripts/preview_evidence.py record \
             --kind containerized_preview \
             --build-id "$BUILD_ID" \
@@ -267,14 +267,15 @@ jobs:
           python -m build --wheel
       - name: install wheel and smoke the CLI
         run: |
-          pip install dist/*.whl ruff
+          pip install dist/*.whl ruff pytest
           pmpe validate examples/taskflow_mvp_spec.yaml
           pmpe contract validate examples/v2-demo/contract.json
-      - name: full pipeline smoke (golden spec)
+          python -c 'import importlib.util; assert importlib.util.find_spec("pmpe.orchestration.workflow") is None'
+      - name: explicit legacy fixture smoke (not shipped)
         run: |
           git config --global user.email ci@localhost
           git config --global user.name ci
-          pmpe run examples/taskflow_mvp_spec.yaml --runs-dir /tmp/ci-runs
+          python -m pytest -q tests/e2e/test_full_pipeline.py
       - name: eval suites (agents + planted trajectory fixture)
         run: |
           pmpe evals run --suite all --ledger evals/fixtures/trajectory/good_run.jsonl

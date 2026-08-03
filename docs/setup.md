@@ -24,21 +24,19 @@ pmpe validate examples/taskflow_mvp_spec.yaml
 pytest tests/unit           # fast sanity (~10s); full suite: pytest (~2 min)
 ```
 
-## First full run
+## Legacy compatibility verification
 
 ```bash
-pmpe run examples/taskflow_mvp_spec.yaml
-# -> {"run_id": "run-...", "status": "success", "run_dir": "runs/run-..."}
-pmpe report <run_id>        # the final traceability/build report
+pytest tests/e2e/test_full_pipeline.py
 ```
 
-Everything a run produces lives under `runs/<run_id>/` (gitignored):
-`state.json`, `events.jsonl`, `artifacts/`, `escalations/`, `approvals/`, and
-`workspace/` — the generated product as its own git repository.
+This invokes the explicit `tests.legacy_v1` harness. The harness is not included
+in the wheel and has no installed CLI or production entry point. Historical run
+directories remain readable with `pmpe status` and `pmpe report`.
 
-## Configuration (optional)
+## Historical run inspection configuration
 
-`pmpe run spec.yaml --config pmpe.yaml` — YAML with any of:
+Read-only `pmpe status` and `pmpe report` accept a YAML config containing:
 
 ```yaml
 runs_dir: runs              # where run directories are created

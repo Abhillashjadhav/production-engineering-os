@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Local built-artifact preview (PD-V3-14): no Docker daemon exists locally, so
-# the preview runs the SAME production artifacts as processes — frontend via
-# `next build` + `next start`, backend via uvicorn — then executes the full
-# browser suite against them and records digest-bound evidence. The
+# the preview runs the same production SPA artifacts as processes — frontend
+# via `vite build` + `vite preview`, backend via uvicorn — then executes the
+# full browser suite against them and records digest-bound evidence. The
 # containerized path (docker-compose.yml) runs in CI where a daemon exists.
 set -euo pipefail
 
@@ -11,8 +11,8 @@ PRODUCT="$ROOT/products/pm-evals-web"
 PYTHON="${E2E_PYTHON:-$ROOT/.venv/bin/python}"
 
 echo "== building the production frontend =="
-(cd "$PRODUCT/frontend" && npx next build)
-BUILD_ID="$(cat "$PRODUCT/frontend/.next/BUILD_ID")"
+(cd "$PRODUCT/frontend" && npm run build)
+BUILD_ID="$(cat "$PRODUCT/frontend/dist/BUILD_ID")"
 
 echo "== starting the built artifacts as processes =="
 # exec inside the subshells so $! is the SERVER pid, not a wrapper — a
@@ -20,7 +20,7 @@ echo "== starting the built artifacts as processes =="
 (cd "$PRODUCT/backend" && PYTHONPATH=src exec "$PYTHON" -m uvicorn pm_evals_api.app:app \
   --host 127.0.0.1 --port 8000) &
 BACKEND_PID=$!
-(cd "$PRODUCT/frontend" && exec ./node_modules/.bin/next start --hostname 127.0.0.1 --port 3000) &
+(cd "$PRODUCT/frontend" && BACKEND_URL=http://127.0.0.1:8000 exec npm run start) &
 FRONTEND_PID=$!
 stop_servers() {
   kill "$BACKEND_PID" "$FRONTEND_PID" 2>/dev/null || true

@@ -51,7 +51,7 @@ def _commit(repo: Path, path: str, content: str) -> str:
         "products/pm-evals-web/frontend/src/app/page.tsx",
         "products/pm-evals-web/frontend/package.json",
         "products/pm-evals-web/frontend/package-lock.json",
-        "products/pm-evals-web/frontend/src/lib/api-types.gen.ts",
+        "products/pm-evals-web/frontend/src/lib/api-types/types.gen.ts",
         "products/pm-evals-web/frontend/Dockerfile",
         "products/pm-evals-web/e2e/tests/journey.spec.ts",
         "products/pm-evals-web/fixtures/baseline.json",

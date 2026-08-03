@@ -218,5 +218,5 @@ four independent read-only reviewers on a frozen candidate, executed
 traceability that counts only real test executions (skips and import-dead
 tests count against coverage, not toward it), and an explicit deployment
 ladder that ends at a fixture-mode production path behind a digest-bound
-human approval. V1's pipeline (`pmpe run`) is preserved unchanged and its
-stack generators serve as the demo's deterministic implementation executor.
+human approval. V1's executor is retained only under the explicit test-fixture
+namespace; it is neither installed nor registered as a product command.

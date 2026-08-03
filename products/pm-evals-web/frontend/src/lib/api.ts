@@ -1,8 +1,19 @@
 // The typed API client: every call and shape derives from the committed
-// OpenAPI contract (api-types.gen.ts is generated from ../backend/openapi.json
+// OpenAPI contract (api-types/types.gen.ts is generated from ../backend/openapi.json
 // and CI fails when it drifts). The UI can never depend on an undocumented
 // field: these are the only response types the app knows.
-import type { components } from "@/lib/api-types.gen";
+import type {
+  CompareResponse,
+  Comparison,
+  CriterionCell,
+  CriterionDelta,
+  HealthResponse,
+  ParseIssue,
+  TraceComparison,
+  ValidationErrorResponse,
+  ValidationProblem,
+  VerdictReason,
+} from "@/lib/api-types/types.gen";
 import { MAX_UPLOAD_MB } from "@/lib/validate";
 
 // The size the 413 message reports is the single MAX_UPLOAD_MB derived in the
@@ -11,16 +22,18 @@ import { MAX_UPLOAD_MB } from "@/lib/validate";
 // mirror-parity.test.ts keeps that cap equal to the backend's.
 const OVERSIZE_MESSAGE = `One of the files is larger than the ${MAX_UPLOAD_MB} MB limit.`;
 
-export type Comparison = components["schemas"]["Comparison"];
-export type CompareResponse = components["schemas"]["CompareResponse"];
-export type CriterionDelta = components["schemas"]["CriterionDelta"];
-export type TraceComparison = components["schemas"]["TraceComparison"];
-export type CriterionCell = components["schemas"]["CriterionCell"];
-export type HealthResponse = components["schemas"]["HealthResponse"];
-export type ParseIssue = components["schemas"]["ParseIssue"];
-export type ValidationProblem = components["schemas"]["ValidationProblem"];
-export type ValidationErrorResponse = components["schemas"]["ValidationErrorResponse"];
-export type VerdictReason = components["schemas"]["VerdictReason"];
+export type {
+  CompareResponse,
+  Comparison,
+  CriterionCell,
+  CriterionDelta,
+  HealthResponse,
+  ParseIssue,
+  TraceComparison,
+  ValidationErrorResponse,
+  ValidationProblem,
+  VerdictReason,
+};
 
 export type ApiResult<T> =
   | { kind: "ok"; value: T }

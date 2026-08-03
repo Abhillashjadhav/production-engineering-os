@@ -3,7 +3,7 @@
 Levels (docs/human-approval-model.md):
 - low    -> proceed automatically
 - medium -> proceed with an explicit logged justification
-- high   -> block until a human approves (pmpe approve)
+- high   -> block until explicit approval evidence exists
 
 Unknown decision types fail closed at HIGH. A taxonomy gap cannot acquire mutation
 authority merely because the caller supplied a justification.

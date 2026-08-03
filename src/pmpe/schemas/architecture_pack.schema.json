@@ -1,0 +1,457 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://production-engineering-os.invalid/architecture-pack/1.0.0/schema.json",
+  "title": "Production Engineering OS ArchitecturePack",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "compiler_version",
+    "pack_id",
+    "contract_digest",
+    "repository_snapshot_digest",
+    "repository_commit",
+    "governance_observation_digest",
+    "disposition",
+    "repository_boundary_evidence",
+    "components",
+    "data_architecture",
+    "api_architecture",
+    "integration_architecture",
+    "security_boundaries",
+    "data_flows",
+    "deployment",
+    "observability",
+    "rollback",
+    "adrs",
+    "threat_model",
+    "approval_requests",
+    "pack_digest",
+    "artifact_kind"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0.0"},
+    "compiler_version": {"type": "string", "minLength": 1},
+    "pack_id": {"$ref": "#/$defs/id"},
+    "contract_digest": {"$ref": "#/$defs/digest"},
+    "repository_snapshot_digest": {"$ref": "#/$defs/digest"},
+    "repository_commit": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"},
+    "governance_observation_digest": {"$ref": "#/$defs/digest"},
+    "disposition": {"enum": ["ADMITTED", "PRODUCT_INPUT_REQUIRED"]},
+    "repository_boundary_evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/repositoryBoundaryEvidence"}
+    },
+    "components": {
+      "type": "array",
+      "minItems": 6,
+      "items": {"$ref": "#/$defs/component"}
+    },
+    "data_architecture": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/dataArchitecture"}
+    },
+    "api_architecture": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/apiArchitecture"}
+    },
+    "integration_architecture": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/integrationArchitecture"}
+    },
+    "security_boundaries": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/securityBoundary"}
+    },
+    "data_flows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/dataFlow"}
+    },
+    "deployment": {"$ref": "#/$defs/deploymentDesign"},
+    "observability": {"$ref": "#/$defs/observabilityDesign"},
+    "rollback": {"$ref": "#/$defs/rollbackDesign"},
+    "adrs": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/adr"}
+    },
+    "threat_model": {"$ref": "#/$defs/threatModel"},
+    "approval_requests": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/approvalRequest"}
+    },
+    "pack_digest": {"$ref": "#/$defs/digest"},
+    "artifact_kind": {"const": "ARCHITECTURE_PACK"}
+  },
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9-]{1,127}$"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "nonEmptyStrings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "strings": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "repositoryBoundaryEvidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "boundary",
+        "confidence",
+        "detector_id",
+        "detector_version",
+        "evidence_paths",
+        "kind"
+      ],
+      "properties": {
+        "boundary": {"type": "string", "minLength": 1},
+        "confidence": {"type": "string", "minLength": 1},
+        "detector_id": {"type": "string", "minLength": 1},
+        "detector_version": {"type": "string", "minLength": 1},
+        "evidence_paths": {"$ref": "#/$defs/nonEmptyStrings"},
+        "kind": {"type": "string", "minLength": 1}
+      }
+    },
+    "component": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "plane",
+        "responsibilities",
+        "requirement_ids",
+        "repository_boundaries"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "name": {"type": "string", "minLength": 1},
+        "plane": {
+          "enum": [
+            "CONTROL",
+            "EXECUTION",
+            "EVIDENCE",
+            "SECURITY",
+            "DEPLOYMENT",
+            "OBSERVABILITY"
+          ]
+        },
+        "responsibilities": {"$ref": "#/$defs/nonEmptyStrings"},
+        "requirement_ids": {"$ref": "#/$defs/nonEmptyStrings"},
+        "repository_boundaries": {"$ref": "#/$defs/nonEmptyStrings"}
+      }
+    },
+    "dataArchitecture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "data_refs",
+        "component_ids",
+        "requirement_ids",
+        "repository_boundaries"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "data_refs": {"$ref": "#/$defs/nonEmptyStrings"},
+        "component_ids": {"$ref": "#/$defs/nonEmptyStrings"},
+        "requirement_ids": {"$ref": "#/$defs/nonEmptyStrings"},
+        "repository_boundaries": {"$ref": "#/$defs/nonEmptyStrings"}
+      }
+    },
+    "apiArchitecture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "api_refs",
+        "component_ids",
+        "requirement_ids",
+        "repository_boundaries"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "api_refs": {"$ref": "#/$defs/nonEmptyStrings"},
+        "component_ids": {"$ref": "#/$defs/nonEmptyStrings"},
+        "requirement_ids": {"$ref": "#/$defs/nonEmptyStrings"},
+        "repository_boundaries": {"$ref": "#/$defs/nonEmptyStrings"}
+      }
+    },
+    "integrationArchitecture": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "integration_refs",
+        "component_ids",
+        "requirement_ids",
+        "repository_boundaries"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "integration_refs": {"$ref": "#/$defs/nonEmptyStrings"},
+        "component_ids": {"$ref": "#/$defs/nonEmptyStrings"},
+        "requirement_ids": {"$ref": "#/$defs/nonEmptyStrings"},
+        "repository_boundaries": {"$ref": "#/$defs/nonEmptyStrings"}
+      }
+    },
+    "securityBoundary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "source_component_ids",
+        "target_component_ids",
+        "data_refs",
+        "requirement_ids",
+        "repository_boundaries"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "name": {"type": "string", "minLength": 1},
+        "source_component_ids": {"$ref": "#/$defs/nonEmptyStrings"},
+        "target_component_ids": {"$ref": "#/$defs/nonEmptyStrings"},
+        "data_refs": {"$ref": "#/$defs/nonEmptyStrings"},
+        "requirement_ids": {"$ref": "#/$defs/nonEmptyStrings"},
+        "repository_boundaries": {"$ref": "#/$defs/nonEmptyStrings"}
+      }
+    },
+    "dataFlow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "source_component_id",
+        "target_component_id",
+        "data_refs",
+        "trust_boundary_refs",
+        "threat_refs",
+        "requirement_ids"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "source_component_id": {"$ref": "#/$defs/id"},
+        "target_component_id": {"$ref": "#/$defs/id"},
+        "data_refs": {"$ref": "#/$defs/nonEmptyStrings"},
+        "trust_boundary_refs": {"$ref": "#/$defs/nonEmptyStrings"},
+        "threat_refs": {"$ref": "#/$defs/nonEmptyStrings"},
+        "requirement_ids": {"$ref": "#/$defs/nonEmptyStrings"}
+      }
+    },
+    "deploymentDesign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "design",
+        "release_refs",
+        "requirement_ids",
+        "repository_boundaries"
+      ],
+      "properties": {
+        "design": {"type": "string", "minLength": 1},
+        "release_refs": {"$ref": "#/$defs/nonEmptyStrings"},
+        "requirement_ids": {"$ref": "#/$defs/nonEmptyStrings"},
+        "repository_boundaries": {"$ref": "#/$defs/nonEmptyStrings"}
+      }
+    },
+    "observabilityDesign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "design",
+        "observability_refs",
+        "requirement_ids",
+        "repository_boundaries"
+      ],
+      "properties": {
+        "design": {"type": "string", "minLength": 1},
+        "observability_refs": {"$ref": "#/$defs/nonEmptyStrings"},
+        "requirement_ids": {"$ref": "#/$defs/nonEmptyStrings"},
+        "repository_boundaries": {"$ref": "#/$defs/nonEmptyStrings"}
+      }
+    },
+    "rollbackDesign": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "design",
+        "rollback_refs",
+        "requirement_ids",
+        "repository_boundaries"
+      ],
+      "properties": {
+        "design": {"type": "string", "minLength": 1},
+        "rollback_refs": {"$ref": "#/$defs/nonEmptyStrings"},
+        "requirement_ids": {"$ref": "#/$defs/nonEmptyStrings"},
+        "repository_boundaries": {"$ref": "#/$defs/nonEmptyStrings"}
+      }
+    },
+    "alternative": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["option", "outcome", "tradeoffs"],
+      "properties": {
+        "option": {"type": "string", "minLength": 1},
+        "outcome": {"enum": ["SELECTED", "REJECTED"]},
+        "tradeoffs": {"$ref": "#/$defs/nonEmptyStrings"}
+      }
+    },
+    "adr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "title",
+        "context",
+        "decision",
+        "alternatives",
+        "reversibility",
+        "decision_classes",
+        "requirement_ids",
+        "repository_boundaries",
+        "approval_refs"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "title": {"type": "string", "minLength": 1},
+        "context": {"type": "string", "minLength": 1},
+        "decision": {"type": "string", "minLength": 1},
+        "alternatives": {
+          "type": "array",
+          "minItems": 2,
+          "items": {"$ref": "#/$defs/alternative"}
+        },
+        "reversibility": {"enum": ["REVERSIBLE", "IRREVERSIBLE", "VENDOR_LOCKING"]},
+        "decision_classes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "NO_SPECIAL_APPROVAL",
+              "DATA_RETENTION",
+              "IRREVERSIBLE",
+              "PRODUCTION_INFRASTRUCTURE",
+              "SECURITY_POLICY",
+              "USER_VISIBLE",
+              "VENDOR_LOCKING"
+            ]
+          }
+        },
+        "requirement_ids": {"$ref": "#/$defs/nonEmptyStrings"},
+        "repository_boundaries": {"$ref": "#/$defs/nonEmptyStrings"},
+        "approval_refs": {"$ref": "#/$defs/strings"}
+      }
+    },
+    "threat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "category",
+        "asset",
+        "entry_point",
+        "trust_boundary_refs",
+        "requirement_ids",
+        "mitigation",
+        "residual_risk",
+        "owner"
+      ],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "category": {
+          "enum": [
+            "SPOOFING",
+            "TAMPERING",
+            "REPUDIATION",
+            "INFORMATION_DISCLOSURE",
+            "DENIAL_OF_SERVICE",
+            "ELEVATION_OF_PRIVILEGE",
+            "OTHER"
+          ]
+        },
+        "asset": {"type": "string", "minLength": 1},
+        "entry_point": {"type": "string", "minLength": 1},
+        "trust_boundary_refs": {"$ref": "#/$defs/nonEmptyStrings"},
+        "requirement_ids": {"$ref": "#/$defs/nonEmptyStrings"},
+        "mitigation": {"type": "string", "minLength": 1},
+        "residual_risk": {"type": "string", "minLength": 1},
+        "owner": {"type": "string", "minLength": 1}
+      }
+    },
+    "threatModel": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["methodology", "trust_boundary_refs", "category_assessments", "threats"],
+      "properties": {
+        "methodology": {"const": "STRIDE"},
+        "trust_boundary_refs": {"$ref": "#/$defs/nonEmptyStrings"},
+        "category_assessments": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/categoryAssessment"}
+        },
+        "threats": {
+          "type": "array",
+          "minItems": 1,
+          "items": {"$ref": "#/$defs/threat"}
+        }
+      }
+    },
+    "categoryAssessment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "trust_boundary_ref",
+        "category",
+        "disposition",
+        "rationale",
+        "threat_refs"
+      ],
+      "properties": {
+        "trust_boundary_ref": {"$ref": "#/$defs/id"},
+        "category": {
+          "enum": [
+            "SPOOFING",
+            "TAMPERING",
+            "REPUDIATION",
+            "INFORMATION_DISCLOSURE",
+            "DENIAL_OF_SERVICE",
+            "ELEVATION_OF_PRIVILEGE"
+          ]
+        },
+        "disposition": {"enum": ["MITIGATED", "NOT_APPLICABLE"]},
+        "rationale": {"type": "string", "minLength": 1},
+        "threat_refs": {"$ref": "#/$defs/strings"}
+      }
+    },
+    "approvalRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "category", "decision_ref", "owner", "reason", "status"],
+      "properties": {
+        "id": {"$ref": "#/$defs/id"},
+        "category": {"type": "string", "minLength": 1},
+        "decision_ref": {"$ref": "#/$defs/id"},
+        "owner": {"enum": ["PRODUCT", "INFRASTRUCTURE", "SECURITY"]},
+        "reason": {"type": "string", "minLength": 1},
+        "status": {"const": "INPUT_REQUIRED"}
+      }
+    }
+  }
+}

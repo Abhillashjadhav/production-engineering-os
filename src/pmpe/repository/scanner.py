@@ -65,7 +65,7 @@ from pmpe.repository.redaction import (
     assert_distinct_identities_preserved,
 )
 
-SCANNER_VERSION = "repository-scanner/2.22.0"
+SCANNER_VERSION = "repository-scanner/2.23.0"
 _MAX_SCAN_BUDGETS = {
     "max_files": 100_000,
     "max_directories": 50_000,
@@ -204,6 +204,7 @@ _RUNTIME_CONFIGURED_CALLABLE_ATTRIBUTES = MappingProxyType(
         ),
     }
 )
+_SEALED_MODULE_REGISTRY_PROCESS_IDENTITY = id(sys.modules)
 _OBJECT_FORMAT_LENGTH = {"sha1": 40, "sha256": 64}
 
 
@@ -430,7 +431,7 @@ class TreeListingResult:
 class SubprocessCommandRunner:
     """Allowlisted local Git reader; it never invokes shells or project code."""
 
-    identity = "git-readonly-subprocess/1.8.0"
+    identity = "git-readonly-subprocess/1.9.0"
     __slots__ = ()
     _allowed = {"rev-parse", "ls-tree", "cat-file", "version"}
 
@@ -467,6 +468,7 @@ class SubprocessCommandRunner:
         timeout: int,
         *,
         cancellation: Cancellation | None = None,
+        max_output_bytes: int = 8_000_000,
     ) -> CommandResult:
         if cancellation is not None and type(cancellation) is not CancellationSignal:
             raise RepositorySecurityError("Git cancellation requires the sealed signal")
@@ -497,7 +499,7 @@ class SubprocessCommandRunner:
                     if not chunk:
                         break
                     payload.extend(chunk)
-                    if len(payload) > 8_000_000:
+                    if len(payload) > max_output_bytes:
                         timed_out = True
                         break
         except BaseException:
@@ -729,9 +731,13 @@ def _runtime_code_evidence(target: Any) -> list[dict[str, Any]]:
     if inspect.ismethod(target):
         target = target.__func__
     if inspect.isfunction(target):
+        namespace_binding = _runtime_function_namespace_binding(target)
         return [
             {
                 "qualname": target.__qualname__,
+                "declared_module": target.__module__,
+                "global_namespace": target.__globals__["__name__"],
+                "global_namespace_binding": namespace_binding,
                 "code": _code_object_evidence(target.__code__),
                 "defaults": _stable_code_constant(target.__defaults__),
                 "keyword_defaults": _stable_code_constant(
@@ -778,6 +784,136 @@ def _runtime_code_evidence(target: Any) -> list[dict[str, Any]]:
     if callable(target):
         return _runtime_code_evidence(target.__class__)
     return []
+
+
+def _code_global_names(code: CodeType) -> tuple[str, ...]:
+    names = set(code.co_names)
+    for constant in code.co_consts:
+        if isinstance(constant, CodeType):
+            names.update(_code_global_names(constant))
+    return tuple(sorted(names))
+
+
+def _namespace_value(namespace: Mapping[str, Any], name: str) -> tuple[str, Any]:
+    if name in namespace:
+        return "global", namespace[name]
+    builtins_value = namespace.get("__builtins__")
+    if type(builtins_value) is ModuleType:
+        builtins_namespace: Mapping[str, Any] = vars(builtins_value)
+    elif type(builtins_value) is dict:
+        builtins_namespace = builtins_value
+    else:
+        builtins_namespace = {}
+    return (
+        ("builtin", builtins_namespace[name]) if name in builtins_namespace else ("missing", None)
+    )
+
+
+def _shallow_runtime_value_evidence(value: Any) -> Any:
+    if inspect.ismethod(value):
+        value = value.__func__
+    if inspect.isfunction(value):
+        return {
+            "type": "function",
+            "module": value.__module__,
+            "qualname": value.__qualname__,
+            "code": _code_object_evidence(value.__code__),
+            "defaults": _stable_code_constant(value.__defaults__),
+            "keyword_defaults": _stable_code_constant(
+                tuple(sorted((value.__kwdefaults__ or {}).items()))
+            ),
+        }
+    if type(value) is ModuleType:
+        return {"type": "module", "module": value.__name__}
+    if _is_runtime_semantic_constant(value, module_name="runtime-function-global"):
+        return {"type": "constant", "value": _runtime_value_evidence(value)}
+    return {
+        "type": f"{type(value).__module__}.{type(value).__qualname__}",
+        "module": str(getattr(value, "__module__", type(value).__module__)),
+        "qualname": str(getattr(value, "__qualname__", type(value).__qualname__)),
+    }
+
+
+def _runtime_function_namespace_binding(target: Any) -> str:
+    """Bind executable globals while allowing equivalent loader-created namespaces."""
+
+    module_registry = sys.modules
+    global_namespace_name = target.__globals__.get("__name__")
+    if (
+        type(module_registry) is not dict
+        or id(module_registry) != _SEALED_MODULE_REGISTRY_PROCESS_IDENTITY
+    ):
+        raise RepositorySecurityError("runtime module registry changed")
+    if not isinstance(global_namespace_name, str):
+        raise RepositorySecurityError("runtime function global namespace is unavailable")
+    defining_module = module_registry.get(global_namespace_name)
+    if type(defining_module) is ModuleType:
+        registered_namespace = vars(defining_module)
+        if target.__globals__ is registered_namespace:
+            return "registered-module"
+        namespace_differences: list[dict[str, Any]] = []
+        for name in _code_global_names(target.__code__):
+            candidate_scope, candidate = _namespace_value(target.__globals__, name)
+            registered_scope, registered = _namespace_value(registered_namespace, name)
+            if candidate_scope == registered_scope == "missing":
+                continue
+            if (
+                candidate_scope != "missing"
+                and registered_scope != "missing"
+                and candidate is registered
+            ):
+                continue
+            if candidate_scope != registered_scope and "builtin" in {
+                candidate_scope,
+                registered_scope,
+            }:
+                raise RepositorySecurityError("runtime function global namespace changed")
+            if candidate_scope == registered_scope == "builtin" and candidate is not registered:
+                raise RepositorySecurityError("runtime function global namespace changed")
+            if candidate_scope != registered_scope or candidate is not registered:
+                candidate_evidence = _shallow_runtime_value_evidence(candidate)
+                registered_evidence = _shallow_runtime_value_evidence(registered)
+                if (
+                    candidate_evidence == registered_evidence
+                    and _is_runtime_semantic_constant(
+                        candidate, module_name="runtime-function-global"
+                    )
+                    and _is_runtime_semantic_constant(
+                        registered, module_name="runtime-function-global"
+                    )
+                ):
+                    continue
+                namespace_differences.append(
+                    {
+                        "name": name,
+                        "candidate_scope": candidate_scope,
+                        "candidate": candidate_evidence,
+                        "registered_scope": registered_scope,
+                        "registered": registered_evidence,
+                    }
+                )
+        if namespace_differences:
+            return "registered-module-loader-globals:" + canonical_digest(namespace_differences)
+        return "registered-module"
+    if (
+        global_namespace_name.startswith("namedtuple_")
+        and target.__module__ == global_namespace_name
+        and set(target.__globals__) == {"__builtins__", "__name__", "_tuple_new"}
+    ):
+        return "stdlib-namedtuple-factory"
+    builtins_module = module_registry.get("builtins")
+    if type(builtins_module) is ModuleType:
+        builtins_namespace = vars(builtins_module)
+        for name in _code_global_names(target.__code__):
+            candidate_scope, candidate = _namespace_value(target.__globals__, name)
+            builtin_scope, builtin = _namespace_value(builtins_namespace, name)
+            if candidate_scope != "missing" and (
+                builtin_scope == "missing" or candidate is not builtin
+            ):
+                break
+        else:
+            return "isolated-builtin-only-namespace"
+    raise RepositorySecurityError("runtime function global namespace is unregistered")
 
 
 def _runtime_value_evidence(value: Any, *, depth: int = 0) -> Any:
@@ -1182,6 +1318,7 @@ def _implementation_module_evidence(
 ) -> list[dict[str, str]]:
     """Bind import-time source, current source, and loaded runtime code fail closed."""
 
+    _assert_digest_helper_sealed()
     evidence: list[dict[str, str]] = []
     try:
         for name in paths:
@@ -1207,6 +1344,7 @@ def _implementation_module_evidence(
 def _implementation_source_evidence(label: str, target: Any) -> dict[str, str]:
     """Bind an injected output-affecting implementation without persisting its state."""
 
+    _assert_digest_helper_sealed()
     implementation = target if inspect.isfunction(target) else target.__class__
     try:
         source_path_value = inspect.getsourcefile(implementation)
@@ -1434,6 +1572,23 @@ def _stop_isolated_process(process: Any) -> None:
 
 def _sha256(payload: bytes) -> str:
     return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+_SEALED_SHA256_PROCESS_IDENTITY = (
+    id(_sha256),
+    id(_sha256.__code__),
+    id(_sha256.__globals__),
+)
+
+
+def _assert_digest_helper_sealed() -> None:
+    current_hash = _sha256
+    if (
+        id(current_hash),
+        id(current_hash.__code__),
+        id(current_hash.__globals__),
+    ) != _SEALED_SHA256_PROCESS_IDENTITY:
+        raise RepositorySecurityError("scanner digest helper binding changed")
 
 
 def _text(value: str | bytes) -> str:
@@ -1682,7 +1837,7 @@ def _direct_imported_global_names(source_path: Path) -> tuple[str, ...]:
 
 
 def _external_global_binding_state_digest(names: tuple[str, ...]) -> str:
-    """Bind non-executable imported values; executable imports are identity-sealed."""
+    """Bind imported values and executable code to defining global namespaces."""
 
     evidence: list[dict[str, Any]] = []
     for name in names:
@@ -1692,17 +1847,21 @@ def _external_global_binding_state_digest(names: tuple[str, ...]) -> str:
         evidence.append(
             {
                 "binding": name,
-                "state": (
-                    {"guard": "identity"}
-                    if type(target) is ModuleType or callable(target)
-                    else _module_attribute_value_evidence("scanner-imported-global", name, target)
-                ),
+                "state": _module_attribute_value_evidence("scanner-imported-global", name, target),
             }
         )
     return canonical_digest(evidence)
 
 
-_MULTIPROCESSING_CONTEXT_MEMBER_NAMES = ("Event", "Pipe", "Process")
+_MULTIPROCESSING_CONTEXT_MEMBER_NAMES = (
+    "Condition",
+    "Event",
+    "Lock",
+    "Pipe",
+    "Process",
+    "Semaphore",
+    "get_context",
+)
 _MULTIPROCESSING_IMPLEMENTATION_MODULES = (
     multiprocessing,
     multiprocessing_connection,
@@ -1757,6 +1916,7 @@ def _multiprocessing_module_identities() -> tuple[tuple[str, int], ...]:
 
 def _multiprocessing_primitive_identities() -> tuple[tuple[str, int], ...]:
     return (
+        ("multiprocessing.get_context", id(multiprocessing.get_context)),
         ("connection.Pipe", id(multiprocessing_connection.Pipe)),
         ("context.ForkProcess", id(multiprocessing_context.ForkProcess)),
         ("synchronize.Event", id(multiprocessing_synchronize.Event)),
@@ -1773,11 +1933,7 @@ def _multiprocessing_context_instance_identities(
     """Bind context-instance shadows without inspecting hostile values."""
 
     instance_state = vars(context)
-    return tuple(
-        (name, id(instance_state[name]))
-        for name in _MULTIPROCESSING_CONTEXT_MEMBER_NAMES
-        if name in instance_state
-    )
+    return tuple((name, id(value)) for name, value in sorted(instance_state.items()))
 
 
 _SEALED_MULTIPROCESSING_CONTEXT_INSTANCE_IDENTITIES = _multiprocessing_context_instance_identities(
@@ -1799,7 +1955,7 @@ _SEALED_MULTIPROCESSING_CONTEXT_STATE_DIGEST = _multiprocessing_context_state_di
 def _assert_multiprocessing_context_sealed(*, verify_state: bool = True) -> None:
     """Reject replacement of the fork context or any primitive it constructs."""
 
-    current_context = multiprocessing.get_context("fork")
+    current_context = _SEALED_MULTIPROCESSING_CONTEXT
     current_identities = (
         ("context-global", id(_SEALED_MULTIPROCESSING_CONTEXT)),
         ("resolved-context", id(current_context)),
@@ -1861,6 +2017,7 @@ _SEALED_SCANNER_EXTERNAL_GLOBAL_STATE_DIGEST = _external_global_binding_state_di
 def _assert_scanner_import_bindings_sealed(*, verify_state: bool = False) -> None:
     """Reject replaced or mutated output-affecting imported modules before use."""
 
+    _assert_digest_helper_sealed()
     current_identities = tuple(
         (
             name,
@@ -1891,7 +2048,10 @@ def _assert_scanner_import_bindings_sealed(*, verify_state: bool = False) -> Non
         _external_global_binding_state_digest(_SEALED_SCANNER_EXTERNAL_GLOBAL_NAMES)
         != _SEALED_SCANNER_EXTERNAL_GLOBAL_STATE_DIGEST
     ):
-        raise RepositorySecurityError("scanner imported global binding state changed")
+        raise RepositorySecurityError(
+            "scanner imported global binding state changed in redaction or "
+            "implementation dependency"
+        )
 
 
 def _snapshot_identity_groups(
@@ -2226,12 +2386,21 @@ class RepositoryScanner:
         self._commands += 1
         try:
             if isinstance(runner, SubprocessCommandRunner):
-                result = runner.run(
-                    args,
-                    root,
-                    self.config.command_timeout_seconds,
-                    cancellation=cancellation,
-                )
+                if args[1:3] == ("cat-file", "blob"):
+                    result = runner.run(
+                        args,
+                        root,
+                        self.config.command_timeout_seconds,
+                        cancellation=cancellation,
+                        max_output_bytes=self.config.max_file_bytes,
+                    )
+                else:
+                    result = runner.run(
+                        args,
+                        root,
+                        self.config.command_timeout_seconds,
+                        cancellation=cancellation,
+                    )
             else:
                 result = runner.run(args, root, self.config.command_timeout_seconds)
         except (FileNotFoundError, OSError) as exc:

@@ -24,7 +24,10 @@ pmpe eng start --contract examples/v2-demo/contract.json --run-dir runs/demo
 - **Evals as tripwires.** Agent evals share the engine's admission validators, trajectory evals audit the evidence ledger (TRAJ-01..14), and drift compares against a baseline where any new hard-gate failure is an automatic HOLD.
 - **Production is a human decision.** local/test are automatic after checks, staging after all gates, production only with a named approval bound to the exact candidate digest — and even then execution is fixture-mode only; there is deliberately no cloud adapter.
 
-V1's single-command pipeline (`pmpe run examples/taskflow_mvp_spec.yaml`) is preserved unchanged — see [docs/usage.md](docs/usage.md). Where V1 overclaimed ("review" was a deterministic checker, "traceability" trusted markers), V2 replaces the claim with the mechanism; the honest comparison is at the end of [the V2 guide](docs/v2-production-engineering.md).
+The V1 single-command executor is retained only as an explicit test fixture and is
+not installed or registered by the CLI. Phase Zero is the sole admissible shipped
+lifecycle authority; read-only access to historical V1 state remains documented in
+[docs/usage.md](docs/usage.md).
 
 ---
 

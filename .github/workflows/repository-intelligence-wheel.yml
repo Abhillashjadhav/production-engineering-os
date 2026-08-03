@@ -1,0 +1,37 @@
+name: Repository Intelligence Distribution
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/repository-intelligence-wheel.yml"
+      - "pyproject.toml"
+      - "src/pmpe/cli/repository_cmd.py"
+      - "src/pmpe/repository/**"
+
+permissions:
+  contents: read
+
+jobs:
+  imports:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: install source-tree runtime dependencies
+        run: pip install build .
+      - name: source-tree import and provenance smoke
+        run: |
+          PYTHONPATH=src python -c "import pmpe.repository.scanner as scanner; assert scanner._implementation_digest().startswith('sha256:')"
+      - name: build and install wheel
+        run: |
+          python -m build --wheel
+          pip install --force-reinstall dist/*.whl
+      - name: installed-wheel import and provenance smoke
+        working-directory: /tmp
+        run: |
+          python -I -c "import pmpe.repository.scanner as scanner; assert scanner._implementation_digest().startswith('sha256:')"

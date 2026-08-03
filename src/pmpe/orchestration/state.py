@@ -1,8 +1,8 @@
 """Persistent, resumable workflow state.
 
-state.json is rewritten atomically after every transition, so a crash at any
-point leaves a loadable state and `pmpe resume` re-enters at the first step that
-is not complete. DONE and SKIPPED steps are never re-executed.
+state.json is rewritten atomically after every transition so legacy fixture state
+remains loadable after a crash. This type is a read-only compatibility projection
+in shipped code; only the explicit test harness replays incomplete steps.
 """
 
 from __future__ import annotations

@@ -5,9 +5,11 @@ The spec violates the schema. The message lists field-level problems
 (`scope: expected array, got str`). Fix the listed fields; the contract is
 `schemas/mvp_spec.schema.json` and every field is documented inline there.
 
-## `waiting for human approval: ESC-xxx` (exit 3)
-Not an error — a HIGH-risk decision stopped the run. `pmpe status <run_id>` shows the
-open escalations; approve or reject them (docs/usage.md) and `pmpe resume`.
+## Historical V1 run is waiting for human approval
+
+`pmpe status <run_id>` can inspect the stopped state and open escalation. The
+installed CLI cannot approve, reject, or continue V1; those mutations are confined
+to explicit migration and compatibility tests.
 
 ## Run ends `no_merge` (exit 4)
 Read `runs/<id>/artifacts/merge_decision.json`. Typical causes:
@@ -26,11 +28,10 @@ is in the message and in `runs/<id>/artifacts/deployment_result.json`. Port conf
 are avoided by design (OS-assigned free port); the usual cause is an unwritable
 runs directory for the SQLite file.
 
-## Resume does nothing / re-runs the wrong step
-`pmpe resume` re-enters at the first step that is not `done`/`skipped` — check
-`pmpe status`. A `failed` step re-executes; `done` steps never re-execute. If the
-workspace was manually edited, delete the run directory and start a fresh run —
-runs are cheap and deterministic by design.
+## Historical state needs migration
+
+Use `pmpe status` or `pmpe report` for read-only inspection. Production code must
+admit a new run through Phase Zero instead of replaying legacy handlers.
 
 ## `git ... failed` inside a workspace
 The workspace repos use an isolated bot identity and ignore your global git config.

@@ -22,7 +22,7 @@
 | SYS-12 | Merge gate: gates ∧ findings ∧ traceability ∧ approvals → MERGE/NO_MERGE with reasons | unit + e2e planted failure |
 | SYS-13 | Local deploy: real process, health, user journey, rollback instructions, result recorded | e2e |
 | SYS-14 | Resumable runs; idempotent steps; atomic state writes | unit + failure-recovery test |
-| SYS-15 | Policy engine: low/medium/high; high blocks until `pmpe approve` | unit + e2e |
+| SYS-15 | Historical V1 policy fixtures remain testable but have no shipped approval or continuation path | unit + e2e |
 | SYS-16 | Telemetry: JSONL event log + per-run metrics in final report | unit + e2e |
 | SYS-17 | Final traceability report: every FR mapped end-to-end | unit + e2e |
 
