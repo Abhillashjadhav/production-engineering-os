@@ -101,6 +101,9 @@ def test_documentation_covers_the_versioned_contract_and_operator_workflow() -> 
     for linked_path in (
         "../schemas/pmos_contract_bundle.schema.json",
         "../schemas/pmos_contract_manifest.schema.json",
+        "../schemas/mvp_spec.schema.json",
+        "../schemas/product_decision_contract.schema.json",
+        "../schemas/fullstack_product_contract.schema.json",
         "../examples/pmos-contracts/canonical-bundle-1.0.0.json",
         "../examples/pmos-contracts/canonical-manifest-1.0.0.json",
         "../examples/pmos-contracts/invalid/outdated-v2-contract.json",
@@ -206,6 +209,20 @@ def test_diagnostic_remedies_use_only_connected_compiler_paths() -> None:
         "requires a reviewed source-schema/adapter change or the future canonical "
         "intake path." in text
     )
+
+
+def test_diagnostic_outcomes_and_format_discriminators_match_runtime() -> None:
+    text = DOC.read_text()
+    assert "| `COMPILATION_BLOCKED` |" in text
+    assert (
+        "V2 discriminator fields: `desired_outcome`, `functional_requirements`, "
+        "and `scored_eval_rubric`" in text
+    )
+    assert (
+        "V3 discriminator fields: `primary_journey`, `screens`, and "
+        "`api_contracts`" in text
+    )
+    assert "matching both discriminator sets is ambiguous" in text
 
 
 def test_direct_canonical_service_input_is_honestly_documented_as_unsupported() -> None:
