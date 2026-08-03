@@ -218,10 +218,7 @@ def test_diagnostic_outcomes_and_format_discriminators_match_runtime() -> None:
         "V2 discriminator fields: `desired_outcome`, `functional_requirements`, "
         "and `scored_eval_rubric`" in text
     )
-    assert (
-        "V3 discriminator fields: `primary_journey`, `screens`, and "
-        "`api_contracts`" in text
-    )
+    assert "V3 discriminator fields: `primary_journey`, `screens`, and `api_contracts`" in text
     assert "matching both discriminator sets is ambiguous" in text
 
 
