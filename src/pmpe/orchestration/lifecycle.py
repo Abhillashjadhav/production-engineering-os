@@ -1767,11 +1767,16 @@ class LifecycleControlPlane:
         except TransitionDeniedError as exc:
             self._deny(target, context, reason, str(exc))
             raise AssertionError("unreachable") from exc
-        if context.rollout.has_exposure and target in {
-            S.BLOCKED,
-            S.PRODUCT_INPUT_REQUIRED,
-            S.BUDGET_EXCEEDED,
-        }:
+        unresolved_safety_block = (
+            source is S.ROLLBACK_IN_PROGRESS
+            and target is S.BLOCKED
+            and reason == "rollback_indeterminate"
+        )
+        if (
+            context.rollout.has_exposure
+            and target in {S.BLOCKED, S.PRODUCT_INPUT_REQUIRED, S.BUDGET_EXCEEDED}
+            and not unresolved_safety_block
+        ):
             self._deny(target, context, reason, "active rollout exposure requires rollback")
         try:
             rule = PHASE_ZERO_POLICY.rule(source, target, reason=reason)
