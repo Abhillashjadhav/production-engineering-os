@@ -285,8 +285,16 @@ Interpret outcomes conservatively:
 | Outcome or diagnostic | Meaning and next action |
 | --- | --- |
 | `ENGINEERING_ADMITTED` | Structural, compiler, and deterministic semantic boundaries admit the exact evidence-bound input. |
+| `ENGINEERING_ADMITTED_WITH_WARNINGS` | Admission succeeded with non-blocking validator warnings. Preserve the exact validation evidence and address warnings under their named owners; do not describe the result as warning-free. |
+| `COMPILED_BLOCKED` | Compilation succeeded, but semantic validation returned `PRODUCT_INPUT_REQUIRED`. PMOS or the named product authority must supply or reconcile truth; PEOS assigns no eligibility or due time. |
+| `VALIDATION_BLOCKED` | Semantic validation returned `UNSUPPORTED_REPOSITORY_EXTENSION`. A repository owner must register and review the exact extension schema/version before a new attempt. |
+| `VALIDATION_SECURITY_BLOCKED` | Validation raised an exception, returned an error disposition, or contradicted the compiler's blocked state. Do not admit the bundle; retain the evidence and investigate the validator or invariant failure. |
 | `COMPILATION_BLOCKED` | Format detection, source-version lookup, or source-schema validation failed before a canonical bundle could be admitted. Inspect the compiler diagnostics; this is distinct from a successfully compiled but semantically blocked bundle. |
-| `PRODUCT_INPUT_REQUIRED` / `COMPILED_BLOCKED` | PMOS or the named product authority must supply or reconcile truth. No eligibility or due time is assigned. |
+| `COMPILATION_SECURITY_BLOCKED` | Compilation, blocked-evidence persistence, or deterministic evidence verification raised an unexpected failure. Do not treat it as a product-input request or bypass evidence verification. |
+| `EVIDENCE_SECURITY_BLOCKED` | Stored compilation evidence is absent where required, internally inconsistent, or fails integrity verification. Stop replay/admission and investigate the durable evidence store. |
+| `INTAKE_REJECTED` | The intake boundary rejected the request under its explicit validation or policy result. Correct the reported intake failure and submit a new attempt; no compilation occurred. |
+| `INTAKE_SECURITY_BLOCKED` | Intake produced no trustworthy receipt, an unexpected state, or failed finalization after compilation. Do not compile or admit beyond this boundary; investigate intake/finalization evidence. |
+| `PRODUCT_INPUT_REQUIRED` | Semantic disposition behind `COMPILED_BLOCKED`; product-owned truth or approval remains unresolved. |
 | `UNSUPPORTED_REPOSITORY_EXTENSION` | A repository owner must register/review the exact extension schema/version. |
 | `SOURCE_SCHEMA_INVALID` | Validate the source against its exact versioned schema. A root-level missing required property currently reports an empty `source_path`, so compare the payload with that schema's `required` list. |
 | `SOURCE_FIELD_UNKNOWN` | For unknown fields, update the exact versioned source schema and its registered adapter before republishing, or remove the field. |
