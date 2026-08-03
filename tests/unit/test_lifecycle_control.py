@@ -538,6 +538,128 @@ def test_external_mutation_requires_prejournaled_unique_attempt(tmp_path: Path) 
         )
 
 
+def test_production_admission_requires_live_exact_subject_approval(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PRODUCTION_APPROVAL_REQUIRED)
+    attempt = MutationAttempt(
+        attempt_id="attempt-production-approval",
+        idempotency_key="production:run-65:approval",
+        subject_digest=SHA,
+        action="deploy_production",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(attempt)
+    cp.record_mutation_result(attempt, status="SUCCEEDED", result_digest=SHA)
+    required = evidence_for(
+        LifecycleState.PRODUCTION_APPROVAL_REQUIRED,
+        LifecycleState.PRODUCTION_DEPLOYED,
+        reason="production_admitted",
+    )
+    required["production_result_digest"] = SHA
+
+    with pytest.raises(TransitionDeniedError, match="production approval"):
+        cp.transition(
+            LifecycleState.PRODUCTION_DEPLOYED,
+            context(evidence=required, mutation=attempt),
+            reason="production_admitted",
+        )
+
+    approval = Approval(
+        approval_id="production-approval-1",
+        actor="release-owner",
+        subject_digest=SHA,
+        kind="PRODUCTION",
+        eligible=True,
+        active=True,
+    )
+    required["production_approval_digest"] = object_digest(asdict(approval))
+    cp.transition(
+        LifecycleState.PRODUCTION_DEPLOYED,
+        context(evidence=required, mutation=attempt, approvals=(approval,)),
+        reason="production_admitted",
+    )
+
+
+def test_denial_synchronizes_monotonic_budget_state_before_retry(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+    observed_usage = BudgetUsage(counters={"tokens": 5})
+    with pytest.raises(TransitionDeniedError, match="illegal transition"):
+        cp.transition(
+            LifecycleState.IMPLEMENTATION_IN_PROGRESS,
+            context(usage=observed_usage),
+            reason="begin_work",
+        )
+    assert cp.budget_usage.counters["tokens"] == 5
+
+    cp.transition(
+        LifecycleState.CONTRACT_APPROVED,
+        context(
+            usage=observed_usage,
+            evidence=evidence_for(
+                LifecycleState.CONTRACT_RECEIVED,
+                LifecycleState.CONTRACT_APPROVED,
+                reason="contract_admitted",
+            ),
+        ),
+        reason="contract_admitted",
+    )
+    assert LifecycleControlPlane.load(tmp_path).budget_usage.counters["tokens"] == 5
+
+
+def test_forward_transition_rejects_reused_authority_observation(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+    stale = replace(authority(), observed_at="2026-08-01T00:00:00Z")
+    stale_context = replace(
+        context(
+            evidence=evidence_for(
+                LifecycleState.CONTRACT_RECEIVED,
+                LifecycleState.CONTRACT_APPROVED,
+                reason="contract_admitted",
+            )
+        ),
+        authority=stale,
+    )
+    with pytest.raises(TransitionDeniedError, match="authority is not current"):
+        cp.transition(
+            LifecycleState.CONTRACT_APPROVED,
+            stale_context,
+            reason="contract_admitted",
+        )
+
+
+def test_mutation_admission_binds_evidence_to_persisted_result(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
+    attempt = MutationAttempt(
+        attempt_id="attempt-stage-result-binding",
+        idempotency_key="stage:run-65:result-binding",
+        subject_digest=SHA,
+        action="deploy_staging",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(attempt)
+    cp.record_mutation_result(attempt, status="SUCCEEDED", result_digest=SHA)
+    required = evidence_for(
+        LifecycleState.PR_MERGED,
+        LifecycleState.STAGING_DEPLOYED,
+        reason="staging_admitted",
+    )
+    required["staging_result_digest"] = OTHER_SHA
+    with pytest.raises(TransitionDeniedError, match="persisted mutation result"):
+        cp.transition(
+            LifecycleState.STAGING_DEPLOYED,
+            context(evidence=required, mutation=attempt),
+            reason="staging_admitted",
+        )
+
+    required["staging_result_digest"] = SHA
+    cp.transition(
+        LifecycleState.STAGING_DEPLOYED,
+        context(evidence=required, mutation=attempt),
+        reason="staging_admitted",
+    )
+
+
 def test_missing_adapter_response_never_implies_success(tmp_path: Path) -> None:
     cp = control_plane(tmp_path)
     attempt = MutationAttempt(
