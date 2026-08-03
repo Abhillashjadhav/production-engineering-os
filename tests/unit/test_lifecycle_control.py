@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, replace
+from dataclasses import asdict, fields, replace
 from pathlib import Path
 
 import pytest
+
+import pmpe.orchestration.lifecycle as lifecycle
 
 from pmpe.orchestration.lifecycle import (
     PHASE_ZERO_POLICY,
@@ -856,6 +858,258 @@ def test_safety_resume_is_bound_to_original_blocked_attempt(tmp_path: Path) -> N
         reason="resume_safety_rollback",
     )
     assert cp.budget_usage.safety_units_used == 1
+
+
+def test_safety_mutations_are_explicitly_prejournaled_before_adapter_execution(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.LIVE_VERIFICATION_FAILED)
+    attempt = MutationAttempt(
+        attempt_id="rollback-prejournal",
+        idempotency_key="rollback:run-65:prejournal",
+        subject_digest=SHA,
+        action="rollback",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+    start_evidence = evidence_for(
+        LifecycleState.LIVE_VERIFICATION_FAILED,
+        LifecycleState.ROLLBACK_IN_PROGRESS,
+        reason="rollback_started",
+    )
+
+    with pytest.raises(TransitionDeniedError, match="durably pre-journaled"):
+        cp.transition(
+            LifecycleState.ROLLBACK_IN_PROGRESS,
+            context(evidence=start_evidence, mutation=attempt),
+            reason="rollback_started",
+        )
+    with pytest.raises(TransitionDeniedError, match="durably pre-journaled"):
+        cp.record_mutation_result(attempt, status="SUCCEEDED", result_digest=SHA)
+
+    cp.prejournal_mutation(attempt)
+    persisted = cp.mutation_path.read_text()
+    assert attempt.attempt_id in persisted
+    assert "record_digest" in persisted
+
+    cp.transition(
+        LifecycleState.ROLLBACK_IN_PROGRESS,
+        context(evidence=start_evidence, mutation=attempt),
+        reason="rollback_started",
+    )
+    cp.record_mutation_result(attempt, status="UNKNOWN", result_digest=None)
+    verified_evidence = evidence_for(
+        LifecycleState.ROLLBACK_IN_PROGRESS,
+        LifecycleState.ROLLED_BACK,
+        reason="rollback_verified",
+    )
+    with pytest.raises(TransitionDeniedError, match="successful exact-attempt"):
+        cp.transition(
+            LifecycleState.ROLLED_BACK,
+            context(evidence=verified_evidence, mutation=attempt),
+            reason="rollback_verified",
+        )
+
+
+def test_resume_target_is_control_plane_derived_not_caller_selected(tmp_path: Path) -> None:
+    assert "resume_state" not in {field.name for field in fields(TransitionContext)}
+
+    cp = control_plane(tmp_path, state=LifecycleState.IMPLEMENTATION_IN_PROGRESS)
+    policy, _ = budgets()
+    exhausted = BudgetUsage(counters={"tokens": policy.limits["tokens"]})
+    stop_evidence = evidence_for(
+        LifecycleState.IMPLEMENTATION_IN_PROGRESS,
+        LifecycleState.BUDGET_EXCEEDED,
+        reason="delivery_budget_exhausted",
+    )
+    event = cp.transition(
+        LifecycleState.BUDGET_EXCEEDED,
+        context(
+            usage=exhausted,
+            evidence=stop_evidence,
+            work=WorkStatus(
+                workers_stopped=True,
+                partial_output_disposition="frozen-unverified-non-admissible",
+            ),
+        ),
+        reason="delivery_budget_exhausted",
+    )
+    assert event.resume_state is LifecycleState.IMPLEMENTATION_IN_PROGRESS
+
+
+def test_every_transition_requires_authenticated_exact_subject_actor_authority(
+    tmp_path: Path,
+) -> None:
+    required = evidence_for(
+        LifecycleState.CONTRACT_RECEIVED,
+        LifecycleState.CONTRACT_APPROVED,
+        reason="contract_admitted",
+    )
+    valid = context(evidence=required)
+    assert isinstance(valid.actor, lifecycle.TransitionActor)
+
+    invalid_actors = (
+        replace(valid.actor, actor_id=""),
+        replace(valid.actor, role=""),
+        replace(valid.actor, authenticated=False),
+        replace(valid.actor, subject_digest=OTHER_SHA),
+        replace(valid.actor, capabilities=frozenset()),
+        replace(valid.actor, authority_digest=OTHER_SHA),
+    )
+    for index, actor in enumerate(invalid_actors):
+        cp = control_plane(tmp_path / str(index))
+        with pytest.raises(TransitionDeniedError, match="actor authority"):
+            cp.transition(
+                LifecycleState.CONTRACT_APPROVED,
+                replace(valid, actor=actor),
+                reason="contract_admitted",
+            )
+        assert cp.state is LifecycleState.CONTRACT_RECEIVED
+
+
+def test_reserved_safety_budget_is_control_plane_bounded_and_not_caller_capacity(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path / "ordinary", state=LifecycleState.CONTRACT_RECEIVED)
+    required = evidence_for(
+        LifecycleState.CONTRACT_RECEIVED,
+        LifecycleState.CONTRACT_APPROVED,
+        reason="contract_admitted",
+    )
+    with pytest.raises(TransitionDeniedError, match="reserved safety usage"):
+        cp.transition(
+            LifecycleState.CONTRACT_APPROVED,
+            context(evidence=required, usage=BudgetUsage(safety_units_used=1)),
+            reason="contract_admitted",
+        )
+
+    blocked = control_plane(tmp_path / "resume", state=LifecycleState.ROLLBACK_IN_PROGRESS)
+    attempt = MutationAttempt(
+        attempt_id="rollback-safety-cap",
+        idempotency_key="rollback:run-65:safety-cap",
+        subject_digest=SHA,
+        action="rollback",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+    blocked_evidence = evidence_for(
+        LifecycleState.ROLLBACK_IN_PROGRESS,
+        LifecycleState.BLOCKED,
+        reason="rollback_indeterminate",
+    )
+    blocked_evidence["original_attempt_digest"] = object_digest(asdict(attempt))
+    blocked.transition(
+        LifecycleState.BLOCKED,
+        context(
+            evidence=blocked_evidence,
+            mutation=attempt,
+            resume_state=LifecycleState.ROLLBACK_IN_PROGRESS,
+        ),
+        reason="rollback_indeterminate",
+    )
+    resume_evidence = evidence_for(
+        LifecycleState.BLOCKED,
+        LifecycleState.ROLLBACK_IN_PROGRESS,
+        reason="resume_safety_rollback",
+    )
+    resume_evidence["original_attempt_digest"] = object_digest(asdict(attempt))
+    with pytest.raises(TransitionDeniedError, match="reserved safety budget is exhausted"):
+        blocked.transition(
+            LifecycleState.ROLLBACK_IN_PROGRESS,
+            context(
+                evidence=resume_evidence,
+                mutation=attempt,
+                resume_state=LifecycleState.ROLLBACK_IN_PROGRESS,
+                usage=BudgetUsage(safety_units_used=10),
+            ),
+            reason="resume_safety_rollback",
+        )
+
+
+def test_canary_failure_with_mutation_or_indeterminate_exposure_enters_rollback(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.CANARY_DEPLOYED)
+    rollback = MutationAttempt(
+        attempt_id="rollback-canary-failure",
+        idempotency_key="rollback:run-65:canary-failure",
+        subject_digest=SHA,
+        action="rollback",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(rollback)
+    required = evidence_for(
+        LifecycleState.CANARY_DEPLOYED,
+        LifecycleState.ROLLBACK_IN_PROGRESS,
+        reason="canary_failed",
+    )
+    event = cp.transition(
+        LifecycleState.ROLLBACK_IN_PROGRESS,
+        context(
+            evidence=required,
+            mutation=rollback,
+            rollout=RolloutStatus(staging="ACTIVE", canary="UNKNOWN"),
+        ),
+        reason="canary_failed",
+    )
+    assert event.target is LifecycleState.ROLLBACK_IN_PROGRESS
+
+
+def test_canary_state_cannot_claim_zero_exposure_without_evidence(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.CANARY_DEPLOYED)
+    required = evidence_for(
+        LifecycleState.CANARY_DEPLOYED,
+        LifecycleState.PRODUCTION_APPROVAL_REQUIRED,
+        reason="canary_window_passed",
+    )
+    with pytest.raises(TransitionDeniedError, match="canary exposure"):
+        cp.transition(
+            LifecycleState.PRODUCTION_APPROVAL_REQUIRED,
+            context(evidence=required, rollout=RolloutStatus()),
+            reason="canary_window_passed",
+        )
+
+
+def test_budget_extensions_require_named_authenticated_exact_subject_authority(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path)
+    extended = replace(
+        cp.budget_policy,
+        version="budget-v2",
+        limits={**cp.budget_policy.limits, "tokens": 125},
+        approved_by="owner-alice",
+    )
+    with pytest.raises(TransitionDeniedError, match="authenticated budget owner"):
+        cp.admit_budget_policy(extended)
+
+    authorization = lifecycle.BudgetExtensionAuthorization(
+        extension_id="budget-extension-1",
+        owner_id="owner-alice",
+        owner_role="delivery-owner",
+        authenticated=True,
+        capabilities=frozenset({"lifecycle.budget.extend"}),
+        run_id="run-65",
+        subject_digest=SHA,
+        authority_digest=SHA,
+        prior_policy_digest=object_digest(asdict(cp.budget_policy)),
+        proposed_policy_digest=object_digest(asdict(extended)),
+        amounts={"tokens": 25},
+        reason="owner-approved bounded continuation",
+        valid_from="2026-08-02T00:00:00Z",
+        valid_until="2026-08-03T00:00:00Z",
+        evidence_digest=OTHER_SHA,
+    )
+    cp.admit_budget_policy(
+        extended,
+        authorization=authorization,
+        authority=authority(),
+        observed_at="2026-08-02T12:00:00Z",
+    )
+    assert cp.budget_policy == extended
+    assert cp.events[-1].kind == "BUDGET_POLICY_ADMITTED"
+    assert cp.events[-1].actor == "owner-alice"
 
 
 def test_unknown_policy_decisions_fail_closed() -> None:
