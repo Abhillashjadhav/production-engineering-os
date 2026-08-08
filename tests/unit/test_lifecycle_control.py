@@ -20,6 +20,7 @@ from pmpe.orchestration.lifecycle import (
     AuthoritySnapshot,
     BudgetPolicy,
     BudgetUsage,
+    EvidenceTrustPolicy,
     FindingSignal,
     LifecycleControlPlane,
     LifecycleState,
@@ -29,11 +30,34 @@ from pmpe.orchestration.lifecycle import (
     TransitionDeniedError,
     WorkStatus,
     migrate_legacy_state,
+    mutation_subject_digest,
 )
 from pmpe.policies.engine import PolicyEngine
 
 SHA = "sha256:" + "a" * 64
 OTHER_SHA = "sha256:" + "b" * 64
+TRUST_POLICY = EvidenceTrustPolicy(
+    adapter_authorities={"test-adapter": SHA},
+    repository_observers={"repository-observer": OTHER_SHA},
+    work_controllers={"work-controller": SHA},
+)
+
+
+def external_proof(identity: str, authority_digest: str, payload: object) -> str:
+    return object_digest(
+        {
+            "test_trust_root": "not-persisted-with-the-lifecycle",
+            "identity": identity,
+            "authority_digest": authority_digest,
+            "payload": payload,
+        }
+    )
+
+
+def verify_external_proof(
+    identity: str, authority_digest: str, payload: object, proof: str
+) -> bool:
+    return proof == external_proof(identity, authority_digest, payload)
 
 
 def authority(
@@ -137,6 +161,8 @@ def control_plane(
         subject_digest=SHA,
         initial_state=state,
         budget_policy=policy,
+        trust_policy=TRUST_POLICY,
+        evidence_verifier=verify_external_proof,
     )
 
 
@@ -177,6 +203,7 @@ def adapter_result_evidence(
         "attempt_id": attempt.attempt_id,
         "idempotency_key": attempt.idempotency_key,
         "action": attempt.action,
+        "step_plan_digest": attempt.step_plan_digest,
         "status": status,
         "result_digest": result_digest,
     }
@@ -190,9 +217,10 @@ def adapter_result_evidence(
         attempt_id=attempt.attempt_id,
         idempotency_key=attempt.idempotency_key,
         action=attempt.action,
+        step_plan_digest=attempt.step_plan_digest,
         status=status,
         result_digest=result_digest,
-        authentication_evidence_digest=object_digest(body),
+        authentication_evidence_digest=external_proof("test-adapter", SHA, body),
     )
 
 
@@ -215,11 +243,94 @@ def record_result(
 
 def bind_work_evidence(evidence: dict[str, str], work: WorkStatus) -> None:
     work_digest = object_digest(asdict(work))
+    observed_at = "2026-08-02T00:01:00Z"
+    lease_epoch = object_digest("lease-epoch-1")
+    capability_epoch = object_digest("capability-epoch-1")
+    quiescence = object_digest(
+        {
+            "controller_id": "work-controller",
+            "authority_digest": SHA,
+            "subject_digest": SHA,
+            "work_digest": work_digest,
+            "lease_epoch_digest": lease_epoch,
+            "observed_at": observed_at,
+            "status": "QUIESCED",
+        }
+    )
+    revocation = object_digest(
+        {
+            "controller_id": "work-controller",
+            "authority_digest": SHA,
+            "subject_digest": SHA,
+            "work_digest": work_digest,
+            "capability_epoch_digest": capability_epoch,
+            "observed_at": observed_at,
+            "status": "REVOKED",
+        }
+    )
     evidence.update(
         {
             "work_disposition_digest": work_digest,
-            "worker_quiescence_digest": work_digest,
-            "mutation_revocation_digest": work_digest,
+            "work_controller_id": "work-controller",
+            "work_controller_authority_digest": SHA,
+            "work_control_observed_at": observed_at,
+            "work_lease_epoch_digest": lease_epoch,
+            "mutation_capability_epoch_digest": capability_epoch,
+            "worker_quiescence_digest": quiescence,
+            "mutation_revocation_digest": revocation,
+            "work_control_authentication_evidence_digest": external_proof(
+                "work-controller",
+                SHA,
+                {
+                    "controller_id": "work-controller",
+                    "authority_digest": SHA,
+                    "subject_digest": SHA,
+                    "quiescence_digest": quiescence,
+                    "revocation_digest": revocation,
+                    "observed_at": observed_at,
+                },
+            ),
+        }
+    )
+
+
+def bind_repository_observation(evidence: dict[str, str]) -> None:
+    observed_at = "2026-08-02T00:01:00Z"
+    review_inputs = {
+        name: evidence[name]
+        for name in (
+            "reviewed_commit_sha",
+            "prospective_tree_digest",
+            "verification_bundle_digest",
+            "review_digest",
+        )
+    }
+    observation = object_digest(
+        {
+            "observer_id": "repository-observer",
+            "authority_digest": OTHER_SHA,
+            "subject_digest": SHA,
+            "review_inputs": review_inputs,
+            "observed_at": observed_at,
+        }
+    )
+    evidence.update(
+        {
+            "repository_observer_id": "repository-observer",
+            "repository_observer_authority_digest": OTHER_SHA,
+            "repository_observed_at": observed_at,
+            "repository_observation_digest": observation,
+            "repository_observation_authentication_evidence_digest": external_proof(
+                "repository-observer",
+                OTHER_SHA,
+                {
+                    "observer_id": "repository-observer",
+                    "authority_digest": OTHER_SHA,
+                    "subject_digest": SHA,
+                    "observation_digest": observation,
+                    "observed_at": observed_at,
+                },
+            ),
         }
     )
 
@@ -763,7 +874,7 @@ def test_external_mutation_requires_prejournaled_unique_attempt(tmp_path: Path) 
         idempotency_key="stage:run-65:1",
         subject_digest=SHA,
         action="deploy_staging",
-        step_plan_digest=OTHER_SHA,
+        step_plan_digest=mutation_subject_digest("deploy_staging", required),
         status="PLANNED",
     )
     cp.prejournal_mutation(attempt)
@@ -792,24 +903,26 @@ def test_external_mutation_requires_prejournaled_unique_attempt(tmp_path: Path) 
 
 def test_production_admission_requires_live_exact_subject_approval(tmp_path: Path) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.PRODUCTION_APPROVAL_REQUIRED)
-    attempt = MutationAttempt(
-        attempt_id="attempt-production-approval",
-        idempotency_key="production:run-65:approval",
-        subject_digest=SHA,
-        action="deploy_production",
-        step_plan_digest=OTHER_SHA,
-        status="PLANNED",
-    )
-    cp.prejournal_mutation(attempt)
-    record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
     required = evidence_for(
         LifecycleState.PRODUCTION_APPROVAL_REQUIRED,
         LifecycleState.PRODUCTION_DEPLOYED,
         reason="production_admitted",
     )
     required["production_result_digest"] = SHA
-    required["production_attempt_digest"] = object_digest(asdict(attempt))
     required.update(record_active_canary_binding(cp))
+    approval = production_approval_for(required)
+    required["production_approval_digest"] = object_digest(asdict(approval))
+    attempt = MutationAttempt(
+        attempt_id="attempt-production-approval",
+        idempotency_key="production:run-65:approval",
+        subject_digest=SHA,
+        action="deploy_production",
+        step_plan_digest=mutation_subject_digest("deploy_production", required),
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(attempt)
+    record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
+    required["production_attempt_digest"] = object_digest(asdict(attempt))
 
     with pytest.raises(TransitionDeniedError, match="production approval"):
         cp.transition(
@@ -822,8 +935,6 @@ def test_production_admission_requires_live_exact_subject_approval(tmp_path: Pat
             reason="production_admitted",
         )
 
-    approval = production_approval_for(required)
-    required["production_approval_digest"] = object_digest(asdict(approval))
     cp.transition(
         LifecycleState.PRODUCTION_DEPLOYED,
         context(
@@ -885,21 +996,21 @@ def test_forward_transition_rejects_reused_authority_observation(tmp_path: Path)
 
 def test_mutation_admission_binds_evidence_to_persisted_result(tmp_path: Path) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
-    attempt = MutationAttempt(
-        attempt_id="attempt-stage-result-binding",
-        idempotency_key="stage:run-65:result-binding",
-        subject_digest=SHA,
-        action="deploy_staging",
-        step_plan_digest=OTHER_SHA,
-        status="PLANNED",
-    )
-    cp.prejournal_mutation(attempt)
-    record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
     required = evidence_for(
         LifecycleState.PR_MERGED,
         LifecycleState.STAGING_DEPLOYED,
         reason="staging_admitted",
     )
+    attempt = MutationAttempt(
+        attempt_id="attempt-stage-result-binding",
+        idempotency_key="stage:run-65:result-binding",
+        subject_digest=SHA,
+        action="deploy_staging",
+        step_plan_digest=mutation_subject_digest("deploy_staging", required),
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(attempt)
+    record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
     required["staging_result_digest"] = OTHER_SHA
     with pytest.raises(TransitionDeniedError, match="persisted mutation result"):
         cp.transition(
@@ -1029,7 +1140,7 @@ def test_persistence_replay_detects_tampering(tmp_path: Path) -> None:
         context(evidence=required),
         reason="contract_admitted",
     )
-    loaded = LifecycleControlPlane.load(tmp_path)
+    loaded = LifecycleControlPlane.load(tmp_path, evidence_verifier=verify_external_proof)
     assert loaded.state is LifecycleState.CONTRACT_APPROVED
     ledger = tmp_path / "lifecycle-events.jsonl"
     ledger.write_text(ledger.read_text().replace("CONTRACT_APPROVED", "COMPLETED", 1))
@@ -1217,22 +1328,22 @@ def test_same_attempt_id_cannot_rebind_a_complete_mutation_plan(tmp_path: Path) 
 
 def test_mutation_admission_requires_persisted_success_after_replay(tmp_path: Path) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
-    attempt = MutationAttempt(
-        attempt_id="attempt-stage-replay",
-        idempotency_key="stage:run-65:replay",
-        subject_digest=SHA,
-        action="deploy_staging",
-        step_plan_digest=OTHER_SHA,
-        status="PLANNED",
-    )
-    cp.prejournal_mutation(attempt)
-    record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
-    loaded = LifecycleControlPlane.load(tmp_path)
     required = evidence_for(
         LifecycleState.PR_MERGED,
         LifecycleState.STAGING_DEPLOYED,
         reason="staging_admitted",
     )
+    attempt = MutationAttempt(
+        attempt_id="attempt-stage-replay",
+        idempotency_key="stage:run-65:replay",
+        subject_digest=SHA,
+        action="deploy_staging",
+        step_plan_digest=mutation_subject_digest("deploy_staging", required),
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(attempt)
+    record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
+    loaded = LifecycleControlPlane.load(tmp_path, evidence_verifier=verify_external_proof)
     required["staging_result_digest"] = SHA
     required["staging_attempt_digest"] = object_digest(asdict(attempt))
     loaded.transition(
@@ -1648,10 +1759,9 @@ def test_post_merge_blocking_finding_enters_safe_blocked_state(tmp_path: Path) -
     evidence = {
         "subject_digest": SHA,
         "finding_digest": object_digest(asdict(finding)),
-        "worker_quiescence_digest": object_digest(asdict(WorkStatus())),
-        "mutation_revocation_digest": OTHER_SHA,
         "zero_resource_digest": SHA,
     }
+    bind_work_evidence(evidence, WorkStatus())
 
     event = cp.transition(
         LifecycleState.BLOCKED,
@@ -1882,10 +1992,7 @@ def test_ordinary_safe_stop_resumes_only_through_its_admitted_safe_gate(
         LifecycleState.BLOCKED,
         reason="verification_infrastructure_missing",
     )
-    stop_evidence.update(
-        worker_quiescence_digest=object_digest(asdict(WorkStatus())),
-        mutation_revocation_digest=OTHER_SHA,
-    )
+    bind_work_evidence(stop_evidence, WorkStatus())
     stopped = cp.transition(
         LifecycleState.BLOCKED,
         context(evidence=stop_evidence),
@@ -2051,16 +2158,6 @@ def test_canary_progression_rejects_foreign_or_stale_active_canary_proof(
     tmp_path: Path,
 ) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.STAGING_DEPLOYED)
-    attempt = MutationAttempt(
-        attempt_id="canary-deploy-1",
-        idempotency_key="canary:run-65:deploy-1",
-        subject_digest=SHA,
-        action="deploy_canary",
-        step_plan_digest=OTHER_SHA,
-        status="PLANNED",
-    )
-    cp.prejournal_mutation(attempt)
-    record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
     admitted = evidence_for(
         LifecycleState.STAGING_DEPLOYED,
         LifecycleState.CANARY_DEPLOYED,
@@ -2070,6 +2167,20 @@ def test_canary_progression_rejects_foreign_or_stale_active_canary_proof(
         {
             "subject_digest": SHA,
             "canary_id_digest": object_digest("canary-run-65-1"),
+        }
+    )
+    attempt = MutationAttempt(
+        attempt_id="canary-deploy-1",
+        idempotency_key="canary:run-65:deploy-1",
+        subject_digest=SHA,
+        action="deploy_canary",
+        step_plan_digest=mutation_subject_digest("deploy_canary", admitted),
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(attempt)
+    record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
+    admitted.update(
+        {
             "canary_attempt_digest": object_digest(asdict(attempt)),
             "canary_result_digest": SHA,
             "canary_status_digest": object_digest(
@@ -2328,8 +2439,7 @@ def test_repository_drift_requires_quiesced_digest_bound_work(tmp_path: Path) ->
         mutation_capability_active=False,
         partial_output_disposition="frozen-unverified-non-admissible",
     )
-    required["work_disposition_digest"] = object_digest(asdict(stopped_work))
-    required["worker_quiescence_digest"] = object_digest(asdict(stopped_work))
+    bind_work_evidence(required, stopped_work)
     admitted = cp.transition(
         LifecycleState.REPOSITORY_ANALYSED,
         context(evidence=required, work=stopped_work),
@@ -2417,8 +2527,7 @@ def test_product_input_requires_revoked_digest_bound_mutation_capability(
         mutation_capability_active=False,
         partial_output_disposition="frozen-unverified-non-admissible",
     )
-    required["work_disposition_digest"] = object_digest(asdict(stopped_work))
-    required["worker_quiescence_digest"] = object_digest(asdict(stopped_work))
+    bind_work_evidence(required, stopped_work)
     admitted = cp.transition(
         LifecycleState.PRODUCT_INPUT_REQUIRED,
         context(evidence=required, work=stopped_work),
@@ -2524,31 +2633,32 @@ def test_native_merge_requires_the_exact_persisted_review_binding(tmp_path: Path
         },
         observed_at="2026-08-02T00:01:00Z",
     )
+    planned_evidence = evidence_for(
+        LifecycleState.PR_READY,
+        LifecycleState.PR_MERGED,
+        reason="native_merge_linearized",
+    )
+    planned_evidence.update(
+        {
+            "queue_subject_digest": SHA,
+            "head_commit_sha": reviewed_commit,
+            "head_digest": object_digest(reviewed_commit),
+            "prospective_tree_digest": reviewed_tree,
+            "verification_bundle_digest": review_evidence,
+            "formal_review_digest": review_digest,
+        }
+    )
     attempt = MutationAttempt(
         attempt_id="merge-attempt-1",
         idempotency_key="merge:run-65:1",
         subject_digest=SHA,
         action="enqueue_merge",
-        step_plan_digest=OTHER_SHA,
+        step_plan_digest=mutation_subject_digest("enqueue_merge", planned_evidence),
         status="PLANNED",
     )
     cp.prejournal_mutation(attempt)
     record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
-    evidence = evidence_for(
-        LifecycleState.PR_READY,
-        LifecycleState.PR_MERGED,
-        reason="native_merge_linearized",
-    )
-    evidence.update(
-        {
-            "queue_subject_digest": SHA,
-            "head_commit_sha": reviewed_commit,
-            "head_digest": object_digest(reviewed_commit),
-            "prospective_tree_digest": object_digest("unreviewed-tree"),
-            "verification_bundle_digest": review_evidence,
-            "formal_review_digest": review_digest,
-        }
-    )
+    evidence = {**planned_evidence, "prospective_tree_digest": object_digest("unreviewed-tree")}
 
     with pytest.raises(TransitionDeniedError, match="review binding"):
         cp.transition(
@@ -2700,20 +2810,14 @@ def test_pr_ready_resume_revalidates_the_persisted_review_inputs(tmp_path: Path)
         LifecycleState.BLOCKED,
         reason="merge_protection_incident",
     )
-    work_digest = object_digest(asdict(WorkStatus()))
-    stop_evidence.update(
-        {
-            "worker_quiescence_digest": work_digest,
-            "mutation_revocation_digest": work_digest,
-        }
-    )
+    bind_work_evidence(stop_evidence, WorkStatus())
     cp.transition(
         LifecycleState.BLOCKED,
         context(evidence=stop_evidence),
         reason="merge_protection_incident",
     )
 
-    with pytest.raises(TransitionDeniedError, match="unchanged|review inputs"):
+    with pytest.raises(TransitionDeniedError, match="unchanged|review inputs|observation"):
         cp.resume(
             context(
                 evidence={
@@ -2735,18 +2839,15 @@ def test_pr_ready_resume_revalidates_the_persisted_review_inputs(tmp_path: Path)
         "verification_bundle_digest": review_evidence,
         "review_digest": review_digest,
     }
-    resumed = cp.resume(
-        context(
-            usage=cp.budget_usage,
-            evidence={
-                "subject_digest": SHA,
-                "incident_closure_digest": SHA,
-                "restored_capability_digest": OTHER_SHA,
-                "unchanged_inputs_digest": object_digest(review_inputs),
-                **review_inputs,
-            },
-        )
-    )
+    resume_evidence = {
+        "subject_digest": SHA,
+        "incident_closure_digest": SHA,
+        "restored_capability_digest": OTHER_SHA,
+        "unchanged_inputs_digest": object_digest(review_inputs),
+        **review_inputs,
+    }
+    bind_repository_observation(resume_evidence)
+    resumed = cp.resume(context(usage=cp.budget_usage, evidence=resume_evidence))
     assert resumed.target is LifecycleState.PR_READY
 
 
@@ -2807,7 +2908,7 @@ def test_budget_policy_limits_cannot_be_mutated_without_admission() -> None:
     policy, _ = budgets()
 
     with pytest.raises(TypeError):
-        policy.limits["tokens"] = 1_000_000
+        policy.limits["tokens"] = 1_000_000  # type: ignore[index]
 
 
 def test_persisted_event_evidence_is_immutable_in_memory(tmp_path: Path) -> None:
@@ -2821,7 +2922,7 @@ def test_persisted_event_evidence_is_immutable_in_memory(tmp_path: Path) -> None
     )
 
     with pytest.raises(TypeError):
-        event.evidence_refs["payload_digest"] = SHA
+        event.evidence_refs["payload_digest"] = SHA  # type: ignore[index]
 
 
 def test_authoritative_runtime_state_cannot_be_mutated_outside_events(tmp_path: Path) -> None:
@@ -2832,7 +2933,7 @@ def test_authoritative_runtime_state_cannot_be_mutated_outside_events(tmp_path: 
     with pytest.raises(AttributeError):
         cp.events = ()  # type: ignore[misc]
     with pytest.raises(TypeError):
-        cp.budget_usage.counters["tokens"] = 1_000_000
+        cp.budget_usage.counters["tokens"] = 1_000_000  # type: ignore[index]
 
 
 def test_authority_digest_cannot_be_reused_with_forged_current_fields(tmp_path: Path) -> None:
@@ -2864,10 +2965,7 @@ def test_adapter_result_rejects_self_asserted_untrusted_authority(tmp_path: Path
         status="PLANNED",
     )
     cp.prejournal_mutation(attempt)
-    fabricated = replace(
-        adapter_result_evidence(attempt, status="SUCCEEDED", result_digest=SHA),
-        adapter_id="attacker-selected-adapter",
-    )
+    fabricated = adapter_result_evidence(attempt, status="SUCCEEDED", result_digest=SHA)
     fabricated = replace(
         fabricated,
         authentication_evidence_digest=object_digest(
@@ -2881,6 +2979,7 @@ def test_adapter_result_rejects_self_asserted_untrusted_authority(tmp_path: Path
                 "attempt_id": fabricated.attempt_id,
                 "idempotency_key": fabricated.idempotency_key,
                 "action": fabricated.action,
+                "step_plan_digest": fabricated.step_plan_digest,
                 "status": fabricated.status,
                 "result_digest": fabricated.result_digest,
             }
@@ -3047,7 +3146,7 @@ def test_budget_policy_cannot_be_replaced_outside_admission(tmp_path: Path) -> N
     )
 
     with pytest.raises(AttributeError):
-        cp.budget_policy = unauthorized
+        cp.budget_policy = unauthorized  # type: ignore[misc]
 
 
 def test_budget_stop_rejects_self_asserted_quiescence_and_revocation(tmp_path: Path) -> None:
@@ -3059,6 +3158,16 @@ def test_budget_stop_rejects_self_asserted_quiescence_and_revocation(tmp_path: P
         reason="verification_budget_exhausted",
     )
     bind_work_evidence(evidence, WorkStatus())
+    evidence["work_control_authentication_evidence_digest"] = object_digest(
+        {
+            "controller_id": evidence["work_controller_id"],
+            "authority_digest": evidence["work_controller_authority_digest"],
+            "subject_digest": SHA,
+            "quiescence_digest": evidence["worker_quiescence_digest"],
+            "revocation_digest": evidence["mutation_revocation_digest"],
+            "observed_at": evidence["work_control_observed_at"],
+        }
+    )
 
     with pytest.raises(TransitionDeniedError, match="trusted|quiescence|revocation"):
         cp.transition(

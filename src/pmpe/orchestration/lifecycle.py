@@ -13,7 +13,7 @@ import json
 import os
 import re
 import threading
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
@@ -23,6 +23,8 @@ from types import MappingProxyType
 from typing import Any, NoReturn
 
 from pmpe.domain.serialize import atomic_write_json
+
+EvidenceVerifier = Callable[[str, str, Mapping[str, Any], str], bool]
 
 
 class TransitionDeniedError(RuntimeError):
@@ -149,6 +151,25 @@ class BudgetPolicy:
             raise ValueError("repair budgets must be positive")
         if self.reserved_safety_units <= 0:
             raise ValueError("reserved safety budget must be positive")
+
+
+@dataclass(frozen=True)
+class EvidenceTrustPolicy:
+    """Immutable authority roots for external evidence producers."""
+
+    adapter_authorities: Mapping[str, str] = field(default_factory=dict)
+    repository_observers: Mapping[str, str] = field(default_factory=dict)
+    work_controllers: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        for name in ("adapter_authorities", "repository_observers", "work_controllers"):
+            values = dict(getattr(self, name))
+            if any(
+                not identity or _SHA256.fullmatch(digest) is None
+                for identity, digest in values.items()
+            ):
+                raise ValueError("evidence trust roots require named canonical authorities")
+            object.__setattr__(self, name, MappingProxyType(values))
 
 
 @dataclass(frozen=True)
@@ -336,6 +357,7 @@ class AdapterResultEvidence:
     attempt_id: str
     idempotency_key: str
     action: str
+    step_plan_digest: str
     status: str
     result_digest: str | None
     authentication_evidence_digest: str
@@ -385,6 +407,14 @@ def _budget_policy_payload(policy: BudgetPolicy) -> dict[str, Any]:
     }
 
 
+def _trust_policy_payload(policy: EvidenceTrustPolicy) -> dict[str, Any]:
+    return {
+        "adapter_authorities": dict(policy.adapter_authorities),
+        "repository_observers": dict(policy.repository_observers),
+        "work_controllers": dict(policy.work_controllers),
+    }
+
+
 def _budget_usage_payload(usage: BudgetUsage) -> dict[str, Any]:
     return {
         "counters": dict(usage.counters),
@@ -394,22 +424,21 @@ def _budget_usage_payload(usage: BudgetUsage) -> dict[str, Any]:
     }
 
 
-def _adapter_result_evidence_digest(evidence: AdapterResultEvidence) -> str:
-    return _digest(
-        {
-            "adapter_id": evidence.adapter_id,
-            "role": evidence.role,
-            "authenticated": evidence.authenticated,
-            "capabilities": sorted(evidence.capabilities),
-            "subject_digest": evidence.subject_digest,
-            "authority_digest": evidence.authority_digest,
-            "attempt_id": evidence.attempt_id,
-            "idempotency_key": evidence.idempotency_key,
-            "action": evidence.action,
-            "status": evidence.status,
-            "result_digest": evidence.result_digest,
-        }
-    )
+def _adapter_result_evidence_payload(evidence: AdapterResultEvidence) -> dict[str, Any]:
+    return {
+        "adapter_id": evidence.adapter_id,
+        "role": evidence.role,
+        "authenticated": evidence.authenticated,
+        "capabilities": sorted(evidence.capabilities),
+        "subject_digest": evidence.subject_digest,
+        "authority_digest": evidence.authority_digest,
+        "attempt_id": evidence.attempt_id,
+        "idempotency_key": evidence.idempotency_key,
+        "action": evidence.action,
+        "step_plan_digest": evidence.step_plan_digest,
+        "status": evidence.status,
+        "result_digest": evidence.result_digest,
+    }
 
 
 def _actor_evidence_digest(actor: TransitionActor) -> str:
@@ -455,6 +484,37 @@ _CANARY_ROLLOUT_SUBJECT_FIELDS = (
 
 def _production_approval_scope_digest(evidence: dict[str, str]) -> str:
     return _digest({name: evidence.get(name, "") for name in _PRODUCTION_APPROVAL_SCOPE_FIELDS})
+
+
+_MUTATION_SUBJECT_FIELDS: dict[str, tuple[str, ...]] = {
+    "enqueue_merge": (
+        "subject_digest",
+        "queue_subject_digest",
+        "head_commit_sha",
+        "head_digest",
+        "base_digest",
+        "prospective_tree_digest",
+        "required_checks_digest",
+        "formal_review_digest",
+        "verification_bundle_digest",
+    ),
+    "deploy_staging": ("subject_digest", "merge_digest", "artifact_digest"),
+    "deploy_canary": (
+        *_CANARY_ROLLOUT_SUBJECT_FIELDS,
+        "canary_authorization_digest",
+        "canary_id_digest",
+    ),
+    "deploy_production": (*_PRODUCTION_APPROVAL_SCOPE_FIELDS, "production_approval_digest"),
+}
+
+
+def mutation_subject_digest(action: str, evidence: Mapping[str, str]) -> str:
+    """Return the immutable external-effect subject for a guarded mutation."""
+
+    fields = _MUTATION_SUBJECT_FIELDS.get(action)
+    if fields is None:
+        raise ValueError(f"mutation action {action!r} has no exact-subject binding")
+    return _digest({name: evidence.get(name, "") for name in fields})
 
 
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -1630,19 +1690,24 @@ class LifecycleControlPlane:
         subject_digest: str,
         state: LifecycleState,
         budget_policy: BudgetPolicy,
+        trust_policy: EvidenceTrustPolicy | None = None,
+        evidence_verifier: EvidenceVerifier | None = None,
         events: list[LifecycleEvent] | None = None,
     ) -> None:
         self.run_dir = Path(run_dir)
         self.run_id = run_id
         self.subject_digest = subject_digest
         self._state = state
-        self.budget_policy = budget_policy
+        self._budget_policy = budget_policy
+        self._trust_policy = trust_policy or EvidenceTrustPolicy()
+        self._evidence_verifier = evidence_verifier
         self._events = list(events or ())
         self._operation_lock = threading.RLock()
         self._completion_claim_active = False
         self._mutation_keys: dict[str, str] = {}
         self._mutation_attempts: dict[str, MutationAttempt] = {}
         self._mutation_results: dict[str, MutationResult] = {}
+        self._verified_mutation_result_keys: set[str] = set()
         self.budget_usage = BudgetUsage()
 
     @property
@@ -1658,6 +1723,14 @@ class LifecycleControlPlane:
         return self._completion_claim_active
 
     @property
+    def budget_policy(self) -> BudgetPolicy:
+        return self._budget_policy
+
+    @property
+    def trust_policy(self) -> EvidenceTrustPolicy:
+        return self._trust_policy
+
+    @property
     def ledger_path(self) -> Path:
         return self.run_dir / self._LEDGER_NAME
 
@@ -1668,6 +1741,110 @@ class LifecycleControlPlane:
     @property
     def lock_path(self) -> Path:
         return self.run_dir / self._LOCK_NAME
+
+    def _trusted_work_evidence_valid(self, context: TransitionContext) -> bool:
+        evidence = context.evidence
+        controller = evidence.get("work_controller_id", "")
+        authority_digest = evidence.get("work_controller_authority_digest", "")
+        observed_at = evidence.get("work_control_observed_at", "")
+        lease_epoch = evidence.get("work_lease_epoch_digest", "")
+        capability_epoch = evidence.get("mutation_capability_epoch_digest", "")
+        work_digest = _digest(asdict(context.work))
+        quiescence = _digest(
+            {
+                "controller_id": controller,
+                "authority_digest": authority_digest,
+                "subject_digest": self.subject_digest,
+                "work_digest": work_digest,
+                "lease_epoch_digest": lease_epoch,
+                "observed_at": observed_at,
+                "status": "QUIESCED",
+            }
+        )
+        revocation = _digest(
+            {
+                "controller_id": controller,
+                "authority_digest": authority_digest,
+                "subject_digest": self.subject_digest,
+                "work_digest": work_digest,
+                "capability_epoch_digest": capability_epoch,
+                "observed_at": observed_at,
+                "status": "REVOKED",
+            }
+        )
+        authentication_payload = {
+            "controller_id": controller,
+            "authority_digest": authority_digest,
+            "subject_digest": self.subject_digest,
+            "quiescence_digest": quiescence,
+            "revocation_digest": revocation,
+            "observed_at": observed_at,
+        }
+        return bool(
+            controller
+            and self.trust_policy.work_controllers.get(controller) == authority_digest
+            and observed_at == context.observed_at
+            and _SHA256.fullmatch(lease_epoch)
+            and _SHA256.fullmatch(capability_epoch)
+            and evidence.get("worker_quiescence_digest") == quiescence
+            and evidence.get("mutation_revocation_digest") == revocation
+            and self._verify_external_evidence(
+                controller,
+                authority_digest,
+                authentication_payload,
+                evidence.get("work_control_authentication_evidence_digest", ""),
+            )
+        )
+
+    def _trusted_repository_observation_valid(
+        self, context: TransitionContext, review_inputs: Mapping[str, str]
+    ) -> bool:
+        evidence = context.evidence
+        observer = evidence.get("repository_observer_id", "")
+        authority_digest = evidence.get("repository_observer_authority_digest", "")
+        observed_at = evidence.get("repository_observed_at", "")
+        observation = _digest(
+            {
+                "observer_id": observer,
+                "authority_digest": authority_digest,
+                "subject_digest": self.subject_digest,
+                "review_inputs": dict(review_inputs),
+                "observed_at": observed_at,
+            }
+        )
+        authentication_payload = {
+            "observer_id": observer,
+            "authority_digest": authority_digest,
+            "subject_digest": self.subject_digest,
+            "observation_digest": observation,
+            "observed_at": observed_at,
+        }
+        return bool(
+            observer
+            and self.trust_policy.repository_observers.get(observer) == authority_digest
+            and observed_at == context.observed_at
+            and evidence.get("repository_observation_digest") == observation
+            and self._verify_external_evidence(
+                observer,
+                authority_digest,
+                authentication_payload,
+                evidence.get("repository_observation_authentication_evidence_digest", ""),
+            )
+        )
+
+    def _verify_external_evidence(
+        self,
+        identity: str,
+        authority_digest: str,
+        payload: Mapping[str, Any],
+        proof: str,
+    ) -> bool:
+        if self._evidence_verifier is None or not proof:
+            return False
+        try:
+            return bool(self._evidence_verifier(identity, authority_digest, payload, proof))
+        except Exception:
+            return False
 
     @contextmanager
     def _exclusive_lock(self) -> Iterator[None]:
@@ -1688,6 +1865,8 @@ class LifecycleControlPlane:
         subject_digest: str,
         initial_state: LifecycleState,
         budget_policy: BudgetPolicy,
+        trust_policy: EvidenceTrustPolicy | None = None,
+        evidence_verifier: EvidenceVerifier | None = None,
     ) -> LifecycleControlPlane:
         path = Path(run_dir)
         path.mkdir(parents=True, exist_ok=True)
@@ -1697,13 +1876,18 @@ class LifecycleControlPlane:
             subject_digest=subject_digest,
             state=initial_state,
             budget_policy=budget_policy,
+            trust_policy=trust_policy,
+            evidence_verifier=evidence_verifier,
         )
         policy_payload = _budget_policy_payload(budget_policy)
+        trust_payload = _trust_policy_payload(cp.trust_policy)
         metadata: dict[str, Any] = {
             "run_id": run_id,
             "subject_digest": subject_digest,
             "budget_policy": policy_payload,
             "budget_policy_digest": _digest(policy_payload),
+            "trust_policy": trust_payload,
+            "trust_policy_digest": _digest(trust_payload),
         }
         with cp._operation_lock, cp._exclusive_lock():
             ledger = path / cls._LEDGER_NAME
@@ -1713,7 +1897,7 @@ class LifecycleControlPlane:
                 if persisted_metadata != metadata:
                     raise ValueError("lifecycle run already exists with different metadata")
                 if ledger.exists():
-                    return cls.load(path)
+                    return cls.load(path, evidence_verifier=evidence_verifier)
             elif ledger.exists():
                 raise ValueError("lifecycle ledger exists without bound metadata")
             else:
@@ -1729,6 +1913,7 @@ class LifecycleControlPlane:
                     "budget_policy_digest": str(metadata["budget_policy_digest"]),
                     "run_id_digest": _digest(run_id),
                     "metadata_digest": _digest(metadata),
+                    "trust_policy_digest": str(metadata["trust_policy_digest"]),
                 },
                 observed_at="",
             )
@@ -1746,7 +1931,9 @@ class LifecycleControlPlane:
         )
 
     @classmethod
-    def load(cls, run_dir: Path) -> LifecycleControlPlane:
+    def load(
+        cls, run_dir: Path, *, evidence_verifier: EvidenceVerifier | None = None
+    ) -> LifecycleControlPlane:
         path = Path(run_dir)
         raw_events = [
             json.loads(line)
@@ -1781,12 +1968,24 @@ class LifecycleControlPlane:
         ):
             raise ValueError("lifecycle metadata is not bound to the initial event")
         budget_policy = cls._budget_policy_from_dict(raw_policy)
+        raw_trust = dict(metadata.get("trust_policy", {}))
+        if raw_trust and _digest(raw_trust) != metadata.get("trust_policy_digest"):
+            raise ValueError("lifecycle evidence trust policy digest is invalid")
+        trust_policy = EvidenceTrustPolicy(
+            adapter_authorities=dict(raw_trust.get("adapter_authorities", {})),
+            repository_observers=dict(raw_trust.get("repository_observers", {})),
+            work_controllers=dict(raw_trust.get("work_controllers", {})),
+        )
+        if raw_trust and initial.evidence_refs.get("trust_policy_digest") != _digest(raw_trust):
+            raise ValueError("lifecycle evidence trust policy is not bound to the initial event")
         cp = cls(
             path,
             run_id=str(metadata["run_id"]),
             subject_digest=str(metadata["subject_digest"]),
             state=events[0].target,
             budget_policy=budget_policy,
+            trust_policy=trust_policy,
+            evidence_verifier=evidence_verifier,
             events=events,
         )
         cp._load_mutations()
@@ -1829,6 +2028,7 @@ class LifecycleControlPlane:
                         attempt_id=attempt_id,
                         idempotency_key=key,
                         action=event.reason,
+                        step_plan_digest=event.evidence_refs.get("adapter_step_plan_digest", ""),
                         status=event.detail,
                         result_digest=result_digest,
                         authentication_evidence_digest=event.evidence_refs.get(
@@ -1837,9 +2037,20 @@ class LifecycleControlPlane:
                     )
                     if (
                         "lifecycle.mutation.result.record" not in adapter_evidence.capabilities
-                        or _SHA256.fullmatch(adapter_evidence.authority_digest) is None
-                        or adapter_evidence.authentication_evidence_digest
-                        != _adapter_result_evidence_digest(adapter_evidence)
+                        or cp.trust_policy.adapter_authorities.get(adapter_evidence.adapter_id)
+                        != adapter_evidence.authority_digest
+                        or adapter_evidence.step_plan_digest
+                        != cp._mutation_attempts.get(key, adapter_evidence).step_plan_digest
+                        or not adapter_evidence.authentication_evidence_digest
+                        or (
+                            cp._evidence_verifier is not None
+                            and not cp._verify_external_evidence(
+                                adapter_evidence.adapter_id,
+                                adapter_evidence.authority_digest,
+                                _adapter_result_evidence_payload(adapter_evidence),
+                                adapter_evidence.authentication_evidence_digest,
+                            )
+                        )
                     ):
                         raise ValueError("mutation result adapter evidence is invalid")
                     cp._mutation_results[key] = MutationResult(
@@ -1848,6 +2059,8 @@ class LifecycleControlPlane:
                         status=event.detail,
                         result_digest=result_digest,
                     )
+                    if cp._evidence_verifier is not None:
+                        cp._verified_mutation_result_keys.add(key)
             if event.kind == "BUDGET_POLICY_ADMITTED":
                 policy_json = event.evidence_refs.get("budget_policy_json", "")
                 if policy_json:
@@ -1874,7 +2087,7 @@ class LifecycleControlPlane:
                         is None
                     ):
                         raise ValueError("admitted budget policy evidence is inconsistent")
-                    cp.budget_policy = admitted
+                    cp._budget_policy = admitted
             if event.kind == "COMPLETION_CLAIMED":
                 cp._completion_claim_active = True
             elif event.kind == "COMPLETION_REVOKED":
@@ -2195,7 +2408,7 @@ class LifecycleControlPlane:
                 os.fsync(stream.fileno())
         self._events.append(event)
         if admitted_budget_policy is not None:
-            self.budget_policy = admitted_budget_policy
+            self._budget_policy = admitted_budget_policy
         return event
 
     def _deny(
@@ -2425,10 +2638,9 @@ class LifecycleControlPlane:
                     "repository drift partial work has no safe disposition",
                 )
             work_digest = _digest(asdict(context.work))
-            if (
-                context.evidence.get("work_disposition_digest") != work_digest
-                or context.evidence.get("worker_quiescence_digest") != work_digest
-            ):
+            if context.evidence.get(
+                "work_disposition_digest"
+            ) != work_digest or not self._trusted_work_evidence_valid(context):
                 self._deny(
                     target,
                     context,
@@ -2517,10 +2729,7 @@ class LifecycleControlPlane:
                     reason,
                     "safe-stop candidate mutation capability remains active",
                 )
-            if (
-                context.evidence.get("worker_quiescence_digest") != _digest(asdict(context.work))
-                or _SHA256.fullmatch(context.evidence.get("mutation_revocation_digest", "")) is None
-            ):
+            if not self._trusted_work_evidence_valid(context):
                 self._deny(
                     target,
                     context,
@@ -2546,10 +2755,9 @@ class LifecycleControlPlane:
                     "product input requires revoked candidate mutation capability",
                 )
             work_digest = _digest(asdict(context.work))
-            if (
-                context.evidence.get("work_disposition_digest") != work_digest
-                or context.evidence.get("worker_quiescence_digest") != work_digest
-            ):
+            if context.evidence.get(
+                "work_disposition_digest"
+            ) != work_digest or not self._trusted_work_evidence_valid(context):
                 self._deny(
                     target,
                     context,
@@ -2570,9 +2778,8 @@ class LifecycleControlPlane:
                 )
             work_digest = _digest(asdict(context.work))
             if (
-                context.evidence.get("worker_quiescence_digest") != work_digest
+                not self._trusted_work_evidence_valid(context)
                 or context.evidence.get("work_disposition_digest") != work_digest
-                or context.evidence.get("mutation_revocation_digest") != work_digest
             ):
                 self._deny(
                     target,
@@ -2788,6 +2995,17 @@ class LifecycleControlPlane:
                 self._deny(target, context, reason, "mutation attempt subject does not match")
             if rule.mutation_action and attempt.action != rule.mutation_action:
                 self._deny(target, context, reason, "mutation attempt action does not match")
+            if (
+                attempt.action in _MUTATION_SUBJECT_FIELDS
+                and attempt.step_plan_digest
+                != mutation_subject_digest(attempt.action, context.evidence)
+            ):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "mutation step plan is not bound to the exact external-effect subject",
+                )
             if rule.mutation_action == "open_draft_pr" and attempt.steps != (
                 "issue",
                 "branch",
@@ -2806,7 +3024,11 @@ class LifecycleControlPlane:
                 self._deny(target, context, reason, str(exc))
             starts_safety_action = target is S.ROLLBACK_IN_PROGRESS
             result = self._mutation_results.get(attempt.idempotency_key)
-            if not starts_safety_action and (result is None or not result.successful):
+            if not starts_safety_action and (
+                result is None
+                or not result.successful
+                or attempt.idempotency_key not in self._verified_mutation_result_keys
+            ):
                 self._deny(
                     target,
                     context,
@@ -3172,6 +3394,14 @@ class LifecycleControlPlane:
             result_digest is None or _SHA256.fullmatch(result_digest) is None
         ):
             raise TransitionDeniedError("successful mutation requires a canonical result digest")
+        self._require_prejournaled(attempt)
+        prior = self._mutation_results.get(attempt.idempotency_key)
+        if prior is not None:
+            if prior.attempt_id != attempt.attempt_id:
+                raise TransitionDeniedError("mutation result attempt does not match")
+            if prior.status != status or prior.result_digest != result_digest:
+                raise TransitionDeniedError("mutation result is already sealed")
+            return prior
         if (
             adapter_evidence is None
             or not adapter_evidence.adapter_id
@@ -3183,21 +3413,21 @@ class LifecycleControlPlane:
             or adapter_evidence.attempt_id != attempt.attempt_id
             or adapter_evidence.idempotency_key != attempt.idempotency_key
             or adapter_evidence.action != attempt.action
+            or adapter_evidence.step_plan_digest != attempt.step_plan_digest
             or adapter_evidence.status != status
             or adapter_evidence.result_digest != result_digest
-            or _SHA256.fullmatch(adapter_evidence.authority_digest) is None
-            or adapter_evidence.authentication_evidence_digest
-            != _adapter_result_evidence_digest(adapter_evidence)
+            or self.trust_policy.adapter_authorities.get(adapter_evidence.adapter_id)
+            != adapter_evidence.authority_digest
+            or not self._verify_external_evidence(
+                adapter_evidence.adapter_id,
+                adapter_evidence.authority_digest,
+                _adapter_result_evidence_payload(adapter_evidence),
+                adapter_evidence.authentication_evidence_digest,
+            )
         ):
-            raise TransitionDeniedError("authenticated exact-attempt adapter evidence is required")
-        self._require_prejournaled(attempt)
-        prior = self._mutation_results.get(attempt.idempotency_key)
-        if prior is not None:
-            if prior.attempt_id != attempt.attempt_id:
-                raise TransitionDeniedError("mutation result attempt does not match")
-            if prior.status != status or prior.result_digest != result_digest:
-                raise TransitionDeniedError("mutation result is already sealed")
-            return prior
+            raise TransitionDeniedError(
+                "trusted adapter authority for the authenticated exact attempt is required"
+            )
         result = MutationResult(
             attempt.attempt_id,
             attempt.idempotency_key,
@@ -3221,6 +3451,7 @@ class LifecycleControlPlane:
                     sorted(adapter_evidence.capabilities), separators=(",", ":")
                 ),
                 "adapter_authority_digest": adapter_evidence.authority_digest,
+                "adapter_step_plan_digest": adapter_evidence.step_plan_digest,
                 "adapter_authentication_evidence_digest": (
                     adapter_evidence.authentication_evidence_digest
                 ),
@@ -3229,6 +3460,7 @@ class LifecycleControlPlane:
             detail=status,
         )
         self._mutation_results[attempt.idempotency_key] = result
+        self._verified_mutation_result_keys.add(attempt.idempotency_key)
         return result
 
     def record_observation(
@@ -3360,12 +3592,13 @@ class LifecycleControlPlane:
                 != stopped_event.evidence_refs.get("resume_binding_digest")
                 or context.evidence.get("unchanged_inputs_digest")
                 != stopped_event.evidence_refs.get("resume_binding_digest")
+                or not self._trusted_repository_observation_valid(context, review_inputs)
             ):
                 self._deny(
                     recorded,
                     context,
                     "resume",
-                    "PR_READY resume does not prove unchanged persisted review inputs",
+                    "PR_READY resume lacks a fresh trusted repository observation",
                 )
         if (
             stopped_event.reason == "post_merge_blocking_finding"
