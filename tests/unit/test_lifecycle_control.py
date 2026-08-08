@@ -36,28 +36,12 @@ from pmpe.policies.engine import PolicyEngine
 
 SHA = "sha256:" + "a" * 64
 OTHER_SHA = "sha256:" + "b" * 64
-OWNER_AUTHORITY_DIGEST = (
-    "sha256:"
-    + hashlib.sha256(
-        json.dumps(
-            {
-                "contract_version": "contract-v1",
-                "publisher_version": "publisher-v1",
-                "contract_active": True,
-                "publisher_active": True,
-                "observed_at": "2026-08-02T12:00:00Z",
-                "valid_until": "2026-08-03T00:00:00Z",
-            },
-            sort_keys=True,
-            separators=(",", ":"),
-        ).encode()
-    ).hexdigest()
-)
+OWNER_CREDENTIAL_DIGEST = "sha256:" + "c" * 64
 TRUST_POLICY = EvidenceTrustPolicy(
     adapter_authorities={"test-adapter": SHA},
     budget_owner_authorities={
-        "delivery-owner": OWNER_AUTHORITY_DIGEST,
-        "owner-alice": OWNER_AUTHORITY_DIGEST,
+        "delivery-owner": OWNER_CREDENTIAL_DIGEST,
+        "owner-alice": OWNER_CREDENTIAL_DIGEST,
     },
     repository_observers={"repository-observer": OTHER_SHA},
     work_controllers={"work-controller": SHA},
@@ -525,9 +509,7 @@ def extension_authorization(
     amounts: dict[str, int],
     authority_snapshot: AuthoritySnapshot | None = None,
 ) -> lifecycle.BudgetExtensionAuthorization:
-    current_authority = authority_snapshot or authority(
-        observed_at="2026-08-02T12:00:00Z"
-    )
+    current_authority = authority_snapshot or authority(observed_at="2026-08-02T12:00:00Z")
     body = {
         "extension_id": f"extension:{proposed.version}",
         "owner_id": proposed.approved_by,
@@ -537,6 +519,7 @@ def extension_authorization(
         "run_id": cp.run_id,
         "subject_digest": cp.subject_digest,
         "authority_digest": current_authority.digest,
+        "credential_digest": OWNER_CREDENTIAL_DIGEST,
         "prior_policy_digest": object_digest(lifecycle._budget_policy_payload(cp.budget_policy)),
         "proposed_policy_digest": object_digest(lifecycle._budget_policy_payload(proposed)),
         "amounts": amounts,
@@ -553,13 +536,14 @@ def extension_authorization(
         run_id=str(body["run_id"]),
         subject_digest=str(body["subject_digest"]),
         authority_digest=str(body["authority_digest"]),
+        credential_digest=str(body["credential_digest"]),
         prior_policy_digest=str(body["prior_policy_digest"]),
         proposed_policy_digest=str(body["proposed_policy_digest"]),
         amounts=amounts,
         reason=str(body["reason"]),
         valid_from=str(body["valid_from"]),
         valid_until=str(body["valid_until"]),
-        evidence_digest=external_proof(str(body["owner_id"]), str(body["authority_digest"]), body),
+        evidence_digest=external_proof(str(body["owner_id"]), str(body["credential_digest"]), body),
     )
 
 
@@ -1764,6 +1748,22 @@ def test_budget_extensions_require_named_authenticated_exact_subject_authority(
                 valid_until="2026-08-05T00:00:00Z",
             ),
             observed_at="2026-08-04T12:00:00Z",
+        )
+    forged_credential = replace(authorization, credential_digest=OTHER_SHA)
+    forged_credential = replace(
+        forged_credential,
+        evidence_digest=external_proof(
+            forged_credential.owner_id,
+            forged_credential.credential_digest,
+            lifecycle._budget_extension_authorization_payload(forged_credential),
+        ),
+    )
+    with pytest.raises(TransitionDeniedError, match="trusted budget-owner"):
+        cp.admit_budget_policy(
+            extended,
+            authorization=forged_credential,
+            authority=authority(observed_at="2026-08-02T12:00:00Z"),
+            observed_at="2026-08-02T12:00:00Z",
         )
     cp.admit_budget_policy(
         extended,

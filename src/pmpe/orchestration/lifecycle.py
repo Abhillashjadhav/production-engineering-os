@@ -290,6 +290,7 @@ class BudgetExtensionAuthorization:
     run_id: str
     subject_digest: str
     authority_digest: str
+    credential_digest: str
     prior_policy_digest: str
     proposed_policy_digest: str
     amounts: dict[str, int]
@@ -473,6 +474,7 @@ def _budget_extension_authorization_payload(
         "run_id": authorization.run_id,
         "subject_digest": authorization.subject_digest,
         "authority_digest": authorization.authority_digest,
+        "credential_digest": authorization.credential_digest,
         "prior_policy_digest": authorization.prior_policy_digest,
         "proposed_policy_digest": authorization.proposed_policy_digest,
         "amounts": authorization.amounts,
@@ -2180,14 +2182,17 @@ class LifecycleControlPlane:
             raise TransitionDeniedError("budget extension owner authority is not current")
         if not authorization.extension_id or not authorization.reason:
             raise TransitionDeniedError("budget extension identity and reason are required")
-        if _SHA256.fullmatch(authorization.evidence_digest) is None:
+        if (
+            _SHA256.fullmatch(authorization.credential_digest) is None
+            or _SHA256.fullmatch(authorization.evidence_digest) is None
+        ):
             raise TransitionDeniedError("budget extension evidence digest is not canonical")
         authorization_body = _budget_extension_authorization_payload(authorization)
         if self.trust_policy.budget_owner_authorities.get(
             authorization.owner_id
-        ) != authorization.authority_digest or not self._verify_external_evidence(
+        ) != authorization.credential_digest or not self._verify_external_evidence(
             authorization.owner_id,
-            authorization.authority_digest,
+            authorization.credential_digest,
             authorization_body,
             authorization.evidence_digest,
         ):
@@ -2238,6 +2243,7 @@ class LifecycleControlPlane:
                 "run_id": authorization.run_id,
                 "subject_digest": authorization.subject_digest,
                 "authority_digest": authorization.authority_digest,
+                "credential_digest": authorization.credential_digest,
                 "prior_policy_digest": current_digest,
                 "proposed_policy_digest": proposed_digest,
                 "budget_policy_digest": proposed_digest,
