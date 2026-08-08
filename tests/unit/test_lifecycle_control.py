@@ -2851,3 +2851,218 @@ def test_authority_digest_cannot_be_reused_with_forged_current_fields(tmp_path: 
             replace(valid, authority=forged),
             reason="begin_work",
         )
+
+
+def test_adapter_result_rejects_self_asserted_untrusted_authority(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+    attempt = MutationAttempt(
+        attempt_id="untrusted-adapter-attempt",
+        idempotency_key="adapter:run-65:untrusted",
+        subject_digest=SHA,
+        action="deploy_staging",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(attempt)
+    fabricated = replace(
+        adapter_result_evidence(attempt, status="SUCCEEDED", result_digest=SHA),
+        adapter_id="attacker-selected-adapter",
+    )
+    fabricated = replace(
+        fabricated,
+        authentication_evidence_digest=object_digest(
+            {
+                "adapter_id": fabricated.adapter_id,
+                "role": fabricated.role,
+                "authenticated": fabricated.authenticated,
+                "capabilities": sorted(fabricated.capabilities),
+                "subject_digest": fabricated.subject_digest,
+                "authority_digest": fabricated.authority_digest,
+                "attempt_id": fabricated.attempt_id,
+                "idempotency_key": fabricated.idempotency_key,
+                "action": fabricated.action,
+                "status": fabricated.status,
+                "result_digest": fabricated.result_digest,
+            }
+        ),
+    )
+
+    with pytest.raises(TransitionDeniedError, match="trusted|adapter authority"):
+        cp.record_mutation_result(
+            attempt,
+            status="SUCCEEDED",
+            result_digest=SHA,
+            adapter_evidence=fabricated,
+        )
+
+
+def test_merge_rejects_attempt_not_bound_to_reviewed_queue_subject(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PR_READY)
+    reviewed_commit = "a" * 40
+    reviewed_tree = object_digest("reviewed-tree")
+    review_bundle = object_digest("review-bundle")
+    review_digest = object_digest("formal-review")
+    cp._append(
+        kind="REVIEW_BINDING_ADMITTED",
+        outcome="RECORDED",
+        source=cp.state,
+        target=cp.state,
+        reason="formal_review_clear",
+        actor="codex",
+        evidence_refs={
+            "subject_digest": SHA,
+            "reviewed_commit_sha": reviewed_commit,
+            "prospective_tree_digest": reviewed_tree,
+            "verification_bundle_digest": review_bundle,
+            "review_digest": review_digest,
+        },
+        observed_at="2026-08-02T00:01:00Z",
+    )
+    attempt = MutationAttempt(
+        attempt_id="merge-wrong-subject",
+        idempotency_key="merge:run-65:wrong-subject",
+        subject_digest=SHA,
+        action="enqueue_merge",
+        step_plan_digest=object_digest("different queue subject"),
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(attempt)
+    record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
+    evidence = evidence_for(
+        LifecycleState.PR_READY,
+        LifecycleState.PR_MERGED,
+        reason="native_merge_linearized",
+    )
+    evidence.update(
+        {
+            "queue_subject_digest": SHA,
+            "head_commit_sha": reviewed_commit,
+            "head_digest": object_digest(reviewed_commit),
+            "prospective_tree_digest": reviewed_tree,
+            "verification_bundle_digest": review_bundle,
+            "formal_review_digest": review_digest,
+        }
+    )
+
+    with pytest.raises(TransitionDeniedError, match="mutation.*subject|step plan"):
+        cp.transition(
+            LifecycleState.PR_MERGED,
+            context(evidence=evidence, mutation=attempt),
+            reason="native_merge_linearized",
+        )
+
+
+def test_canary_rejects_attempt_not_bound_to_rollout_subject(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.STAGING_DEPLOYED)
+    attempt = MutationAttempt(
+        attempt_id="canary-wrong-artifact",
+        idempotency_key="canary:run-65:wrong-artifact",
+        subject_digest=SHA,
+        action="deploy_canary",
+        step_plan_digest=object_digest("artifact-a"),
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(attempt)
+    record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
+    evidence = evidence_for(
+        LifecycleState.STAGING_DEPLOYED,
+        LifecycleState.CANARY_DEPLOYED,
+        reason="canary_admitted",
+    )
+    evidence["subject_digest"] = SHA
+    evidence["canary_attempt_digest"] = object_digest(asdict(attempt))
+    evidence["canary_result_digest"] = SHA
+    evidence["canary_status_digest"] = object_digest(
+        {
+            "canary_id_digest": evidence["canary_id_digest"],
+            "deployment_attempt_digest": evidence["canary_attempt_digest"],
+            "deployment_result_digest": SHA,
+            "subject_digest": SHA,
+            "status": "ACTIVE",
+        }
+    )
+
+    with pytest.raises(TransitionDeniedError, match="mutation.*subject|step plan"):
+        cp.transition(
+            LifecycleState.CANARY_DEPLOYED,
+            context(
+                evidence=evidence,
+                mutation=attempt,
+                rollout=RolloutStatus(staging="ACTIVE", canary="ACTIVE"),
+            ),
+            reason="canary_admitted",
+        )
+
+
+def test_pr_ready_resume_requires_fresh_trusted_repository_observation(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PR_READY)
+    review_inputs = {
+        "reviewed_commit_sha": "a" * 40,
+        "prospective_tree_digest": object_digest("tree"),
+        "verification_bundle_digest": object_digest("bundle"),
+        "review_digest": object_digest("review"),
+    }
+    cp._append(
+        kind="REVIEW_BINDING_ADMITTED",
+        outcome="RECORDED",
+        source=cp.state,
+        target=cp.state,
+        reason="formal_review_clear",
+        actor="codex",
+        evidence_refs={"subject_digest": SHA, **review_inputs},
+        observed_at="2026-08-02T00:01:00Z",
+    )
+    stop_evidence = evidence_for(
+        LifecycleState.PR_READY,
+        LifecycleState.BLOCKED,
+        reason="merge_protection_incident",
+    )
+    bind_work_evidence(stop_evidence, WorkStatus())
+    cp.transition(
+        LifecycleState.BLOCKED,
+        context(evidence=stop_evidence),
+        reason="merge_protection_incident",
+    )
+
+    with pytest.raises(TransitionDeniedError, match="repository observation|fresh.*observation"):
+        cp.resume(
+            context(
+                evidence={
+                    "subject_digest": SHA,
+                    "incident_closure_digest": SHA,
+                    "restored_capability_digest": OTHER_SHA,
+                    "unchanged_inputs_digest": object_digest(review_inputs),
+                    **review_inputs,
+                }
+            )
+        )
+
+
+def test_budget_policy_cannot_be_replaced_outside_admission(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+    unauthorized = replace(
+        cp.budget_policy,
+        version="budget-v999",
+        limits={name: value * 100 for name, value in cp.budget_policy.limits.items()},
+    )
+
+    with pytest.raises(AttributeError):
+        cp.budget_policy = unauthorized
+
+
+def test_budget_stop_rejects_self_asserted_quiescence_and_revocation(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.VERIFICATION_FAILED)
+    _, exhausted = budgets(tokens=101)
+    evidence = evidence_for(
+        LifecycleState.VERIFICATION_FAILED,
+        LifecycleState.BUDGET_EXCEEDED,
+        reason="verification_budget_exhausted",
+    )
+    bind_work_evidence(evidence, WorkStatus())
+
+    with pytest.raises(TransitionDeniedError, match="trusted|quiescence|revocation"):
+        cp.transition(
+            LifecycleState.BUDGET_EXCEEDED,
+            context(usage=exhausted, evidence=evidence),
+            reason="verification_budget_exhausted",
+        )
