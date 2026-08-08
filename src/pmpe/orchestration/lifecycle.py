@@ -158,11 +158,17 @@ class EvidenceTrustPolicy:
     """Immutable authority roots for external evidence producers."""
 
     adapter_authorities: Mapping[str, str] = field(default_factory=dict)
+    budget_owner_authorities: Mapping[str, str] = field(default_factory=dict)
     repository_observers: Mapping[str, str] = field(default_factory=dict)
     work_controllers: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        for name in ("adapter_authorities", "repository_observers", "work_controllers"):
+        for name in (
+            "adapter_authorities",
+            "budget_owner_authorities",
+            "repository_observers",
+            "work_controllers",
+        ):
             values = dict(getattr(self, name))
             if any(
                 not identity or _SHA256.fullmatch(digest) is None
@@ -410,6 +416,7 @@ def _budget_policy_payload(policy: BudgetPolicy) -> dict[str, Any]:
 def _trust_policy_payload(policy: EvidenceTrustPolicy) -> dict[str, Any]:
     return {
         "adapter_authorities": dict(policy.adapter_authorities),
+        "budget_owner_authorities": dict(policy.budget_owner_authorities),
         "repository_observers": dict(policy.repository_observers),
         "work_controllers": dict(policy.work_controllers),
     }
@@ -452,6 +459,27 @@ def _actor_evidence_digest(actor: TransitionActor) -> str:
             "authority_digest": actor.authority_digest,
         }
     )
+
+
+def _budget_extension_authorization_payload(
+    authorization: BudgetExtensionAuthorization,
+) -> dict[str, Any]:
+    return {
+        "extension_id": authorization.extension_id,
+        "owner_id": authorization.owner_id,
+        "owner_role": authorization.owner_role,
+        "authenticated": authorization.authenticated,
+        "capabilities": sorted(authorization.capabilities),
+        "run_id": authorization.run_id,
+        "subject_digest": authorization.subject_digest,
+        "authority_digest": authorization.authority_digest,
+        "prior_policy_digest": authorization.prior_policy_digest,
+        "proposed_policy_digest": authorization.proposed_policy_digest,
+        "amounts": authorization.amounts,
+        "reason": authorization.reason,
+        "valid_from": authorization.valid_from,
+        "valid_until": authorization.valid_until,
+    }
 
 
 _PRODUCTION_APPROVAL_SCOPE_FIELDS = (
@@ -998,6 +1026,12 @@ _RULES: tuple[TransitionRule, ...] = (
             "required_checks_digest",
             "formal_review_digest",
             "verification_bundle_digest",
+            "merge_attempt_digest",
+            "merge_result_digest",
+            "merge_commit_sha",
+            "merge_tree_digest",
+            "merge_method_digest",
+            "merge_actor_digest",
         ),
         "authority",
         "budget",
@@ -1074,6 +1108,7 @@ _RULES: tuple[TransitionRule, ...] = (
         ("merge_digest", "artifact_digest", "staging_attempt_digest", "staging_result_digest"),
         *_MUTATION,
         "no_blocking_finding",
+        "integrated_merge",
         mutation="deploy_staging",
     ),
     _r(
@@ -1973,6 +2008,7 @@ class LifecycleControlPlane:
             raise ValueError("lifecycle evidence trust policy digest is invalid")
         trust_policy = EvidenceTrustPolicy(
             adapter_authorities=dict(raw_trust.get("adapter_authorities", {})),
+            budget_owner_authorities=dict(raw_trust.get("budget_owner_authorities", {})),
             repository_observers=dict(raw_trust.get("repository_observers", {})),
             work_controllers=dict(raw_trust.get("work_controllers", {})),
         )
@@ -2146,24 +2182,16 @@ class LifecycleControlPlane:
             raise TransitionDeniedError("budget extension identity and reason are required")
         if _SHA256.fullmatch(authorization.evidence_digest) is None:
             raise TransitionDeniedError("budget extension evidence digest is not canonical")
-        authorization_body = {
-            "extension_id": authorization.extension_id,
-            "owner_id": authorization.owner_id,
-            "owner_role": authorization.owner_role,
-            "authenticated": authorization.authenticated,
-            "capabilities": sorted(authorization.capabilities),
-            "run_id": authorization.run_id,
-            "subject_digest": authorization.subject_digest,
-            "authority_digest": authorization.authority_digest,
-            "prior_policy_digest": authorization.prior_policy_digest,
-            "proposed_policy_digest": authorization.proposed_policy_digest,
-            "amounts": authorization.amounts,
-            "reason": authorization.reason,
-            "valid_from": authorization.valid_from,
-            "valid_until": authorization.valid_until,
-        }
-        if authorization.evidence_digest != _digest(authorization_body):
-            raise TransitionDeniedError("budget extension evidence does not match its authority")
+        authorization_body = _budget_extension_authorization_payload(authorization)
+        if self.trust_policy.budget_owner_authorities.get(
+            authorization.owner_id
+        ) != authorization.authority_digest or not self._verify_external_evidence(
+            authorization.owner_id,
+            authorization.authority_digest,
+            authorization_body,
+            authorization.evidence_digest,
+        ):
+            raise TransitionDeniedError("trusted budget-owner authority is required")
         try:
             valid_from = datetime.fromisoformat(authorization.valid_from.replace("Z", "+00:00"))
             valid_until = datetime.fromisoformat(authorization.valid_until.replace("Z", "+00:00"))
@@ -2466,6 +2494,18 @@ class LifecycleControlPlane:
             None,
         )
 
+    def _latest_merge_binding(self) -> LifecycleEvent | None:
+        return next(
+            (
+                event
+                for event in reversed(self.events)
+                if event.reason == "native_merge_linearized"
+                and event.outcome == "APPLIED"
+                and event.target is S.PR_MERGED
+            ),
+            None,
+        )
+
     def transition(
         self, target: LifecycleState, context: TransitionContext, *, reason: str
     ) -> LifecycleEvent:
@@ -2698,14 +2738,19 @@ class LifecycleControlPlane:
                 context.evidence.get("quarantine_disposition_digest") != expected_disposition
                 or context.evidence.get("exposure_digest") != expected_exposure
                 or context.evidence.get("retry_gate_digest") != expected_retry_gate
-                or context.evidence.get("worker_quiescence_digest") != _digest(asdict(context.work))
-                or _SHA256.fullmatch(context.evidence.get("mutation_revocation_digest", "")) is None
             ):
                 self._deny(
                     target,
                     context,
                     reason,
                     "security incident evidence is not bound to its artifact and exposure",
+                )
+            if not self._trusted_work_evidence_valid(context):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "security incident requires trusted worker quiescence and revocation evidence",
                 )
             admitted_resume_state = S.CONTRACT_RECEIVED
         if "safe_stop" in guards and target in {
@@ -2885,6 +2930,22 @@ class LifecycleControlPlane:
                 )
         if "merge_binding" in guards:
             review_binding = self._latest_review_binding()
+            merge_attempt = context.mutation
+            merge_result = (
+                self._mutation_results.get(merge_attempt.idempotency_key)
+                if merge_attempt is not None
+                else None
+            )
+            merge_output = {
+                name: context.evidence.get(name, "")
+                for name in (
+                    "head_commit_sha",
+                    "merge_commit_sha",
+                    "merge_tree_digest",
+                    "merge_method_digest",
+                    "merge_actor_digest",
+                )
+            }
             if (
                 review_binding is None
                 or context.evidence.get("queue_subject_digest") != self.subject_digest
@@ -2898,12 +2959,31 @@ class LifecycleControlPlane:
                 != review_binding.evidence_refs.get("verification_bundle_digest")
                 or context.evidence.get("formal_review_digest")
                 != review_binding.evidence_refs.get("review_digest")
+                or merge_attempt is None
+                or context.evidence.get("merge_attempt_digest") != _digest(asdict(merge_attempt))
+                or merge_result is None
+                or not merge_result.successful
+                or context.evidence.get("merge_result_digest") != merge_result.result_digest
+                or merge_result.result_digest != _digest(merge_output)
+                or context.evidence.get("merge_tree_digest")
+                != context.evidence.get("prospective_tree_digest")
             ):
                 self._deny(
                     target,
                     context,
                     reason,
                     "native merge does not match the persisted exact-candidate review binding",
+                )
+        if "integrated_merge" in guards:
+            merge_binding = self._latest_merge_binding()
+            if merge_binding is None or context.evidence.get(
+                "merge_digest"
+            ) != merge_binding.evidence_refs.get("merge_result_digest"):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "staging is not bound to the adapter-attested integrated merge result",
                 )
         if "canary_binding" in guards:
             attempt = context.mutation
@@ -3038,6 +3118,7 @@ class LifecycleControlPlane:
             if result is not None and result.attempt_id != attempt.attempt_id:
                 self._deny(target, context, reason, "mutation result attempt does not match")
             result_evidence_name = {
+                "enqueue_merge": "merge_result_digest",
                 "deploy_staging": "staging_result_digest",
                 "deploy_canary": "canary_result_digest",
                 "deploy_production": "production_result_digest",
@@ -3060,6 +3141,7 @@ class LifecycleControlPlane:
                 )
             attempt_evidence_name = {
                 "open_draft_pr": "governance_attempt_digest",
+                "enqueue_merge": "merge_attempt_digest",
                 "deploy_staging": "staging_attempt_digest",
                 "deploy_canary": "canary_attempt_digest",
                 "deploy_production": "production_attempt_digest",

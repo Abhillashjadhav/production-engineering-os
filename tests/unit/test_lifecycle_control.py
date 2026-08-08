@@ -36,8 +36,29 @@ from pmpe.policies.engine import PolicyEngine
 
 SHA = "sha256:" + "a" * 64
 OTHER_SHA = "sha256:" + "b" * 64
+OWNER_AUTHORITY_DIGEST = (
+    "sha256:"
+    + hashlib.sha256(
+        json.dumps(
+            {
+                "contract_version": "contract-v1",
+                "publisher_version": "publisher-v1",
+                "contract_active": True,
+                "publisher_active": True,
+                "observed_at": "2026-08-02T12:00:00Z",
+                "valid_until": "2026-08-03T00:00:00Z",
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+)
 TRUST_POLICY = EvidenceTrustPolicy(
     adapter_authorities={"test-adapter": SHA},
+    budget_owner_authorities={
+        "delivery-owner": OWNER_AUTHORITY_DIGEST,
+        "owner-alice": OWNER_AUTHORITY_DIGEST,
+    },
     repository_observers={"repository-observer": OTHER_SHA},
     work_controllers={"work-controller": SHA},
 )
@@ -335,6 +356,19 @@ def bind_repository_observation(evidence: dict[str, str]) -> None:
     )
 
 
+def record_integrated_merge(cp: LifecycleControlPlane, merge_result_digest: str) -> None:
+    cp._append(
+        kind="TRANSITION",
+        outcome="APPLIED",
+        source=cp.state,
+        target=cp.state,
+        reason="native_merge_linearized",
+        actor="github-merge-queue",
+        evidence_refs={"merge_result_digest": merge_result_digest},
+        observed_at="2026-08-02T00:01:00Z",
+    )
+
+
 def record_active_canary_binding(
     cp: LifecycleControlPlane,
     *,
@@ -521,7 +555,7 @@ def extension_authorization(
         reason=str(body["reason"]),
         valid_from=str(body["valid_from"]),
         valid_until=str(body["valid_until"]),
-        evidence_digest=object_digest(body),
+        evidence_digest=external_proof(str(body["owner_id"]), str(body["authority_digest"]), body),
     )
 
 
@@ -863,6 +897,7 @@ def test_external_mutation_requires_prejournaled_unique_attempt(tmp_path: Path) 
         LifecycleState.STAGING_DEPLOYED,
         reason="staging_admitted",
     )
+    record_integrated_merge(cp, required["merge_digest"])
     with pytest.raises(TransitionDeniedError, match="mutation attempt"):
         cp.transition(
             LifecycleState.STAGING_DEPLOYED,
@@ -1001,6 +1036,7 @@ def test_mutation_admission_binds_evidence_to_persisted_result(tmp_path: Path) -
         LifecycleState.STAGING_DEPLOYED,
         reason="staging_admitted",
     )
+    record_integrated_merge(cp, required["merge_digest"])
     attempt = MutationAttempt(
         attempt_id="attempt-stage-result-binding",
         idempotency_key="stage:run-65:result-binding",
@@ -1333,6 +1369,7 @@ def test_mutation_admission_requires_persisted_success_after_replay(tmp_path: Pa
         LifecycleState.STAGING_DEPLOYED,
         reason="staging_admitted",
     )
+    record_integrated_merge(cp, required["merge_digest"])
     attempt = MutationAttempt(
         attempt_id="attempt-stage-replay",
         idempotency_key="stage:run-65:replay",
@@ -1809,7 +1846,6 @@ def test_staging_rejects_a_pending_post_merge_blocker(tmp_path: Path) -> None:
         status="PLANNED",
     )
     cp.prejournal_mutation(attempt)
-    record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
     evidence = evidence_for(
         LifecycleState.PR_MERGED,
         LifecycleState.STAGING_DEPLOYED,
@@ -1960,7 +1996,7 @@ def test_concurrent_budget_extensions_cannot_overwrite_the_admitted_policy(
     tmp_path: Path,
 ) -> None:
     first = control_plane(tmp_path)
-    stale = LifecycleControlPlane.load(tmp_path)
+    stale = LifecycleControlPlane.load(tmp_path, evidence_verifier=verify_external_proof)
     extended = replace(
         first.budget_policy,
         version="budget-v2",
@@ -2731,6 +2767,12 @@ def test_budget_extension_rejects_caller_computable_owner_proof(tmp_path: Path) 
         approved_by="owner-alice",
     )
     authorization = extension_authorization(cp, extended, amounts={"tokens": 25})
+    authorization = replace(
+        authorization,
+        evidence_digest=object_digest(
+            lifecycle._budget_extension_authorization_payload(authorization)
+        ),
+    )
     with pytest.raises(TransitionDeniedError, match="trusted|owner.*authority"):
         cp.admit_budget_policy(
             extended,
@@ -3090,7 +3132,6 @@ def test_merge_rejects_attempt_not_bound_to_reviewed_queue_subject(tmp_path: Pat
         status="PLANNED",
     )
     cp.prejournal_mutation(attempt)
-    record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
     evidence = evidence_for(
         LifecycleState.PR_READY,
         LifecycleState.PR_MERGED,
@@ -3106,6 +3147,20 @@ def test_merge_rejects_attempt_not_bound_to_reviewed_queue_subject(tmp_path: Pat
             "formal_review_digest": review_digest,
         }
     )
+    merge_output = {
+        "head_commit_sha": reviewed_commit,
+        "merge_commit_sha": "b" * 40,
+        "merge_tree_digest": reviewed_tree,
+        "merge_method_digest": object_digest("protected-native-merge"),
+        "merge_actor_digest": object_digest("github-merge-queue"),
+    }
+    merge_result_digest = object_digest(merge_output)
+    evidence.update(
+        merge_output,
+        merge_result_digest=merge_result_digest,
+        merge_attempt_digest=object_digest(asdict(attempt)),
+    )
+    record_result(cp, attempt, status="SUCCEEDED", result_digest=merge_result_digest)
 
     with pytest.raises(TransitionDeniedError, match="mutation.*subject|step plan"):
         cp.transition(
