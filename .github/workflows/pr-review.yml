@@ -2,14 +2,16 @@ name: PR Review Agent
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [ready_for_review, synchronize]
 
 concurrency:
-  group: pr-review-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  # One immutable candidate gets one review run.  A later head has a distinct
+  # group and must produce its own review evidence.
+  group: pr-review-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
   issues: write
   id-token: write
@@ -23,14 +25,32 @@ jobs:
       - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          # Never let a moving branch name change the candidate under review.
+          ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
+
+      - name: Bind review to exact PR head
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+
+      - name: Verify reviewer credential
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          if [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+            echo "::error title=PR Review Agent unavailable::CLAUDE_CODE_OAUTH_TOKEN is required"
+            exit 1
+          fi
 
       - name: Run Claude Code PR review
         uses: anthropics/claude-code-action@v1
         with:
-          claude_code_oauth_token: ${{ secrets.CLAUDESECRET }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          prompt: "/review-pr"
+          prompt: >-
+            /review-pr. Review only immutable candidate
+            ${{ github.event.pull_request.head.sha }} for PR #${{ github.event.pull_request.number }}.
           claude_args: '--max-turns 30 --allowedTools "Read,Edit,Write,Glob,Grep,LS,mcp__github_file_ops__commit_files,mcp__github_file_ops__delete_files,mcp__github_comment__update_claude_comment"'
           use_commit_signing: true
