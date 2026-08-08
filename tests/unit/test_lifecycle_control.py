@@ -523,7 +523,11 @@ def extension_authorization(
     proposed: BudgetPolicy,
     *,
     amounts: dict[str, int],
+    authority_snapshot: AuthoritySnapshot | None = None,
 ) -> lifecycle.BudgetExtensionAuthorization:
+    current_authority = authority_snapshot or authority(
+        observed_at="2026-08-02T12:00:00Z"
+    )
     body = {
         "extension_id": f"extension:{proposed.version}",
         "owner_id": proposed.approved_by,
@@ -532,7 +536,7 @@ def extension_authorization(
         "capabilities": ["lifecycle.budget.extend"],
         "run_id": cp.run_id,
         "subject_digest": cp.subject_digest,
-        "authority_digest": authority(observed_at="2026-08-02T12:00:00Z").digest,
+        "authority_digest": current_authority.digest,
         "prior_policy_digest": object_digest(lifecycle._budget_policy_payload(cp.budget_policy)),
         "proposed_policy_digest": object_digest(lifecycle._budget_policy_payload(proposed)),
         "amounts": amounts,
@@ -1777,6 +1781,36 @@ def test_budget_extensions_require_named_authenticated_exact_subject_authority(
         loaded.events[-1].evidence_refs["authorization_evidence_digest"]
         == authorization.evidence_digest
     )
+
+
+def test_budget_owner_trust_root_accepts_a_fresh_current_authority_snapshot(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path)
+    extended = replace(
+        cp.budget_policy,
+        version="budget-v2-refreshed-authority",
+        limits={**cp.budget_policy.limits, "tokens": 125},
+        approved_by="owner-alice",
+    )
+    refreshed = authority(
+        observed_at="2026-08-02T13:00:00Z",
+        valid_until="2026-08-03T00:00:00Z",
+    )
+
+    cp.admit_budget_policy(
+        extended,
+        authorization=extension_authorization(
+            cp,
+            extended,
+            amounts={"tokens": 25},
+            authority_snapshot=refreshed,
+        ),
+        authority=refreshed,
+        observed_at="2026-08-02T13:00:00Z",
+    )
+
+    assert cp.budget_policy == extended
 
 
 def test_post_merge_blocking_finding_enters_safe_blocked_state(tmp_path: Path) -> None:
