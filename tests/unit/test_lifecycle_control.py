@@ -2346,6 +2346,17 @@ def test_quarantine_disposition_failure_enters_bound_security_block(
             }
         ),
     }
+    with pytest.raises(TransitionDeniedError, match="trusted|quiescence|revocation"):
+        cp.transition(
+            LifecycleState.BLOCKED,
+            context(
+                evidence=blocked_evidence,
+                work=stopped_work,
+                rollout=RolloutStatus(changed_production="UNKNOWN"),
+            ),
+            reason="quarantine_disposition_indeterminate",
+        )
+    bind_work_evidence(blocked_evidence, stopped_work)
     blocked = cp.transition(
         LifecycleState.BLOCKED,
         context(
@@ -2648,6 +2659,15 @@ def test_native_merge_requires_the_exact_persisted_review_binding(tmp_path: Path
             "formal_review_digest": review_digest,
         }
     )
+    merge_output = {
+        "head_commit_sha": reviewed_commit,
+        "merge_commit_sha": "b" * 40,
+        "merge_tree_digest": reviewed_tree,
+        "merge_method_digest": object_digest("protected-native-merge"),
+        "merge_actor_digest": object_digest("github-merge-queue"),
+    }
+    merge_result_digest = object_digest(merge_output)
+    planned_evidence.update(merge_output, merge_result_digest=merge_result_digest)
     attempt = MutationAttempt(
         attempt_id="merge-attempt-1",
         idempotency_key="merge:run-65:1",
@@ -2657,7 +2677,8 @@ def test_native_merge_requires_the_exact_persisted_review_binding(tmp_path: Path
         status="PLANNED",
     )
     cp.prejournal_mutation(attempt)
-    record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
+    record_result(cp, attempt, status="SUCCEEDED", result_digest=merge_result_digest)
+    planned_evidence["merge_attempt_digest"] = object_digest(asdict(attempt))
     evidence = {**planned_evidence, "prospective_tree_digest": object_digest("unreviewed-tree")}
 
     with pytest.raises(TransitionDeniedError, match="review binding"):
@@ -2674,6 +2695,49 @@ def test_native_merge_requires_the_exact_persisted_review_binding(tmp_path: Path
         reason="native_merge_linearized",
     )
     assert merged.target is LifecycleState.PR_MERGED
+
+    staging_evidence = evidence_for(
+        LifecycleState.PR_MERGED,
+        LifecycleState.STAGING_DEPLOYED,
+        reason="staging_admitted",
+    )
+    staging_evidence["merge_digest"] = object_digest("unrelated-merge")
+    staging_attempt = MutationAttempt(
+        attempt_id="stage-unrelated-merge",
+        idempotency_key="stage:run-65:unrelated-merge",
+        subject_digest=SHA,
+        action="deploy_staging",
+        step_plan_digest=mutation_subject_digest("deploy_staging", staging_evidence),
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(staging_attempt)
+    record_result(cp, staging_attempt, status="SUCCEEDED", result_digest=SHA)
+    staging_evidence["staging_attempt_digest"] = object_digest(asdict(staging_attempt))
+    staging_evidence["staging_result_digest"] = SHA
+    with pytest.raises(TransitionDeniedError, match="merge result|integrated merge"):
+        cp.transition(
+            LifecycleState.STAGING_DEPLOYED,
+            context(evidence=staging_evidence, mutation=staging_attempt),
+            reason="staging_admitted",
+        )
+
+
+def test_budget_extension_rejects_caller_computable_owner_proof(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+    extended = replace(
+        cp.budget_policy,
+        version="budget-v2-untrusted",
+        limits={**cp.budget_policy.limits, "tokens": 125},
+        approved_by="owner-alice",
+    )
+    authorization = extension_authorization(cp, extended, amounts={"tokens": 25})
+    with pytest.raises(TransitionDeniedError, match="trusted|owner.*authority"):
+        cp.admit_budget_policy(
+            extended,
+            authorization=authorization,
+            authority=authority(observed_at="2026-08-02T12:00:00Z"),
+            observed_at="2026-08-02T12:00:00Z",
+        )
 
 
 def test_production_artifact_must_match_the_artifact_exercised_by_canary(
