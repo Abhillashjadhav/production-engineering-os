@@ -2413,3 +2413,315 @@ def test_completion_revocation_requires_active_claim_and_monitor_authority(
 
     assert cp.state is LifecycleState.COMPLETED
     assert cp.completion_claim_active
+
+
+def test_native_merge_requires_the_exact_persisted_review_binding(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PR_READY)
+    reviewed_commit = "a" * 40
+    reviewed_tree = object_digest("reviewed-tree")
+    review_evidence = object_digest("review-evidence")
+    review_digest = object_digest("formal-review")
+    cp._append(
+        kind="REVIEW_BINDING_ADMITTED",
+        outcome="RECORDED",
+        source=cp.state,
+        target=cp.state,
+        reason="formal_review_clear",
+        actor="codex",
+        evidence_refs={
+            "subject_digest": SHA,
+            "reviewed_commit_sha": reviewed_commit,
+            "prospective_tree_digest": reviewed_tree,
+            "verification_bundle_digest": review_evidence,
+            "review_digest": review_digest,
+        },
+        observed_at="2026-08-02T00:01:00Z",
+    )
+    attempt = MutationAttempt(
+        attempt_id="merge-attempt-1",
+        idempotency_key="merge:run-65:1",
+        subject_digest=SHA,
+        action="enqueue_merge",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(attempt)
+    cp.record_mutation_result(attempt, status="SUCCEEDED", result_digest=SHA)
+    evidence = evidence_for(
+        LifecycleState.PR_READY,
+        LifecycleState.PR_MERGED,
+        reason="native_merge_linearized",
+    )
+    evidence.update(
+        {
+            "queue_subject_digest": SHA,
+            "head_commit_sha": reviewed_commit,
+            "head_digest": object_digest(reviewed_commit),
+            "prospective_tree_digest": object_digest("unreviewed-tree"),
+            "verification_bundle_digest": review_evidence,
+            "formal_review_digest": review_digest,
+        }
+    )
+
+    with pytest.raises(TransitionDeniedError, match="review binding"):
+        cp.transition(
+            LifecycleState.PR_MERGED,
+            context(evidence=evidence, mutation=attempt),
+            reason="native_merge_linearized",
+        )
+
+
+def test_production_artifact_must_match_the_artifact_exercised_by_canary(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PRODUCTION_APPROVAL_REQUIRED)
+    canary_attempt = object_digest("canary-attempt")
+    canary_evidence = {
+        "subject_digest": SHA,
+        "merge_commit_sha": "a" * 40,
+        "merge_digest": object_digest("merge"),
+        "artifact_digest": object_digest("artifact-a"),
+        "configuration_digest": object_digest("config-a"),
+        "migration_plan_digest": object_digest("migration-a"),
+        "deployment_target_digest": object_digest("target"),
+        "rollout_plan_digest": object_digest("rollout"),
+        "staging_digest": object_digest("staging-a"),
+        "canary_id_digest": object_digest("canary-a"),
+        "canary_attempt_digest": canary_attempt,
+    }
+    canary_evidence["canary_status_digest"] = object_digest(
+        {
+            "canary_id_digest": canary_evidence["canary_id_digest"],
+            "deployment_attempt_digest": canary_attempt,
+            "deployment_result_digest": SHA,
+            "subject_digest": SHA,
+            "status": "ACTIVE",
+        }
+    )
+    cp._append(
+        kind="CANARY_BINDING_ADMITTED",
+        outcome="RECORDED",
+        source=cp.state,
+        target=cp.state,
+        reason="canary_admitted",
+        actor="fixture",
+        evidence_refs=canary_evidence,
+        observed_at="2026-08-02T00:01:00Z",
+    )
+    attempt = MutationAttempt(
+        attempt_id="production-attempt-artifact-b",
+        idempotency_key="production:run-65:artifact-b",
+        subject_digest=SHA,
+        action="deploy_production",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(attempt)
+    cp.record_mutation_result(attempt, status="SUCCEEDED", result_digest=SHA)
+    evidence = evidence_for(
+        LifecycleState.PRODUCTION_APPROVAL_REQUIRED,
+        LifecycleState.PRODUCTION_DEPLOYED,
+        reason="production_admitted",
+    )
+    evidence.update(canary_evidence)
+    evidence["artifact_digest"] = object_digest("artifact-b")
+    evidence["configuration_digest"] = object_digest("config-b")
+    evidence["production_attempt_digest"] = object_digest(asdict(attempt))
+    evidence["production_result_digest"] = SHA
+    approval = production_approval_for(evidence)
+    evidence["production_approval_digest"] = object_digest(asdict(approval))
+
+    with pytest.raises(TransitionDeniedError, match="canary.*artifact|artifact.*canary"):
+        cp.transition(
+            LifecycleState.PRODUCTION_DEPLOYED,
+            context(
+                evidence=evidence,
+                mutation=attempt,
+                approvals=(approval,),
+                rollout=RolloutStatus(canary="ACTIVE"),
+            ),
+            reason="production_admitted",
+        )
+
+
+@pytest.mark.parametrize(
+    "unsafe_work",
+    (
+        WorkStatus(worker_leases_active=1, workers_stopped=False),
+        WorkStatus(mutation_capability_active=True),
+    ),
+)
+def test_every_budget_stop_requires_digest_bound_worker_quiescence(
+    tmp_path: Path, unsafe_work: WorkStatus
+) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.VERIFICATION_FAILED)
+    _, exhausted = budgets(tokens=101)
+    evidence = evidence_for(
+        LifecycleState.VERIFICATION_FAILED,
+        LifecycleState.BUDGET_EXCEEDED,
+        reason="verification_budget_exhausted",
+    )
+    work_digest = object_digest(asdict(unsafe_work))
+    evidence.update(
+        {
+            "worker_quiescence_digest": work_digest,
+            "work_disposition_digest": work_digest,
+            "mutation_revocation_digest": work_digest,
+        }
+    )
+
+    with pytest.raises(TransitionDeniedError, match="worker|mutation capability"):
+        cp.transition(
+            LifecycleState.BUDGET_EXCEEDED,
+            context(usage=exhausted, work=unsafe_work, evidence=evidence),
+            reason="verification_budget_exhausted",
+        )
+
+
+def test_pr_ready_resume_revalidates_the_persisted_review_inputs(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PR_READY)
+    reviewed_commit = "a" * 40
+    reviewed_tree = object_digest("reviewed-tree")
+    review_evidence = object_digest("review-evidence")
+    review_digest = object_digest("formal-review")
+    cp._append(
+        kind="REVIEW_BINDING_ADMITTED",
+        outcome="RECORDED",
+        source=cp.state,
+        target=cp.state,
+        reason="formal_review_clear",
+        actor="codex",
+        evidence_refs={
+            "subject_digest": SHA,
+            "reviewed_commit_sha": reviewed_commit,
+            "prospective_tree_digest": reviewed_tree,
+            "verification_bundle_digest": review_evidence,
+            "review_digest": review_digest,
+        },
+        observed_at="2026-08-02T00:01:00Z",
+    )
+    stop_evidence = evidence_for(
+        LifecycleState.PR_READY,
+        LifecycleState.BLOCKED,
+        reason="merge_protection_incident",
+    )
+    work_digest = object_digest(asdict(WorkStatus()))
+    stop_evidence.update(
+        {
+            "worker_quiescence_digest": work_digest,
+            "mutation_revocation_digest": work_digest,
+        }
+    )
+    cp.transition(
+        LifecycleState.BLOCKED,
+        context(evidence=stop_evidence),
+        reason="merge_protection_incident",
+    )
+
+    with pytest.raises(TransitionDeniedError, match="unchanged|review inputs"):
+        cp.resume(
+            context(
+                evidence={
+                    "subject_digest": SHA,
+                    "incident_closure_digest": SHA,
+                    "restored_capability_digest": OTHER_SHA,
+                    "unchanged_inputs_digest": OTHER_SHA,
+                    "reviewed_commit_sha": reviewed_commit,
+                    "prospective_tree_digest": object_digest("changed-tree"),
+                    "verification_bundle_digest": review_evidence,
+                    "review_digest": review_digest,
+                }
+            )
+        )
+
+
+def test_mutation_result_requires_authenticated_exact_attempt_adapter_evidence(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path)
+    attempt = MutationAttempt(
+        attempt_id="adapter-proof-attempt",
+        idempotency_key="adapter:run-65:1",
+        subject_digest=SHA,
+        action="deploy_staging",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+    cp.prejournal_mutation(attempt)
+
+    with pytest.raises(TransitionDeniedError, match="adapter"):
+        cp.record_mutation_result(attempt, status="SUCCEEDED", result_digest=SHA)
+
+
+def test_creation_recovers_the_exact_metadata_only_crash_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original = LifecycleControlPlane._append_locked
+    calls = 0
+
+    def crash_once(self: LifecycleControlPlane, **kwargs: object) -> lifecycle.LifecycleEvent:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("simulated crash before the first durable event")
+        return original(self, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(LifecycleControlPlane, "_append_locked", crash_once)
+    policy, _ = budgets()
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        LifecycleControlPlane.create(
+            tmp_path,
+            run_id="recoverable-run",
+            subject_digest=SHA,
+            initial_state=LifecycleState.CONTRACT_RECEIVED,
+            budget_policy=policy,
+        )
+
+    recovered = LifecycleControlPlane.create(
+        tmp_path,
+        run_id="recoverable-run",
+        subject_digest=SHA,
+        initial_state=LifecycleState.CONTRACT_RECEIVED,
+        budget_policy=policy,
+    )
+    assert recovered.run_id == "recoverable-run"
+    assert LifecycleControlPlane.load(tmp_path).events == recovered.events
+
+
+def test_budget_policy_limits_cannot_be_mutated_without_admission() -> None:
+    policy, _ = budgets()
+
+    with pytest.raises(TypeError):
+        policy.limits["tokens"] = 1_000_000
+
+
+def test_persisted_event_evidence_is_immutable_in_memory(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+    event = cp.record_observation(
+        source="watchdog",
+        subject_digest=SHA,
+        payload_digest=OTHER_SHA,
+        signature="sig:v1",
+        observed_at="2026-08-02T00:02:00Z",
+    )
+
+    with pytest.raises(TypeError):
+        event.evidence_refs["payload_digest"] = SHA
+
+
+def test_authority_digest_cannot_be_reused_with_forged_current_fields(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.DRAFT_PR_OPEN)
+    evidence = evidence_for(
+        LifecycleState.DRAFT_PR_OPEN,
+        LifecycleState.IMPLEMENTATION_IN_PROGRESS,
+        reason="begin_work",
+    )
+    valid = context(evidence=evidence)
+    forged = replace(valid.authority, contract_version="forged-contract-v2")
+
+    with pytest.raises(TransitionDeniedError, match="authority"):
+        cp.transition(
+            LifecycleState.IMPLEMENTATION_IN_PROGRESS,
+            replace(valid, authority=forged),
+            reason="begin_work",
+        )
