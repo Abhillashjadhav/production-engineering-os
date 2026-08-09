@@ -9,9 +9,13 @@ review.
 
 `.github/workflows/pr-review.yml` runs only when a same-repository pull request
 is non-draft and is opened, reopened, marked ready, or receives `synchronize`.
-Its concurrency key includes the pull request number and exact head SHA, so a
-new head cannot reuse the previous candidate's review run. The workflow checks
-out that SHA (not a branch name) and fails if the checkout differs.
+Its concurrency key is the pull request number, so a newer eligible head
+cancels the previous run. The workflow checks out the event SHA (not a branch
+name), then re-observes the current PR head immediately before review; a
+mismatch fails closed. The reviewer is read-only: it cannot commit audit
+records, lessons, or fixes to the candidate branch. The exact-SHA check and
+retained GitHub job log are automated advisory evidence; accepted fixes use
+the normal governed correction loop and receive a new review.
 
 ## Credential and failure policy
 
