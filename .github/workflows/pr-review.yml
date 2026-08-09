@@ -1,7 +1,9 @@
 name: PR Review Agent
 
 on:
-  pull_request:
+  # This event always evaluates this workflow from the protected base branch.
+  # Candidate code is evidence data, never executable review control-plane code.
+  pull_request_target:
     types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
@@ -21,18 +23,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - name: Checkout PR branch
+      - name: Checkout trusted verifier revision
         uses: actions/checkout@v4
         with:
-          # Never let a moving branch name change the candidate under review.
-          ref: ${{ github.event.pull_request.head.sha }}
+          # Never execute files supplied by the candidate being admitted.
+          ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
 
-      - name: Bind review to exact PR head
+      - name: Bind review to trusted verifier revision
         env:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
-          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          test "$(git rev-parse HEAD)" != "$EXPECTED_HEAD"
 
       - name: Verify current PR head before review
         env:

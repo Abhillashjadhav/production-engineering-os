@@ -18,11 +18,13 @@ def test_review_agent_only_reviews_exact_non_draft_candidates() -> None:
 
     assert "types: [opened, synchronize, reopened, ready_for_review]" in workflow
     assert "contents: read" in workflow
-    assert "ref: ${{ github.event.pull_request.head.sha }}" in workflow
+    assert "pull_request_target:" in workflow
+    assert "ref: ${{ github.event.repository.default_branch }}" in workflow
+    assert "ref: ${{ github.event.pull_request.head.sha }}" not in workflow
     assert "group: pr-review-${{ github.event.pull_request.number }}" in workflow
     assert "cancel-in-progress: true" in workflow
     assert "EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}" in workflow
-    assert 'test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"' in workflow
+    assert 'test "$(git rev-parse HEAD)" != "$EXPECTED_HEAD"' in workflow
 
 
 def test_review_agent_cannot_mutate_the_candidate_or_publish_for_a_stale_head() -> None:

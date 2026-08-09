@@ -29,6 +29,14 @@ def test_workflow_supersedes_stale_verifiers_and_does_not_mutate_candidates() ->
     assert "commit_files" not in workflow
 
 
+def test_workflow_executes_the_verifier_from_trusted_base_not_candidate_code() -> None:
+    workflow = WORKFLOW.read_text()
+
+    assert "pull_request_target:" in workflow
+    assert "ref: ${{ github.event.repository.default_branch }}" in workflow
+    assert "ref: ${{ github.event.pull_request.head.sha }}" not in workflow
+
+
 def test_gate_waits_boundedly_for_asynchronous_codex_evidence() -> None:
     verifier = (
         Path(__file__).resolve().parents[2] / "scripts" / "verify_codex_review.py"
