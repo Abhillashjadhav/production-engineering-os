@@ -108,11 +108,21 @@ def _has_current_blocker(threads: list[dict[str, Any]]) -> bool:
     return False
 
 
+def _comment_matches_exact_head(repository: str, expected: str, body: str) -> bool:
+    """Accept a short reviewed SHA only when GitHub resolves it to this full head."""
+    if f"**Reviewed commit:** `{expected}`" in body:
+        return True
+    short = expected[:10]
+    if f"**Reviewed commit:** `{short}`" not in body:
+        return False
+    resolved = _gh("api", f"repos/{repository}/commits/{short}")
+    return resolved["sha"] == expected
+
+
 def main() -> int:
     expected = os.environ["EXPECTED_HEAD"]
     number = os.environ["PR_NUMBER"]
     repository = os.environ["GITHUB_REPOSITORY"]
-    marker = f"**Reviewed commit:** `{expected[:10]}`"
     deadline = time.monotonic() + int(os.environ.get("CODEX_EVIDENCE_WAIT_SECONDS", "0"))
     while True:
         pr = _gh("api", f"repos/{repository}/pulls/{number}")
@@ -122,7 +132,7 @@ def main() -> int:
         clean = any(
             comment["user"]["login"] == BOT
             and "Codex Review: Didn't find any major issues." in comment["body"]
-            and marker in comment["body"]
+            and _comment_matches_exact_head(repository, expected, comment["body"])
             for comment in comments
         )
         if clean:

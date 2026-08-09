@@ -187,3 +187,35 @@ def test_current_codex_p0_thread_blocks_admission(verifier_module) -> None:
     }
 
     assert verifier_module._has_current_blocker([current_p0])
+
+
+def test_short_clean_marker_must_resolve_uniquely_to_the_full_head(
+    monkeypatch: pytest.MonkeyPatch, verifier_module
+) -> None:
+    expected = "a" * 40
+
+    def fake_gh(*args: str):
+        assert args == ("api", "repos/owner/repo/commits/aaaaaaaaaa")
+        return {"sha": expected}
+
+    monkeypatch.setattr(verifier_module, "_gh", fake_gh)
+
+    assert verifier_module._comment_matches_exact_head(
+        "owner/repo", expected, "**Reviewed commit:** `aaaaaaaaaa`"
+    )
+
+
+def test_short_clean_marker_for_a_different_full_head_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, verifier_module
+) -> None:
+    expected = "a" * 40
+
+    monkeypatch.setattr(
+        verifier_module,
+        "_gh",
+        lambda *_args: {"sha": "a" * 10 + "b" * 30},
+    )
+
+    assert not verifier_module._comment_matches_exact_head(
+        "owner/repo", expected, "**Reviewed commit:** `aaaaaaaaaa`"
+    )
