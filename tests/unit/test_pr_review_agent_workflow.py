@@ -15,7 +15,8 @@ def test_review_agent_fails_before_invocation_when_oauth_credential_is_missing()
 def test_review_agent_only_reviews_exact_non_draft_candidates() -> None:
     workflow = WORKFLOW.read_text()
 
-    assert "types: [ready_for_review, synchronize]" in workflow
+    assert "types: [opened, synchronize, reopened, ready_for_review]" in workflow
+    assert "contents: write" in workflow
     assert "ref: ${{ github.event.pull_request.head.sha }}" in workflow
     assert (
         "group: pr-review-${{ github.event.pull_request.number }}-"

@@ -8,10 +8,10 @@ review.
 ## Trigger and identity
 
 `.github/workflows/pr-review.yml` runs only when a same-repository pull request
-is non-draft and receives `ready_for_review` or `synchronize`. Its concurrency
-key includes the pull request number and exact head SHA, so a new head cannot
-reuse the previous candidate's review run. The workflow checks out that SHA
-(not a branch name) and fails if the checkout differs.
+is non-draft and is opened, reopened, marked ready, or receives `synchronize`.
+Its concurrency key includes the pull request number and exact head SHA, so a
+new head cannot reuse the previous candidate's review run. The workflow checks
+out that SHA (not a branch name) and fails if the checkout differs.
 
 ## Credential and failure policy
 

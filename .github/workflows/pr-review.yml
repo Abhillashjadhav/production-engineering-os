@@ -2,7 +2,7 @@ name: PR Review Agent
 
 on:
   pull_request:
-    types: [ready_for_review, synchronize]
+    types: [opened, synchronize, reopened, ready_for_review]
 
 concurrency:
   # One immutable candidate gets one review run.  A later head has a distinct
@@ -11,7 +11,9 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: read
+  # The repository-prescribed review command writes its signed audit record and
+  # may commit an approved correction; PR/issue scopes alone cannot do that.
+  contents: write
   pull-requests: write
   issues: write
   id-token: write
