@@ -94,6 +94,41 @@ def test_all_issue_comments_finds_exact_codex_evidence_on_later_rest_page(
     ]
 
 
+def test_all_reviews_finds_exact_codex_review_on_later_rest_page(
+    monkeypatch: pytest.MonkeyPatch, verifier_module
+) -> None:
+    calls: list[tuple[str, ...]] = []
+    first_page = [{"id": index} for index in range(100)]
+    exact_review = {"user": {"login": verifier_module.BOT}, "commit_id": "a" * 40}
+
+    def fake_gh(*args: str):
+        calls.append(args)
+        if args[-1].endswith("page=1"):
+            return first_page
+        if args[-1].endswith("page=2"):
+            return [exact_review]
+        raise AssertionError(args)
+
+    monkeypatch.setattr(verifier_module, "_gh", fake_gh)
+
+    assert verifier_module._all_reviews("owner/repo", "99") == first_page + [exact_review]
+    assert [call[-1] for call in calls] == [
+        "repos/owner/repo/pulls/99/reviews?per_page=100&page=1",
+        "repos/owner/repo/pulls/99/reviews?per_page=100&page=2",
+    ]
+
+
+def test_exact_bot_review_is_clean_evidence_only_for_the_current_head(verifier_module) -> None:
+    expected = "a" * 40
+
+    assert verifier_module._has_exact_bot_review(
+        [{"user": {"login": verifier_module.BOT}, "commit_id": expected}], expected
+    )
+    assert not verifier_module._has_exact_bot_review(
+        [{"user": {"login": verifier_module.BOT}, "commit_id": "b" * 40}], expected
+    )
+
+
 def test_all_review_threads_finds_blocker_on_later_graphql_page(
     monkeypatch: pytest.MonkeyPatch, verifier_module
 ) -> None:

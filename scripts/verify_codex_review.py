@@ -32,6 +32,21 @@ def _all_issue_comments(repository: str, number: str) -> list[dict[str, Any]]:
         page += 1
 
 
+def _all_reviews(repository: str, number: str) -> list[dict[str, Any]]:
+    """Fetch every REST page: exact-head Codex reviews are authoritative evidence."""
+    reviews: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        current = _gh(
+            "api",
+            f"repos/{repository}/pulls/{number}/reviews?per_page=100&page={page}",
+        )
+        reviews.extend(current)
+        if len(current) < 100:
+            return reviews
+        page += 1
+
+
 def _all_thread_comments(thread: dict[str, Any]) -> list[dict[str, Any]]:
     """Fetch all comments in one review thread before treating it as clean."""
     comments = list(thread["comments"]["nodes"])
@@ -119,6 +134,17 @@ def _comment_matches_exact_head(repository: str, expected: str, body: str) -> bo
     return resolved["sha"] == expected
 
 
+def _has_exact_bot_review(reviews: list[dict[str, Any]], expected: str) -> bool:
+    """A GitHub PR review is clean evidence when it is bot-authored and exact-head bound.
+
+    Findings are independently rejected from the complete current thread set below.
+    """
+    return any(
+        review.get("user", {}).get("login") == BOT and review.get("commit_id") == expected
+        for review in reviews
+    )
+
+
 def main() -> int:
     expected = os.environ["EXPECTED_HEAD"]
     number = os.environ["PR_NUMBER"]
@@ -129,12 +155,13 @@ def main() -> int:
         if pr["head"]["sha"] != expected:
             raise SystemExit("current PR head changed during Codex evidence verification")
         comments = _all_issue_comments(repository, number)
-        clean = any(
+        clean_comment = any(
             comment["user"]["login"] == BOT
             and "Codex Review: Didn't find any major issues." in comment["body"]
             and _comment_matches_exact_head(repository, expected, comment["body"])
             for comment in comments
         )
+        clean = clean_comment or _has_exact_bot_review(_all_reviews(repository, number), expected)
         if clean:
             break
         if time.monotonic() >= deadline:
