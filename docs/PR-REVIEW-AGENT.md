@@ -1,9 +1,8 @@
 # PR Review Agent
 
-The repository's automated advisory reviewer is **Claude Code** running as
-`claude[bot]` through `anthropics/claude-code-action@v1`. It is not a human or
-formal approval, and it never satisfies a required independent human/formal
-review.
+The repository's automated advisory reviewer is the existing **Codex GitHub
+integration** (`chatgpt-codex-connector[bot]`). It is not a human or formal
+approval.
 
 ## Trigger and identity
 
@@ -17,15 +16,15 @@ records, lessons, or fixes to the candidate branch. The exact-SHA check and
 retained GitHub job log are automated advisory evidence; accepted fixes use
 the normal governed correction loop and receive a new review.
 
-## Credential and failure policy
+## Codex evidence policy
 
-Repository administrators must configure the Actions secret
-`CLAUDE_CODE_OAUTH_TOKEN` with a supported Claude Code OAuth credential. The
-workflow deliberately runs a credential preflight before invoking the reviewer:
-absent or expired credentials, quota exhaustion, and reviewer-service failures
-leave the `PR Review Agent / review` check failed and visible in GitHub. A
-skipped, failed, missing, stale, or wrong-SHA result is not review evidence and
-must block merge admission.
+The gate uses no external reviewer credential. It re-observes the current PR
+head and accepts a clean result only from the Codex bot when its GitHub-visible
+comment identifies the current exact SHA and no current non-outdated Codex
+P1/P2 thread exists. GitHub may represent a clean result as a conversation
+comment rather than a pull-request review; it is recorded truthfully as
+`CODEX ADVISORY REVIEW — CLEAN — EXACT HEAD`. Missing, stale, owner-authored,
+trigger-only, or finding-bearing evidence fails closed.
 
 Draft pull requests are not reviewed. A synchronize event is a new candidate
 and requires a fresh successful exact-head review. Review comments, reactions,
@@ -34,7 +33,4 @@ review evidence.
 
 ## Operator recovery
 
-An administrator restores service by updating the configured secret or the
-reviewer's service capacity, then causes one substantive synchronized candidate
-run or marks the candidate ready for review. Do not treat rerunning an old
-workflow, a comment, or a reaction as review evidence for a newer head.
+An administrator restores or verifies Codex GitHub integration availability/service capacity, then must retry or re-enter the exact-head review cycle by causing one substantive synchronized candidate run or marking the candidate ready for review. No reviewer secret or external credential is required. Do not treat rerunning an old workflow, a comment, or a reaction as review evidence for a newer head.

@@ -3,12 +3,13 @@ from pathlib import Path
 WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "pr-review.yml"
 
 
-def test_review_agent_fails_before_invocation_when_oauth_credential_is_missing() -> None:
+def test_review_agent_fails_closed_without_exact_head_codex_evidence() -> None:
     workflow = WORKFLOW.read_text()
 
-    assert "Verify reviewer credential" in workflow
-    assert "CLAUDE_CODE_OAUTH_TOKEN is required" in workflow
-    assert "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}" in workflow
+    assert "Verify Codex exact-head evidence" in workflow
+    assert "scripts/verify_codex_review.py" in workflow
+    assert "CLAUDE_CODE_OAUTH_TOKEN" not in workflow
+    assert "anthropics/claude-code-action" not in workflow
     assert "if: github.event.pull_request.draft == false" in workflow
 
 
@@ -17,11 +18,13 @@ def test_review_agent_only_reviews_exact_non_draft_candidates() -> None:
 
     assert "types: [opened, synchronize, reopened, ready_for_review]" in workflow
     assert "contents: read" in workflow
-    assert "ref: ${{ github.event.pull_request.head.sha }}" in workflow
+    assert "pull_request_target:" in workflow
+    assert "ref: ${{ github.event.repository.default_branch }}" in workflow
+    assert "ref: ${{ github.event.pull_request.head.sha }}" not in workflow
     assert "group: pr-review-${{ github.event.pull_request.number }}" in workflow
     assert "cancel-in-progress: true" in workflow
     assert "EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}" in workflow
-    assert 'test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"' in workflow
+    assert 'test "$(git rev-parse HEAD)" != "$EXPECTED_HEAD"' in workflow
 
 
 def test_review_agent_cannot_mutate_the_candidate_or_publish_for_a_stale_head() -> None:
@@ -33,7 +36,7 @@ def test_review_agent_cannot_mutate_the_candidate_or_publish_for_a_stale_head() 
     assert "Verify current PR head before review" in workflow
     assert 'test "$CURRENT_HEAD" = "$EXPECTED_HEAD"' in workflow
     assert "mcp__github_file_ops__commit_files" not in workflow
-    assert "Read,Glob,Grep,LS" in workflow
+    assert "Verify Codex exact-head evidence" in workflow
 
 
 def test_review_command_proposes_fixes_without_committing_to_the_candidate() -> None:
