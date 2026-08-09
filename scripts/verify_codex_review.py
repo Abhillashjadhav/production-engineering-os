@@ -65,7 +65,7 @@ def _all_review_threads(repository: str, number: str) -> list[dict[str, Any]]:
     query = (
         "query($owner:String!,$name:String!,$number:Int!,$after:String){repository("
         "owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100,"
-        "after:$after){nodes{id isOutdated comments(first:100){nodes{author{login} body}"
+        "after:$after){nodes{id isOutdated isResolved comments(first:100){nodes{author{login} body}"
         "pageInfo{hasNextPage endCursor}}}pageInfo{hasNextPage endCursor}}}}}"
     )
     while True:
@@ -94,6 +94,20 @@ def _all_review_threads(repository: str, number: str) -> list[dict[str, Any]]:
         cursor = page_info["endCursor"]
 
 
+def _has_current_blocker(threads: list[dict[str, Any]]) -> bool:
+    for thread in threads:
+        if thread["isOutdated"] or thread["isResolved"]:
+            continue
+        for comment in thread["comments"]["nodes"]:
+            if (
+                comment["author"]
+                and comment["author"]["login"] == BOT
+                and any(badge in comment["body"] for badge in ("P0 Badge", "P1 Badge", "P2 Badge"))
+            ):
+                return True
+    return False
+
+
 def main() -> int:
     expected = os.environ["EXPECTED_HEAD"]
     number = os.environ["PR_NUMBER"]
@@ -117,16 +131,8 @@ def main() -> int:
             raise SystemExit("missing clean exact-head Codex advisory evidence")
         time.sleep(10)
     threads = _all_review_threads(repository, number)
-    for thread in threads:
-        if thread["isOutdated"]:
-            continue
-        for comment in thread["comments"]["nodes"]:
-            if (
-                comment["author"]
-                and comment["author"]["login"] == BOT
-                and any(badge in comment["body"] for badge in ("P1 Badge", "P2 Badge"))
-            ):
-                raise SystemExit("current Codex P1/P2 finding blocks admission")
+    if _has_current_blocker(threads):
+        raise SystemExit("current Codex P0/P1/P2 finding blocks admission")
     print(f"CODEX ADVISORY REVIEW — CLEAN — EXACT HEAD {expected}")
     return 0
 

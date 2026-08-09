@@ -153,3 +153,37 @@ def test_all_thread_comments_finds_blocker_on_later_graphql_page(
     monkeypatch.setattr(verifier_module, "_gh", fake_gh)
 
     assert verifier_module._all_thread_comments(thread) == first_page + [blocker]
+
+
+def test_resolved_current_codex_thread_does_not_block_admission(verifier_module) -> None:
+    resolved_p1 = {
+        "isOutdated": False,
+        "isResolved": True,
+        "comments": {
+            "nodes": [
+                {
+                    "author": {"login": verifier_module.BOT},
+                    "body": "![P1 Badge] already remediated",
+                }
+            ]
+        },
+    }
+
+    assert not verifier_module._has_current_blocker([resolved_p1])
+
+
+def test_current_codex_p0_thread_blocks_admission(verifier_module) -> None:
+    current_p0 = {
+        "isOutdated": False,
+        "isResolved": False,
+        "comments": {
+            "nodes": [
+                {
+                    "author": {"login": verifier_module.BOT},
+                    "body": "![P0 Badge] release blocker",
+                }
+            ]
+        },
+    }
+
+    assert verifier_module._has_current_blocker([current_p0])
