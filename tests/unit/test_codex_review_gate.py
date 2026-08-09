@@ -13,7 +13,7 @@ def test_workflow_is_codex_only_and_runs_the_exact_head_evidence_gate() -> None:
     assert "CLAUDE_CODE_OAUTH_TOKEN" not in workflow
     assert "Verify Codex exact-head evidence" in workflow
     assert "scripts/verify_codex_review.py" in workflow
-    assert "CODEX_EVIDENCE_WAIT_SECONDS: 180" in workflow
+    assert "CODEX_EVIDENCE_WAIT_SECONDS: 300" in workflow
     assert "contents: read" in workflow
     assert "pull-requests: read" in workflow
     assert "issues: read" in workflow
@@ -37,6 +37,17 @@ def test_gate_waits_boundedly_for_asynchronous_codex_evidence() -> None:
     assert "CODEX_EVIDENCE_WAIT_SECONDS" in verifier
     assert "time.monotonic()" in verifier
     assert "time.sleep(10)" in verifier
+
+
+def test_operator_recovery_is_codex_only_and_reenters_the_exact_head_cycle() -> None:
+    documentation = (
+        Path(__file__).resolve().parents[2] / "docs" / "PR-REVIEW-AGENT.md"
+    ).read_text()
+
+    assert "Codex GitHub integration availability/service capacity" in documentation
+    assert "retry or re-enter the exact-head review cycle" in documentation
+    assert "no reviewer secret or external credential is required" in documentation.lower()
+    assert "updating the configured secret" not in documentation
 
 
 @pytest.fixture()

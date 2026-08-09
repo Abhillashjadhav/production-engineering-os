@@ -33,7 +33,4 @@ review evidence.
 
 ## Operator recovery
 
-An administrator restores service by updating the configured secret or the
-reviewer's service capacity, then causes one substantive synchronized candidate
-run or marks the candidate ready for review. Do not treat rerunning an old
-workflow, a comment, or a reaction as review evidence for a newer head.
+An administrator restores or verifies Codex GitHub integration availability/service capacity, then must retry or re-enter the exact-head review cycle by causing one substantive synchronized candidate run or marking the candidate ready for review. No reviewer secret or external credential is required. Do not treat rerunning an old workflow, a comment, or a reaction as review evidence for a newer head.
