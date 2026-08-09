@@ -48,4 +48,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          CODEX_EVIDENCE_WAIT_SECONDS: 180
         run: python scripts/verify_codex_review.py

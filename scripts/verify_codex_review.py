@@ -6,6 +6,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from typing import Any
 
 BOT = "chatgpt-codex-connector[bot]"
@@ -20,19 +21,24 @@ def main() -> int:
     expected = os.environ["EXPECTED_HEAD"]
     number = os.environ["PR_NUMBER"]
     repository = os.environ["GITHUB_REPOSITORY"]
-    pr = _gh("api", f"repos/{repository}/pulls/{number}")
-    if pr["head"]["sha"] != expected:
-        raise SystemExit("current PR head changed during Codex evidence verification")
-    comments = _gh("api", f"repos/{repository}/issues/{number}/comments")
     marker = f"**Reviewed commit:** `{expected[:10]}`"
-    clean = any(
-        comment["user"]["login"] == BOT
-        and "Codex Review: Didn't find any major issues." in comment["body"]
-        and marker in comment["body"]
-        for comment in comments
-    )
-    if not clean:
-        raise SystemExit("missing clean exact-head Codex advisory evidence")
+    deadline = time.monotonic() + int(os.environ.get("CODEX_EVIDENCE_WAIT_SECONDS", "0"))
+    while True:
+        pr = _gh("api", f"repos/{repository}/pulls/{number}")
+        if pr["head"]["sha"] != expected:
+            raise SystemExit("current PR head changed during Codex evidence verification")
+        comments = _gh("api", f"repos/{repository}/issues/{number}/comments")
+        clean = any(
+            comment["user"]["login"] == BOT
+            and "Codex Review: Didn't find any major issues." in comment["body"]
+            and marker in comment["body"]
+            for comment in comments
+        )
+        if clean:
+            break
+        if time.monotonic() >= deadline:
+            raise SystemExit("missing clean exact-head Codex advisory evidence")
+        time.sleep(10)
     query = (
         "query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name)"
         "{pullRequest(number:$number){reviewThreads(first:100){nodes{isOutdated comments(first:20)"
