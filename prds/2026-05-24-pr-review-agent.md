@@ -14,13 +14,12 @@ After 30 days of using the agent, Abhillash understands his own codebase better 
 
 ## Scope (v1)
 - Auto-runs on every PR open (no manual trigger, no draft skip)
-- Two-subagent ReAct loop: reviewer finds issues, writer commits fixes directly to the PR branch
-- Max 4 rounds of loop, capped to prevent runaway token burn
+- Independent read-only review: reviewer finds issues and proposes governed corrections
+- One review pass per exact candidate; accepted fixes use the normal correction loop
 - Review rubric prioritizes: architecture violations -> security -> business-logic correctness -> scalability -> code simplicity. Style/format is lowest priority.
 - Reads CLAUDE.md + DECISIONS.md + the diff + scans package.json/schema/folder structure
-- Posts final review summary as PR comment
-- Commits /reviews/YYYY-MM-DD-pr-N.md to the PR branch (audit trail)
-- Appends 1-3 pattern lessons to /LESSONS.md per review (learning archive)
+- Emits the exact-SHA workflow check and retained job log as automated advisory evidence
+- Never mutates the reviewed PR branch for audit, lessons, or fixes
 - Lives in Config-repo template -> propagates to all future repos via "Use this template"
 - One-time copy-prompt deploys to the 14 existing repos
 - Tuned to a solo-dev context: over-engineering is itself a blocker, not a virtue
@@ -40,9 +39,8 @@ After 30 days of using the agent, Abhillash understands his own codebase better 
 - **Doesn't teach:** after 30 days, LESSONS.md is empty, generic, or unread
 
 ## Decisions log
-- 2026-05-24: Chose two-subagent loop (reviewer + writer) over single agent — separation of context, builder/validator pattern. Source: Aakash Gupta's posts.
-- 2026-05-24: Chose 4-round cap over numeric scoring — habit-shift goal (PRs over commits to main) doesn't need a numeric ship bar.
-- 2026-05-24: Chose direct commits to PR branch over comment-only — fastest loop, most agentic. Risk: PR history shows claude[bot] commits alongside Abhillash's. Accepted.
+- 2026-05-24: Chose independent review over reviewer-written fixes: a review must not change the candidate it claims to attest. Accepted fixes enter the normal draft → correction → verification → fresh-review loop.
+- 2026-05-24: Chose one review pass per exact candidate over recursive review-generated commits, preventing stale or self-created heads from gaining review evidence.
 - 2026-05-24: Chose auto-fire on every PR over label-gated — maximum coverage. Mitigation: 4-round cap protects token quota.
 - 2026-05-24: Skipped web dashboard despite user's initial pull toward it — would double scope, undermines goal of reducing surface area.
 - 2026-05-24: One rubric across all 15 repos in v1 — per-repo context comes from each repo's CLAUDE.md + DECISIONS.md, not from forking the rubric.
