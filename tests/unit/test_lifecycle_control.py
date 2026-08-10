@@ -214,20 +214,19 @@ def context(
         "source_id": "finding-source",
         "authority_digest": SHA,
         "subject_digest": SHA,
-        "inventory_digest": OTHER_SHA,
+        "inventory_digest": effective_evidence.get("finding_inventory_digest", OTHER_SHA),
         "status": "NO_BLOCKING",
         "observed_at": "2026-08-02T00:01:00Z",
     }
-    effective_evidence.update(
-        {
-            "finding_source_id": "finding-source",
-            "finding_source_authority_digest": SHA,
-            "finding_inventory_digest": OTHER_SHA,
-            "finding_inventory_authentication_evidence_digest": external_proof(
-                "finding-source", SHA, finding_payload
-            ),
-        }
-    )
+    for name, value in {
+        "finding_source_id": "finding-source",
+        "finding_source_authority_digest": SHA,
+        "finding_inventory_digest": OTHER_SHA,
+        "finding_inventory_authentication_evidence_digest": external_proof(
+            "finding-source", SHA, finding_payload
+        ),
+    }.items():
+        effective_evidence.setdefault(name, value)
     return TransitionContext(
         actor=actor
         or lifecycle.TransitionActor(
@@ -900,10 +899,19 @@ def test_forward_work_revalidates_contract_and_publisher_authority(tmp_path: Pat
 def test_observers_append_digest_bound_evidence_but_cannot_change_state(tmp_path: Path) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.PR_READY)
     event = cp.record_observation(
-        source="authorization-watchdog",
+        source="live-observer",
         subject_digest=SHA,
         payload_digest=OTHER_SHA,
-        signature="sig:v1:watchdog",
+        signature=external_proof(
+            "live-observer",
+            SHA,
+            {
+                "source": "live-observer",
+                "subject_digest": SHA,
+                "payload_digest": OTHER_SHA,
+                "observed_at": "2026-08-02T00:02:00Z",
+            },
+        ),
         observed_at="2026-08-02T00:02:00Z",
     )
     assert event.kind == "OBSERVATION"
@@ -1566,24 +1574,42 @@ def test_mutation_idempotency_binding_survives_replay(tmp_path: Path) -> None:
 
 def test_concurrent_append_rejects_stale_writer_without_corrupting_chain(tmp_path: Path) -> None:
     first = control_plane(tmp_path)
-    stale = LifecycleControlPlane.load(tmp_path)
+    stale = LifecycleControlPlane.load(tmp_path, evidence_verifier=verify_external_proof)
     first.record_observation(
-        source="watchdog-a",
+        source="live-observer",
         subject_digest=SHA,
         payload_digest=OTHER_SHA,
-        signature="sig:a",
+        signature=external_proof(
+            "live-observer",
+            SHA,
+            {
+                "source": "live-observer",
+                "subject_digest": SHA,
+                "payload_digest": OTHER_SHA,
+                "observed_at": "2026-08-02T00:03:00Z",
+            },
+        ),
         observed_at="2026-08-02T00:03:00Z",
     )
     with pytest.raises(TransitionDeniedError, match="compare-and-swap"):
         stale.record_observation(
-            source="watchdog-b",
+            source="live-observer",
             subject_digest=SHA,
             payload_digest=OTHER_SHA,
-            signature="sig:b",
+            signature=external_proof(
+                "live-observer",
+                SHA,
+                {
+                    "source": "live-observer",
+                    "subject_digest": SHA,
+                    "payload_digest": OTHER_SHA,
+                    "observed_at": "2026-08-02T00:03:01Z",
+                },
+            ),
             observed_at="2026-08-02T00:03:01Z",
         )
     loaded = LifecycleControlPlane.load(tmp_path)
-    assert [event.reason for event in loaded.events] == ["create", "watchdog-a"]
+    assert [event.reason for event in loaded.events] == ["create", "live-observer"]
 
 
 def test_budget_stop_derives_the_interrupted_safe_gate(tmp_path: Path) -> None:
@@ -3467,10 +3493,19 @@ def test_budget_policy_limits_cannot_be_mutated_without_admission() -> None:
 def test_persisted_event_evidence_is_immutable_in_memory(tmp_path: Path) -> None:
     cp = control_plane(tmp_path)
     event = cp.record_observation(
-        source="watchdog",
+        source="live-observer",
         subject_digest=SHA,
         payload_digest=OTHER_SHA,
-        signature="sig:v1",
+        signature=external_proof(
+            "live-observer",
+            SHA,
+            {
+                "source": "live-observer",
+                "subject_digest": SHA,
+                "payload_digest": OTHER_SHA,
+                "observed_at": "2026-08-02T00:02:00Z",
+            },
+        ),
         observed_at="2026-08-02T00:02:00Z",
     )
 

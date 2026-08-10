@@ -589,7 +589,16 @@ _MUTATION_SUBJECT_FIELDS: dict[str, tuple[str, ...]] = {
         "formal_review_digest",
         "verification_bundle_digest",
     ),
-    "deploy_staging": ("subject_digest", "merge_digest", "artifact_digest"),
+    "deploy_staging": (
+        "subject_digest",
+        "merge_digest",
+        "artifact_digest",
+        "configuration_digest",
+        "deployment_target_digest",
+        "staging_authorization_digest",
+        "finding_inventory_digest",
+        "authority_fence_digest",
+    ),
     "deploy_canary": (
         *_CANARY_ROLLOUT_SUBJECT_FIELDS,
         "canary_authorization_digest",
@@ -1188,7 +1197,17 @@ _RULES: tuple[TransitionRule, ...] = (
         S.PR_MERGED,
         S.STAGING_DEPLOYED,
         "staging_admitted",
-        ("merge_digest", "artifact_digest", "staging_attempt_digest", "staging_result_digest"),
+        (
+            "merge_digest",
+            "artifact_digest",
+            "configuration_digest",
+            "deployment_target_digest",
+            "staging_authorization_digest",
+            "finding_inventory_digest",
+            "authority_fence_digest",
+            "staging_attempt_digest",
+            "staging_result_digest",
+        ),
         *_MUTATION,
         "no_blocking_finding",
         "integrated_merge",
@@ -4039,6 +4058,17 @@ class LifecycleControlPlane:
                 )
             if not source or not payload_digest or not signature or not observed_at:
                 raise TransitionDeniedError("observation is not digest-bound and attributable")
+            authority_digest = self.trust_policy.live_observers.get(source, "")
+            payload = {
+                "source": source,
+                "subject_digest": subject_digest,
+                "payload_digest": payload_digest,
+                "observed_at": observed_at,
+            }
+            if not authority_digest or not self._verify_external_evidence(
+                source, authority_digest, payload, signature
+            ):
+                raise TransitionDeniedError("observation source is not authenticated")
             current = self.state
             return self._append_locked(
                 kind="OBSERVATION",
@@ -4051,6 +4081,7 @@ class LifecycleControlPlane:
                     "subject_digest": subject_digest,
                     "payload_digest": payload_digest,
                     "signature": signature,
+                    "observer_authority_digest": authority_digest,
                 },
                 observed_at=observed_at,
             )
