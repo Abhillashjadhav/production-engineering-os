@@ -1300,6 +1300,7 @@ _RULES: tuple[TransitionRule, ...] = (
         ),
         *_FORWARD,
         "active_canary",
+        "no_blocking_finding",
     ),
     _r(
         S.CANARY_DEPLOYED,
@@ -1368,6 +1369,7 @@ _RULES: tuple[TransitionRule, ...] = (
         *_MUTATION,
         "production_approval",
         "active_canary",
+        "no_blocking_finding",
         mutation="deploy_production",
     ),
     _r(
@@ -3640,13 +3642,6 @@ class LifecycleControlPlane:
         ):
             raise TransitionDeniedError("successful mutation requires a canonical result digest")
         self._require_prejournaled(attempt)
-        prior = self._mutation_results.get(attempt.idempotency_key)
-        if prior is not None:
-            if prior.attempt_id != attempt.attempt_id:
-                raise TransitionDeniedError("mutation result attempt does not match")
-            if prior.status != status or prior.result_digest != result_digest:
-                raise TransitionDeniedError("mutation result is already sealed")
-            return prior
         if (
             adapter_evidence is None
             or not adapter_evidence.adapter_id
@@ -3673,6 +3668,16 @@ class LifecycleControlPlane:
             raise TransitionDeniedError(
                 "trusted adapter authority for the authenticated exact attempt is required"
             )
+        prior = self._mutation_results.get(attempt.idempotency_key)
+        if prior is not None:
+            if prior.attempt_id != attempt.attempt_id:
+                raise TransitionDeniedError("mutation result attempt does not match")
+            if prior.status == "UNKNOWN" and status in {"SUCCEEDED", "FAILED"}:
+                pass
+            elif prior.status == status and prior.result_digest == result_digest:
+                return prior
+            else:
+                raise TransitionDeniedError("mutation result is already sealed")
         result = MutationResult(
             attempt.attempt_id,
             attempt.idempotency_key,
