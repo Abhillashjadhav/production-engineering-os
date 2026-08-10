@@ -462,6 +462,19 @@ def _actor_evidence_digest(actor: TransitionActor) -> str:
     )
 
 
+def _actor_authentication_payload(actor: TransitionActor) -> dict[str, Any]:
+    """The externally attested actor claim, excluding its proof."""
+
+    return {
+        "actor_id": actor.actor_id,
+        "role": actor.role,
+        "authenticated": actor.authenticated,
+        "capabilities": sorted(actor.capabilities),
+        "subject_digest": actor.subject_digest,
+        "authority_digest": actor.authority_digest,
+    }
+
+
 def _budget_extension_authorization_payload(
     authorization: BudgetExtensionAuthorization,
 ) -> dict[str, Any]:
@@ -517,6 +530,14 @@ def _production_approval_scope_digest(evidence: dict[str, str]) -> str:
 
 
 _MUTATION_SUBJECT_FIELDS: dict[str, tuple[str, ...]] = {
+    "open_draft_pr": (
+        "subject_digest",
+        "governance_attempt_digest",
+        "issue_digest",
+        "branch_digest",
+        "red_commit_digest",
+        "draft_pr_digest",
+    ),
     "enqueue_merge": (
         "subject_digest",
         "queue_subject_digest",
@@ -535,6 +556,22 @@ _MUTATION_SUBJECT_FIELDS: dict[str, tuple[str, ...]] = {
         "canary_id_digest",
     ),
     "deploy_production": (*_PRODUCTION_APPROVAL_SCOPE_FIELDS, "production_approval_digest"),
+    "convert_pr_to_draft": (
+        "subject_digest",
+        "ready_revocation_attempt_digest",
+        "ready_revocation_observation_digest",
+    ),
+    "cleanup_staging": (
+        "subject_digest",
+        "cleanup_attempt_digest",
+        "zero_resource_digest",
+    ),
+    "rollback": ("subject_digest",),
+    "teardown_canary": (
+        "subject_digest",
+        "canary_teardown_digest",
+        "zero_resource_digest",
+    ),
 }
 
 
@@ -2554,7 +2591,12 @@ class LifecycleControlPlane:
             or actor.authority_digest != context.authority.digest
             or not context.authority.digest_valid
             or _SHA256.fullmatch(actor.authority_digest) is None
-            or actor.authentication_evidence_digest != _actor_evidence_digest(actor)
+            or not self._verify_external_evidence(
+                actor.actor_id,
+                actor.authority_digest,
+                _actor_authentication_payload(actor),
+                actor.authentication_evidence_digest,
+            )
         ):
             self._deny(target, context, reason, "actor authority is invalid for this subject")
         if context.budget_usage.safety_units_used != self.budget_usage.safety_units_used:
@@ -3091,17 +3133,6 @@ class LifecycleControlPlane:
                 self._deny(target, context, reason, "mutation attempt subject does not match")
             if rule.mutation_action and attempt.action != rule.mutation_action:
                 self._deny(target, context, reason, "mutation attempt action does not match")
-            if (
-                attempt.action in _MUTATION_SUBJECT_FIELDS
-                and attempt.step_plan_digest
-                != mutation_subject_digest(attempt.action, context.evidence)
-            ):
-                self._deny(
-                    target,
-                    context,
-                    reason,
-                    "mutation step plan is not bound to the exact external-effect subject",
-                )
             if rule.mutation_action == "open_draft_pr" and attempt.steps != (
                 "issue",
                 "branch",
@@ -3113,6 +3144,29 @@ class LifecycleControlPlane:
                     context,
                     reason,
                     "draft PR mutation steps must be issue, branch, red commit, draft PR",
+                )
+            if (
+                attempt.action in _MUTATION_SUBJECT_FIELDS
+                and attempt.step_plan_digest
+                != mutation_subject_digest(
+                    attempt.action,
+                    (
+                        {
+                            **context.evidence,
+                            "subject_digest": context.evidence.get(
+                                "subject_digest", self.subject_digest
+                            ),
+                        }
+                        if attempt.action == "rollback"
+                        else context.evidence
+                    ),
+                )
+            ):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "mutation step plan is not bound to the exact external-effect subject",
                 )
             try:
                 self._require_prejournaled(attempt)
@@ -3622,7 +3676,12 @@ class LifecycleControlPlane:
             or actor.authority_digest != context.authority.digest
             or not context.authority.digest_valid
             or _SHA256.fullmatch(actor.authority_digest) is None
-            or actor.authentication_evidence_digest != _actor_evidence_digest(actor)
+            or not self._verify_external_evidence(
+                actor.actor_id,
+                actor.authority_digest,
+                _actor_authentication_payload(actor),
+                actor.authentication_evidence_digest,
+            )
         ):
             self._deny(self.state, context, "resume", "actor authority is invalid for this subject")
         if self.state not in {S.BLOCKED, S.BUDGET_EXCEEDED}:

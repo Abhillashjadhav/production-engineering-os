@@ -140,7 +140,9 @@ def context(
             capabilities=frozenset({permission}),
             subject_digest=str(actor_claims["subject_digest"]),
             authority_digest=str(actor_claims["authority_digest"]),
-            authentication_evidence_digest=object_digest(actor_claims),
+            authentication_evidence_digest=external_proof(
+                "control-plane", authority_snapshot.digest, actor_claims
+            ),
         ),
         evidence=evidence or {"subject_digest": SHA, "evidence_bundle_digest": OTHER_SHA},
         authority=authority_snapshot,
@@ -169,6 +171,28 @@ def control_plane(
         trust_policy=TRUST_POLICY,
         evidence_verifier=verify_external_proof,
     )
+
+
+def test_transition_actor_rejects_a_self_computed_credential(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+    valid = context(
+        evidence=evidence_for(
+            LifecycleState.CONTRACT_RECEIVED,
+            LifecycleState.CONTRACT_APPROVED,
+            reason="contract_admitted",
+        )
+    )
+    forged = replace(
+        valid.actor,
+        authentication_evidence_digest=lifecycle._actor_evidence_digest(valid.actor),
+    )
+
+    with pytest.raises(TransitionDeniedError, match="actor authority"):
+        cp.transition(
+            LifecycleState.CONTRACT_APPROVED,
+            replace(valid, actor=forged),
+            reason="contract_admitted",
+        )
 
 
 def evidence_for(source: LifecycleState, target: LifecycleState, *, reason: str) -> dict[str, str]:
@@ -466,7 +490,9 @@ def completion_invalidation_context(
         actor_id="monitor-1",
         role="lifecycle-monitor",
         capabilities=capabilities,
-        authentication_evidence_digest=object_digest(actor_claims),
+        authentication_evidence_digest=external_proof(
+            "monitor-1", base_actor.authority_digest, actor_claims
+        ),
     )
     completion_event = next(
         event for event in reversed(cp.events) if event.kind == "COMPLETION_CLAIMED"
@@ -764,7 +790,7 @@ def test_reserved_safety_budget_cannot_authorize_forward_work(tmp_path: Path) ->
         idempotency_key="rollback:run-65:1",
         subject_digest=SHA,
         action="rollback",
-        step_plan_digest=OTHER_SHA,
+        step_plan_digest=mutation_subject_digest("rollback", {"subject_digest": SHA}),
         status="PLANNED",
     )
     safety = evidence_for(
@@ -1228,7 +1254,7 @@ def test_mutation_idempotency_binding_survives_replay(tmp_path: Path) -> None:
     )
     cp.prejournal_mutation(attempt)
     record_result(cp, attempt, status="UNKNOWN", result_digest=None)
-    loaded = LifecycleControlPlane.load(tmp_path)
+    loaded = LifecycleControlPlane.load(tmp_path, evidence_verifier=verify_external_proof)
     with pytest.raises(TransitionDeniedError, match="idempotency key"):
         record_result(
             loaded,
@@ -1311,7 +1337,7 @@ def test_budget_and_repair_usage_are_monotonic_and_replayed(tmp_path: Path) -> N
         reason="accepted_finding",
     )
     assert cp.budget_usage.repair_attempts_by_finding["finding-monotonic"] == 1
-    loaded = LifecycleControlPlane.load(tmp_path)
+    loaded = LifecycleControlPlane.load(tmp_path, evidence_verifier=verify_external_proof)
     assert loaded.budget_usage.counters["tokens"] == 10
     assert loaded.budget_usage.repair_attempts_by_finding["finding-monotonic"] == 1
     next_required = evidence_for(
@@ -1386,7 +1412,7 @@ def test_safety_resume_is_bound_to_original_blocked_attempt(tmp_path: Path) -> N
         idempotency_key="rollback:run-65:original",
         subject_digest=SHA,
         action="rollback",
-        step_plan_digest=OTHER_SHA,
+        step_plan_digest=mutation_subject_digest("rollback", {"subject_digest": SHA}),
         status="PLANNED",
     )
     blocked_evidence = evidence_for(
@@ -1438,7 +1464,7 @@ def test_indeterminate_rollback_retains_truthful_unresolved_exposure(tmp_path: P
         idempotency_key="rollback:run-65:unresolved-exposure",
         subject_digest=SHA,
         action="rollback",
-        step_plan_digest=OTHER_SHA,
+        step_plan_digest=mutation_subject_digest("rollback", {"subject_digest": SHA}),
         status="PLANNED",
     )
     cp.prejournal_mutation(attempt)
@@ -1475,7 +1501,7 @@ def test_safety_mutations_are_explicitly_prejournaled_before_adapter_execution(
         idempotency_key="rollback:run-65:prejournal",
         subject_digest=SHA,
         action="rollback",
-        step_plan_digest=OTHER_SHA,
+        step_plan_digest=mutation_subject_digest("rollback", {"subject_digest": SHA}),
         status="PLANNED",
     )
     start_evidence = evidence_for(
@@ -1603,13 +1629,15 @@ def test_reserved_safety_budget_is_control_plane_bounded_and_not_caller_capacity
         subject_digest=SHA,
         initial_state=LifecycleState.ROLLBACK_IN_PROGRESS,
         budget_policy=replace(policy, reserved_safety_units=1),
+        trust_policy=TRUST_POLICY,
+        evidence_verifier=verify_external_proof,
     )
     attempt = MutationAttempt(
         attempt_id="rollback-safety-cap",
         idempotency_key="rollback:run-65:safety-cap",
         subject_digest=SHA,
         action="rollback",
-        step_plan_digest=OTHER_SHA,
+        step_plan_digest=mutation_subject_digest("rollback", {"subject_digest": SHA}),
         status="PLANNED",
     )
     blocked_evidence = evidence_for(
@@ -1666,7 +1694,7 @@ def test_canary_failure_with_mutation_or_indeterminate_exposure_enters_rollback(
         idempotency_key="rollback:run-65:canary-failure",
         subject_digest=SHA,
         action="rollback",
-        step_plan_digest=OTHER_SHA,
+        step_plan_digest=mutation_subject_digest("rollback", {"subject_digest": SHA}),
         status="PLANNED",
     )
     cp.prejournal_mutation(rollback)
@@ -2157,7 +2185,7 @@ def test_rollback_completion_requires_exact_attempt_bound_zero_exposure(
         idempotency_key="rollback:run-65:exposure-1",
         subject_digest=SHA,
         action="rollback",
-        step_plan_digest=OTHER_SHA,
+        step_plan_digest=mutation_subject_digest("rollback", {"subject_digest": SHA}),
         status="PLANNED",
     )
     cp.prejournal_mutation(attempt)
@@ -2450,7 +2478,9 @@ def test_quarantine_disposition_failure_enters_bound_security_block(
     disposition_capabilities = frozenset(
         {"lifecycle.transition", "lifecycle.quarantine.disposition"}
     )
-    disposition_authority = object_digest(
+    disposition_authority = external_proof(
+        base_actor.actor_id,
+        base_actor.authority_digest,
         {
             "actor_id": base_actor.actor_id,
             "role": base_actor.role,
@@ -2458,7 +2488,7 @@ def test_quarantine_disposition_failure_enters_bound_security_block(
             "capabilities": sorted(disposition_capabilities),
             "subject_digest": base_actor.subject_digest,
             "authority_digest": base_actor.authority_digest,
-        }
+        },
     )
     disposition_actor = replace(
         base_actor,
