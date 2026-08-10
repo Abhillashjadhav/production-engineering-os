@@ -162,6 +162,21 @@ def context(
             ),
         }
     )
+    effective_rollout = rollout or RolloutStatus()
+    rollback_payload = {
+        "observer_id": "live-observer",
+        "authority_digest": SHA,
+        "subject_digest": SHA,
+        "rollout_digest": object_digest(asdict(effective_rollout)),
+        "rollback_exposure_digest": effective_evidence.get("rollback_exposure_digest", OTHER_SHA),
+        "restoration_verification_digest": effective_evidence.get(
+            "restoration_verification_digest", OTHER_SHA
+        ),
+        "observed_at": "2026-08-02T00:01:00Z",
+    }
+    effective_evidence["rollback_observation_authentication_evidence_digest"] = external_proof(
+        "live-observer", SHA, rollback_payload
+    )
     live_payload = {
         "observer_id": "live-observer",
         "authority_digest": SHA,
@@ -214,7 +229,7 @@ def context(
         evidence=effective_evidence,
         authority=authority_snapshot,
         budget_usage=effective_usage,
-        rollout=rollout or RolloutStatus(),
+        rollout=effective_rollout,
         work=work or WorkStatus(),
         approvals=approvals,
         finding=finding,
@@ -262,6 +277,8 @@ def mutation_authorization(
         "subject_digest": SHA,
         "source_state": cp.state.value,
         "action": attempt.action,
+        "attempt_id": attempt.attempt_id,
+        "idempotency_key": attempt.idempotency_key,
         "step_plan_digest": attempt.step_plan_digest,
         "observed_at": "2026-08-02T00:01:00Z",
     }
@@ -271,6 +288,8 @@ def mutation_authorization(
         subject_digest=SHA,
         source_state=cp.state,
         action=attempt.action,
+        attempt_id=attempt.attempt_id,
+        idempotency_key=attempt.idempotency_key,
         step_plan_digest=attempt.step_plan_digest,
         observed_at="2026-08-02T00:01:00Z",
         authentication_evidence_digest=external_proof("mutation-authorizer", SHA, body),

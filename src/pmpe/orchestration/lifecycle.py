@@ -361,6 +361,8 @@ class MutationAuthorization:
     subject_digest: str
     source_state: LifecycleState
     action: str
+    attempt_id: str
+    idempotency_key: str
     step_plan_digest: str
     observed_at: str
     authentication_evidence_digest: str
@@ -2043,6 +2045,30 @@ class LifecycleControlPlane:
             )
         )
 
+    def _trusted_rollback_evidence_valid(self, context: TransitionContext) -> bool:
+        evidence = context.evidence
+        observer = evidence.get("live_observer_id", "")
+        authority_digest = evidence.get("live_observer_authority_digest", "")
+        payload = {
+            "observer_id": observer,
+            "authority_digest": authority_digest,
+            "subject_digest": self.subject_digest,
+            "rollout_digest": _digest(asdict(context.rollout)),
+            "rollback_exposure_digest": evidence.get("rollback_exposure_digest", ""),
+            "restoration_verification_digest": evidence.get("restoration_verification_digest", ""),
+            "observed_at": context.observed_at,
+        }
+        return bool(
+            observer
+            and self.trust_policy.live_observers.get(observer) == authority_digest
+            and self._verify_external_evidence(
+                observer,
+                authority_digest,
+                payload,
+                evidence.get("rollback_observation_authentication_evidence_digest", ""),
+            )
+        )
+
     def _mutation_authorization_valid(
         self, attempt: MutationAttempt, authorization: MutationAuthorization
     ) -> bool:
@@ -2057,6 +2083,8 @@ class LifecycleControlPlane:
             "subject_digest": authorization.subject_digest,
             "source_state": authorization.source_state.value,
             "action": authorization.action,
+            "attempt_id": authorization.attempt_id,
+            "idempotency_key": authorization.idempotency_key,
             "step_plan_digest": authorization.step_plan_digest,
             "observed_at": authorization.observed_at,
         }
@@ -2064,6 +2092,8 @@ class LifecycleControlPlane:
             authorization.subject_digest == self.subject_digest == attempt.subject_digest
             and authorization.source_state is self.state
             and authorization.action == attempt.action
+            and authorization.attempt_id == attempt.attempt_id
+            and authorization.idempotency_key == attempt.idempotency_key
             and authorization.step_plan_digest == attempt.step_plan_digest
             and self.trust_policy.mutation_authorizers.get(authorization.authorizer_id)
             == authorization.authority_digest
@@ -3555,6 +3585,13 @@ class LifecycleControlPlane:
             result = (
                 self._mutation_results.get(attempt.idempotency_key) if attempt is not None else None
             )
+            if not self._trusted_rollback_evidence_valid(context):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "trusted rollback exposure evidence is required",
+                )
             if context.rollout.canary not in {"NONE", "REMOVED"} or (
                 context.rollout.changed_production not in {"NONE", "REMOVED"}
             ):
