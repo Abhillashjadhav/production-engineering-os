@@ -166,6 +166,7 @@ class EvidenceTrustPolicy:
     formal_reviewers: Mapping[str, str] = field(default_factory=dict)
     finding_sources: Mapping[str, str] = field(default_factory=dict)
     mutation_authorizers: Mapping[str, str] = field(default_factory=dict)
+    live_observers: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for name in (
@@ -178,6 +179,7 @@ class EvidenceTrustPolicy:
             "formal_reviewers",
             "finding_sources",
             "mutation_authorizers",
+            "live_observers",
         ):
             values = dict(getattr(self, name))
             if any(
@@ -450,6 +452,7 @@ def _trust_policy_payload(policy: EvidenceTrustPolicy) -> dict[str, Any]:
         "formal_reviewers": dict(policy.formal_reviewers),
         "finding_sources": dict(policy.finding_sources),
         "mutation_authorizers": dict(policy.mutation_authorizers),
+        "live_observers": dict(policy.live_observers),
     }
 
 
@@ -589,6 +592,7 @@ _MUTATION_SUBJECT_FIELDS: dict[str, tuple[str, ...]] = {
         *_CANARY_ROLLOUT_SUBJECT_FIELDS,
         "canary_authorization_digest",
         "canary_id_digest",
+        "authority_fence_digest",
     ),
     "deploy_production": (
         *_PRODUCTION_APPROVAL_SCOPE_FIELDS,
@@ -1223,8 +1227,10 @@ _RULES: tuple[TransitionRule, ...] = (
             "canary_attempt_digest",
             "canary_result_digest",
             "canary_status_digest",
+            "authority_fence_digest",
         ),
         *_MUTATION,
+        "no_blocking_finding",
         "canary_binding",
         mutation="deploy_canary",
     ),
@@ -2008,6 +2014,35 @@ class LifecycleControlPlane:
             )
         )
 
+    def _trusted_live_evidence_valid(self, context: TransitionContext) -> bool:
+        evidence = context.evidence
+        observer = evidence.get("live_observer_id", "")
+        authority_digest = evidence.get("live_observer_authority_digest", "")
+        payload = {
+            "observer_id": observer,
+            "authority_digest": authority_digest,
+            "subject_digest": self.subject_digest,
+            "live_verification_digest": evidence.get("live_verification_digest", ""),
+            "rollback_readiness_digest": evidence.get("rollback_readiness_digest", ""),
+            "observation_window_digest": evidence.get("observation_window_digest", ""),
+            "observed_at": context.observed_at,
+        }
+        return bool(
+            observer
+            and self.trust_policy.live_observers.get(observer) == authority_digest
+            and all(
+                _SHA256.fullmatch(str(value))
+                for key, value in payload.items()
+                if key.endswith("digest")
+            )
+            and self._verify_external_evidence(
+                observer,
+                authority_digest,
+                payload,
+                evidence.get("live_observation_authentication_evidence_digest", ""),
+            )
+        )
+
     def _mutation_authorization_valid(
         self, attempt: MutationAttempt, authorization: MutationAuthorization
     ) -> bool:
@@ -2250,7 +2285,10 @@ class LifecycleControlPlane:
             formal_reviewers=dict(raw_trust.get("formal_reviewers", {})),
             finding_sources=dict(raw_trust.get("finding_sources", {})),
             mutation_authorizers=dict(raw_trust.get("mutation_authorizers", {})),
+            live_observers=dict(raw_trust.get("live_observers", {})),
         )
+        if any(event.policy_digest != PHASE_ZERO_POLICY.digest for event in events):
+            raise ValueError("lifecycle ledger policy digest differs from the active policy")
         if raw_trust and initial.evidence_refs.get("trust_policy_digest") != _digest(raw_trust):
             raise ValueError("lifecycle evidence trust policy is not bound to the initial event")
         cp = cls(
@@ -3547,6 +3585,13 @@ class LifecycleControlPlane:
         if "completion" in guards and self.completion_claim_active:
             self._deny(target, context, reason, "completion claim is already active")
         if "completion" in guards:
+            if not self._trusted_live_evidence_valid(context):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "trusted live observation evidence is required for completion",
+                )
             review_binding = self._latest_review_binding()
             merge_binding = self._latest_merge_binding()
             deployed_release_sha = (

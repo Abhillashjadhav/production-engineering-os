@@ -51,6 +51,7 @@ TRUST_POLICY = EvidenceTrustPolicy(
     formal_reviewers={"codex": SHA},
     finding_sources={"finding-source": SHA},
     mutation_authorizers={"mutation-authorizer": SHA},
+    live_observers={"live-observer": SHA},
 )
 
 
@@ -158,6 +159,24 @@ def context(
             "budget_usage_digest": meter_payload["budget_usage_digest"],
             "budget_meter_authentication_evidence_digest": external_proof(
                 "budget-meter", SHA, meter_payload
+            ),
+        }
+    )
+    live_payload = {
+        "observer_id": "live-observer",
+        "authority_digest": SHA,
+        "subject_digest": SHA,
+        "live_verification_digest": effective_evidence.get("live_verification_digest", OTHER_SHA),
+        "rollback_readiness_digest": effective_evidence.get("rollback_readiness_digest", OTHER_SHA),
+        "observation_window_digest": effective_evidence.get("observation_window_digest", OTHER_SHA),
+        "observed_at": "2026-08-02T00:01:00Z",
+    }
+    effective_evidence.update(
+        {
+            "live_observer_id": "live-observer",
+            "live_observer_authority_digest": SHA,
+            "live_observation_authentication_evidence_digest": external_proof(
+                "live-observer", SHA, live_payload
             ),
         }
     )
