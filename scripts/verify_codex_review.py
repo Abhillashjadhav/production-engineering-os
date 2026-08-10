@@ -139,12 +139,14 @@ def _has_exact_bot_review(reviews: list[dict[str, Any]], expected: str) -> bool:
 
     Findings are independently rejected from the complete current thread set below.
     """
-    blockers = ("P0 Badge", "P1 Badge", "P2 Badge")
-    return any(
-        (review.get("user") or {}).get("login") == BOT
-        and review.get("commit_id") == expected
-        and not any(badge in (review.get("body") or "") for badge in blockers)
+    exact = [
+        review
         for review in reviews
+        if (review.get("user") or {}).get("login") == BOT and review.get("commit_id") == expected
+    ]
+    blockers = ("P0 Badge", "P1 Badge", "P2 Badge")
+    return bool(exact) and not any(
+        any(badge in (review.get("body") or "") for badge in blockers) for review in exact
     )
 
 

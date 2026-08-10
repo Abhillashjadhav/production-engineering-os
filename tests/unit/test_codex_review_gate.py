@@ -156,6 +156,20 @@ def test_deleted_review_author_cannot_crash_exact_review_scan(verifier_module) -
     )
 
 
+def test_any_exact_head_bot_review_with_a_blocker_rejects_the_evidence_set(verifier_module) -> None:
+    expected = "a" * 40
+    reviews = [
+        {"user": {"login": verifier_module.BOT}, "commit_id": expected, "body": ""},
+        {
+            "user": {"login": verifier_module.BOT},
+            "commit_id": expected,
+            "body": "![P1 Badge] conflicting blocker",
+        },
+    ]
+
+    assert not verifier_module._has_exact_bot_review(reviews, expected)
+
+
 def test_all_review_threads_finds_blocker_on_later_graphql_page(
     monkeypatch: pytest.MonkeyPatch, verifier_module
 ) -> None:
