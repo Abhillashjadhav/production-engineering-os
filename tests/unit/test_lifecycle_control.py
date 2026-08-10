@@ -47,6 +47,7 @@ TRUST_POLICY = EvidenceTrustPolicy(
     work_controllers={"work-controller": SHA},
     production_approvers={"release-owner": OWNER_CREDENTIAL_DIGEST},
     budget_meters={"budget-meter": SHA},
+    formal_reviewers={"codex": SHA},
 )
 
 
@@ -970,13 +971,47 @@ def test_pr_ready_requires_eligible_exact_subject_review(tmp_path: Path) -> None
             context(evidence=required, approvals=(ineligible,)),
             reason="formal_review_clear",
         )
-    eligible = replace(ineligible, approval_id="review-2", actor="reviewer", eligible=True)
+    unsigned = replace(ineligible, approval_id="review-2", actor="codex", eligible=True)
+    eligible = replace(
+        unsigned,
+        authentication_evidence_digest=external_proof(
+            "codex", SHA, lifecycle._production_approval_payload(unsigned)
+        ),
+    )
     required["review_digest"] = object_digest(asdict(eligible))
     cp.transition(
         LifecycleState.PR_READY,
         context(evidence=required, approvals=(eligible,)),
         reason="formal_review_clear",
     )
+
+
+def test_formal_review_rejects_self_computed_reviewer_credential(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.REVIEW_REQUIRED)
+    required = evidence_for(
+        LifecycleState.REVIEW_REQUIRED,
+        LifecycleState.PR_READY,
+        reason="formal_review_clear",
+    )
+    forged = Approval(
+        approval_id="forged-review",
+        actor="codex",
+        subject_digest=SHA,
+        kind="FORMAL_REVIEW",
+        eligible=True,
+        active=True,
+        reviewed_commit_sha=required["reviewed_commit_sha"],
+        reviewed_candidate_digest=required["prospective_tree_digest"],
+        review_evidence_digest=required["verification_bundle_digest"],
+        authentication_evidence_digest=object_digest({"self": "asserted"}),
+    )
+    required["review_digest"] = object_digest(asdict(forged))
+    with pytest.raises(TransitionDeniedError, match="eligible formal review"):
+        cp.transition(
+            LifecycleState.PR_READY,
+            context(evidence=required, approvals=(forged,)),
+            reason="formal_review_clear",
+        )
 
 
 def test_external_mutation_requires_prejournaled_unique_attempt(tmp_path: Path) -> None:

@@ -163,6 +163,7 @@ class EvidenceTrustPolicy:
     work_controllers: Mapping[str, str] = field(default_factory=dict)
     production_approvers: Mapping[str, str] = field(default_factory=dict)
     budget_meters: Mapping[str, str] = field(default_factory=dict)
+    formal_reviewers: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for name in (
@@ -172,6 +173,7 @@ class EvidenceTrustPolicy:
             "work_controllers",
             "production_approvers",
             "budget_meters",
+            "formal_reviewers",
         ):
             values = dict(getattr(self, name))
             if any(
@@ -427,6 +429,7 @@ def _trust_policy_payload(policy: EvidenceTrustPolicy) -> dict[str, Any]:
         "work_controllers": dict(policy.work_controllers),
         "production_approvers": dict(policy.production_approvers),
         "budget_meters": dict(policy.budget_meters),
+        "formal_reviewers": dict(policy.formal_reviewers),
     }
 
 
@@ -576,7 +579,6 @@ _MUTATION_SUBJECT_FIELDS: dict[str, tuple[str, ...]] = {
     ),
     "cleanup_staging": (
         "subject_digest",
-        "cleanup_attempt_digest",
         "zero_resource_digest",
     ),
     "rollback": ("subject_digest",),
@@ -2099,6 +2101,7 @@ class LifecycleControlPlane:
             work_controllers=dict(raw_trust.get("work_controllers", {})),
             production_approvers=dict(raw_trust.get("production_approvers", {})),
             budget_meters=dict(raw_trust.get("budget_meters", {})),
+            formal_reviewers=dict(raw_trust.get("formal_reviewers", {})),
         )
         if raw_trust and initial.evidence_refs.get("trust_policy_digest") != _digest(raw_trust):
             raise ValueError("lifecycle evidence trust policy is not bound to the initial event")
@@ -3013,6 +3016,13 @@ class LifecycleControlPlane:
                     and context.evidence.get("verification_bundle_digest")
                     == approval.review_evidence_digest
                     and context.evidence.get("review_digest") == _digest(asdict(approval))
+                    and self.trust_policy.formal_reviewers.get(approval.actor)
+                    and self._verify_external_evidence(
+                        approval.actor,
+                        self.trust_policy.formal_reviewers[approval.actor],
+                        _production_approval_payload(approval),
+                        approval.authentication_evidence_digest,
+                    )
                 ),
                 None,
             )
