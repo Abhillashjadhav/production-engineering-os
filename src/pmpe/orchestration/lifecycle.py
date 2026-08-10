@@ -164,6 +164,8 @@ class EvidenceTrustPolicy:
     production_approvers: Mapping[str, str] = field(default_factory=dict)
     budget_meters: Mapping[str, str] = field(default_factory=dict)
     formal_reviewers: Mapping[str, str] = field(default_factory=dict)
+    finding_sources: Mapping[str, str] = field(default_factory=dict)
+    mutation_authorizers: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for name in (
@@ -174,6 +176,8 @@ class EvidenceTrustPolicy:
             "production_approvers",
             "budget_meters",
             "formal_reviewers",
+            "finding_sources",
+            "mutation_authorizers",
         ):
             values = dict(getattr(self, name))
             if any(
@@ -347,6 +351,20 @@ class MutationAttempt:
 
 
 @dataclass(frozen=True)
+class MutationAuthorization:
+    """Externally authenticated authority to release one exact mutation plan."""
+
+    authorizer_id: str
+    authority_digest: str
+    subject_digest: str
+    source_state: LifecycleState
+    action: str
+    step_plan_digest: str
+    observed_at: str
+    authentication_evidence_digest: str
+
+
+@dataclass(frozen=True)
 class MutationResult:
     attempt_id: str
     idempotency_key: str
@@ -430,6 +448,8 @@ def _trust_policy_payload(policy: EvidenceTrustPolicy) -> dict[str, Any]:
         "production_approvers": dict(policy.production_approvers),
         "budget_meters": dict(policy.budget_meters),
         "formal_reviewers": dict(policy.formal_reviewers),
+        "finding_sources": dict(policy.finding_sources),
+        "mutation_authorizers": dict(policy.mutation_authorizers),
     }
 
 
@@ -570,7 +590,11 @@ _MUTATION_SUBJECT_FIELDS: dict[str, tuple[str, ...]] = {
         "canary_authorization_digest",
         "canary_id_digest",
     ),
-    "deploy_production": (*_PRODUCTION_APPROVAL_SCOPE_FIELDS, "production_approval_digest"),
+    "deploy_production": (
+        *_PRODUCTION_APPROVAL_SCOPE_FIELDS,
+        "authority_fence_digest",
+        "production_approval_digest",
+    ),
     "convert_pr_to_draft": (
         "subject_digest",
         "ready_revocation_attempt_digest",
@@ -1957,6 +1981,65 @@ class LifecycleControlPlane:
             )
         )
 
+    def _trusted_finding_inventory_valid(self, context: TransitionContext) -> bool:
+        """Require an independently authenticated, current no-blocker inventory."""
+
+        evidence = context.evidence
+        source = evidence.get("finding_source_id", "")
+        authority_digest = evidence.get("finding_source_authority_digest", "")
+        inventory_digest = evidence.get("finding_inventory_digest", "")
+        payload = {
+            "source_id": source,
+            "authority_digest": authority_digest,
+            "subject_digest": self.subject_digest,
+            "inventory_digest": inventory_digest,
+            "status": "NO_BLOCKING",
+            "observed_at": context.observed_at,
+        }
+        return bool(
+            source
+            and _SHA256.fullmatch(inventory_digest)
+            and self.trust_policy.finding_sources.get(source) == authority_digest
+            and self._verify_external_evidence(
+                source,
+                authority_digest,
+                payload,
+                evidence.get("finding_inventory_authentication_evidence_digest", ""),
+            )
+        )
+
+    def _mutation_authorization_valid(
+        self, attempt: MutationAttempt, authorization: MutationAuthorization
+    ) -> bool:
+        if not any(
+            rule.mutation_action == attempt.action
+            for rule in PHASE_ZERO_POLICY.rules_from(self.state)
+        ):
+            return False
+        payload = {
+            "authorizer_id": authorization.authorizer_id,
+            "authority_digest": authorization.authority_digest,
+            "subject_digest": authorization.subject_digest,
+            "source_state": authorization.source_state.value,
+            "action": authorization.action,
+            "step_plan_digest": authorization.step_plan_digest,
+            "observed_at": authorization.observed_at,
+        }
+        return bool(
+            authorization.subject_digest == self.subject_digest == attempt.subject_digest
+            and authorization.source_state is self.state
+            and authorization.action == attempt.action
+            and authorization.step_plan_digest == attempt.step_plan_digest
+            and self.trust_policy.mutation_authorizers.get(authorization.authorizer_id)
+            == authorization.authority_digest
+            and self._verify_external_evidence(
+                authorization.authorizer_id,
+                authorization.authority_digest,
+                payload,
+                authorization.authentication_evidence_digest,
+            )
+        )
+
     def _verify_external_evidence(
         self,
         identity: str,
@@ -2109,6 +2192,8 @@ class LifecycleControlPlane:
             production_approvers=dict(raw_trust.get("production_approvers", {})),
             budget_meters=dict(raw_trust.get("budget_meters", {})),
             formal_reviewers=dict(raw_trust.get("formal_reviewers", {})),
+            finding_sources=dict(raw_trust.get("finding_sources", {})),
+            mutation_authorizers=dict(raw_trust.get("mutation_authorizers", {})),
         )
         if raw_trust and initial.evidence_refs.get("trust_policy_digest") != _digest(raw_trust):
             raise ValueError("lifecycle evidence trust policy is not bound to the initial event")
@@ -2752,17 +2837,30 @@ class LifecycleControlPlane:
         exhausted = usage.exhausted_dimensions(self.budget_policy)
         if "budget" in guards and exhausted:
             self._deny(target, context, reason, "delivery budget is exhausted")
-        if "no_blocking_finding" in guards and context.finding is not None:
-            finding = context.finding
-            if finding.credible and finding.blocking:
-                if finding.exact_subject_digest != self.subject_digest:
+        if "no_blocking_finding" in guards:
+            if not self._trusted_finding_inventory_valid(context):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "current trusted finding inventory is required for promotion",
+                )
+            if context.finding is not None:
+                finding = context.finding
+                if finding.credible and finding.blocking:
+                    if finding.exact_subject_digest != self.subject_digest:
+                        self._deny(
+                            target,
+                            context,
+                            reason,
+                            "blocking finding subject does not match the lifecycle subject",
+                        )
                     self._deny(
                         target,
                         context,
                         reason,
-                        "blocking finding subject does not match the lifecycle subject",
+                        "a pending blocking finding prohibits staging",
                     )
-                self._deny(target, context, reason, "a pending blocking finding prohibits staging")
         if "drift" in guards:
             candidate_states = {
                 S.DRAFT_PR_OPEN,
@@ -2931,6 +3029,13 @@ class LifecycleControlPlane:
                     "product input work evidence is not bound to worker quiescence",
                 )
         if "budget_stop" in guards:
+            if not self._trusted_budget_usage_valid(context):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "budget stop requires trusted complete budget telemetry",
+                )
             if not exhausted:
                 self._deny(target, context, reason, "budget stop requires proven exhaustion")
             if context.work.worker_leases_active or not context.work.workers_stopped:
@@ -3541,11 +3646,17 @@ class LifecycleControlPlane:
             self._completion_claim_active = False
         return event
 
-    def prejournal_mutation(self, attempt: MutationAttempt) -> MutationAttempt:
+    def prejournal_mutation(
+        self, attempt: MutationAttempt, *, authorization: MutationAuthorization
+    ) -> MutationAttempt:
         """Durably bind a complete mutation plan before any adapter may run."""
 
         if attempt.subject_digest != self.subject_digest:
             raise TransitionDeniedError("mutation attempt subject does not match")
+        if not self._mutation_authorization_valid(attempt, authorization):
+            raise TransitionDeniedError(
+                "mutation attempt lacks current external lifecycle authority"
+            )
         self._register_mutation(attempt)
         return attempt
 

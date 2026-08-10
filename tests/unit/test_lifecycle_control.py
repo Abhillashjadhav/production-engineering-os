@@ -25,6 +25,7 @@ from pmpe.orchestration.lifecycle import (
     LifecycleControlPlane,
     LifecycleState,
     MutationAttempt,
+    MutationAuthorization,
     RolloutStatus,
     TransitionContext,
     TransitionDeniedError,
@@ -48,6 +49,8 @@ TRUST_POLICY = EvidenceTrustPolicy(
     production_approvers={"release-owner": OWNER_CREDENTIAL_DIGEST},
     budget_meters={"budget-meter": SHA},
     formal_reviewers={"codex": SHA},
+    finding_sources={"finding-source": SHA},
+    mutation_authorizers={"mutation-authorizer": SHA},
 )
 
 
@@ -158,6 +161,24 @@ def context(
             ),
         }
     )
+    finding_payload = {
+        "source_id": "finding-source",
+        "authority_digest": SHA,
+        "subject_digest": SHA,
+        "inventory_digest": OTHER_SHA,
+        "status": "NO_BLOCKING",
+        "observed_at": "2026-08-02T00:01:00Z",
+    }
+    effective_evidence.update(
+        {
+            "finding_source_id": "finding-source",
+            "finding_source_authority_digest": SHA,
+            "finding_inventory_digest": OTHER_SHA,
+            "finding_inventory_authentication_evidence_digest": external_proof(
+                "finding-source", SHA, finding_payload
+            ),
+        }
+    )
     return TransitionContext(
         actor=actor
         or lifecycle.TransitionActor(
@@ -211,6 +232,34 @@ def control_plane(
         )
         cp._state = state
     return cp
+
+
+def mutation_authorization(
+    cp: LifecycleControlPlane, attempt: MutationAttempt
+) -> MutationAuthorization:
+    body = {
+        "authorizer_id": "mutation-authorizer",
+        "authority_digest": SHA,
+        "subject_digest": SHA,
+        "source_state": cp.state.value,
+        "action": attempt.action,
+        "step_plan_digest": attempt.step_plan_digest,
+        "observed_at": "2026-08-02T00:01:00Z",
+    }
+    return MutationAuthorization(
+        authorizer_id="mutation-authorizer",
+        authority_digest=SHA,
+        subject_digest=SHA,
+        source_state=cp.state,
+        action=attempt.action,
+        step_plan_digest=attempt.step_plan_digest,
+        observed_at="2026-08-02T00:01:00Z",
+        authentication_evidence_digest=external_proof("mutation-authorizer", SHA, body),
+    )
+
+
+def prejournal(cp: LifecycleControlPlane, attempt: MutationAttempt) -> MutationAttempt:
+    return cp.prejournal_mutation(attempt, authorization=mutation_authorization(cp, attempt))
 
 
 def test_transition_actor_rejects_a_self_computed_credential(tmp_path: Path) -> None:
@@ -890,7 +939,7 @@ def test_reserved_safety_budget_cannot_authorize_forward_work(tmp_path: Path) ->
         reason="canary_mutation_indeterminate",
     )
     safety["rollback_attempt_digest"] = object_digest(asdict(attempt))
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     cp.transition(
         LifecycleState.ROLLBACK_IN_PROGRESS,
         context(usage=exhausted, rollout=rollout, evidence=safety, mutation=attempt),
@@ -1051,7 +1100,7 @@ def test_external_mutation_requires_prejournaled_unique_attempt(tmp_path: Path) 
         step_plan_digest=mutation_subject_digest("deploy_staging", required),
         status="PLANNED",
     )
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     with pytest.raises(TransitionDeniedError, match="successful exact-attempt"):
         cp.transition(
             LifecycleState.STAGING_DEPLOYED,
@@ -1094,7 +1143,7 @@ def test_production_admission_requires_live_exact_subject_approval(tmp_path: Pat
         step_plan_digest=mutation_subject_digest("deploy_production", required),
         status="PLANNED",
     )
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
     required["production_attempt_digest"] = object_digest(asdict(attempt))
 
@@ -1205,7 +1254,7 @@ def test_mutation_admission_binds_evidence_to_persisted_result(tmp_path: Path) -
         step_plan_digest=mutation_subject_digest("deploy_staging", required),
         status="PLANNED",
     )
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
     required["staging_result_digest"] = OTHER_SHA
     with pytest.raises(TransitionDeniedError, match="persisted mutation result"):
@@ -1225,16 +1274,16 @@ def test_mutation_admission_binds_evidence_to_persisted_result(tmp_path: Path) -
 
 
 def test_missing_adapter_response_never_implies_success(tmp_path: Path) -> None:
-    cp = control_plane(tmp_path)
+    cp = control_plane(tmp_path, state=LifecycleState.STAGING_DEPLOYED)
     attempt = MutationAttempt(
         attempt_id="attempt-1",
         idempotency_key="cleanup:run-65:1",
         subject_digest=SHA,
-        action="cleanup",
+        action="rollback",
         step_plan_digest=OTHER_SHA,
         status="PLANNED",
     )
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     result = record_result(cp, attempt, status="UNKNOWN", result_digest=None)
     assert result.status == "UNKNOWN"
     assert not result.successful
@@ -1390,16 +1439,16 @@ def test_budget_resume_uses_only_the_recorded_safe_state(tmp_path: Path) -> None
 
 
 def test_mutation_idempotency_binding_survives_replay(tmp_path: Path) -> None:
-    cp = control_plane(tmp_path)
+    cp = control_plane(tmp_path, state=LifecycleState.STAGING_DEPLOYED)
     attempt = MutationAttempt(
         attempt_id="attempt-1",
         idempotency_key="cleanup:run-65:1",
         subject_digest=SHA,
-        action="cleanup",
+        action="rollback",
         step_plan_digest=OTHER_SHA,
         status="PLANNED",
     )
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     record_result(cp, attempt, status="UNKNOWN", result_digest=None)
     loaded = LifecycleControlPlane.load(tmp_path, evidence_verifier=verify_external_proof)
     with pytest.raises(TransitionDeniedError, match="idempotency key"):
@@ -1501,7 +1550,7 @@ def test_budget_and_repair_usage_are_monotonic_and_replayed(tmp_path: Path) -> N
 
 
 def test_same_attempt_id_cannot_rebind_a_complete_mutation_plan(tmp_path: Path) -> None:
-    cp = control_plane(tmp_path)
+    cp = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
     attempt = MutationAttempt(
         attempt_id="attempt-complete-plan",
         idempotency_key="deploy:run-65:1",
@@ -1511,7 +1560,7 @@ def test_same_attempt_id_cannot_rebind_a_complete_mutation_plan(tmp_path: Path) 
         status="PLANNED",
         steps=("create", "wait", "observe"),
     )
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     record_result(cp, attempt, status="UNKNOWN", result_digest=None)
     altered = replace(
         attempt,
@@ -1539,7 +1588,7 @@ def test_mutation_admission_requires_persisted_success_after_replay(tmp_path: Pa
         step_plan_digest=mutation_subject_digest("deploy_staging", required),
         status="PLANNED",
     )
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
     loaded = LifecycleControlPlane.load(tmp_path, evidence_verifier=verify_external_proof)
     required["staging_result_digest"] = SHA
@@ -1568,7 +1617,7 @@ def test_safety_resume_is_bound_to_original_blocked_attempt(tmp_path: Path) -> N
         reason="rollback_indeterminate",
     )
     blocked_evidence["original_attempt_digest"] = object_digest(asdict(attempt))
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     cp.transition(
         LifecycleState.BLOCKED,
         context(
@@ -1636,7 +1685,7 @@ def test_indeterminate_rollback_retains_truthful_unresolved_exposure(tmp_path: P
         step_plan_digest=mutation_subject_digest("rollback", {"subject_digest": SHA}),
         status="PLANNED",
     )
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     required = evidence_for(
         LifecycleState.ROLLBACK_IN_PROGRESS,
         LifecycleState.BLOCKED,
@@ -1689,7 +1738,7 @@ def test_safety_mutations_are_explicitly_prejournaled_before_adapter_execution(
     with pytest.raises(TransitionDeniedError, match="durably pre-journaled"):
         record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
 
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     persisted = cp.mutation_path.read_text()
     assert attempt.attempt_id in persisted
     assert "record_digest" in persisted
@@ -1808,7 +1857,7 @@ def test_reserved_safety_budget_is_control_plane_bounded_and_not_caller_capacity
         reason="rollback_indeterminate",
     )
     blocked_evidence["original_attempt_digest"] = object_digest(asdict(attempt))
-    blocked.prejournal_mutation(attempt)
+    prejournal(blocked, attempt)
     blocked.transition(
         LifecycleState.BLOCKED,
         context(evidence=blocked_evidence, mutation=attempt),
@@ -1859,7 +1908,7 @@ def test_canary_failure_with_mutation_or_indeterminate_exposure_enters_rollback(
         step_plan_digest=mutation_subject_digest("rollback", {"subject_digest": SHA}),
         status="PLANNED",
     )
-    cp.prejournal_mutation(rollback)
+    prejournal(cp, rollback)
     required = evidence_for(
         LifecycleState.CANARY_DEPLOYED,
         LifecycleState.ROLLBACK_IN_PROGRESS,
@@ -2069,7 +2118,7 @@ def test_staging_rejects_a_pending_post_merge_blocker(tmp_path: Path) -> None:
         step_plan_digest=OTHER_SHA,
         status="PLANNED",
     )
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     evidence = evidence_for(
         LifecycleState.PR_MERGED,
         LifecycleState.STAGING_DEPLOYED,
@@ -2350,7 +2399,7 @@ def test_rollback_completion_requires_exact_attempt_bound_zero_exposure(
         step_plan_digest=mutation_subject_digest("rollback", {"subject_digest": SHA}),
         status="PLANNED",
     )
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
     required = evidence_for(
         LifecycleState.ROLLBACK_IN_PROGRESS,
@@ -2437,7 +2486,7 @@ def test_canary_progression_rejects_foreign_or_stale_active_canary_proof(
         step_plan_digest=mutation_subject_digest("deploy_canary", admitted),
         status="PLANNED",
     )
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
     admitted.update(
         {
@@ -2733,7 +2782,7 @@ def test_production_approval_cannot_be_reused_for_an_unbound_rollout(
         step_plan_digest=OTHER_SHA,
         status="PLANNED",
     )
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
     required = evidence_for(
         LifecycleState.PRODUCTION_APPROVAL_REQUIRED,
@@ -2938,7 +2987,7 @@ def test_native_merge_requires_the_exact_persisted_review_binding(tmp_path: Path
         step_plan_digest=mutation_subject_digest("enqueue_merge", planned_evidence),
         status="PLANNED",
     )
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     record_result(cp, attempt, status="SUCCEEDED", result_digest=merge_result_digest)
     planned_evidence["merge_attempt_digest"] = object_digest(asdict(attempt))
     evidence = {**planned_evidence, "prospective_tree_digest": object_digest("unreviewed-tree")}
@@ -2972,7 +3021,7 @@ def test_native_merge_requires_the_exact_persisted_review_binding(tmp_path: Path
         step_plan_digest=mutation_subject_digest("deploy_staging", staging_evidence),
         status="PLANNED",
     )
-    cp.prejournal_mutation(staging_attempt)
+    prejournal(cp, staging_attempt)
     record_result(cp, staging_attempt, status="SUCCEEDED", result_digest=SHA)
     staging_evidence["staging_attempt_digest"] = object_digest(asdict(staging_attempt))
     staging_evidence["staging_result_digest"] = SHA
@@ -3053,7 +3102,7 @@ def test_production_artifact_must_match_the_artifact_exercised_by_canary(
         step_plan_digest=OTHER_SHA,
         status="PLANNED",
     )
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
     evidence = evidence_for(
         LifecycleState.PRODUCTION_APPROVAL_REQUIRED,
@@ -3188,7 +3237,7 @@ def test_pr_ready_resume_revalidates_the_persisted_review_inputs(tmp_path: Path)
 def test_mutation_result_requires_authenticated_exact_attempt_adapter_evidence(
     tmp_path: Path,
 ) -> None:
-    cp = control_plane(tmp_path)
+    cp = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
     attempt = MutationAttempt(
         attempt_id="adapter-proof-attempt",
         idempotency_key="adapter:run-65:1",
@@ -3197,7 +3246,7 @@ def test_mutation_result_requires_authenticated_exact_attempt_adapter_evidence(
         step_plan_digest=OTHER_SHA,
         status="PLANNED",
     )
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
 
     with pytest.raises(TransitionDeniedError, match="adapter"):
         cp.record_mutation_result(attempt, status="SUCCEEDED", result_digest=SHA)
@@ -3289,7 +3338,7 @@ def test_authority_digest_cannot_be_reused_with_forged_current_fields(tmp_path: 
 
 
 def test_adapter_result_rejects_self_asserted_untrusted_authority(tmp_path: Path) -> None:
-    cp = control_plane(tmp_path)
+    cp = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
     attempt = MutationAttempt(
         attempt_id="untrusted-adapter-attempt",
         idempotency_key="adapter:run-65:untrusted",
@@ -3298,7 +3347,7 @@ def test_adapter_result_rejects_self_asserted_untrusted_authority(tmp_path: Path
         step_plan_digest=OTHER_SHA,
         status="PLANNED",
     )
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     fabricated = adapter_result_evidence(attempt, status="SUCCEEDED", result_digest=SHA)
     fabricated = replace(
         fabricated,
@@ -3359,7 +3408,7 @@ def test_merge_rejects_attempt_not_bound_to_reviewed_queue_subject(tmp_path: Pat
         step_plan_digest=object_digest("different queue subject"),
         status="PLANNED",
     )
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     evidence = evidence_for(
         LifecycleState.PR_READY,
         LifecycleState.PR_MERGED,
@@ -3408,7 +3457,7 @@ def test_canary_rejects_attempt_not_bound_to_rollout_subject(tmp_path: Path) -> 
         step_plan_digest=object_digest("artifact-a"),
         status="PLANNED",
     )
-    cp.prejournal_mutation(attempt)
+    prejournal(cp, attempt)
     record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
     evidence = evidence_for(
         LifecycleState.STAGING_DEPLOYED,
@@ -3533,3 +3582,53 @@ def test_lifecycle_identity_and_authoritative_usage_are_not_caller_replaceable(
         cp.subject_digest = OTHER_SHA  # type: ignore[misc]
     with pytest.raises(AttributeError):
         cp.budget_usage = BudgetUsage()  # type: ignore[misc]
+
+
+def test_prejournal_rejects_an_authorization_not_bound_to_current_state(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
+    attempt = MutationAttempt(
+        attempt_id="authority-fence-attempt",
+        idempotency_key="stage:run-65:authority-fence",
+        subject_digest=SHA,
+        action="deploy_staging",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+    stale = replace(mutation_authorization(cp, attempt), source_state=LifecycleState.PR_READY)
+
+    with pytest.raises(TransitionDeniedError, match="current external lifecycle authority"):
+        cp.prejournal_mutation(attempt, authorization=stale)
+
+
+def test_budget_stop_rejects_a_self_asserted_meter_snapshot(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.IMPLEMENTATION_IN_PROGRESS)
+    _, exhausted = budgets(tokens=101)
+    required = evidence_for(
+        LifecycleState.IMPLEMENTATION_IN_PROGRESS,
+        LifecycleState.BUDGET_EXCEEDED,
+        reason="delivery_budget_exhausted",
+    )
+    stopped = WorkStatus(partial_output_disposition="frozen-unverified-non-admissible")
+    bind_work_evidence(required, stopped)
+    valid = context(usage=exhausted, work=stopped, evidence=required)
+    forged = dict(valid.evidence)
+    forged["budget_meter_authentication_evidence_digest"] = object_digest("self-asserted")
+
+    with pytest.raises(TransitionDeniedError, match="trusted complete budget telemetry"):
+        cp.transition(
+            LifecycleState.BUDGET_EXCEEDED,
+            replace(valid, evidence=forged),
+            reason="delivery_budget_exhausted",
+        )
+
+
+def test_production_mutation_subject_binds_the_authority_fence() -> None:
+    baseline = dict.fromkeys(lifecycle._MUTATION_SUBJECT_FIELDS["deploy_production"], SHA)
+    changed = dict(baseline)
+    changed["authority_fence_digest"] = OTHER_SHA
+
+    assert mutation_subject_digest("deploy_production", baseline) != mutation_subject_digest(
+        "deploy_production", changed
+    )
