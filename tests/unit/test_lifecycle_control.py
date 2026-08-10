@@ -1373,6 +1373,31 @@ def test_unknown_legacy_state_fails_closed() -> None:
         migrate_legacy_state({"version": 2, "stage": "surprise"})
 
 
+def test_legacy_migration_is_readable_but_stops_for_phase_zero_readmission(
+    tmp_path: Path,
+) -> None:
+    policy, _ = budgets()
+    migration = migrate_legacy_state({"version": 2, "stage": "deploy"})
+
+    cp = LifecycleControlPlane.admit_legacy_migration(
+        tmp_path,
+        run_id="legacy-run-65",
+        subject_digest=SHA,
+        budget_policy=policy,
+        migration=migration,
+        trust_policy=TRUST_POLICY,
+        evidence_verifier=verify_external_proof,
+    )
+
+    assert cp.state is LifecycleState.PRODUCT_INPUT_REQUIRED
+    admitted = cp.events[-1]
+    assert admitted.kind == "MIGRATION_ADMITTED"
+    assert admitted.evidence_refs["legacy_migration_digest"] == migration.digest
+    assert LifecycleControlPlane.load(tmp_path, evidence_verifier=verify_external_proof).state is (
+        LifecycleState.PRODUCT_INPUT_REQUIRED
+    )
+
+
 def test_persistence_replay_detects_tampering(tmp_path: Path) -> None:
     cp = control_plane(tmp_path)
     required = evidence_for(
@@ -3600,6 +3625,34 @@ def test_prejournal_rejects_an_authorization_not_bound_to_current_state(
 
     with pytest.raises(TransitionDeniedError, match="current external lifecycle authority"):
         cp.prejournal_mutation(attempt, authorization=stale)
+
+
+def test_prejournal_rejects_a_stale_lifecycle_head_before_adapter_release(
+    tmp_path: Path,
+) -> None:
+    current = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
+    stale = LifecycleControlPlane.load(tmp_path, evidence_verifier=verify_external_proof)
+    current._append(
+        kind="OBSERVATION",
+        outcome="RECORDED",
+        source=LifecycleState.PR_MERGED,
+        target=LifecycleState.PR_MERGED,
+        reason="new_observation",
+        actor="fixture",
+        evidence_refs={"subject_digest": SHA},
+        observed_at="2026-08-02T00:02:00Z",
+    )
+    attempt = MutationAttempt(
+        attempt_id="stale-release-attempt",
+        idempotency_key="stage:run-65:stale-release",
+        subject_digest=SHA,
+        action="deploy_staging",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+
+    with pytest.raises(TransitionDeniedError, match="reload before mutation release"):
+        stale.prejournal_mutation(attempt, authorization=mutation_authorization(stale, attempt))
 
 
 def test_budget_stop_rejects_a_self_asserted_meter_snapshot(tmp_path: Path) -> None:

@@ -2132,6 +2132,62 @@ class LifecycleControlPlane:
             )
         return cp
 
+    @classmethod
+    def admit_legacy_migration(
+        cls,
+        run_dir: Path,
+        *,
+        run_id: str,
+        subject_digest: str,
+        budget_policy: BudgetPolicy,
+        migration: MigrationResult,
+        trust_policy: EvidenceTrustPolicy | None = None,
+        evidence_verifier: EvidenceVerifier | None = None,
+    ) -> LifecycleControlPlane:
+        """Preserve a historical run without inventing evidence for forward progress.
+
+        Legacy state is recorded as inspection provenance only.  Because V2/V3
+        artifacts cannot establish Phase Zero authority, budget, review, or
+        deployment evidence, admission stops at the product-input gate.
+        """
+
+        cp = cls.create(
+            run_dir,
+            run_id=run_id,
+            subject_digest=subject_digest,
+            initial_state=S.CONTRACT_RECEIVED,
+            budget_policy=budget_policy,
+            trust_policy=trust_policy,
+            evidence_verifier=evidence_verifier,
+        )
+        with cp._operation_lock, cp._exclusive_lock():
+            if len(cp._events) == 1:
+                cp._append_locked(
+                    kind="MIGRATION_ADMITTED",
+                    outcome="APPLIED",
+                    source=S.CONTRACT_RECEIVED,
+                    target=S.PRODUCT_INPUT_REQUIRED,
+                    reason="legacy_evidence_unavailable",
+                    actor="migration-adapter",
+                    evidence_refs={
+                        "subject_digest": subject_digest,
+                        "legacy_source_version_digest": _digest(migration.source_version),
+                        "legacy_source_stage_digest": _digest(migration.source_stage),
+                        "legacy_mapped_state_digest": _digest(migration.state.value),
+                        "legacy_migration_digest": migration.digest,
+                        "migration_disposition_digest": _digest(
+                            "historical-only; phase-zero re-admission required"
+                        ),
+                    },
+                    observed_at="",
+                )
+                cp._state = S.PRODUCT_INPUT_REQUIRED
+            elif cp.state is not S.PRODUCT_INPUT_REQUIRED:
+                raise ValueError(
+                    "lifecycle run already exists with a different migration admission"
+                )
+        return cp
+
     @staticmethod
     def _budget_policy_from_dict(raw_policy: dict[str, Any]) -> BudgetPolicy:
         return BudgetPolicy(
@@ -3651,13 +3707,29 @@ class LifecycleControlPlane:
     ) -> MutationAttempt:
         """Durably bind a complete mutation plan before any adapter may run."""
 
-        if attempt.subject_digest != self.subject_digest:
-            raise TransitionDeniedError("mutation attempt subject does not match")
-        if not self._mutation_authorization_valid(attempt, authorization):
-            raise TransitionDeniedError(
-                "mutation attempt lacks current external lifecycle authority"
+        with self._operation_lock, self._exclusive_lock():
+            persisted = (
+                [
+                    json.loads(line)
+                    for line in self.ledger_path.read_text().splitlines()
+                    if line.strip()
+                ]
+                if self.ledger_path.exists()
+                else []
             )
-        self._register_mutation(attempt)
+            persisted_head = str(persisted[-1].get("event_digest", "")) if persisted else ""
+            current_head = self._events[-1].event_digest if self._events else ""
+            if persisted_head != current_head:
+                raise TransitionDeniedError(
+                    "lifecycle state changed; reload before mutation release"
+                )
+            if attempt.subject_digest != self.subject_digest:
+                raise TransitionDeniedError("mutation attempt subject does not match")
+            if not self._mutation_authorization_valid(attempt, authorization):
+                raise TransitionDeniedError(
+                    "mutation attempt lacks current external lifecycle authority"
+                )
+            self._register_mutation_locked(attempt)
         return attempt
 
     def _require_prejournaled(self, attempt: MutationAttempt) -> None:
@@ -3671,21 +3743,24 @@ class LifecycleControlPlane:
 
     def _register_mutation(self, attempt: MutationAttempt) -> None:
         with self._exclusive_lock():
-            attempts = self._read_mutation_attempts()
-            prior = attempts.get(attempt.idempotency_key)
-            if prior is not None and prior != attempt:
-                raise TransitionDeniedError(
-                    "idempotency key is already bound to a different complete mutation plan"
-                )
-            if prior is None:
-                body = asdict(attempt)
-                body["record_digest"] = _digest(body)
-                with self.mutation_path.open("a") as stream:
-                    stream.write(json.dumps(body, sort_keys=True, separators=(",", ":")) + "\n")
-                    stream.flush()
-                    os.fsync(stream.fileno())
-            self._mutation_keys[attempt.idempotency_key] = attempt.attempt_id
-            self._mutation_attempts[attempt.idempotency_key] = attempt
+            self._register_mutation_locked(attempt)
+
+    def _register_mutation_locked(self, attempt: MutationAttempt) -> None:
+        attempts = self._read_mutation_attempts()
+        prior = attempts.get(attempt.idempotency_key)
+        if prior is not None and prior != attempt:
+            raise TransitionDeniedError(
+                "idempotency key is already bound to a different complete mutation plan"
+            )
+        if prior is None:
+            body = asdict(attempt)
+            body["record_digest"] = _digest(body)
+            with self.mutation_path.open("a") as stream:
+                stream.write(json.dumps(body, sort_keys=True, separators=(",", ":")) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+        self._mutation_keys[attempt.idempotency_key] = attempt.attempt_id
+        self._mutation_attempts[attempt.idempotency_key] = attempt
 
     def _read_mutation_attempts(self) -> dict[str, MutationAttempt]:
         attempts: dict[str, MutationAttempt] = {}
