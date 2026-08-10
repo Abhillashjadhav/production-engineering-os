@@ -129,6 +129,33 @@ def test_exact_bot_review_is_clean_evidence_only_for_the_current_head(verifier_m
     )
 
 
+def test_finding_bearing_top_level_bot_review_is_not_clean_evidence(verifier_module) -> None:
+    expected = "a" * 40
+
+    assert not verifier_module._has_exact_bot_review(
+        [
+            {
+                "user": {"login": verifier_module.BOT},
+                "commit_id": expected,
+                "body": "![P1 Badge] blocks admission",
+            }
+        ],
+        expected,
+    )
+
+
+def test_deleted_review_author_cannot_crash_exact_review_scan(verifier_module) -> None:
+    expected = "a" * 40
+
+    assert verifier_module._has_exact_bot_review(
+        [
+            {"user": None, "commit_id": expected, "body": ""},
+            {"user": {"login": verifier_module.BOT}, "commit_id": expected, "body": ""},
+        ],
+        expected,
+    )
+
+
 def test_all_review_threads_finds_blocker_on_later_graphql_page(
     monkeypatch: pytest.MonkeyPatch, verifier_module
 ) -> None:
