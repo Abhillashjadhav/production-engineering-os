@@ -2486,6 +2486,16 @@ def test_ordinary_safe_stop_resumes_only_through_its_admitted_safe_gate(
     assert cp.state is LifecycleState.VERIFICATION_FAILED
 
 
+def test_recorded_safe_resume_cannot_bypass_resume_admission(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.BLOCKED)
+    with pytest.raises(TransitionDeniedError, match="require resume"):
+        cp.transition(
+            LifecycleState.PRODUCTION_DEPLOYED,
+            context(evidence={"subject_digest": SHA}),
+            reason="recorded_safe_resume",
+        )
+
+
 def test_unknown_policy_decisions_fail_closed() -> None:
     decision = PolicyEngine().classify("operation.never.registered")
     assert decision.level.value == "high"

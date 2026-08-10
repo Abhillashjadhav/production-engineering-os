@@ -1517,7 +1517,6 @@ _RULES: tuple[TransitionRule, ...] = (
             "restoration_verification_digest",
             "incident_digest",
         ),
-        "safety",
         "mutation",
         "zero_exposure",
         mutation="rollback",
@@ -2874,6 +2873,8 @@ class LifecycleControlPlane:
     def _transition_locked(
         self, target: LifecycleState, context: TransitionContext, *, reason: str
     ) -> LifecycleEvent:
+        if reason == "recorded_safe_resume":
+            raise TransitionDeniedError("recorded-safe resumes require resume() admission")
         context = replace(
             context,
             evidence=dict(context.evidence),
