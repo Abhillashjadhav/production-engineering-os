@@ -1797,6 +1797,7 @@ class LifecycleControlPlane:
         self._mutation_attempts: dict[str, MutationAttempt] = {}
         self._mutation_results: dict[str, MutationResult] = {}
         self._verified_mutation_result_keys: set[str] = set()
+        self._consumed_mutation_result_keys: set[str] = set()
         self._budget_usage = BudgetUsage()
 
     @property
@@ -2193,6 +2194,10 @@ class LifecycleControlPlane:
                     )
                     if cp._evidence_verifier is not None:
                         cp._verified_mutation_result_keys.add(key)
+            if event.kind == "MUTATION_RESULT_CONSUMED":
+                key = event.evidence_refs.get("idempotency_key", "")
+                if key:
+                    cp._consumed_mutation_result_keys.add(key)
             if event.kind == "BUDGET_POLICY_ADMITTED":
                 policy_json = event.evidence_refs.get("budget_policy_json", "")
                 if policy_json:
@@ -2546,11 +2551,13 @@ class LifecycleControlPlane:
         reason: str,
         detail: str,
     ) -> NoReturn:
-        supplied = replace(
-            context.budget_usage,
-            safety_units_used=self.budget_usage.safety_units_used,
-        )
-        persisted_usage = self._merge_budget_usage(supplied, reject_lower=False)
+        persisted_usage = self.budget_usage
+        if self._trusted_budget_usage_valid(context):
+            supplied = replace(
+                context.budget_usage,
+                safety_units_used=self.budget_usage.safety_units_used,
+            )
+            persisted_usage = self._merge_budget_usage(supplied, reject_lower=False)
         self._append(
             kind="TRANSITION",
             outcome="DENIED",
@@ -3244,6 +3251,7 @@ class LifecycleControlPlane:
                 result is None
                 or not result.successful
                 or attempt.idempotency_key not in self._verified_mutation_result_keys
+                or attempt.idempotency_key in self._consumed_mutation_result_keys
             ):
                 self._deny(
                     target,
@@ -3513,6 +3521,23 @@ class LifecycleControlPlane:
         )
         self._state = target
         self._budget_usage = usage
+        if (
+            "mutation" in guards
+            and context.mutation is not None
+            and result is not None
+            and result.successful
+        ):
+            self._append(
+                kind="MUTATION_RESULT_CONSUMED",
+                outcome="RECORDED",
+                source=target,
+                target=target,
+                reason=context.mutation.action,
+                actor=context.actor.actor_id,
+                evidence_refs={"idempotency_key": context.mutation.idempotency_key},
+                observed_at=context.observed_at,
+            )
+            self._consumed_mutation_result_keys.add(context.mutation.idempotency_key)
         if kind == "COMPLETION_CLAIMED":
             self._completion_claim_active = True
         elif kind == "COMPLETION_REVOKED":
