@@ -184,7 +184,14 @@ def main() -> int:
             raise SystemExit("missing clean exact-head Codex advisory evidence")
         time.sleep(10)
     threads = _all_review_threads(repository, number)
-    if _has_current_blocker(threads):
+    # A top-level review has no review thread. Re-fetch it after GraphQL
+    # pagination so a finding submitted during that scan cannot race admission.
+    final_pr = _gh("api", f"repos/{repository}/pulls/{number}")
+    if final_pr["head"]["sha"] != expected:
+        raise SystemExit("current PR head changed during Codex evidence verification")
+    if _has_current_blocker(threads) or _has_exact_bot_review_blocker(
+        _all_reviews(repository, number), expected
+    ):
         raise SystemExit("current Codex P0/P1/P2 finding blocks admission")
     print(f"CODEX ADVISORY REVIEW — CLEAN — EXACT HEAD {expected}")
     return 0
