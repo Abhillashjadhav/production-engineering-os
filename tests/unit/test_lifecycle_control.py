@@ -456,6 +456,28 @@ def completion_evidence_with_review_binding(cp: LifecycleControlPlane) -> dict[s
     return evidence
 
 
+def test_completion_binds_release_to_persisted_merge_not_review_head(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PRODUCTION_DEPLOYED)
+    evidence = completion_evidence_with_review_binding(cp)
+    deployed_sha = "b" * 40
+    cp._append(
+        kind="TRANSITION",
+        outcome="APPLIED",
+        source=LifecycleState.PR_READY,
+        target=LifecycleState.PR_MERGED,
+        reason="native_merge_linearized",
+        actor="merge-queue",
+        evidence_refs={"merge_commit_sha": deployed_sha},
+        observed_at="2026-08-02T00:01:00Z",
+    )
+    evidence["release_sha"] = deployed_sha
+    cp.transition(
+        LifecycleState.COMPLETED,
+        context(evidence=evidence),
+        reason="observation_window_passed",
+    )
+
+
 def production_approval_for(evidence: dict[str, str]) -> Approval:
     approval = Approval(
         approval_id="production-approval-1",

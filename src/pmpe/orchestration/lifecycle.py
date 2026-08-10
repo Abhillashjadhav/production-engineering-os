@@ -3323,6 +3323,14 @@ class LifecycleControlPlane:
             self._deny(target, context, reason, "completion claim is already active")
         if "completion" in guards:
             review_binding = self._latest_review_binding()
+            merge_binding = self._latest_merge_binding()
+            deployed_release_sha = (
+                merge_binding.evidence_refs.get("merge_commit_sha")
+                if merge_binding is not None
+                else review_binding.evidence_refs.get("reviewed_commit_sha")
+                if review_binding is not None
+                else None
+            )
             invalidating_reasons = {"blocking_finding", "check_stale", "head_changed"}
             invalidated = review_binding is not None and any(
                 event.sequence > review_binding.sequence
@@ -3333,8 +3341,7 @@ class LifecycleControlPlane:
             if (
                 review_binding is None
                 or invalidated
-                or context.evidence.get("release_sha")
-                != review_binding.evidence_refs.get("reviewed_commit_sha")
+                or context.evidence.get("release_sha") != deployed_release_sha
                 or context.evidence.get("reviewed_commit_sha")
                 != review_binding.evidence_refs.get("reviewed_commit_sha")
                 or context.evidence.get("reviewed_candidate_digest")
