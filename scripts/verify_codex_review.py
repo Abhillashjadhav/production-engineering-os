@@ -158,6 +158,19 @@ def _has_exact_bot_review_blocker(reviews: list[dict[str, Any]], expected: str) 
     )
 
 
+def _review_snapshot_ids(reviews: list[dict[str, Any]]) -> tuple[str, ...]:
+    """Give a deterministic identity to every REST review in an observation."""
+    return tuple(
+        sorted(
+            str(
+                review.get("id")
+                or f"{review.get('commit_id')}:{review.get('submitted_at')}:{review.get('body')}"
+            )
+            for review in reviews
+        )
+    )
+
+
 def main() -> int:
     expected = os.environ["EXPECTED_HEAD"]
     number = os.environ["PR_NUMBER"]
@@ -183,15 +196,22 @@ def main() -> int:
         if time.monotonic() >= deadline:
             raise SystemExit("missing clean exact-head Codex advisory evidence")
         time.sleep(10)
-    threads = _all_review_threads(repository, number)
-    # A top-level review has no review thread. Re-fetch it after GraphQL
-    # pagination so a finding submitted during that scan cannot race admission.
+    # Reviews discovered while threads are being paginated can contain inline
+    # blockers absent from the first thread scan. Retry until both surfaces
+    # share one stable review set.
+    while True:
+        threads = _all_review_threads(repository, number)
+        final_reviews = _all_reviews(repository, number)
+        if _review_snapshot_ids(reviews) == _review_snapshot_ids(final_reviews):
+            reviews = final_reviews
+            break
+        reviews = final_reviews
+
+    # A top-level review has no review thread, so inspect its final stable set.
     final_pr = _gh("api", f"repos/{repository}/pulls/{number}")
     if final_pr["head"]["sha"] != expected:
         raise SystemExit("current PR head changed during Codex evidence verification")
-    if _has_current_blocker(threads) or _has_exact_bot_review_blocker(
-        _all_reviews(repository, number), expected
-    ):
+    if _has_current_blocker(threads) or _has_exact_bot_review_blocker(reviews, expected):
         raise SystemExit("current Codex P0/P1/P2 finding blocks admission")
     print(f"CODEX ADVISORY REVIEW — CLEAN — EXACT HEAD {expected}")
     return 0

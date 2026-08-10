@@ -202,7 +202,9 @@ def test_main_rechecks_review_bodies_after_thread_pagination(
         "commit_id": expected,
         "body": "![P1 Badge] submitted during thread pagination",
     }
-    review_snapshots = iter([[clean_review], [clean_review, late_blocker]])
+    review_snapshots = iter(
+        [[clean_review], [clean_review, late_blocker], [clean_review, late_blocker]]
+    )
 
     monkeypatch.setenv("EXPECTED_HEAD", expected)
     monkeypatch.setenv("PR_NUMBER", "99")
@@ -212,6 +214,59 @@ def test_main_rechecks_review_bodies_after_thread_pagination(
     monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
     monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: next(review_snapshots))
     monkeypatch.setattr(verifier_module, "_all_review_threads", lambda *_args: [])
+
+    with pytest.raises(SystemExit, match="current Codex P0/P1/P2 finding blocks admission"):
+        verifier_module.main()
+
+
+def test_main_retries_thread_scan_when_review_set_changes(
+    monkeypatch: pytest.MonkeyPatch, verifier_module
+) -> None:
+    """An inline finding in a newly observed review requires a fresh thread scan."""
+    expected = "a" * 40
+    clean_review = {
+        "id": 1,
+        "user": {"login": verifier_module.BOT},
+        "commit_id": expected,
+        "body": "",
+    }
+    late_inline_review = {
+        "id": 2,
+        "user": {"login": verifier_module.BOT},
+        "commit_id": expected,
+        "body": "",
+    }
+    blocker_thread = {
+        "isOutdated": False,
+        "isResolved": False,
+        "comments": {
+            "nodes": [
+                {
+                    "author": {"login": verifier_module.BOT},
+                    "body": "![P1 Badge] submitted after the first thread scan",
+                }
+            ]
+        },
+    }
+    review_snapshots = iter(
+        [
+            [clean_review],
+            [clean_review, late_inline_review],
+            [clean_review, late_inline_review],
+        ]
+    )
+    thread_snapshots = iter([[], [blocker_thread]])
+
+    monkeypatch.setenv("EXPECTED_HEAD", expected)
+    monkeypatch.setenv("PR_NUMBER", "99")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
+    monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
+    monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
+    monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: next(review_snapshots))
+    monkeypatch.setattr(
+        verifier_module, "_all_review_threads", lambda *_args: next(thread_snapshots)
+    )
 
     with pytest.raises(SystemExit, match="current Codex P0/P1/P2 finding blocks admission"):
         verifier_module.main()
