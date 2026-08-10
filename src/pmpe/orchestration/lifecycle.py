@@ -596,7 +596,8 @@ _MUTATION_SUBJECT_FIELDS: dict[str, tuple[str, ...]] = {
         "configuration_digest",
         "deployment_target_digest",
         "staging_authorization_digest",
-        "finding_inventory_digest",
+        "finding_source_set_digest",
+        "finding_inventory_epochs_digest",
         "authority_fence_digest",
     ),
     "deploy_canary": (
@@ -1203,7 +1204,8 @@ _RULES: tuple[TransitionRule, ...] = (
             "configuration_digest",
             "deployment_target_digest",
             "staging_authorization_digest",
-            "finding_inventory_digest",
+            "finding_source_set_digest",
+            "finding_inventory_epochs_digest",
             "authority_fence_digest",
             "staging_attempt_digest",
             "staging_result_digest",
@@ -2023,28 +2025,32 @@ class LifecycleControlPlane:
         """Require an independently authenticated, current no-blocker inventory."""
 
         evidence = context.evidence
-        source = evidence.get("finding_source_id", "")
-        authority_digest = evidence.get("finding_source_authority_digest", "")
-        inventory_digest = evidence.get("finding_inventory_digest", "")
-        payload = {
-            "source_id": source,
-            "authority_digest": authority_digest,
-            "subject_digest": self.subject_digest,
-            "inventory_digest": inventory_digest,
-            "status": "NO_BLOCKING",
-            "observed_at": context.observed_at,
-        }
-        return bool(
-            source
-            and _SHA256.fullmatch(inventory_digest)
-            and self.trust_policy.finding_sources.get(source) == authority_digest
-            and self._verify_external_evidence(
-                source,
-                authority_digest,
-                payload,
-                evidence.get("finding_inventory_authentication_evidence_digest", ""),
-            )
-        )
+        sources = dict(self.trust_policy.finding_sources)
+        inventories: dict[str, str] = {}
+        if evidence.get("finding_source_set_digest") != _digest(sources):
+            return False
+        for source, authority_digest in sources.items():
+            inventory_digest = evidence.get(f"finding_inventory_{source}_digest", "")
+            payload = {
+                "source_id": source,
+                "authority_digest": authority_digest,
+                "subject_digest": self.subject_digest,
+                "inventory_digest": inventory_digest,
+                "status": "NO_BLOCKING",
+                "observed_at": context.observed_at,
+            }
+            if not (
+                _SHA256.fullmatch(inventory_digest)
+                and self._verify_external_evidence(
+                    source,
+                    authority_digest,
+                    payload,
+                    evidence.get(f"finding_inventory_{source}_authentication_evidence_digest", ""),
+                )
+            ):
+                return False
+            inventories[source] = inventory_digest
+        return evidence.get("finding_inventory_epochs_digest") == _digest(inventories)
 
     def _trusted_finding_signal_valid(
         self, context: TransitionContext, finding: FindingSignal

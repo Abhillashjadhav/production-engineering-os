@@ -210,23 +210,31 @@ def context(
             ),
         }
     )
-    finding_payload = {
-        "source_id": "finding-source",
-        "authority_digest": SHA,
-        "subject_digest": SHA,
-        "inventory_digest": effective_evidence.get("finding_inventory_digest", OTHER_SHA),
-        "status": "NO_BLOCKING",
-        "observed_at": "2026-08-02T00:01:00Z",
-    }
-    for name, value in {
-        "finding_source_id": "finding-source",
-        "finding_source_authority_digest": SHA,
-        "finding_inventory_digest": OTHER_SHA,
-        "finding_inventory_authentication_evidence_digest": external_proof(
-            "finding-source", SHA, finding_payload
-        ),
-    }.items():
-        effective_evidence.setdefault(name, value)
+    inventories: dict[str, str] = {}
+    for source, authority_digest in TRUST_POLICY.finding_sources.items():
+        inventory_digest = effective_evidence.setdefault(
+            f"finding_inventory_{source}_digest", OTHER_SHA
+        )
+        inventories[source] = inventory_digest
+        effective_evidence.setdefault(
+            f"finding_inventory_{source}_authentication_evidence_digest",
+            external_proof(
+                source,
+                authority_digest,
+                {
+                    "source_id": source,
+                    "authority_digest": authority_digest,
+                    "subject_digest": SHA,
+                    "inventory_digest": inventory_digest,
+                    "status": "NO_BLOCKING",
+                    "observed_at": "2026-08-02T00:01:00Z",
+                },
+            ),
+        )
+    effective_evidence.setdefault(
+        "finding_source_set_digest", object_digest(dict(TRUST_POLICY.finding_sources))
+    )
+    effective_evidence.setdefault("finding_inventory_epochs_digest", object_digest(inventories))
     return TransitionContext(
         actor=actor
         or lifecycle.TransitionActor(
@@ -359,7 +367,7 @@ def test_forward_transition_rejects_self_computed_budget_telemetry(tmp_path: Pat
 
 def evidence_for(source: LifecycleState, target: LifecycleState, *, reason: str) -> dict[str, str]:
     rule = PHASE_ZERO_POLICY.rule(source, target, reason=reason)
-    return {
+    evidence = {
         name: (
             SHA
             if name == "subject_digest"
@@ -371,6 +379,13 @@ def evidence_for(source: LifecycleState, target: LifecycleState, *, reason: str)
         )
         for name in rule.required_evidence
     }
+    if "finding_source_set_digest" in evidence:
+        inventories = dict.fromkeys(TRUST_POLICY.finding_sources, OTHER_SHA)
+        evidence.update(
+            finding_source_set_digest=object_digest(dict(TRUST_POLICY.finding_sources)),
+            finding_inventory_epochs_digest=object_digest(inventories),
+        )
+    return evidence
 
 
 def object_digest(value: object) -> str:
@@ -919,6 +934,21 @@ def test_observers_append_digest_bound_evidence_but_cannot_change_state(tmp_path
     assert LifecycleControlPlane.load(tmp_path).state is LifecycleState.PR_READY
 
 
+def test_observation_rejects_an_untrusted_or_forged_live_source(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+
+    with pytest.raises(TransitionDeniedError, match="observation source is not authenticated"):
+        cp.record_observation(
+            source="live-observer",
+            subject_digest=SHA,
+            payload_digest=OTHER_SHA,
+            signature=OTHER_SHA,
+            observed_at="2026-08-02T00:02:00Z",
+        )
+
+    assert cp.events[-1].kind == "STATE_CREATED"
+
+
 def test_every_budget_dimension_must_be_approved_and_within_limit(tmp_path: Path) -> None:
     policy, _ = budgets()
     with pytest.raises(ValueError, match="approved"):
@@ -1182,6 +1212,69 @@ def test_external_mutation_requires_prejournaled_unique_attempt(tmp_path: Path) 
             replace(attempt, attempt_id="attempt-stage-2"),
             status="SUCCEEDED",
             result_digest=SHA,
+        )
+
+
+def test_staging_requires_an_authenticated_inventory_from_every_configured_source(
+    tmp_path: Path,
+) -> None:
+    trust_policy = replace(
+        TRUST_POLICY,
+        finding_sources={"finding-source": SHA, "secondary-scanner": OTHER_SHA},
+    )
+    policy, _ = budgets()
+    cp = LifecycleControlPlane.create(
+        tmp_path,
+        run_id="two-source-promotion",
+        subject_digest=SHA,
+        initial_state=LifecycleState.CONTRACT_RECEIVED,
+        budget_policy=policy,
+        trust_policy=trust_policy,
+        evidence_verifier=verify_external_proof,
+    )
+    cp._append(
+        kind="MIGRATION_ADMITTED",
+        outcome="APPLIED",
+        source=LifecycleState.CONTRACT_RECEIVED,
+        target=LifecycleState.PR_MERGED,
+        reason="test_fixture_migration",
+        actor="test-fixture",
+        evidence_refs={"subject_digest": SHA},
+        observed_at="2026-08-02T00:01:00Z",
+    )
+    cp._state = LifecycleState.PR_MERGED
+    required = evidence_for(
+        LifecycleState.PR_MERGED,
+        LifecycleState.STAGING_DEPLOYED,
+        reason="staging_admitted",
+    )
+    required.update(
+        finding_source_set_digest=object_digest(dict(trust_policy.finding_sources)),
+        finding_inventory_epochs_digest=object_digest({"finding-source": OTHER_SHA}),
+    )
+
+    with pytest.raises(TransitionDeniedError, match="current trusted finding inventory"):
+        cp.transition(
+            LifecycleState.STAGING_DEPLOYED,
+            context(evidence=required),
+            reason="staging_admitted",
+        )
+
+
+def test_staging_mutation_subject_binds_complete_promotion_fence() -> None:
+    baseline = dict.fromkeys(lifecycle._MUTATION_SUBJECT_FIELDS["deploy_staging"], SHA)
+    for field in (
+        "configuration_digest",
+        "deployment_target_digest",
+        "staging_authorization_digest",
+        "finding_source_set_digest",
+        "finding_inventory_epochs_digest",
+        "authority_fence_digest",
+    ):
+        changed = dict(baseline)
+        changed[field] = OTHER_SHA
+        assert mutation_subject_digest("deploy_staging", baseline) != mutation_subject_digest(
+            "deploy_staging", changed
         )
 
 
