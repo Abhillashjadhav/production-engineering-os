@@ -1991,6 +1991,11 @@ class LifecycleControlPlane:
         trust_policy: EvidenceTrustPolicy | None = None,
         evidence_verifier: EvidenceVerifier | None = None,
     ) -> LifecycleControlPlane:
+        if initial_state is not LifecycleState.CONTRACT_RECEIVED:
+            raise ValueError(
+                "new lifecycle runs must start at CONTRACT_RECEIVED; "
+                "use the explicit migration admission path"
+            )
         path = Path(run_dir)
         path.mkdir(parents=True, exist_ok=True)
         cp = cls(
@@ -2702,6 +2707,13 @@ class LifecycleControlPlane:
                 "subject evidence does not match the lifecycle subject",
             )
         guards = rule.guards
+        if target is S.STAGING_FAILED and context.rollout.has_resources:
+            self._deny(
+                target,
+                context,
+                reason,
+                "staging failure requires zero rollout-owned resources",
+            )
         if "budget" in guards and not self._trusted_budget_usage_valid(context):
             self._deny(target, context, reason, "trusted complete budget telemetry is required")
         admitted_resume_state: LifecycleState | None = None
@@ -3880,6 +3892,13 @@ class LifecycleControlPlane:
                 context,
                 "resume",
                 "reserved safety usage is controlled only by the lifecycle authority",
+            )
+        if not self._trusted_budget_usage_valid(context):
+            self._deny(
+                recorded,
+                context,
+                "resume",
+                "trusted complete budget telemetry is required before resume",
             )
         try:
             usage = self._merge_budget_usage(context.budget_usage, reject_lower=True)

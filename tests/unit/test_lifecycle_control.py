@@ -123,8 +123,10 @@ def context(
     approvals: tuple[Approval, ...] = (),
     finding: FindingSignal | None = None,
     mutation: MutationAttempt | None = None,
+    budget_policy: BudgetPolicy | None = None,
 ) -> TransitionContext:
-    _, default_usage = budgets()
+    default_policy, default_usage = budgets()
+    effective_policy = budget_policy or default_policy
     authority_snapshot = authority(current=current_authority)
     effective_usage = usage or default_usage
     actor_claims = {
@@ -142,7 +144,7 @@ def context(
         "meter_id": "budget-meter",
         "authority_digest": SHA,
         "subject_digest": SHA,
-        "budget_policy_digest": object_digest(lifecycle._budget_policy_payload(budgets()[0])),
+        "budget_policy_digest": object_digest(lifecycle._budget_policy_payload(effective_policy)),
         "budget_usage_digest": object_digest(lifecycle._budget_usage_payload(effective_usage)),
         "observed_at": "2026-08-02T00:01:00Z",
     }
@@ -187,15 +189,28 @@ def control_plane(
     state: LifecycleState = LifecycleState.CONTRACT_RECEIVED,
 ) -> LifecycleControlPlane:
     policy, _ = budgets()
-    return LifecycleControlPlane.create(
+    cp = LifecycleControlPlane.create(
         tmp_path,
         run_id="run-65",
         subject_digest=SHA,
-        initial_state=state,
+        initial_state=LifecycleState.CONTRACT_RECEIVED,
         budget_policy=policy,
         trust_policy=TRUST_POLICY,
         evidence_verifier=verify_external_proof,
     )
+    if state is not LifecycleState.CONTRACT_RECEIVED:
+        cp._append(
+            kind="MIGRATION_ADMITTED",
+            outcome="APPLIED",
+            source=LifecycleState.CONTRACT_RECEIVED,
+            target=state,
+            reason="test_fixture_migration",
+            actor="test-fixture",
+            evidence_refs={"subject_digest": SHA},
+            observed_at="2026-08-02T00:01:00Z",
+        )
+        cp._state = state
+    return cp
 
 
 def test_transition_actor_rejects_a_self_computed_credential(tmp_path: Path) -> None:
@@ -1362,6 +1377,7 @@ def test_budget_resume_uses_only_the_recorded_safe_state(tmp_path: Path) -> None
     cp.resume(
         context(
             usage=BudgetUsage(counters={"tokens": 101}),
+            budget_policy=cp.budget_policy,
             evidence={
                 "subject_digest": SHA,
                 "incident_closure_digest": SHA,
@@ -1776,15 +1792,8 @@ def test_reserved_safety_budget_is_control_plane_bounded_and_not_caller_capacity
         )
 
     policy, _ = budgets()
-    blocked = LifecycleControlPlane.create(
-        tmp_path / "resume",
-        run_id="run-65",
-        subject_digest=SHA,
-        initial_state=LifecycleState.ROLLBACK_IN_PROGRESS,
-        budget_policy=replace(policy, reserved_safety_units=1),
-        trust_policy=TRUST_POLICY,
-        evidence_verifier=verify_external_proof,
-    )
+    blocked = control_plane(tmp_path / "resume", state=LifecycleState.ROLLBACK_IN_PROGRESS)
+    blocked._budget_policy = replace(policy, reserved_safety_units=1)
     attempt = MutationAttempt(
         attempt_id="rollback-safety-cap",
         idempotency_key="rollback:run-65:safety-cap",
