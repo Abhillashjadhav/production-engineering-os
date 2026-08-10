@@ -32,6 +32,21 @@ def _all_issue_comments(repository: str, number: str) -> list[dict[str, Any]]:
         page += 1
 
 
+def _all_reviews(repository: str, number: str) -> list[dict[str, Any]]:
+    """Fetch every REST page: exact-head Codex reviews are authoritative evidence."""
+    reviews: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        current = _gh(
+            "api",
+            f"repos/{repository}/pulls/{number}/reviews?per_page=100&page={page}",
+        )
+        reviews.extend(current)
+        if len(current) < 100:
+            return reviews
+        page += 1
+
+
 def _all_thread_comments(thread: dict[str, Any]) -> list[dict[str, Any]]:
     """Fetch all comments in one review thread before treating it as clean."""
     comments = list(thread["comments"]["nodes"])
@@ -119,6 +134,43 @@ def _comment_matches_exact_head(repository: str, expected: str, body: str) -> bo
     return resolved["sha"] == expected
 
 
+def _has_exact_bot_review(reviews: list[dict[str, Any]], expected: str) -> bool:
+    """A GitHub PR review is clean evidence when it is bot-authored and exact-head bound.
+
+    Findings are independently rejected from the complete current thread set below.
+    """
+    exact = [
+        review
+        for review in reviews
+        if (review.get("user") or {}).get("login") == BOT and review.get("commit_id") == expected
+    ]
+    return bool(exact) and not _has_exact_bot_review_blocker(reviews, expected)
+
+
+def _has_exact_bot_review_blocker(reviews: list[dict[str, Any]], expected: str) -> bool:
+    """A top-level finding blocks even when separate clean evidence exists."""
+    blockers = ("P0 Badge", "P1 Badge", "P2 Badge")
+    return any(
+        (review.get("user") or {}).get("login") == BOT
+        and review.get("commit_id") == expected
+        and any(badge in (review.get("body") or "") for badge in blockers)
+        for review in reviews
+    )
+
+
+def _review_snapshot_ids(reviews: list[dict[str, Any]]) -> tuple[str, ...]:
+    """Give a deterministic identity to every REST review in an observation."""
+    return tuple(
+        sorted(
+            str(
+                review.get("id")
+                or f"{review.get('commit_id')}:{review.get('submitted_at')}:{review.get('body')}"
+            )
+            for review in reviews
+        )
+    )
+
+
 def main() -> int:
     expected = os.environ["EXPECTED_HEAD"]
     number = os.environ["PR_NUMBER"]
@@ -129,19 +181,37 @@ def main() -> int:
         if pr["head"]["sha"] != expected:
             raise SystemExit("current PR head changed during Codex evidence verification")
         comments = _all_issue_comments(repository, number)
-        clean = any(
+        reviews = _all_reviews(repository, number)
+        clean_comment = any(
             comment["user"]["login"] == BOT
             and "Codex Review: Didn't find any major issues." in comment["body"]
             and _comment_matches_exact_head(repository, expected, comment["body"])
             for comment in comments
+        )
+        clean = (clean_comment or _has_exact_bot_review(reviews, expected)) and not (
+            _has_exact_bot_review_blocker(reviews, expected)
         )
         if clean:
             break
         if time.monotonic() >= deadline:
             raise SystemExit("missing clean exact-head Codex advisory evidence")
         time.sleep(10)
-    threads = _all_review_threads(repository, number)
-    if _has_current_blocker(threads):
+    # Reviews discovered while threads are being paginated can contain inline
+    # blockers absent from the first thread scan. Retry until both surfaces
+    # share one stable review set.
+    while True:
+        threads = _all_review_threads(repository, number)
+        final_reviews = _all_reviews(repository, number)
+        if _review_snapshot_ids(reviews) == _review_snapshot_ids(final_reviews):
+            reviews = final_reviews
+            break
+        reviews = final_reviews
+
+    # A top-level review has no review thread, so inspect its final stable set.
+    final_pr = _gh("api", f"repos/{repository}/pulls/{number}")
+    if final_pr["head"]["sha"] != expected:
+        raise SystemExit("current PR head changed during Codex evidence verification")
+    if _has_current_blocker(threads) or _has_exact_bot_review_blocker(reviews, expected):
         raise SystemExit("current Codex P0/P1/P2 finding blocks admission")
     print(f"CODEX ADVISORY REVIEW — CLEAN — EXACT HEAD {expected}")
     return 0

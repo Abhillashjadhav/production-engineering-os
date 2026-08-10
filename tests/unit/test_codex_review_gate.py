@@ -94,6 +94,184 @@ def test_all_issue_comments_finds_exact_codex_evidence_on_later_rest_page(
     ]
 
 
+def test_all_reviews_finds_exact_codex_review_on_later_rest_page(
+    monkeypatch: pytest.MonkeyPatch, verifier_module
+) -> None:
+    calls: list[tuple[str, ...]] = []
+    first_page = [{"id": index} for index in range(100)]
+    exact_review = {"user": {"login": verifier_module.BOT}, "commit_id": "a" * 40}
+
+    def fake_gh(*args: str):
+        calls.append(args)
+        if args[-1].endswith("page=1"):
+            return first_page
+        if args[-1].endswith("page=2"):
+            return [exact_review]
+        raise AssertionError(args)
+
+    monkeypatch.setattr(verifier_module, "_gh", fake_gh)
+
+    assert verifier_module._all_reviews("owner/repo", "99") == first_page + [exact_review]
+    assert [call[-1] for call in calls] == [
+        "repos/owner/repo/pulls/99/reviews?per_page=100&page=1",
+        "repos/owner/repo/pulls/99/reviews?per_page=100&page=2",
+    ]
+
+
+def test_exact_bot_review_is_clean_evidence_only_for_the_current_head(verifier_module) -> None:
+    expected = "a" * 40
+
+    assert verifier_module._has_exact_bot_review(
+        [{"user": {"login": verifier_module.BOT}, "commit_id": expected}], expected
+    )
+    assert not verifier_module._has_exact_bot_review(
+        [{"user": {"login": verifier_module.BOT}, "commit_id": "b" * 40}], expected
+    )
+
+
+def test_finding_bearing_top_level_bot_review_is_not_clean_evidence(verifier_module) -> None:
+    expected = "a" * 40
+
+    assert not verifier_module._has_exact_bot_review(
+        [
+            {
+                "user": {"login": verifier_module.BOT},
+                "commit_id": expected,
+                "body": "![P1 Badge] blocks admission",
+            }
+        ],
+        expected,
+    )
+
+
+def test_deleted_review_author_cannot_crash_exact_review_scan(verifier_module) -> None:
+    expected = "a" * 40
+
+    assert verifier_module._has_exact_bot_review(
+        [
+            {"user": None, "commit_id": expected, "body": ""},
+            {"user": {"login": verifier_module.BOT}, "commit_id": expected, "body": ""},
+        ],
+        expected,
+    )
+
+
+def test_any_exact_head_bot_review_with_a_blocker_rejects_the_evidence_set(verifier_module) -> None:
+    expected = "a" * 40
+    reviews = [
+        {"user": {"login": verifier_module.BOT}, "commit_id": expected, "body": ""},
+        {
+            "user": {"login": verifier_module.BOT},
+            "commit_id": expected,
+            "body": "![P1 Badge] conflicting blocker",
+        },
+    ]
+
+    assert not verifier_module._has_exact_bot_review(reviews, expected)
+
+
+def test_exact_head_review_body_blocker_is_detected_independently_of_clean_evidence(
+    verifier_module,
+) -> None:
+    expected = "a" * 40
+
+    assert verifier_module._has_exact_bot_review_blocker(
+        [
+            {
+                "user": {"login": verifier_module.BOT},
+                "commit_id": expected,
+                "body": "![P2 Badge] must block even with a clean comment",
+            }
+        ],
+        expected,
+    )
+
+
+def test_main_rechecks_review_bodies_after_thread_pagination(
+    monkeypatch: pytest.MonkeyPatch, verifier_module
+) -> None:
+    """A late top-level finding must not race past the thread scan."""
+    expected = "a" * 40
+    clean_review = {
+        "user": {"login": verifier_module.BOT},
+        "commit_id": expected,
+        "body": "",
+    }
+    late_blocker = {
+        "user": {"login": verifier_module.BOT},
+        "commit_id": expected,
+        "body": "![P1 Badge] submitted during thread pagination",
+    }
+    review_snapshots = iter(
+        [[clean_review], [clean_review, late_blocker], [clean_review, late_blocker]]
+    )
+
+    monkeypatch.setenv("EXPECTED_HEAD", expected)
+    monkeypatch.setenv("PR_NUMBER", "99")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
+    monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
+    monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
+    monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: next(review_snapshots))
+    monkeypatch.setattr(verifier_module, "_all_review_threads", lambda *_args: [])
+
+    with pytest.raises(SystemExit, match="current Codex P0/P1/P2 finding blocks admission"):
+        verifier_module.main()
+
+
+def test_main_retries_thread_scan_when_review_set_changes(
+    monkeypatch: pytest.MonkeyPatch, verifier_module
+) -> None:
+    """An inline finding in a newly observed review requires a fresh thread scan."""
+    expected = "a" * 40
+    clean_review = {
+        "id": 1,
+        "user": {"login": verifier_module.BOT},
+        "commit_id": expected,
+        "body": "",
+    }
+    late_inline_review = {
+        "id": 2,
+        "user": {"login": verifier_module.BOT},
+        "commit_id": expected,
+        "body": "",
+    }
+    blocker_thread = {
+        "isOutdated": False,
+        "isResolved": False,
+        "comments": {
+            "nodes": [
+                {
+                    "author": {"login": verifier_module.BOT},
+                    "body": "![P1 Badge] submitted after the first thread scan",
+                }
+            ]
+        },
+    }
+    review_snapshots = iter(
+        [
+            [clean_review],
+            [clean_review, late_inline_review],
+            [clean_review, late_inline_review],
+        ]
+    )
+    thread_snapshots = iter([[], [blocker_thread]])
+
+    monkeypatch.setenv("EXPECTED_HEAD", expected)
+    monkeypatch.setenv("PR_NUMBER", "99")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
+    monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
+    monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
+    monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: next(review_snapshots))
+    monkeypatch.setattr(
+        verifier_module, "_all_review_threads", lambda *_args: next(thread_snapshots)
+    )
+
+    with pytest.raises(SystemExit, match="current Codex P0/P1/P2 finding blocks admission"):
+        verifier_module.main()
+
+
 def test_all_review_threads_finds_blocker_on_later_graphql_page(
     monkeypatch: pytest.MonkeyPatch, verifier_module
 ) -> None:
