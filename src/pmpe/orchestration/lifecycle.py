@@ -161,6 +161,7 @@ class EvidenceTrustPolicy:
     budget_owner_authorities: Mapping[str, str] = field(default_factory=dict)
     repository_observers: Mapping[str, str] = field(default_factory=dict)
     work_controllers: Mapping[str, str] = field(default_factory=dict)
+    production_approvers: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for name in (
@@ -168,6 +169,7 @@ class EvidenceTrustPolicy:
             "budget_owner_authorities",
             "repository_observers",
             "work_controllers",
+            "production_approvers",
         ):
             values = dict(getattr(self, name))
             if any(
@@ -263,6 +265,7 @@ class Approval:
     reviewed_commit_sha: str = ""
     reviewed_candidate_digest: str = ""
     review_evidence_digest: str = ""
+    authentication_evidence_digest: str = ""
 
 
 @dataclass(frozen=True)
@@ -420,6 +423,7 @@ def _trust_policy_payload(policy: EvidenceTrustPolicy) -> dict[str, Any]:
         "budget_owner_authorities": dict(policy.budget_owner_authorities),
         "repository_observers": dict(policy.repository_observers),
         "work_controllers": dict(policy.work_controllers),
+        "production_approvers": dict(policy.production_approvers),
     }
 
 
@@ -473,6 +477,12 @@ def _actor_authentication_payload(actor: TransitionActor) -> dict[str, Any]:
         "subject_digest": actor.subject_digest,
         "authority_digest": actor.authority_digest,
     }
+
+
+def _production_approval_payload(approval: Approval) -> dict[str, Any]:
+    payload = asdict(approval)
+    payload.pop("authentication_evidence_digest")
+    return payload
 
 
 def _budget_extension_authorization_payload(
@@ -2060,6 +2070,7 @@ class LifecycleControlPlane:
             budget_owner_authorities=dict(raw_trust.get("budget_owner_authorities", {})),
             repository_observers=dict(raw_trust.get("repository_observers", {})),
             work_controllers=dict(raw_trust.get("work_controllers", {})),
+            production_approvers=dict(raw_trust.get("production_approvers", {})),
         )
         if raw_trust and initial.evidence_refs.get("trust_policy_digest") != _digest(raw_trust):
             raise ValueError("lifecycle evidence trust policy is not bound to the initial event")
@@ -2811,11 +2822,7 @@ class LifecycleControlPlane:
                     "security incident requires trusted worker quiescence and revocation evidence",
                 )
             admitted_resume_state = S.CONTRACT_RECEIVED
-        if "safe_stop" in guards and target in {
-            S.BLOCKED,
-            S.PRODUCT_INPUT_REQUIRED,
-            S.BUDGET_EXCEEDED,
-        }:
+        if "safe_stop" in guards:
             if context.rollout.has_resources:
                 self._deny(
                     target,
@@ -3117,6 +3124,13 @@ class LifecycleControlPlane:
             and approval.review_evidence_digest
             == _production_approval_scope_digest(context.evidence)
             and context.evidence.get("production_approval_digest") == _digest(asdict(approval))
+            and self.trust_policy.production_approvers.get(approval.actor)
+            and self._verify_external_evidence(
+                approval.actor,
+                self.trust_policy.production_approvers[approval.actor],
+                _production_approval_payload(approval),
+                approval.authentication_evidence_digest,
+            )
             for approval in context.approvals
         ):
             self._deny(

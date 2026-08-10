@@ -45,6 +45,7 @@ TRUST_POLICY = EvidenceTrustPolicy(
     },
     repository_observers={"repository-observer": OTHER_SHA},
     work_controllers={"work-controller": SHA},
+    production_approvers={"release-owner": OWNER_CREDENTIAL_DIGEST},
 )
 
 
@@ -456,7 +457,7 @@ def completion_evidence_with_review_binding(cp: LifecycleControlPlane) -> dict[s
 
 
 def production_approval_for(evidence: dict[str, str]) -> Approval:
-    return Approval(
+    approval = Approval(
         approval_id="production-approval-1",
         actor="release-owner",
         subject_digest=SHA,
@@ -466,6 +467,14 @@ def production_approval_for(evidence: dict[str, str]) -> Approval:
         reviewed_commit_sha=evidence["merge_commit_sha"],
         reviewed_candidate_digest=evidence["artifact_digest"],
         review_evidence_digest=lifecycle._production_approval_scope_digest(evidence),
+    )
+    return replace(
+        approval,
+        authentication_evidence_digest=external_proof(
+            approval.actor,
+            OWNER_CREDENTIAL_DIGEST,
+            lifecycle._production_approval_payload(approval),
+        ),
     )
 
 
@@ -984,6 +993,27 @@ def test_production_admission_requires_live_exact_subject_approval(tmp_path: Pat
             reason="production_admitted",
         )
 
+    forged = replace(
+        approval,
+        authentication_evidence_digest=object_digest(
+            lifecycle._production_approval_payload(approval)
+        ),
+    )
+    required["production_approval_digest"] = object_digest(asdict(forged))
+    with pytest.raises(TransitionDeniedError, match="production approval"):
+        cp.transition(
+            LifecycleState.PRODUCTION_DEPLOYED,
+            context(
+                evidence=required,
+                mutation=attempt,
+                approvals=(forged,),
+                rollout=RolloutStatus(canary="ACTIVE"),
+            ),
+            reason="production_admitted",
+        )
+
+    required["production_approval_digest"] = object_digest(asdict(approval))
+
     cp.transition(
         LifecycleState.PRODUCTION_DEPLOYED,
         context(
@@ -1455,6 +1485,28 @@ def test_safety_resume_is_bound_to_original_blocked_attempt(tmp_path: Path) -> N
         reason="resume_safety_rollback",
     )
     assert cp.budget_usage.safety_units_used == 1
+
+
+def test_blocked_direct_readmission_fails_closed_until_safe_recovery(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.BLOCKED)
+    evidence = evidence_for(
+        LifecycleState.BLOCKED,
+        LifecycleState.REPOSITORY_ANALYSED,
+        reason="repository_readmitted",
+    )
+    with pytest.raises(TransitionDeniedError, match="safe-stop|resources|quiescence"):
+        cp.transition(
+            LifecycleState.REPOSITORY_ANALYSED,
+            context(
+                evidence=evidence,
+                rollout=RolloutStatus(canary="UNKNOWN"),
+                work=WorkStatus(
+                    workers_stopped=False,
+                    mutation_capability_active=True,
+                ),
+            ),
+            reason="repository_readmitted",
+        )
 
 
 def test_indeterminate_rollback_retains_truthful_unresolved_exposure(tmp_path: Path) -> None:
