@@ -548,7 +548,6 @@ def _production_approval_scope_digest(evidence: dict[str, str]) -> str:
 _MUTATION_SUBJECT_FIELDS: dict[str, tuple[str, ...]] = {
     "open_draft_pr": (
         "subject_digest",
-        "governance_attempt_digest",
         "issue_digest",
         "branch_digest",
         "red_commit_digest",
@@ -2198,6 +2197,9 @@ class LifecycleControlPlane:
                 key = event.evidence_refs.get("idempotency_key", "")
                 if key:
                     cp._consumed_mutation_result_keys.add(key)
+            consumed_key = event.evidence_refs.get("consumed_mutation_result_key", "")
+            if consumed_key:
+                cp._consumed_mutation_result_keys.add(consumed_key)
             if event.kind == "BUDGET_POLICY_ADMITTED":
                 policy_json = event.evidence_refs.get("budget_policy_json", "")
                 if policy_json:
@@ -3507,6 +3509,13 @@ class LifecycleControlPlane:
             )
         if {"safety", "safety_resume"} & guards:
             usage = replace(usage, safety_units_used=usage.safety_units_used + 1)
+        if (
+            "mutation" in guards
+            and context.mutation is not None
+            and result is not None
+            and result.successful
+        ):
+            event_evidence["consumed_mutation_result_key"] = context.mutation.idempotency_key
         event = self._append(
             kind=kind,
             outcome="APPLIED",
@@ -3521,23 +3530,9 @@ class LifecycleControlPlane:
         )
         self._state = target
         self._budget_usage = usage
-        if (
-            "mutation" in guards
-            and context.mutation is not None
-            and result is not None
-            and result.successful
-        ):
-            self._append(
-                kind="MUTATION_RESULT_CONSUMED",
-                outcome="RECORDED",
-                source=target,
-                target=target,
-                reason=context.mutation.action,
-                actor=context.actor.actor_id,
-                evidence_refs={"idempotency_key": context.mutation.idempotency_key},
-                observed_at=context.observed_at,
-            )
-            self._consumed_mutation_result_keys.add(context.mutation.idempotency_key)
+        consumed_key = event_evidence.get("consumed_mutation_result_key", "")
+        if consumed_key:
+            self._consumed_mutation_result_keys.add(consumed_key)
         if kind == "COMPLETION_CLAIMED":
             self._completion_claim_active = True
         elif kind == "COMPLETION_REVOKED":
