@@ -2256,6 +2256,16 @@ class LifecycleControlPlane:
             trust_policy=trust_policy,
             evidence_verifier=evidence_verifier,
         )
+        admission_evidence = {
+            "subject_digest": subject_digest,
+            "legacy_source_version_digest": _digest(migration.source_version),
+            "legacy_source_stage_digest": _digest(migration.source_stage),
+            "legacy_mapped_state_digest": _digest(migration.state.value),
+            "legacy_migration_digest": migration.digest,
+            "migration_disposition_digest": _digest(
+                "historical-only; phase-zero re-admission required"
+            ),
+        }
         with cp._operation_lock, cp._exclusive_lock():
             if len(cp._events) == 1:
                 cp._append_locked(
@@ -2265,20 +2275,16 @@ class LifecycleControlPlane:
                     target=S.PRODUCT_INPUT_REQUIRED,
                     reason="legacy_evidence_unavailable",
                     actor="migration-adapter",
-                    evidence_refs={
-                        "subject_digest": subject_digest,
-                        "legacy_source_version_digest": _digest(migration.source_version),
-                        "legacy_source_stage_digest": _digest(migration.source_stage),
-                        "legacy_mapped_state_digest": _digest(migration.state.value),
-                        "legacy_migration_digest": migration.digest,
-                        "migration_disposition_digest": _digest(
-                            "historical-only; phase-zero re-admission required"
-                        ),
-                    },
+                    evidence_refs=admission_evidence,
                     observed_at="",
                 )
                 cp._state = S.PRODUCT_INPUT_REQUIRED
-            elif cp.state is not S.PRODUCT_INPUT_REQUIRED:
+            elif (
+                cp.state is not S.PRODUCT_INPUT_REQUIRED
+                or len(cp._events) != 2
+                or cp._events[-1].kind != "MIGRATION_ADMITTED"
+                or cp._events[-1].evidence_refs != admission_evidence
+            ):
                 raise ValueError(
                     "lifecycle run already exists with a different migration admission"
                 )

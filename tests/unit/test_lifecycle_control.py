@@ -1451,6 +1451,32 @@ def test_legacy_migration_is_readable_but_stops_for_phase_zero_readmission(
     )
 
 
+def test_legacy_migration_rejects_a_different_existing_admission(tmp_path: Path) -> None:
+    policy, _ = budgets()
+    admitted = migrate_legacy_state({"version": 2, "stage": "deploy"})
+    different = migrate_legacy_state({"version": 2, "stage": "review"})
+    LifecycleControlPlane.admit_legacy_migration(
+        tmp_path,
+        run_id="legacy-run-65",
+        subject_digest=SHA,
+        budget_policy=policy,
+        migration=admitted,
+        trust_policy=TRUST_POLICY,
+        evidence_verifier=verify_external_proof,
+    )
+
+    with pytest.raises(ValueError, match="different migration admission"):
+        LifecycleControlPlane.admit_legacy_migration(
+            tmp_path,
+            run_id="legacy-run-65",
+            subject_digest=SHA,
+            budget_policy=policy,
+            migration=different,
+            trust_policy=TRUST_POLICY,
+            evidence_verifier=verify_external_proof,
+        )
+
+
 def test_persistence_replay_detects_tampering(tmp_path: Path) -> None:
     cp = control_plane(tmp_path)
     required = evidence_for(
