@@ -162,6 +162,7 @@ class EvidenceTrustPolicy:
     repository_observers: Mapping[str, str] = field(default_factory=dict)
     work_controllers: Mapping[str, str] = field(default_factory=dict)
     production_approvers: Mapping[str, str] = field(default_factory=dict)
+    budget_meters: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for name in (
@@ -170,6 +171,7 @@ class EvidenceTrustPolicy:
             "repository_observers",
             "work_controllers",
             "production_approvers",
+            "budget_meters",
         ):
             values = dict(getattr(self, name))
             if any(
@@ -424,6 +426,7 @@ def _trust_policy_payload(policy: EvidenceTrustPolicy) -> dict[str, Any]:
         "repository_observers": dict(policy.repository_observers),
         "work_controllers": dict(policy.work_controllers),
         "production_approvers": dict(policy.production_approvers),
+        "budget_meters": dict(policy.budget_meters),
     }
 
 
@@ -1926,6 +1929,30 @@ class LifecycleControlPlane:
             )
         )
 
+    def _trusted_budget_usage_valid(self, context: TransitionContext) -> bool:
+        evidence = context.evidence
+        meter = evidence.get("budget_meter_id", "")
+        authority_digest = evidence.get("budget_meter_authority_digest", "")
+        payload = {
+            "meter_id": meter,
+            "authority_digest": authority_digest,
+            "subject_digest": self.subject_digest,
+            "budget_policy_digest": _digest(_budget_policy_payload(self.budget_policy)),
+            "budget_usage_digest": _digest(_budget_usage_payload(context.budget_usage)),
+            "observed_at": context.observed_at,
+        }
+        return bool(
+            meter
+            and self.trust_policy.budget_meters.get(meter) == authority_digest
+            and evidence.get("budget_usage_digest") == payload["budget_usage_digest"]
+            and self._verify_external_evidence(
+                meter,
+                authority_digest,
+                payload,
+                evidence.get("budget_meter_authentication_evidence_digest", ""),
+            )
+        )
+
     def _verify_external_evidence(
         self,
         identity: str,
@@ -2071,6 +2098,7 @@ class LifecycleControlPlane:
             repository_observers=dict(raw_trust.get("repository_observers", {})),
             work_controllers=dict(raw_trust.get("work_controllers", {})),
             production_approvers=dict(raw_trust.get("production_approvers", {})),
+            budget_meters=dict(raw_trust.get("budget_meters", {})),
         )
         if raw_trust and initial.evidence_refs.get("trust_policy_digest") != _digest(raw_trust):
             raise ValueError("lifecycle evidence trust policy is not bound to the initial event")
@@ -2671,6 +2699,8 @@ class LifecycleControlPlane:
                 "subject evidence does not match the lifecycle subject",
             )
         guards = rule.guards
+        if "budget" in guards and not self._trusted_budget_usage_valid(context):
+            self._deny(target, context, reason, "trusted complete budget telemetry is required")
         admitted_resume_state: LifecycleState | None = None
         if source is S.CANARY_DEPLOYED and context.rollout.canary not in {
             "ACTIVE",

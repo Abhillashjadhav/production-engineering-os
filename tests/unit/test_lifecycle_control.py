@@ -46,6 +46,7 @@ TRUST_POLICY = EvidenceTrustPolicy(
     repository_observers={"repository-observer": OTHER_SHA},
     work_controllers={"work-controller": SHA},
     production_approvers={"release-owner": OWNER_CREDENTIAL_DIGEST},
+    budget_meters={"budget-meter": SHA},
 )
 
 
@@ -124,6 +125,7 @@ def context(
 ) -> TransitionContext:
     _, default_usage = budgets()
     authority_snapshot = authority(current=current_authority)
+    effective_usage = usage or default_usage
     actor_claims = {
         "actor_id": "control-plane",
         "role": "lifecycle-controller",
@@ -132,6 +134,27 @@ def context(
         "subject_digest": SHA,
         "authority_digest": authority_snapshot.digest,
     }
+    effective_evidence = dict(
+        evidence or {"subject_digest": SHA, "evidence_bundle_digest": OTHER_SHA}
+    )
+    meter_payload = {
+        "meter_id": "budget-meter",
+        "authority_digest": SHA,
+        "subject_digest": SHA,
+        "budget_policy_digest": object_digest(lifecycle._budget_policy_payload(budgets()[0])),
+        "budget_usage_digest": object_digest(lifecycle._budget_usage_payload(effective_usage)),
+        "observed_at": "2026-08-02T00:01:00Z",
+    }
+    effective_evidence.update(
+        {
+            "budget_meter_id": "budget-meter",
+            "budget_meter_authority_digest": SHA,
+            "budget_usage_digest": meter_payload["budget_usage_digest"],
+            "budget_meter_authentication_evidence_digest": external_proof(
+                "budget-meter", SHA, meter_payload
+            ),
+        }
+    )
     return TransitionContext(
         actor=actor
         or lifecycle.TransitionActor(
@@ -145,9 +168,9 @@ def context(
                 "control-plane", authority_snapshot.digest, actor_claims
             ),
         ),
-        evidence=evidence or {"subject_digest": SHA, "evidence_bundle_digest": OTHER_SHA},
+        evidence=effective_evidence,
         authority=authority_snapshot,
-        budget_usage=usage or default_usage,
+        budget_usage=effective_usage,
         rollout=rollout or RolloutStatus(),
         work=work or WorkStatus(),
         approvals=approvals,
@@ -192,6 +215,27 @@ def test_transition_actor_rejects_a_self_computed_credential(tmp_path: Path) -> 
         cp.transition(
             LifecycleState.CONTRACT_APPROVED,
             replace(valid, actor=forged),
+            reason="contract_admitted",
+        )
+
+
+def test_forward_transition_rejects_self_computed_budget_telemetry(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+    valid = context(
+        evidence=evidence_for(
+            LifecycleState.CONTRACT_RECEIVED,
+            LifecycleState.CONTRACT_APPROVED,
+            reason="contract_admitted",
+        )
+    )
+    forged_evidence = dict(valid.evidence)
+    forged_evidence["budget_meter_authentication_evidence_digest"] = object_digest(
+        {"usage": lifecycle._budget_usage_payload(valid.budget_usage)}
+    )
+    with pytest.raises(TransitionDeniedError, match="trusted complete budget telemetry"):
+        cp.transition(
+            LifecycleState.CONTRACT_APPROVED,
+            replace(valid, evidence=forged_evidence),
             reason="contract_admitted",
         )
 
@@ -3090,8 +3134,10 @@ def test_pr_ready_resume_revalidates_the_persisted_review_inputs(tmp_path: Path)
         "unchanged_inputs_digest": object_digest(review_inputs),
         **review_inputs,
     }
-    bind_repository_observation(resume_evidence)
-    resumed = cp.resume(context(usage=cp.budget_usage, evidence=resume_evidence))
+    resume_context = context(usage=cp.budget_usage, evidence=resume_evidence)
+    bind_repository_observation(resume_context.evidence)
+    assert cp._trusted_repository_observation_valid(resume_context, review_inputs)
+    resumed = cp.resume(resume_context)
     assert resumed.target is LifecycleState.PR_READY
 
 
