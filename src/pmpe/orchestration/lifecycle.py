@@ -1336,6 +1336,18 @@ _RULES: tuple[TransitionRule, ...] = (
     ),
     _r(
         S.CANARY_DEPLOYED,
+        S.CANARY_FAILED,
+        "canary_breach_recorded",
+        (
+            "subject_digest",
+            "canary_id_digest",
+            "canary_status_digest",
+            "canary_failure_digest",
+        ),
+        "active_canary",
+    ),
+    _r(
+        S.CANARY_DEPLOYED,
         S.ROLLBACK_IN_PROGRESS,
         "canary_failed",
         (
@@ -2013,6 +2025,25 @@ class LifecycleControlPlane:
                 authority_digest,
                 payload,
                 evidence.get("finding_inventory_authentication_evidence_digest", ""),
+            )
+        )
+
+    def _trusted_finding_signal_valid(
+        self, context: TransitionContext, finding: FindingSignal
+    ) -> bool:
+        authority_digest = self.trust_policy.finding_sources.get(finding.source, "")
+        payload = {
+            "finding": asdict(finding),
+            "subject_digest": self.subject_digest,
+            "observed_at": context.observed_at,
+        }
+        return bool(
+            authority_digest
+            and self._verify_external_evidence(
+                finding.source,
+                authority_digest,
+                payload,
+                context.evidence.get("finding_authentication_evidence_digest", ""),
             )
         )
 
@@ -3220,6 +3251,8 @@ class LifecycleControlPlane:
                     "repair requires a complete accepted engineering finding",
                 )
             assert repair_finding is not None
+            if not self._trusted_finding_signal_valid(context, repair_finding):
+                self._deny(target, context, reason, "repair finding source is not authenticated")
             if context.evidence.get("finding_digest") != _digest(asdict(repair_finding)):
                 self._deny(
                     target,
@@ -3241,6 +3274,8 @@ class LifecycleControlPlane:
             ):
                 self._deny(target, context, reason, "no normalized exact-subject blocker")
             assert blocking_finding is not None
+            if not self._trusted_finding_signal_valid(context, blocking_finding):
+                self._deny(target, context, reason, "blocking finding source is not authenticated")
             if context.evidence.get("finding_digest") != _digest(asdict(blocking_finding)):
                 self._deny(
                     target,

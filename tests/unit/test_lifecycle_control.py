@@ -177,6 +177,21 @@ def context(
     effective_evidence["rollback_observation_authentication_evidence_digest"] = external_proof(
         "live-observer", SHA, rollback_payload
     )
+    if finding is not None and (
+        authority_digest := TRUST_POLICY.finding_sources.get(finding.source)
+    ):
+        effective_evidence.setdefault(
+            "finding_authentication_evidence_digest",
+            external_proof(
+                finding.source,
+                authority_digest,
+                {
+                    "finding": asdict(finding),
+                    "subject_digest": SHA,
+                    "observed_at": "2026-08-02T00:01:00Z",
+                },
+            ),
+        )
     live_payload = {
         "observer_id": "live-observer",
         "authority_digest": SHA,
@@ -994,7 +1009,7 @@ def test_repair_is_bounded_per_finding_and_stage(tmp_path: Path) -> None:
     )
     finding = FindingSignal(
         finding_id="finding-1",
-        source="codex",
+        source="finding-source",
         exact_subject_digest=SHA,
         severity="HIGH",
         credible=True,
@@ -1028,7 +1043,7 @@ def test_blocking_finding_is_independent_of_reviewer_approval_eligibility(tmp_pa
     )
     signal = FindingSignal(
         finding_id="scanner-1",
-        source="security-scanner",
+        source="finding-source",
         exact_subject_digest=SHA,
         severity="HIGH",
         credible=True,
@@ -1570,7 +1585,7 @@ def test_budget_and_repair_usage_are_monotonic_and_replayed(tmp_path: Path) -> N
     cp = control_plane(tmp_path, state=LifecycleState.VERIFICATION_FAILED)
     finding = FindingSignal(
         finding_id="finding-monotonic",
-        source="reviewer",
+        source="finding-source",
         exact_subject_digest=SHA,
         severity="HIGH",
         credible=True,
@@ -1991,6 +2006,62 @@ def test_canary_failure_with_mutation_or_indeterminate_exposure_enters_rollback(
     assert event.target is LifecycleState.ROLLBACK_IN_PROGRESS
 
 
+def test_canary_breach_is_recorded_before_a_rollback_attempt(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.CANARY_DEPLOYED)
+    required = evidence_for(
+        LifecycleState.CANARY_DEPLOYED,
+        LifecycleState.CANARY_FAILED,
+        reason="canary_breach_recorded",
+    )
+    required.update(record_active_canary_binding(cp))
+    required["canary_failure_digest"] = object_digest("canary-slo-breach")
+
+    event = cp.transition(
+        LifecycleState.CANARY_FAILED,
+        context(
+            evidence=required,
+            rollout=RolloutStatus(staging="ACTIVE", canary="ACTIVE"),
+        ),
+        reason="canary_breach_recorded",
+    )
+
+    assert event.target is LifecycleState.CANARY_FAILED
+    assert cp.state is LifecycleState.CANARY_FAILED
+    assert "rollback_attempt_digest" not in event.evidence_refs
+
+
+def test_blocking_finding_requires_external_source_authentication(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PR_READY)
+    required = evidence_for(
+        LifecycleState.PR_READY,
+        LifecycleState.REVIEW_FAILED,
+        reason="blocking_finding",
+    )
+    finding = FindingSignal(
+        finding_id="unauthenticated-scanner-1",
+        source="finding-source",
+        exact_subject_digest=SHA,
+        severity="HIGH",
+        credible=True,
+        blocking=True,
+        reviewer_eligible=False,
+        category="ENGINEERING",
+        disposition="ACCEPTED",
+        affected_scope_digest=OTHER_SHA,
+    )
+    required["finding_digest"] = object_digest(asdict(finding))
+    required["finding_authentication_evidence_digest"] = OTHER_SHA
+
+    with pytest.raises(TransitionDeniedError, match="finding source is not authenticated"):
+        cp.transition(
+            LifecycleState.REVIEW_FAILED,
+            context(evidence=required, finding=finding),
+            reason="blocking_finding",
+        )
+
+    assert cp.state is LifecycleState.PR_READY
+
+
 def test_canary_state_cannot_claim_zero_exposure_without_evidence(tmp_path: Path) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.CANARY_DEPLOYED)
     required = evidence_for(
@@ -2119,7 +2190,7 @@ def test_post_merge_blocking_finding_enters_safe_blocked_state(tmp_path: Path) -
     cp = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
     finding = FindingSignal(
         finding_id="post-merge-1",
-        source="security-scanner",
+        source="finding-source",
         exact_subject_digest=SHA,
         severity="HIGH",
         credible=True,
@@ -2163,7 +2234,7 @@ def test_staging_rejects_a_pending_post_merge_blocker(tmp_path: Path) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
     finding = FindingSignal(
         finding_id="post-merge-2",
-        source="security-scanner",
+        source="finding-source",
         exact_subject_digest=SHA,
         severity="HIGH",
         credible=True,
