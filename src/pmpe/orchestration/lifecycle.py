@@ -1733,7 +1733,7 @@ class LifecycleControlPlane:
     ) -> None:
         self.run_dir = Path(run_dir)
         self.run_id = run_id
-        self.subject_digest = subject_digest
+        self._subject_digest = subject_digest
         self._state = state
         self._budget_policy = budget_policy
         self._trust_policy = trust_policy or EvidenceTrustPolicy()
@@ -1745,7 +1745,17 @@ class LifecycleControlPlane:
         self._mutation_attempts: dict[str, MutationAttempt] = {}
         self._mutation_results: dict[str, MutationResult] = {}
         self._verified_mutation_result_keys: set[str] = set()
-        self.budget_usage = BudgetUsage()
+        self._budget_usage = BudgetUsage()
+
+    @property
+    def subject_digest(self) -> str:
+        """The metadata-bound lifecycle identity; never caller-replaceable."""
+        return self._subject_digest
+
+    @property
+    def budget_usage(self) -> BudgetUsage:
+        """Authoritative usage changes only through ledger append/replay."""
+        return self._budget_usage
 
     @property
     def state(self) -> LifecycleState:
@@ -2035,7 +2045,7 @@ class LifecycleControlPlane:
             elif event.outcome == "RECORDED" and event.target is not cp.state:
                 raise ValueError("recorded lifecycle event cannot change replay state")
             if event.budget_usage is not None:
-                cp.budget_usage = cp._merge_budget_usage(
+                cp._budget_usage = cp._merge_budget_usage(
                     BudgetUsage(**event.budget_usage), reject_lower=True
                 )
             if event.kind == "MUTATION_RESULT":
@@ -2469,7 +2479,7 @@ class LifecycleControlPlane:
             budget_usage=persisted_usage,
             detail=detail,
         )
-        self.budget_usage = persisted_usage
+        self._budget_usage = persisted_usage
         raise TransitionDeniedError(detail)
 
     def _latest_canary_binding(self) -> LifecycleEvent | None:
@@ -3375,7 +3385,7 @@ class LifecycleControlPlane:
             resume_state=admitted_resume_state,
         )
         self._state = target
-        self.budget_usage = usage
+        self._budget_usage = usage
         if kind == "COMPLETION_CLAIMED":
             self._completion_claim_active = True
         elif kind == "COMPLETION_REVOKED":
@@ -3560,24 +3570,28 @@ class LifecycleControlPlane:
         signature: str,
         observed_at: str,
     ) -> LifecycleEvent:
-        if subject_digest != self.subject_digest:
-            raise TransitionDeniedError("observation subject does not match the lifecycle subject")
-        if not source or not payload_digest or not signature or not observed_at:
-            raise TransitionDeniedError("observation is not digest-bound and attributable")
-        return self._append(
-            kind="OBSERVATION",
-            outcome="RECORDED",
-            source=self.state,
-            target=self.state,
-            reason=source,
-            actor=source,
-            evidence_refs={
-                "subject_digest": subject_digest,
-                "payload_digest": payload_digest,
-                "signature": signature,
-            },
-            observed_at=observed_at,
-        )
+        with self._operation_lock, self._exclusive_lock():
+            if subject_digest != self.subject_digest:
+                raise TransitionDeniedError(
+                    "observation subject does not match the lifecycle subject"
+                )
+            if not source or not payload_digest or not signature or not observed_at:
+                raise TransitionDeniedError("observation is not digest-bound and attributable")
+            current = self.state
+            return self._append_locked(
+                kind="OBSERVATION",
+                outcome="RECORDED",
+                source=current,
+                target=current,
+                reason=source,
+                actor=source,
+                evidence_refs={
+                    "subject_digest": subject_digest,
+                    "payload_digest": payload_digest,
+                    "signature": signature,
+                },
+                observed_at=observed_at,
+            )
 
     def resume(self, context: TransitionContext) -> LifecycleEvent:
         """Serialize resume admission with every other same-instance transition."""
@@ -3768,5 +3782,5 @@ class LifecycleControlPlane:
             resume_state=recorded,
         )
         self._state = recorded
-        self.budget_usage = usage
+        self._budget_usage = usage
         return event

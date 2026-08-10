@@ -20,6 +20,14 @@ from pmpe.evals.registry import STAGE_AGENTS
 from pmpe.quality.test_evidence import run_tests_with_evidence
 
 
+def _retired_mutation() -> int:
+    print(
+        "pmpe eng lifecycle mutation is retired; use the Phase Zero "
+        "LifecycleControlPlane entrypoint with authoritative evidence",
+    )
+    return 3
+
+
 def _load(args: argparse.Namespace) -> EngineeringRun:
     return EngineeringRun.load(Path(args.run_dir))
 
@@ -30,6 +38,10 @@ def _read_json(path: str) -> dict[str, Any]:
 
 
 def _cmd_start(args: argparse.Namespace) -> int:
+    return _retired_mutation()
+
+
+def _compat_start(args: argparse.Namespace) -> int:
     try:
         run = EngineeringRun.start(
             Path(args.contract), Path(args.run_dir), agents_dir=Path(args.agents_dir)
@@ -56,11 +68,19 @@ def _cmd_resume(args: argparse.Namespace) -> int:
 
 
 def _cmd_assess(args: argparse.Namespace) -> int:
+    return _retired_mutation()
+
+
+def _compat_assess(args: argparse.Namespace) -> int:
     _load(args).record_assessment(_read_json(args.artifact))
     return 0
 
 
 def _cmd_submit(args: argparse.Namespace) -> int:
+    return _retired_mutation()
+
+
+def _compat_submit(args: argparse.Namespace) -> int:
     run = _load(args)
     run.submit(args.agent, _read_json(args.artifact))
     print(f"'{args.agent}' artifact admitted; stage is now '{run.stage}'")
@@ -68,24 +88,40 @@ def _cmd_submit(args: argparse.Namespace) -> int:
 
 
 def _cmd_freeze(args: argparse.Namespace) -> int:
+    return _retired_mutation()
+
+
+def _compat_freeze(args: argparse.Namespace) -> int:
     candidate = _load(args).freeze(Path(args.repo))
     print(f"candidate {candidate.candidate_id} frozen: {candidate.tree_digest}")
     return 0
 
 
 def _cmd_review_begin(args: argparse.Namespace) -> int:
+    return _retired_mutation()
+
+
+def _compat_review_begin(args: argparse.Namespace) -> int:
     _load(args).begin_review(args.agent, Path(args.repo))
     print(f"pre-review snapshot recorded for '{args.agent}'")
     return 0
 
 
 def _cmd_review_end(args: argparse.Namespace) -> int:
+    return _retired_mutation()
+
+
+def _compat_review_end(args: argparse.Namespace) -> int:
     _load(args).end_review(args.agent, Path(args.repo))
     print(f"read-only check clean for '{args.agent}'")
     return 0
 
 
 def _cmd_reconcile(args: argparse.Namespace) -> int:
+    return _retired_mutation()
+
+
+def _compat_reconcile(args: argparse.Namespace) -> int:
     run = _load(args)
     decisions: dict[str, OwnerDecision] = {}
     if args.decisions:
@@ -107,6 +143,10 @@ def _cmd_reconcile(args: argparse.Namespace) -> int:
 
 
 def _cmd_gates(args: argparse.Namespace) -> int:
+    return _retired_mutation()
+
+
+def _compat_gates(args: argparse.Namespace) -> int:
     run = _load(args)
     workspace = Path(args.workspace)
     evidence = run_tests_with_evidence(workspace)
@@ -119,23 +159,39 @@ def _cmd_gates(args: argparse.Namespace) -> int:
 
 
 def _cmd_verify_fix(args: argparse.Namespace) -> int:
+    return _retired_mutation()
+
+
+def _compat_verify_fix(args: argparse.Namespace) -> int:
     _load(args).record_fix_verification(args.finding, verifier=args.verifier)
     print(f"{args.finding} verified by {args.verifier}")
     return 0
 
 
 def _cmd_draft_pr(args: argparse.Namespace) -> int:
+    return _retired_mutation()
+
+
+def _compat_draft_pr(args: argparse.Namespace) -> int:
     _load(args).record_draft_pr(args.reference)
     return 0
 
 
 def _cmd_approve_production(args: argparse.Namespace) -> int:
+    return _retired_mutation()
+
+
+def _compat_approve_production(args: argparse.Namespace) -> int:
     approval = _load(args).approve_production(owner=args.owner, reason=args.reason)
     print(f"production approval recorded for candidate {approval.candidate_digest}")
     return 0
 
 
 def _cmd_deploy(args: argparse.Namespace) -> int:
+    return _retired_mutation()
+
+
+def _compat_deploy(args: argparse.Namespace) -> int:
     run = _load(args)
     try:
         outcome = run.deploy(
@@ -164,6 +220,10 @@ def _parse_gate_results(pairs: list[str]) -> dict[str, bool]:
 
 
 def _cmd_report(args: argparse.Namespace) -> int:
+    return _retired_mutation()
+
+
+def _compat_report(args: argparse.Namespace) -> int:
     gate_results = _parse_gate_results(args.gate or [])
     _load(args).record_release_report(args.verdict, gate_results=gate_results)
     print(f"release report recorded: {args.verdict}")

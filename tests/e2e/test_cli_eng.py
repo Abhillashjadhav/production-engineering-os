@@ -15,7 +15,7 @@ import pytest
 from pmpe.cli import main
 from pmpe.engineering.engine import EngineeringRun
 from pmpe.gitops.local import LocalGitAdapter
-from tests.integration.test_run_engine import _arch, drive_to_deploy
+from tests.integration.test_run_engine import drive_to_deploy
 
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / "tests" / "fixtures" / "v2" / "contract_approved.json"
@@ -34,51 +34,16 @@ def _status(run_dir: Path, capsys: pytest.CaptureFixture[str]) -> dict[str, Any]
     return loaded
 
 
-def test_start_assess_submit_status_resume(
+def test_status_and_resume_remain_available_for_historical_v2_runs(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run_dir = tmp_path / "run"
-    assert (
-        main(
-            [
-                "eng",
-                "start",
-                "--contract",
-                str(CONTRACT),
-                "--run-dir",
-                str(run_dir),
-                "--agents-dir",
-                str(AGENTS_DIR),
-            ]
-        )
-        == 0
-    )
+    EngineeringRun.start(CONTRACT, run_dir, agents_dir=AGENTS_DIR)
     status = _status(run_dir, capsys)
     assert status["stage"] == "assessment"
 
-    artifact = _write(tmp_path / "assessment.json", {"summary": "greenfield"})
-    assert main(["eng", "assess", "--run-dir", str(run_dir), "--artifact", artifact]) == 0
-
-    arch = _write(tmp_path / "arch.json", _arch(status["contract"]["digest"]))
-    assert (
-        main(
-            [
-                "eng",
-                "submit",
-                "--run-dir",
-                str(run_dir),
-                "--agent",
-                "v2-system-architect",
-                "--artifact",
-                arch,
-            ]
-        )
-        == 0
-    )
-    assert _status(run_dir, capsys)["stage"] == "plan"
-
     assert main(["eng", "resume", "--run-dir", str(run_dir)]) == 0
-    assert "plan" in capsys.readouterr().out
+    assert "assessment" in capsys.readouterr().out
 
 
 def test_non_runnable_contract_exits_3(tmp_path: Path) -> None:
@@ -100,47 +65,37 @@ def test_non_runnable_contract_exits_3(tmp_path: Path) -> None:
     assert rc == 3  # blocked on a human gate: the contract is not approved
 
 
-def test_rejected_submission_exits_2(tmp_path: Path) -> None:
-    run_dir = tmp_path / "run"
-    main(
-        [
-            "eng",
-            "start",
-            "--contract",
-            str(CONTRACT),
-            "--run-dir",
-            str(run_dir),
-            "--agents-dir",
-            str(AGENTS_DIR),
-        ]
-    )
-    main(
-        [
-            "eng",
-            "assess",
-            "--run-dir",
-            str(run_dir),
-            "--artifact",
-            _write(tmp_path / "a.json", {"summary": "greenfield"}),
-        ]
-    )
-    bad = _write(tmp_path / "bad-arch.json", _arch("sha256:wrong"))
-    rc = main(
-        [
-            "eng",
-            "submit",
-            "--run-dir",
-            str(run_dir),
-            "--agent",
-            "v2-system-architect",
-            "--artifact",
-            bad,
-        ]
-    )
-    assert rc == 2
+@pytest.mark.parametrize("command", ["start", "assess", "submit", "freeze", "deploy"])
+def test_mutating_eng_commands_are_retired_to_phase_zero(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], command: str
+) -> None:
+    argv = ["eng", command]
+    if command == "start":
+        argv += ["--contract", str(CONTRACT), "--run-dir", str(tmp_path / "run")]
+    else:
+        argv += ["--run-dir", str(tmp_path / "run")]
+        if command == "assess":
+            argv += ["--artifact", str(tmp_path / "artifact.json")]
+        elif command == "submit":
+            argv += [
+                "--agent",
+                "v2-system-architect",
+                "--artifact",
+                str(tmp_path / "artifact.json"),
+            ]
+        elif command == "freeze":
+            argv += ["--repo", str(tmp_path)]
+        elif command == "deploy":
+            argv += ["--environment", "staging", "--repo", str(tmp_path)]
+
+    assert main(argv) == 3
+    assert "LifecycleControlPlane" in capsys.readouterr().out
+    assert not (tmp_path / "run" / "run-state.json").exists()
 
 
-def test_production_gate_via_cli(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_production_mutation_is_retired_via_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     workspace = tmp_path / "workspace"
     (workspace / "deploy").mkdir(parents=True)
     git = LocalGitAdapter(workspace)
@@ -155,73 +110,7 @@ def test_production_gate_via_cli(tmp_path: Path, capsys: pytest.CaptureFixture[s
     run_dir = str(run.run_dir)
     ws = str(workspace)
 
-    # unattested readiness blocks production before authorization is considered
     rc = main(["eng", "deploy", "--run-dir", run_dir, "--environment", "production", "--repo", ws])
     captured = capsys.readouterr()
     assert rc == 3
-    assert "readiness" in (captured.err + captured.out)
-
-    attested = [
-        "--repo",
-        ws,
-        "--health-verified",
-        "--journey-verified",
-    ]
-    rc = main(["eng", "deploy", "--run-dir", run_dir, "--environment", "production", *attested])
-    captured = capsys.readouterr()
-    assert rc == 3
-    assert "approval" in (captured.err + captured.out)
-
-    assert (
-        main(
-            [
-                "eng",
-                "approve-production",
-                "--run-dir",
-                run_dir,
-                "--owner",
-                "abhillash",
-                "--reason",
-                "pilot cohort launch",
-            ]
-        )
-        == 0
-    )
-    assert (
-        main(["eng", "deploy", "--run-dir", run_dir, "--environment", "production", *attested]) == 0
-    )
-    assert "FIXTURE MODE" in capsys.readouterr().out
-
-    # a release verdict without gate evaluations is refused (exit 1, PD-01)
-    assert (
-        main(
-            [
-                "eng",
-                "report",
-                "--run-dir",
-                run_dir,
-                "--verdict",
-                "READY_FOR_PRODUCTION_APPROVAL",
-            ]
-        )
-        == 1
-    )
-    capsys.readouterr()
-    assert (
-        main(
-            [
-                "eng",
-                "report",
-                "--run-dir",
-                run_dir,
-                "--verdict",
-                "READY_FOR_PRODUCTION_APPROVAL",
-                "--gate",
-                "GATE-001=pass",
-                "--gate",
-                "GATE-002=pass",
-            ]
-        )
-        == 0
-    )
-    assert _status(Path(run_dir), capsys)["stage"] == "complete"
+    assert "retired" in (captured.err + captured.out)

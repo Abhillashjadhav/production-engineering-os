@@ -3328,3 +3328,14 @@ def test_budget_stop_rejects_self_asserted_quiescence_and_revocation(tmp_path: P
             context(usage=exhausted, evidence=evidence),
             reason="verification_budget_exhausted",
         )
+
+
+def test_lifecycle_identity_and_authoritative_usage_are_not_caller_replaceable(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path)
+
+    with pytest.raises(AttributeError):
+        cp.subject_digest = OTHER_SHA  # type: ignore[misc]
+    with pytest.raises(AttributeError):
+        cp.budget_usage = BudgetUsage()  # type: ignore[misc]
