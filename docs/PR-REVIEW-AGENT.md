@@ -19,10 +19,12 @@ the normal governed correction loop and receive a new review.
 ## Codex evidence policy
 
 The gate uses no external reviewer credential. It re-observes the current PR
-head and accepts a clean result only from the Codex bot when its GitHub-visible
-comment identifies the current exact SHA and no current non-outdated Codex
-P1/P2 thread exists. GitHub may represent a clean result as a conversation
-comment rather than a pull-request review; it is recorded truthfully as
+head and accepts a clean result only from the Codex bot when either its
+GitHub-visible conversation comment identifies the current exact SHA or its
+authenticated pull-request review is bound to that exact SHA. It paginates both
+evidence surfaces and rejects any current exact-head Codex review body or
+non-outdated review thread containing P0/P1/P2. GitHub may represent a clean
+result as a conversation comment or a pull-request review; it is recorded truthfully as
 `CODEX ADVISORY REVIEW — CLEAN — EXACT HEAD`. Missing, stale, owner-authored,
 trigger-only, or finding-bearing evidence fails closed.
 

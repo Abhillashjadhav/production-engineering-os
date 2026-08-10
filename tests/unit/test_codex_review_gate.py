@@ -170,6 +170,23 @@ def test_any_exact_head_bot_review_with_a_blocker_rejects_the_evidence_set(verif
     assert not verifier_module._has_exact_bot_review(reviews, expected)
 
 
+def test_exact_head_review_body_blocker_is_detected_independently_of_clean_evidence(
+    verifier_module,
+) -> None:
+    expected = "a" * 40
+
+    assert verifier_module._has_exact_bot_review_blocker(
+        [
+            {
+                "user": {"login": verifier_module.BOT},
+                "commit_id": expected,
+                "body": "![P2 Badge] must block even with a clean comment",
+            }
+        ],
+        expected,
+    )
+
+
 def test_all_review_threads_finds_blocker_on_later_graphql_page(
     monkeypatch: pytest.MonkeyPatch, verifier_module
 ) -> None:

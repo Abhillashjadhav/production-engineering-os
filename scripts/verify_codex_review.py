@@ -144,9 +144,17 @@ def _has_exact_bot_review(reviews: list[dict[str, Any]], expected: str) -> bool:
         for review in reviews
         if (review.get("user") or {}).get("login") == BOT and review.get("commit_id") == expected
     ]
+    return bool(exact) and not _has_exact_bot_review_blocker(reviews, expected)
+
+
+def _has_exact_bot_review_blocker(reviews: list[dict[str, Any]], expected: str) -> bool:
+    """A top-level finding blocks even when separate clean evidence exists."""
     blockers = ("P0 Badge", "P1 Badge", "P2 Badge")
-    return bool(exact) and not any(
-        any(badge in (review.get("body") or "") for badge in blockers) for review in exact
+    return any(
+        (review.get("user") or {}).get("login") == BOT
+        and review.get("commit_id") == expected
+        and any(badge in (review.get("body") or "") for badge in blockers)
+        for review in reviews
     )
 
 
@@ -160,13 +168,16 @@ def main() -> int:
         if pr["head"]["sha"] != expected:
             raise SystemExit("current PR head changed during Codex evidence verification")
         comments = _all_issue_comments(repository, number)
+        reviews = _all_reviews(repository, number)
         clean_comment = any(
             comment["user"]["login"] == BOT
             and "Codex Review: Didn't find any major issues." in comment["body"]
             and _comment_matches_exact_head(repository, expected, comment["body"])
             for comment in comments
         )
-        clean = clean_comment or _has_exact_bot_review(_all_reviews(repository, number), expected)
+        clean = (clean_comment or _has_exact_bot_review(reviews, expected)) and not (
+            _has_exact_bot_review_blocker(reviews, expected)
+        )
         if clean:
             break
         if time.monotonic() >= deadline:
