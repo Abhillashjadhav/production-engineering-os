@@ -5,10 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import asdict, fields, replace
-from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -2946,7 +2946,7 @@ def test_budget_extension_rejects_an_expired_admission_challenge(tmp_path: Path)
         approved_by="owner-alice",
     )
     challenge = cp.issue_budget_extension_challenge()
-    cp._budget_extension_challenge_issued_at = datetime.now(UTC) - timedelta(minutes=6)
+    cp._budget_extension_challenge_deadline = time.monotonic() - 1.0
     authorization = extension_authorization(
         cp, extended, amounts={"tokens": 25}, admission_challenge=challenge
     )
@@ -2978,6 +2978,11 @@ def test_phase_zero_v1_snapshot_loads_with_its_versioned_mutation_schemas() -> N
         rule.pop("mutation_subject_fields")
 
     assert lifecycle._policy_from_payload(snapshot).version == "phase-zero-v1"
+    assert lifecycle._policy_from_payload(snapshot).mutation_subject_fields["deploy_staging"] == (
+        "subject_digest",
+        "merge_digest",
+        "artifact_digest",
+    )
 
 
 def test_post_merge_blocking_finding_enters_safe_blocked_state(tmp_path: Path) -> None:

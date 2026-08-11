@@ -14,10 +14,11 @@ import os
 import re
 import secrets
 import threading
+import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
-from datetime import UTC, datetime, timedelta
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
@@ -659,13 +660,102 @@ _MUTATION_SUBJECT_FIELDS: dict[str, tuple[str, ...]] = {
 
 # Kept separate from the active map so pre-v2 policy snapshots replay against
 # the exact compatibility schema rather than silently inheriting future edits.
-_PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS = MappingProxyType(dict(_MUTATION_SUBJECT_FIELDS))
+_PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS = MappingProxyType(
+    {
+        "open_draft_pr": (
+            "subject_digest",
+            "governance_attempt_digest",
+            "issue_digest",
+            "branch_digest",
+            "red_commit_digest",
+            "draft_pr_digest",
+        ),
+        "enqueue_merge": _MUTATION_SUBJECT_FIELDS["enqueue_merge"],
+        "deploy_staging": ("subject_digest", "merge_digest", "artifact_digest"),
+        "deploy_canary": (
+            *_CANARY_ROLLOUT_SUBJECT_FIELDS,
+            "canary_authorization_digest",
+            "canary_id_digest",
+        ),
+        "deploy_production": (*_PRODUCTION_APPROVAL_SCOPE_FIELDS, "production_approval_digest"),
+        "convert_pr_to_draft": (
+            "subject_digest",
+            "ready_revocation_attempt_digest",
+            "ready_revocation_observation_digest",
+        ),
+        "cleanup_staging": ("subject_digest", "cleanup_attempt_digest", "zero_resource_digest"),
+        "rollback": ("subject_digest",),
+        "teardown_canary": ("subject_digest", "canary_teardown_digest", "zero_resource_digest"),
+    }
+)
+_PHASE_ZERO_V1_PROMOTION_MUTATION_SUBJECT_FIELDS = MappingProxyType(
+    {
+        **_MUTATION_SUBJECT_FIELDS,
+        "deploy_staging": (
+            "subject_digest",
+            "merge_digest",
+            "artifact_digest",
+            "configuration_digest",
+            "deployment_target_digest",
+            "staging_authorization_digest",
+            "finding_source_set_digest",
+            "finding_inventory_digest",
+            "authority_fence_digest",
+        ),
+        "convert_pr_to_draft": (
+            "subject_digest",
+            "ready_revocation_attempt_digest",
+            "ready_revocation_observation_digest",
+        ),
+        "rollback": ("subject_digest",),
+    }
+)
+_V1_GUARDED_POLICY_DIGEST = (
+    "sha256:5455211581bb487a20d699e14b46b485b65c0969dacfb232db4f4c89fdc5b12b"
+)
+_V1_PRE_PROMOTION_POLICY_DIGEST = (
+    "sha256:ccc6b1477544f4e5ddd2ef5deb5c1445601728a498a70b8477a535e70637d1df"
+)
+_V1_READY_POLICY_DIGEST = "sha256:bc8b76adab20fe65f5372d582d2464ae1270e6fd1ba3ccd12546f1b9457e2b7a"
+_V1_PROMOTION_POLICY_DIGEST = (
+    "sha256:669d05c91ee4cfac61c2271bc3c0ec995ad16532cc7d1f2237548655d228e3fb"
+)
+_V1_FINAL_POLICY_DIGEST = "sha256:a54b89ccd2e9658902fcc880b8659dd703f369a582a2e364220360e6e4f25702"
+_PHASE_ZERO_V1_SCHEMA_BY_POLICY_DIGEST: Mapping[str, Mapping[str, tuple[str, ...]]] = (
+    MappingProxyType(
+        {
+            # First guarded-mutation policy (cdf968b).
+            _V1_GUARDED_POLICY_DIGEST: MappingProxyType(
+                {
+                    name: _PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS[name]
+                    for name in (
+                        "enqueue_merge",
+                        "deploy_staging",
+                        "deploy_canary",
+                        "deploy_production",
+                    )
+                }
+            ),
+            # The pre-promotion binding policy (fc3fe15).
+            _V1_PRE_PROMOTION_POLICY_DIGEST: _PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS,
+            # Later v1 snapshots use the exact schema that was persisted by their policy digest.
+            _V1_READY_POLICY_DIGEST: MappingProxyType(dict(_MUTATION_SUBJECT_FIELDS)),
+            _V1_PROMOTION_POLICY_DIGEST: _PHASE_ZERO_V1_PROMOTION_MUTATION_SUBJECT_FIELDS,
+            _V1_FINAL_POLICY_DIGEST: MappingProxyType(dict(_MUTATION_SUBJECT_FIELDS)),
+        }
+    )
+)
 
 
-def mutation_subject_digest(action: str, evidence: Mapping[str, str]) -> str:
+def mutation_subject_digest(
+    action: str,
+    evidence: Mapping[str, str],
+    *,
+    schemas: Mapping[str, tuple[str, ...]] = _MUTATION_SUBJECT_FIELDS,
+) -> str:
     """Return the immutable external-effect subject for a guarded mutation."""
 
-    fields = _MUTATION_SUBJECT_FIELDS.get(action)
+    fields = schemas.get(action)
     if fields is None:
         raise ValueError(f"mutation action {action!r} has no exact-subject binding")
     return _digest({name: evidence.get(name, "") for name in fields})
@@ -714,9 +804,15 @@ def _malformed_evidence(evidence: dict[str, str], names: tuple[str, ...]) -> tup
 
 
 class LifecyclePolicy:
-    def __init__(self, version: str, rules: tuple[TransitionRule, ...]) -> None:
+    def __init__(
+        self,
+        version: str,
+        rules: tuple[TransitionRule, ...],
+        mutation_subject_fields: Mapping[str, tuple[str, ...]] = _MUTATION_SUBJECT_FIELDS,
+    ) -> None:
         self.version = version
         self.rules = rules
+        self.mutation_subject_fields = MappingProxyType(dict(mutation_subject_fields))
         keys = {(rule.source, rule.target, rule.reason) for rule in rules}
         if len(keys) != len(rules):
             raise ValueError("lifecycle policy contains a duplicate rule")
@@ -734,7 +830,7 @@ class LifecyclePolicy:
                     **(
                         {
                             "mutation_subject_fields": list(
-                                _MUTATION_SUBJECT_FIELDS.get(rule.mutation_action or "", ())
+                                self.mutation_subject_fields.get(rule.mutation_action or "", ())
                             )
                         }
                         if version != "phase-zero-v1"
@@ -791,7 +887,9 @@ def _policy_payload(policy: LifecyclePolicy) -> dict[str, Any]:
     }
 
 
-def _policy_from_payload(payload: Mapping[str, Any]) -> LifecyclePolicy:
+def _policy_from_payload(
+    payload: Mapping[str, Any], *, policy_digest: str | None = None
+) -> LifecyclePolicy:
     try:
         version = str(payload["version"])
         rules = tuple(
@@ -819,11 +917,14 @@ def _policy_from_payload(payload: Mapping[str, Any]) -> LifecyclePolicy:
             for rule in rules
         ):
             raise ValueError("lifecycle policy snapshot contains unsupported mutation action")
-        expected_schemas = (
-            _PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS
-            if version == "phase-zero-v1"
-            else _MUTATION_SUBJECT_FIELDS
-        )
+        if version == "phase-zero-v1":
+            expected_schemas = _PHASE_ZERO_V1_SCHEMA_BY_POLICY_DIGEST.get(
+                policy_digest or "", _PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS
+            )
+            if policy_digest and policy_digest not in _PHASE_ZERO_V1_SCHEMA_BY_POLICY_DIGEST:
+                raise ValueError("lifecycle policy snapshot has an unknown v1 mutation schema")
+        else:
+            expected_schemas = _MUTATION_SUBJECT_FIELDS
         if any(
             tuple(str(name) for name in raw.get("mutation_subject_fields", ()))
             != expected_schemas.get(str(raw.get("mutation_action")), ())
@@ -831,7 +932,7 @@ def _policy_from_payload(payload: Mapping[str, Any]) -> LifecyclePolicy:
             if "mutation_subject_fields" in raw or version != "phase-zero-v1"
         ):
             raise ValueError("lifecycle policy snapshot mutation schema is unsupported")
-        return LifecyclePolicy(version, rules)
+        return LifecyclePolicy(version, rules, expected_schemas)
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("lifecycle policy snapshot is invalid") from exc
 
@@ -2066,7 +2167,7 @@ class LifecycleControlPlane:
         self._verified_mutation_result_keys: set[str] = set()
         self._consumed_mutation_result_keys: set[str] = set()
         self._budget_extension_challenge: str | None = None
-        self._budget_extension_challenge_issued_at: datetime | None = None
+        self._budget_extension_challenge_deadline: float | None = None
         self._budget_usage = BudgetUsage()
 
     @property
@@ -2122,7 +2223,7 @@ class LifecycleControlPlane:
 
         with self._operation_lock:
             self._budget_extension_challenge = secrets.token_urlsafe(32)
-            self._budget_extension_challenge_issued_at = datetime.now(UTC)
+            self._budget_extension_challenge_deadline = time.monotonic() + 300.0
             return self._budget_extension_challenge
 
     def _trusted_work_evidence_valid(self, context: TransitionContext) -> bool:
@@ -2849,8 +2950,10 @@ class LifecycleControlPlane:
         raw_policy_snapshot = metadata.get("lifecycle_policy")
         if not isinstance(raw_policy_snapshot, dict):
             raise ValueError("lifecycle ledger policy snapshot is missing")
-        recorded_lifecycle_policy = _policy_from_payload(raw_policy_snapshot)
         recorded_policy_digest = str(metadata.get("lifecycle_policy_digest", ""))
+        recorded_lifecycle_policy = _policy_from_payload(
+            raw_policy_snapshot, policy_digest=recorded_policy_digest
+        )
         if recorded_policy_digest != recorded_lifecycle_policy.digest or any(
             event.policy_digest != recorded_lifecycle_policy.digest for event in events
         ):
@@ -3065,11 +3168,11 @@ class LifecycleControlPlane:
             authorization.evidence_digest,
         ):
             raise TransitionDeniedError("trusted budget-owner authority is required")
-        challenge_issued_at = self._budget_extension_challenge_issued_at
+        challenge_deadline = self._budget_extension_challenge_deadline
         if (
             authorization.admission_challenge != self._budget_extension_challenge
-            or challenge_issued_at is None
-            or datetime.now(UTC) - challenge_issued_at > timedelta(minutes=5)
+            or challenge_deadline is None
+            or time.monotonic() > challenge_deadline
         ):
             raise TransitionDeniedError("budget extension requires a fresh admission challenge")
         try:
@@ -3159,7 +3262,7 @@ class LifecycleControlPlane:
                 "budget extension amount does not match the proposed policy"
             )
         self._budget_extension_challenge = None
-        self._budget_extension_challenge_issued_at = None
+        self._budget_extension_challenge_deadline = None
         self._append(
             kind="BUDGET_POLICY_ADMITTED",
             outcome="RECORDED",
@@ -4175,6 +4278,7 @@ class LifecycleControlPlane:
                         if attempt.action == "rollback"
                         else context.evidence
                     ),
+                    schemas=self._policy.mutation_subject_fields,
                 )
             ):
                 self._deny(
