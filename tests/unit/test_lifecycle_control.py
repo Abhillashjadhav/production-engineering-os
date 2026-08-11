@@ -3530,14 +3530,19 @@ def test_quarantine_disposition_failure_enters_bound_security_block(
         {
             "affected_artifact_digest": affected_artifact,
             "quarantine_disposition_status": "AUTHORITATIVELY_DISPOSED",
-            "quarantine_disposition_authority_digest": disposition_authority,
-            "quarantine_disposition_evidence_digest": object_digest(
+            "quarantine_disposition_observer_id": "repository-observer",
+            "quarantine_disposition_observer_authority_digest": OTHER_SHA,
+            "quarantine_disposition_authentication_evidence_digest": external_proof(
+                "repository-observer",
+                OTHER_SHA,
                 {
+                    "observer_id": "repository-observer",
+                    "authority_digest": OTHER_SHA,
                     "affected_artifact_digest": affected_artifact,
-                    "authority_evidence_digest": disposition_authority,
                     "subject_digest": SHA,
                     "status": "AUTHORITATIVELY_DISPOSED",
-                }
+                    "observed_at": "2026-08-02T00:01:00Z",
+                },
             ),
         }
     )

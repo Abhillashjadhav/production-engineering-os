@@ -741,6 +741,45 @@ class LifecyclePolicy:
         return tuple(rule for rule in self.rules if rule.source is state)
 
 
+def _policy_payload(policy: LifecyclePolicy) -> dict[str, Any]:
+    return {
+        "version": policy.version,
+        "rules": [
+            {
+                "source": rule.source.value,
+                "target": rule.target.value,
+                "reason": rule.reason,
+                "required_evidence": list(rule.required_evidence),
+                "guards": sorted(rule.guards),
+                "permission": rule.permission,
+                "mutation_action": rule.mutation_action,
+            }
+            for rule in policy.rules
+        ],
+    }
+
+
+def _policy_from_payload(payload: Mapping[str, Any]) -> LifecyclePolicy:
+    try:
+        rules = tuple(
+            TransitionRule(
+                source=LifecycleState(str(raw["source"])),
+                target=LifecycleState(str(raw["target"])),
+                reason=str(raw["reason"]),
+                required_evidence=tuple(str(name) for name in raw["required_evidence"]),
+                guards=frozenset(str(name) for name in raw.get("guards", ())),
+                permission=str(raw["permission"]),
+                mutation_action=(
+                    str(raw["mutation_action"]) if raw.get("mutation_action") is not None else None
+                ),
+            )
+            for raw in payload["rules"]
+        )
+        return LifecyclePolicy(str(payload["version"]), rules)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("lifecycle policy snapshot is invalid") from exc
+
+
 def _r(
     source: LifecycleState,
     target: LifecycleState,
@@ -1788,6 +1827,12 @@ _ORDINARY_SAFE_RESUME_TARGETS = (
     S.PR_MERGED,
     S.PRODUCTION_DEPLOYED,
     S.BUDGET_EXCEEDED,
+    # A budget-extension outage preserves the gate that was interrupted.
+    # Those gates must be legal BLOCKED recovery targets as well.
+    S.DRAFT_PR_OPEN,
+    S.IMPLEMENTATION_IN_PROGRESS,
+    S.REPAIR_IN_PROGRESS,
+    S.ROLLED_BACK,
 )
 _BUDGET_SAFE_RESUME_TARGETS = (
     S.DRAFT_PR_OPEN,
@@ -1943,6 +1988,7 @@ class LifecycleControlPlane:
         subject_digest: str,
         state: LifecycleState,
         budget_policy: BudgetPolicy,
+        policy: LifecyclePolicy = PHASE_ZERO_POLICY,
         trust_policy: EvidenceTrustPolicy | None = None,
         evidence_verifier: EvidenceVerifier | None = None,
         events: list[LifecycleEvent] | None = None,
@@ -1952,6 +1998,7 @@ class LifecycleControlPlane:
         self._subject_digest = subject_digest
         self._state = state
         self._budget_policy = budget_policy
+        self._policy = policy
         self._trust_policy = trust_policy or EvidenceTrustPolicy()
         self._evidence_verifier = evidence_verifier
         self._events = list(events or ())
@@ -2472,8 +2519,7 @@ class LifecycleControlPlane:
         self, attempt: MutationAttempt, authorization: MutationAuthorization
     ) -> bool:
         if not any(
-            rule.mutation_action == attempt.action
-            for rule in PHASE_ZERO_POLICY.rules_from(self.state)
+            rule.mutation_action == attempt.action for rule in self._policy.rules_from(self.state)
         ):
             return False
         payload = {
@@ -2564,6 +2610,7 @@ class LifecycleControlPlane:
             "run_id": run_id,
             "subject_digest": subject_digest,
             "lifecycle_policy_digest": PHASE_ZERO_POLICY.digest,
+            "lifecycle_policy": _policy_payload(PHASE_ZERO_POLICY),
             "budget_policy": policy_payload,
             "budget_policy_digest": _digest(policy_payload),
             "trust_policy": trust_payload,
@@ -2727,14 +2774,15 @@ class LifecycleControlPlane:
             authority_observers=dict(raw_trust.get("authority_observers", {})),
             integrity_monitors=dict(raw_trust.get("integrity_monitors", {})),
         )
+        raw_policy_snapshot = metadata.get("lifecycle_policy")
+        if not isinstance(raw_policy_snapshot, dict):
+            raise ValueError("lifecycle ledger policy snapshot is missing")
+        recorded_lifecycle_policy = _policy_from_payload(raw_policy_snapshot)
         recorded_policy_digest = str(metadata.get("lifecycle_policy_digest", ""))
-        # A binary must never append current-policy events to a ledger whose
-        # transition rules it cannot replay.  Policy upgrades need an explicit
-        # migration admission, rather than silently creating mixed histories.
-        if recorded_policy_digest != PHASE_ZERO_POLICY.digest or any(
-            event.policy_digest != PHASE_ZERO_POLICY.digest for event in events
+        if recorded_policy_digest != recorded_lifecycle_policy.digest or any(
+            event.policy_digest != recorded_lifecycle_policy.digest for event in events
         ):
-            raise ValueError("lifecycle ledger policy version requires explicit migration")
+            raise ValueError("lifecycle ledger policy version is not internally consistent")
         if raw_trust and initial.evidence_refs.get("trust_policy_digest") != _digest(raw_trust):
             raise ValueError("lifecycle evidence trust policy is not bound to the initial event")
         cp = cls(
@@ -2743,6 +2791,7 @@ class LifecycleControlPlane:
             subject_digest=str(metadata["subject_digest"]),
             state=events[0].target,
             budget_policy=budget_policy,
+            policy=recorded_lifecycle_policy,
             trust_policy=trust_policy,
             evidence_verifier=evidence_verifier,
             events=events,
@@ -3145,7 +3194,7 @@ class LifecycleControlPlane:
             "reason": reason,
             "actor": actor,
             "subject_digest": self.subject_digest,
-            "policy_digest": PHASE_ZERO_POLICY.digest,
+            "policy_digest": self._policy.digest,
             "evidence_digest": _digest(evidence_refs),
             "evidence_refs": evidence_refs,
             "budget_usage": _budget_usage_payload(budget_usage)
@@ -3318,7 +3367,7 @@ class LifecycleControlPlane:
         ):
             self._deny(target, context, reason, "active rollout exposure requires rollback")
         try:
-            rule = PHASE_ZERO_POLICY.rule(source, target, reason=reason)
+            rule = self._policy.rule(source, target, reason=reason)
         except TransitionDeniedError as exc:
             self._deny(target, context, reason, str(exc))
             raise AssertionError("unreachable") from exc
@@ -4629,7 +4678,7 @@ class LifecycleControlPlane:
             )
         recorded = stopped_event.resume_state
         try:
-            rule = PHASE_ZERO_POLICY.rule(self.state, recorded, reason="recorded_safe_resume")
+            rule = self._policy.rule(self.state, recorded, reason="recorded_safe_resume")
         except TransitionDeniedError as exc:
             self._deny(recorded, context, "resume", str(exc))
             raise AssertionError("unreachable") from exc
@@ -4727,24 +4776,32 @@ class LifecycleControlPlane:
                 )
         if stopped_event.reason == "quarantine_disposition_indeterminate":
             affected_artifact = stopped_event.evidence_refs.get("affected_artifact_digest", "")
-            disposition_authority = context.actor.authentication_evidence_digest
-            expected_disposition = _digest(
-                {
-                    "affected_artifact_digest": affected_artifact,
-                    "authority_evidence_digest": disposition_authority,
-                    "subject_digest": self.subject_digest,
-                    "status": "AUTHORITATIVELY_DISPOSED",
-                }
+            observer = context.evidence.get("quarantine_disposition_observer_id", "")
+            disposition_authority = context.evidence.get(
+                "quarantine_disposition_observer_authority_digest", ""
             )
+            payload = {
+                "observer_id": observer,
+                "authority_digest": disposition_authority,
+                "affected_artifact_digest": affected_artifact,
+                "subject_digest": self.subject_digest,
+                "status": "AUTHORITATIVELY_DISPOSED",
+                "observed_at": context.observed_at,
+            }
             if (
                 "lifecycle.quarantine.disposition" not in context.actor.capabilities
                 or context.evidence.get("affected_artifact_digest") != affected_artifact
                 or context.evidence.get("quarantine_disposition_status")
                 != "AUTHORITATIVELY_DISPOSED"
-                or context.evidence.get("quarantine_disposition_authority_digest")
-                != disposition_authority
-                or context.evidence.get("quarantine_disposition_evidence_digest")
-                != expected_disposition
+                or self.trust_policy.repository_observers.get(observer) != disposition_authority
+                or not self._verify_external_evidence(
+                    observer,
+                    disposition_authority,
+                    payload,
+                    context.evidence.get(
+                        "quarantine_disposition_authentication_evidence_digest", ""
+                    ),
+                )
             ):
                 self._deny(
                     recorded,
