@@ -1538,9 +1538,18 @@ _RULES: tuple[TransitionRule, ...] = (
         S.PRODUCTION_APPROVAL_REQUIRED,
         S.STAGING_DEPLOYED,
         "approval_reset_no_defect",
-        ("approval_disposition_digest", "canary_teardown_digest", "staging_revalidation_digest"),
+        (
+            "approval_disposition_digest",
+            "canary_teardown_digest",
+            "zero_resource_digest",
+            "staging_revalidation_digest",
+            "canary_teardown_observer_id",
+            "canary_teardown_observer_authority_digest",
+            "canary_teardown_authentication_evidence_digest",
+        ),
         "safety",
         "mutation",
+        "canary_teardown",
         mutation="teardown_canary",
     ),
     _r(
@@ -2127,9 +2136,14 @@ class LifecycleControlPlane:
             "authority_observed_at": snapshot.observed_at,
             "valid_until": snapshot.valid_until,
             "transition_observed_at": context.observed_at,
+            "authority_current_time": evidence.get("authority_current_time", ""),
         }
         try:
             transition_time = datetime.fromisoformat(context.observed_at.replace("Z", "+00:00"))
+            trusted_time = datetime.fromisoformat(
+                evidence.get("authority_current_time", "").replace("Z", "+00:00")
+            )
+            valid_until = datetime.fromisoformat(snapshot.valid_until.replace("Z", "+00:00"))
             prior_times = (
                 datetime.fromisoformat(event.observed_at.replace("Z", "+00:00"))
                 for event in self.events
@@ -2138,8 +2152,16 @@ class LifecycleControlPlane:
             prior_time = max(prior_times, default=None)
         except ValueError:
             return False
-        if transition_time.tzinfo is None or (
-            prior_time is not None and (prior_time.tzinfo is None or transition_time < prior_time)
+        if (
+            transition_time.tzinfo is None
+            or trusted_time.tzinfo is None
+            or valid_until.tzinfo is None
+            or (
+                prior_time is not None
+                and (prior_time.tzinfo is None or transition_time < prior_time)
+            )
+            or transition_time > trusted_time
+            or trusted_time >= valid_until
         ):
             return False
         return bool(
@@ -2337,6 +2359,30 @@ class LifecycleControlPlane:
                 authority_digest,
                 payload,
                 evidence.get("canary_breach_authentication_evidence_digest", ""),
+            )
+        )
+
+    def _trusted_canary_teardown_valid(self, context: TransitionContext) -> bool:
+        evidence = context.evidence
+        observer = evidence.get("canary_teardown_observer_id", "")
+        authority_digest = evidence.get("canary_teardown_observer_authority_digest", "")
+        payload = {
+            "observer_id": observer,
+            "authority_digest": authority_digest,
+            "subject_digest": self.subject_digest,
+            "canary_teardown_digest": evidence.get("canary_teardown_digest", ""),
+            "zero_resource_digest": evidence.get("zero_resource_digest", ""),
+            "observed_at": context.observed_at,
+        }
+        return bool(
+            context.rollout.canary in {"NONE", "REMOVED"}
+            and observer
+            and self.trust_policy.live_observers.get(observer) == authority_digest
+            and self._verify_external_evidence(
+                observer,
+                authority_digest,
+                payload,
+                evidence.get("canary_teardown_authentication_evidence_digest", ""),
             )
         )
 
@@ -3994,6 +4040,13 @@ class LifecycleControlPlane:
                 reason,
                 "trusted live failure evidence bound to the admitted deployment is required",
             )
+        if "canary_teardown" in guards and not self._trusted_canary_teardown_valid(context):
+            self._deny(
+                target,
+                context,
+                reason,
+                "trusted zero-exposure canary teardown evidence is required",
+            )
         if "zero_exposure" in guards:
             attempt = context.mutation
             result = (
@@ -4045,6 +4098,16 @@ class LifecycleControlPlane:
                 )
             review_binding = self._latest_review_binding()
             merge_binding = self._latest_merge_binding()
+            production_binding = next(
+                (
+                    event
+                    for event in reversed(self.events)
+                    if event.outcome == "APPLIED"
+                    and event.target is S.PRODUCTION_DEPLOYED
+                    and event.reason == "production_admitted"
+                ),
+                None,
+            )
             deployed_release_sha = (
                 merge_binding.evidence_refs.get("merge_commit_sha")
                 if merge_binding is not None
@@ -4063,6 +4126,19 @@ class LifecycleControlPlane:
                 review_binding is None
                 or invalidated
                 or context.evidence.get("release_sha") != deployed_release_sha
+                or (
+                    production_binding is not None
+                    and any(
+                        context.evidence.get(field) != production_binding.evidence_refs.get(field)
+                        for field in (
+                            "release_sha",
+                            "artifact_digest",
+                            "configuration_digest",
+                            "production_attempt_digest",
+                            "production_result_digest",
+                        )
+                    )
+                )
                 or context.evidence.get("reviewed_commit_sha")
                 != review_binding.evidence_refs.get("reviewed_commit_sha")
                 or context.evidence.get("reviewed_candidate_digest")

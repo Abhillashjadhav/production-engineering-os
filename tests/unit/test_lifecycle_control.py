@@ -157,11 +157,13 @@ def context(
         "authority_observed_at": authority_snapshot.observed_at,
         "valid_until": authority_snapshot.valid_until,
         "transition_observed_at": "2026-08-02T00:01:00Z",
+        "authority_current_time": "2026-08-02T00:01:00Z",
     }
     effective_evidence.update(
         {
             "authority_observer_id": "authority-observer",
             "authority_observer_authority_digest": SHA,
+            "authority_current_time": "2026-08-02T00:01:00Z",
             "authority_authentication_evidence_digest": external_proof(
                 "authority-observer", SHA, authority_payload
             ),
