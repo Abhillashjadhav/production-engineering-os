@@ -368,6 +368,7 @@ class MutationAuthorization:
     attempt_id: str
     idempotency_key: str
     step_plan_digest: str
+    steps: tuple[str, ...]
     observed_at: str
     authentication_evidence_digest: str
 
@@ -1786,6 +1787,7 @@ _ORDINARY_SAFE_RESUME_TARGETS = (
     S.PR_READY,
     S.PR_MERGED,
     S.PRODUCTION_DEPLOYED,
+    S.BUDGET_EXCEEDED,
 )
 _BUDGET_SAFE_RESUME_TARGETS = (
     S.DRAFT_PR_OPEN,
@@ -2207,6 +2209,35 @@ class LifecycleControlPlane:
             inventories[source] = inventory_digest
         return evidence.get("finding_inventory_epochs_digest") == _digest(inventories)
 
+    def _trusted_resume_gate_valid(
+        self, context: TransitionContext, stopped_event: LifecycleEvent, target: LifecycleState
+    ) -> bool:
+        evidence = context.evidence
+        observer = evidence.get("resume_observer_id", "")
+        authority_digest = evidence.get("resume_observer_authority_digest", "")
+        payload = {
+            "observer_id": observer,
+            "authority_digest": authority_digest,
+            "subject_digest": self.subject_digest,
+            "stopped_event_digest": stopped_event.event_digest,
+            "stopped_reason": stopped_event.reason,
+            "resume_target": target.value,
+            "incident_closure_digest": evidence.get("incident_closure_digest", ""),
+            "restored_capability_digest": evidence.get("restored_capability_digest", ""),
+            "unchanged_inputs_digest": evidence.get("unchanged_inputs_digest", ""),
+            "observed_at": context.observed_at,
+        }
+        return bool(
+            observer
+            and self.trust_policy.repository_observers.get(observer) == authority_digest
+            and self._verify_external_evidence(
+                observer,
+                authority_digest,
+                payload,
+                evidence.get("resume_authentication_evidence_digest", ""),
+            )
+        )
+
     def _trusted_finding_signal_valid(
         self, context: TransitionContext, finding: FindingSignal
     ) -> bool:
@@ -2454,6 +2485,7 @@ class LifecycleControlPlane:
             "attempt_id": authorization.attempt_id,
             "idempotency_key": authorization.idempotency_key,
             "step_plan_digest": authorization.step_plan_digest,
+            "steps": list(authorization.steps),
             "observed_at": authorization.observed_at,
         }
         return bool(
@@ -2463,6 +2495,7 @@ class LifecycleControlPlane:
             and authorization.attempt_id == attempt.attempt_id
             and authorization.idempotency_key == attempt.idempotency_key
             and authorization.step_plan_digest == attempt.step_plan_digest
+            and authorization.steps == attempt.steps
             and self.trust_policy.mutation_authorizers.get(authorization.authorizer_id)
             == authorization.authority_digest
             and self._verify_external_evidence(
@@ -2530,6 +2563,7 @@ class LifecycleControlPlane:
         metadata: dict[str, Any] = {
             "run_id": run_id,
             "subject_digest": subject_digest,
+            "lifecycle_policy_digest": PHASE_ZERO_POLICY.digest,
             "budget_policy": policy_payload,
             "budget_policy_digest": _digest(policy_payload),
             "trust_policy": trust_payload,
@@ -2693,8 +2727,11 @@ class LifecycleControlPlane:
             authority_observers=dict(raw_trust.get("authority_observers", {})),
             integrity_monitors=dict(raw_trust.get("integrity_monitors", {})),
         )
-        if any(event.policy_digest != PHASE_ZERO_POLICY.digest for event in events):
-            raise ValueError("lifecycle ledger policy digest differs from the active policy")
+        recorded_policy_digest = str(metadata.get("lifecycle_policy_digest", ""))
+        if not recorded_policy_digest or any(
+            event.policy_digest != recorded_policy_digest for event in events
+        ):
+            raise ValueError("lifecycle ledger policy version is not internally consistent")
         if raw_trust and initial.evidence_refs.get("trust_policy_digest") != _digest(raw_trust):
             raise ValueError("lifecycle evidence trust policy is not bound to the initial event")
         cp = cls(
@@ -4696,6 +4733,15 @@ class LifecycleControlPlane:
                     "resume",
                     "authoritative exact-artifact quarantine disposition evidence is required",
                 )
+        if stopped_event.reason == "repository_unavailable" and not self._trusted_resume_gate_valid(
+            context, stopped_event, recorded
+        ):
+            self._deny(
+                recorded,
+                context,
+                "resume",
+                "trusted exact-stop resume evidence is required",
+            )
         if context.rollout.has_resources:
             self._deny(
                 recorded, context, "resume", "ordinary resume requires zero rollout resources"

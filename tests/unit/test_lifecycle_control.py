@@ -352,6 +352,7 @@ def mutation_authorization(
         "attempt_id": attempt.attempt_id,
         "idempotency_key": attempt.idempotency_key,
         "step_plan_digest": attempt.step_plan_digest,
+        "steps": list(attempt.steps),
         "observed_at": "2026-08-02T00:01:00Z",
     }
     return MutationAuthorization(
@@ -363,6 +364,7 @@ def mutation_authorization(
         attempt_id=attempt.attempt_id,
         idempotency_key=attempt.idempotency_key,
         step_plan_digest=attempt.step_plan_digest,
+        steps=attempt.steps,
         observed_at="2026-08-02T00:01:00Z",
         authentication_evidence_digest=external_proof("mutation-authorizer", SHA, body),
     )
