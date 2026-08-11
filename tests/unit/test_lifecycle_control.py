@@ -371,7 +371,7 @@ def prejournal(cp: LifecycleControlPlane, attempt: MutationAttempt) -> MutationA
 
 
 def test_transition_actor_rejects_a_self_computed_credential(tmp_path: Path) -> None:
-    cp = control_plane(tmp_path)
+    cp = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
     valid = context(
         evidence=evidence_for(
             LifecycleState.CONTRACT_RECEIVED,
@@ -1854,6 +1854,31 @@ def test_legacy_migration_is_readable_but_stops_for_phase_zero_readmission(
     )
 
 
+def test_replay_rejects_mutation_result_when_prejournal_is_missing(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
+    attempt = MutationAttempt(
+        attempt_id="missing-journal-attempt",
+        idempotency_key="stage:run-65:missing-journal",
+        subject_digest=SHA,
+        action="deploy_staging",
+        step_plan_digest=mutation_subject_digest(
+            "deploy_staging",
+            evidence_for(
+                LifecycleState.PR_MERGED,
+                LifecycleState.STAGING_DEPLOYED,
+                reason="staging_admitted",
+            ),
+        ),
+        status="PLANNED",
+    )
+    prejournal(cp, attempt)
+    record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
+    cp.mutation_path.unlink()
+
+    with pytest.raises(ValueError, match="mutation result adapter evidence is invalid"):
+        LifecycleControlPlane.load(tmp_path, evidence_verifier=verify_external_proof)
+
+
 def test_legacy_migration_rejects_a_different_existing_admission(tmp_path: Path) -> None:
     policy, _ = budgets()
     admitted = migrate_legacy_state({"version": 2, "stage": "deploy"})
@@ -2550,18 +2575,79 @@ def test_canary_breach_is_recorded_before_a_rollback_attempt(tmp_path: Path) -> 
     required.update(record_active_canary_binding(cp))
     required["canary_failure_digest"] = object_digest("canary-slo-breach")
 
+    with pytest.raises(TransitionDeniedError, match="trusted exact-canary breach"):
+        cp.transition(
+            LifecycleState.CANARY_FAILED,
+            context(
+                evidence=required,
+                rollout=RolloutStatus(staging="ACTIVE", canary="ACTIVE"),
+            ),
+            reason="canary_breach_recorded",
+        )
+    required.update(
+        canary_breach_observer_id="live-observer",
+        canary_breach_observer_authority_digest=SHA,
+    )
+    required["canary_breach_authentication_evidence_digest"] = external_proof(
+        "live-observer",
+        SHA,
+        {
+            "observer_id": "live-observer",
+            "authority_digest": SHA,
+            "subject_digest": SHA,
+            "canary_id_digest": required["canary_id_digest"],
+            "canary_attempt_digest": required["canary_attempt_digest"],
+            "canary_status_digest": required["canary_status_digest"],
+            "canary_failure_digest": required["canary_failure_digest"],
+            "observed_at": "2026-08-02T00:01:00Z",
+        },
+    )
     event = cp.transition(
         LifecycleState.CANARY_FAILED,
-        context(
-            evidence=required,
-            rollout=RolloutStatus(staging="ACTIVE", canary="ACTIVE"),
-        ),
+        context(evidence=required, rollout=RolloutStatus(staging="ACTIVE", canary="ACTIVE")),
         reason="canary_breach_recorded",
     )
 
     assert event.target is LifecycleState.CANARY_FAILED
     assert cp.state is LifecycleState.CANARY_FAILED
     assert "rollback_attempt_digest" not in event.evidence_refs
+
+
+def test_approval_window_canary_breach_is_recorded_before_rollback(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PRODUCTION_APPROVAL_REQUIRED)
+    required = evidence_for(
+        LifecycleState.PRODUCTION_APPROVAL_REQUIRED,
+        LifecycleState.CANARY_FAILED,
+        reason="canary_breach_recorded",
+    )
+    required.update(record_active_canary_binding(cp))
+    required["canary_failure_digest"] = object_digest("approval-window-slo-breach")
+    required.update(
+        canary_breach_observer_id="live-observer",
+        canary_breach_observer_authority_digest=SHA,
+    )
+    required["canary_breach_authentication_evidence_digest"] = external_proof(
+        "live-observer",
+        SHA,
+        {
+            "observer_id": "live-observer",
+            "authority_digest": SHA,
+            "subject_digest": SHA,
+            "canary_id_digest": required["canary_id_digest"],
+            "canary_attempt_digest": required["canary_attempt_digest"],
+            "canary_status_digest": required["canary_status_digest"],
+            "canary_failure_digest": required["canary_failure_digest"],
+            "observed_at": "2026-08-02T00:01:00Z",
+        },
+    )
+    assert (
+        cp.transition(
+            LifecycleState.CANARY_FAILED,
+            context(evidence=required, rollout=RolloutStatus(staging="ACTIVE", canary="ACTIVE")),
+            reason="canary_breach_recorded",
+        ).target
+        is LifecycleState.CANARY_FAILED
+    )
 
 
 def test_blocking_finding_requires_external_source_authentication(tmp_path: Path) -> None:

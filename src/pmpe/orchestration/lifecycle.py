@@ -1414,8 +1414,12 @@ _RULES: tuple[TransitionRule, ...] = (
             "canary_id_digest",
             "canary_status_digest",
             "canary_failure_digest",
+            "canary_breach_observer_id",
+            "canary_breach_observer_authority_digest",
+            "canary_breach_authentication_evidence_digest",
         ),
         "active_canary",
+        "canary_breach",
     ),
     _r(
         S.CANARY_DEPLOYED,
@@ -1458,6 +1462,22 @@ _RULES: tuple[TransitionRule, ...] = (
         ("canary_failure_digest", "rollback_attempt_digest"),
         *_SAFETY,
         mutation="rollback",
+    ),
+    _r(
+        S.PRODUCTION_APPROVAL_REQUIRED,
+        S.CANARY_FAILED,
+        "canary_breach_recorded",
+        (
+            "subject_digest",
+            "canary_id_digest",
+            "canary_status_digest",
+            "canary_failure_digest",
+            "canary_breach_observer_id",
+            "canary_breach_observer_authority_digest",
+            "canary_breach_authentication_evidence_digest",
+        ),
+        "active_canary",
+        "canary_breach",
     ),
     _r(
         S.PRODUCTION_APPROVAL_REQUIRED,
@@ -2294,6 +2314,31 @@ class LifecycleControlPlane:
             )
         )
 
+    def _trusted_canary_breach_valid(self, context: TransitionContext) -> bool:
+        evidence = context.evidence
+        observer = evidence.get("canary_breach_observer_id", "")
+        authority_digest = evidence.get("canary_breach_observer_authority_digest", "")
+        payload = {
+            "observer_id": observer,
+            "authority_digest": authority_digest,
+            "subject_digest": self.subject_digest,
+            "canary_id_digest": evidence.get("canary_id_digest", ""),
+            "canary_attempt_digest": evidence.get("canary_attempt_digest", ""),
+            "canary_status_digest": evidence.get("canary_status_digest", ""),
+            "canary_failure_digest": evidence.get("canary_failure_digest", ""),
+            "observed_at": context.observed_at,
+        }
+        return bool(
+            observer
+            and self.trust_policy.live_observers.get(observer) == authority_digest
+            and self._verify_external_evidence(
+                observer,
+                authority_digest,
+                payload,
+                evidence.get("canary_breach_authentication_evidence_digest", ""),
+            )
+        )
+
     def _trusted_rollback_evidence_valid(self, context: TransitionContext) -> bool:
         evidence = context.evidence
         observer = evidence.get("live_observer_id", "")
@@ -2666,8 +2711,11 @@ class LifecycleControlPlane:
                         "lifecycle.mutation.result.record" not in adapter_evidence.capabilities
                         or cp.trust_policy.adapter_authorities.get(adapter_evidence.adapter_id)
                         != adapter_evidence.authority_digest
+                        or key not in cp._mutation_attempts
+                        or adapter_evidence.attempt_id != cp._mutation_attempts[key].attempt_id
+                        or adapter_evidence.action != cp._mutation_attempts[key].action
                         or adapter_evidence.step_plan_digest
-                        != cp._mutation_attempts.get(key, adapter_evidence).step_plan_digest
+                        != cp._mutation_attempts[key].step_plan_digest
                         or not adapter_evidence.authentication_evidence_digest
                         or (
                             cp._evidence_verifier is not None
@@ -3308,6 +3356,13 @@ class LifecycleControlPlane:
                 context,
                 reason,
                 "trusted exact-canary window evidence is required for promotion",
+            )
+        if "canary_breach" in guards and not self._trusted_canary_breach_valid(context):
+            self._deny(
+                target,
+                context,
+                reason,
+                "trusted exact-canary breach evidence is required",
             )
         if "drift" in guards:
             candidate_states = {
