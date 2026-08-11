@@ -709,6 +709,31 @@ _PHASE_ZERO_V1_PROMOTION_MUTATION_SUBJECT_FIELDS = MappingProxyType(
         "rollback": ("subject_digest",),
     }
 )
+_PHASE_ZERO_V1_EARLY_FENCED_MUTATION_SUBJECT_FIELDS = MappingProxyType(
+    {
+        **_PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS,
+        "open_draft_pr": _MUTATION_SUBJECT_FIELDS["open_draft_pr"],
+        "cleanup_staging": _MUTATION_SUBJECT_FIELDS["cleanup_staging"],
+        "deploy_canary": (
+            *_CANARY_ROLLOUT_SUBJECT_FIELDS,
+            "canary_authorization_digest",
+            "canary_id_digest",
+            "authority_fence_digest",
+        ),
+        "deploy_production": (
+            *_PRODUCTION_APPROVAL_SCOPE_FIELDS,
+            "authority_fence_digest",
+            "production_approval_digest",
+        ),
+    }
+)
+_PHASE_ZERO_V1_CCC_LATER_MUTATION_SUBJECT_FIELDS = MappingProxyType(
+    {
+        **_PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS,
+        "open_draft_pr": _MUTATION_SUBJECT_FIELDS["open_draft_pr"],
+        "cleanup_staging": _MUTATION_SUBJECT_FIELDS["cleanup_staging"],
+    }
+)
 _V1_GUARDED_POLICY_DIGEST = (
     "sha256:5455211581bb487a20d699e14b46b485b65c0969dacfb232db4f4c89fdc5b12b"
 )
@@ -720,6 +745,11 @@ _V1_PROMOTION_POLICY_DIGEST = (
     "sha256:669d05c91ee4cfac61c2271bc3c0ec995ad16532cc7d1f2237548655d228e3fb"
 )
 _V1_FINAL_POLICY_DIGEST = "sha256:a54b89ccd2e9658902fcc880b8659dd703f369a582a2e364220360e6e4f25702"
+_V1_EARLY_FENCED_POLICY_DIGESTS = (
+    "sha256:a7d9ac97d9e4113e3d0e2a9d41980461c5a9f24840cc4e67057a02e3108c35b3",
+    "sha256:cc2cb14f65561d195ee717d3f76caab4727467f4c4ba21f3c3b3a1df247077cc",
+    "sha256:f2ac84ef999f83654007443a21a9e8a05dcfe00b9181a3db20d5336bbe000c86",
+)
 _PHASE_ZERO_V1_SCHEMA_BY_POLICY_DIGEST: Mapping[str, Mapping[str, tuple[str, ...]]] = (
     MappingProxyType(
         {
@@ -741,6 +771,10 @@ _PHASE_ZERO_V1_SCHEMA_BY_POLICY_DIGEST: Mapping[str, Mapping[str, tuple[str, ...
             _V1_READY_POLICY_DIGEST: MappingProxyType(dict(_MUTATION_SUBJECT_FIELDS)),
             _V1_PROMOTION_POLICY_DIGEST: _PHASE_ZERO_V1_PROMOTION_MUTATION_SUBJECT_FIELDS,
             _V1_FINAL_POLICY_DIGEST: MappingProxyType(dict(_MUTATION_SUBJECT_FIELDS)),
+            **dict.fromkeys(
+                _V1_EARLY_FENCED_POLICY_DIGESTS,
+                _PHASE_ZERO_V1_EARLY_FENCED_MUTATION_SUBJECT_FIELDS,
+            ),
         }
     )
 )
@@ -793,8 +827,19 @@ def _v1_schema_variants_for_policy(
         if policy_digest == _V1_PRE_PROMOTION_POLICY_DIGEST:
             return (
                 primary,
+                _PHASE_ZERO_V1_CCC_LATER_MUTATION_SUBJECT_FIELDS,
                 MappingProxyType(
-                    {name: fields for name, fields in primary.items() if name != "cleanup_staging"}
+                    {
+                        name: fields
+                        for name, fields in _PHASE_ZERO_V1_CCC_LATER_MUTATION_SUBJECT_FIELDS.items()
+                        if name
+                        in {
+                            "enqueue_merge",
+                            "deploy_staging",
+                            "deploy_canary",
+                            "deploy_production",
+                        }
+                    }
                 ),
             )
         return (primary,)
