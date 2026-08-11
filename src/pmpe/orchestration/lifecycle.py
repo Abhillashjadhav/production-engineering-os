@@ -783,6 +783,26 @@ _PHASE_ZERO_V1_MUTATION_SCHEMA_VARIANTS: Mapping[str, tuple[tuple[str, ...], ...
 )
 
 
+def _v1_schema_variants_for_policy(
+    policy_digest: str,
+) -> tuple[Mapping[str, tuple[str, ...]], ...]:
+    """Return only schemas released under the recorded v1 policy digest."""
+
+    primary = _PHASE_ZERO_V1_SCHEMA_BY_POLICY_DIGEST.get(policy_digest)
+    if primary is not None:
+        if policy_digest == _V1_PRE_PROMOTION_POLICY_DIGEST:
+            return (
+                primary,
+                MappingProxyType(
+                    {name: fields for name, fields in primary.items() if name != "cleanup_staging"}
+                ),
+            )
+        return (primary,)
+    if policy_digest not in _PHASE_ZERO_V1_RELEASED_POLICY_DIGESTS:
+        raise ValueError("lifecycle policy snapshot has an unknown v1 mutation schema")
+    return (MappingProxyType(dict(_MUTATION_SUBJECT_FIELDS)),)
+
+
 def mutation_subject_digest(
     action: str,
     evidence: Mapping[str, str],
@@ -962,12 +982,16 @@ def _policy_from_payload(
             raise ValueError("lifecycle policy snapshot contains unsupported mutation action")
         variants: Mapping[str, tuple[tuple[str, ...], ...]] | None = None
         if version == "phase-zero-v1":
-            expected_schemas = _PHASE_ZERO_V1_SCHEMA_BY_POLICY_DIGEST.get(
-                policy_digest or "", _PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS
+            selected = _v1_schema_variants_for_policy(
+                policy_digest or _V1_PRE_PROMOTION_POLICY_DIGEST
             )
-            if policy_digest and policy_digest not in _PHASE_ZERO_V1_RELEASED_POLICY_DIGESTS:
-                raise ValueError("lifecycle policy snapshot has an unknown v1 mutation schema")
-            variants = _PHASE_ZERO_V1_MUTATION_SCHEMA_VARIANTS
+            expected_schemas = selected[0]
+            variants = MappingProxyType(
+                {
+                    action: tuple(schema[action] for schema in selected if action in schema)
+                    for action in set().union(*(set(schema) for schema in selected))
+                }
+            )
         else:
             expected_schemas = _MUTATION_SUBJECT_FIELDS
         if any(
