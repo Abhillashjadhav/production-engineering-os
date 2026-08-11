@@ -888,6 +888,9 @@ def extension_authorization(
         "reason": "owner-approved bounded continuation",
         "valid_from": "2026-08-02T00:00:00Z",
         "valid_until": "2026-08-03T00:00:00Z",
+        "authority_observer_id": "authority-observer",
+        "authority_observer_authority_digest": SHA,
+        "authority_current_time": current_authority.observed_at,
     }
     return lifecycle.BudgetExtensionAuthorization(
         extension_id=str(body["extension_id"]),
@@ -905,6 +908,25 @@ def extension_authorization(
         reason=str(body["reason"]),
         valid_from=str(body["valid_from"]),
         valid_until=str(body["valid_until"]),
+        authority_observer_id=str(body["authority_observer_id"]),
+        authority_observer_authority_digest=str(body["authority_observer_authority_digest"]),
+        authority_current_time=str(body["authority_current_time"]),
+        authority_authentication_evidence_digest=external_proof(
+            "authority-observer",
+            SHA,
+            {
+                "observer_id": "authority-observer",
+                "authority_digest": SHA,
+                "subject_digest": SHA,
+                "contract_version": current_authority.contract_version,
+                "publisher_version": current_authority.publisher_version,
+                "contract_active": current_authority.contract_active,
+                "publisher_active": current_authority.publisher_active,
+                "authority_observed_at": current_authority.observed_at,
+                "valid_until": current_authority.valid_until,
+                "authority_current_time": str(body["authority_current_time"]),
+            },
+        ),
         evidence_digest=external_proof(str(body["owner_id"]), str(body["credential_digest"]), body),
     )
 

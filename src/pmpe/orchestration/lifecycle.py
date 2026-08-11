@@ -314,6 +314,10 @@ class BudgetExtensionAuthorization:
     reason: str
     valid_from: str
     valid_until: str
+    authority_observer_id: str
+    authority_observer_authority_digest: str
+    authority_current_time: str
+    authority_authentication_evidence_digest: str
     evidence_digest: str
 
 
@@ -542,6 +546,9 @@ def _budget_extension_authorization_payload(
         "reason": authorization.reason,
         "valid_from": authorization.valid_from,
         "valid_until": authorization.valid_until,
+        "authority_observer_id": authorization.authority_observer_id,
+        "authority_observer_authority_digest": authorization.authority_observer_authority_digest,
+        "authority_current_time": authorization.authority_current_time,
     }
 
 
@@ -775,6 +782,11 @@ def _policy_from_payload(payload: Mapping[str, Any]) -> LifecyclePolicy:
             )
             for raw in payload["rules"]
         )
+        supported_guards = frozenset(
+            guard for rule in PHASE_ZERO_POLICY.rules for guard in rule.guards
+        )
+        if any(not rule.guards <= supported_guards for rule in rules):
+            raise ValueError("lifecycle policy snapshot contains unsupported guards")
         return LifecyclePolicy(str(payload["version"]), rules)
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("lifecycle policy snapshot is invalid") from exc
@@ -2985,7 +2997,39 @@ class LifecycleControlPlane:
             raise TransitionDeniedError("budget extension validity is malformed") from exc
         if valid_from.tzinfo is None or valid_until.tzinfo is None or observed.tzinfo is None:
             raise TransitionDeniedError("budget extension validity must include a timezone")
-        if valid_from > observed or observed >= valid_until:
+        try:
+            trusted_now = datetime.fromisoformat(
+                authorization.authority_current_time.replace("Z", "+00:00")
+            )
+        except ValueError as exc:
+            raise TransitionDeniedError("budget extension trusted time is malformed") from exc
+        authority_payload = {
+            "observer_id": authorization.authority_observer_id,
+            "authority_digest": authorization.authority_observer_authority_digest,
+            "subject_digest": self.subject_digest,
+            "contract_version": authority.contract_version,
+            "publisher_version": authority.publisher_version,
+            "contract_active": authority.contract_active,
+            "publisher_active": authority.publisher_active,
+            "authority_observed_at": authority.observed_at,
+            "valid_until": authority.valid_until,
+            "authority_current_time": authorization.authority_current_time,
+        }
+        if (
+            trusted_now.tzinfo is None
+            or trusted_now < observed
+            or trusted_now >= datetime.fromisoformat(authority.valid_until.replace("Z", "+00:00"))
+            or self.trust_policy.authority_observers.get(authorization.authority_observer_id)
+            != authorization.authority_observer_authority_digest
+            or not self._verify_external_evidence(
+                authorization.authority_observer_id,
+                authorization.authority_observer_authority_digest,
+                authority_payload,
+                authorization.authority_authentication_evidence_digest,
+            )
+        ):
+            raise TransitionDeniedError("budget extension authority requires trusted current time")
+        if valid_from > trusted_now or trusted_now >= valid_until:
             raise TransitionDeniedError("budget extension is outside its validity window")
         current_digest = _digest(_budget_policy_payload(self.budget_policy))
         proposed_digest = _digest(_budget_policy_payload(policy))
