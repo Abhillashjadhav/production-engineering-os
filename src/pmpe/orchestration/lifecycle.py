@@ -2728,10 +2728,13 @@ class LifecycleControlPlane:
             integrity_monitors=dict(raw_trust.get("integrity_monitors", {})),
         )
         recorded_policy_digest = str(metadata.get("lifecycle_policy_digest", ""))
-        if not recorded_policy_digest or any(
-            event.policy_digest != recorded_policy_digest for event in events
+        # A binary must never append current-policy events to a ledger whose
+        # transition rules it cannot replay.  Policy upgrades need an explicit
+        # migration admission, rather than silently creating mixed histories.
+        if recorded_policy_digest != PHASE_ZERO_POLICY.digest or any(
+            event.policy_digest != PHASE_ZERO_POLICY.digest for event in events
         ):
-            raise ValueError("lifecycle ledger policy version is not internally consistent")
+            raise ValueError("lifecycle ledger policy version requires explicit migration")
         if raw_trust and initial.evidence_refs.get("trust_policy_digest") != _digest(raw_trust):
             raise ValueError("lifecycle evidence trust policy is not bound to the initial event")
         cp = cls(
@@ -3593,6 +3596,22 @@ class LifecycleControlPlane:
                     (S.STAGING_DEPLOYED, "canary_authorization_missing"): S.PR_MERGED,
                     (S.COMPLETED, "completion_evidence_unavailable"): S.PRODUCTION_DEPLOYED,
                 }.get((source, reason), source)
+                # A failed budget extension is an interruption of the
+                # underlying gate, not a new terminal budget gate.  Preserve
+                # that original gate so recovery can actually continue.
+                if source is S.BUDGET_EXCEEDED and reason == "extension_unavailable":
+                    prior_budget_stop = next(
+                        (
+                            event
+                            for event in reversed(self.events)
+                            if event.outcome == "APPLIED"
+                            and event.target is S.BUDGET_EXCEEDED
+                            and event.resume_state is not None
+                        ),
+                        None,
+                    )
+                    if prior_budget_stop is not None:
+                        admitted_resume_state = prior_budget_stop.resume_state
         if "product_input" in guards:
             if context.rollout.has_resources:
                 self._deny(target, context, reason, "product input requires cleanup or rollback")
@@ -4733,7 +4752,18 @@ class LifecycleControlPlane:
                     "resume",
                     "authoritative exact-artifact quarantine disposition evidence is required",
                 )
-        if stopped_event.reason == "repository_unavailable" and not self._trusted_resume_gate_valid(
+        # These targets carry their own stricter, typed re-admission proofs
+        # below.  Every other ordinary recovery must have an exact-stop
+        # observer attestation.
+        specialized_resume = (
+            stopped_event.reason
+            in {
+                "post_merge_blocking_finding",
+                "quarantine_disposition_indeterminate",
+            }
+            or recorded is S.PR_READY
+        )
+        if not specialized_resume and not self._trusted_resume_gate_valid(
             context, stopped_event, recorded
         ):
             self._deny(

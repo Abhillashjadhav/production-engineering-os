@@ -628,6 +628,34 @@ def bind_repository_observation(evidence: dict[str, str]) -> None:
     )
 
 
+def bind_resume_observation(
+    evidence: dict[str, str], stopped: lifecycle.LifecycleEvent, target: LifecycleState
+) -> None:
+    """Bind ordinary resume evidence to the exact recorded stop."""
+    observed_at = "2026-08-02T00:01:00Z"
+    payload = {
+        "observer_id": "repository-observer",
+        "authority_digest": OTHER_SHA,
+        "subject_digest": SHA,
+        "stopped_event_digest": stopped.event_digest,
+        "stopped_reason": stopped.reason,
+        "resume_target": target.value,
+        "incident_closure_digest": evidence["incident_closure_digest"],
+        "restored_capability_digest": evidence["restored_capability_digest"],
+        "unchanged_inputs_digest": evidence["unchanged_inputs_digest"],
+        "observed_at": observed_at,
+    }
+    evidence.update(
+        {
+            "resume_observer_id": "repository-observer",
+            "resume_observer_authority_digest": OTHER_SHA,
+            "resume_authentication_evidence_digest": external_proof(
+                "repository-observer", OTHER_SHA, payload
+            ),
+        }
+    )
+
+
 def record_integrated_merge(cp: LifecycleControlPlane, merge_result_digest: str) -> None:
     cp._append(
         kind="TRANSITION",
@@ -1959,16 +1987,25 @@ def test_budget_resume_uses_only_the_recorded_safe_state(tmp_path: Path) -> None
         authority=authority(observed_at="2026-08-02T12:00:00Z"),
         observed_at="2026-08-02T12:00:00Z",
     )
+    resume_evidence = {
+        "subject_digest": SHA,
+        "incident_closure_digest": SHA,
+        "restored_capability_digest": OTHER_SHA,
+        "unchanged_inputs_digest": SHA,
+    }
+    stopped_event = next(
+        event
+        for event in reversed(cp.events)
+        if event.target is LifecycleState.BUDGET_EXCEEDED and event.resume_state is not None
+    )
+    bind_resume_observation(
+        resume_evidence, stopped_event, LifecycleState.IMPLEMENTATION_IN_PROGRESS
+    )
     cp.resume(
         context(
             usage=BudgetUsage(counters={"tokens": 101}),
             budget_policy=cp.budget_policy,
-            evidence={
-                "subject_digest": SHA,
-                "incident_closure_digest": SHA,
-                "restored_capability_digest": OTHER_SHA,
-                "unchanged_inputs_digest": SHA,
-            },
+            evidence=resume_evidence,
         )
     )
     assert cp.state is LifecycleState.IMPLEMENTATION_IN_PROGRESS
@@ -3092,6 +3129,7 @@ def test_ordinary_safe_stop_resumes_only_through_its_admitted_safe_gate(
         "restored_capability_digest": OTHER_SHA,
         "unchanged_inputs_digest": SHA,
     }
+    bind_resume_observation(resume_evidence, stopped, LifecycleState.VERIFICATION_FAILED)
     resumed = cp.resume(context(evidence=resume_evidence))
     assert resumed.source is LifecycleState.BLOCKED
     assert resumed.target is LifecycleState.VERIFICATION_FAILED
