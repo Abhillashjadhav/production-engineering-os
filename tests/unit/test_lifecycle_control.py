@@ -2175,7 +2175,7 @@ def test_safety_resume_is_bound_to_original_blocked_attempt(tmp_path: Path) -> N
         ),
         reason="resume_safety_rollback",
     )
-    assert cp.budget_usage.safety_units_used == 1
+    assert cp.budget_usage.safety_units_used == 0
 
 
 def test_blocked_direct_readmission_fails_closed_until_safe_recovery(tmp_path: Path) -> None:
@@ -2366,7 +2366,7 @@ def test_reserved_safety_budget_is_control_plane_bounded_and_not_caller_capacity
         )
 
     policy, _ = budgets()
-    blocked = control_plane(tmp_path / "resume", state=LifecycleState.ROLLBACK_IN_PROGRESS)
+    blocked = control_plane(tmp_path / "resume", state=LifecycleState.LIVE_VERIFICATION_FAILED)
     blocked._budget_policy = replace(policy, reserved_safety_units=1)
     attempt = MutationAttempt(
         attempt_id="rollback-safety-cap",
@@ -2376,16 +2376,32 @@ def test_reserved_safety_budget_is_control_plane_bounded_and_not_caller_capacity
         step_plan_digest=rollback_plan(),
         status="PLANNED",
     )
+    start_evidence = evidence_for(
+        LifecycleState.LIVE_VERIFICATION_FAILED,
+        LifecycleState.ROLLBACK_IN_PROGRESS,
+        reason="rollback_started",
+    )
+    start_evidence["rollback_attempt_digest"] = object_digest(asdict(attempt))
+    prejournal(blocked, attempt)
+    blocked.transition(
+        LifecycleState.ROLLBACK_IN_PROGRESS,
+        context(evidence=start_evidence, mutation=attempt),
+        reason="rollback_started",
+    )
+    assert blocked.budget_usage.safety_units_used == 1
     blocked_evidence = evidence_for(
         LifecycleState.ROLLBACK_IN_PROGRESS,
         LifecycleState.BLOCKED,
         reason="rollback_indeterminate",
     )
     blocked_evidence["original_attempt_digest"] = object_digest(asdict(attempt))
-    prejournal(blocked, attempt)
     blocked.transition(
         LifecycleState.BLOCKED,
-        context(evidence=blocked_evidence, mutation=attempt),
+        context(
+            evidence=blocked_evidence,
+            mutation=attempt,
+            usage=blocked.budget_usage,
+        ),
         reason="rollback_indeterminate",
     )
     resume_evidence = evidence_for(
@@ -2396,7 +2412,11 @@ def test_reserved_safety_budget_is_control_plane_bounded_and_not_caller_capacity
     resume_evidence["original_attempt_digest"] = object_digest(asdict(attempt))
     blocked.transition(
         LifecycleState.ROLLBACK_IN_PROGRESS,
-        context(evidence=resume_evidence, mutation=attempt),
+        context(
+            evidence=resume_evidence,
+            mutation=attempt,
+            usage=blocked.budget_usage,
+        ),
         reason="resume_safety_rollback",
     )
     assert blocked.budget_usage.safety_units_used == 1
@@ -2409,16 +2429,83 @@ def test_reserved_safety_budget_is_control_plane_bounded_and_not_caller_capacity
         ),
         reason="rollback_indeterminate",
     )
-    with pytest.raises(TransitionDeniedError, match="reserved safety budget is exhausted"):
-        blocked.transition(
-            LifecycleState.ROLLBACK_IN_PROGRESS,
-            context(
-                evidence=resume_evidence,
-                mutation=attempt,
-                usage=blocked.budget_usage,
-            ),
-            reason="resume_safety_rollback",
+    resumed = blocked.transition(
+        LifecycleState.ROLLBACK_IN_PROGRESS,
+        context(
+            evidence=resume_evidence,
+            mutation=attempt,
+            usage=blocked.budget_usage,
+        ),
+        reason="resume_safety_rollback",
+    )
+    assert resumed.target is LifecycleState.ROLLBACK_IN_PROGRESS
+    assert blocked.budget_usage.safety_units_used == 1
+
+
+def test_live_gate_failure_requires_authenticated_exact_deployment_attestation(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PRODUCTION_DEPLOYED)
+    deployed = {
+        "subject_digest": SHA,
+        "release_sha": "a" * 40,
+        "artifact_digest": object_digest("production-artifact"),
+        "configuration_digest": object_digest("production-config"),
+        "production_attempt_digest": object_digest("production-attempt"),
+        "production_result_digest": object_digest("production-result"),
+    }
+    cp._append(
+        kind="PRODUCTION_BINDING_ADMITTED",
+        outcome="APPLIED",
+        source=LifecycleState.PRODUCTION_APPROVAL_REQUIRED,
+        target=LifecycleState.PRODUCTION_DEPLOYED,
+        reason="production_admitted",
+        actor="fixture",
+        evidence_refs=deployed,
+        observed_at="2026-08-02T00:01:00Z",
+    )
+    failure = evidence_for(
+        LifecycleState.PRODUCTION_DEPLOYED,
+        LifecycleState.LIVE_VERIFICATION_FAILED,
+        reason="live_gate_failed",
+    )
+    failure.update(deployed)
+    failure.update(
+        live_failure_digest=object_digest("slo-breach"),
+        telemetry_digest=object_digest("trusted-live-telemetry"),
+    )
+
+    with pytest.raises(TransitionDeniedError, match="trusted live failure"):
+        cp.transition(
+            LifecycleState.LIVE_VERIFICATION_FAILED,
+            context(evidence=failure),
+            reason="live_gate_failed",
         )
+
+    payload = {
+        "observer_id": "live-observer",
+        "authority_digest": SHA,
+        "subject_digest": SHA,
+        "release_sha": failure["release_sha"],
+        "artifact_digest": failure["artifact_digest"],
+        "configuration_digest": failure["configuration_digest"],
+        "production_attempt_digest": failure["production_attempt_digest"],
+        "production_result_digest": failure["production_result_digest"],
+        "live_failure_digest": failure["live_failure_digest"],
+        "telemetry_digest": failure["telemetry_digest"],
+        "observed_at": "2026-08-02T00:01:00Z",
+    }
+    failure.update(
+        live_failure_observer_id="live-observer",
+        live_failure_observer_authority_digest=SHA,
+        live_failure_authentication_evidence_digest=external_proof("live-observer", SHA, payload),
+    )
+    event = cp.transition(
+        LifecycleState.LIVE_VERIFICATION_FAILED,
+        context(evidence=failure),
+        reason="live_gate_failed",
+    )
+    assert event.target is LifecycleState.LIVE_VERIFICATION_FAILED
 
 
 def test_canary_failure_with_mutation_or_indeterminate_exposure_enters_rollback(

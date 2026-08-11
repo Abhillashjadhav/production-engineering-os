@@ -1562,7 +1562,20 @@ _RULES: tuple[TransitionRule, ...] = (
         S.PRODUCTION_DEPLOYED,
         S.LIVE_VERIFICATION_FAILED,
         "live_gate_failed",
-        ("release_sha", "live_failure_digest", "telemetry_digest"),
+        (
+            "subject_digest",
+            "release_sha",
+            "artifact_digest",
+            "configuration_digest",
+            "production_attempt_digest",
+            "production_result_digest",
+            "live_failure_digest",
+            "telemetry_digest",
+            "live_failure_observer_id",
+            "live_failure_observer_authority_digest",
+            "live_failure_authentication_evidence_digest",
+        ),
+        "live_failure",
     ),
     _r(
         S.PRODUCTION_DEPLOYED,
@@ -2201,6 +2214,58 @@ class LifecycleControlPlane:
                 authority_digest,
                 payload,
                 evidence.get("live_observation_authentication_evidence_digest", ""),
+            )
+        )
+
+    def _trusted_live_failure_valid(self, context: TransitionContext) -> bool:
+        """Require a trusted observer to bind a failure to the admitted deployment."""
+
+        evidence = context.evidence
+        observer = evidence.get("live_failure_observer_id", "")
+        authority_digest = evidence.get("live_failure_observer_authority_digest", "")
+        binding = next(
+            (
+                event
+                for event in reversed(self.events)
+                if event.outcome == "APPLIED"
+                and event.target is S.PRODUCTION_DEPLOYED
+                and event.reason == "production_admitted"
+            ),
+            None,
+        )
+        deployment_fields = (
+            "subject_digest",
+            "release_sha",
+            "artifact_digest",
+            "configuration_digest",
+            "production_attempt_digest",
+            "production_result_digest",
+        )
+        if binding is None or any(
+            evidence.get(field) != binding.evidence_refs.get(field) for field in deployment_fields
+        ):
+            return False
+        payload = {
+            "observer_id": observer,
+            "authority_digest": authority_digest,
+            "subject_digest": self.subject_digest,
+            "release_sha": evidence.get("release_sha", ""),
+            "artifact_digest": evidence.get("artifact_digest", ""),
+            "configuration_digest": evidence.get("configuration_digest", ""),
+            "production_attempt_digest": evidence.get("production_attempt_digest", ""),
+            "production_result_digest": evidence.get("production_result_digest", ""),
+            "live_failure_digest": evidence.get("live_failure_digest", ""),
+            "telemetry_digest": evidence.get("telemetry_digest", ""),
+            "observed_at": context.observed_at,
+        }
+        return bool(
+            observer
+            and self.trust_policy.live_observers.get(observer) == authority_digest
+            and self._verify_external_evidence(
+                observer,
+                authority_digest,
+                payload,
+                evidence.get("live_failure_authentication_evidence_digest", ""),
             )
         )
 
@@ -3816,7 +3881,7 @@ class LifecycleControlPlane:
                 "cleanup_staging": S.STAGING_FAILED,
             }[attempt.action]
             admitted_resume_state = expected_resume
-        if {"safety", "safety_resume"} & guards and not usage.safety_available(self.budget_policy):
+        if "safety" in guards and not usage.safety_available(self.budget_policy):
             self._deny(target, context, reason, "reserved safety budget is exhausted")
         if "safety_resume" in guards:
             stopped = next(
@@ -3847,6 +3912,13 @@ class LifecycleControlPlane:
                 self._require_prejournaled(attempt)
             except TransitionDeniedError as exc:
                 self._deny(target, context, reason, str(exc))
+        if "live_failure" in guards and not self._trusted_live_failure_valid(context):
+            self._deny(
+                target,
+                context,
+                reason,
+                "trusted live failure evidence bound to the admitted deployment is required",
+            )
         if "zero_exposure" in guards:
             attempt = context.mutation
             result = (
@@ -4019,7 +4091,7 @@ class LifecycleControlPlane:
                 repair_attempts_by_finding=by_finding,
                 repair_attempts_by_stage=by_stage,
             )
-        if {"safety", "safety_resume"} & guards:
+        if "safety" in guards:
             usage = replace(usage, safety_units_used=usage.safety_units_used + 1)
         if (
             "mutation" in guards
