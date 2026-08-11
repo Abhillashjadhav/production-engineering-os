@@ -17,7 +17,7 @@ import threading
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
@@ -657,6 +657,10 @@ _MUTATION_SUBJECT_FIELDS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# Kept separate from the active map so pre-v2 policy snapshots replay against
+# the exact compatibility schema rather than silently inheriting future edits.
+_PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS = MappingProxyType(dict(_MUTATION_SUBJECT_FIELDS))
+
 
 def mutation_subject_digest(action: str, evidence: Mapping[str, str]) -> str:
     """Return the immutable external-effect subject for a guarded mutation."""
@@ -727,8 +731,14 @@ class LifecyclePolicy:
                     "guards": sorted(rule.guards),
                     "permission": rule.permission,
                     "mutation_action": rule.mutation_action,
-                    "mutation_subject_fields": list(
-                        _MUTATION_SUBJECT_FIELDS.get(rule.mutation_action or "", ())
+                    **(
+                        {
+                            "mutation_subject_fields": list(
+                                _MUTATION_SUBJECT_FIELDS.get(rule.mutation_action or "", ())
+                            )
+                        }
+                        if version != "phase-zero-v1"
+                        else {}
                     ),
                 }
                 for rule in rules
@@ -766,8 +776,14 @@ def _policy_payload(policy: LifecyclePolicy) -> dict[str, Any]:
                 "guards": sorted(rule.guards),
                 "permission": rule.permission,
                 "mutation_action": rule.mutation_action,
-                "mutation_subject_fields": list(
-                    _MUTATION_SUBJECT_FIELDS.get(rule.mutation_action or "", ())
+                **(
+                    {
+                        "mutation_subject_fields": list(
+                            _MUTATION_SUBJECT_FIELDS.get(rule.mutation_action or "", ())
+                        )
+                    }
+                    if policy.version != "phase-zero-v1"
+                    else {}
                 ),
             }
             for rule in policy.rules
@@ -777,6 +793,7 @@ def _policy_payload(policy: LifecyclePolicy) -> dict[str, Any]:
 
 def _policy_from_payload(payload: Mapping[str, Any]) -> LifecyclePolicy:
     try:
+        version = str(payload["version"])
         rules = tuple(
             TransitionRule(
                 source=LifecycleState(str(raw["source"])),
@@ -802,13 +819,19 @@ def _policy_from_payload(payload: Mapping[str, Any]) -> LifecyclePolicy:
             for rule in rules
         ):
             raise ValueError("lifecycle policy snapshot contains unsupported mutation action")
+        expected_schemas = (
+            _PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS
+            if version == "phase-zero-v1"
+            else _MUTATION_SUBJECT_FIELDS
+        )
         if any(
             tuple(str(name) for name in raw.get("mutation_subject_fields", ()))
-            != _MUTATION_SUBJECT_FIELDS.get(str(raw.get("mutation_action")), ())
+            != expected_schemas.get(str(raw.get("mutation_action")), ())
             for raw in payload["rules"]
+            if "mutation_subject_fields" in raw or version != "phase-zero-v1"
         ):
             raise ValueError("lifecycle policy snapshot mutation schema is unsupported")
-        return LifecyclePolicy(str(payload["version"]), rules)
+        return LifecyclePolicy(version, rules)
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("lifecycle policy snapshot is invalid") from exc
 
@@ -2043,6 +2066,7 @@ class LifecycleControlPlane:
         self._verified_mutation_result_keys: set[str] = set()
         self._consumed_mutation_result_keys: set[str] = set()
         self._budget_extension_challenge: str | None = None
+        self._budget_extension_challenge_issued_at: datetime | None = None
         self._budget_usage = BudgetUsage()
 
     @property
@@ -2098,6 +2122,7 @@ class LifecycleControlPlane:
 
         with self._operation_lock:
             self._budget_extension_challenge = secrets.token_urlsafe(32)
+            self._budget_extension_challenge_issued_at = datetime.now(UTC)
             return self._budget_extension_challenge
 
     def _trusted_work_evidence_valid(self, context: TransitionContext) -> bool:
@@ -3040,7 +3065,12 @@ class LifecycleControlPlane:
             authorization.evidence_digest,
         ):
             raise TransitionDeniedError("trusted budget-owner authority is required")
-        if authorization.admission_challenge != self._budget_extension_challenge:
+        challenge_issued_at = self._budget_extension_challenge_issued_at
+        if (
+            authorization.admission_challenge != self._budget_extension_challenge
+            or challenge_issued_at is None
+            or datetime.now(UTC) - challenge_issued_at > timedelta(minutes=5)
+        ):
             raise TransitionDeniedError("budget extension requires a fresh admission challenge")
         try:
             valid_from = datetime.fromisoformat(authorization.valid_from.replace("Z", "+00:00"))
@@ -3129,6 +3159,7 @@ class LifecycleControlPlane:
                 "budget extension amount does not match the proposed policy"
             )
         self._budget_extension_challenge = None
+        self._budget_extension_challenge_issued_at = None
         self._append(
             kind="BUDGET_POLICY_ADMITTED",
             outcome="RECORDED",

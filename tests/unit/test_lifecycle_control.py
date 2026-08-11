@@ -8,6 +8,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import asdict, fields, replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -2936,6 +2937,29 @@ def test_budget_extension_rejects_a_superseded_admission_challenge(tmp_path: Pat
         )
 
 
+def test_budget_extension_rejects_an_expired_admission_challenge(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+    extended = replace(
+        cp.budget_policy,
+        version="budget-v2-expired-challenge",
+        limits={**cp.budget_policy.limits, "tokens": 125},
+        approved_by="owner-alice",
+    )
+    challenge = cp.issue_budget_extension_challenge()
+    cp._budget_extension_challenge_issued_at = datetime.now(UTC) - timedelta(minutes=6)
+    authorization = extension_authorization(
+        cp, extended, amounts={"tokens": 25}, admission_challenge=challenge
+    )
+
+    with pytest.raises(TransitionDeniedError, match="fresh admission challenge"):
+        cp.admit_budget_policy(
+            extended,
+            authorization=authorization,
+            authority=authority(observed_at="2026-08-02T12:00:00Z"),
+            observed_at="2026-08-02T12:00:00Z",
+        )
+
+
 def test_policy_snapshot_rejects_mutation_subject_schema_drift() -> None:
     snapshot = lifecycle._policy_payload(PHASE_ZERO_POLICY)
     mutated = next(
@@ -2945,6 +2969,15 @@ def test_policy_snapshot_rejects_mutation_subject_schema_drift() -> None:
 
     with pytest.raises(ValueError, match="lifecycle policy snapshot is invalid"):
         lifecycle._policy_from_payload(snapshot)
+
+
+def test_phase_zero_v1_snapshot_loads_with_its_versioned_mutation_schemas() -> None:
+    snapshot = lifecycle._policy_payload(PHASE_ZERO_POLICY)
+    snapshot["version"] = "phase-zero-v1"
+    for rule in snapshot["rules"]:
+        rule.pop("mutation_subject_fields")
+
+    assert lifecycle._policy_from_payload(snapshot).version == "phase-zero-v1"
 
 
 def test_post_merge_blocking_finding_enters_safe_blocked_state(tmp_path: Path) -> None:
