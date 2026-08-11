@@ -698,7 +698,6 @@ _PHASE_ZERO_V1_PROMOTION_MUTATION_SUBJECT_FIELDS = MappingProxyType(
             "configuration_digest",
             "deployment_target_digest",
             "staging_authorization_digest",
-            "finding_source_set_digest",
             "finding_inventory_digest",
             "authority_fence_digest",
         ),
@@ -742,6 +741,43 @@ _PHASE_ZERO_V1_SCHEMA_BY_POLICY_DIGEST: Mapping[str, Mapping[str, tuple[str, ...
             _V1_READY_POLICY_DIGEST: MappingProxyType(dict(_MUTATION_SUBJECT_FIELDS)),
             _V1_PROMOTION_POLICY_DIGEST: _PHASE_ZERO_V1_PROMOTION_MUTATION_SUBJECT_FIELDS,
             _V1_FINAL_POLICY_DIGEST: MappingProxyType(dict(_MUTATION_SUBJECT_FIELDS)),
+        }
+    )
+)
+_PHASE_ZERO_V1_RELEASED_POLICY_DIGESTS = frozenset(
+    {
+        _V1_GUARDED_POLICY_DIGEST,
+        _V1_PRE_PROMOTION_POLICY_DIGEST,
+        _V1_READY_POLICY_DIGEST,
+        _V1_PROMOTION_POLICY_DIGEST,
+        _V1_FINAL_POLICY_DIGEST,
+        "sha256:2a352ede852d24d16210cdd381538319b74da2ecbfca37dafe78501ad95a4dcc",
+        "sha256:2bf32a5f67c8491c67794295e4a45e3e57a9bc467218caf196516214b81dbb5d",
+        "sha256:6f0ae1ba8337e1d31e051d6f4672d0b5119b8ec48e48ea66541a4dbe46ac857c",
+        "sha256:786af079fc52c6a97a39eee8684c958b274ec42ef1437057f050c39914b9d9ee",
+        "sha256:8303d190b21922c7c2ae9680165741799016af5f078eb5af4d85a620298df0cb",
+        "sha256:9a80daedaf0327e975a4ac705c83b0d03d1d031c5a5f024a53056c2d05d41505",
+        "sha256:a7d9ac97d9e4113e3d0e2a9d41980461c5a9f24840cc4e67057a02e3108c35b3",
+        "sha256:b9b0a01fdc591c2a4ed83a3eada2d1691982f782a8bd4f35c60ad90e28768998",
+        "sha256:ba3b41b492113d0b6cb1fa433b27d95c9e1a1a48e636fa128620e266a8a15065",
+        "sha256:c4d953f0a2d88518a8317177c87b7cb5ecf83243702854b9ddafa93556d1f3f4",
+        "sha256:cc2cb14f65561d195ee717d3f76caab4727467f4c4ba21f3c3b3a1df247077cc",
+        "sha256:f2ac84ef999f83654007443a21a9e8a05dcfe00b9181a3db20d5336bbe000c86",
+    }
+)
+_PHASE_ZERO_V1_MUTATION_SCHEMA_VARIANTS: Mapping[str, tuple[tuple[str, ...], ...]] = (
+    MappingProxyType(
+        {
+            name: tuple(
+                dict.fromkeys(
+                    (
+                        _PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS.get(name, ()),
+                        _PHASE_ZERO_V1_PROMOTION_MUTATION_SUBJECT_FIELDS.get(name, ()),
+                        _MUTATION_SUBJECT_FIELDS.get(name, ()),
+                    )
+                )
+            )
+            for name in set(_PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS) | set(_MUTATION_SUBJECT_FIELDS)
         }
     )
 )
@@ -809,10 +845,17 @@ class LifecyclePolicy:
         version: str,
         rules: tuple[TransitionRule, ...],
         mutation_subject_fields: Mapping[str, tuple[str, ...]] = _MUTATION_SUBJECT_FIELDS,
+        mutation_subject_field_variants: Mapping[str, tuple[tuple[str, ...], ...]] | None = None,
     ) -> None:
         self.version = version
         self.rules = rules
         self.mutation_subject_fields = MappingProxyType(dict(mutation_subject_fields))
+        self.mutation_subject_field_variants = MappingProxyType(
+            dict(
+                mutation_subject_field_variants
+                or {name: (fields,) for name, fields in self.mutation_subject_fields.items()}
+            )
+        )
         keys = {(rule.source, rule.target, rule.reason) for rule in rules}
         if len(keys) != len(rules):
             raise ValueError("lifecycle policy contains a duplicate rule")
@@ -917,12 +960,14 @@ def _policy_from_payload(
             for rule in rules
         ):
             raise ValueError("lifecycle policy snapshot contains unsupported mutation action")
+        variants: Mapping[str, tuple[tuple[str, ...], ...]] | None = None
         if version == "phase-zero-v1":
             expected_schemas = _PHASE_ZERO_V1_SCHEMA_BY_POLICY_DIGEST.get(
                 policy_digest or "", _PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS
             )
-            if policy_digest and policy_digest not in _PHASE_ZERO_V1_SCHEMA_BY_POLICY_DIGEST:
+            if policy_digest and policy_digest not in _PHASE_ZERO_V1_RELEASED_POLICY_DIGESTS:
                 raise ValueError("lifecycle policy snapshot has an unknown v1 mutation schema")
+            variants = _PHASE_ZERO_V1_MUTATION_SCHEMA_VARIANTS
         else:
             expected_schemas = _MUTATION_SUBJECT_FIELDS
         if any(
@@ -932,7 +977,7 @@ def _policy_from_payload(
             if "mutation_subject_fields" in raw or version != "phase-zero-v1"
         ):
             raise ValueError("lifecycle policy snapshot mutation schema is unsupported")
-        return LifecyclePolicy(version, rules, expected_schemas)
+        return LifecyclePolicy(version, rules, expected_schemas, variants)
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("lifecycle policy snapshot is invalid") from exc
 
@@ -4263,10 +4308,9 @@ class LifecycleControlPlane:
                     reason,
                     "draft PR mutation steps must be issue, branch, red commit, draft PR",
                 )
-            if (
-                attempt.action in _MUTATION_SUBJECT_FIELDS
-                and attempt.step_plan_digest
-                != mutation_subject_digest(
+            if attempt.action in _MUTATION_SUBJECT_FIELDS and not any(
+                attempt.step_plan_digest
+                == mutation_subject_digest(
                     attempt.action,
                     (
                         {
@@ -4278,8 +4322,9 @@ class LifecycleControlPlane:
                         if attempt.action == "rollback"
                         else context.evidence
                     ),
-                    schemas=self._policy.mutation_subject_fields,
+                    schemas={attempt.action: fields},
                 )
+                for fields in self._policy.mutation_subject_field_variants.get(attempt.action, ())
             ):
                 self._deny(
                     target,

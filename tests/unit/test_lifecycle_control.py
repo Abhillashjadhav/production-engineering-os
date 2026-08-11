@@ -2985,6 +2985,36 @@ def test_phase_zero_v1_snapshot_loads_with_its_versioned_mutation_schemas() -> N
     )
 
 
+def test_phase_zero_v1_replay_allowlists_all_released_digests_and_shared_variants() -> None:
+    snapshot = lifecycle._policy_payload(PHASE_ZERO_POLICY)
+    snapshot["version"] = "phase-zero-v1"
+    for rule in snapshot["rules"]:
+        rule.pop("mutation_subject_fields")
+
+    assert len(lifecycle._PHASE_ZERO_V1_RELEASED_POLICY_DIGESTS) == 17
+    for digest in lifecycle._PHASE_ZERO_V1_RELEASED_POLICY_DIGESTS:
+        assert (
+            lifecycle._policy_from_payload(snapshot, policy_digest=digest).version
+            == "phase-zero-v1"
+        )
+    variants = lifecycle._PHASE_ZERO_V1_MUTATION_SCHEMA_VARIANTS["open_draft_pr"]
+    assert (
+        "subject_digest",
+        "governance_attempt_digest",
+        "issue_digest",
+        "branch_digest",
+        "red_commit_digest",
+        "draft_pr_digest",
+    ) in variants
+    assert (
+        "subject_digest",
+        "issue_digest",
+        "branch_digest",
+        "red_commit_digest",
+        "draft_pr_digest",
+    ) in variants
+
+
 def test_post_merge_blocking_finding_enters_safe_blocked_state(tmp_path: Path) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
     finding = FindingSignal(
