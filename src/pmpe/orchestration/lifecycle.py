@@ -584,6 +584,13 @@ _MUTATION_SUBJECT_FIELDS: dict[str, tuple[str, ...]] = {
         "red_commit_digest",
         "draft_pr_digest",
     ),
+    "mark_pr_ready": (
+        "subject_digest",
+        "reviewed_commit_sha",
+        "prospective_tree_digest",
+        "verification_bundle_digest",
+        "review_digest",
+    ),
     "enqueue_merge": (
         "subject_digest",
         "queue_subject_digest",
@@ -619,7 +626,7 @@ _MUTATION_SUBJECT_FIELDS: dict[str, tuple[str, ...]] = {
     ),
     "convert_pr_to_draft": (
         "subject_digest",
-        "ready_revocation_attempt_digest",
+        "finding_digest",
         "ready_revocation_observation_digest",
     ),
     "cleanup_staging": (
@@ -1068,10 +1075,15 @@ _RULES: tuple[TransitionRule, ...] = (
             "verification_bundle_digest",
             "prospective_tree_digest",
             "reviewed_commit_sha",
+            "ready_attempt_digest",
+            "ready_result_digest",
+            "ready_observation_digest",
         ),
         "authority",
         "budget",
         "review_clear",
+        "mutation",
+        mutation="mark_pr_ready",
     ),
     _r(
         S.REVIEW_REQUIRED,
@@ -1112,8 +1124,18 @@ _RULES: tuple[TransitionRule, ...] = (
         S.REVIEW_FAILED,
         S.REVIEW_REQUIRED,
         "finding_rejected_with_evidence",
-        ("finding_disposition_digest", "candidate_digest", "verification_bundle_digest"),
+        (
+            "finding_digest",
+            "finding_disposition_digest",
+            "finding_disposition_source_id",
+            "finding_disposition_authority_digest",
+            "finding_disposition_authentication_evidence_digest",
+            "candidate_digest",
+            "verification_bundle_digest",
+        ),
         *_FORWARD,
+        "no_blocking_finding",
+        "finding_disposition",
     ),
     _r(
         S.REVIEW_FAILED,
@@ -1152,8 +1174,16 @@ _RULES: tuple[TransitionRule, ...] = (
         S.PR_READY,
         S.REVIEW_FAILED,
         "blocking_finding",
-        ("review_event_digest", "finding_digest", "ready_revocation_digest"),
+        (
+            "review_event_digest",
+            "finding_digest",
+            "ready_revocation_attempt_digest",
+            "ready_revocation_result_digest",
+            "ready_revocation_observation_digest",
+        ),
         "blocking_finding",
+        "mutation",
+        mutation="convert_pr_to_draft",
     ),
     _r(
         S.PR_READY,
@@ -3147,6 +3177,34 @@ class LifecycleControlPlane:
                         reason,
                         "a pending blocking finding prohibits staging",
                     )
+        if "finding_disposition" in guards:
+            source_id = context.evidence.get("finding_disposition_source_id", "")
+            authority_digest = context.evidence.get("finding_disposition_authority_digest", "")
+            payload = {
+                "source_id": source_id,
+                "authority_digest": authority_digest,
+                "subject_digest": self.subject_digest,
+                "finding_digest": context.evidence.get("finding_digest", ""),
+                "finding_disposition_digest": context.evidence.get(
+                    "finding_disposition_digest", ""
+                ),
+                "observed_at": context.observed_at,
+            }
+            if not (
+                self.trust_policy.finding_sources.get(source_id) == authority_digest
+                and self._verify_external_evidence(
+                    source_id,
+                    authority_digest,
+                    payload,
+                    context.evidence.get("finding_disposition_authentication_evidence_digest", ""),
+                )
+            ):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "finding disposition is not independently authenticated",
+                )
         if "drift" in guards:
             candidate_states = {
                 S.DRAFT_PR_OPEN,
@@ -3662,9 +3720,11 @@ class LifecycleControlPlane:
                 self._deny(target, context, reason, "mutation result attempt does not match")
             result_evidence_name = {
                 "enqueue_merge": "merge_result_digest",
+                "mark_pr_ready": "ready_result_digest",
                 "deploy_staging": "staging_result_digest",
                 "deploy_canary": "canary_result_digest",
                 "deploy_production": "production_result_digest",
+                "convert_pr_to_draft": "ready_revocation_result_digest",
                 "cleanup_staging": "cleanup_result_digest",
                 "rollback": "rollback_result_digest",
                 "teardown_canary": "canary_teardown_digest",
@@ -3684,6 +3744,8 @@ class LifecycleControlPlane:
                 )
             attempt_evidence_name = {
                 "open_draft_pr": "governance_attempt_digest",
+                "mark_pr_ready": "ready_attempt_digest",
+                "convert_pr_to_draft": "ready_revocation_attempt_digest",
                 "enqueue_merge": "merge_attempt_digest",
                 "deploy_staging": "staging_attempt_digest",
                 "deploy_canary": "canary_attempt_digest",

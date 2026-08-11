@@ -430,6 +430,28 @@ def rollback_plan(evidence: dict[str, str] | None = None) -> str:
     )
 
 
+def ready_attempt(evidence: dict[str, str]) -> MutationAttempt:
+    return MutationAttempt(
+        attempt_id="ready:run-65:1",
+        idempotency_key="ready:run-65:1",
+        subject_digest=SHA,
+        action="mark_pr_ready",
+        step_plan_digest=mutation_subject_digest("mark_pr_ready", evidence),
+        status="PLANNED",
+    )
+
+
+def draft_revocation_attempt(evidence: dict[str, str]) -> MutationAttempt:
+    return MutationAttempt(
+        attempt_id="draft:run-65:revocation",
+        idempotency_key="draft:run-65:revocation",
+        subject_digest=SHA,
+        action="convert_pr_to_draft",
+        step_plan_digest=mutation_subject_digest("convert_pr_to_draft", evidence),
+        status="PLANNED",
+    )
+
+
 def object_digest(value: object) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
@@ -1148,9 +1170,17 @@ def test_blocking_finding_is_independent_of_reviewer_approval_eligibility(tmp_pa
         affected_scope_digest=OTHER_SHA,
     )
     required["finding_digest"] = object_digest(asdict(signal))
+    required["ready_revocation_observation_digest"] = OTHER_SHA
+    revocation = draft_revocation_attempt(required)
+    prejournal(cp, revocation)
+    record_result(cp, revocation, status="SUCCEEDED", result_digest=SHA)
+    required.update(
+        ready_revocation_attempt_digest=object_digest(asdict(revocation)),
+        ready_revocation_result_digest=SHA,
+    )
     cp.transition(
         LifecycleState.REVIEW_FAILED,
-        context(evidence=required, finding=signal),
+        context(evidence=required, finding=signal, mutation=revocation),
         reason="blocking_finding",
     )
     assert cp.state is LifecycleState.REVIEW_FAILED
@@ -1190,9 +1220,17 @@ def test_pr_ready_requires_eligible_exact_subject_review(tmp_path: Path) -> None
         ),
     )
     required["review_digest"] = object_digest(asdict(eligible))
+    ready = ready_attempt(required)
+    prejournal(cp, ready)
+    record_result(cp, ready, status="SUCCEEDED", result_digest=SHA)
+    required.update(
+        ready_attempt_digest=object_digest(asdict(ready)),
+        ready_result_digest=SHA,
+        ready_observation_digest=OTHER_SHA,
+    )
     cp.transition(
         LifecycleState.PR_READY,
-        context(evidence=required, approvals=(eligible,)),
+        context(evidence=required, approvals=(eligible,), mutation=ready),
         reason="formal_review_clear",
     )
 
@@ -1222,6 +1260,27 @@ def test_formal_review_rejects_self_computed_reviewer_credential(tmp_path: Path)
             LifecycleState.PR_READY,
             context(evidence=required, approvals=(forged,)),
             reason="formal_review_clear",
+        )
+
+
+def test_finding_rejection_requires_authenticated_owner_disposition(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.REVIEW_FAILED)
+    required = evidence_for(
+        LifecycleState.REVIEW_FAILED,
+        LifecycleState.REVIEW_REQUIRED,
+        reason="finding_rejected_with_evidence",
+    )
+    required.update(
+        finding_disposition_source_id="finding-source",
+        finding_disposition_authority_digest=SHA,
+        finding_disposition_authentication_evidence_digest=OTHER_SHA,
+    )
+
+    with pytest.raises(TransitionDeniedError, match="finding disposition"):
+        cp.transition(
+            LifecycleState.REVIEW_REQUIRED,
+            context(evidence=required),
+            reason="finding_rejected_with_evidence",
         )
 
 
