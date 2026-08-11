@@ -734,6 +734,39 @@ _PHASE_ZERO_V1_CCC_LATER_MUTATION_SUBJECT_FIELDS = MappingProxyType(
         "cleanup_staging": _MUTATION_SUBJECT_FIELDS["cleanup_staging"],
     }
 )
+_PHASE_ZERO_V1_OLD_CONVERSION_MUTATION_SUBJECT_FIELDS = MappingProxyType(
+    {
+        **_MUTATION_SUBJECT_FIELDS,
+        "convert_pr_to_draft": _PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS["convert_pr_to_draft"],
+    }
+)
+_PHASE_ZERO_V1_786_MUTATION_SUBJECT_FIELDS = MappingProxyType(
+    {
+        **_PHASE_ZERO_V1_OLD_CONVERSION_MUTATION_SUBJECT_FIELDS,
+        "rollback": ("subject_digest",),
+    }
+)
+_PHASE_ZERO_V1_B9_MUTATION_SUBJECT_FIELDS = MappingProxyType(
+    {
+        **_PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS,
+        "open_draft_pr": _MUTATION_SUBJECT_FIELDS["open_draft_pr"],
+        "cleanup_staging": _MUTATION_SUBJECT_FIELDS["cleanup_staging"],
+        "deploy_production": (*_PRODUCTION_APPROVAL_SCOPE_FIELDS, "production_approval_digest"),
+    }
+)
+_PHASE_ZERO_V1_B9_FENCED_MUTATION_SUBJECT_FIELDS = MappingProxyType(
+    {
+        **_PHASE_ZERO_V1_B9_MUTATION_SUBJECT_FIELDS,
+        "deploy_production": (
+            *_PRODUCTION_APPROVAL_SCOPE_FIELDS,
+            "authority_fence_digest",
+            "production_approval_digest",
+        ),
+    }
+)
+_V1_B9_POLICY_DIGEST = "sha256:b9b0a01fdc591c2a4ed83a3eada2d1691982f782a8bd4f35c60ad90e28768998"
+_V1_786_POLICY_DIGEST = "sha256:786af079fc52c6a97a39eee8684c958b274ec42ef1437057f050c39914b9d9ee"
+_V1_2A_POLICY_DIGEST = "sha256:2a352ede852d24d16210cdd381538319b74da2ecbfca37dafe78501ad95a4dcc"
 _V1_GUARDED_POLICY_DIGEST = (
     "sha256:5455211581bb487a20d699e14b46b485b65c0969dacfb232db4f4c89fdc5b12b"
 )
@@ -775,6 +808,9 @@ _PHASE_ZERO_V1_SCHEMA_BY_POLICY_DIGEST: Mapping[str, Mapping[str, tuple[str, ...
                 _V1_EARLY_FENCED_POLICY_DIGESTS,
                 _PHASE_ZERO_V1_EARLY_FENCED_MUTATION_SUBJECT_FIELDS,
             ),
+            _V1_B9_POLICY_DIGEST: _PHASE_ZERO_V1_B9_MUTATION_SUBJECT_FIELDS,
+            _V1_786_POLICY_DIGEST: _PHASE_ZERO_V1_786_MUTATION_SUBJECT_FIELDS,
+            _V1_2A_POLICY_DIGEST: _PHASE_ZERO_V1_OLD_CONVERSION_MUTATION_SUBJECT_FIELDS,
         }
     )
 )
@@ -842,6 +878,8 @@ def _v1_schema_variants_for_policy(
                     }
                 ),
             )
+        if policy_digest == _V1_B9_POLICY_DIGEST:
+            return (primary, _PHASE_ZERO_V1_B9_FENCED_MUTATION_SUBJECT_FIELDS)
         return (primary,)
     if policy_digest not in _PHASE_ZERO_V1_RELEASED_POLICY_DIGESTS:
         raise ValueError("lifecycle policy snapshot has an unknown v1 mutation schema")
