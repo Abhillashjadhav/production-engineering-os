@@ -1284,6 +1284,7 @@ _RULES: tuple[TransitionRule, ...] = (
         (
             "subject_digest",
             "merge_commit_sha",
+            "release_sha",
             "merge_digest",
             "artifact_digest",
             "configuration_digest",
@@ -3631,6 +3632,25 @@ class LifecycleControlPlane:
                     reason,
                     "blocking finding evidence does not match the normalized finding",
                 )
+            context.evidence.setdefault("finding_source_id", blocking_finding.source)
+            context.evidence.setdefault(
+                "finding_source_authority_digest",
+                self.trust_policy.finding_sources.get(blocking_finding.source, ""),
+            )
+            context.evidence.setdefault(
+                "finding_source_authentication_evidence_digest",
+                context.evidence.get("finding_authentication_evidence_digest", ""),
+            )
+            event_evidence.update(
+                {
+                    name: context.evidence[name]
+                    for name in (
+                        "finding_source_id",
+                        "finding_source_authority_digest",
+                        "finding_source_authentication_evidence_digest",
+                    )
+                }
+            )
         if "review_clear" in guards:
             matching_review = next(
                 (
@@ -4533,16 +4553,46 @@ class LifecycleControlPlane:
                     "resume",
                     "PR_READY resume lacks a fresh trusted repository observation",
                 )
-        if (
-            stopped_event.reason == "post_merge_blocking_finding"
-            and _SHA256.fullmatch(context.evidence.get("finding_disposition_digest", "")) is None
-        ):
-            self._deny(
-                recorded,
-                context,
-                "resume",
-                "post-merge finding disposition evidence is required before resume",
+        if stopped_event.reason == "post_merge_blocking_finding":
+            finding_digest = stopped_event.evidence_refs.get("finding_digest", "")
+            source_id = stopped_event.evidence_refs.get("finding_source_id", "")
+            authority_digest = stopped_event.evidence_refs.get(
+                "finding_source_authority_digest", ""
             )
+            payload = {
+                "source_id": source_id,
+                "authority_digest": authority_digest,
+                "subject_digest": self.subject_digest,
+                "finding_digest": finding_digest,
+                "finding_disposition_digest": context.evidence.get(
+                    "finding_disposition_digest", ""
+                ),
+                "remediation_issue_digest": context.evidence.get("remediation_issue_digest", ""),
+                "repository_snapshot_digest": context.evidence.get(
+                    "repository_snapshot_digest", ""
+                ),
+                "observed_at": context.observed_at,
+            }
+            if (
+                _SHA256.fullmatch(payload["finding_disposition_digest"]) is None
+                or _SHA256.fullmatch(payload["remediation_issue_digest"]) is None
+                or _SHA256.fullmatch(payload["repository_snapshot_digest"]) is None
+                or context.evidence.get("finding_digest") != finding_digest
+                or self.trust_policy.finding_sources.get(source_id) != authority_digest
+                or not self._verify_external_evidence(
+                    source_id,
+                    authority_digest,
+                    payload,
+                    context.evidence.get("finding_disposition_authentication_evidence_digest", ""),
+                )
+            ):
+                self._deny(
+                    recorded,
+                    context,
+                    "resume",
+                    "authenticated exact-finding disposition and fresh remediation "
+                    "admission are required before resume",
+                )
         if stopped_event.reason == "quarantine_disposition_indeterminate":
             affected_artifact = stopped_event.evidence_refs.get("affected_artifact_digest", "")
             disposition_authority = context.actor.authentication_evidence_digest

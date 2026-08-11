@@ -2836,17 +2836,31 @@ def test_post_merge_blocking_finding_enters_safe_blocked_state(tmp_path: Path) -
     assert event.evidence_refs["finding_digest"] == object_digest(asdict(finding))
     assert event.resume_state is LifecycleState.REPOSITORY_ANALYSED
 
-    resumed = cp.resume(
-        context(
-            evidence={
-                "subject_digest": SHA,
-                "incident_closure_digest": SHA,
-                "restored_capability_digest": OTHER_SHA,
-                "unchanged_inputs_digest": SHA,
-                "finding_disposition_digest": OTHER_SHA,
-            }
-        )
+    resume_evidence = {
+        "subject_digest": SHA,
+        "incident_closure_digest": SHA,
+        "restored_capability_digest": OTHER_SHA,
+        "unchanged_inputs_digest": SHA,
+        "finding_digest": evidence["finding_digest"],
+        "finding_disposition_digest": OTHER_SHA,
+        "remediation_issue_digest": SHA,
+        "repository_snapshot_digest": OTHER_SHA,
+    }
+    resume_evidence["finding_disposition_authentication_evidence_digest"] = external_proof(
+        "finding-source",
+        SHA,
+        {
+            "source_id": "finding-source",
+            "authority_digest": SHA,
+            "subject_digest": SHA,
+            "finding_digest": resume_evidence["finding_digest"],
+            "finding_disposition_digest": OTHER_SHA,
+            "remediation_issue_digest": SHA,
+            "repository_snapshot_digest": OTHER_SHA,
+            "observed_at": "2026-08-02T00:01:00Z",
+        },
     )
+    resumed = cp.resume(context(evidence=resume_evidence))
     assert resumed.target is LifecycleState.REPOSITORY_ANALYSED
 
 
