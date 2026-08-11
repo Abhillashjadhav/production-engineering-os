@@ -167,6 +167,25 @@ def context(
             ),
         }
     )
+    canary_window_payload = {
+        "observer_id": "live-observer",
+        "authority_digest": SHA,
+        "subject_digest": SHA,
+        "canary_id_digest": effective_evidence.get("canary_id_digest", OTHER_SHA),
+        "canary_attempt_digest": effective_evidence.get("canary_attempt_digest", OTHER_SHA),
+        "canary_status_digest": effective_evidence.get("canary_status_digest", OTHER_SHA),
+        "slo_window_digest": effective_evidence.get("slo_window_digest", OTHER_SHA),
+        "observed_at": "2026-08-02T00:01:00Z",
+    }
+    effective_evidence.update(
+        {
+            "canary_window_observer_id": "live-observer",
+            "canary_window_observer_authority_digest": SHA,
+            "canary_window_authentication_evidence_digest": external_proof(
+                "live-observer", SHA, canary_window_payload
+            ),
+        }
+    )
     meter_payload = {
         "meter_id": "budget-meter",
         "authority_digest": SHA,

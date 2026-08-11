@@ -1396,10 +1396,14 @@ _RULES: tuple[TransitionRule, ...] = (
             "canary_status_digest",
             "slo_window_digest",
             "approval_request_digest",
+            "canary_window_observer_id",
+            "canary_window_observer_authority_digest",
+            "canary_window_authentication_evidence_digest",
         ),
         *_FORWARD,
         "active_canary",
         "no_blocking_finding",
+        "canary_window",
     ),
     _r(
         S.CANARY_DEPLOYED,
@@ -2197,6 +2201,31 @@ class LifecycleControlPlane:
                 authority_digest,
                 payload,
                 evidence.get("live_observation_authentication_evidence_digest", ""),
+            )
+        )
+
+    def _trusted_canary_window_valid(self, context: TransitionContext) -> bool:
+        evidence = context.evidence
+        observer = evidence.get("canary_window_observer_id", "")
+        authority_digest = evidence.get("canary_window_observer_authority_digest", "")
+        payload = {
+            "observer_id": observer,
+            "authority_digest": authority_digest,
+            "subject_digest": self.subject_digest,
+            "canary_id_digest": evidence.get("canary_id_digest", ""),
+            "canary_attempt_digest": evidence.get("canary_attempt_digest", ""),
+            "canary_status_digest": evidence.get("canary_status_digest", ""),
+            "slo_window_digest": evidence.get("slo_window_digest", ""),
+            "observed_at": context.observed_at,
+        }
+        return bool(
+            observer
+            and self.trust_policy.live_observers.get(observer) == authority_digest
+            and self._verify_external_evidence(
+                observer,
+                authority_digest,
+                payload,
+                evidence.get("canary_window_authentication_evidence_digest", ""),
             )
         )
 
@@ -3065,11 +3094,14 @@ class LifecycleControlPlane:
                 reason,
                 "reserved safety usage is controlled only by the lifecycle authority",
             )
-        try:
-            usage = self._merge_budget_usage(context.budget_usage, reject_lower=True)
-        except TransitionDeniedError as exc:
-            self._deny(target, context, reason, str(exc))
-            raise AssertionError("unreachable") from exc
+        if self._trusted_budget_usage_valid(context):
+            try:
+                usage = self._merge_budget_usage(context.budget_usage, reject_lower=True)
+            except TransitionDeniedError as exc:
+                self._deny(target, context, reason, str(exc))
+                raise AssertionError("unreachable") from exc
+        else:
+            usage = self.budget_usage
         exposure_preserving_block = (
             source is S.ROLLBACK_IN_PROGRESS
             and target is S.BLOCKED
@@ -3205,6 +3237,13 @@ class LifecycleControlPlane:
                     reason,
                     "finding disposition is not independently authenticated",
                 )
+        if "canary_window" in guards and not self._trusted_canary_window_valid(context):
+            self._deny(
+                target,
+                context,
+                reason,
+                "trusted exact-canary window evidence is required for promotion",
+            )
         if "drift" in guards:
             candidate_states = {
                 S.DRAFT_PR_OPEN,
@@ -4417,7 +4456,7 @@ class LifecycleControlPlane:
                 "resume",
                 "ordinary resume requires revoked candidate mutation capability",
             )
-        if not context.authority.current_at(context.observed_at):
+        if not self._trusted_authority_snapshot_valid(context):
             self._deny(recorded, context, "resume", "authority must be current before resume")
         if context.budget_usage.safety_units_used != self.budget_usage.safety_units_used:
             self._deny(
