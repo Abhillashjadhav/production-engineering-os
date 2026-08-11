@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import re
+import secrets
 import threading
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
@@ -317,6 +318,7 @@ class BudgetExtensionAuthorization:
     authority_observer_id: str
     authority_observer_authority_digest: str
     authority_current_time: str
+    admission_challenge: str
     authority_authentication_evidence_digest: str
     evidence_digest: str
 
@@ -549,6 +551,7 @@ def _budget_extension_authorization_payload(
         "authority_observer_id": authorization.authority_observer_id,
         "authority_observer_authority_digest": authorization.authority_observer_authority_digest,
         "authority_current_time": authorization.authority_current_time,
+        "admission_challenge": authorization.admission_challenge,
     }
 
 
@@ -724,6 +727,9 @@ class LifecyclePolicy:
                     "guards": sorted(rule.guards),
                     "permission": rule.permission,
                     "mutation_action": rule.mutation_action,
+                    "mutation_subject_fields": list(
+                        _MUTATION_SUBJECT_FIELDS.get(rule.mutation_action or "", ())
+                    ),
                 }
                 for rule in rules
             ],
@@ -760,6 +766,9 @@ def _policy_payload(policy: LifecyclePolicy) -> dict[str, Any]:
                 "guards": sorted(rule.guards),
                 "permission": rule.permission,
                 "mutation_action": rule.mutation_action,
+                "mutation_subject_fields": list(
+                    _MUTATION_SUBJECT_FIELDS.get(rule.mutation_action or "", ())
+                ),
             }
             for rule in policy.rules
         ],
@@ -793,6 +802,12 @@ def _policy_from_payload(payload: Mapping[str, Any]) -> LifecyclePolicy:
             for rule in rules
         ):
             raise ValueError("lifecycle policy snapshot contains unsupported mutation action")
+        if any(
+            tuple(str(name) for name in raw.get("mutation_subject_fields", ()))
+            != _MUTATION_SUBJECT_FIELDS.get(str(raw.get("mutation_action")), ())
+            for raw in payload["rules"]
+        ):
+            raise ValueError("lifecycle policy snapshot mutation schema is unsupported")
         return LifecyclePolicy(str(payload["version"]), rules)
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("lifecycle policy snapshot is invalid") from exc
@@ -1868,7 +1883,7 @@ _RECORDED_RESUME_EVIDENCE = (
 )
 
 PHASE_ZERO_POLICY = LifecyclePolicy(
-    "phase-zero-v1",
+    "phase-zero-v2",
     _RULES
     + tuple(
         _r(
@@ -2027,6 +2042,7 @@ class LifecycleControlPlane:
         self._mutation_results: dict[str, MutationResult] = {}
         self._verified_mutation_result_keys: set[str] = set()
         self._consumed_mutation_result_keys: set[str] = set()
+        self._budget_extension_challenge: str | None = None
         self._budget_usage = BudgetUsage()
 
     @property
@@ -2070,6 +2086,19 @@ class LifecycleControlPlane:
     @property
     def lock_path(self) -> Path:
         return self.run_dir / self._LOCK_NAME
+
+    def issue_budget_extension_challenge(self) -> str:
+        """Issue the sole live challenge for a budget-policy admission.
+
+        A budget-owner signature is only fresh when it binds a challenge issued
+        by this authoritative control plane after the caller asks to extend the
+        budget.  The challenge is deliberately process-local: restart requires
+        a new observation and signature rather than replaying a stale package.
+        """
+
+        with self._operation_lock:
+            self._budget_extension_challenge = secrets.token_urlsafe(32)
+            return self._budget_extension_challenge
 
     def _trusted_work_evidence_valid(self, context: TransitionContext) -> bool:
         evidence = context.evidence
@@ -2958,6 +2987,22 @@ class LifecycleControlPlane:
         authority: AuthoritySnapshot | None = None,
         observed_at: str = "",
     ) -> None:
+        with self._operation_lock:
+            self._admit_budget_policy_locked(
+                policy,
+                authorization=authorization,
+                authority=authority,
+                observed_at=observed_at,
+            )
+
+    def _admit_budget_policy_locked(
+        self,
+        policy: BudgetPolicy,
+        *,
+        authorization: BudgetExtensionAuthorization | None = None,
+        authority: AuthoritySnapshot | None = None,
+        observed_at: str = "",
+    ) -> None:
         if authorization is None or authority is None:
             raise TransitionDeniedError("authenticated budget owner authority is required")
         if (
@@ -2995,6 +3040,8 @@ class LifecycleControlPlane:
             authorization.evidence_digest,
         ):
             raise TransitionDeniedError("trusted budget-owner authority is required")
+        if authorization.admission_challenge != self._budget_extension_challenge:
+            raise TransitionDeniedError("budget extension requires a fresh admission challenge")
         try:
             valid_from = datetime.fromisoformat(authorization.valid_from.replace("Z", "+00:00"))
             valid_until = datetime.fromisoformat(authorization.valid_until.replace("Z", "+00:00"))
@@ -3020,14 +3067,29 @@ class LifecycleControlPlane:
             "authority_observed_at": authority.observed_at,
             "valid_until": authority.valid_until,
             "authority_current_time": authorization.authority_current_time,
+            "admission_challenge": authorization.admission_challenge,
         }
+        try:
+            prior_authority_times = tuple(
+                datetime.fromisoformat(
+                    event.evidence_refs["authority_current_time"].replace("Z", "+00:00")
+                )
+                for event in self.events
+                if event.kind == "BUDGET_POLICY_ADMITTED"
+                and event.outcome == "RECORDED"
+                and event.evidence_refs.get("authority_current_time")
+            )
+        except ValueError as exc:
+            raise TransitionDeniedError(
+                "budget extension authority chronology is malformed"
+            ) from exc
+        latest_authority_time = max(prior_authority_times, default=None)
         if (
             trusted_now.tzinfo is None
             or trusted_now < observed
-            or any(
-                datetime.fromisoformat(event.observed_at.replace("Z", "+00:00")) > trusted_now
-                for event in self.events
-                if event.observed_at
+            or (
+                latest_authority_time is not None
+                and (latest_authority_time.tzinfo is None or trusted_now <= latest_authority_time)
             )
             or trusted_now >= datetime.fromisoformat(authority.valid_until.replace("Z", "+00:00"))
             or self.trust_policy.authority_observers.get(authorization.authority_observer_id)
@@ -3066,6 +3128,7 @@ class LifecycleControlPlane:
             raise TransitionDeniedError(
                 "budget extension amount does not match the proposed policy"
             )
+        self._budget_extension_challenge = None
         self._append(
             kind="BUDGET_POLICY_ADMITTED",
             outcome="RECORDED",
@@ -3087,6 +3150,12 @@ class LifecycleControlPlane:
                 ),
                 "amounts_digest": _digest(amounts),
                 "authorization_evidence_digest": authorization.evidence_digest,
+                "authority_observer_id": authorization.authority_observer_id,
+                "authority_observer_authority_digest": (
+                    authorization.authority_observer_authority_digest
+                ),
+                "authority_current_time": authorization.authority_current_time,
+                "admission_challenge_digest": _digest(authorization.admission_challenge),
                 "valid_from": authorization.valid_from,
                 "valid_until": authorization.valid_until,
             },

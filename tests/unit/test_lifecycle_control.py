@@ -870,8 +870,14 @@ def extension_authorization(
     *,
     amounts: dict[str, int],
     authority_snapshot: AuthoritySnapshot | None = None,
+    admission_challenge: str | None = None,
 ) -> lifecycle.BudgetExtensionAuthorization:
     current_authority = authority_snapshot or authority(observed_at="2026-08-02T12:00:00Z")
+    challenge = (
+        admission_challenge
+        or cp._budget_extension_challenge
+        or cp.issue_budget_extension_challenge()
+    )
     body = {
         "extension_id": f"extension:{proposed.version}",
         "owner_id": proposed.approved_by,
@@ -891,6 +897,7 @@ def extension_authorization(
         "authority_observer_id": "authority-observer",
         "authority_observer_authority_digest": SHA,
         "authority_current_time": current_authority.observed_at,
+        "admission_challenge": challenge,
     }
     return lifecycle.BudgetExtensionAuthorization(
         extension_id=str(body["extension_id"]),
@@ -911,6 +918,7 @@ def extension_authorization(
         authority_observer_id=str(body["authority_observer_id"]),
         authority_observer_authority_digest=str(body["authority_observer_authority_digest"]),
         authority_current_time=str(body["authority_current_time"]),
+        admission_challenge=str(body["admission_challenge"]),
         authority_authentication_evidence_digest=external_proof(
             "authority-observer",
             SHA,
@@ -925,6 +933,7 @@ def extension_authorization(
                 "authority_observed_at": current_authority.observed_at,
                 "valid_until": current_authority.valid_until,
                 "authority_current_time": str(body["authority_current_time"]),
+                "admission_challenge": str(body["admission_challenge"]),
             },
         ),
         evidence_digest=external_proof(str(body["owner_id"]), str(body["credential_digest"]), body),
@@ -932,7 +941,7 @@ def extension_authorization(
 
 
 def test_phase_zero_policy_is_versioned_digest_bound_and_complete() -> None:
-    assert PHASE_ZERO_POLICY.version == "phase-zero-v1"
+    assert PHASE_ZERO_POLICY.version == "phase-zero-v2"
     assert PHASE_ZERO_POLICY.digest.startswith("sha256:")
     assert len(PHASE_ZERO_POLICY.digest) == 71
     assert {state.value for state in LifecycleState} == {
@@ -2867,6 +2876,75 @@ def test_budget_owner_trust_root_accepts_a_fresh_current_authority_snapshot(
     )
 
     assert cp.budget_policy == extended
+
+
+def test_budget_extension_ignores_untrusted_denied_event_time_but_requires_fresh_challenge(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path)
+    extended = replace(
+        cp.budget_policy,
+        version="budget-v2-fresh-challenge",
+        limits={**cp.budget_policy.limits, "tokens": 125},
+        approved_by="owner-alice",
+    )
+    with pytest.raises(TransitionDeniedError):
+        cp.transition(
+            LifecycleState.CONTRACT_INVALID,
+            replace(context(), observed_at="2099-01-01T00:00:00Z"),
+            reason="contract_invalid",
+        )
+
+    authorization = extension_authorization(
+        cp,
+        extended,
+        amounts={"tokens": 25},
+        admission_challenge=cp.issue_budget_extension_challenge(),
+    )
+    cp.admit_budget_policy(
+        extended,
+        authorization=authorization,
+        authority=authority(observed_at="2026-08-02T12:00:00Z"),
+        observed_at="2026-08-02T12:00:00Z",
+    )
+
+    assert cp.budget_policy == extended
+
+
+def test_budget_extension_rejects_a_superseded_admission_challenge(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+    extended = replace(
+        cp.budget_policy,
+        version="budget-v2-stale-challenge",
+        limits={**cp.budget_policy.limits, "tokens": 125},
+        approved_by="owner-alice",
+    )
+    authorization = extension_authorization(
+        cp,
+        extended,
+        amounts={"tokens": 25},
+        admission_challenge=cp.issue_budget_extension_challenge(),
+    )
+    cp.issue_budget_extension_challenge()
+
+    with pytest.raises(TransitionDeniedError, match="fresh admission challenge"):
+        cp.admit_budget_policy(
+            extended,
+            authorization=authorization,
+            authority=authority(observed_at="2026-08-02T12:00:00Z"),
+            observed_at="2026-08-02T12:00:00Z",
+        )
+
+
+def test_policy_snapshot_rejects_mutation_subject_schema_drift() -> None:
+    snapshot = lifecycle._policy_payload(PHASE_ZERO_POLICY)
+    mutated = next(
+        rule for rule in snapshot["rules"] if rule["mutation_action"] == "deploy_staging"
+    )
+    mutated["mutation_subject_fields"] = ["subject_digest"]
+
+    with pytest.raises(ValueError, match="lifecycle policy snapshot is invalid"):
+        lifecycle._policy_from_payload(snapshot)
 
 
 def test_post_merge_blocking_finding_enters_safe_blocked_state(tmp_path: Path) -> None:
