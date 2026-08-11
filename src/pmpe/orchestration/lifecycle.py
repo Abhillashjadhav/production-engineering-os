@@ -167,6 +167,8 @@ class EvidenceTrustPolicy:
     finding_sources: Mapping[str, str] = field(default_factory=dict)
     mutation_authorizers: Mapping[str, str] = field(default_factory=dict)
     live_observers: Mapping[str, str] = field(default_factory=dict)
+    authority_observers: Mapping[str, str] = field(default_factory=dict)
+    integrity_monitors: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         for name in (
@@ -180,6 +182,8 @@ class EvidenceTrustPolicy:
             "finding_sources",
             "mutation_authorizers",
             "live_observers",
+            "authority_observers",
+            "integrity_monitors",
         ):
             values = dict(getattr(self, name))
             if any(
@@ -455,6 +459,8 @@ def _trust_policy_payload(policy: EvidenceTrustPolicy) -> dict[str, Any]:
         "finding_sources": dict(policy.finding_sources),
         "mutation_authorizers": dict(policy.mutation_authorizers),
         "live_observers": dict(policy.live_observers),
+        "authority_observers": dict(policy.authority_observers),
+        "integrity_monitors": dict(policy.integrity_monitors),
     }
 
 
@@ -620,7 +626,12 @@ _MUTATION_SUBJECT_FIELDS: dict[str, tuple[str, ...]] = {
         "subject_digest",
         "zero_resource_digest",
     ),
-    "rollback": ("subject_digest",),
+    "rollback": (
+        "subject_digest",
+        "failed_deployment_digest",
+        "restoration_target_digest",
+        "migration_plan_digest",
+    ),
     "teardown_canary": (
         "subject_digest",
         "canary_teardown_digest",
@@ -756,7 +767,12 @@ def _r(
             "subject_digest",
             "monitor_identity_digest",
             "monitor_authentication_evidence_digest",
+            "integrity_monitor_id",
+            "integrity_monitor_authority_digest",
+            "integrity_monitor_authentication_evidence_digest",
         )
+    if mutation == "rollback":
+        guard_evidence += _MUTATION_SUBJECT_FIELDS["rollback"]
     required_evidence = tuple(dict.fromkeys((*evidence, *guard_evidence)))
     return TransitionRule(
         source,
@@ -1493,6 +1509,10 @@ _RULES: tuple[TransitionRule, ...] = (
         (
             "subject_digest",
             "release_sha",
+            "artifact_digest",
+            "configuration_digest",
+            "production_attempt_digest",
+            "production_result_digest",
             "reviewed_commit_sha",
             "reviewed_candidate_digest",
             "review_evidence_digest",
@@ -2021,13 +2041,58 @@ class LifecycleControlPlane:
             )
         )
 
+    def _trusted_authority_snapshot_valid(self, context: TransitionContext) -> bool:
+        """Require a trust-root-signed contract/publisher observation."""
+
+        evidence = context.evidence
+        observer = evidence.get("authority_observer_id", "")
+        authority_digest = evidence.get("authority_observer_authority_digest", "")
+        snapshot = context.authority
+        payload = {
+            "observer_id": observer,
+            "authority_digest": authority_digest,
+            "subject_digest": self.subject_digest,
+            "contract_version": snapshot.contract_version,
+            "publisher_version": snapshot.publisher_version,
+            "contract_active": snapshot.contract_active,
+            "publisher_active": snapshot.publisher_active,
+            "authority_observed_at": snapshot.observed_at,
+            "valid_until": snapshot.valid_until,
+            "transition_observed_at": context.observed_at,
+        }
+        try:
+            transition_time = datetime.fromisoformat(context.observed_at.replace("Z", "+00:00"))
+            prior_times = (
+                datetime.fromisoformat(event.observed_at.replace("Z", "+00:00"))
+                for event in self.events
+                if event.kind == "TRANSITION" and event.outcome == "APPLIED" and event.observed_at
+            )
+            prior_time = max(prior_times, default=None)
+        except ValueError:
+            return False
+        if transition_time.tzinfo is None or (
+            prior_time is not None and (prior_time.tzinfo is None or transition_time < prior_time)
+        ):
+            return False
+        return bool(
+            snapshot.current_at(context.observed_at)
+            and observer
+            and self.trust_policy.authority_observers.get(observer) == authority_digest
+            and self._verify_external_evidence(
+                observer,
+                authority_digest,
+                payload,
+                evidence.get("authority_authentication_evidence_digest", ""),
+            )
+        )
+
     def _trusted_finding_inventory_valid(self, context: TransitionContext) -> bool:
         """Require an independently authenticated, current no-blocker inventory."""
 
         evidence = context.evidence
         sources = dict(self.trust_policy.finding_sources)
         inventories: dict[str, str] = {}
-        if evidence.get("finding_source_set_digest") != _digest(sources):
+        if not sources or evidence.get("finding_source_set_digest") != _digest(sources):
             return False
         for source, authority_digest in sources.items():
             inventory_digest = evidence.get(f"finding_inventory_{source}_digest", "")
@@ -2079,6 +2144,11 @@ class LifecycleControlPlane:
             "observer_id": observer,
             "authority_digest": authority_digest,
             "subject_digest": self.subject_digest,
+            "release_sha": evidence.get("release_sha", ""),
+            "artifact_digest": evidence.get("artifact_digest", ""),
+            "configuration_digest": evidence.get("configuration_digest", ""),
+            "production_attempt_digest": evidence.get("production_attempt_digest", ""),
+            "production_result_digest": evidence.get("production_result_digest", ""),
             "live_verification_digest": evidence.get("live_verification_digest", ""),
             "rollback_readiness_digest": evidence.get("rollback_readiness_digest", ""),
             "observation_window_digest": evidence.get("observation_window_digest", ""),
@@ -2121,6 +2191,33 @@ class LifecycleControlPlane:
                 authority_digest,
                 payload,
                 evidence.get("rollback_observation_authentication_evidence_digest", ""),
+            )
+        )
+
+    def _trusted_integrity_monitor_valid(self, context: TransitionContext) -> bool:
+        evidence = context.evidence
+        monitor = evidence.get("integrity_monitor_id", "")
+        authority_digest = evidence.get("integrity_monitor_authority_digest", "")
+        payload = {
+            "monitor_id": monitor,
+            "authority_digest": authority_digest,
+            "subject_digest": self.subject_digest,
+            "actor_id": context.actor.actor_id,
+            "role": context.actor.role,
+            "trigger_digest": evidence.get(
+                "incident_digest", evidence.get("safe_state_digest", "")
+            ),
+            "observed_at": context.observed_at,
+        }
+        return bool(
+            monitor
+            and monitor == context.actor.actor_id
+            and self.trust_policy.integrity_monitors.get(monitor) == authority_digest
+            and self._verify_external_evidence(
+                monitor,
+                authority_digest,
+                payload,
+                evidence.get("integrity_monitor_authentication_evidence_digest", ""),
             )
         )
 
@@ -2377,6 +2474,8 @@ class LifecycleControlPlane:
             finding_sources=dict(raw_trust.get("finding_sources", {})),
             mutation_authorizers=dict(raw_trust.get("mutation_authorizers", {})),
             live_observers=dict(raw_trust.get("live_observers", {})),
+            authority_observers=dict(raw_trust.get("authority_observers", {})),
+            integrity_monitors=dict(raw_trust.get("integrity_monitors", {})),
         )
         if any(event.policy_digest != PHASE_ZERO_POLICY.digest for event in events):
             raise ValueError("lifecycle ledger policy digest differs from the active policy")
@@ -3019,7 +3118,7 @@ class LifecycleControlPlane:
             )
         if reason == "canary_breach" and context.rollout.canary not in {"ACTIVE", "UNKNOWN"}:
             self._deny(target, context, reason, "canary breach requires evidenced exposure")
-        if "authority" in guards and not context.authority.current_at(context.observed_at):
+        if "authority" in guards and not self._trusted_authority_snapshot_valid(context):
             self._deny(target, context, reason, "contract or publisher authority is not current")
         exhausted = usage.exhausted_dimensions(self.budget_policy)
         if "budget" in guards and exhausted:
@@ -3768,7 +3867,7 @@ class LifecycleControlPlane:
                 not self.completion_claim_active
                 or completion_event is None
                 or "lifecycle.completion.revoke" not in actor.capabilities
-                or not context.authority.current_at(context.observed_at)
+                or not self._trusted_integrity_monitor_valid(context)
                 or context.evidence.get("completion_event_digest") != completion_event.event_digest
                 or context.evidence.get("monitor_identity_digest") != monitor_identity
                 or context.evidence.get("monitor_authentication_evidence_digest")

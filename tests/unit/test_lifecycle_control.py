@@ -52,6 +52,8 @@ TRUST_POLICY = EvidenceTrustPolicy(
     finding_sources={"finding-source": SHA},
     mutation_authorizers={"mutation-authorizer": SHA},
     live_observers={"live-observer": SHA},
+    authority_observers={"authority-observer": SHA},
+    integrity_monitors={"monitor-1": SHA},
 )
 
 
@@ -144,6 +146,27 @@ def context(
     effective_evidence = dict(
         evidence or {"subject_digest": SHA, "evidence_bundle_digest": OTHER_SHA}
     )
+    authority_payload = {
+        "observer_id": "authority-observer",
+        "authority_digest": SHA,
+        "subject_digest": SHA,
+        "contract_version": authority_snapshot.contract_version,
+        "publisher_version": authority_snapshot.publisher_version,
+        "contract_active": authority_snapshot.contract_active,
+        "publisher_active": authority_snapshot.publisher_active,
+        "authority_observed_at": authority_snapshot.observed_at,
+        "valid_until": authority_snapshot.valid_until,
+        "transition_observed_at": "2026-08-02T00:01:00Z",
+    }
+    effective_evidence.update(
+        {
+            "authority_observer_id": "authority-observer",
+            "authority_observer_authority_digest": SHA,
+            "authority_authentication_evidence_digest": external_proof(
+                "authority-observer", SHA, authority_payload
+            ),
+        }
+    )
     meter_payload = {
         "meter_id": "budget-meter",
         "authority_digest": SHA,
@@ -196,6 +219,11 @@ def context(
         "observer_id": "live-observer",
         "authority_digest": SHA,
         "subject_digest": SHA,
+        "release_sha": effective_evidence.get("release_sha", ""),
+        "artifact_digest": effective_evidence.get("artifact_digest", ""),
+        "configuration_digest": effective_evidence.get("configuration_digest", ""),
+        "production_attempt_digest": effective_evidence.get("production_attempt_digest", ""),
+        "production_result_digest": effective_evidence.get("production_result_digest", ""),
         "live_verification_digest": effective_evidence.get("live_verification_digest", OTHER_SHA),
         "rollback_readiness_digest": effective_evidence.get("rollback_readiness_digest", OTHER_SHA),
         "observation_window_digest": effective_evidence.get("observation_window_digest", OTHER_SHA),
@@ -264,6 +292,7 @@ def control_plane(
     tmp_path: Path,
     *,
     state: LifecycleState = LifecycleState.CONTRACT_RECEIVED,
+    trust_policy: EvidenceTrustPolicy = TRUST_POLICY,
 ) -> LifecycleControlPlane:
     policy, _ = budgets()
     cp = LifecycleControlPlane.create(
@@ -272,7 +301,7 @@ def control_plane(
         subject_digest=SHA,
         initial_state=LifecycleState.CONTRACT_RECEIVED,
         budget_policy=policy,
-        trust_policy=TRUST_POLICY,
+        trust_policy=trust_policy,
         evidence_verifier=verify_external_proof,
     )
     if state is not LifecycleState.CONTRACT_RECEIVED:
@@ -386,6 +415,19 @@ def evidence_for(source: LifecycleState, target: LifecycleState, *, reason: str)
             finding_inventory_epochs_digest=object_digest(inventories),
         )
     return evidence
+
+
+def rollback_plan(evidence: dict[str, str] | None = None) -> str:
+    return mutation_subject_digest(
+        "rollback",
+        evidence
+        or {
+            name: SHA
+            if name == "subject_digest"
+            else "sha256:" + hashlib.sha256(name.encode()).hexdigest()
+            for name in lifecycle._MUTATION_SUBJECT_FIELDS["rollback"]
+        },
+    )
 
 
 def object_digest(value: object) -> str:
@@ -713,12 +755,26 @@ def completion_invalidation_context(
         }
     )
     trigger_digest = evidence.get("incident_digest", evidence.get("safe_state_digest", ""))
+    integrity_payload = {
+        "monitor_id": monitor.actor_id,
+        "authority_digest": SHA,
+        "subject_digest": SHA,
+        "actor_id": monitor.actor_id,
+        "role": monitor.role,
+        "trigger_digest": trigger_digest,
+        "observed_at": "2026-08-02T00:01:00Z",
+    }
     evidence.update(
         {
             "subject_digest": SHA,
             "completion_event_digest": completion_event.event_digest,
             "monitor_identity_digest": identity_digest,
             "monitor_authentication_evidence_digest": (monitor.authentication_evidence_digest),
+            "integrity_monitor_id": monitor.actor_id,
+            "integrity_monitor_authority_digest": SHA,
+            "integrity_monitor_authentication_evidence_digest": external_proof(
+                monitor.actor_id, SHA, integrity_payload
+            ),
             "invalidation_digest": object_digest(
                 {
                     "completion_event_digest": completion_event.event_digest,
@@ -1021,7 +1077,7 @@ def test_reserved_safety_budget_cannot_authorize_forward_work(tmp_path: Path) ->
         idempotency_key="rollback:run-65:1",
         subject_digest=SHA,
         action="rollback",
-        step_plan_digest=mutation_subject_digest("rollback", {"subject_digest": SHA}),
+        step_plan_digest=rollback_plan(),
         status="PLANNED",
     )
     safety = evidence_for(
@@ -1261,6 +1317,30 @@ def test_staging_requires_an_authenticated_inventory_from_every_configured_sourc
         )
 
 
+def test_staging_fails_closed_when_no_finding_source_is_configured(tmp_path: Path) -> None:
+    cp = control_plane(
+        tmp_path,
+        state=LifecycleState.PR_MERGED,
+        trust_policy=replace(TRUST_POLICY, finding_sources={}),
+    )
+    required = evidence_for(
+        LifecycleState.PR_MERGED,
+        LifecycleState.STAGING_DEPLOYED,
+        reason="staging_admitted",
+    )
+    required.update(
+        finding_source_set_digest=object_digest({}),
+        finding_inventory_epochs_digest=object_digest({}),
+    )
+
+    with pytest.raises(TransitionDeniedError, match="current trusted finding inventory"):
+        cp.transition(
+            LifecycleState.STAGING_DEPLOYED,
+            context(evidence=required),
+            reason="staging_admitted",
+        )
+
+
 def test_staging_mutation_subject_binds_complete_promotion_fence() -> None:
     baseline = dict.fromkeys(lifecycle._MUTATION_SUBJECT_FIELDS["deploy_staging"], SHA)
     for field in (
@@ -1275,6 +1355,20 @@ def test_staging_mutation_subject_binds_complete_promotion_fence() -> None:
         changed[field] = OTHER_SHA
         assert mutation_subject_digest("deploy_staging", baseline) != mutation_subject_digest(
             "deploy_staging", changed
+        )
+
+
+def test_rollback_mutation_subject_binds_failed_and_restoration_targets() -> None:
+    baseline = dict.fromkeys(lifecycle._MUTATION_SUBJECT_FIELDS["rollback"], SHA)
+    for field in (
+        "failed_deployment_digest",
+        "restoration_target_digest",
+        "migration_plan_digest",
+    ):
+        changed = dict(baseline)
+        changed[field] = OTHER_SHA
+        assert mutation_subject_digest("rollback", baseline) != mutation_subject_digest(
+            "rollback", changed
         )
 
 
@@ -1392,6 +1486,53 @@ def test_forward_transition_rejects_reused_authority_observation(tmp_path: Path)
         )
 
 
+def test_forward_transition_requires_independent_authority_attestation(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+    required = evidence_for(
+        LifecycleState.CONTRACT_RECEIVED,
+        LifecycleState.CONTRACT_APPROVED,
+        reason="contract_admitted",
+    )
+    forged = context(evidence=required)
+    forged_evidence = dict(forged.evidence)
+    forged_evidence["authority_authentication_evidence_digest"] = OTHER_SHA
+
+    with pytest.raises(TransitionDeniedError, match="contract or publisher authority"):
+        cp.transition(
+            LifecycleState.CONTRACT_APPROVED,
+            replace(forged, evidence=forged_evidence),
+            reason="contract_admitted",
+        )
+
+
+def test_forward_transition_rejects_authority_time_before_the_sealed_ledger_clock(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path)
+    cp._append(
+        kind="TRANSITION",
+        outcome="APPLIED",
+        source=LifecycleState.CONTRACT_RECEIVED,
+        target=LifecycleState.CONTRACT_RECEIVED,
+        reason="trusted_clock_fixture",
+        actor="authority-observer",
+        evidence_refs={"subject_digest": SHA},
+        observed_at="2026-08-02T01:00:00Z",
+    )
+    required = evidence_for(
+        LifecycleState.CONTRACT_RECEIVED,
+        LifecycleState.CONTRACT_APPROVED,
+        reason="contract_admitted",
+    )
+
+    with pytest.raises(TransitionDeniedError, match="contract or publisher authority"):
+        cp.transition(
+            LifecycleState.CONTRACT_APPROVED,
+            context(evidence=required),
+            reason="contract_admitted",
+        )
+
+
 def test_mutation_admission_binds_evidence_to_persisted_result(tmp_path: Path) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
     required = evidence_for(
@@ -1484,6 +1625,23 @@ def test_completed_requires_exact_release_live_rollback_and_observation_evidence
     assert cp.completion_claim_active
 
 
+def test_completion_rejects_live_attestation_replayed_for_a_different_release(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PRODUCTION_DEPLOYED)
+    required = completion_evidence_with_review_binding(cp)
+    signed = context(evidence=required)
+    replayed = dict(signed.evidence)
+    replayed["release_sha"] = "b" * 40
+
+    with pytest.raises(TransitionDeniedError, match="trusted live observation"):
+        cp.transition(
+            LifecycleState.COMPLETED,
+            replace(signed, evidence=replayed),
+            reason="observation_window_passed",
+        )
+
+
 def test_completion_claim_is_revoked_append_only_on_admitted_invalidation(tmp_path: Path) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.PRODUCTION_DEPLOYED)
     done = completion_evidence_with_review_binding(cp)
@@ -1502,6 +1660,72 @@ def test_completion_claim_is_revoked_append_only_on_admitted_invalidation(tmp_pa
     assert len(cp.events) == before + 1
     assert any(event.kind == "COMPLETION_CLAIMED" for event in cp.events)
     assert cp.events[-1].kind == "COMPLETION_REVOKED"
+
+
+def test_completion_revocation_remains_available_when_delivery_authority_is_revoked(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PRODUCTION_DEPLOYED)
+    cp.transition(
+        LifecycleState.COMPLETED,
+        context(evidence=completion_evidence_with_review_binding(cp)),
+        reason="observation_window_passed",
+    )
+    revoked = authority(current=False)
+    invalidation = completion_invalidation_context(cp)
+    actor = invalidation.actor
+    actor_claims = {
+        "actor_id": actor.actor_id,
+        "role": actor.role,
+        "authenticated": actor.authenticated,
+        "capabilities": sorted(actor.capabilities),
+        "subject_digest": actor.subject_digest,
+        "authority_digest": revoked.digest,
+    }
+    monitor = replace(
+        actor,
+        authority_digest=revoked.digest,
+        authentication_evidence_digest=external_proof("monitor-1", revoked.digest, actor_claims),
+    )
+    evidence = dict(invalidation.evidence)
+    evidence["monitor_authentication_evidence_digest"] = monitor.authentication_evidence_digest
+    evidence["invalidation_digest"] = object_digest(
+        {
+            "completion_event_digest": evidence["completion_event_digest"],
+            "monitor_authentication_evidence_digest": monitor.authentication_evidence_digest,
+            "monitor_identity_digest": evidence["monitor_identity_digest"],
+            "subject_digest": SHA,
+            "trigger_digest": evidence["incident_digest"],
+        }
+    )
+
+    cp.transition(
+        LifecycleState.LIVE_VERIFICATION_FAILED,
+        replace(invalidation, actor=monitor, authority=revoked, evidence=evidence),
+        reason="completion_evidence_invalidated",
+    )
+    assert not cp.completion_claim_active
+
+
+def test_completion_revocation_rejects_a_forged_integrity_monitor_attestation(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path, state=LifecycleState.PRODUCTION_DEPLOYED)
+    cp.transition(
+        LifecycleState.COMPLETED,
+        context(evidence=completion_evidence_with_review_binding(cp)),
+        reason="observation_window_passed",
+    )
+    invalidation = completion_invalidation_context(cp)
+    forged = dict(invalidation.evidence)
+    forged["integrity_monitor_authentication_evidence_digest"] = OTHER_SHA
+
+    with pytest.raises(TransitionDeniedError, match="completion revocation"):
+        cp.transition(
+            LifecycleState.LIVE_VERIFICATION_FAILED,
+            replace(invalidation, evidence=forged),
+            reason="completion_evidence_invalidated",
+        )
 
 
 @pytest.mark.parametrize(
@@ -1831,7 +2055,7 @@ def test_safety_resume_is_bound_to_original_blocked_attempt(tmp_path: Path) -> N
         idempotency_key="rollback:run-65:original",
         subject_digest=SHA,
         action="rollback",
-        step_plan_digest=mutation_subject_digest("rollback", {"subject_digest": SHA}),
+        step_plan_digest=rollback_plan(),
         status="PLANNED",
     )
     blocked_evidence = evidence_for(
@@ -1905,7 +2129,7 @@ def test_indeterminate_rollback_retains_truthful_unresolved_exposure(tmp_path: P
         idempotency_key="rollback:run-65:unresolved-exposure",
         subject_digest=SHA,
         action="rollback",
-        step_plan_digest=mutation_subject_digest("rollback", {"subject_digest": SHA}),
+        step_plan_digest=rollback_plan(),
         status="PLANNED",
     )
     prejournal(cp, attempt)
@@ -1942,7 +2166,7 @@ def test_safety_mutations_are_explicitly_prejournaled_before_adapter_execution(
         idempotency_key="rollback:run-65:prejournal",
         subject_digest=SHA,
         action="rollback",
-        step_plan_digest=mutation_subject_digest("rollback", {"subject_digest": SHA}),
+        step_plan_digest=rollback_plan(),
         status="PLANNED",
     )
     start_evidence = evidence_for(
@@ -2071,7 +2295,7 @@ def test_reserved_safety_budget_is_control_plane_bounded_and_not_caller_capacity
         idempotency_key="rollback:run-65:safety-cap",
         subject_digest=SHA,
         action="rollback",
-        step_plan_digest=mutation_subject_digest("rollback", {"subject_digest": SHA}),
+        step_plan_digest=rollback_plan(),
         status="PLANNED",
     )
     blocked_evidence = evidence_for(
@@ -2123,21 +2347,21 @@ def test_canary_failure_with_mutation_or_indeterminate_exposure_enters_rollback(
     tmp_path: Path,
 ) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.CANARY_DEPLOYED)
-    rollback = MutationAttempt(
-        attempt_id="rollback-canary-failure",
-        idempotency_key="rollback:run-65:canary-failure",
-        subject_digest=SHA,
-        action="rollback",
-        step_plan_digest=mutation_subject_digest("rollback", {"subject_digest": SHA}),
-        status="PLANNED",
-    )
-    prejournal(cp, rollback)
     required = evidence_for(
         LifecycleState.CANARY_DEPLOYED,
         LifecycleState.ROLLBACK_IN_PROGRESS,
         reason="canary_failed",
     )
     required.update(record_active_canary_binding(cp))
+    rollback = MutationAttempt(
+        attempt_id="rollback-canary-failure",
+        idempotency_key="rollback:run-65:canary-failure",
+        subject_digest=SHA,
+        action="rollback",
+        step_plan_digest=rollback_plan(required),
+        status="PLANNED",
+    )
+    prejournal(cp, rollback)
     required["rollback_attempt_digest"] = object_digest(asdict(rollback))
     event = cp.transition(
         LifecycleState.ROLLBACK_IN_PROGRESS,
@@ -2685,7 +2909,7 @@ def test_rollback_completion_requires_exact_attempt_bound_zero_exposure(
         idempotency_key="rollback:run-65:exposure-1",
         subject_digest=SHA,
         action="rollback",
-        step_plan_digest=mutation_subject_digest("rollback", {"subject_digest": SHA}),
+        step_plan_digest=rollback_plan(),
         status="PLANNED",
     )
     prejournal(cp, attempt)
