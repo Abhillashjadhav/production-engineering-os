@@ -787,6 +787,12 @@ def _policy_from_payload(payload: Mapping[str, Any]) -> LifecyclePolicy:
         )
         if any(not rule.guards <= supported_guards for rule in rules):
             raise ValueError("lifecycle policy snapshot contains unsupported guards")
+        if any(
+            rule.mutation_action is not None
+            and rule.mutation_action not in _MUTATION_SUBJECT_FIELDS
+            for rule in rules
+        ):
+            raise ValueError("lifecycle policy snapshot contains unsupported mutation action")
         return LifecyclePolicy(str(payload["version"]), rules)
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError("lifecycle policy snapshot is invalid") from exc
@@ -3018,6 +3024,11 @@ class LifecycleControlPlane:
         if (
             trusted_now.tzinfo is None
             or trusted_now < observed
+            or any(
+                datetime.fromisoformat(event.observed_at.replace("Z", "+00:00")) > trusted_now
+                for event in self.events
+                if event.observed_at
+            )
             or trusted_now >= datetime.fromisoformat(authority.valid_until.replace("Z", "+00:00"))
             or self.trust_policy.authority_observers.get(authorization.authority_observer_id)
             != authorization.authority_observer_authority_digest
