@@ -1,0 +1,425 @@
+"""Issue #67 red-first contract for executable test-plan compilation."""
+
+from __future__ import annotations
+
+import copy
+import json
+from dataclasses import replace
+from pathlib import Path
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+
+from pmpe.architecture.models import ArchitecturePack
+from pmpe.contracts.canonical import canonical_digest
+from pmpe.repository.models import (
+    AdapterMetadata,
+    InventoryCategory,
+    RepositorySnapshot,
+    ToolVersion,
+)
+
+ROOT = Path(__file__).resolve().parents[2]
+VALID_BUNDLE = ROOT / "tests" / "fixtures" / "pmos" / "v1" / "valid_bundle.json"
+
+
+def _api() -> Any:
+    try:
+        from pmpe import testing
+    except (ImportError, ModuleNotFoundError):
+        pytest.fail("issue #67 test-plan compiler is not implemented", pytrace=False)
+    return testing
+
+
+def _contract() -> dict[str, Any]:
+    return json.loads(VALID_BUNDLE.read_text())
+
+
+def _snapshot() -> RepositorySnapshot:
+    snapshot = RepositorySnapshot(
+        repository="Abhillashjadhav/production-engineering-os",
+        commit_sha="a" * 40,
+        tree_sha="b" * 40,
+        git_object_format="sha1",
+        default_branch="main",
+        default_branch_source="symbolic-ref",
+        scanner_version="1.0.0",
+        scan_configuration_digest="sha256:" + "1" * 64,
+        adapter_set_digest="sha256:" + "2" * 64,
+        implementation_digest="sha256:" + "3" * 64,
+        tracked_tree_digest="sha256:" + "4" * 64,
+        scanned_content_digest="sha256:" + "5" * 64,
+        scan_scope="FULL_TRACKED_TREE",
+        included_paths=("pyproject.toml", "tests/unit/test_contracts.py"),
+        tooling_digest="sha256:" + "6" * 64,
+        tool_versions=(
+            ToolVersion(tool="bandit", version="1.8.6"),
+            ToolVersion(tool="playwright", version="1.54.0"),
+            ToolVersion(tool="pytest", version="8.4.1"),
+        ),
+        adapters=(
+            AdapterMetadata(
+                adapter_id="python",
+                version="1.0.0",
+                detector_version="1.0.0",
+                file_patterns=("*.py",),
+                supported_categories=("tests_quality",),
+            ),
+        ),
+        command_provenance=(),
+        inventory={"tests_quality": InventoryCategory(status="SUPPORTED", items=())},
+        findings=(),
+        boundary_candidates=(),
+        unsupported_categories=(),
+        disposition="COMPLETE",
+        redaction={"status": "SANITIZED"},
+        snapshot_digest="",
+    )
+    payload = snapshot.as_dict()
+    payload.pop("snapshot_digest")
+    return replace(snapshot, snapshot_digest=canonical_digest(payload))
+
+
+def _architecture(contract: dict[str, Any], snapshot: RepositorySnapshot) -> ArchitecturePack:
+    value: dict[str, Any] = {
+        "schema_version": "1.0.0",
+        "compiler_version": "1.0.0",
+        "pack_id": "ARCH-TEST-001",
+        "contract_digest": canonical_digest(contract),
+        "repository_snapshot_digest": snapshot.snapshot_digest,
+        "repository_commit": snapshot.commit_sha,
+        "governance_observation_digest": "sha256:" + "7" * 64,
+        "disposition": "ADMITTED",
+        "repository_boundary_evidence": [],
+        "components": [],
+        "data_architecture": [],
+        "api_architecture": [],
+        "integration_architecture": [],
+        "security_boundaries": [],
+        "data_flows": [],
+        "deployment": {},
+        "observability": {},
+        "rollback": {},
+        "adrs": [],
+        "threat_model": {},
+        "approval_requests": [],
+        "pack_digest": "",
+        "artifact_kind": "ARCHITECTURE_PACK",
+    }
+    value["pack_digest"] = canonical_digest(
+        {key: item for key, item in value.items() if key != "pack_digest"}
+    )
+    return ArchitecturePack.from_dict(value)
+
+
+def _capabilities() -> tuple[Any, ...]:
+    api = _api()
+    return tuple(
+        api.RepositoryTestCapability(
+            test_class=test_class,
+            command=(
+                "bandit" if test_class is api.TestClass.SECURITY_PRIVACY else "pytest",
+                "-q",
+            ),
+            environment="ci",
+            tool=(
+                "bandit" if test_class is api.TestClass.SECURITY_PRIVACY else "pytest"
+            ),
+            evidence_format="PMPE_TEST_EVIDENCE_V1",
+            observed_paths=("pyproject.toml",),
+        )
+        for test_class in api.TestClass
+        if test_class is not api.TestClass.ACCESSIBILITY
+    ) + (
+        api.RepositoryTestCapability(
+            test_class=api.TestClass.ACCESSIBILITY,
+            command=("playwright", "test"),
+            environment="ci-browser",
+            tool="playwright",
+            evidence_format="PMPE_TEST_EVIDENCE_V1",
+            observed_paths=("pyproject.toml",),
+        ),
+    )
+
+
+def _compile(
+    contract: dict[str, Any] | None = None,
+    *,
+    capabilities: tuple[Any, ...] | None = None,
+) -> Any:
+    api = _api()
+    value = contract or _contract()
+    snapshot = _snapshot()
+    architecture = _architecture(value, snapshot)
+    validation = SimpleNamespace(
+        bundle_digest=canonical_digest(value), engineering_admissible=True
+    )
+    return api.TestPlanCompiler().compile(
+        value,
+        validation,
+        snapshot,
+        architecture,
+        _capabilities() if capabilities is None else capabilities,
+    )
+
+
+def test_valid_plan_is_deterministic_digest_bound_and_complete() -> None:
+    first = _compile()
+    second = _compile(copy.deepcopy(_contract()))
+
+    assert first.disposition.value == "ADMITTED"
+    assert first.plan is not None
+    assert first.as_dict() == second.as_dict()
+    assert first.plan.digest_is_valid()
+    assert first.plan.contract_digest == canonical_digest(_contract())
+    assert first.plan.repository_commit == "a" * 40
+    assert first.plan.architecture_pack_digest == _architecture(
+        _contract(), _snapshot()
+    ).pack_digest
+
+    covered = {
+        target
+        for node in first.plan.nodes
+        if node.status == "PLANNED"
+        for target in node.target_refs
+    }
+    assert set(first.plan.required_refs) <= covered
+    assert all(decision.rule_id for decision in first.plan.class_decisions)
+    assert {decision.test_class for decision in first.plan.class_decisions} == set(
+        _api().TestClass
+    )
+
+
+def test_compiler_selects_risk_based_classes_and_justifies_not_applicable() -> None:
+    result = _compile()
+    assert result.plan is not None
+    decisions = {item.test_class: item for item in result.plan.class_decisions}
+
+    assert decisions[_api().TestClass.UNIT].status == "SELECTED"
+    assert decisions[_api().TestClass.INTEGRATION].status == "SELECTED"
+    assert decisions[_api().TestClass.E2E].status == "SELECTED"
+    assert decisions[_api().TestClass.MIGRATION].status == "SELECTED"
+    assert decisions[_api().TestClass.ACCESSIBILITY].status == "SELECTED"
+    assert decisions[_api().TestClass.SECURITY_PRIVACY].status == "SELECTED"
+    assert decisions[_api().TestClass.RELEASE].status == "SELECTED"
+    assert decisions[_api().TestClass.PERFORMANCE].status == "NOT_APPLICABLE"
+    assert decisions[_api().TestClass.PERFORMANCE].justification
+
+
+def test_manual_evidence_is_valid_but_excludes_autonomous_numerator() -> None:
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"]["verification_method"] = (
+        "Manual product-owner observation"
+    )
+
+    result = _compile(contract)
+
+    assert result.disposition.value == "ADMITTED"
+    assert result.plan is not None
+    manual = [node for node in result.plan.nodes if node.execution_mode == "MANUAL"]
+    assert any("AC-001" in node.target_refs for node in manual)
+    assert not result.plan.autonomy_eligible
+    assert result.plan.manual_intervention_refs
+
+
+def test_missing_selected_toolchain_blocks_with_explicit_targets() -> None:
+    capabilities = tuple(
+        item
+        for item in _capabilities()
+        if item.test_class is not _api().TestClass.SECURITY_PRIVACY
+    )
+
+    result = _compile(capabilities=capabilities)
+
+    assert result.disposition.value == "BLOCKED"
+    assert result.plan is not None
+    assert any(item.rule_id == "TESTPLAN.TOOLCHAIN.MISSING" for item in result.diagnostics)
+    blocked = [node for node in result.plan.nodes if node.status == "BLOCKED"]
+    assert blocked
+    assert any("SEC-001" in node.target_refs for node in blocked)
+    assert not result.plan.autonomy_eligible
+
+
+@pytest.mark.parametrize(
+    ("mutation", "rule_id"),
+    [
+        (
+            lambda capability: replace(capability, tool="unobserved-tool"),
+            "TESTPLAN.TOOLCHAIN.TOOL",
+        ),
+        (
+            lambda capability: replace(capability, observed_paths=("unobserved.toml",)),
+            "TESTPLAN.TOOLCHAIN.PATH",
+        ),
+        (
+            lambda capability: replace(capability, command=()),
+            "TESTPLAN.TOOLCHAIN.COMMAND",
+        ),
+    ],
+)
+def test_unproven_toolchain_capability_fails_closed(mutation: Any, rule_id: str) -> None:
+    capabilities = list(_capabilities())
+    capabilities[0] = mutation(capabilities[0])
+
+    result = _compile(capabilities=tuple(capabilities))
+
+    assert result.disposition.value == "BLOCKED"
+    assert any(item.rule_id == rule_id for item in result.diagnostics)
+
+
+def _red_run(plan: Any) -> Any:
+    api = _api()
+    executions = tuple(
+        api.RedTestExecution(
+            plan_node_id=node.node_id,
+            test_node_id=node.expected_test_node,
+            outcome="FAILED",
+            failure_kind="ASSERTION",
+            observed_assertion_id=node.assertion_id,
+        )
+        for node in plan.nodes
+        if node.status == "PLANNED"
+        and node.execution_mode == "AUTOMATED"
+        and node.meaningful_red_required
+    )
+    return api.MeaningfulRedRun(
+        test_plan_digest=plan.plan_digest,
+        commit_sha="c" * 40,
+        toolchain_digest=plan.toolchain_digest,
+        executions=executions,
+    )
+
+
+def test_meaningful_red_admits_exact_assertion_failures() -> None:
+    result = _compile()
+    assert result.plan is not None
+
+    admission = _api().MeaningfulRedGate().validate(
+        result.plan, _red_run(result.plan), expected_commit_sha="c" * 40
+    )
+
+    assert admission.admitted
+    assert admission.diagnostics == ()
+
+
+@pytest.mark.parametrize(
+    ("mutation", "rule_id"),
+    [
+        (
+            lambda run: replace(
+                run,
+                executions=(replace(run.executions[0], failure_kind="IMPORT"),)
+                + run.executions[1:],
+            ),
+            "RED.FAILURE_KIND",
+        ),
+        (
+            lambda run: replace(
+                run,
+                executions=(replace(run.executions[0], outcome="SKIPPED"),)
+                + run.executions[1:],
+            ),
+            "RED.SKIPPED",
+        ),
+        (
+            lambda run: replace(
+                run,
+                executions=(replace(run.executions[0], outcome="PASSED"),)
+                + run.executions[1:],
+            ),
+            "RED.VACUOUS",
+        ),
+        (
+            lambda run: replace(
+                run,
+                executions=(replace(run.executions[0], observed_assertion_id="WRONG"),)
+                + run.executions[1:],
+            ),
+            "RED.ASSERTION",
+        ),
+        (
+            lambda run: replace(run, executions=run.executions[1:]),
+            "RED.MISSING",
+        ),
+    ],
+)
+def test_meaningful_red_rejects_false_red(mutation: Any, rule_id: str) -> None:
+    result = _compile()
+    assert result.plan is not None
+    run = mutation(_red_run(result.plan))
+
+    admission = _api().MeaningfulRedGate().validate(
+        result.plan, run, expected_commit_sha="c" * 40
+    )
+
+    assert not admission.admitted
+    assert any(item.rule_id == rule_id for item in admission.diagnostics)
+
+
+def test_changed_plan_or_wrong_commit_invalidates_red_evidence() -> None:
+    result = _compile()
+    assert result.plan is not None
+    run = _red_run(result.plan)
+
+    wrong_plan = replace(result.plan, plan_digest="sha256:" + "0" * 64)
+    wrong_plan_result = _api().MeaningfulRedGate().validate(
+        wrong_plan, run, expected_commit_sha="c" * 40
+    )
+    wrong_commit_result = _api().MeaningfulRedGate().validate(
+        result.plan, run, expected_commit_sha="d" * 40
+    )
+
+    assert not wrong_plan_result.admitted
+    assert any(item.rule_id == "RED.PLAN_DIGEST" for item in wrong_plan_result.diagnostics)
+    assert not wrong_commit_result.admitted
+    assert any(item.rule_id == "RED.COMMIT" for item in wrong_commit_result.diagnostics)
+
+
+def test_plan_must_be_persisted_before_implementation_authorization(tmp_path: Path) -> None:
+    result = _compile()
+    assert result.plan is not None
+    store = _api().TestPlanStore(tmp_path / "run")
+    red = _red_run(result.plan)
+
+    with pytest.raises(_api().TestPlanNotAdmitted):
+        store.authorize_implementation(
+            result.plan,
+            red,
+            expected_commit_sha="c" * 40,
+        )
+
+    receipt = store.admit(result.plan)
+    authorization = store.authorize_implementation(
+        result.plan,
+        red,
+        expected_commit_sha="c" * 40,
+    )
+
+    assert receipt.plan_digest == result.plan.plan_digest
+    assert authorization.plan_digest == result.plan.plan_digest
+    assert authorization.red_run_digest == red.run_digest()
+    assert (tmp_path / "run" / "test-plan.json").exists()
+
+
+def test_plan_store_is_idempotent_and_refuses_overwrite(tmp_path: Path) -> None:
+    result = _compile()
+    assert result.plan is not None
+    store = _api().TestPlanStore(tmp_path / "run")
+
+    first = store.admit(result.plan)
+    second = store.admit(result.plan)
+    assert first == second
+
+    changed = replace(result.plan, plan_digest="sha256:" + "0" * 64)
+    with pytest.raises(_api().TestPlanConflict):
+        store.admit(changed)
+
+
+def test_compiler_does_not_mutate_inputs() -> None:
+    contract = _contract()
+    original = copy.deepcopy(contract)
+
+    _compile(contract)
+
+    assert contract == original
