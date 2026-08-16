@@ -11,13 +11,32 @@ The seam between them is a single immutable artifact: the digest-locked contract
 
 ## Production Engineering OS (`pmpe`)
 
+### Try the verified demo
+
+Prerequisite: Python 3.11 or newer (`python3.12` is used below).
+
 ```bash
+git clone https://github.com/Abhillashjadhav/production-engineering-os.git
+cd production-engineering-os
+python3.12 -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
-pmpe demo --base-dir /tmp/pmpe-demo        # labeled synthetic end-to-end demonstration
+pmpe demo --base-dir /tmp/pmpe-demo
+cat /tmp/pmpe-demo/demo-report.json
+```
+
+The demo is a labelled synthetic run. It locks a sample contract, catches planted
+security, traceability, complexity, trajectory, and drift failures, applies its
+accepted fixes, reruns tests, and writes the evidence-backed report above. It does
+not generate an arbitrary product, open a real pull request, or deploy to cloud.
+
+The live contract-admission path is available for operator-driven runs:
+
+```bash
 pmpe eng start --contract examples/v2-demo/contract.json --run-dir runs/demo
 ```
 
-- **Contract in, draft PR out.** `pmpe eng start` refuses anything that is not an APPROVED, unblocked contract and locks a canonical digest; every later step re-verifies it and fails closed on mutation.
+- **Contract in, verified handoff out.** `pmpe eng start` refuses anything that is not an APPROVED, unblocked contract and locks a canonical digest; every later step re-verifies it and fails closed on mutation. The `draft-pr` stage records a handoff reference. It does not open a remote pull request.
 - **Claude agents propose, the Python core disposes (PD-11).** Generative work belongs to the agents in `.claude/agents/v2-*.md` (driven live by the `/production-engineer` skill); admission, state, gates, and evidence belong to deterministic Python. No model SDKs or API keys anywhere in the product.
 - **Assurance that can prove itself.** Four independent reviewers — read-only by construction (tool lists) and by runtime proof (tree snapshots) — examine the same frozen candidate; findings live in an enforced lifecycle; the fixer touches only ACCEPTED ids; the verifier is never the fixer.
 - **Coverage means execution.** Traceability counts only executed, passing tests — markers, skips, and import-dead modules count against coverage, not toward it.
