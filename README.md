@@ -13,10 +13,12 @@ The seam between them is a single immutable artifact: the digest-locked contract
 
 ### Try the verified demo
 
+Prerequisite: Python 3.11 or newer (`python3.12` is used below).
+
 ```bash
 git clone https://github.com/Abhillashjadhav/production-engineering-os.git
 cd production-engineering-os
-python3 -m venv .venv
+python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 pmpe demo --base-dir /tmp/pmpe-demo
