@@ -12,7 +12,9 @@ from typing import Any
 import pytest
 
 from pmpe.architecture.models import ArchitecturePack
+from pmpe.audit.executed import build_executed_plan_traceability
 from pmpe.contracts.canonical import canonical_digest
+from pmpe.quality.test_evidence import TestEvidence, TestExecution
 from pmpe.repository.models import (
     AdapterMetadata,
     InventoryCategory,
@@ -123,9 +125,7 @@ def _capabilities() -> tuple[Any, ...]:
                 "-q",
             ),
             environment="ci",
-            tool=(
-                "bandit" if test_class is api.TestClass.SECURITY_PRIVACY else "pytest"
-            ),
+            tool=("bandit" if test_class is api.TestClass.SECURITY_PRIVACY else "pytest"),
             evidence_format="PMPE_TEST_EVIDENCE_V1",
             observed_paths=("pyproject.toml",),
         )
@@ -152,9 +152,7 @@ def _compile(
     value = contract or _contract()
     snapshot = _snapshot()
     architecture = _architecture(value, snapshot)
-    validation = SimpleNamespace(
-        bundle_digest=canonical_digest(value), engineering_admissible=True
-    )
+    validation = SimpleNamespace(bundle_digest=canonical_digest(value), engineering_admissible=True)
     return api.TestPlanCompiler().compile(
         value,
         validation,
@@ -174,9 +172,9 @@ def test_valid_plan_is_deterministic_digest_bound_and_complete() -> None:
     assert first.plan.digest_is_valid()
     assert first.plan.contract_digest == canonical_digest(_contract())
     assert first.plan.repository_commit == "a" * 40
-    assert first.plan.architecture_pack_digest == _architecture(
-        _contract(), _snapshot()
-    ).pack_digest
+    assert (
+        first.plan.architecture_pack_digest == _architecture(_contract(), _snapshot()).pack_digest
+    )
 
     covered = {
         target
@@ -186,9 +184,7 @@ def test_valid_plan_is_deterministic_digest_bound_and_complete() -> None:
     }
     assert set(first.plan.required_refs) <= covered
     assert all(decision.rule_id for decision in first.plan.class_decisions)
-    assert {decision.test_class for decision in first.plan.class_decisions} == set(
-        _api().TestClass
-    )
+    assert {decision.test_class for decision in first.plan.class_decisions} == set(_api().TestClass)
 
 
 def test_compiler_selects_risk_based_classes_and_justifies_not_applicable() -> None:
@@ -225,9 +221,7 @@ def test_manual_evidence_is_valid_but_excludes_autonomous_numerator() -> None:
 
 def test_missing_selected_toolchain_blocks_with_explicit_targets() -> None:
     capabilities = tuple(
-        item
-        for item in _capabilities()
-        if item.test_class is not _api().TestClass.SECURITY_PRIVACY
+        item for item in _capabilities() if item.test_class is not _api().TestClass.SECURITY_PRIVACY
     )
 
     result = _compile(capabilities=capabilities)
@@ -295,8 +289,10 @@ def test_meaningful_red_admits_exact_assertion_failures() -> None:
     result = _compile()
     assert result.plan is not None
 
-    admission = _api().MeaningfulRedGate().validate(
-        result.plan, _red_run(result.plan), expected_commit_sha="c" * 40
+    admission = (
+        _api()
+        .MeaningfulRedGate()
+        .validate(result.plan, _red_run(result.plan), expected_commit_sha="c" * 40)
     )
 
     assert admission.admitted
@@ -317,16 +313,14 @@ def test_meaningful_red_admits_exact_assertion_failures() -> None:
         (
             lambda run: replace(
                 run,
-                executions=(replace(run.executions[0], outcome="SKIPPED"),)
-                + run.executions[1:],
+                executions=(replace(run.executions[0], outcome="SKIPPED"),) + run.executions[1:],
             ),
             "RED.SKIPPED",
         ),
         (
             lambda run: replace(
                 run,
-                executions=(replace(run.executions[0], outcome="PASSED"),)
-                + run.executions[1:],
+                executions=(replace(run.executions[0], outcome="PASSED"),) + run.executions[1:],
             ),
             "RED.VACUOUS",
         ),
@@ -349,9 +343,7 @@ def test_meaningful_red_rejects_false_red(mutation: Any, rule_id: str) -> None:
     assert result.plan is not None
     run = mutation(_red_run(result.plan))
 
-    admission = _api().MeaningfulRedGate().validate(
-        result.plan, run, expected_commit_sha="c" * 40
-    )
+    admission = _api().MeaningfulRedGate().validate(result.plan, run, expected_commit_sha="c" * 40)
 
     assert not admission.admitted
     assert any(item.rule_id == rule_id for item in admission.diagnostics)
@@ -363,11 +355,11 @@ def test_changed_plan_or_wrong_commit_invalidates_red_evidence() -> None:
     run = _red_run(result.plan)
 
     wrong_plan = replace(result.plan, plan_digest="sha256:" + "0" * 64)
-    wrong_plan_result = _api().MeaningfulRedGate().validate(
-        wrong_plan, run, expected_commit_sha="c" * 40
+    wrong_plan_result = (
+        _api().MeaningfulRedGate().validate(wrong_plan, run, expected_commit_sha="c" * 40)
     )
-    wrong_commit_result = _api().MeaningfulRedGate().validate(
-        result.plan, run, expected_commit_sha="d" * 40
+    wrong_commit_result = (
+        _api().MeaningfulRedGate().validate(result.plan, run, expected_commit_sha="d" * 40)
     )
 
     assert not wrong_plan_result.admitted
@@ -423,3 +415,73 @@ def test_compiler_does_not_mutate_inputs() -> None:
     _compile(contract)
 
     assert contract == original
+
+
+def test_executed_traceability_covers_criteria_risks_guardrails_and_manual_evidence() -> None:
+    result = _compile()
+    assert result.plan is not None
+    plan = result.plan
+    automated = [
+        TestExecution(
+            node_id=node.expected_test_node,
+            outcome="passed",
+            failure_kind="",
+        )
+        for node in plan.nodes
+        if node.status == "PLANNED" and node.execution_mode == "AUTOMATED"
+    ]
+    manual = {
+        node.node_id
+        for node in plan.nodes
+        if node.status == "PLANNED" and node.execution_mode == "MANUAL"
+    }
+
+    report = build_executed_plan_traceability(
+        plan=plan,
+        evidence=TestEvidence(executions=automated),
+        manual_attestations=manual,
+    )
+
+    assert report.all_verified
+    by_ref = {item.target_ref: item for item in report.entries}
+    assert by_ref["AC-001"].classification == "VERIFIED"
+    assert by_ref["RISK-001"].classification == "VERIFIED"
+    assert by_ref["GUARD-SECURITY-001"].classification == "VERIFIED"
+
+    missing_manual = build_executed_plan_traceability(
+        plan=plan,
+        evidence=TestEvidence(executions=automated),
+        manual_attestations=set(),
+    )
+    assert not missing_manual.all_verified
+    assert missing_manual.counts["MANUAL_REQUIRED"] >= 1
+
+
+def test_executed_plan_traceability_rejects_skipped_and_import_dead_nodes() -> None:
+    result = _compile()
+    assert result.plan is not None
+    plan = result.plan
+    automated_nodes = [
+        node
+        for node in plan.nodes
+        if node.status == "PLANNED" and node.execution_mode == "AUTOMATED"
+    ]
+    evidence = TestEvidence(
+        executions=[
+            TestExecution(
+                node_id=node.expected_test_node,
+                outcome="skipped" if index == 0 else "failed",
+                failure_kind="skip" if index == 0 else "import",
+            )
+            for index, node in enumerate(automated_nodes)
+        ]
+    )
+
+    report = build_executed_plan_traceability(
+        plan=plan,
+        evidence=evidence,
+        manual_attestations=set(),
+    )
+
+    assert not report.all_verified
+    assert report.counts["NOT_PROVEN"] >= 1
