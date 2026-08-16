@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -406,6 +407,41 @@ def test_plan_store_is_idempotent_and_refuses_overwrite(tmp_path: Path) -> None:
     changed = replace(result.plan, plan_digest="sha256:" + "0" * 64)
     with pytest.raises(_api().TestPlanConflict):
         store.admit(changed)
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlinks are unavailable")
+def test_plan_store_rejects_a_symlinked_plan_without_reading_its_target(
+    tmp_path: Path,
+) -> None:
+    result = _compile()
+    assert result.plan is not None
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    outside = tmp_path / "outside.json"
+    outside.write_bytes(result.plan.canonical_bytes())
+    (run_dir / "test-plan.json").symlink_to(outside)
+
+    with pytest.raises(_api().TestPlanNotAdmitted):
+        _api().TestPlanStore(run_dir).admit(result.plan)
+
+    assert outside.read_bytes() == result.plan.canonical_bytes()
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlinks are unavailable")
+def test_plan_store_rejects_a_symlinked_run_directory_without_writing_outside(
+    tmp_path: Path,
+) -> None:
+    result = _compile()
+    assert result.plan is not None
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    run_dir = tmp_path / "run"
+    run_dir.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(_api().TestPlanNotAdmitted):
+        _api().TestPlanStore(run_dir).admit(result.plan)
+
+    assert not (outside / "test-plan.json").exists()
 
 
 def test_compiler_does_not_mutate_inputs() -> None:
