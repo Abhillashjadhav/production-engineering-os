@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import subprocess
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -738,3 +739,59 @@ def test_repository_tool_cannot_impersonate_a_system_evidence_runner(tmp_path: P
 
     assert not decision.authorized
     assert any("trusted system runner" in reason for reason in decision.reasons)
+
+
+def test_expectation_nodes_cannot_be_rewritten_while_retaining_the_plan_digest(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    forged_node = "tests/test_feature.py::test_forged_observation"
+    stdout = _pytest_report(node=forged_node)
+    command = ExecutionCommand(("pytest", "--json-report"))
+    result = _execution(
+        tmp_path,
+        stdout,
+        command=command,
+        plan_digest="sha256:" + "a" * 64,
+    )
+    rewritten = _expectation(command=command, node=forged_node, execution=result)
+
+    decision = _gate(tmp_path).evaluate(
+        expectations=(rewritten,),
+        submissions=(api.EvidenceSubmission("CMD-001", result, stdout, b""),),
+    )
+
+    assert not decision.authorized
+    assert any("plan" in reason for reason in decision.reasons)
+
+
+def test_pytest_failure_exit_requires_at_least_one_failed_node() -> None:
+    api = _api()
+    payload = _pytest_report(outcome="passed", exitcode=1)
+
+    parsed = api.PytestJsonReportAdapter().parse(payload, b"", 1)
+
+    assert parsed.blocking_failure == "pytest runner error without failed node"
+
+
+def test_tap_leaf_selection_scales_linearly() -> None:
+    api = _api()
+    adapter = api.Tap13Adapter()
+
+    def elapsed(count: int) -> float:
+        payload = (
+            "TAP version 13\n"
+            + "\n".join(f"ok {index} - node-{index}" for index in range(1, count + 1))
+            + f"\n1..{count}\n"
+        ).encode()
+        started = time.perf_counter()
+        parsed = adapter.parse(payload, b"", 0)
+        duration = time.perf_counter() - started
+        assert len(parsed.nodes) == count
+        return duration
+
+    elapsed(100)
+    small = elapsed(600)
+    large = elapsed(2400)
+
+    assert large < small * 8
