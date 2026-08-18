@@ -285,6 +285,26 @@ def test_malformed_capability_returns_typed_diagnostic_instead_of_crashing() -> 
     assert any(item.rule_id == "TESTPLAN.TOOLCHAIN.TYPE" for item in result.diagnostics)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    (
+        ("test_class", "UNIT"),
+        ("command", (None,)),
+        ("environment", None),
+        ("tool", None),
+        ("evidence_format", None),
+        ("observed_paths", (None,)),
+    ),
+)
+def test_malformed_capability_fields_fail_closed(field: str, value: Any) -> None:
+    capability = replace(_capabilities()[0], **{field: value})
+
+    result = _compile(capabilities=(capability,))
+
+    assert result.disposition.value == "BLOCKED"
+    assert any(item.rule_id == "TESTPLAN.TOOLCHAIN.TYPE" for item in result.diagnostics)
+
+
 def test_capability_command_must_invoke_its_observed_tool() -> None:
     capabilities = list(_capabilities())
     capabilities[0] = replace(
@@ -298,6 +318,26 @@ def test_capability_command_must_invoke_its_observed_tool() -> None:
     assert result.disposition.value == "BLOCKED"
     assert any(
         item.rule_id == "TESTPLAN.TOOLCHAIN.COMMAND_TOOL_MISMATCH" for item in result.diagnostics
+    )
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        ("pytest", "--collect-only"),
+        ("pytest", "--version"),
+        ("python", "-m", "pytest", "--help"),
+    ),
+)
+def test_capability_command_must_execute_tests(command: tuple[str, ...]) -> None:
+    capabilities = list(_capabilities())
+    capabilities[0] = replace(capabilities[0], command=command)
+
+    result = _compile(capabilities=tuple(capabilities))
+
+    assert result.disposition.value == "BLOCKED"
+    assert any(
+        item.rule_id == "TESTPLAN.TOOLCHAIN.NON_EXECUTING_COMMAND" for item in result.diagnostics
     )
 
 
@@ -424,6 +464,31 @@ def test_manual_only_accessibility_nfr_requires_no_automated_capability() -> Non
     assert all(node.execution_mode == "MANUAL" for node in matching_nodes)
     assert all(not node.meaningful_red_required for node in matching_nodes)
     assert not result.plan.autonomy_eligible
+
+
+def test_mixed_mode_accessibility_nfr_preserves_manual_attestation() -> None:
+    contract = _contract()
+    contract["ux"]["accessibility"] = {}
+    contract["non_functional_requirements"]["NFR-ACCESSIBILITY-MIXED-001"] = {
+        "category": "ACCESSIBILITY",
+        "evidence_expectation": "Automated axe scan and manual screen-reader review",
+        "requirement": "The primary journey is machine-scanned and human-verified.",
+        "target": "WCAG 2.2 AA",
+    }
+
+    result = _compile(contract)
+
+    assert result.disposition.value == "ADMITTED"
+    assert result.plan is not None
+    matching_nodes = [
+        node for node in result.plan.nodes if "NFR-ACCESSIBILITY-MIXED-001" in node.target_refs
+    ]
+    assert {node.execution_mode for node in matching_nodes} == {"AUTOMATED", "MANUAL"}
+    assert any(
+        node.owner == "ACCESSIBILITY" for node in matching_nodes if node.execution_mode == "MANUAL"
+    )
+    assert not result.plan.autonomy_eligible
+    assert "NFR-ACCESSIBILITY-MIXED-001" in result.plan.manual_intervention_refs
 
 
 def test_scalability_non_functional_requirement_requires_performance_evidence() -> None:
