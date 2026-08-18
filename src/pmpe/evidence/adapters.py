@@ -158,6 +158,7 @@ class PytestJsonReportAdapter:
         plugins: list[str] = []
         malformed_config = False
         unsafe_override = False
+        capture_override = False
         for index, argument in enumerate(command.argv):
             if argument in {"-c", "--config-file"}:
                 if index + 1 >= len(command.argv):
@@ -188,10 +189,21 @@ class PytestJsonReportAdapter:
                 or argument.startswith("--override-ini=")
             ):
                 unsafe_override = True
+            if (
+                argument == "--capture"
+                or argument.startswith("--capture=")
+                or (
+                    argument.startswith("-")
+                    and not argument.startswith("--")
+                    and "s" in argument[1:]
+                )
+            ):
+                capture_override = True
         return (
             direct
             and not malformed_config
             and not unsafe_override
+            and not capture_override
             and command.argv.count("--json-report") == 1
             and command.argv.count("--noconftest") == 1
             and config_files == ["/dev/null"]
