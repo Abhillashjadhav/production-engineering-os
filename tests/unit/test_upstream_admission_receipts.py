@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 from dataclasses import replace
 from pathlib import Path
@@ -153,3 +154,82 @@ def test_receipt_authority_refuses_symlink_substitution(tmp_path: Path) -> None:
         )
 
     assert outside.read_text() == "protected"
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlinks are unavailable")
+def test_receipt_authority_refuses_a_symlinked_kind_directory(tmp_path: Path) -> None:
+    api = _api()
+    root = tmp_path / "admissions"
+    root.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (root / "CANONICAL_CONTRACT").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(api.AdmissionReceiptError):
+        api.FileArtifactAdmissionAuthority(root, _FingerprintProvider()).admit(
+            artifact_kind="CANONICAL_CONTRACT",
+            artifact_digest=_digest("5"),
+            subject_bindings={"lineage_id": "LINEAGE-003"},
+        )
+
+    assert list(outside.iterdir()) == []
+
+
+def test_oversized_receipt_is_rejected_before_claiming_identity(tmp_path: Path) -> None:
+    api = _api()
+    root = tmp_path / "admissions"
+    with pytest.raises(api.AdmissionReceiptError, match="size"):
+        api.FileArtifactAdmissionAuthority(root, _FingerprintProvider()).admit(
+            artifact_kind="CANONICAL_CONTRACT",
+            artifact_digest=_digest("6"),
+            subject_bindings={"large": "x" * (65 * 1024)},
+        )
+
+    assert not (root / "CANONICAL_CONTRACT" / (_digest("6")[7:] + ".json")).exists()
+
+
+def test_short_writes_are_completed_before_receipt_is_published(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    provider = _FingerprintProvider()
+    original_write = os.write
+
+    def short_write(descriptor: int, payload: bytes) -> int:
+        return original_write(descriptor, payload[: max(1, len(payload) // 3)])
+
+    monkeypatch.setattr(os, "write", short_write)
+    root = tmp_path / "admissions"
+    receipt = api.FileArtifactAdmissionAuthority(root, provider).admit(
+        artifact_kind="CANONICAL_CONTRACT",
+        artifact_digest=_digest("7"),
+        subject_bindings={"lineage_id": "LINEAGE-004"},
+    )
+
+    assert api.FileArtifactAdmissionVerifier(root, provider).verify(
+        receipt,
+        artifact_kind="CANONICAL_CONTRACT",
+        artifact_digest=_digest("7"),
+        subject_bindings={"lineage_id": "LINEAGE-004"},
+    )
+
+
+def test_noncanonical_durable_bytes_are_rejected(tmp_path: Path) -> None:
+    api = _api()
+    provider = _FingerprintProvider()
+    root = tmp_path / "admissions"
+    receipt = api.FileArtifactAdmissionAuthority(root, provider).admit(
+        artifact_kind="CANONICAL_CONTRACT",
+        artifact_digest=_digest("8"),
+        subject_bindings={"lineage_id": "LINEAGE-005"},
+    )
+    path = root / "CANONICAL_CONTRACT" / (_digest("8")[7:] + ".json")
+    parsed = json.loads(path.read_text())
+    path.write_text(json.dumps(parsed, indent=2) + "\n")
+
+    assert not api.FileArtifactAdmissionVerifier(root, provider).verify(
+        receipt,
+        artifact_kind="CANONICAL_CONTRACT",
+        artifact_digest=_digest("8"),
+        subject_bindings={"lineage_id": "LINEAGE-005"},
+    )
