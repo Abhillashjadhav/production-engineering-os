@@ -142,12 +142,15 @@ def _pytest_report(
     ).encode()
 
 
-def _tap_assertion_report(*, bailout: bool = False) -> bytes:
+def _tap_assertion_report(
+    *, bailout: bool = False, diagnostic_assertion_id: str = "ASSERT-001"
+) -> bytes:
     lines = [
         "TAP version 13",
         "not ok 1 - feature rejects invalid [assertion:ASSERT-001]",
         "  ---",
         "  failureType: 'testCodeFailure'",
+        f"  error: '[assertion:{diagnostic_assertion_id}] expected rejection'",
         "  code: 'ERR_ASSERTION'",
         "  name: 'AssertionError'",
         "  ...",
@@ -618,6 +621,7 @@ def test_nested_node_tap_plan_authorizes_leaf_assertion(tmp_path: Path) -> None:
     not ok 1 - feature rejects invalid [assertion:ASSERT-001]
       ---
       failureType: 'testCodeFailure'
+      error: '[assertion:ASSERT-001] expected rejection'
       code: 'ERR_ASSERTION'
       name: 'AssertionError'
       ...
@@ -645,6 +649,74 @@ not ok 1 - feature suite
     )
 
     assert decision.authorized
+
+
+def test_python_module_runner_cannot_import_pytest_from_the_workspace() -> None:
+    api = _api()
+    expectation = _expectation(
+        command=ExecutionCommand(("python3", "-m", "pytest", "--json-report"))
+    )
+
+    with pytest.raises(api.EvidenceError, match="tool"):
+        api.default_adapter_registry().validate_expectations((expectation,))
+
+
+def test_tap_todo_directive_is_blocking_evidence(tmp_path: Path) -> None:
+    api = _api()
+    payload = _tap_assertion_report().replace(
+        b"1..1\n",
+        b"ok 2 - deferred behavior [assertion:ASSERT-002] # TODO pending\n1..2\n",
+    )
+    command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
+    result = _execution(tmp_path, payload, command=command, plan_digest="sha256:" + "a" * 64)
+    expectation = _expectation(
+        tool="node:test",
+        evidence_format="tap13/v1",
+        command=command,
+        node="feature rejects invalid [assertion:ASSERT-001]",
+        assertion_id="ASSERT-001",
+        execution=result,
+    )
+    expectation = replace(
+        expectation,
+        nodes=(
+            expectation.nodes[0],
+            api.NodeExpectation(
+                node_id="deferred behavior [assertion:ASSERT-002]",
+                assertion_id="ASSERT-002",
+            ),
+        ),
+    )
+
+    decision = _gate(tmp_path).evaluate(
+        expectations=(expectation,),
+        submissions=(api.EvidenceSubmission("CMD-001", result, payload, b""),),
+    )
+
+    assert not decision.authorized
+    assert any("todo" in reason.lower() for reason in decision.reasons)
+
+
+def test_tap_failure_diagnostic_must_match_the_planned_assertion(tmp_path: Path) -> None:
+    api = _api()
+    payload = _tap_assertion_report(diagnostic_assertion_id="ASSERT-OTHER")
+    command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
+    result = _execution(tmp_path, payload, command=command, plan_digest="sha256:" + "a" * 64)
+    expectation = _expectation(
+        tool="node:test",
+        evidence_format="tap13/v1",
+        command=command,
+        node="feature rejects invalid [assertion:ASSERT-001]",
+        assertion_id="ASSERT-001",
+        execution=result,
+    )
+
+    decision = _gate(tmp_path).evaluate(
+        expectations=(expectation,),
+        submissions=(api.EvidenceSubmission("CMD-001", result, payload, b""),),
+    )
+
+    assert not decision.authorized
 
 
 def test_repository_tool_cannot_impersonate_a_system_evidence_runner(tmp_path: Path) -> None:
