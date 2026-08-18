@@ -422,11 +422,19 @@ class Tap13Adapter:
                 boundary = boundaries[record_index]
                 diagnostics = "\n".join(lines[record_index + 1 : boundary])
                 code_match = re.search(r"\bcode:\s*['\"]?([A-Za-z0-9_]+)", diagnostics)
+                name_match = re.search(r"\bname:\s*['\"]?([A-Za-z0-9_]+)", diagnostics)
+                failure_type_match = re.search(
+                    r"\bfailureType:\s*['\"]?([A-Za-z0-9_]+)", diagnostics
+                )
                 diagnostic_assertions = set(_TAP_ASSERTION_MARKER.findall(diagnostics))
                 failure_kind = (
                     "assertion"
                     if code_match
                     and code_match.group(1) == "ERR_ASSERTION"
+                    and name_match
+                    and name_match.group(1) == "AssertionError"
+                    and failure_type_match
+                    and failure_type_match.group(1) == "testCodeFailure"
                     and assertion_id
                     and diagnostic_assertions == {assertion_id}
                     else "error"

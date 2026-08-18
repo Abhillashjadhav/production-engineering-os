@@ -716,9 +716,7 @@ def test_node_error_with_forged_assertion_code_is_not_meaningful_red(
     tmp_path: Path,
 ) -> None:
     api = _api()
-    stdout = _tap_assertion_report().replace(
-        b"name: 'AssertionError'", b"name: 'Error'"
-    )
+    stdout = _tap_assertion_report().replace(b"name: 'AssertionError'", b"name: 'Error'")
     command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
     result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
     expectation = _expectation(
