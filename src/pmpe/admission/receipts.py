@@ -139,9 +139,11 @@ class AdmissionReceipt:
     def digest_is_valid(self) -> bool:
         payload = self.as_dict()
         claimed = str(payload.pop("receipt_digest", ""))
-        return bool(_DIGEST.fullmatch(claimed)) and hmac.compare_digest(
-            claimed, canonical_digest(payload)
-        )
+        try:
+            expected = canonical_digest(payload)
+        except (TypeError, ValueError):
+            return False
+        return bool(_DIGEST.fullmatch(claimed)) and hmac.compare_digest(claimed, expected)
 
 
 class _FileReceiptBoundary:
@@ -180,7 +182,7 @@ class _FileReceiptBoundary:
             ) from exc
 
     @staticmethod
-    def _read(directory_descriptor: int, filename: str) -> bytes:
+    def _read(directory_descriptor: int, filename: str, *, sync: bool = False) -> bytes:
         try:
             descriptor = os.open(
                 filename,
@@ -212,6 +214,8 @@ class _FileReceiptBoundary:
             payload = b"".join(chunks)
             if len(payload) > _MAX_RECEIPT_BYTES:
                 raise AdmissionReceiptError("admission receipt exceeds its size limit")
+            if sync:
+                os.fsync(descriptor)
             return payload
         finally:
             os.close(descriptor)
@@ -306,7 +310,7 @@ class FileArtifactAdmissionAuthority(_FileReceiptBoundary):
                 )
             except FileExistsError:
                 try:
-                    raced = self._read(directory, target)
+                    raced = self._read(directory, target, sync=True)
                 except AdmissionReceiptError as exc:
                     raise AdmissionReceiptConflict(
                         "artifact identity was claimed by unsafe authority evidence"
@@ -381,5 +385,5 @@ class FileArtifactAdmissionVerifier(_FileReceiptBoundary):
                 )
                 for candidate in self.provider.candidate_fingerprints(_FINGERPRINT_DOMAIN, payload)
             )
-        except (AdmissionReceiptError, FileNotFoundError, json.JSONDecodeError, OSError):
+        except (AttributeError, OSError, TypeError, ValueError):
             return False
