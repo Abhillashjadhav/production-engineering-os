@@ -106,16 +106,42 @@ class _FileReceiptBoundary:
         self.root = Path(root)
         self.provider = provider
 
-    def _path(self, artifact_kind: str, artifact_digest: str) -> Path:
+    def _filename(self, artifact_kind: str, artifact_digest: str) -> str:
         _validate_subject(artifact_kind, artifact_digest, {"subject": "path-validation"})
-        return self.root / artifact_kind / (artifact_digest.removeprefix("sha256:") + ".json")
+        return artifact_digest.removeprefix("sha256:") + ".json"
+
+    def _open_kind_directory(self, artifact_kind: str, *, create: bool) -> int:
+        absolute = Path(os.path.abspath(self.root))
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor: int | None = None
+        try:
+            descriptor = os.open(absolute.anchor, flags)
+            for component in (*absolute.parts[1:], artifact_kind):
+                try:
+                    child = os.open(component, flags, dir_fd=descriptor)
+                except FileNotFoundError:
+                    if not create:
+                        raise
+                    os.mkdir(component, 0o700, dir_fd=descriptor)
+                    child = os.open(component, flags, dir_fd=descriptor)
+                os.close(descriptor)
+                descriptor = child
+            return descriptor
+        except OSError as exc:
+            if descriptor is not None:
+                os.close(descriptor)
+            raise AdmissionReceiptError(
+                "admission ledger directory cannot be opened without following symlinks"
+            ) from exc
 
     @staticmethod
-    def _read(path: Path) -> bytes:
-        if path.is_symlink():
-            raise AdmissionReceiptError("admission receipt path is a symlink")
+    def _read(directory_descriptor: int, filename: str) -> bytes:
         try:
-            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            descriptor = os.open(
+                filename,
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+                dir_fd=directory_descriptor,
+            )
         except FileNotFoundError:
             raise
         except OSError as exc:
@@ -128,7 +154,15 @@ class _FileReceiptBoundary:
                 or metadata.st_size > _MAX_RECEIPT_BYTES
             ):
                 raise AdmissionReceiptError("admission receipt is not a bounded regular file")
-            payload = os.read(descriptor, _MAX_RECEIPT_BYTES + 1)
+            chunks: list[bytes] = []
+            remaining = _MAX_RECEIPT_BYTES + 1
+            while remaining:
+                chunk = os.read(descriptor, min(remaining, 16 * 1024))
+                if not chunk:
+                    break
+                chunks.append(chunk)
+                remaining -= len(chunk)
+            payload = b"".join(chunks)
             if len(payload) > _MAX_RECEIPT_BYTES:
                 raise AdmissionReceiptError("admission receipt exceeds its size limit")
             return payload
@@ -171,38 +205,58 @@ class FileArtifactAdmissionAuthority(_FileReceiptBoundary):
             }
         )
         encoded = canonical_json_bytes(receipt.as_dict()) + b"\n"
-        target = self._path(artifact_kind, artifact_digest)
-        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        if target.is_symlink():
-            raise AdmissionReceiptError("admission receipt path is a symlink")
-        if target.exists():
-            if self._read(target) != encoded:
+        if len(encoded) > _MAX_RECEIPT_BYTES:
+            raise AdmissionReceiptError("admission receipt exceeds its size limit")
+        target = self._filename(artifact_kind, artifact_digest)
+        directory = self._open_kind_directory(artifact_kind, create=True)
+        try:
+            existing = self._read(directory, target)
+        except FileNotFoundError:
+            existing = None
+        except (AdmissionReceiptError, OSError):
+            os.close(directory)
+            raise
+        if existing is not None:
+            os.close(directory)
+            if existing != encoded:
                 raise AdmissionReceiptConflict("artifact already has different authority evidence")
             return receipt
-        temporary = target.parent / f".{target.name}.{secrets.token_hex(16)}.tmp"
+        temporary = f".{target}.{secrets.token_hex(16)}.tmp"
         descriptor: int | None = None
+        temporary_exists = False
         try:
             descriptor = os.open(
                 temporary,
                 os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
                 0o600,
+                dir_fd=directory,
             )
-            os.write(descriptor, encoded)
+            temporary_exists = True
+            written = 0
+            while written < len(encoded):
+                count = os.write(descriptor, encoded[written:])
+                if count <= 0:
+                    raise OSError("receipt write made no progress")
+                written += count
             os.fsync(descriptor)
             os.close(descriptor)
             descriptor = None
             try:
-                os.link(temporary, target, follow_symlinks=False)
+                os.link(
+                    temporary,
+                    target,
+                    src_dir_fd=directory,
+                    dst_dir_fd=directory,
+                    follow_symlinks=False,
+                )
             except FileExistsError:
-                if self._read(target) != encoded:
+                if self._read(directory, target) != encoded:
                     raise AdmissionReceiptConflict(
                         "artifact already has different authority evidence"
                     ) from None
-            directory = os.open(target.parent, os.O_RDONLY)
-            try:
-                os.fsync(directory)
-            finally:
-                os.close(directory)
+            os.unlink(temporary, dir_fd=directory)
+            temporary_exists = False
+            os.fsync(directory)
         except (AdmissionReceiptError, AdmissionReceiptConflict):
             raise
         except OSError as exc:
@@ -210,7 +264,17 @@ class FileArtifactAdmissionAuthority(_FileReceiptBoundary):
         finally:
             if descriptor is not None:
                 os.close(descriptor)
-            temporary.unlink(missing_ok=True)
+            if temporary_exists:
+                try:
+                    os.unlink(temporary, dir_fd=directory)
+                    os.fsync(directory)
+                except FileNotFoundError:
+                    pass
+                except OSError as exc:
+                    raise AdmissionReceiptError(
+                        "temporary admission receipt cleanup could not be persisted"
+                    ) from exc
+            os.close(directory)
         return receipt
 
 
@@ -234,9 +298,15 @@ class FileArtifactAdmissionVerifier(_FileReceiptBoundary):
                 or not receipt.digest_is_valid()
             ):
                 return False
-            stored = AdmissionReceipt.from_dict(
-                json.loads(self._read(self._path(artifact_kind, artifact_digest)))
-            )
+            directory = self._open_kind_directory(artifact_kind, create=False)
+            try:
+                stored_bytes = self._read(directory, self._filename(artifact_kind, artifact_digest))
+            finally:
+                os.close(directory)
+            canonical_bytes = canonical_json_bytes(receipt.as_dict()) + b"\n"
+            if stored_bytes != canonical_bytes:
+                return False
+            stored = AdmissionReceipt.from_dict(json.loads(stored_bytes))
             if stored != receipt:
                 return False
             payload = canonical_json_bytes(receipt.authority_payload())
