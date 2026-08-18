@@ -146,6 +146,7 @@ class CommandOutcome:
     stdout: bytes
     stderr: bytes
     isolation_status: bytes = b""
+    resolved_executable: str = ""
 
 
 @runtime_checkable
@@ -170,6 +171,7 @@ class ExecutionResult:
     subject_digest_before: str
     subject_digest_after: str
     isolation_policy: str
+    resolved_executable: str
     execution_digest: str
     receipt_bindings: Mapping[str, str]
     receipt: AdmissionReceipt
@@ -375,13 +377,6 @@ class BubblewrapSandbox:
             return Path("")
         return candidate
 
-    @classmethod
-    def _host_search_path(cls, workspace: Path, executable_path: str) -> str:
-        entries = [
-            cls._host_path(workspace, PurePosixPath(entry)) for entry in executable_path.split(":")
-        ]
-        return ":".join(str(entry) for entry in entries if str(entry))
-
     def is_available(self) -> bool:
         if self._available is not None:
             return self._available
@@ -411,19 +406,27 @@ class BubblewrapSandbox:
     ) -> CommandOutcome:
         requested = Path(command.argv[0])
         if requested.is_absolute():
-            executable = self._host_path(workspace, PurePosixPath(command.argv[0]))
+            sandbox_executable = PurePosixPath(command.argv[0])
+            executable = self._host_path(workspace, sandbox_executable)
         elif "/" in command.argv[0]:
             executable = (workspace / requested).resolve()
             try:
-                executable.relative_to(workspace.resolve())
+                workspace_relative = executable.relative_to(workspace.resolve())
             except ValueError:
                 executable = Path("")
+                sandbox_executable = PurePosixPath("")
+            else:
+                sandbox_executable = PurePosixPath("/workspace").joinpath(*workspace_relative.parts)
         else:
-            located = shutil.which(
-                command.argv[0],
-                path=self._host_search_path(workspace, policy.executable_path),
-            )
-            executable = Path(located) if located is not None else Path("")
+            executable = Path("")
+            sandbox_executable = PurePosixPath("")
+            for entry in policy.executable_path.split(":"):
+                candidate = PurePosixPath(entry) / command.argv[0]
+                host_candidate = self._host_path(workspace, candidate)
+                if host_candidate.is_file() and os.access(host_candidate, os.X_OK):
+                    executable = host_candidate
+                    sandbox_executable = candidate
+                    break
         if not executable.is_file() or not os.access(executable, os.X_OK):
             raise ExecutableUnavailable(f"executable is unavailable: {command.argv[0]}")
         sandbox = shutil.which(self.executable, path=_GIT_ENV["PATH"])
@@ -452,7 +455,13 @@ class BubblewrapSandbox:
         )
         if not outcome.isolation_status:
             raise ExecutionIsolationUnavailable("bubblewrap could not establish isolation")
-        return outcome
+        return CommandOutcome(
+            outcome.return_code,
+            outcome.stdout,
+            outcome.stderr,
+            outcome.isolation_status,
+            str(sandbox_executable),
+        )
 
 
 def _safe_archive_path(name: str) -> PurePosixPath:
@@ -633,6 +642,14 @@ class IsolatedExecutionKernel:
             shutil.copytree(subject, workspace)
             before = _snapshot_digest(subject)
             outcome = self.sandbox.run(workspace, command, self.policy)
+            resolved_executable = PurePosixPath(outcome.resolved_executable)
+            if (
+                not outcome.resolved_executable
+                or not resolved_executable.is_absolute()
+                or ".." in resolved_executable.parts
+                or "\0" in outcome.resolved_executable
+            ):
+                raise ExecutionError("sandbox did not report a canonical executable identity")
             after = _snapshot_digest(subject)
             if before != after:
                 raise ExecutionError("independent exact-commit subject changed during execution")
@@ -642,6 +659,7 @@ class IsolatedExecutionKernel:
                 "isolation_policy": self.sandbox.identity,
                 "plan_digest": plan_digest,
                 "policy_digest": self.policy.digest,
+                "resolved_executable": outcome.resolved_executable,
                 "return_code": outcome.return_code,
                 "stderr_digest": _sha256(outcome.stderr),
                 "stdout_digest": _sha256(outcome.stdout),
@@ -670,6 +688,7 @@ class IsolatedExecutionKernel:
             subject_digest_before=str(evidence["subject_digest"]),
             subject_digest_after=str(evidence["subject_digest"]),
             isolation_policy=self.sandbox.identity,
+            resolved_executable=str(evidence["resolved_executable"]),
             execution_digest=execution_digest,
             receipt_bindings=bindings,
             receipt=receipt,

@@ -69,7 +69,12 @@ class _MutatingSandbox:
         api = _api()
         self.observed_source = (workspace / "tracked.txt").read_text()
         (workspace / "tracked.txt").write_text("mutated by red test\n")
-        return api.CommandOutcome(return_code=1, stdout=b"meaningful red\n", stderr=b"")
+        return api.CommandOutcome(
+            return_code=1,
+            stdout=b"meaningful red\n",
+            stderr=b"",
+            resolved_executable="/usr/bin/python3",
+        )
 
 
 def _kernel(tmp_path: Path, sandbox: object) -> object:
