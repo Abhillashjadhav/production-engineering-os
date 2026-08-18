@@ -308,10 +308,10 @@ def test_bubblewrap_mounts_workspace_before_hiding_host_tmp(tmp_path: Path) -> N
     )
 
     workspace_index = argv.index(str(tmp_path))
-    tmpfs_index = argv.index("--tmpfs")
+    tmp_index = argv.index("/tmp")
     chdir_index = argv.index("--chdir")
     assert argv[workspace_index - 1] == "--ro-bind"
-    assert workspace_index < tmpfs_index
+    assert workspace_index < tmp_index
     assert argv[workspace_index + 1] == "/workspace"
     assert argv[chdir_index + 1] == "/workspace"
 
@@ -611,7 +611,7 @@ def test_proc_cwd_alias_is_signed_as_the_workspace_executable(
     assert outcome.resolved_executable == "/workspace/tool"
 
 
-def test_bubblewrap_masks_host_credential_directories(tmp_path: Path) -> None:
+def test_bubblewrap_excludes_host_credential_directories(tmp_path: Path) -> None:
     api = _api()
     argv = api.BubblewrapSandbox()._argv(  # noqa: SLF001 - isolation argv contract
         tmp_path,
@@ -619,9 +619,14 @@ def test_bubblewrap_masks_host_credential_directories(tmp_path: Path) -> None:
         api.ExecutionPolicy(),
     )
 
-    masked = {argv[index + 1] for index, argument in enumerate(argv[:-1]) if argument == "--tmpfs"}
-    assert {"/root", "/home", "/var", "/run", "/etc/ssh", "/etc/ssl/private"} <= masked
-    assert "/etc" not in masked
+    assert not {
+        "/root",
+        "/home",
+        "/var",
+        "/run",
+        "/etc/ssh",
+        "/etc/ssl/private",
+    }.intersection(argv)
 
 
 def test_materialized_blob_bytes_must_match_the_listed_object_id(

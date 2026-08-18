@@ -137,6 +137,7 @@ class ExecutionPolicy:
                 "max_open_files": self.max_open_files,
                 "max_output_bytes": self.max_output_bytes,
                 "max_processes": self.max_processes,
+                "max_writable_bytes": self.max_writable_bytes,
                 "timeout_seconds": self.timeout_seconds,
             }
         )
@@ -282,7 +283,7 @@ def _run_bounded_process(
 class BubblewrapSandbox:
     """Linux namespace sandbox with only the disposable workspace writable."""
 
-    identity = "bubblewrap-readonly-workspace-bounded-tmp-no-network/4"
+    identity = "bubblewrap-runtime-allowlist-readonly-workspace-bounded-tmp/5"
 
     def __init__(self, executable: str = "bwrap", limiter_executable: str = "prlimit") -> None:
         self.executable = executable
@@ -303,21 +304,29 @@ class BubblewrapSandbox:
             "--new-session",
             "--unshare-all",
             "--clearenv",
-            "--ro-bind",
+            "--tmpfs",
             "/",
-            "/",
+            "--dir",
+            "/etc",
             "--dir",
             "/workspace",
             "--ro-bind",
             str(workspace),
             "/workspace",
         ]
-        for masked_directory in ("/root", "/home", "/var", "/run"):
-            argv.extend(("--tmpfs", masked_directory, "--remount-ro", masked_directory))
-        for masked_file in ("/etc/shadow", "/etc/gshadow", "/etc/sudoers"):
-            argv.extend(("--ro-bind", "/dev/null", masked_file))
-        for masked_directory in ("/etc/ssh", "/etc/ssl/private"):
-            argv.extend(("--tmpfs", masked_directory, "--remount-ro", masked_directory))
+        for runtime_path in ("/usr", "/bin", "/sbin", "/lib", "/lib64"):
+            argv.extend(("--ro-bind-try", runtime_path, runtime_path))
+        for runtime_path in (
+            "/etc/alternatives",
+            "/etc/group",
+            "/etc/ld.so.cache",
+            "/etc/ld.so.conf",
+            "/etc/ld.so.conf.d",
+            "/etc/localtime",
+            "/etc/nsswitch.conf",
+            "/etc/passwd",
+        ):
+            argv.extend(("--ro-bind-try", runtime_path, runtime_path))
         argv.extend(
             (
                 "--dev",
@@ -336,6 +345,8 @@ class BubblewrapSandbox:
                 "--setenv",
                 "PATH",
                 policy.executable_path,
+                "--remount-ro",
+                "/",
                 "--chdir",
                 "/workspace",
             )
