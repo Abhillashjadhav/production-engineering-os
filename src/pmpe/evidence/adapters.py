@@ -326,8 +326,10 @@ class Tap13Adapter:
             "--experimental-config-file",
             "--experimental-default-config-file",
             "--experimental-loader",
+            "--experimental-policy",
             "--import",
             "--loader",
+            "--policy-integrity",
             "--require",
         }
         index = 1
