@@ -1,0 +1,249 @@
+"""Immutable keyed receipts for artifacts admitted by an owning stage."""
+
+from __future__ import annotations
+
+import hmac
+import json
+import os
+import re
+import secrets
+import stat
+from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
+from pmpe.contracts.intake import KeyedFingerprintProvider
+
+_SCHEMA_VERSION = "1.0.0"
+_FINGERPRINT_DOMAIN = "pmpe.artifact-admission.v1"
+_MAX_RECEIPT_BYTES = 64 * 1024
+_KIND = re.compile(r"[A-Z][A-Z0-9_]{1,63}\Z")
+_DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
+
+
+class AdmissionReceiptError(ValueError):
+    pass
+
+
+class AdmissionReceiptConflictError(AdmissionReceiptError):
+    pass
+
+
+AdmissionReceiptConflict = AdmissionReceiptConflictError
+
+
+def _validate_subject(
+    artifact_kind: str,
+    artifact_digest: str,
+    subject_bindings: Mapping[str, str],
+) -> dict[str, str]:
+    if not _KIND.fullmatch(artifact_kind):
+        raise AdmissionReceiptError("artifact kind is not a bounded canonical identifier")
+    if not _DIGEST.fullmatch(artifact_digest):
+        raise AdmissionReceiptError("artifact digest is not canonical SHA-256")
+    if not subject_bindings or any(
+        type(key) is not str or not key or type(value) is not str or not value
+        for key, value in subject_bindings.items()
+    ):
+        raise AdmissionReceiptError("subject bindings must be non-empty string pairs")
+    return dict(sorted(subject_bindings.items()))
+
+
+@dataclass(frozen=True)
+class AdmissionReceipt:
+    schema_version: str
+    artifact_kind: str
+    artifact_digest: str
+    subject_bindings: Mapping[str, str]
+    key_version: str
+    fingerprint: str
+    receipt_digest: str
+
+    def authority_payload(self) -> dict[str, Any]:
+        return {
+            "artifact_digest": self.artifact_digest,
+            "artifact_kind": self.artifact_kind,
+            "key_version": self.key_version,
+            "schema_version": self.schema_version,
+            "subject_bindings": dict(sorted(self.subject_bindings.items())),
+        }
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            **self.authority_payload(),
+            "fingerprint": self.fingerprint,
+            "receipt_digest": self.receipt_digest,
+        }
+
+    @classmethod
+    def from_dict(cls, value: Mapping[str, Any]) -> AdmissionReceipt:
+        try:
+            bindings = value["subject_bindings"]
+            if not isinstance(bindings, Mapping):
+                raise TypeError
+            return cls(
+                schema_version=str(value["schema_version"]),
+                artifact_kind=str(value["artifact_kind"]),
+                artifact_digest=str(value["artifact_digest"]),
+                subject_bindings={str(key): str(item) for key, item in bindings.items()},
+                key_version=str(value["key_version"]),
+                fingerprint=str(value["fingerprint"]),
+                receipt_digest=str(value["receipt_digest"]),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise AdmissionReceiptError("stored admission receipt is malformed") from exc
+
+    def digest_is_valid(self) -> bool:
+        payload = self.as_dict()
+        claimed = str(payload.pop("receipt_digest", ""))
+        return bool(claimed) and hmac.compare_digest(claimed, canonical_digest(payload))
+
+
+class _FileReceiptBoundary:
+    def __init__(self, root: Path, provider: KeyedFingerprintProvider) -> None:
+        self.root = Path(root)
+        self.provider = provider
+
+    def _path(self, artifact_kind: str, artifact_digest: str) -> Path:
+        _validate_subject(artifact_kind, artifact_digest, {"subject": "path-validation"})
+        return self.root / artifact_kind / (artifact_digest.removeprefix("sha256:") + ".json")
+
+    @staticmethod
+    def _read(path: Path) -> bytes:
+        if path.is_symlink():
+            raise AdmissionReceiptError("admission receipt path is a symlink")
+        try:
+            descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        except FileNotFoundError:
+            raise
+        except OSError as exc:
+            raise AdmissionReceiptError("admission receipt cannot be opened safely") from exc
+        try:
+            metadata = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+                or metadata.st_size > _MAX_RECEIPT_BYTES
+            ):
+                raise AdmissionReceiptError("admission receipt is not a bounded regular file")
+            payload = os.read(descriptor, _MAX_RECEIPT_BYTES + 1)
+            if len(payload) > _MAX_RECEIPT_BYTES:
+                raise AdmissionReceiptError("admission receipt exceeds its size limit")
+            return payload
+        finally:
+            os.close(descriptor)
+
+
+class FileArtifactAdmissionAuthority(_FileReceiptBoundary):
+    def admit(
+        self,
+        *,
+        artifact_kind: str,
+        artifact_digest: str,
+        subject_bindings: Mapping[str, str],
+    ) -> AdmissionReceipt:
+        bindings = _validate_subject(artifact_kind, artifact_digest, subject_bindings)
+        unsigned = AdmissionReceipt(
+            schema_version=_SCHEMA_VERSION,
+            artifact_kind=artifact_kind,
+            artifact_digest=artifact_digest,
+            subject_bindings=bindings,
+            key_version=self.provider.key_version,
+            fingerprint="",
+            receipt_digest="",
+        )
+        fingerprint = self.provider.fingerprint(
+            _FINGERPRINT_DOMAIN,
+            canonical_json_bytes(unsigned.authority_payload()),
+        )
+        receipt = AdmissionReceipt(
+            **{**unsigned.authority_payload(), "fingerprint": fingerprint, "receipt_digest": ""}
+        )
+        payload = receipt.as_dict()
+        payload.pop("receipt_digest")
+        receipt = AdmissionReceipt(
+            **{
+                **receipt.authority_payload(),
+                "fingerprint": fingerprint,
+                "receipt_digest": canonical_digest(payload),
+            }
+        )
+        encoded = canonical_json_bytes(receipt.as_dict()) + b"\n"
+        target = self._path(artifact_kind, artifact_digest)
+        target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if target.is_symlink():
+            raise AdmissionReceiptError("admission receipt path is a symlink")
+        if target.exists():
+            if self._read(target) != encoded:
+                raise AdmissionReceiptConflict("artifact already has different authority evidence")
+            return receipt
+        temporary = target.parent / f".{target.name}.{secrets.token_hex(16)}.tmp"
+        descriptor: int | None = None
+        try:
+            descriptor = os.open(
+                temporary,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+            )
+            os.write(descriptor, encoded)
+            os.fsync(descriptor)
+            os.close(descriptor)
+            descriptor = None
+            try:
+                os.link(temporary, target, follow_symlinks=False)
+            except FileExistsError:
+                if self._read(target) != encoded:
+                    raise AdmissionReceiptConflict(
+                        "artifact already has different authority evidence"
+                    ) from None
+            directory = os.open(target.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        except (AdmissionReceiptError, AdmissionReceiptConflict):
+            raise
+        except OSError as exc:
+            raise AdmissionReceiptError("admission receipt could not be persisted safely") from exc
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+            temporary.unlink(missing_ok=True)
+        return receipt
+
+
+class FileArtifactAdmissionVerifier(_FileReceiptBoundary):
+    def verify(
+        self,
+        receipt: AdmissionReceipt,
+        *,
+        artifact_kind: str,
+        artifact_digest: str,
+        subject_bindings: Mapping[str, str],
+    ) -> bool:
+        try:
+            bindings = _validate_subject(artifact_kind, artifact_digest, subject_bindings)
+            if (
+                type(receipt) is not AdmissionReceipt
+                or receipt.schema_version != _SCHEMA_VERSION
+                or receipt.artifact_kind != artifact_kind
+                or receipt.artifact_digest != artifact_digest
+                or dict(receipt.subject_bindings) != bindings
+                or not receipt.digest_is_valid()
+            ):
+                return False
+            stored = AdmissionReceipt.from_dict(
+                json.loads(self._read(self._path(artifact_kind, artifact_digest)))
+            )
+            if stored != receipt:
+                return False
+            payload = canonical_json_bytes(receipt.authority_payload())
+            return any(
+                candidate.key_version == receipt.key_version
+                and hmac.compare_digest(candidate.value, receipt.fingerprint)
+                for candidate in self.provider.candidate_fingerprints(_FINGERPRINT_DOMAIN, payload)
+            )
+        except (AdmissionReceiptError, FileNotFoundError, json.JSONDecodeError, OSError):
+            return False
