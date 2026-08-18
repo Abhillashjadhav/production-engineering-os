@@ -945,3 +945,56 @@ def test_pytest_teardown_failure_blocks_a_planned_call_assertion(tmp_path: Path)
 
     assert not decision.authorized
     assert any("teardown" in reason for reason in decision.reasons)
+
+
+def test_pytest_evidence_rejects_a_later_long_form_workspace_config() -> None:
+    api = _api()
+    command = ExecutionCommand(
+        _trusted_pytest_command().argv + ("--config-file=/workspace/pytest.ini",)
+    )
+
+    with pytest.raises(api.EvidenceError, match="tool"):
+        api.default_adapter_registry().validate_expectations(
+            (_expectation(command=command),)
+        )
+
+
+def test_pytest_evidence_rejects_plugin_and_import_path_overrides() -> None:
+    api = _api()
+    command = ExecutionCommand(
+        _trusted_pytest_command().argv
+        + ("-o", "pythonpath=/workspace", "-p", "evil_plugin")
+    )
+
+    with pytest.raises(api.EvidenceError, match="tool"):
+        api.default_adapter_registry().validate_expectations(
+            (_expectation(command=command),)
+        )
+
+
+def test_pytest_marker_in_preceding_traceback_source_does_not_bind_failure(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    report = json.loads(
+        _pytest_report(message="AssertionError: unrelated preliminary failure")
+    )
+    report["tests"][0]["call"]["longrepr"] = (
+        "assert True, '[assertion:ASSERT-001] planned'\nE   assert False"
+    )
+    stdout = json.dumps(report).encode()
+    command = _trusted_pytest_command()
+    result = _execution(
+        tmp_path,
+        stdout,
+        command=command,
+        plan_digest="sha256:" + "a" * 64,
+    )
+
+    decision = _gate(tmp_path).evaluate(
+        expectations=(_expectation(command=command, execution=result),),
+        submissions=(api.EvidenceSubmission("CMD-001", result, stdout, b""),),
+    )
+
+    assert not decision.authorized
+    assert any("assertion" in reason for reason in decision.reasons)
