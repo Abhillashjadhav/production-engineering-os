@@ -340,3 +340,60 @@ def test_exact_replay_fsyncs_the_receipt_directory_before_success(
     authority.admit(**arguments)
 
     assert root / "CANONICAL_CONTRACT" in fsynced_directories
+
+
+def test_mkdir_race_loser_persists_the_shared_parent_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    root = tmp_path / "admissions"
+    original_mkdir = os.mkdir
+    original_fsync = os.fsync
+    raced = False
+    fsynced_directories: set[Path] = set()
+
+    def raced_mkdir(
+        path: str | bytes, mode: int = 0o777, *, dir_fd: int | None = None
+    ) -> None:
+        nonlocal raced
+        if path == root.name and not raced:
+            raced = True
+            original_mkdir(path, mode, dir_fd=dir_fd)
+            raise FileExistsError(path)
+        original_mkdir(path, mode, dir_fd=dir_fd)
+
+    def recording_fsync(descriptor: int) -> None:
+        linked_path = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
+        if linked_path.is_dir():
+            fsynced_directories.add(linked_path)
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(os, "mkdir", raced_mkdir)
+    monkeypatch.setattr(os, "fsync", recording_fsync)
+    api.FileArtifactAdmissionAuthority(root, _FingerprintProvider()).admit(
+        artifact_kind="CANONICAL_CONTRACT",
+        artifact_digest=_digest("c"),
+        subject_bindings={"lineage_id": "LINEAGE-009"},
+    )
+
+    assert tmp_path in fsynced_directories
+
+
+def test_non_ascii_receipt_digest_fails_closed(tmp_path: Path) -> None:
+    api = _api()
+    provider = _FingerprintProvider()
+    root = tmp_path / "admissions"
+    receipt = api.FileArtifactAdmissionAuthority(root, provider).admit(
+        artifact_kind="CANONICAL_CONTRACT",
+        artifact_digest=_digest("d"),
+        subject_bindings={"lineage_id": "LINEAGE-010"},
+    )
+
+    malformed = replace(receipt, receipt_digest="é")
+
+    assert not api.FileArtifactAdmissionVerifier(root, provider).verify(
+        malformed,
+        artifact_kind="CANONICAL_CONTRACT",
+        artifact_digest=_digest("d"),
+        subject_bindings={"lineage_id": "LINEAGE-010"},
+    )
