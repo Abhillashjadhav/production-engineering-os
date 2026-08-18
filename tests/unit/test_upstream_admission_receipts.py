@@ -6,6 +6,8 @@ import hashlib
 import hmac
 import json
 import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from pathlib import Path
 
@@ -233,3 +235,108 @@ def test_noncanonical_durable_bytes_are_rejected(tmp_path: Path) -> None:
         artifact_digest=_digest("8"),
         subject_bindings={"lineage_id": "LINEAGE-005"},
     )
+
+
+def test_publication_has_no_intermediate_hard_link_window(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+
+    def forbidden_link(*args: object, **kwargs: object) -> None:
+        raise AssertionError("receipt publication must not create a second durable link")
+
+    monkeypatch.setattr(os, "link", forbidden_link)
+    receipt = api.FileArtifactAdmissionAuthority(
+        tmp_path / "admissions", _FingerprintProvider()
+    ).admit(
+        artifact_kind="CANONICAL_CONTRACT",
+        artifact_digest=_digest("9"),
+        subject_bindings={"lineage_id": "LINEAGE-006"},
+    )
+
+    assert receipt.artifact_digest == _digest("9")
+
+
+def test_new_ledger_directories_are_persisted_in_their_parents(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    fsynced_directories: set[Path] = set()
+    original_fsync = os.fsync
+
+    def recording_fsync(descriptor: int) -> None:
+        linked_path = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
+        if linked_path.is_dir():
+            fsynced_directories.add(linked_path)
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fsync", recording_fsync)
+    root = tmp_path / "admissions"
+    api.FileArtifactAdmissionAuthority(root, _FingerprintProvider()).admit(
+        artifact_kind="CANONICAL_CONTRACT",
+        artifact_digest=_digest("a"),
+        subject_bindings={"lineage_id": "LINEAGE-007"},
+    )
+
+    assert tmp_path in fsynced_directories
+    assert root in fsynced_directories
+    assert root / "CANONICAL_CONTRACT" in fsynced_directories
+
+
+def test_concurrent_first_admissions_tolerate_directory_creation_races(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    root = tmp_path / "admissions"
+    provider = _FingerprintProvider()
+    original_mkdir = os.mkdir
+    creation_barrier = threading.Barrier(8)
+
+    def synchronized_mkdir(
+        path: str | bytes, mode: int = 0o777, *, dir_fd: int | None = None
+    ) -> None:
+        if path == root.name:
+            creation_barrier.wait(timeout=5)
+        original_mkdir(path, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "mkdir", synchronized_mkdir)
+
+    def admit(index: int) -> object:
+        return api.FileArtifactAdmissionAuthority(root, provider).admit(
+            artifact_kind="CANONICAL_CONTRACT",
+            artifact_digest="sha256:" + f"{index:x}" * 64,
+            subject_bindings={"lineage_id": f"LINEAGE-{index:03d}"},
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        receipts = list(pool.map(admit, range(8)))
+
+    assert len(receipts) == 8
+
+
+def test_exact_replay_fsyncs_the_receipt_directory_before_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    root = tmp_path / "admissions"
+    authority = api.FileArtifactAdmissionAuthority(root, _FingerprintProvider())
+    arguments = {
+        "artifact_kind": "CANONICAL_CONTRACT",
+        "artifact_digest": _digest("b"),
+        "subject_bindings": {"lineage_id": "LINEAGE-008"},
+    }
+    authority.admit(**arguments)
+    fsynced_directories: list[Path] = []
+    original_fsync = os.fsync
+
+    def recording_fsync(descriptor: int) -> None:
+        linked_path = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
+        if linked_path.is_dir():
+            fsynced_directories.append(linked_path)
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fsync", recording_fsync)
+
+    authority.admit(**arguments)
+
+    assert root / "CANONICAL_CONTRACT" in fsynced_directories
