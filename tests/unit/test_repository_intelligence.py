@@ -1079,7 +1079,10 @@ def test_declared_quality_tools_are_exact_inventory_evidence(tmp_path: Path) -> 
         json.dumps(
             {
                 "name": "web",
-                "scripts": {"test": "vitest run"},
+                "scripts": {
+                    "test": "vitest run",
+                    "test:e2e": "playwright test",
+                },
                 "devDependencies": {
                     "@playwright/test": "1.61.1",
                     "vitest": "4.1.10",

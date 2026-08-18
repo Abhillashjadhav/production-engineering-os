@@ -77,7 +77,17 @@ def _class_for_text(value: Any, *, default: TestClass) -> TestClass:
         return TestClass.ACCESSIBILITY
     if any(token in text for token in ("SECURITY", "PRIVACY", "SECRET", "CREDENTIAL")):
         return TestClass.SECURITY_PRIVACY
-    if any(token in text for token in ("PERFORMANCE", "LATENCY", "THROUGHPUT", "LOAD")):
+    if any(
+        token in text
+        for token in (
+            "CAPACITY",
+            "LATENCY",
+            "LOAD",
+            "PERFORMANCE",
+            "SCALABILITY",
+            "THROUGHPUT",
+        )
+    ):
         return TestClass.PERFORMANCE
     return default
 
@@ -138,11 +148,17 @@ class TestPlanCompiler:
         specs, selected_reasons = self._node_specs(contract)
         required_refs = self._required_refs(contract)
         selected_classes = {item[0] for item in specs}
+        automated_classes = {item[0] for item in specs if item[4] == "AUTOMATED"}
 
         decisions: list[TestClassDecision] = []
         for test_class in TestClass:
             if test_class in selected_classes:
-                status = "SELECTED" if test_class in capability_by_class else "BLOCKED"
+                capability_required = test_class in automated_classes
+                status = (
+                    "SELECTED"
+                    if not capability_required or test_class in capability_by_class
+                    else "BLOCKED"
+                )
                 decisions.append(
                     TestClassDecision(
                         test_class=test_class,
@@ -151,7 +167,7 @@ class TestPlanCompiler:
                         justification=selected_reasons[test_class],
                     )
                 )
-                if test_class not in capability_by_class:
+                if capability_required and test_class not in capability_by_class:
                     diagnostics.append(
                         _diagnostic(
                             "TESTPLAN.TOOLCHAIN.MISSING",
@@ -370,6 +386,12 @@ class TestPlanCompiler:
     ) -> dict[TestClass, RepositoryTestCapability]:
         result: dict[TestClass, RepositoryTestCapability] = {}
         tools = {item.tool.casefold() for item in snapshot.tool_versions}
+        quality_inventory = snapshot.inventory.get("tests_quality")
+        declared_tools = {
+            (item.path, item.location.removeprefix("tool:").casefold())
+            for item in (() if quality_inventory is None else quality_inventory.items)
+            if item.kind == "DECLARED_QUALITY_TOOL" and item.location.startswith("tool:")
+        }
         paths = set(snapshot.included_paths)
         for index, capability in enumerate(capabilities):
             path = f"/capabilities/{index}"
@@ -403,13 +425,21 @@ class TestPlanCompiler:
                     )
                 )
                 continue
-            if capability.tool.casefold() not in tools:
+            tool = capability.tool.casefold()
+            declared_for_capability = any(
+                (observed_path, tool) in declared_tools
+                for observed_path in capability.observed_paths
+            )
+            if tool not in tools and not declared_for_capability:
                 diagnostics.append(
                     _diagnostic(
                         "TESTPLAN.TOOLCHAIN.TOOL",
                         path + "/tool",
-                        f"Tool {capability.tool!r} was not observed in the repository snapshot.",
-                        "Install/lock the tool or refresh repository intelligence.",
+                        (
+                            f"Tool {capability.tool!r} was neither observed at runtime nor "
+                            "declared by repository quality inventory."
+                        ),
+                        "Declare and lock the tool or refresh repository intelligence.",
                     )
                 )
                 continue
@@ -593,13 +623,14 @@ class TestPlanCompiler:
         for requirement_id, raw in sorted(_section(ux, "accessibility").items()):
             item = raw if isinstance(raw, Mapping) else {}
             expectation = str(item.get("evidence_expectation", "Accessibility evidence"))
-            add(
-                TestClass.ACCESSIBILITY,
-                [str(requirement_id)],
-                str(item.get("requirement", requirement_id)),
-                expectation,
-                reason="Declared accessibility requirements require accessibility evidence.",
-            )
+            if not _has_manual(expectation) or "AUTOMATED" in expectation.upper():
+                add(
+                    TestClass.ACCESSIBILITY,
+                    [str(requirement_id)],
+                    str(item.get("requirement", requirement_id)),
+                    expectation,
+                    reason="Declared accessibility requirements require accessibility evidence.",
+                )
             if _has_manual(expectation):
                 add(
                     TestClass.ACCESSIBILITY,

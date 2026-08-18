@@ -236,16 +236,46 @@ def test_compiler_admits_capabilities_declared_by_repository_quality_inventory()
         bundle_digest=canonical_digest(contract), engineering_admissible=True
     )
 
-    result = _api().TestPlanCompiler().compile(
-        contract,
-        validation,
-        snapshot,
-        architecture,
-        _capabilities(),
+    result = (
+        _api()
+        .TestPlanCompiler()
+        .compile(
+            contract,
+            validation,
+            snapshot,
+            architecture,
+            _capabilities(),
+        )
     )
 
     assert result.disposition.value == "ADMITTED"
     assert result.plan is not None
+
+
+def test_declared_quality_tool_must_match_capability_evidence_path() -> None:
+    contract = _contract()
+    snapshot = _snapshot_with_declared_quality_tools()
+    architecture = _architecture(contract, snapshot)
+    validation = SimpleNamespace(
+        bundle_digest=canonical_digest(contract), engineering_admissible=True
+    )
+    capabilities = list(_capabilities())
+    capabilities[0] = replace(capabilities[0], observed_paths=("tests/unit/test_contracts.py",))
+
+    result = (
+        _api()
+        .TestPlanCompiler()
+        .compile(
+            contract,
+            validation,
+            snapshot,
+            architecture,
+            tuple(capabilities),
+        )
+    )
+
+    assert result.disposition.value == "BLOCKED"
+    assert any(item.rule_id == "TESTPLAN.TOOLCHAIN.TOOL" for item in result.diagnostics)
 
 
 def test_compiler_selects_risk_based_classes_and_justifies_not_applicable() -> None:
@@ -337,13 +367,13 @@ def test_manual_only_accessibility_requires_no_automated_capability() -> None:
     assert result.disposition.value == "ADMITTED"
     assert result.plan is not None
     accessibility_nodes = [
-        node
-        for node in result.plan.nodes
-        if node.test_class is _api().TestClass.ACCESSIBILITY
+        node for node in result.plan.nodes if node.test_class is _api().TestClass.ACCESSIBILITY
     ]
     assert accessibility_nodes
     assert all(node.execution_mode == "MANUAL" for node in accessibility_nodes)
     assert all(not node.meaningful_red_required for node in accessibility_nodes)
+    decisions = {item.test_class: item for item in result.plan.class_decisions}
+    assert decisions[_api().TestClass.ACCESSIBILITY].status == "SELECTED"
     assert not result.plan.autonomy_eligible
 
 
