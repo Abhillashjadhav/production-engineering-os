@@ -72,6 +72,15 @@ class MeaningfulRedGate:
             if execution.receipt_bindings.get("plan_digest") != expectation.plan_digest:
                 reasons.append(f"{expectation.command_id}: wrong plan digest")
                 continue
+            if execution.commit_sha != expectation.commit_sha:
+                reasons.append(f"{expectation.command_id}: wrong admitted commit")
+                continue
+            if (
+                execution.subject_digest_before != expectation.subject_digest
+                or execution.subject_digest_after != expectation.subject_digest
+            ):
+                reasons.append(f"{expectation.command_id}: wrong admitted subject")
+                continue
             expected_command_digest = canonical_digest(list(expectation.command.argv))
             if execution.receipt_bindings.get("command_digest") != expected_command_digest:
                 reasons.append(f"{expectation.command_id}: wrong command digest")
@@ -88,6 +97,24 @@ class MeaningfulRedGate:
                 subject_bindings=execution.receipt_bindings,
             ):
                 reasons.append(f"{expectation.command_id}: execution receipt is not verified")
+                continue
+            signed_evidence = {
+                "command_digest": expected_command_digest,
+                "commit_sha": execution.commit_sha,
+                "isolation_policy": execution.isolation_policy,
+                "plan_digest": expectation.plan_digest,
+                "policy_digest": execution.receipt_bindings.get("policy_digest", ""),
+                "return_code": execution.return_code,
+                "stderr_digest": execution.stderr_digest,
+                "stdout_digest": execution.stdout_digest,
+                "subject_digest": execution.subject_digest_before,
+            }
+            signed_bindings = {key: str(value) for key, value in signed_evidence.items()}
+            if (
+                signed_bindings != dict(execution.receipt_bindings)
+                or canonical_digest(signed_evidence) != execution.execution_digest
+            ):
+                reasons.append(f"{expectation.command_id}: signed execution fields changed")
                 continue
             adapter = self.registry.resolve(expectation.tool, expectation.evidence_format)
             parsed = adapter.parse(submission.stdout, submission.stderr, execution.return_code)
@@ -123,6 +150,10 @@ class MeaningfulRedGate:
                     reasons.append(f"duplicate node across commands: {node.node_id}")
                     continue
                 seen_nodes.add(node.node_id)
+                if node.failure_kind and node.failure_kind != "assertion":
+                    reasons.append(
+                        f"{expectation.command_id}: {node.failure_kind} is not meaningful red"
+                    )
                 if node.assertion_id != expected.assertion_id:
                     reasons.append(f"{expectation.command_id}: wrong assertion for {node.node_id}")
                     continue
@@ -140,10 +171,6 @@ class MeaningfulRedGate:
                     reasons.append(f"{expectation.command_id}: unknown failure kind")
                     continue
                 nodes.append(node)
-                if node.failure_kind and node.failure_kind != "assertion":
-                    reasons.append(
-                        f"{expectation.command_id}: {node.failure_kind} is not meaningful red"
-                    )
         meaningful = any(
             node.outcome == "failed" and node.failure_kind == "assertion" for node in nodes
         )

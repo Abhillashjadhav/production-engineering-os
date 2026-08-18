@@ -9,6 +9,7 @@ from pmpe.execution import ExecutionCommand, ExecutionResult
 
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
+_COMMIT = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?\Z")
 
 
 class EvidenceError(ValueError):
@@ -39,6 +40,8 @@ class EvidenceExpectation:
     tool: str
     evidence_format: str
     plan_digest: str
+    commit_sha: str
+    subject_digest: str
     command: ExecutionCommand
     nodes: tuple[NodeExpectation, ...]
 
@@ -49,6 +52,8 @@ class EvidenceExpectation:
             or not _IDENTIFIER.fullmatch(self.tool)
             or not _IDENTIFIER.fullmatch(self.evidence_format)
             or not _DIGEST.fullmatch(self.plan_digest)
+            or not _COMMIT.fullmatch(self.commit_sha)
+            or not _DIGEST.fullmatch(self.subject_digest)
             or type(self.command) is not ExecutionCommand
             or not self.nodes
             or any(type(node) is not NodeExpectation for node in self.nodes)
