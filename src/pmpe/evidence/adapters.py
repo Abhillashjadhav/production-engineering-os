@@ -155,17 +155,28 @@ class PytestJsonReportAdapter:
         direct = executable in {"pytest", "py.test"}
         config_files: list[str] = []
         malformed_config = False
+        unsafe_override = False
         for index, argument in enumerate(command.argv):
-            if argument == "-c":
+            if argument in {"-c", "--config-file"}:
                 if index + 1 >= len(command.argv):
                     malformed_config = True
                 else:
                     config_files.append(command.argv[index + 1])
-            elif argument.startswith("-c="):
-                config_files.append(argument.removeprefix("-c="))
+            elif argument.startswith("-c") and not argument.startswith("--"):
+                config_files.append(argument[2:].removeprefix("="))
+            elif argument.startswith("--config-file="):
+                config_files.append(argument.removeprefix("--config-file="))
+            if (
+                argument in {"-o", "-p", "--override-ini"}
+                or (argument.startswith("-o") and not argument.startswith("--"))
+                or (argument.startswith("-p") and not argument.startswith("--"))
+                or argument.startswith("--override-ini=")
+            ):
+                unsafe_override = True
         return (
             direct
             and not malformed_config
+            and not unsafe_override
             and command.argv.count("--json-report") == 1
             and command.argv.count("--noconftest") == 1
             and config_files == ["/dev/null"]
@@ -222,10 +233,7 @@ class PytestJsonReportAdapter:
                 if failure_kind == "assertion":
                     crash = _mapping(call.get("crash"))
                     message = crash.get("message", "")
-                    longrepr = call.get("longrepr", test.get("longrepr", ""))
-                    diagnostics = "\n".join(
-                        value for value in (message, longrepr) if isinstance(value, str)
-                    )
+                    diagnostics = message if isinstance(message, str) else ""
                     diagnostic_assertions = set(_TAP_ASSERTION_MARKER.findall(diagnostics))
                     if not assertion_id or diagnostic_assertions != {assertion_id}:
                         assertion_id = ""

@@ -954,31 +954,24 @@ def test_pytest_evidence_rejects_a_later_long_form_workspace_config() -> None:
     )
 
     with pytest.raises(api.EvidenceError, match="tool"):
-        api.default_adapter_registry().validate_expectations(
-            (_expectation(command=command),)
-        )
+        api.default_adapter_registry().validate_expectations((_expectation(command=command),))
 
 
 def test_pytest_evidence_rejects_plugin_and_import_path_overrides() -> None:
     api = _api()
     command = ExecutionCommand(
-        _trusted_pytest_command().argv
-        + ("-o", "pythonpath=/workspace", "-p", "evil_plugin")
+        _trusted_pytest_command().argv + ("-o", "pythonpath=/workspace", "-p", "evil_plugin")
     )
 
     with pytest.raises(api.EvidenceError, match="tool"):
-        api.default_adapter_registry().validate_expectations(
-            (_expectation(command=command),)
-        )
+        api.default_adapter_registry().validate_expectations((_expectation(command=command),))
 
 
 def test_pytest_marker_in_preceding_traceback_source_does_not_bind_failure(
     tmp_path: Path,
 ) -> None:
     api = _api()
-    report = json.loads(
-        _pytest_report(message="AssertionError: unrelated preliminary failure")
-    )
+    report = json.loads(_pytest_report(message="AssertionError: unrelated preliminary failure"))
     report["tests"][0]["call"]["longrepr"] = (
         "assert True, '[assertion:ASSERT-001] planned'\nE   assert False"
     )
