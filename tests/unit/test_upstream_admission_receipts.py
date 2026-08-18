@@ -562,7 +562,9 @@ def test_preexisting_exact_receipt_file_is_fsynced_on_replay(
     assert target in fsynced_files
 
 
-def test_replay_syncs_every_existing_ledger_parent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_replay_syncs_every_existing_ledger_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     api = _api()
     root = tmp_path / "admissions"
     authority = api.FileArtifactAdmissionAuthority(root, _FingerprintProvider())
@@ -594,9 +596,7 @@ def test_admission_rejects_noncanonical_subject_strings(tmp_path: Path) -> None:
     api = _api()
 
     with pytest.raises(api.AdmissionReceiptError):
-        api.FileArtifactAdmissionAuthority(
-            tmp_path / "admissions", _FingerprintProvider()
-        ).admit(
+        api.FileArtifactAdmissionAuthority(tmp_path / "admissions", _FingerprintProvider()).admit(
             artifact_kind="CANONICAL_CONTRACT",
             artifact_digest=_digest("6"),
             subject_bindings={"lineage_id": "\ud800"},
