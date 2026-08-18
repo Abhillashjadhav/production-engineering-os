@@ -296,34 +296,6 @@ class FileArtifactAdmissionAuthority(_FileReceiptBoundary):
         subject_bindings: Mapping[str, str],
     ) -> AdmissionReceipt:
         bindings = _validate_subject(artifact_kind, artifact_digest, subject_bindings)
-        unsigned = AdmissionReceipt(
-            schema_version=_SCHEMA_VERSION,
-            artifact_kind=artifact_kind,
-            artifact_digest=artifact_digest,
-            subject_bindings=bindings,
-            key_version=self.provider.key_version,
-            fingerprint="",
-            receipt_digest="",
-        )
-        fingerprint = self.provider.fingerprint(
-            _FINGERPRINT_DOMAIN,
-            canonical_json_bytes(unsigned.authority_payload()),
-        )
-        receipt = AdmissionReceipt(
-            **{**unsigned.authority_payload(), "fingerprint": fingerprint, "receipt_digest": ""}
-        )
-        payload = receipt.as_dict()
-        payload.pop("receipt_digest")
-        receipt = AdmissionReceipt(
-            **{
-                **receipt.authority_payload(),
-                "fingerprint": fingerprint,
-                "receipt_digest": canonical_digest(payload),
-            }
-        )
-        encoded = canonical_json_bytes(receipt.as_dict()) + b"\n"
-        if len(encoded) > _MAX_RECEIPT_BYTES:
-            raise AdmissionReceiptError("admission receipt exceeds its size limit")
         target = self._filename(artifact_kind, artifact_digest)
         directory = self._open_kind_directory(artifact_kind, create=True)
         lock_descriptor: int | None = None
@@ -353,6 +325,38 @@ class FileArtifactAdmissionAuthority(_FileReceiptBoundary):
                 )
                 os.fsync(directory)
                 return stored
+            unsigned = AdmissionReceipt(
+                schema_version=_SCHEMA_VERSION,
+                artifact_kind=artifact_kind,
+                artifact_digest=artifact_digest,
+                subject_bindings=bindings,
+                key_version=self.provider.key_version,
+                fingerprint="",
+                receipt_digest="",
+            )
+            fingerprint = self.provider.fingerprint(
+                _FINGERPRINT_DOMAIN,
+                canonical_json_bytes(unsigned.authority_payload()),
+            )
+            receipt = AdmissionReceipt(
+                **{
+                    **unsigned.authority_payload(),
+                    "fingerprint": fingerprint,
+                    "receipt_digest": "",
+                }
+            )
+            digest_payload = receipt.as_dict()
+            digest_payload.pop("receipt_digest")
+            receipt = AdmissionReceipt(
+                **{
+                    **receipt.authority_payload(),
+                    "fingerprint": fingerprint,
+                    "receipt_digest": canonical_digest(digest_payload),
+                }
+            )
+            encoded = canonical_json_bytes(receipt.as_dict()) + b"\n"
+            if len(encoded) > _MAX_RECEIPT_BYTES:
+                raise AdmissionReceiptError("admission receipt exceeds its size limit")
             if not _provider_verifies(receipt, self.provider):
                 raise AdmissionReceiptError(
                     "current admission key is absent or inconsistent in the candidate set"
