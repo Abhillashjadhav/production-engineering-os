@@ -18,6 +18,7 @@ from pmpe.contracts.canonical import canonical_digest
 from pmpe.quality.test_evidence import TestEvidence, TestExecution
 from pmpe.repository.models import (
     AdapterMetadata,
+    EvidenceItem,
     InventoryCategory,
     RepositorySnapshot,
     ToolVersion,
@@ -77,6 +78,36 @@ def _snapshot() -> RepositorySnapshot:
         unsupported_categories=(),
         disposition="COMPLETE",
         redaction={"status": "SANITIZED"},
+        snapshot_digest="",
+    )
+    payload = snapshot.as_dict()
+    payload.pop("snapshot_digest")
+    return replace(snapshot, snapshot_digest=canonical_digest(payload))
+
+
+def _snapshot_with_declared_quality_tools() -> RepositorySnapshot:
+    snapshot = replace(
+        _snapshot(),
+        tool_versions=(
+            ToolVersion(tool="git", version="2.50.0"),
+            ToolVersion(tool="python", version="3.12.0"),
+        ),
+        inventory={
+            "tests_quality": InventoryCategory(
+                status="SUPPORTED",
+                items=tuple(
+                    EvidenceItem(
+                        kind="DECLARED_QUALITY_TOOL",
+                        path="pyproject.toml",
+                        file_digest="sha256:" + str(index) * 64,
+                        detector_id="stack.python",
+                        detector_version="1.0.0",
+                        location=f"tool:{tool}",
+                    )
+                    for index, tool in enumerate(("pytest", "bandit", "playwright"), start=1)
+                ),
+            )
+        },
         snapshot_digest="",
     )
     payload = snapshot.as_dict()
@@ -197,6 +228,26 @@ def test_capability_order_does_not_change_compiler_identity() -> None:
     assert forward.as_dict() == reversed_order.as_dict()
 
 
+def test_compiler_admits_capabilities_declared_by_repository_quality_inventory() -> None:
+    contract = _contract()
+    snapshot = _snapshot_with_declared_quality_tools()
+    architecture = _architecture(contract, snapshot)
+    validation = SimpleNamespace(
+        bundle_digest=canonical_digest(contract), engineering_admissible=True
+    )
+
+    result = _api().TestPlanCompiler().compile(
+        contract,
+        validation,
+        snapshot,
+        architecture,
+        _capabilities(),
+    )
+
+    assert result.disposition.value == "ADMITTED"
+    assert result.plan is not None
+
+
 def test_compiler_selects_risk_based_classes_and_justifies_not_applicable() -> None:
     result = _compile()
     assert result.plan is not None
@@ -267,6 +318,54 @@ def test_accessibility_non_functional_requirement_requires_accessibility_evidenc
     assert any(
         node.test_class is _api().TestClass.ACCESSIBILITY
         and "NFR-ACCESSIBILITY-001" in node.target_refs
+        and node.status == "BLOCKED"
+        for node in result.plan.nodes
+    )
+
+
+def test_manual_only_accessibility_requires_no_automated_capability() -> None:
+    contract = _contract()
+    contract["ux"]["accessibility"]["A11Y-001"]["evidence_expectation"] = (
+        "Manual screen-reader review"
+    )
+    capabilities = tuple(
+        item for item in _capabilities() if item.test_class is not _api().TestClass.ACCESSIBILITY
+    )
+
+    result = _compile(contract, capabilities=capabilities)
+
+    assert result.disposition.value == "ADMITTED"
+    assert result.plan is not None
+    accessibility_nodes = [
+        node
+        for node in result.plan.nodes
+        if node.test_class is _api().TestClass.ACCESSIBILITY
+    ]
+    assert accessibility_nodes
+    assert all(node.execution_mode == "MANUAL" for node in accessibility_nodes)
+    assert all(not node.meaningful_red_required for node in accessibility_nodes)
+    assert not result.plan.autonomy_eligible
+
+
+def test_scalability_non_functional_requirement_requires_performance_evidence() -> None:
+    contract = _contract()
+    contract["non_functional_requirements"]["NFR-SCALABILITY-001"] = {
+        "category": "SCALABILITY",
+        "evidence_expectation": "Load evidence at the exact commit.",
+        "requirement": "The workflow sustains the contracted peak volume.",
+        "target": "100 requests per second",
+    }
+    capabilities = tuple(
+        item for item in _capabilities() if item.test_class is not _api().TestClass.PERFORMANCE
+    )
+
+    result = _compile(contract, capabilities=capabilities)
+
+    assert result.disposition.value == "BLOCKED"
+    assert result.plan is not None
+    assert any(
+        node.test_class is _api().TestClass.PERFORMANCE
+        and "NFR-SCALABILITY-001" in node.target_refs
         and node.status == "BLOCKED"
         for node in result.plan.nodes
     )
