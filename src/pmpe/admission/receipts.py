@@ -85,11 +85,24 @@ def _validate_subject(
     if not _DIGEST.fullmatch(artifact_digest):
         raise AdmissionReceiptError("artifact digest is not canonical SHA-256")
     if not subject_bindings or any(
-        type(key) is not str or not key or type(value) is not str or not value
+        type(key) is not str
+        or not key
+        or type(value) is not str
+        or not value
+        or not _is_utf8(key)
+        or not _is_utf8(value)
         for key, value in subject_bindings.items()
     ):
         raise AdmissionReceiptError("subject bindings must be non-empty string pairs")
     return dict(sorted(subject_bindings.items()))
+
+
+def _is_utf8(value: str) -> bool:
+    try:
+        value.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 @dataclass(frozen=True)
@@ -146,6 +159,29 @@ class AdmissionReceipt:
         return bool(_DIGEST.fullmatch(claimed)) and hmac.compare_digest(claimed, expected)
 
 
+def _load_canonical_receipt(payload: bytes) -> AdmissionReceipt:
+    try:
+        receipt = AdmissionReceipt.from_dict(json.loads(payload))
+        if payload != canonical_json_bytes(receipt.as_dict()) + b"\n":
+            raise AdmissionReceiptError("stored admission receipt is not canonical")
+        return receipt
+    except AdmissionReceiptError:
+        raise
+    except (TypeError, ValueError) as exc:
+        raise AdmissionReceiptError("stored admission receipt is malformed") from exc
+
+
+def _provider_verifies(receipt: AdmissionReceipt, provider: KeyedFingerprintProvider) -> bool:
+    payload = canonical_json_bytes(receipt.authority_payload())
+    return any(
+        candidate.key_version == receipt.key_version
+        and hmac.compare_digest(
+            candidate.value.encode("utf-8"), receipt.fingerprint.encode("utf-8")
+        )
+        for candidate in provider.candidate_fingerprints(_FINGERPRINT_DOMAIN, payload)
+    )
+
+
 class _FileReceiptBoundary:
     def __init__(self, root: Path, provider: KeyedFingerprintProvider) -> None:
         self.root = Path(root)
@@ -169,8 +205,9 @@ class _FileReceiptBoundary:
                         raise
                     with suppress(FileExistsError):
                         os.mkdir(component, 0o700, dir_fd=descriptor)
-                    os.fsync(descriptor)
                     child = os.open(component, flags, dir_fd=descriptor)
+                if create:
+                    os.fsync(descriptor)
                 os.close(descriptor)
                 descriptor = child
             return descriptor
@@ -220,6 +257,33 @@ class _FileReceiptBoundary:
 
 
 class FileArtifactAdmissionAuthority(_FileReceiptBoundary):
+    def _validated_replay(
+        self,
+        payload: bytes,
+        *,
+        artifact_kind: str,
+        artifact_digest: str,
+        bindings: Mapping[str, str],
+    ) -> AdmissionReceipt:
+        try:
+            stored = _load_canonical_receipt(payload)
+        except AdmissionReceiptError as exc:
+            raise AdmissionReceiptConflict(
+                "artifact identity was claimed by unsafe authority evidence"
+            ) from exc
+        if (
+            stored.schema_version != _SCHEMA_VERSION
+            or stored.artifact_kind != artifact_kind
+            or stored.artifact_digest != artifact_digest
+            or dict(stored.subject_bindings) != dict(bindings)
+            or not stored.digest_is_valid()
+            or not _provider_verifies(stored, self.provider)
+        ):
+            raise AdmissionReceiptConflict(
+                "artifact already has different authority evidence"
+            ) from None
+        return stored
+
     def admit(
         self,
         *,
@@ -277,12 +341,14 @@ class FileArtifactAdmissionAuthority(_FileReceiptBoundary):
             except FileNotFoundError:
                 existing = None
             if existing is not None:
-                if existing != encoded:
-                    raise AdmissionReceiptConflict(
-                        "artifact already has different authority evidence"
-                    )
+                stored = self._validated_replay(
+                    existing,
+                    artifact_kind=artifact_kind,
+                    artifact_digest=artifact_digest,
+                    bindings=bindings,
+                )
                 os.fsync(directory)
-                return receipt
+                return stored
             temporary = f".{target}.{secrets.token_hex(16)}.tmp"
             descriptor = os.open(
                 temporary,
@@ -313,12 +379,14 @@ class FileArtifactAdmissionAuthority(_FileReceiptBoundary):
                     raise AdmissionReceiptConflict(
                         "artifact identity was claimed by unsafe authority evidence"
                     ) from exc
-                if raced != encoded:
-                    raise AdmissionReceiptConflict(
-                        "artifact already has different authority evidence"
-                    ) from None
+                stored = self._validated_replay(
+                    raced,
+                    artifact_kind=artifact_kind,
+                    artifact_digest=artifact_digest,
+                    bindings=bindings,
+                )
                 os.fsync(directory)
-                return receipt
+                return stored
             temporary = None
             os.fsync(directory)
         except (AdmissionReceiptError, AdmissionReceiptConflict):
@@ -372,16 +440,9 @@ class FileArtifactAdmissionVerifier(_FileReceiptBoundary):
             canonical_bytes = canonical_json_bytes(receipt.as_dict()) + b"\n"
             if stored_bytes != canonical_bytes:
                 return False
-            stored = AdmissionReceipt.from_dict(json.loads(stored_bytes))
+            stored = _load_canonical_receipt(stored_bytes)
             if stored != receipt:
                 return False
-            payload = canonical_json_bytes(receipt.authority_payload())
-            return any(
-                candidate.key_version == receipt.key_version
-                and hmac.compare_digest(
-                    candidate.value.encode("utf-8"), receipt.fingerprint.encode("utf-8")
-                )
-                for candidate in self.provider.candidate_fingerprints(_FINGERPRINT_DOMAIN, payload)
-            )
+            return _provider_verifies(receipt, self.provider)
         except (AttributeError, OSError, TypeError, ValueError):
             return False
