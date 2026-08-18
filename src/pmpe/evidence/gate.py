@@ -119,6 +119,11 @@ class MeaningfulRedGate:
                 reasons.append(f"{expectation.command_id}: signed execution fields changed")
                 continue
             adapter = self.registry.resolve(expectation.tool, expectation.evidence_format)
+            if not adapter.supports_execution(expectation.command, execution.resolved_executable):
+                reasons.append(
+                    f"{expectation.command_id}: adapter did not execute a trusted system runner"
+                )
+                continue
             parsed = adapter.parse(submission.stdout, submission.stderr, execution.return_code)
             if parsed.blocking_failure:
                 reasons.append(f"{expectation.command_id}: {parsed.blocking_failure}")

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Iterable, Mapping
+from pathlib import PurePosixPath
 from typing import Any, Protocol, runtime_checkable
 
 from pmpe.contracts.canonical import CanonicalInputError, strict_loads
@@ -22,6 +23,11 @@ _TAP_ASSERTION_MARKER = re.compile(
     r"(?:^|\s)\[assertion:([A-Za-z0-9][A-Za-z0-9._:/-]{0,255})\](?=\s|\Z)"
 )
 _PYTHON_RUNNER = re.compile(r"python(?:3(?:\.[0-9]+)?)?\Z")
+_TRUSTED_RUNNER_DIRECTORIES = {
+    PurePosixPath("/usr/local/bin"),
+    PurePosixPath("/usr/bin"),
+    PurePosixPath("/bin"),
+}
 
 
 def _digest(payload: bytes) -> str:
@@ -103,12 +109,24 @@ def _tap_assertion_id(title: str) -> str:
     return matches[0] if len(matches) == 1 else ""
 
 
+def _is_trusted_system_runner(resolved_executable: str, names: set[str]) -> bool:
+    path = PurePosixPath(resolved_executable)
+    return (
+        path.is_absolute()
+        and ".." not in path.parts
+        and path.parent in _TRUSTED_RUNNER_DIRECTORIES
+        and path.name in names
+    )
+
+
 @runtime_checkable
 class EvidenceAdapter(Protocol):
     tool: str
     evidence_format: str
 
     def supports(self, command: ExecutionCommand) -> bool: ...
+
+    def supports_execution(self, command: ExecutionCommand, resolved_executable: str) -> bool: ...
 
     def parse(self, stdout: bytes, stderr: bytes, return_code: int) -> ParsedEvidence: ...
 
@@ -125,6 +143,11 @@ class PytestJsonReportAdapter:
             "pytest",
         )
         return (direct or module) and "--json-report" in command.argv
+
+    def supports_execution(self, command: ExecutionCommand, resolved_executable: str) -> bool:
+        return self.supports(command) and _is_trusted_system_runner(
+            resolved_executable, {command.argv[0]}
+        )
 
     def parse(self, stdout: bytes, stderr: bytes, return_code: int) -> ParsedEvidence:
         raw_digest = _digest(stdout)
@@ -190,6 +213,9 @@ class Tap13Adapter:
             for index in range(len(command.argv) - 1)
         )
         return command.argv[0] == "node" and "--test" in command.argv and reporter
+
+    def supports_execution(self, command: ExecutionCommand, resolved_executable: str) -> bool:
+        return self.supports(command) and _is_trusted_system_runner(resolved_executable, {"node"})
 
     def parse(self, stdout: bytes, stderr: bytes, return_code: int) -> ParsedEvidence:
         if return_code == 124:
