@@ -10,6 +10,7 @@ import secrets
 import stat
 from collections.abc import Mapping
 from dataclasses import dataclass
+from fcntl import LOCK_EX, flock
 from pathlib import Path
 from typing import Any
 
@@ -122,7 +123,12 @@ class _FileReceiptBoundary:
                 except FileNotFoundError:
                     if not create:
                         raise
-                    os.mkdir(component, 0o700, dir_fd=descriptor)
+                    try:
+                        os.mkdir(component, 0o700, dir_fd=descriptor)
+                    except FileExistsError:
+                        pass
+                    else:
+                        os.fsync(descriptor)
                     child = os.open(component, flags, dir_fd=descriptor)
                 os.close(descriptor)
                 descriptor = child
@@ -209,29 +215,38 @@ class FileArtifactAdmissionAuthority(_FileReceiptBoundary):
             raise AdmissionReceiptError("admission receipt exceeds its size limit")
         target = self._filename(artifact_kind, artifact_digest)
         directory = self._open_kind_directory(artifact_kind, create=True)
-        try:
-            existing = self._read(directory, target)
-        except FileNotFoundError:
-            existing = None
-        except (AdmissionReceiptError, OSError):
-            os.close(directory)
-            raise
-        if existing is not None:
-            os.close(directory)
-            if existing != encoded:
-                raise AdmissionReceiptConflict("artifact already has different authority evidence")
-            return receipt
-        temporary = f".{target}.{secrets.token_hex(16)}.tmp"
+        lock_descriptor: int | None = None
+        temporary: str | None = None
         descriptor: int | None = None
-        temporary_exists = False
         try:
+            lock_descriptor = os.open(
+                f".{target}.lock",
+                os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+                dir_fd=directory,
+            )
+            lock_metadata = os.fstat(lock_descriptor)
+            if not stat.S_ISREG(lock_metadata.st_mode) or lock_metadata.st_nlink != 1:
+                raise AdmissionReceiptError("admission receipt lock is not a safe regular file")
+            flock(lock_descriptor, LOCK_EX)
+            try:
+                existing = self._read(directory, target)
+            except FileNotFoundError:
+                existing = None
+            if existing is not None:
+                if existing != encoded:
+                    raise AdmissionReceiptConflict(
+                        "artifact already has different authority evidence"
+                    )
+                os.fsync(directory)
+                return receipt
+            temporary = f".{target}.{secrets.token_hex(16)}.tmp"
             descriptor = os.open(
                 temporary,
                 os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
                 0o600,
                 dir_fd=directory,
             )
-            temporary_exists = True
             written = 0
             while written < len(encoded):
                 count = os.write(descriptor, encoded[written:])
@@ -241,21 +256,13 @@ class FileArtifactAdmissionAuthority(_FileReceiptBoundary):
             os.fsync(descriptor)
             os.close(descriptor)
             descriptor = None
-            try:
-                os.link(
-                    temporary,
-                    target,
-                    src_dir_fd=directory,
-                    dst_dir_fd=directory,
-                    follow_symlinks=False,
-                )
-            except FileExistsError:
-                if self._read(directory, target) != encoded:
-                    raise AdmissionReceiptConflict(
-                        "artifact already has different authority evidence"
-                    ) from None
-            os.unlink(temporary, dir_fd=directory)
-            temporary_exists = False
+            os.rename(
+                temporary,
+                target,
+                src_dir_fd=directory,
+                dst_dir_fd=directory,
+            )
+            temporary = None
             os.fsync(directory)
         except (AdmissionReceiptError, AdmissionReceiptConflict):
             raise
@@ -264,7 +271,7 @@ class FileArtifactAdmissionAuthority(_FileReceiptBoundary):
         finally:
             if descriptor is not None:
                 os.close(descriptor)
-            if temporary_exists:
+            if temporary is not None:
                 try:
                     os.unlink(temporary, dir_fd=directory)
                     os.fsync(directory)
@@ -274,6 +281,8 @@ class FileArtifactAdmissionAuthority(_FileReceiptBoundary):
                     raise AdmissionReceiptError(
                         "temporary admission receipt cleanup could not be persisted"
                     ) from exc
+            if lock_descriptor is not None:
+                os.close(lock_descriptor)
             os.close(directory)
         return receipt
 
