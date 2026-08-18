@@ -732,3 +732,33 @@ def test_host_masking_preserves_etc_alternatives_for_system_executables(
 
     assert "/etc" not in tmpfs_targets
     assert "/etc/alternatives" not in tmpfs_targets
+
+
+def test_writable_storage_limit_changes_the_signed_policy_digest() -> None:
+    api = _api()
+
+    small = api.ExecutionPolicy(max_writable_bytes=1024 * 1024)
+    large = api.ExecutionPolicy(max_writable_bytes=1024 * 1024 * 1024)
+
+    assert small.digest != large.digest
+
+
+def test_sandbox_uses_a_runtime_allowlist_instead_of_binding_the_host_root(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    argv = api.BubblewrapSandbox()._argv(  # noqa: SLF001 - mount policy contract
+        tmp_path,
+        api.ExecutionCommand(argv=("/usr/bin/python3", "-V")),
+        api.ExecutionPolicy(),
+    )
+    mounts = list(zip(argv, argv[1:], strict=False))
+
+    assert ("--ro-bind", "/") not in mounts
+    assert ("--tmpfs", "/") in mounts
+    assert any(
+        argv[index : index + 3] == ["--ro-bind-try", "/usr", "/usr"]
+        for index in range(len(argv) - 2)
+    )
+    assert "/etc/machine-id" not in argv
+    assert "/opt" not in argv
