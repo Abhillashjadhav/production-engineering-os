@@ -221,6 +221,10 @@ def test_bubblewrap_runner_blocks_missing_executable_and_bounds_output(tmp_path:
 
     with pytest.raises(api.ExecutableUnavailable):
         runner.run(tmp_path, api.ExecutionCommand(argv=("definitely-not-a-tool",)), policy)
+    if not runner.is_available():
+        with pytest.raises(api.ExecutionIsolationUnavailable):
+            runner.run(tmp_path, api.ExecutionCommand(argv=(sys.executable, "-V")), policy)
+        return
     with pytest.raises(api.OutputLimitExceeded):
         runner.run(
             tmp_path,
