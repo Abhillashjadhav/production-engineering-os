@@ -126,6 +126,7 @@ class CommandOutcome:
     return_code: int
     stdout: bytes
     stderr: bytes
+    isolation_status: bytes = b""
 
 
 @runtime_checkable
@@ -173,7 +174,9 @@ def _run_bounded_process(
     environment: Mapping[str, str],
     timeout_seconds: float,
     max_output_bytes: int,
+    status_pipe: tuple[int, int] | None = None,
 ) -> CommandOutcome:
+    status_read, status_write = status_pipe if status_pipe is not None else (None, None)
     try:
         process = subprocess.Popen(  # noqa: S603 - argv is explicit and shell remains disabled
             list(argv),
@@ -184,9 +187,16 @@ def _run_bounded_process(
             stderr=subprocess.PIPE,
             start_new_session=True,
             close_fds=True,
+            pass_fds=(() if status_write is None else (status_write,)),
         )
     except FileNotFoundError as exc:
+        if status_read is not None:
+            os.close(status_read)
+        if status_write is not None:
+            os.close(status_write)
         raise ExecutableUnavailable(f"executable is unavailable: {argv[0]}") from exc
+    if status_write is not None:
+        os.close(status_write)
     assert process.stdout is not None
     assert process.stderr is not None
     os.set_blocking(process.stdout.fileno(), False)
@@ -194,7 +204,14 @@ def _run_bounded_process(
     selector = selectors.DefaultSelector()
     selector.register(process.stdout, selectors.EVENT_READ, "stdout")
     selector.register(process.stderr, selectors.EVENT_READ, "stderr")
-    streams: dict[str, bytearray] = {"stdout": bytearray(), "stderr": bytearray()}
+    streams: dict[str, bytearray] = {
+        "stdout": bytearray(),
+        "stderr": bytearray(),
+        "status": bytearray(),
+    }
+    if status_read is not None:
+        os.set_blocking(status_read, False)
+        selector.register(status_read, selectors.EVENT_READ, "status")
     deadline = time.monotonic() + timeout_seconds
     try:
         while selector.get_map():
@@ -214,7 +231,10 @@ def _run_bounded_process(
                     selector.unregister(key.fileobj)
                     continue
                 streams[str(key.data)].extend(chunk)
-                if sum(len(value) for value in streams.values()) > max_output_bytes:
+                if len(streams["status"]) > 64 * 1024:
+                    _kill_process_group(process)
+                    raise ExecutionIsolationUnavailable("sandbox status exceeded its limit")
+                if len(streams["stdout"]) + len(streams["stderr"]) > max_output_bytes:
                     _kill_process_group(process)
                     raise OutputLimitExceeded("bounded execution output exceeded its limit")
         try:
@@ -222,9 +242,17 @@ def _run_bounded_process(
         except subprocess.TimeoutExpired as exc:
             _kill_process_group(process)
             raise ExecutionTimedOut("bounded execution timed out") from exc
-        return CommandOutcome(return_code, bytes(streams["stdout"]), bytes(streams["stderr"]))
+        return CommandOutcome(
+            return_code,
+            bytes(streams["stdout"]),
+            bytes(streams["stderr"]),
+            bytes(streams["status"]),
+        )
     finally:
         selector.close()
+        if status_read is not None:
+            with suppress(OSError):
+                os.close(status_read)
         _kill_process_group(process)
 
 
@@ -242,8 +270,9 @@ class BubblewrapSandbox:
         workspace: Path,
         command: ExecutionCommand,
         policy: ExecutionPolicy,
+        status_fd: int | None = None,
     ) -> list[str]:
-        return [
+        argv = [
             self.executable,
             "--die-with-parent",
             "--new-session",
@@ -252,6 +281,11 @@ class BubblewrapSandbox:
             "--ro-bind",
             "/",
             "/",
+            "--dir",
+            "/workspace",
+            "--bind",
+            str(workspace),
+            "/workspace",
             "--dev",
             "/dev",
             "--proc",
@@ -266,14 +300,13 @@ class BubblewrapSandbox:
             "--setenv",
             "PATH",
             policy.executable_path,
-            "--bind",
-            str(workspace),
-            str(workspace),
             "--chdir",
-            str(workspace),
-            "--",
-            *command.argv,
+            "/workspace",
         ]
+        if status_fd is not None:
+            argv.extend(("--json-status-fd", str(status_fd)))
+        argv.extend(("--", *command.argv))
+        return argv
 
     def is_available(self) -> bool:
         if self._available is not None:
@@ -320,14 +353,16 @@ class BubblewrapSandbox:
             raise ExecutionIsolationUnavailable("bubblewrap is unavailable")
         if not self.is_available():
             raise ExecutionIsolationUnavailable("bubblewrap could not establish isolation")
+        status_pipe = os.pipe()
         outcome = _run_bounded_process(
-            self._argv(workspace, command, policy),
+            self._argv(workspace, command, policy, status_pipe[1]),
             cwd=workspace,
             environment=_GIT_ENV,
             timeout_seconds=policy.timeout_seconds,
             max_output_bytes=policy.max_output_bytes,
+            status_pipe=status_pipe,
         )
-        if outcome.return_code != 0 and outcome.stderr.startswith(b"bwrap:"):
+        if not outcome.isolation_status:
             raise ExecutionIsolationUnavailable("bubblewrap could not establish isolation")
         return outcome
 
@@ -421,16 +456,50 @@ def _exact_commit_archive(repository: Path, commit_sha: str, policy: ExecutionPo
     resolved_identity = resolved.stdout.decode("ascii", "replace").strip()
     if resolved.return_code != 0 or resolved_identity != commit_sha:
         raise ExecutionError("commit does not resolve to the exact admitted identity")
-    archived = _run_bounded_process(
-        [*base, "archive", "--format=tar", commit_sha],
+    listed = _run_bounded_process(
+        [*base, "ls-tree", "-rz", "--full-tree", commit_sha],
         cwd=repository,
         environment=_GIT_ENV,
         timeout_seconds=min(policy.timeout_seconds, 60.0),
-        max_output_bytes=policy.max_archive_bytes,
+        max_output_bytes=min(policy.max_archive_bytes, 8 * 1024 * 1024),
     )
-    if archived.return_code != 0:
-        raise ExecutionError("exact commit could not be archived")
-    return archived.stdout
+    if listed.return_code != 0:
+        raise ExecutionError("exact commit tree could not be listed")
+    records = [record for record in listed.stdout.split(b"\0") if record]
+    if len(records) > _MAX_ARCHIVE_MEMBERS:
+        raise ExecutionError("repository tree contains too many members")
+    remaining = policy.max_archive_bytes
+    archive_buffer = io.BytesIO()
+    with tarfile.open(fileobj=archive_buffer, mode="w:") as archive:
+        for record in records:
+            try:
+                header, raw_path = record.split(b"\t", 1)
+                mode, object_type, object_id = header.decode("ascii").split(" ", 2)
+                path = raw_path.decode("utf-8")
+            except (UnicodeDecodeError, ValueError) as exc:
+                raise ExecutionError("repository tree entry is malformed") from exc
+            _safe_archive_path(path)
+            if object_type != "blob" or mode not in {"100644", "100755"}:
+                raise ExecutionError("repository tree contains an unsupported entry")
+            blob = _run_bounded_process(
+                [*base, "cat-file", "blob", object_id],
+                cwd=repository,
+                environment=_GIT_ENV,
+                timeout_seconds=min(policy.timeout_seconds, 30.0),
+                max_output_bytes=max(1, remaining),
+            )
+            if blob.return_code != 0 or len(blob.stdout) > remaining:
+                raise ExecutionError("repository blob exceeds the snapshot bound")
+            remaining -= len(blob.stdout)
+            member = tarfile.TarInfo(path)
+            member.size = len(blob.stdout)
+            member.mode = 0o755 if mode == "100755" else 0o644
+            member.mtime = 0
+            archive.addfile(member, io.BytesIO(blob.stdout))
+    encoded = archive_buffer.getvalue()
+    if len(encoded) > policy.max_archive_bytes:
+        raise ExecutionError("repository snapshot exceeds its archive bound")
+    return encoded
 
 
 class IsolatedExecutionKernel:
