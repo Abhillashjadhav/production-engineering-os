@@ -73,6 +73,8 @@ def _has_manual(value: Any) -> bool:
 
 def _class_for_text(value: Any, *, default: TestClass) -> TestClass:
     text = str(value).upper()
+    if any(token in text for token in ("ACCESSIBILITY", "A11Y", "WCAG")):
+        return TestClass.ACCESSIBILITY
     if any(token in text for token in ("SECURITY", "PRIVACY", "SECRET", "CREDENTIAL")):
         return TestClass.SECURITY_PRIVACY
     if any(token in text for token in ("PERFORMANCE", "LATENCY", "THROUGHPUT", "LOAD")):
@@ -108,7 +110,10 @@ class TestPlanCompiler:
             )
             return self._result("sha256:" + "0" * 64, [diagnostic], None)
 
-        capability_payload = [item.as_dict() for item in capabilities]
+        capability_payload = sorted(
+            (item.as_dict() for item in capabilities),
+            key=canonical_json_bytes,
+        )
         input_digest = canonical_digest(
             {
                 "architecture_pack_digest": getattr(architecture_pack, "pack_digest", ""),
@@ -249,9 +254,7 @@ class TestPlanCompiler:
                 )
 
         disposition = TestPlanDisposition.BLOCKED if diagnostics else TestPlanDisposition.ADMITTED
-        toolchain_digest = canonical_digest(
-            sorted(capability_payload, key=lambda item: str(item["test_class"]))
-        )
+        toolchain_digest = canonical_digest(capability_payload)
         plan = TestPlan(
             schema_version=TEST_PLAN_SCHEMA_VERSION,
             compiler_version=TEST_PLAN_COMPILER_VERSION,

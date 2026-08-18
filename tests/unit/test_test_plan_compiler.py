@@ -188,6 +188,15 @@ def test_valid_plan_is_deterministic_digest_bound_and_complete() -> None:
     assert {decision.test_class for decision in first.plan.class_decisions} == set(_api().TestClass)
 
 
+def test_capability_order_does_not_change_compiler_identity() -> None:
+    capabilities = _capabilities()
+
+    forward = _compile(capabilities=capabilities)
+    reversed_order = _compile(capabilities=tuple(reversed(capabilities)))
+
+    assert forward.as_dict() == reversed_order.as_dict()
+
+
 def test_compiler_selects_risk_based_classes_and_justifies_not_applicable() -> None:
     result = _compile()
     assert result.plan is not None
@@ -234,6 +243,33 @@ def test_missing_selected_toolchain_blocks_with_explicit_targets() -> None:
     assert blocked
     assert any("SEC-001" in node.target_refs for node in blocked)
     assert not result.plan.autonomy_eligible
+
+
+def test_accessibility_non_functional_requirement_requires_accessibility_evidence() -> None:
+    contract = _contract()
+    contract["ux"]["accessibility"] = {}
+    contract["non_functional_requirements"]["NFR-ACCESSIBILITY-001"] = {
+        "category": "ACCESSIBILITY",
+        "evidence_expectation": "Automated WCAG evidence at the exact commit.",
+        "requirement": "The primary journey is keyboard accessible.",
+        "target": "WCAG 2.2 AA",
+    }
+    capabilities = tuple(
+        item for item in _capabilities() if item.test_class is not _api().TestClass.ACCESSIBILITY
+    )
+
+    result = _compile(contract, capabilities=capabilities)
+
+    assert result.disposition.value == "BLOCKED"
+    assert result.plan is not None
+    decisions = {item.test_class: item for item in result.plan.class_decisions}
+    assert decisions[_api().TestClass.ACCESSIBILITY].status == "BLOCKED"
+    assert any(
+        node.test_class is _api().TestClass.ACCESSIBILITY
+        and "NFR-ACCESSIBILITY-001" in node.target_refs
+        and node.status == "BLOCKED"
+        for node in result.plan.nodes
+    )
 
 
 @pytest.mark.parametrize(
@@ -393,6 +429,25 @@ def test_plan_must_be_persisted_before_implementation_authorization(tmp_path: Pa
     assert authorization.plan_digest == result.plan.plan_digest
     assert authorization.red_run_digest == red.run_digest()
     assert (tmp_path / "run" / "test-plan.json").exists()
+
+
+def test_implementation_authorization_rejects_a_persisted_blocked_plan(tmp_path: Path) -> None:
+    capabilities = tuple(
+        item for item in _capabilities() if item.test_class is not _api().TestClass.SECURITY_PRIVACY
+    )
+    result = _compile(capabilities=capabilities)
+    assert result.plan is not None
+    assert result.plan.disposition == "BLOCKED"
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "test-plan.json").write_bytes(result.plan.canonical_bytes())
+
+    with pytest.raises(_api().TestPlanNotAdmitted):
+        _api().TestPlanStore(run_dir).authorize_implementation(
+            result.plan,
+            _red_run(result.plan),
+            expected_commit_sha="c" * 40,
+        )
 
 
 def test_plan_store_is_idempotent_and_refuses_overwrite(tmp_path: Path) -> None:

@@ -192,7 +192,11 @@ class TestPlanStore:
             persisted = json.loads(payload)
         except json.JSONDecodeError as exc:
             raise TestPlanNotAdmitted("persisted TestPlan is unreadable") from exc
-        if persisted != plan.as_dict() or not plan.digest_is_valid():
+        if (
+            persisted != plan.as_dict()
+            or not plan.digest_is_valid()
+            or plan.disposition != "ADMITTED"
+        ):
             raise TestPlanNotAdmitted("implementation refused: persisted TestPlan does not match")
         admission = MeaningfulRedGate().validate(
             plan, red_run, expected_commit_sha=expected_commit_sha
