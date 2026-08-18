@@ -13,7 +13,12 @@ import pytest
 
 from pmpe.admission import FileArtifactAdmissionAuthority, FileArtifactAdmissionVerifier
 from pmpe.contracts.intake import KeyedFingerprint
-from pmpe.execution import CommandOutcome, ExecutionCommand, ExecutionPolicy, IsolatedExecutionKernel
+from pmpe.execution import (
+    CommandOutcome,
+    ExecutionCommand,
+    ExecutionPolicy,
+    IsolatedExecutionKernel,
+)
 
 
 class _FingerprintProvider:
@@ -171,7 +176,11 @@ def test_planted_pytest_assertion_failure_authorizes_meaningful_red(tmp_path: Pa
     ("payload", "return_code", "reason"),
     (
         (json.dumps({"exitcode": 4, "tests": []}).encode(), 4, "usage"),
-        (json.dumps({"exitcode": 2, "collectors": [{"outcome": "failed"}]}).encode(), 2, "collection"),
+        (
+            json.dumps({"exitcode": 2, "collectors": [{"outcome": "failed"}]}).encode(),
+            2,
+            "collection",
+        ),
         (_pytest_report(message="fixture setup failed"), 1, "configuration"),
         (json.dumps({"exitcode": 3, "tests": []}).encode(), 3, "internal"),
         (_pytest_report(outcome="skipped", exitcode=0), 0, "skip"),
