@@ -404,7 +404,6 @@ class BubblewrapSandbox:
             cgroup_limiter,
             "--scope",
             "--quiet",
-            "--wait",
             "--collect",
             "--property",
             f"MemoryMax={policy.max_memory_bytes}",
