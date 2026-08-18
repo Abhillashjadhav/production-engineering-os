@@ -283,11 +283,17 @@ def _run_bounded_process(
 class BubblewrapSandbox:
     """Linux namespace sandbox with only the disposable workspace writable."""
 
-    identity = "bubblewrap-runtime-allowlist-readonly-workspace-bounded-tmp/5"
+    identity = "bubblewrap-cgroup-runtime-allowlist-readonly-workspace/6"
 
-    def __init__(self, executable: str = "bwrap", limiter_executable: str = "prlimit") -> None:
+    def __init__(
+        self,
+        executable: str = "bwrap",
+        limiter_executable: str = "prlimit",
+        cgroup_executable: str = "systemd-run",
+    ) -> None:
         self.executable = executable
         self.limiter_executable = limiter_executable
+        self.cgroup_executable = cgroup_executable
         self._available: bool | None = None
 
     def _argv(
@@ -383,8 +389,44 @@ class BubblewrapSandbox:
             ),
         ]
 
+    def _cgroup_argv(
+        self,
+        *,
+        cgroup_limiter: str,
+        limiter: str,
+        sandbox: str,
+        workspace: Path,
+        command: ExecutionCommand,
+        policy: ExecutionPolicy,
+        status_fd: int,
+    ) -> list[str]:
+        return [
+            cgroup_limiter,
+            "--scope",
+            "--quiet",
+            "--wait",
+            "--collect",
+            "--property",
+            f"MemoryMax={policy.max_memory_bytes}",
+            "--property",
+            "MemorySwapMax=0",
+            "--property",
+            f"TasksMax={policy.max_processes}",
+            "--",
+            *self._resource_argv(
+                limiter=limiter,
+                sandbox=sandbox,
+                workspace=workspace,
+                command=command,
+                policy=policy,
+                status_fd=status_fd,
+            ),
+        ]
+
     @staticmethod
     def _host_path(workspace: Path, sandbox_path: PurePosixPath) -> Path | None:
+        if any(part in {".", ".."} for part in sandbox_path.parts):
+            return None
         workspace_mount = PurePosixPath("/workspace")
         private_tmp = PurePosixPath("/tmp")
         try:
@@ -510,15 +552,19 @@ class BubblewrapSandbox:
             raise ExecutableUnavailable(f"executable is unavailable: {command.argv[0]}")
         sandbox = shutil.which(self.executable, path=_GIT_ENV["PATH"])
         limiter = shutil.which(self.limiter_executable, path=_GIT_ENV["PATH"])
+        cgroup_limiter = shutil.which(self.cgroup_executable, path=_GIT_ENV["PATH"])
         if sandbox is None:
             raise ExecutionIsolationUnavailable("bubblewrap is unavailable")
         if limiter is None:
             raise ExecutionIsolationUnavailable("process resource limiter is unavailable")
+        if cgroup_limiter is None:
+            raise ExecutionIsolationUnavailable("aggregate cgroup limiter is unavailable")
         if not self.is_available():
             raise ExecutionIsolationUnavailable("bubblewrap could not establish isolation")
         status_pipe = os.pipe()
         outcome = _run_bounded_process(
-            self._resource_argv(
+            self._cgroup_argv(
+                cgroup_limiter=cgroup_limiter,
                 limiter=limiter,
                 sandbox=sandbox,
                 workspace=workspace,

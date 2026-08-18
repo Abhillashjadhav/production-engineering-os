@@ -465,7 +465,7 @@ def test_bubblewrap_process_is_launched_with_resource_limits(
     original_which = shutil.which
 
     def trusted_which(name: str, path: str | None = None) -> str | None:
-        if name in {"bwrap", "prlimit"}:
+        if name in {"bwrap", "prlimit", "systemd-run"}:
             return f"/usr/bin/{name}"
         return original_which(name, path=path)
 
@@ -489,7 +489,10 @@ def test_bubblewrap_process_is_launched_with_resource_limits(
         policy,
     )
 
-    assert observed_argv[0] == "/usr/bin/prlimit"
+    assert observed_argv[0] == "/usr/bin/systemd-run"
+    assert "MemoryMax=536870912" in observed_argv
+    assert "TasksMax=32" in observed_argv
+    assert "/usr/bin/prlimit" in observed_argv
     assert "--as=536870912" in observed_argv
     assert "--nproc=32" in observed_argv
     assert "--fsize=8388608" in observed_argv
@@ -780,3 +783,39 @@ def test_host_executable_resolution_rejects_paths_outside_runtime_mounts(
     )
 
     assert resolved is None
+
+
+def test_runtime_root_traversal_is_not_a_canonical_executable_identity(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+
+    resolved = api.BubblewrapSandbox()._host_path(  # noqa: SLF001 - mount identity contract
+        tmp_path,
+        PurePosixPath("/usr/../opt/unmounted-tool"),
+    )
+
+    assert resolved is None
+
+
+def test_execution_is_wrapped_in_an_aggregate_cgroup_scope(tmp_path: Path) -> None:
+    api = _api()
+    runner = api.BubblewrapSandbox()
+    policy = api.ExecutionPolicy(max_memory_bytes=512 * 1024 * 1024, max_processes=32)
+
+    argv = runner._cgroup_argv(  # noqa: SLF001 - aggregate resource contract
+        cgroup_limiter="/usr/bin/systemd-run",
+        limiter="/usr/bin/prlimit",
+        sandbox="/usr/bin/bwrap",
+        workspace=tmp_path,
+        command=api.ExecutionCommand(argv=("/usr/bin/python3", "-V")),
+        policy=policy,
+        status_fd=9,
+    )
+
+    assert argv[0] == "/usr/bin/systemd-run"
+    assert "MemoryMax=536870912" in argv
+    assert "MemorySwapMax=0" in argv
+    assert "TasksMax=32" in argv
+    assert "/usr/bin/prlimit" in argv
+    assert "/usr/bin/bwrap" in argv
