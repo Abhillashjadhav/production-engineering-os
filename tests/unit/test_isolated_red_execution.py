@@ -605,3 +605,89 @@ def test_proc_cwd_alias_is_signed_as_the_workspace_executable(
     )
 
     assert outcome.resolved_executable == "/workspace/tool"
+
+
+def test_bubblewrap_masks_host_credential_directories(tmp_path: Path) -> None:
+    api = _api()
+    argv = api.BubblewrapSandbox()._argv(  # noqa: SLF001 - isolation argv contract
+        tmp_path,
+        api.ExecutionCommand(argv=("/usr/bin/python3", "-V")),
+        api.ExecutionPolicy(),
+    )
+
+    masked = {
+        argv[index + 1]
+        for index, argument in enumerate(argv[:-1])
+        if argument == "--tmpfs"
+    }
+    assert {"/root", "/home", "/etc", "/var", "/run"} <= masked
+
+
+def test_materialized_blob_bytes_must_match_the_listed_object_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    from pmpe.execution import kernel as kernel_module
+
+    commit = "a" * 40
+    expected = b"expected bytes\n"
+    blob_id = hashlib.sha1(  # noqa: S324 - Git SHA-1 object identity
+        b"blob " + str(len(expected)).encode() + b"\0" + expected
+    ).hexdigest()
+    listing = f"100644 blob {blob_id}\ttracked.txt\0".encode()
+
+    def replaced_object(argv: object, **kwargs: object) -> object:
+        arguments = list(argv)  # type: ignore[arg-type]
+        if "rev-parse" in arguments:
+            return api.CommandOutcome(0, (commit + "\n").encode(), b"")
+        if "fsck" in arguments:
+            return api.CommandOutcome(0, b"", b"")
+        if "ls-tree" in arguments:
+            return api.CommandOutcome(0, listing, b"")
+        if "cat-file" in arguments:
+            return api.CommandOutcome(0, b"replaced after fsck\n", b"")
+        raise AssertionError(arguments)
+
+    monkeypatch.setattr(kernel_module, "_run_bounded_process", replaced_object)
+
+    with pytest.raises(api.ExecutionError, match="object"):
+        kernel_module._exact_commit_archive(  # noqa: SLF001 - materialization contract
+            tmp_path,
+            commit,
+            api.ExecutionPolicy(),
+        )
+
+
+def test_nested_proc_alias_is_canonicalized_to_the_workspace(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    from pmpe.execution import kernel as kernel_module
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    executable = workspace / "tool"
+    executable.write_text("#!/bin/sh\nexit 1\n")
+    executable.chmod(0o700)
+    runner = api.BubblewrapSandbox()
+    runner._available = True  # noqa: SLF001 - skip host-specific probe in this unit test
+
+    def trusted_which(name: str, path: str | None = None) -> str | None:
+        if name in {"bwrap", "prlimit"}:
+            return f"/usr/bin/{name}"
+        return shutil.which(name, path=path)
+
+    monkeypatch.setattr(shutil, "which", trusted_which)
+    monkeypatch.setattr(
+        kernel_module,
+        "_run_bounded_process",
+        lambda *args, **kwargs: api.CommandOutcome(1, b"", b"", b'{"child-pid": 123}'),
+    )
+
+    outcome = runner.run(
+        workspace,
+        api.ExecutionCommand(argv=("/proc/self/root/proc/self/cwd/tool",)),
+        api.ExecutionPolicy(),
+    )
+
+    assert outcome.resolved_executable == "/workspace/tool"
