@@ -113,6 +113,43 @@ def _command_invokes_tool(command: Sequence[str], tool: str) -> bool:
     return False
 
 
+def _command_executes_tests(command: Sequence[str]) -> bool:
+    non_executing_options = {
+        "--co",
+        "--collect-only",
+        "--collectonly",
+        "--fixtures",
+        "--fixtures-per-test",
+        "--help",
+        "--list",
+        "--list-tests",
+        "--markers",
+        "--setup-plan",
+        "--trace-config",
+        "--version",
+        "-h",
+        "-V",
+    }
+    return not any(
+        argument in non_executing_options or argument.startswith("--collect-only=")
+        for argument in command[1:]
+    )
+
+
+def _is_canonical_capability(value: Any) -> bool:
+    return (
+        type(value) is RepositoryTestCapability
+        and type(value.test_class) is TestClass
+        and type(value.command) is tuple
+        and all(type(item) is str for item in value.command)
+        and type(value.environment) is str
+        and type(value.tool) is str
+        and type(value.evidence_format) is str
+        and type(value.observed_paths) is tuple
+        and all(type(item) is str for item in value.observed_paths)
+    )
+
+
 class TestPlanCompiler:
     def __init__(self) -> None:
         schema = packaged_schema_dir() / "test_plan.schema.json"
@@ -144,7 +181,7 @@ class TestPlanCompiler:
         invalid_capabilities = [
             index
             for index, capability in enumerate(capabilities)
-            if type(capability) is not RepositoryTestCapability
+            if not _is_canonical_capability(capability)
         ]
         if invalid_capabilities:
             diagnostics.extend(
@@ -515,6 +552,16 @@ class TestPlanCompiler:
                     )
                 )
                 continue
+            if not _command_executes_tests(capability.command):
+                diagnostics.append(
+                    _diagnostic(
+                        "TESTPLAN.TOOLCHAIN.NON_EXECUTING_COMMAND",
+                        path + "/command",
+                        "Executable capability command selects a non-executing tool mode.",
+                        "Record a repository-backed invocation that executes the planned tests.",
+                    )
+                )
+                continue
             result[capability.test_class] = capability
         return result
 
@@ -598,22 +645,27 @@ class TestPlanCompiler:
             item = raw if isinstance(raw, Mapping) else {}
             test_class = _class_for_text(item.get("category", ""), default=TestClass.UNIT)
             expectation = str(item.get("evidence_expectation", "Executed non-functional assertion"))
-            manual_only = _has_manual(expectation) and "AUTOMATED" not in expectation.upper()
-            add(
-                test_class,
-                [str(requirement_id)],
-                str(item.get("requirement", requirement_id)),
-                expectation,
-                mode="MANUAL" if manual_only else "AUTOMATED",
-                owner="ACCESSIBILITY"
-                if manual_only and test_class is TestClass.ACCESSIBILITY
-                else "PRODUCT"
-                if manual_only
-                else "ENGINEERING",
-                reason=(
-                    "Contract non-functional requirements select their applicable evidence class."
-                ),
-            )
+            manual_required = _has_manual(expectation)
+            automated_required = "AUTOMATED" in expectation.upper() or not manual_required
+            reason = "Contract non-functional requirements select their applicable evidence class."
+            if automated_required:
+                add(
+                    test_class,
+                    [str(requirement_id)],
+                    str(item.get("requirement", requirement_id)),
+                    expectation,
+                    reason=reason,
+                )
+            if manual_required:
+                add(
+                    test_class,
+                    [str(requirement_id)],
+                    str(item.get("requirement", requirement_id)),
+                    expectation,
+                    mode="MANUAL",
+                    owner=("ACCESSIBILITY" if test_class is TestClass.ACCESSIBILITY else "PRODUCT"),
+                    reason=reason,
+                )
 
         for guardrail_id, raw in sorted(_section(contract, "guardrails").items()):
             item = raw if isinstance(raw, Mapping) else {}
