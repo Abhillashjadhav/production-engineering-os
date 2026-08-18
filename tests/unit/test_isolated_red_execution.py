@@ -724,8 +724,7 @@ def test_workspace_is_readonly_and_private_tmp_has_an_aggregate_limit(
         "/tmp",
     ]
     assert any(
-        argv[index : index + 2] == ["--remount-ro", "/dev"]
-        for index in range(len(argv) - 1)
+        argv[index : index + 2] == ["--remount-ro", "/dev"] for index in range(len(argv) - 1)
     )
 
 
