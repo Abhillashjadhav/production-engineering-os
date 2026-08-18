@@ -402,3 +402,93 @@ def test_snapshot_materialization_uses_one_aggregate_deadline(
             commit,
             api.ExecutionPolicy(timeout_seconds=0.05),
         )
+
+
+def test_bare_workspace_tool_is_resolved_against_the_sandbox_mount(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    from pmpe.execution import kernel as kernel_module
+
+    executable = tmp_path / "run-tests"
+    executable.write_text("#!/bin/sh\nexit 1\n")
+    executable.chmod(0o700)
+    runner = api.BubblewrapSandbox()
+    runner._available = True  # noqa: SLF001 - skip the host-specific probe in this unit test
+    original_which = shutil.which
+
+    def sandbox_which(name: str, path: str | None = None) -> str | None:
+        if name == "bwrap":
+            return "/usr/bin/bwrap"
+        if name == "prlimit":
+            return "/usr/bin/prlimit"
+        return original_which(name, path=path)
+
+    monkeypatch.setattr(shutil, "which", sandbox_which)
+    monkeypatch.setattr(
+        kernel_module,
+        "_run_bounded_process",
+        lambda *args, **kwargs: api.CommandOutcome(
+            1, b"", b"", b'{"child-pid": 123}'
+        ),
+    )
+
+    observed = runner.run(
+        tmp_path,
+        api.ExecutionCommand(argv=("run-tests",)),
+        api.ExecutionPolicy(executable_path="/workspace"),
+    )
+
+    assert observed.return_code == 1
+
+
+def test_bubblewrap_process_is_launched_with_resource_limits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    from pmpe.execution import kernel as kernel_module
+
+    runner = api.BubblewrapSandbox()
+    runner._available = True  # noqa: SLF001 - skip the host-specific probe in this unit test
+    observed_argv: list[str] = []
+    original_which = shutil.which
+
+    def trusted_which(name: str, path: str | None = None) -> str | None:
+        if name in {"bwrap", "prlimit"}:
+            return f"/usr/bin/{name}"
+        return original_which(name, path=path)
+
+    def capture(argv: object, **kwargs: object) -> object:
+        observed_argv.extend(argv)  # type: ignore[arg-type]
+        return api.CommandOutcome(1, b"", b"", b'{"child-pid": 123}')
+
+    monkeypatch.setattr(shutil, "which", trusted_which)
+    monkeypatch.setattr(kernel_module, "_run_bounded_process", capture)
+    policy = api.ExecutionPolicy(
+        timeout_seconds=2,
+        max_memory_bytes=512 * 1024 * 1024,
+        max_processes=32,
+        max_file_bytes=8 * 1024 * 1024,
+        max_open_files=128,
+    )
+
+    runner.run(
+        tmp_path,
+        api.ExecutionCommand(argv=(sys.executable, "-V")),
+        policy,
+    )
+
+    assert observed_argv[0] == "/usr/bin/prlimit"
+    assert "--as=536870912" in observed_argv
+    assert "--nproc=32" in observed_argv
+    assert "--fsize=8388608" in observed_argv
+    assert "--nofile=128" in observed_argv
+    assert "--cpu=3" in observed_argv
+    assert "/usr/bin/bwrap" in observed_argv
+
+
+def test_execution_policy_rejects_noncanonical_absolute_path_entries() -> None:
+    api = _api()
+
+    with pytest.raises(api.ExecutionError):
+        api.ExecutionPolicy(executable_path="/workspace/../usr/bin")
