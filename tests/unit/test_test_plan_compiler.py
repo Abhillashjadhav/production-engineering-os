@@ -5,6 +5,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -219,6 +220,16 @@ def test_valid_plan_is_deterministic_digest_bound_and_complete() -> None:
     assert {decision.test_class for decision in first.plan.class_decisions} == set(_api().TestClass)
 
 
+def test_generated_test_node_ids_are_valid_unittest_identifiers() -> None:
+    result = _compile()
+    assert result.plan is not None
+
+    for node in result.plan.nodes:
+        parts = node.expected_test_node.split(".")
+        assert parts[-2] == "GeneratedPlanTests"
+        assert all(part.isidentifier() for part in parts)
+
+
 def test_capability_order_does_not_change_compiler_identity() -> None:
     capabilities = _capabilities()
 
@@ -327,6 +338,7 @@ def test_capability_command_must_invoke_its_observed_tool() -> None:
         ("pytest", "--collect-only"),
         ("pytest", "--version"),
         ("python", "-m", "pytest", "--help"),
+        ("pytest", "--setup-only"),
     ),
 )
 def test_capability_command_must_execute_tests(command: tuple[str, ...]) -> None:
@@ -371,6 +383,42 @@ def test_manual_evidence_is_valid_but_excludes_autonomous_numerator() -> None:
     assert any("AC-001" in node.target_refs for node in manual)
     assert not result.plan.autonomy_eligible
     assert result.plan.manual_intervention_refs
+
+
+def test_mixed_mode_acceptance_criterion_preserves_manual_attestation() -> None:
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"]["verification_method"] = (
+        "Automated assertion and manual product-owner review"
+    )
+
+    result = _compile(contract)
+
+    assert result.disposition.value == "ADMITTED"
+    assert result.plan is not None
+    matching_nodes = [node for node in result.plan.nodes if "AC-001" in node.target_refs]
+    assert {node.execution_mode for node in matching_nodes} == {"AUTOMATED", "MANUAL"}
+    assert not result.plan.autonomy_eligible
+    assert "AC-001" in result.plan.manual_intervention_refs
+
+
+def test_manual_quality_assurance_expectation_is_compiled() -> None:
+    contract = _contract()
+    contract["quality_assurance"]["expectations"]["QA-001"] = {
+        "evidence_type": "MANUAL_EVIDENCE",
+        "expectation": "A product owner inspects deterministic outcomes.",
+        "requirement_refs": ["FR-001"],
+    }
+
+    result = _compile(contract)
+
+    assert result.disposition.value == "ADMITTED"
+    assert result.plan is not None
+    matching_nodes = [node for node in result.plan.nodes if "QA-001" in node.target_refs]
+    assert matching_nodes
+    assert all(node.execution_mode == "MANUAL" for node in matching_nodes)
+    assert "QA-001" in result.plan.required_refs
+    assert "QA-001" in result.plan.manual_intervention_refs
+    assert not result.plan.autonomy_eligible
 
 
 def test_missing_selected_toolchain_blocks_with_explicit_targets() -> None:
@@ -648,30 +696,90 @@ def test_changed_plan_or_wrong_commit_invalidates_red_evidence() -> None:
     assert any(item.rule_id == "RED.COMMIT" for item in wrong_commit_result.diagnostics)
 
 
+def _runner_workspace(tmp_path: Path, plan: Any, *, failures: bool) -> tuple[Path, str]:
+    workspace = tmp_path / ("red-workspace" if failures else "passing-workspace")
+    generated = workspace / "tests" / "generated"
+    generated.mkdir(parents=True)
+    (workspace / "tests" / "__init__.py").write_text("")
+    (generated / "__init__.py").write_text("")
+    methods: list[str] = []
+    for node in plan.nodes:
+        if not node.meaningful_red_required or node.execution_mode != "AUTOMATED":
+            continue
+        method = node.expected_test_node.rsplit(".", 1)[-1]
+        statement = f'self.fail("{node.assertion_id}")' if failures else "self.assertTrue(True)"
+        methods.extend((f"    def {method}(self):", f"        {statement}", ""))
+    (generated / "test_plan.py").write_text(
+        "import unittest\n\n\nclass GeneratedPlanTests(unittest.TestCase):\n" + "\n".join(methods)
+    )
+    subprocess.run(("git", "init", "-q", str(workspace)), check=True)
+    subprocess.run(("git", "-C", str(workspace), "add", "."), check=True)
+    subprocess.run(
+        (
+            "git",
+            "-C",
+            str(workspace),
+            "-c",
+            "user.name=PMPE Test",
+            "-c",
+            "user.email=pmpe@example.invalid",
+            "commit",
+            "-qm",
+            "runner fixture",
+        ),
+        check=True,
+    )
+    commit = subprocess.run(
+        ("git", "-C", str(workspace), "rev-parse", "HEAD"),
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return workspace, commit
+
+
 def test_plan_must_be_persisted_before_implementation_authorization(tmp_path: Path) -> None:
     result = _compile()
     assert result.plan is not None
     store = _api().TestPlanStore(tmp_path / "run")
-    red = _red_run(result.plan)
+    workspace, commit = _runner_workspace(tmp_path, result.plan, failures=True)
 
     with pytest.raises(_api().TestPlanNotAdmitted):
         store.authorize_implementation(
             result.plan,
-            red,
-            expected_commit_sha="c" * 40,
+            workspace=workspace,
+            expected_commit_sha=commit,
         )
 
     receipt = store.admit(result.plan)
     authorization = store.authorize_implementation(
         result.plan,
-        red,
-        expected_commit_sha="c" * 40,
+        workspace=workspace,
+        expected_commit_sha=commit,
     )
 
     assert receipt.plan_digest == result.plan.plan_digest
     assert authorization.plan_digest == result.plan.plan_digest
-    assert authorization.red_run_digest == red.run_digest()
+    assert authorization.red_run_digest.startswith("sha256:")
+    assert authorization.commit_sha == commit
     assert (tmp_path / "run" / "test-plan.json").exists()
+
+
+def test_implementation_authorization_ignores_self_asserted_red_claims(tmp_path: Path) -> None:
+    result = _compile()
+    assert result.plan is not None
+    store = _api().TestPlanStore(tmp_path / "run")
+    store.admit(result.plan)
+    workspace, commit = _runner_workspace(tmp_path, result.plan, failures=False)
+    forged = _red_run(result.plan)
+    assert forged.executions and all(item.outcome == "FAILED" for item in forged.executions)
+
+    with pytest.raises(_api().TestPlanNotAdmitted, match="RED.VACUOUS"):
+        store.authorize_implementation(
+            result.plan,
+            workspace=workspace,
+            expected_commit_sha=commit,
+        )
 
 
 def test_implementation_authorization_rejects_a_persisted_blocked_plan(tmp_path: Path) -> None:
@@ -688,7 +796,7 @@ def test_implementation_authorization_rejects_a_persisted_blocked_plan(tmp_path:
     with pytest.raises(_api().TestPlanNotAdmitted):
         _api().TestPlanStore(run_dir).authorize_implementation(
             result.plan,
-            _red_run(result.plan),
+            workspace=tmp_path,
             expected_commit_sha="c" * 40,
         )
 
