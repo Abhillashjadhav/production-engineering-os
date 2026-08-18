@@ -1140,6 +1140,33 @@ def test_tap_evidence_rejects_node_configuration_file_preloads(
         api.default_adapter_registry().validate_expectations((expectation,))
 
 
+@pytest.mark.parametrize(
+    "policy_arguments",
+    (
+        ("--experimental-policy=./policy.json",),
+        ("--experimental-policy", "./policy.json"),
+        ("--policy-integrity=sha256-deadbeef",),
+        ("--policy-integrity", "sha256-deadbeef"),
+    ),
+)
+def test_tap_evidence_rejects_node_policy_manifest_redirection(
+    policy_arguments: tuple[str, ...],
+) -> None:
+    api = _api()
+    command = ExecutionCommand(
+        ("node", "--test", "--test-reporter=tap", *policy_arguments, "test.mjs")
+    )
+    expectation = _expectation(
+        tool="node:test",
+        evidence_format="tap13/v1",
+        command=command,
+        node="feature rejects invalid [assertion:ASSERT-001]",
+    )
+
+    with pytest.raises(api.EvidenceError, match="tool"):
+        api.default_adapter_registry().validate_expectations((expectation,))
+
+
 def test_pytest_evidence_requires_a_separate_trusted_worker_process() -> None:
     api = _api()
     same_process = _expectation(
