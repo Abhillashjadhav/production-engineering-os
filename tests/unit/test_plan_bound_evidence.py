@@ -737,6 +737,31 @@ def test_node_error_with_forged_assertion_code_is_not_meaningful_red(
     assert any("error" in reason for reason in decision.reasons)
 
 
+def test_unattested_node_assertion_metadata_cannot_authorize(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    stdout = _tap_assertion_report()
+    command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
+    result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
+    expectation = _expectation(
+        tool="node:test",
+        evidence_format="tap13/v1",
+        command=command,
+        node="feature rejects invalid [assertion:ASSERT-001]",
+        assertion_id="ASSERT-001",
+        execution=result,
+    )
+
+    decision = _gate(tmp_path).evaluate(
+        expectations=(expectation,),
+        submissions=(api.EvidenceSubmission("CMD-001", result, stdout, b""),),
+    )
+
+    assert not decision.authorized
+    assert any("oracle" in reason for reason in decision.reasons)
+
+
 def test_nested_node_tap_plan_authorizes_leaf_assertion(tmp_path: Path) -> None:
     api = _api()
     stdout = b"""TAP version 13
