@@ -195,6 +195,41 @@ def _compile(
     )
 
 
+def _snapshot_at(commit_sha: str) -> RepositorySnapshot:
+    snapshot = replace(_snapshot(), commit_sha=commit_sha, snapshot_digest="")
+    payload = snapshot.as_dict()
+    payload.pop("snapshot_digest")
+    return replace(snapshot, snapshot_digest=canonical_digest(payload))
+
+
+def _compile_with_snapshot(
+    snapshot: RepositorySnapshot,
+    *,
+    contract: dict[str, Any] | None = None,
+    capabilities: tuple[Any, ...] | None = None,
+) -> Any:
+    value = contract or _contract()
+    validation = SimpleNamespace(bundle_digest=canonical_digest(value), engineering_admissible=True)
+    return (
+        _api()
+        .TestPlanCompiler()
+        .compile(
+            value,
+            validation,
+            snapshot,
+            _architecture(value, snapshot),
+            _capabilities() if capabilities is None else capabilities,
+        )
+    )
+
+
+def _pytest_capabilities() -> tuple[Any, ...]:
+    return tuple(
+        replace(capability, command=("pytest", "-q"), tool="pytest")
+        for capability in _capabilities()
+    )
+
+
 def test_valid_plan_is_deterministic_digest_bound_and_complete() -> None:
     first = _compile()
     second = _compile(copy.deepcopy(_contract()))
@@ -418,6 +453,24 @@ def test_manual_quality_assurance_expectation_is_compiled() -> None:
     assert all(node.execution_mode == "MANUAL" for node in matching_nodes)
     assert "QA-001" in result.plan.required_refs
     assert "QA-001" in result.plan.manual_intervention_refs
+    assert not result.plan.autonomy_eligible
+
+
+def test_manual_release_gate_preserves_manual_attestation() -> None:
+    contract = _contract()
+    contract["quality_assurance"]["release_gates"]["GATE-MANUAL"] = {
+        "description": "An operator approves the exact release candidate.",
+        "evidence_expectation": "Manual operator approval",
+    }
+
+    result = _compile(contract)
+
+    assert result.disposition.value == "ADMITTED"
+    assert result.plan is not None
+    matching_nodes = [node for node in result.plan.nodes if "GATE-MANUAL" in node.target_refs]
+    assert matching_nodes
+    assert all(node.execution_mode == "MANUAL" for node in matching_nodes)
+    assert "GATE-MANUAL" in result.plan.manual_intervention_refs
     assert not result.plan.autonomy_eligible
 
 
@@ -696,7 +749,13 @@ def test_changed_plan_or_wrong_commit_invalidates_red_evidence() -> None:
     assert any(item.rule_id == "RED.COMMIT" for item in wrong_commit_result.diagnostics)
 
 
-def _runner_workspace(tmp_path: Path, plan: Any, *, failures: bool) -> tuple[Path, str]:
+def _runner_workspace(
+    tmp_path: Path,
+    plan: Any,
+    *,
+    failures: bool,
+    pytest_marker: bool = False,
+) -> tuple[Path, str]:
     workspace = tmp_path / ("red-workspace" if failures else "passing-workspace")
     generated = workspace / "tests" / "generated"
     generated.mkdir(parents=True)
@@ -712,6 +771,10 @@ def _runner_workspace(tmp_path: Path, plan: Any, *, failures: bool) -> tuple[Pat
     (generated / "test_plan.py").write_text(
         "import unittest\n\n\nclass GeneratedPlanTests(unittest.TestCase):\n" + "\n".join(methods)
     )
+    if pytest_marker:
+        (workspace / "conftest.py").write_text(
+            "from pathlib import Path\n\nPath('pytest-command-ran').write_text('executed')\n"
+        )
     subprocess.run(("git", "init", "-q", str(workspace)), check=True)
     subprocess.run(("git", "-C", str(workspace), "add", "."), check=True)
     subprocess.run(
@@ -780,6 +843,68 @@ def test_implementation_authorization_ignores_self_asserted_red_claims(tmp_path:
             workspace=workspace,
             expected_commit_sha=commit,
         )
+
+
+def test_authorization_requires_the_plan_repository_commit(tmp_path: Path) -> None:
+    result = _compile()
+    assert result.plan is not None
+    store = _api().TestPlanStore(tmp_path / "run")
+    store.admit(result.plan)
+    workspace, commit = _runner_workspace(tmp_path, result.plan, failures=True)
+    assert commit != result.plan.repository_commit
+
+    with pytest.raises(_api().TestPlanNotAdmitted, match="repository commit"):
+        store.authorize_implementation(
+            result.plan,
+            workspace=workspace,
+            expected_commit_sha=commit,
+        )
+
+
+def test_authorization_executes_the_admitted_plan_command(tmp_path: Path) -> None:
+    preliminary = _compile(capabilities=_pytest_capabilities())
+    assert preliminary.plan is not None
+    workspace, commit = _runner_workspace(
+        tmp_path,
+        preliminary.plan,
+        failures=True,
+        pytest_marker=True,
+    )
+    snapshot = _snapshot_at(commit)
+    result = _compile_with_snapshot(snapshot, capabilities=_pytest_capabilities())
+    assert result.plan is not None
+    store = _api().TestPlanStore(tmp_path / "run")
+    store.admit(result.plan)
+
+    store.authorize_implementation(
+        result.plan,
+        workspace=workspace,
+        expected_commit_sha=commit,
+    )
+
+    assert (workspace / "pytest-command-ran").read_text() == "executed"
+
+
+def test_store_rejects_a_caller_constructed_admitted_plan(tmp_path: Path) -> None:
+    result = _compile()
+    assert result.plan is not None
+    forged = replace(
+        result.plan,
+        autonomy_eligible=True,
+        class_decisions=(),
+        coverage_matrix=(),
+        manual_intervention_refs=(),
+        nodes=(),
+        required_refs=(),
+        plan_digest="",
+    )
+    payload = forged.as_dict()
+    payload.pop("plan_digest")
+    forged = replace(forged, plan_digest=canonical_digest(payload))
+    assert forged.digest_is_valid() and forged.disposition == "ADMITTED"
+
+    with pytest.raises(TypeError):
+        _api().TestPlanStore(tmp_path / "run").admit(forged)
 
 
 def test_implementation_authorization_rejects_a_persisted_blocked_plan(tmp_path: Path) -> None:
