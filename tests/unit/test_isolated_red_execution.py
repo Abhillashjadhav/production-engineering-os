@@ -819,3 +819,5 @@ def test_execution_is_wrapped_in_an_aggregate_cgroup_scope(tmp_path: Path) -> No
     assert "TasksMax=32" in argv
     assert "/usr/bin/prlimit" in argv
     assert "/usr/bin/bwrap" in argv
+    assert "--scope" in argv
+    assert "--wait" not in argv
