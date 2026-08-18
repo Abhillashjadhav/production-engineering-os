@@ -291,9 +291,25 @@ class Tap13Adapter:
         reporters: list[str] = []
         destinations: list[str] = []
         malformed = False
+        unsafe_loader = False
+        loader_options = {
+            "--env-file",
+            "--env-file-if-exists",
+            "--experimental-loader",
+            "--import",
+            "--loader",
+            "--require",
+        }
         index = 1
         while index < len(command.argv):
             argument = command.argv[index]
+            if (
+                argument in loader_options
+                or any(argument.startswith(option + "=") for option in loader_options)
+                or argument == "-r"
+                or (argument.startswith("-r") and not argument.startswith("--"))
+            ):
+                unsafe_loader = True
             if argument in {"--test-reporter", "--test-reporter-destination"}:
                 if index + 1 >= len(command.argv):
                     malformed = True
@@ -311,6 +327,7 @@ class Tap13Adapter:
             command.argv[0] == "node"
             and "--test" in command.argv
             and not malformed
+            and not unsafe_loader
             and reporters == ["tap"]
             and not destinations
         )
