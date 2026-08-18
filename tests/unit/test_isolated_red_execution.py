@@ -10,7 +10,7 @@ import sys
 import time
 import zlib
 from dataclasses import replace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from types import SimpleNamespace
 
 import pytest
@@ -767,3 +767,16 @@ def test_sandbox_uses_a_runtime_allowlist_instead_of_binding_the_host_root(
     )
     assert "/etc/machine-id" not in argv
     assert "/opt" not in argv
+
+
+def test_host_executable_resolution_rejects_paths_outside_runtime_mounts(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+
+    resolved = api.BubblewrapSandbox()._host_path(  # noqa: SLF001 - mount identity contract
+        tmp_path,
+        PurePosixPath("/opt/unmounted-tool"),
+    )
+
+    assert resolved is None
