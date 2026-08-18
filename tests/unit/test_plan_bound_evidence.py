@@ -127,7 +127,7 @@ def _pytest_report(
 def _tap_assertion_report(*, bailout: bool = False) -> bytes:
     lines = [
         "TAP version 13",
-        "not ok 1 - feature rejects invalid",
+        "not ok 1 - feature rejects invalid [assertion:ASSERT-001]",
         "  ---",
         "  failureType: 'testCodeFailure'",
         "  code: 'ERR_ASSERTION'",
@@ -241,8 +241,8 @@ def test_non_python_tap13_adapter_proves_assertion_behavior(tmp_path: Path) -> N
         tool="node:test",
         evidence_format="tap13/v1",
         command=command,
-        node="feature rejects invalid",
-        assertion_id="ERR_ASSERTION",
+        node="feature rejects invalid [assertion:ASSERT-001]",
+        assertion_id="ASSERT-001",
         execution=result,
     )
 
@@ -419,8 +419,8 @@ def test_signed_execution_fields_are_recomputed_before_parsing(tmp_path: Path) -
         tool="node:test",
         evidence_format="tap13/v1",
         command=command,
-        node="feature rejects invalid",
-        assertion_id="ERR_ASSERTION",
+        node="feature rejects invalid [assertion:ASSERT-001]",
+        assertion_id="ASSERT-001",
         execution=result,
     )
 
@@ -495,8 +495,8 @@ def test_tap_timeout_and_bailout_are_rejected(
         tool="node:test",
         evidence_format="tap13/v1",
         command=command,
-        node="feature rejects invalid",
-        assertion_id="ERR_ASSERTION",
+        node="feature rejects invalid [assertion:ASSERT-001]",
+        assertion_id="ASSERT-001",
         execution=result,
     )
 
@@ -523,8 +523,8 @@ def test_tap_skip_directive_is_not_counted_as_a_pass(tmp_path: Path) -> None:
         tool="node:test",
         evidence_format="tap13/v1",
         command=command,
-        node="feature rejects invalid",
-        assertion_id="ERR_ASSERTION",
+        node="feature rejects invalid [assertion:ASSERT-001]",
+        assertion_id="ASSERT-001",
         execution=result,
     )
     expectation = replace(
@@ -542,3 +542,106 @@ def test_tap_skip_directive_is_not_counted_as_a_pass(tmp_path: Path) -> None:
 
     assert not decision.authorized
     assert any("skip" in reason for reason in decision.reasons)
+
+
+@pytest.mark.parametrize(
+    "command",
+    (
+        ExecutionCommand(("./pytest", "--json-report")),
+        ExecutionCommand(("./node", "--test", "--test-reporter=tap", "test.mjs")),
+    ),
+)
+def test_adapter_rejects_repository_relative_tool_impersonation(
+    command: ExecutionCommand,
+) -> None:
+    api = _api()
+    expectation = _expectation(
+        tool="pytest" if "pytest" in command.argv[0] else "node:test",
+        evidence_format=(
+            "pytest-json-report/v1" if "pytest" in command.argv[0] else "tap13/v1"
+        ),
+        command=command,
+    )
+
+    with pytest.raises(api.EvidenceError, match="tool"):
+        api.default_adapter_registry().validate_expectations((expectation,))
+
+
+def test_pytest_runtime_error_containing_assert_is_not_assertion(tmp_path: Path) -> None:
+    api = _api()
+    stdout = _pytest_report(message="NameError: name 'assertion_client' is not defined")
+    command = ExecutionCommand(("pytest", "--json-report"))
+    result = _execution(
+        tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
+    )
+
+    decision = _gate(tmp_path).evaluate(
+        expectations=(_expectation(command=command, execution=result),),
+        submissions=(api.EvidenceSubmission("CMD-001", result, stdout, b""),),
+    )
+
+    assert not decision.authorized
+    assert any("error" in reason for reason in decision.reasons)
+
+
+def test_generic_node_assertion_code_is_not_a_plan_assertion(tmp_path: Path) -> None:
+    api = _api()
+    stdout = _tap_assertion_report().replace(b" [assertion:ASSERT-001]", b"")
+    command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
+    result = _execution(
+        tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
+    )
+    expectation = _expectation(
+        tool="node:test",
+        evidence_format="tap13/v1",
+        command=command,
+        node="feature rejects invalid",
+        assertion_id="ASSERT-001",
+        execution=result,
+    )
+
+    decision = _gate(tmp_path).evaluate(
+        expectations=(expectation,),
+        submissions=(api.EvidenceSubmission("CMD-001", result, stdout, b""),),
+    )
+
+    assert not decision.authorized
+
+
+def test_nested_node_tap_plan_authorizes_leaf_assertion(tmp_path: Path) -> None:
+    api = _api()
+    stdout = b"""TAP version 13
+# Subtest: feature suite
+    # Subtest: feature rejects invalid [assertion:ASSERT-001]
+    not ok 1 - feature rejects invalid [assertion:ASSERT-001]
+      ---
+      failureType: 'testCodeFailure'
+      code: 'ERR_ASSERTION'
+      name: 'AssertionError'
+      ...
+    1..1
+not ok 1 - feature suite
+  ---
+  failureType: 'subtestsFailed'
+  ...
+1..1
+"""
+    command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
+    result = _execution(
+        tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
+    )
+    expectation = _expectation(
+        tool="node:test",
+        evidence_format="tap13/v1",
+        command=command,
+        node="feature rejects invalid [assertion:ASSERT-001]",
+        assertion_id="ASSERT-001",
+        execution=result,
+    )
+
+    decision = _gate(tmp_path).evaluate(
+        expectations=(expectation,),
+        submissions=(api.EvidenceSubmission("CMD-001", result, stdout, b""),),
+    )
+
+    assert decision.authorized
