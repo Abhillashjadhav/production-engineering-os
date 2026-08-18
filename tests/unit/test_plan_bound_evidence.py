@@ -1063,6 +1063,4 @@ def test_pytest_evidence_rejects_workspace_response_files() -> None:
     command = ExecutionCommand(_trusted_pytest_command().argv + ("@args.txt",))
 
     with pytest.raises(api.EvidenceError, match="tool"):
-        api.default_adapter_registry().validate_expectations(
-            (_expectation(command=command),)
-        )
+        api.default_adapter_registry().validate_expectations((_expectation(command=command),))

@@ -197,6 +197,7 @@ class PytestJsonReportAdapter:
             and config_files == ["/dev/null"]
             and report_files == ["/dev/stdout"]
             and plugins == ["no:terminal"]
+            and not any(argument.startswith("@") for argument in command.argv[1:])
         )
 
     def supports_execution(self, command: ExecutionCommand, resolved_executable: str) -> bool:
