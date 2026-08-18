@@ -124,6 +124,22 @@ def _pytest_report(
     ).encode()
 
 
+def _tap_assertion_report(*, bailout: bool = False) -> bytes:
+    lines = [
+        "TAP version 13",
+        "not ok 1 - feature rejects invalid",
+        "  ---",
+        "  failureType: 'testCodeFailure'",
+        "  code: 'ERR_ASSERTION'",
+        "  name: 'AssertionError'",
+        "  ...",
+    ]
+    if bailout:
+        lines.append("Bail out! configuration unavailable")
+    lines.append("1..1")
+    return ("\n".join(lines) + "\n").encode()
+
+
 def _expectation(
     *,
     command_id: str = "CMD-001",
@@ -132,13 +148,18 @@ def _expectation(
     command: ExecutionCommand | None = None,
     node: str = "tests/test_feature.py::test_rejects_invalid",
     assertion_id: str = "ASSERT-001",
+    execution: object | None = None,
 ):  # type: ignore[no-untyped-def]
     api = _api()
+    commit_sha = getattr(execution, "commit_sha", "0" * 40)
+    subject_digest = getattr(execution, "subject_digest_before", "sha256:" + "0" * 64)
     return api.EvidenceExpectation(
         command_id=command_id,
         tool=tool,
         evidence_format=evidence_format,
         plan_digest="sha256:" + "a" * 64,
+        commit_sha=commit_sha,
+        subject_digest=subject_digest,
         command=command or ExecutionCommand(("pytest", "--json-report")),
         nodes=(api.NodeExpectation(node_id=node, assertion_id=assertion_id),),
     )
@@ -161,7 +182,7 @@ def test_planted_pytest_assertion_failure_authorizes_meaningful_red(tmp_path: Pa
     )
 
     decision = _gate(tmp_path).evaluate(
-        expectations=(_expectation(command=command),),
+        expectations=(_expectation(command=command, execution=result),),
         submissions=(api.EvidenceSubmission("CMD-001", result, stdout, b""),),
     )
 
@@ -201,7 +222,7 @@ def test_non_assertion_failures_never_satisfy_meaningful_red(
     )
 
     decision = _gate(tmp_path).evaluate(
-        expectations=(_expectation(command=command),),
+        expectations=(_expectation(command=command, execution=result),),
         submissions=(api.EvidenceSubmission("CMD-001", result, payload, b""),),
     )
 
@@ -211,11 +232,8 @@ def test_non_assertion_failures_never_satisfy_meaningful_red(
 
 def test_non_python_tap13_adapter_proves_assertion_behavior(tmp_path: Path) -> None:
     api = _api()
-    stdout = (
-        b"TAP version 13\n1..1\n"
-        b"not ok 1 - feature rejects invalid # assertion=ASSERT-002 kind=assertion\n"
-    )
-    command = ExecutionCommand(("node", "test.mjs", "--tap"))
+    stdout = _tap_assertion_report()
+    command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
     result = _execution(
         tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
     )
@@ -224,7 +242,8 @@ def test_non_python_tap13_adapter_proves_assertion_behavior(tmp_path: Path) -> N
         evidence_format="tap13/v1",
         command=command,
         node="feature rejects invalid",
-        assertion_id="ASSERT-002",
+        assertion_id="ERR_ASSERTION",
+        execution=result,
     )
 
     decision = _gate(tmp_path).evaluate(
@@ -243,7 +262,7 @@ def test_missing_duplicate_and_unknown_command_results_are_rejected(tmp_path: Pa
     result = _execution(
         tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
     )
-    expectation = _expectation(command=command)
+    expectation = _expectation(command=command, execution=result)
     submission = api.EvidenceSubmission("CMD-001", result, stdout, b"")
 
     assert not _gate(tmp_path).evaluate(expectations=(expectation,), submissions=()).authorized
@@ -276,7 +295,7 @@ def test_wrong_tool_format_node_or_assertion_is_rejected(
     )
 
     decision = _gate(tmp_path).evaluate(
-        expectations=(_expectation(command=command, **expectation_changes),),
+        expectations=(_expectation(command=command, execution=result, **expectation_changes),),
         submissions=(api.EvidenceSubmission("CMD-001", result, payload, b""),),
     )
 
@@ -296,7 +315,7 @@ def test_duplicate_nodes_and_vacuous_all_passed_results_are_rejected(tmp_path: P
         plan_digest="sha256:" + "a" * 64,
     )
     duplicate_decision = _gate(tmp_path).evaluate(
-        expectations=(_expectation(command=command),),
+        expectations=(_expectation(command=command, execution=duplicate_result),),
         submissions=(api.EvidenceSubmission("CMD-001", duplicate_result, duplicate_payload, b""),),
     )
     assert not duplicate_decision.authorized
@@ -306,7 +325,7 @@ def test_duplicate_nodes_and_vacuous_all_passed_results_are_rejected(tmp_path: P
         tmp_path, passed, command=command, plan_digest="sha256:" + "a" * 64, return_code=0
     )
     passed_decision = _gate(tmp_path).evaluate(
-        expectations=(_expectation(command=command),),
+        expectations=(_expectation(command=command, execution=passed_result),),
         submissions=(api.EvidenceSubmission("CMD-001", passed_result, passed, b""),),
     )
     assert not passed_decision.authorized
@@ -320,7 +339,7 @@ def test_raw_output_tampering_and_forged_execution_receipt_are_rejected(tmp_path
     result = _execution(
         tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
     )
-    expectation = _expectation(command=command)
+    expectation = _expectation(command=command, execution=result)
 
     tampered = api.EvidenceSubmission("CMD-001", result, stdout + b" ", b"")
     assert not _gate(tmp_path).evaluate(
@@ -344,3 +363,182 @@ def test_registry_rejects_unsupported_or_duplicate_tool_format_pairs() -> None:
         )
     with pytest.raises(api.EvidenceError, match="duplicate"):
         api.EvidenceAdapterRegistry((api.PytestJsonReportAdapter(), api.PytestJsonReportAdapter()))
+
+
+def test_declared_adapter_must_match_the_executed_tool(tmp_path: Path) -> None:
+    api = _api()
+    stdout = _pytest_report()
+    command = ExecutionCommand(("python", "emit_fabricated.py"))
+    result = _execution(
+        tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
+    )
+
+    decision = _gate(tmp_path).evaluate(
+        expectations=(_expectation(command=command, execution=result),),
+        submissions=(api.EvidenceSubmission("CMD-001", result, stdout, b""),),
+    )
+
+    assert not decision.authorized
+    assert any("tool" in reason for reason in decision.reasons)
+
+
+def test_expectation_binds_exact_commit_and_subject_digest(tmp_path: Path) -> None:
+    api = _api()
+    stdout = _pytest_report()
+    command = ExecutionCommand(("pytest", "--json-report"))
+    result = _execution(
+        tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
+    )
+    expected = _expectation(command=command, execution=result)
+    submission = api.EvidenceSubmission("CMD-001", result, stdout, b"")
+
+    wrong_commit = replace(expected, commit_sha="f" * 40)
+    wrong_subject = replace(expected, subject_digest="sha256:" + "f" * 64)
+
+    assert not _gate(tmp_path).evaluate(
+        expectations=(wrong_commit,), submissions=(submission,)
+    ).authorized
+    assert not _gate(tmp_path).evaluate(
+        expectations=(wrong_subject,), submissions=(submission,)
+    ).authorized
+
+
+def test_signed_execution_fields_are_recomputed_before_parsing(tmp_path: Path) -> None:
+    api = _api()
+    stdout = _tap_assertion_report()
+    command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
+    result = _execution(
+        tmp_path,
+        stdout,
+        command=command,
+        plan_digest="sha256:" + "a" * 64,
+        return_code=0,
+    )
+    forged = replace(result, return_code=1)
+    expectation = _expectation(
+        tool="node:test",
+        evidence_format="tap13/v1",
+        command=command,
+        node="feature rejects invalid",
+        assertion_id="ERR_ASSERTION",
+        execution=result,
+    )
+
+    decision = _gate(tmp_path).evaluate(
+        expectations=(expectation,),
+        submissions=(api.EvidenceSubmission("CMD-001", forged, stdout, b""),),
+    )
+
+    assert not decision.authorized
+    assert any("signed" in reason for reason in decision.reasons)
+
+
+def test_pytest_configuration_name_containing_assert_is_not_assertion(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    stdout = _pytest_report(message="fixture 'assertion_client' not found")
+    command = ExecutionCommand(("pytest", "--json-report"))
+    result = _execution(
+        tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
+    )
+
+    decision = _gate(tmp_path).evaluate(
+        expectations=(_expectation(command=command, execution=result),),
+        submissions=(api.EvidenceSubmission("CMD-001", result, stdout, b""),),
+    )
+
+    assert not decision.authorized
+    assert any("configuration" in reason for reason in decision.reasons)
+
+
+def test_contradictory_pytest_success_report_is_rejected(tmp_path: Path) -> None:
+    api = _api()
+    stdout = _pytest_report(exitcode=0)
+    command = ExecutionCommand(("pytest", "--json-report"))
+    result = _execution(
+        tmp_path,
+        stdout,
+        command=command,
+        plan_digest="sha256:" + "a" * 64,
+        return_code=0,
+    )
+
+    decision = _gate(tmp_path).evaluate(
+        expectations=(_expectation(command=command, execution=result),),
+        submissions=(api.EvidenceSubmission("CMD-001", result, stdout, b""),),
+    )
+
+    assert not decision.authorized
+
+
+@pytest.mark.parametrize(
+    ("payload", "return_code", "reason"),
+    (
+        (_tap_assertion_report(), 124, "timeout"),
+        (_tap_assertion_report(bailout=True), 1, "bailout"),
+    ),
+)
+def test_tap_timeout_and_bailout_are_rejected(
+    tmp_path: Path, payload: bytes, return_code: int, reason: str
+) -> None:
+    api = _api()
+    command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
+    result = _execution(
+        tmp_path,
+        payload,
+        command=command,
+        plan_digest="sha256:" + "a" * 64,
+        return_code=return_code,
+    )
+    expectation = _expectation(
+        tool="node:test",
+        evidence_format="tap13/v1",
+        command=command,
+        node="feature rejects invalid",
+        assertion_id="ERR_ASSERTION",
+        execution=result,
+    )
+
+    decision = _gate(tmp_path).evaluate(
+        expectations=(expectation,),
+        submissions=(api.EvidenceSubmission("CMD-001", result, payload, b""),),
+    )
+
+    assert not decision.authorized
+    assert any(reason in item for item in decision.reasons)
+
+
+def test_tap_skip_directive_is_not_counted_as_a_pass(tmp_path: Path) -> None:
+    api = _api()
+    payload = _tap_assertion_report().replace(
+        b"1..1\n",
+        b"ok 2 - optional feature # SKIP unavailable\n1..2\n",
+    )
+    command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
+    result = _execution(
+        tmp_path, payload, command=command, plan_digest="sha256:" + "a" * 64
+    )
+    expectation = _expectation(
+        tool="node:test",
+        evidence_format="tap13/v1",
+        command=command,
+        node="feature rejects invalid",
+        assertion_id="ERR_ASSERTION",
+        execution=result,
+    )
+    expectation = replace(
+        expectation,
+        nodes=(
+            expectation.nodes[0],
+            api.NodeExpectation(node_id="optional feature", assertion_id="ASSERT-SKIP"),
+        ),
+    )
+
+    decision = _gate(tmp_path).evaluate(
+        expectations=(expectation,),
+        submissions=(api.EvidenceSubmission("CMD-001", result, payload, b""),),
+    )
+
+    assert not decision.authorized
+    assert any("skip" in reason for reason in decision.reasons)
