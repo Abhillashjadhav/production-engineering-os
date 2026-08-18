@@ -69,7 +69,12 @@ class _MutatingSandbox:
         api = _api()
         self.observed_source = (workspace / "tracked.txt").read_text()
         (workspace / "tracked.txt").write_text("mutated by red test\n")
-        return api.CommandOutcome(return_code=1, stdout=b"meaningful red\n", stderr=b"")
+        return api.CommandOutcome(
+            return_code=1,
+            stdout=b"meaningful red\n",
+            stderr=b"",
+            resolved_executable="/usr/bin/python3",
+        )
 
 
 def _kernel(tmp_path: Path, sandbox: object) -> object:
@@ -223,12 +228,12 @@ def test_bubblewrap_runner_blocks_missing_executable_and_bounds_output(tmp_path:
         runner.run(tmp_path, api.ExecutionCommand(argv=("definitely-not-a-tool",)), policy)
     if not runner.is_available():
         with pytest.raises(api.ExecutionIsolationUnavailable):
-            runner.run(tmp_path, api.ExecutionCommand(argv=(sys.executable, "-V")), policy)
+            runner.run(tmp_path, api.ExecutionCommand(argv=("python3", "-V")), policy)
         return
     with pytest.raises(api.OutputLimitExceeded):
         runner.run(
             tmp_path,
-            api.ExecutionCommand(argv=(sys.executable, "-c", "print('x' * 4096)")),
+            api.ExecutionCommand(argv=("python3", "-c", "print('x' * 4096)")),
             policy,
         )
 
@@ -297,7 +302,7 @@ def test_bubblewrap_binds_workspace_before_hiding_host_tmp(tmp_path: Path) -> No
     runner = api.BubblewrapSandbox()
     argv = runner._argv(  # noqa: SLF001 - exact sandbox policy is the contract under test
         tmp_path,
-        api.ExecutionCommand(argv=(sys.executable, "-V")),
+        api.ExecutionCommand(argv=("python3", "-V")),
         api.ExecutionPolicy(),
     )
 
@@ -354,7 +359,7 @@ def test_child_stderr_prefixed_with_bwrap_is_not_a_setup_failure(
 
     observed = runner.run(
         tmp_path,
-        api.ExecutionCommand(argv=(sys.executable, "-V")),
+        api.ExecutionCommand(argv=("python3", "-V")),
         api.ExecutionPolicy(),
     )
 
@@ -402,3 +407,118 @@ def test_snapshot_materialization_uses_one_aggregate_deadline(
             commit,
             api.ExecutionPolicy(timeout_seconds=0.05),
         )
+
+
+def test_bare_workspace_tool_is_resolved_against_the_sandbox_mount(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    from pmpe.execution import kernel as kernel_module
+
+    executable = tmp_path / "run-tests"
+    executable.write_text("#!/bin/sh\nexit 1\n")
+    executable.chmod(0o700)
+    runner = api.BubblewrapSandbox()
+    runner._available = True  # noqa: SLF001 - skip the host-specific probe in this unit test
+    original_which = shutil.which
+
+    def sandbox_which(name: str, path: str | None = None) -> str | None:
+        if name == "bwrap":
+            return "/usr/bin/bwrap"
+        if name == "prlimit":
+            return "/usr/bin/prlimit"
+        return original_which(name, path=path)
+
+    monkeypatch.setattr(shutil, "which", sandbox_which)
+    monkeypatch.setattr(
+        kernel_module,
+        "_run_bounded_process",
+        lambda *args, **kwargs: api.CommandOutcome(1, b"", b"", b'{"child-pid": 123}'),
+    )
+
+    observed = runner.run(
+        tmp_path,
+        api.ExecutionCommand(argv=("run-tests",)),
+        api.ExecutionPolicy(executable_path="/workspace"),
+    )
+
+    assert observed.return_code == 1
+    assert observed.resolved_executable == "/workspace/run-tests"
+
+
+def test_bubblewrap_process_is_launched_with_resource_limits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    from pmpe.execution import kernel as kernel_module
+
+    runner = api.BubblewrapSandbox()
+    runner._available = True  # noqa: SLF001 - skip the host-specific probe in this unit test
+    observed_argv: list[str] = []
+    original_which = shutil.which
+
+    def trusted_which(name: str, path: str | None = None) -> str | None:
+        if name in {"bwrap", "prlimit"}:
+            return f"/usr/bin/{name}"
+        return original_which(name, path=path)
+
+    def capture(argv: object, **kwargs: object) -> object:
+        observed_argv.extend(argv)  # type: ignore[arg-type]
+        return api.CommandOutcome(1, b"", b"", b'{"child-pid": 123}')
+
+    monkeypatch.setattr(shutil, "which", trusted_which)
+    monkeypatch.setattr(kernel_module, "_run_bounded_process", capture)
+    policy = api.ExecutionPolicy(
+        timeout_seconds=2,
+        max_memory_bytes=512 * 1024 * 1024,
+        max_processes=32,
+        max_file_bytes=8 * 1024 * 1024,
+        max_open_files=128,
+    )
+
+    runner.run(
+        tmp_path,
+        api.ExecutionCommand(argv=("python3", "-V")),
+        policy,
+    )
+
+    assert observed_argv[0] == "/usr/bin/prlimit"
+    assert "--as=536870912" in observed_argv
+    assert "--nproc=32" in observed_argv
+    assert "--fsize=8388608" in observed_argv
+    assert "--nofile=128" in observed_argv
+    assert "--cpu=3" in observed_argv
+    assert "/usr/bin/bwrap" in observed_argv
+
+
+def test_execution_policy_rejects_noncanonical_absolute_path_entries() -> None:
+    api = _api()
+
+    with pytest.raises(api.ExecutionError):
+        api.ExecutionPolicy(executable_path="/workspace/../usr/bin")
+
+
+def test_execution_receipt_signs_the_resolved_sandbox_executable(tmp_path: Path) -> None:
+    api = _api()
+    repository, commit = _repository(tmp_path)
+
+    class ResolvedSandbox:
+        identity = "resolved-sandbox/1"
+
+        def run(self, workspace: Path, command: object, policy: object) -> object:
+            return api.CommandOutcome(
+                1,
+                b"meaningful red\n",
+                b"",
+                resolved_executable="/usr/bin/pytest",
+            )
+
+    result = _kernel(tmp_path, ResolvedSandbox()).execute(
+        repository=repository,
+        commit_sha=commit,
+        plan_digest="sha256:" + "9" * 64,
+        command=api.ExecutionCommand(argv=("pytest", "--json-report")),
+    )
+
+    assert result.resolved_executable == "/usr/bin/pytest"
+    assert result.receipt_bindings["resolved_executable"] == "/usr/bin/pytest"
