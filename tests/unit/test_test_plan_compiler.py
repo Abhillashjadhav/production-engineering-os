@@ -230,6 +230,25 @@ def _pytest_capabilities() -> tuple[Any, ...]:
     )
 
 
+def _store_admit(
+    store: Any,
+    *,
+    contract: dict[str, Any] | None = None,
+    snapshot: RepositorySnapshot | None = None,
+    capabilities: tuple[Any, ...] | None = None,
+) -> Any:
+    value = contract or _contract()
+    subject = snapshot or _snapshot()
+    validation = SimpleNamespace(bundle_digest=canonical_digest(value), engineering_admissible=True)
+    return store.admit(
+        contract_bundle=value,
+        contract_validation=validation,
+        repository_snapshot=subject,
+        architecture_pack=_architecture(value, subject),
+        capabilities=_capabilities() if capabilities is None else capabilities,
+    )
+
+
 def test_valid_plan_is_deterministic_digest_bound_and_complete() -> None:
     first = _compile()
     second = _compile(copy.deepcopy(_contract()))
@@ -663,6 +682,23 @@ def _red_run(plan: Any) -> Any:
         commit_sha="c" * 40,
         toolchain_digest=plan.toolchain_digest,
         executions=executions,
+        tool_executions=tuple(
+            api.ToolExecutionReceipt(
+                command=command,
+                returncode=1,
+                stdout_digest=canonical_digest({"output": "red"}),
+                stderr_digest=canonical_digest({"output": ""}),
+            )
+            for command in sorted(
+                {
+                    node.command
+                    for node in plan.nodes
+                    if node.status == "PLANNED"
+                    and node.execution_mode == "AUTOMATED"
+                    and node.command
+                }
+            )
+        ),
     )
 
 
@@ -802,10 +838,13 @@ def _runner_workspace(
 
 
 def test_plan_must_be_persisted_before_implementation_authorization(tmp_path: Path) -> None:
-    result = _compile()
+    preliminary = _compile(capabilities=_pytest_capabilities())
+    assert preliminary.plan is not None
+    workspace, commit = _runner_workspace(tmp_path, preliminary.plan, failures=True)
+    snapshot = _snapshot_at(commit)
+    result = _compile_with_snapshot(snapshot, capabilities=_pytest_capabilities())
     assert result.plan is not None
     store = _api().TestPlanStore(tmp_path / "run")
-    workspace, commit = _runner_workspace(tmp_path, result.plan, failures=True)
 
     with pytest.raises(_api().TestPlanNotAdmitted):
         store.authorize_implementation(
@@ -814,7 +853,11 @@ def test_plan_must_be_persisted_before_implementation_authorization(tmp_path: Pa
             expected_commit_sha=commit,
         )
 
-    receipt = store.admit(result.plan)
+    receipt = _store_admit(
+        store,
+        snapshot=snapshot,
+        capabilities=_pytest_capabilities(),
+    )
     authorization = store.authorize_implementation(
         result.plan,
         workspace=workspace,
@@ -829,11 +872,14 @@ def test_plan_must_be_persisted_before_implementation_authorization(tmp_path: Pa
 
 
 def test_implementation_authorization_ignores_self_asserted_red_claims(tmp_path: Path) -> None:
-    result = _compile()
+    preliminary = _compile(capabilities=_pytest_capabilities())
+    assert preliminary.plan is not None
+    workspace, commit = _runner_workspace(tmp_path, preliminary.plan, failures=False)
+    snapshot = _snapshot_at(commit)
+    result = _compile_with_snapshot(snapshot, capabilities=_pytest_capabilities())
     assert result.plan is not None
     store = _api().TestPlanStore(tmp_path / "run")
-    store.admit(result.plan)
-    workspace, commit = _runner_workspace(tmp_path, result.plan, failures=False)
+    _store_admit(store, snapshot=snapshot, capabilities=_pytest_capabilities())
     forged = _red_run(result.plan)
     assert forged.executions and all(item.outcome == "FAILED" for item in forged.executions)
 
@@ -849,7 +895,7 @@ def test_authorization_requires_the_plan_repository_commit(tmp_path: Path) -> No
     result = _compile()
     assert result.plan is not None
     store = _api().TestPlanStore(tmp_path / "run")
-    store.admit(result.plan)
+    _store_admit(store)
     workspace, commit = _runner_workspace(tmp_path, result.plan, failures=True)
     assert commit != result.plan.repository_commit
 
@@ -874,7 +920,7 @@ def test_authorization_executes_the_admitted_plan_command(tmp_path: Path) -> Non
     result = _compile_with_snapshot(snapshot, capabilities=_pytest_capabilities())
     assert result.plan is not None
     store = _api().TestPlanStore(tmp_path / "run")
-    store.admit(result.plan)
+    _store_admit(store, snapshot=snapshot, capabilities=_pytest_capabilities())
 
     store.authorize_implementation(
         result.plan,
@@ -931,13 +977,14 @@ def test_plan_store_is_idempotent_and_refuses_overwrite(tmp_path: Path) -> None:
     assert result.plan is not None
     store = _api().TestPlanStore(tmp_path / "run")
 
-    first = store.admit(result.plan)
-    second = store.admit(result.plan)
+    first = _store_admit(store)
+    second = _store_admit(store)
     assert first == second
 
-    changed = replace(result.plan, plan_digest="sha256:" + "0" * 64)
+    changed = _contract()
+    changed["acceptance_criteria"]["AC-001"]["criterion"] += " Changed subject."
     with pytest.raises(_api().TestPlanConflict):
-        store.admit(changed)
+        _store_admit(store, contract=changed)
 
 
 @pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlinks are unavailable")
@@ -953,7 +1000,7 @@ def test_plan_store_rejects_a_symlinked_plan_without_reading_its_target(
     (run_dir / "test-plan.json").symlink_to(outside)
 
     with pytest.raises(_api().TestPlanNotAdmitted):
-        _api().TestPlanStore(run_dir).admit(result.plan)
+        _store_admit(_api().TestPlanStore(run_dir))
 
     assert outside.read_bytes() == result.plan.canonical_bytes()
 
@@ -970,7 +1017,7 @@ def test_plan_store_rejects_a_symlinked_run_directory_without_writing_outside(
     run_dir.symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(_api().TestPlanNotAdmitted):
-        _api().TestPlanStore(run_dir).admit(result.plan)
+        _store_admit(_api().TestPlanStore(run_dir))
 
     assert not (outside / "test-plan.json").exists()
 

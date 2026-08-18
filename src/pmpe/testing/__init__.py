@@ -7,6 +7,7 @@ from pmpe.testing.evidence import (
     MeaningfulRedGate,
     MeaningfulRedRun,
     RedTestExecution,
+    ToolExecutionReceipt,
 )
 from pmpe.testing.models import (
     TEST_PLAN_SCHEMA_VERSION,
@@ -51,4 +52,5 @@ __all__ = [
     "TestPlanNotAdmitted",
     "TestPlanReceipt",
     "TestPlanStore",
+    "ToolExecutionReceipt",
 ]

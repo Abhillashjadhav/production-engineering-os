@@ -7,13 +7,18 @@ import os
 import secrets
 import stat
 import subprocess
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+from pmpe.architecture.models import ArchitecturePack
 from pmpe.domain.errors import StepFailure
+from pmpe.repository.models import RepositorySnapshot
 
+from .compiler import ContractAdmission, TestPlanCompiler
 from .evidence import MeaningfulRedGate, execute_meaningful_red
-from .models import TestPlan
+from .models import RepositoryTestCapability, TestPlan
 
 
 class TestPlanConflictError(RuntimeError):
@@ -157,7 +162,33 @@ class TestPlanStore:
             except OSError as exc:
                 raise TestPlanNotAdmitted("temporary TestPlan cleanup could not be proven") from exc
 
-    def admit(self, plan: TestPlan) -> TestPlanReceipt:
+    def admit(
+        self,
+        *,
+        contract_bundle: Mapping[str, Any],
+        contract_validation: ContractAdmission,
+        repository_snapshot: RepositorySnapshot,
+        architecture_pack: ArchitecturePack,
+        capabilities: Sequence[RepositoryTestCapability],
+    ) -> TestPlanReceipt:
+        compilation = TestPlanCompiler().compile(
+            contract_bundle,
+            contract_validation,
+            repository_snapshot,
+            architecture_pack,
+            capabilities,
+        )
+        plan = compilation.plan
+        if (
+            plan is None
+            or compilation.disposition.value != "ADMITTED"
+            or compilation.diagnostics
+            or plan.disposition != "ADMITTED"
+            or not plan.digest_is_valid()
+        ):
+            raise TestPlanNotAdmitted(
+                "only a compiler-produced, diagnostic-free ADMITTED TestPlan can be persisted"
+            )
         payload = plan.canonical_bytes()
         directory_descriptor = self._open_run_dir(create=True)
         try:
@@ -201,6 +232,10 @@ class TestPlanStore:
             or plan.disposition != "ADMITTED"
         ):
             raise TestPlanNotAdmitted("implementation refused: persisted TestPlan does not match")
+        if expected_commit_sha != plan.repository_commit:
+            raise TestPlanNotAdmitted(
+                "implementation refused: expected repository commit does not match TestPlan"
+            )
         try:
             red_run = execute_meaningful_red(
                 plan,

@@ -26,17 +26,35 @@ class RedTestExecution:
 
 
 @dataclass(frozen=True)
+class ToolExecutionReceipt:
+    command: tuple[str, ...]
+    returncode: int
+    stdout_digest: str
+    stderr_digest: str
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "command": list(self.command),
+            "returncode": self.returncode,
+            "stderr_digest": self.stderr_digest,
+            "stdout_digest": self.stdout_digest,
+        }
+
+
+@dataclass(frozen=True)
 class MeaningfulRedRun:
     test_plan_digest: str
     commit_sha: str
     toolchain_digest: str
     executions: tuple[RedTestExecution, ...]
+    tool_executions: tuple[ToolExecutionReceipt, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "commit_sha": self.commit_sha,
             "executions": [item.as_dict() for item in self.executions],
             "test_plan_digest": self.test_plan_digest,
+            "tool_executions": [item.as_dict() for item in self.tool_executions],
             "toolchain_digest": self.toolchain_digest,
         }
 
@@ -95,6 +113,31 @@ class MeaningfulRedGate:
                     "RED.TOOLCHAIN",
                     "/toolchain_digest",
                     "Red evidence used a different test toolchain.",
+                )
+            )
+
+        expected_commands = {
+            node.command
+            for node in plan.nodes
+            if node.status == "PLANNED" and node.execution_mode == "AUTOMATED" and node.command
+        }
+        observed_commands: set[tuple[str, ...]] = set()
+        for index, receipt in enumerate(run.tool_executions):
+            if receipt.command in observed_commands:
+                diagnostics.append(
+                    _red_diagnostic(
+                        "RED.TOOL_EXECUTION_DUPLICATE",
+                        f"/tool_executions/{index}/command",
+                        "A plan-bound command has more than one execution receipt.",
+                    )
+                )
+            observed_commands.add(receipt.command)
+        if observed_commands != expected_commands:
+            diagnostics.append(
+                _red_diagnostic(
+                    "RED.TOOL_EXECUTION",
+                    "/tool_executions",
+                    "Meaningful-red did not execute exactly the admitted plan commands.",
                 )
             )
 
@@ -223,6 +266,30 @@ def execute_meaningful_red(
     ).stdout
     if status:
         raise ValueError("meaningful-red workspace contains uncommitted changes")
+    commands = sorted(
+        {
+            node.command
+            for node in plan.nodes
+            if node.status == "PLANNED" and node.execution_mode == "AUTOMATED" and node.command
+        }
+    )
+    tool_executions: list[ToolExecutionReceipt] = []
+    for command in commands:
+        completed = subprocess.run(
+            command,
+            cwd=repository,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        tool_executions.append(
+            ToolExecutionReceipt(
+                command=command,
+                returncode=completed.returncode,
+                stdout_digest=canonical_digest({"output": completed.stdout}),
+                stderr_digest=canonical_digest({"output": completed.stderr}),
+            )
+        )
     evidence = run_tests_with_evidence(repository)
     by_node = evidence.by_node()
     executions: list[RedTestExecution] = []
@@ -252,4 +319,5 @@ def execute_meaningful_red(
         commit_sha=commit,
         toolchain_digest=plan.toolchain_digest,
         executions=tuple(executions),
+        tool_executions=tuple(tool_executions),
     )

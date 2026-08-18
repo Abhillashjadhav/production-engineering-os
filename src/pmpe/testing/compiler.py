@@ -794,9 +794,34 @@ class TestPlanCompiler:
                     reason="Declared accessibility requirements require accessibility evidence.",
                 )
 
-        release_targets: list[str] = []
-        release_targets.extend(map(str, _section(contract, "quality_assurance", "release_gates")))
-        release_targets.extend(map(str, _section(contract, "release", "expectations")))
+        for gate_id, raw in sorted(
+            _section(contract, "quality_assurance", "release_gates").items()
+        ):
+            item = raw if isinstance(raw, Mapping) else {}
+            expectation = str(item.get("evidence_expectation", "Exact-head release-gate evidence"))
+            manual_required = _has_manual(expectation)
+            automated_required = "AUTOMATED" in expectation.upper() or not manual_required
+            reason = "Declared release gates require exact-head release evidence."
+            if automated_required:
+                add(
+                    TestClass.RELEASE,
+                    [str(gate_id)],
+                    str(item.get("description", gate_id)),
+                    expectation,
+                    reason=reason,
+                )
+            if manual_required:
+                add(
+                    TestClass.RELEASE,
+                    [str(gate_id)],
+                    str(item.get("description", gate_id)),
+                    expectation,
+                    mode="MANUAL",
+                    owner="RELEASE",
+                    reason=reason,
+                )
+
+        release_targets = list(map(str, _section(contract, "release", "expectations")))
         if release_targets:
             add(
                 TestClass.RELEASE,
