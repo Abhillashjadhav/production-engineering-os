@@ -323,6 +323,8 @@ class Tap13Adapter:
         loader_options = {
             "--env-file",
             "--env-file-if-exists",
+            "--experimental-config-file",
+            "--experimental-default-config-file",
             "--experimental-loader",
             "--import",
             "--loader",
