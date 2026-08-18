@@ -9,6 +9,7 @@ import re
 import secrets
 import stat
 from collections.abc import Mapping
+from contextlib import suppress
 from dataclasses import dataclass
 from fcntl import LOCK_EX, flock
 from pathlib import Path
@@ -99,7 +100,9 @@ class AdmissionReceipt:
     def digest_is_valid(self) -> bool:
         payload = self.as_dict()
         claimed = str(payload.pop("receipt_digest", ""))
-        return bool(claimed) and hmac.compare_digest(claimed, canonical_digest(payload))
+        return bool(_DIGEST.fullmatch(claimed)) and hmac.compare_digest(
+            claimed, canonical_digest(payload)
+        )
 
 
 class _FileReceiptBoundary:
@@ -123,12 +126,9 @@ class _FileReceiptBoundary:
                 except FileNotFoundError:
                     if not create:
                         raise
-                    try:
+                    with suppress(FileExistsError):
                         os.mkdir(component, 0o700, dir_fd=descriptor)
-                    except FileExistsError:
-                        pass
-                    else:
-                        os.fsync(descriptor)
+                    os.fsync(descriptor)
                     child = os.open(component, flags, dir_fd=descriptor)
                 os.close(descriptor)
                 descriptor = child
@@ -321,7 +321,9 @@ class FileArtifactAdmissionVerifier(_FileReceiptBoundary):
             payload = canonical_json_bytes(receipt.authority_payload())
             return any(
                 candidate.key_version == receipt.key_version
-                and hmac.compare_digest(candidate.value, receipt.fingerprint)
+                and hmac.compare_digest(
+                    candidate.value.encode("utf-8"), receipt.fingerprint.encode("utf-8")
+                )
                 for candidate in self.provider.candidate_fingerprints(_FINGERPRINT_DOMAIN, payload)
             )
         except (AdmissionReceiptError, FileNotFoundError, json.JSONDecodeError, OSError):
