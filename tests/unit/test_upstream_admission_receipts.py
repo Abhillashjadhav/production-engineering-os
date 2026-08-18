@@ -533,3 +533,32 @@ def test_surrogate_receipt_strings_fail_closed(tmp_path: Path) -> None:
         artifact_digest=_digest("3"),
         subject_bindings={"lineage_id": "LINEAGE-014"},
     )
+
+
+def test_preexisting_exact_receipt_file_is_fsynced_on_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    root = tmp_path / "admissions"
+    authority = api.FileArtifactAdmissionAuthority(root, _FingerprintProvider())
+    arguments = {
+        "artifact_kind": "CANONICAL_CONTRACT",
+        "artifact_digest": _digest("4"),
+        "subject_bindings": {"lineage_id": "LINEAGE-015"},
+    }
+    authority.admit(**arguments)
+    target = root / "CANONICAL_CONTRACT" / (_digest("4")[7:] + ".json")
+    fsynced_files: set[Path] = set()
+    original_fsync = os.fsync
+
+    def recording_fsync(descriptor: int) -> None:
+        linked_path = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
+        if linked_path.is_file():
+            fsynced_files.add(linked_path)
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fsync", recording_fsync)
+
+    authority.admit(**arguments)
+
+    assert target in fsynced_files
