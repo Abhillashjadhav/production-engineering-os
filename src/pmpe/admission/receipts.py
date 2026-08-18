@@ -186,9 +186,7 @@ class _FileReceiptBoundary:
         try:
             descriptor = os.open(
                 filename,
-                os.O_RDONLY
-                | getattr(os, "O_NOFOLLOW", 0)
-                | getattr(os, "O_NONBLOCK", 0),
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0),
                 dir_fd=directory_descriptor,
             )
         except FileNotFoundError:
