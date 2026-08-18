@@ -738,3 +738,32 @@ def test_existing_receipt_replays_when_only_the_new_current_key_is_misconfigured
     ).admit(**arguments)
 
     assert replayed == original
+
+
+def test_existing_receipt_replays_without_calling_the_unavailable_new_signer(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    original_provider = _FingerprintProvider()
+    root = tmp_path / "admissions"
+    arguments = {
+        "artifact_kind": "CANONICAL_CONTRACT",
+        "artifact_digest": _digest("b"),
+        "subject_bindings": {"lineage_id": "LINEAGE-021"},
+    }
+    original = api.FileArtifactAdmissionAuthority(root, original_provider).admit(**arguments)
+
+    class UnavailableNewSigner(_FingerprintProvider):
+        key_version = "test-v2"
+
+        def fingerprint(self, domain: str, payload: bytes) -> str:
+            raise RuntimeError("new signing service is unavailable")
+
+        def candidate_fingerprints(
+            self, domain: str, payload: bytes
+        ) -> tuple[KeyedFingerprint, ...]:
+            return original_provider.candidate_fingerprints(domain, payload)
+
+    replayed = api.FileArtifactAdmissionAuthority(root, UnavailableNewSigner()).admit(**arguments)
+
+    assert replayed == original
