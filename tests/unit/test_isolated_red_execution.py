@@ -281,3 +281,9 @@ def test_repository_relative_executable_is_resolved_from_snapshot_workspace(
                 api.ExecutionCommand(argv=("./run-tests",)),
                 api.ExecutionPolicy(),
             )
+    else:
+        assert runner.run(
+            tmp_path,
+            api.ExecutionCommand(argv=("./run-tests",)),
+            api.ExecutionPolicy(),
+        ).return_code == 1

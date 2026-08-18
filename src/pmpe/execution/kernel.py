@@ -36,6 +36,7 @@ _MAX_ARCHIVE_MEMBERS = 100_000
 _GIT_ENV = {
     "GIT_CONFIG_NOSYSTEM": "1",
     "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_NO_REPLACE_OBJECTS": "1",
     "LC_ALL": "C",
     "PATH": "/usr/local/bin:/usr/bin:/bin",
 }
@@ -301,15 +302,22 @@ class BubblewrapSandbox:
         command: ExecutionCommand,
         policy: ExecutionPolicy,
     ) -> CommandOutcome:
+        requested = Path(command.argv[0])
+        if requested.is_absolute():
+            executable = requested
+        elif "/" in command.argv[0]:
+            executable = (workspace / requested).resolve()
+            try:
+                executable.relative_to(workspace.resolve())
+            except ValueError:
+                executable = Path("")
+        else:
+            located = shutil.which(command.argv[0], path=policy.executable_path)
+            executable = Path(located) if located is not None else Path("")
+        if not executable.is_file() or not os.access(executable, os.X_OK):
+            raise ExecutableUnavailable(f"executable is unavailable: {command.argv[0]}")
         if shutil.which(self.executable) is None:
             raise ExecutionIsolationUnavailable("bubblewrap is unavailable")
-        executable = shutil.which(command.argv[0], path=policy.executable_path)
-        if executable is None and not (
-            os.path.isabs(command.argv[0])
-            and os.path.isfile(command.argv[0])
-            and os.access(command.argv[0], os.X_OK)
-        ):
-            raise ExecutableUnavailable(f"executable is unavailable: {command.argv[0]}")
         if not self.is_available():
             raise ExecutionIsolationUnavailable("bubblewrap could not establish isolation")
         outcome = _run_bounded_process(
@@ -395,7 +403,14 @@ def _exact_commit_archive(repository: Path, commit_sha: str, policy: ExecutionPo
         raise ExecutionError("commit identity is not a full canonical Git object ID")
     if not repository.is_dir():
         raise ExecutionError("repository is unavailable")
-    base = ["git", "-c", "core.hooksPath=/dev/null", "-c", "protocol.file.allow=never"]
+    base = [
+        "git",
+        "--no-replace-objects",
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "protocol.file.allow=never",
+    ]
     resolved = _run_bounded_process(
         [*base, "rev-parse", "--verify", f"{commit_sha}^{{commit}}"],
         cwd=repository,
