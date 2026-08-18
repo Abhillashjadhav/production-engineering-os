@@ -1078,3 +1078,32 @@ def test_pytest_evidence_rejects_stdout_exposing_capture_modes(
 
     with pytest.raises(api.EvidenceError, match="tool"):
         api.default_adapter_registry().validate_expectations((_expectation(command=command),))
+
+
+@pytest.mark.parametrize(
+    "loader_arguments",
+    (
+        ("--experimental-loader=./evil-loader.mjs",),
+        ("--loader", "./evil-loader.mjs"),
+        ("--import=./evil-preload.mjs",),
+        ("--require", "./evil-preload.cjs"),
+        ("-r./evil-preload.cjs",),
+        ("--env-file=.env",),
+    ),
+)
+def test_tap_evidence_rejects_custom_node_loaders_and_preloads(
+    loader_arguments: tuple[str, ...],
+) -> None:
+    api = _api()
+    command = ExecutionCommand(
+        ("node", "--test", "--test-reporter=tap", *loader_arguments, "test.mjs")
+    )
+    expectation = _expectation(
+        tool="node:test",
+        evidence_format="tap13/v1",
+        command=command,
+        node="feature rejects invalid [assertion:ASSERT-001]",
+    )
+
+    with pytest.raises(api.EvidenceError, match="tool"):
+        api.default_adapter_registry().validate_expectations((expectation,))
