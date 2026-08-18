@@ -278,6 +278,30 @@ def test_declared_quality_tool_must_match_capability_evidence_path() -> None:
     assert any(item.rule_id == "TESTPLAN.TOOLCHAIN.TOOL" for item in result.diagnostics)
 
 
+def test_malformed_capability_returns_typed_diagnostic_instead_of_crashing() -> None:
+    result = _compile(capabilities=(object(),))
+
+    assert result.disposition.value == "BLOCKED"
+    assert any(item.rule_id == "TESTPLAN.TOOLCHAIN.TYPE" for item in result.diagnostics)
+
+
+def test_capability_command_must_invoke_its_observed_tool() -> None:
+    capabilities = list(_capabilities())
+    capabilities[0] = replace(
+        capabilities[0],
+        tool="pytest",
+        command=("bandit", "-q"),
+    )
+
+    result = _compile(capabilities=tuple(capabilities))
+
+    assert result.disposition.value == "BLOCKED"
+    assert any(
+        item.rule_id == "TESTPLAN.TOOLCHAIN.COMMAND_TOOL_MISMATCH"
+        for item in result.diagnostics
+    )
+
+
 def test_compiler_selects_risk_based_classes_and_justifies_not_applicable() -> None:
     result = _compile()
     assert result.plan is not None
@@ -374,6 +398,34 @@ def test_manual_only_accessibility_requires_no_automated_capability() -> None:
     assert all(not node.meaningful_red_required for node in accessibility_nodes)
     decisions = {item.test_class: item for item in result.plan.class_decisions}
     assert decisions[_api().TestClass.ACCESSIBILITY].status == "SELECTED"
+    assert not result.plan.autonomy_eligible
+
+
+def test_manual_only_accessibility_nfr_requires_no_automated_capability() -> None:
+    contract = _contract()
+    contract["ux"]["accessibility"] = {}
+    contract["non_functional_requirements"]["NFR-ACCESSIBILITY-MANUAL-001"] = {
+        "category": "ACCESSIBILITY",
+        "evidence_expectation": "Manual screen-reader review",
+        "requirement": "A screen-reader specialist verifies the primary journey.",
+        "target": "Product-approved manual evidence",
+    }
+    capabilities = tuple(
+        item for item in _capabilities() if item.test_class is not _api().TestClass.ACCESSIBILITY
+    )
+
+    result = _compile(contract, capabilities=capabilities)
+
+    assert result.disposition.value == "ADMITTED"
+    assert result.plan is not None
+    matching_nodes = [
+        node
+        for node in result.plan.nodes
+        if "NFR-ACCESSIBILITY-MANUAL-001" in node.target_refs
+    ]
+    assert matching_nodes
+    assert all(node.execution_mode == "MANUAL" for node in matching_nodes)
+    assert all(not node.meaningful_red_required for node in matching_nodes)
     assert not result.plan.autonomy_eligible
 
 
