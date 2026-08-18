@@ -321,10 +321,6 @@ class FileArtifactAdmissionAuthority(_FileReceiptBoundary):
                 "receipt_digest": canonical_digest(payload),
             }
         )
-        if not _provider_verifies(receipt, self.provider):
-            raise AdmissionReceiptError(
-                "current admission key is absent or inconsistent in the candidate set"
-            )
         encoded = canonical_json_bytes(receipt.as_dict()) + b"\n"
         if len(encoded) > _MAX_RECEIPT_BYTES:
             raise AdmissionReceiptError("admission receipt exceeds its size limit")
@@ -357,6 +353,10 @@ class FileArtifactAdmissionAuthority(_FileReceiptBoundary):
                 )
                 os.fsync(directory)
                 return stored
+            if not _provider_verifies(receipt, self.provider):
+                raise AdmissionReceiptError(
+                    "current admission key is absent or inconsistent in the candidate set"
+                )
             temporary = f".{target}.{secrets.token_hex(16)}.tmp"
             descriptor = os.open(
                 temporary,

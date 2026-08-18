@@ -298,7 +298,7 @@ def test_repository_relative_executable_is_resolved_from_snapshot_workspace(
         )
 
 
-def test_bubblewrap_binds_workspace_before_hiding_host_tmp(tmp_path: Path) -> None:
+def test_bubblewrap_mounts_workspace_before_hiding_host_tmp(tmp_path: Path) -> None:
     api = _api()
     runner = api.BubblewrapSandbox()
     argv = runner._argv(  # noqa: SLF001 - exact sandbox policy is the contract under test
@@ -307,11 +307,12 @@ def test_bubblewrap_binds_workspace_before_hiding_host_tmp(tmp_path: Path) -> No
         api.ExecutionPolicy(),
     )
 
-    bind_index = argv.index("--bind")
+    workspace_index = argv.index(str(tmp_path))
     tmpfs_index = argv.index("--tmpfs")
     chdir_index = argv.index("--chdir")
-    assert bind_index < tmpfs_index
-    assert argv[bind_index + 2] == "/workspace"
+    assert argv[workspace_index - 1] == "--ro-bind"
+    assert workspace_index < tmpfs_index
+    assert argv[workspace_index + 1] == "/workspace"
     assert argv[chdir_index + 1] == "/workspace"
 
 
@@ -619,7 +620,8 @@ def test_bubblewrap_masks_host_credential_directories(tmp_path: Path) -> None:
     )
 
     masked = {argv[index + 1] for index, argument in enumerate(argv[:-1]) if argument == "--tmpfs"}
-    assert {"/root", "/home", "/etc", "/var", "/run"} <= masked
+    assert {"/root", "/home", "/var", "/run", "/etc/ssh", "/etc/ssl/private"} <= masked
+    assert "/etc" not in masked
 
 
 def test_materialized_blob_bytes_must_match_the_listed_object_id(
@@ -691,3 +693,42 @@ def test_nested_proc_alias_is_canonicalized_to_the_workspace(
     )
 
     assert outcome.resolved_executable == "/workspace/tool"
+
+
+def test_workspace_is_readonly_and_private_tmp_has_an_aggregate_limit(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    policy = api.ExecutionPolicy(max_writable_bytes=32 * 1024 * 1024)
+    argv = api.BubblewrapSandbox()._argv(  # noqa: SLF001 - mount policy contract
+        tmp_path,
+        api.ExecutionCommand(argv=("/usr/bin/python3", "-V")),
+        policy,
+    )
+
+    workspace_index = argv.index(str(tmp_path))
+    assert argv[workspace_index - 1] == "--ro-bind"
+    tmp_index = argv.index("/tmp")
+    assert argv[tmp_index - 3 : tmp_index + 1] == [
+        "--size",
+        str(policy.max_writable_bytes),
+        "--tmpfs",
+        "/tmp",
+    ]
+
+
+def test_host_masking_preserves_etc_alternatives_for_system_executables(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    argv = api.BubblewrapSandbox()._argv(  # noqa: SLF001 - mount policy contract
+        tmp_path,
+        api.ExecutionCommand(argv=("/usr/bin/awk", "BEGIN { exit 1 }")),
+        api.ExecutionPolicy(),
+    )
+    tmpfs_targets = {
+        argv[index + 1] for index, argument in enumerate(argv[:-1]) if argument == "--tmpfs"
+    }
+
+    assert "/etc" not in tmpfs_targets
+    assert "/etc/alternatives" not in tmpfs_targets

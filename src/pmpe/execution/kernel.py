@@ -101,6 +101,7 @@ class ExecutionPolicy:
     max_memory_bytes: int = 1024 * 1024 * 1024
     max_processes: int = 128
     max_file_bytes: int = 64 * 1024 * 1024
+    max_writable_bytes: int = 64 * 1024 * 1024
     max_open_files: int = 256
     executable_path: str = "/usr/local/bin:/usr/bin:/bin"
 
@@ -113,6 +114,7 @@ class ExecutionPolicy:
             or not 16 * 1024 * 1024 <= self.max_memory_bytes <= 8 * 1024 * 1024 * 1024
             or not 0 < self.max_processes <= 1024
             or not 0 < self.max_file_bytes <= 1024 * 1024 * 1024
+            or not 1024 * 1024 <= self.max_writable_bytes <= 1024 * 1024 * 1024
             or not 16 <= self.max_open_files <= 4096
             or not path_entries
             or any(
@@ -280,7 +282,7 @@ def _run_bounded_process(
 class BubblewrapSandbox:
     """Linux namespace sandbox with only the disposable workspace writable."""
 
-    identity = "bubblewrap-masked-host-no-network-rlimit/3"
+    identity = "bubblewrap-readonly-workspace-bounded-tmp-no-network/4"
 
     def __init__(self, executable: str = "bwrap", limiter_executable: str = "prlimit") -> None:
         self.executable = executable
@@ -306,36 +308,38 @@ class BubblewrapSandbox:
             "/",
             "--dir",
             "/workspace",
-            "--bind",
+            "--ro-bind",
             str(workspace),
             "/workspace",
-            "--tmpfs",
-            "/root",
-            "--tmpfs",
-            "/home",
-            "--tmpfs",
-            "/etc",
-            "--tmpfs",
-            "/var",
-            "--tmpfs",
-            "/run",
-            "--dev",
-            "/dev",
-            "--proc",
-            "/proc",
-            "--tmpfs",
-            "/tmp",
-            "--dir",
-            "/tmp/home",
-            "--setenv",
-            "HOME",
-            "/tmp/home",
-            "--setenv",
-            "PATH",
-            policy.executable_path,
-            "--chdir",
-            "/workspace",
         ]
+        for masked_directory in ("/root", "/home", "/var", "/run"):
+            argv.extend(("--tmpfs", masked_directory, "--remount-ro", masked_directory))
+        for masked_file in ("/etc/shadow", "/etc/gshadow", "/etc/sudoers"):
+            argv.extend(("--ro-bind", "/dev/null", masked_file))
+        for masked_directory in ("/etc/ssh", "/etc/ssl/private"):
+            argv.extend(("--tmpfs", masked_directory, "--remount-ro", masked_directory))
+        argv.extend(
+            (
+                "--dev",
+                "/dev",
+                "--proc",
+                "/proc",
+                "--size",
+                str(policy.max_writable_bytes),
+                "--tmpfs",
+                "/tmp",
+                "--dir",
+                "/tmp/home",
+                "--setenv",
+                "HOME",
+                "/tmp/home",
+                "--setenv",
+                "PATH",
+                policy.executable_path,
+                "--chdir",
+                "/workspace",
+            )
+        )
         if status_fd is not None:
             argv.extend(("--json-status-fd", str(status_fd)))
         argv.extend(("--", *command.argv))
