@@ -231,3 +231,53 @@ def test_bubblewrap_runner_blocks_missing_executable_and_bounds_output(tmp_path:
             api.ExecutionCommand(argv=(sys.executable, "-c", "print('x' * 4096)")),
             policy,
         )
+
+
+def test_git_replacement_refs_cannot_substitute_the_admitted_commit(tmp_path: Path) -> None:
+    api = _api()
+    repository, admitted_commit = _repository(tmp_path)
+    (repository / "tracked.txt").write_text("replacement tree\n")
+    _git(repository, "add", "tracked.txt")
+    _git(repository, "commit", "-qm", "replacement")
+    replacement_commit = _git(repository, "rev-parse", "HEAD")
+    _git(repository, "replace", admitted_commit, replacement_commit)
+    sandbox = _MutatingSandbox()
+
+    _kernel(tmp_path, sandbox).execute(
+        repository=repository,
+        commit_sha=admitted_commit,
+        plan_digest="sha256:" + "f" * 64,
+        command=api.ExecutionCommand(argv=(sys.executable, "-c", "raise SystemExit(1)")),
+    )
+
+    assert sandbox.observed_source == "committed\n"
+
+
+def test_missing_tool_is_reported_before_missing_sandbox(tmp_path: Path) -> None:
+    api = _api()
+    runner = api.BubblewrapSandbox(executable="definitely-not-bubblewrap")
+
+    with pytest.raises(api.ExecutableUnavailable):
+        runner.run(
+            tmp_path,
+            api.ExecutionCommand(argv=("definitely-not-a-tool",)),
+            api.ExecutionPolicy(),
+        )
+
+
+def test_repository_relative_executable_is_resolved_from_snapshot_workspace(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    executable = tmp_path / "run-tests"
+    executable.write_text("#!/bin/sh\nexit 1\n")
+    executable.chmod(0o700)
+    runner = api.BubblewrapSandbox()
+
+    if not runner.is_available():
+        with pytest.raises(api.ExecutionIsolationUnavailable):
+            runner.run(
+                tmp_path,
+                api.ExecutionCommand(argv=("./run-tests",)),
+                api.ExecutionPolicy(),
+            )
