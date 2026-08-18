@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import time
+import zlib
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -522,3 +523,83 @@ def test_execution_receipt_signs_the_resolved_sandbox_executable(tmp_path: Path)
 
     assert result.resolved_executable == "/usr/bin/pytest"
     assert result.receipt_bindings["resolved_executable"] == "/usr/bin/pytest"
+
+
+def test_corrupted_reachable_git_object_blocks_exact_commit_execution(tmp_path: Path) -> None:
+    api = _api()
+    repository, commit = _repository(tmp_path)
+    blob_id = _git(repository, "rev-parse", f"{commit}:tracked.txt")
+    loose_object = repository / ".git" / "objects" / blob_id[:2] / blob_id[2:]
+    replacement = b"tampered!\n"
+    loose_object.write_bytes(
+        zlib.compress(b"blob " + str(len(replacement)).encode() + b"\0" + replacement)
+    )
+
+    with pytest.raises(api.ExecutionError, match="object"):
+        _kernel(tmp_path, _MutatingSandbox()).execute(
+            repository=repository,
+            commit_sha=commit,
+            plan_digest="sha256:" + "8" * 64,
+            command=api.ExecutionCommand(argv=("python3", "-V")),
+        )
+
+
+def test_private_tmp_path_does_not_search_the_service_cwd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    service_cwd = tmp_path / "service"
+    workspace = tmp_path / "workspace"
+    service_cwd.mkdir()
+    workspace.mkdir()
+    executable = service_cwd / "tool"
+    executable.write_text("#!/bin/sh\nexit 1\n")
+    executable.chmod(0o700)
+    monkeypatch.chdir(service_cwd)
+
+    with pytest.raises(api.ExecutableUnavailable):
+        api.BubblewrapSandbox().run(
+            workspace,
+            api.ExecutionCommand(argv=("tool",)),
+            api.ExecutionPolicy(executable_path="/tmp"),
+        )
+
+
+def test_proc_cwd_alias_is_signed_as_the_workspace_executable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    from pmpe.execution import kernel as kernel_module
+
+    service_cwd = tmp_path / "service"
+    workspace = tmp_path / "workspace"
+    service_cwd.mkdir()
+    workspace.mkdir()
+    for directory in (service_cwd, workspace):
+        executable = directory / "tool"
+        executable.write_text("#!/bin/sh\nexit 1\n")
+        executable.chmod(0o700)
+    monkeypatch.chdir(service_cwd)
+    runner = api.BubblewrapSandbox()
+    runner._available = True  # noqa: SLF001 - skip host-specific probe in this unit test
+    original_which = shutil.which
+
+    def trusted_which(name: str, path: str | None = None) -> str | None:
+        if name in {"bwrap", "prlimit"}:
+            return f"/usr/bin/{name}"
+        return original_which(name, path=path)
+
+    monkeypatch.setattr(shutil, "which", trusted_which)
+    monkeypatch.setattr(
+        kernel_module,
+        "_run_bounded_process",
+        lambda *args, **kwargs: api.CommandOutcome(1, b"", b"", b'{"child-pid": 123}'),
+    )
+
+    outcome = runner.run(
+        workspace,
+        api.ExecutionCommand(argv=("/proc/self/cwd/tool",)),
+        api.ExecutionPolicy(),
+    )
+
+    assert outcome.resolved_executable == "/workspace/tool"
