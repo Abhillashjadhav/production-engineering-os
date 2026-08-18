@@ -1107,3 +1107,11 @@ def test_tap_evidence_rejects_custom_node_loaders_and_preloads(
 
     with pytest.raises(api.EvidenceError, match="tool"):
         api.default_adapter_registry().validate_expectations((expectation,))
+
+
+def test_pytest_evidence_requires_a_separate_trusted_worker_process() -> None:
+    api = _api()
+    same_process = _expectation(command=_trusted_pytest_command())
+
+    with pytest.raises(api.EvidenceError, match="tool"):
+        api.default_adapter_registry().validate_expectations((same_process,))
