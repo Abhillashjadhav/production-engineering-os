@@ -275,7 +275,7 @@ class FileArtifactAdmissionAuthority(_FileReceiptBoundary):
                 raise AdmissionReceiptError("admission receipt lock is not a safe regular file")
             flock(lock_descriptor, LOCK_EX)
             try:
-                existing = self._read(directory, target)
+                existing = self._read(directory, target, sync=True)
             except FileNotFoundError:
                 existing = None
             if existing is not None:
