@@ -436,18 +436,29 @@ class BubblewrapSandbox:
             try:
                 sandbox_path.relative_to(private_tmp)
             except ValueError:
-                for runtime_root in (
+                runtime_roots = (
                     PurePosixPath("/usr"),
                     PurePosixPath("/bin"),
                     PurePosixPath("/sbin"),
                     PurePosixPath("/lib"),
                     PurePosixPath("/lib64"),
-                ):
+                )
+                for runtime_root in runtime_roots:
                     try:
                         sandbox_path.relative_to(runtime_root)
                     except ValueError:
                         continue
-                    return Path(str(sandbox_path))
+                    candidate = Path(str(sandbox_path))
+                    try:
+                        resolved = candidate.resolve(strict=True)
+                    except OSError:
+                        return None
+                    if not any(
+                        resolved.is_relative_to(Path(str(allowed_root)))
+                        for allowed_root in runtime_roots
+                    ):
+                        return None
+                    return candidate
                 return None
             return None
         candidate = workspace.joinpath(*relative.parts).resolve()
