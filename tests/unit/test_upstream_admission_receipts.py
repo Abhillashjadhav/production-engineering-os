@@ -560,3 +560,86 @@ def test_preexisting_exact_receipt_file_is_fsynced_on_replay(
     authority.admit(**arguments)
 
     assert target in fsynced_files
+
+
+def test_replay_syncs_every_existing_ledger_parent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    root = tmp_path / "admissions"
+    authority = api.FileArtifactAdmissionAuthority(root, _FingerprintProvider())
+    arguments = {
+        "artifact_kind": "CANONICAL_CONTRACT",
+        "artifact_digest": _digest("5"),
+        "subject_bindings": {"lineage_id": "LINEAGE-016"},
+    }
+    authority.admit(**arguments)
+    fsynced_directories: set[Path] = set()
+    original_fsync = os.fsync
+
+    def recording_fsync(descriptor: int) -> None:
+        linked_path = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
+        if linked_path.is_dir():
+            fsynced_directories.add(linked_path)
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(os, "fsync", recording_fsync)
+
+    authority.admit(**arguments)
+
+    assert tmp_path in fsynced_directories
+    assert root in fsynced_directories
+    assert root / "CANONICAL_CONTRACT" in fsynced_directories
+
+
+def test_admission_rejects_noncanonical_subject_strings(tmp_path: Path) -> None:
+    api = _api()
+
+    with pytest.raises(api.AdmissionReceiptError):
+        api.FileArtifactAdmissionAuthority(tmp_path / "admissions", _FingerprintProvider()).admit(
+            artifact_kind="CANONICAL_CONTRACT",
+            artifact_digest=_digest("6"),
+            subject_bindings={"lineage_id": "\ud800"},
+        )
+
+
+def test_exact_replay_remains_idempotent_across_key_rotation(tmp_path: Path) -> None:
+    api = _api()
+
+    class RotatingProvider:
+        def __init__(self, current: str, keys: dict[str, bytes]) -> None:
+            self.key_version = current
+            self.keys = keys
+
+        def _fingerprint(self, version: str, domain: str, payload: bytes) -> str:
+            return hmac.new(
+                self.keys[version], domain.encode() + b"\0" + payload, hashlib.sha256
+            ).hexdigest()
+
+        def fingerprint(self, domain: str, payload: bytes) -> str:
+            return self._fingerprint(self.key_version, domain, payload)
+
+        def candidate_fingerprints(
+            self, domain: str, payload: bytes
+        ) -> tuple[KeyedFingerprint, ...]:
+            return tuple(
+                KeyedFingerprint(version, self._fingerprint(version, domain, payload))
+                for version in self.keys
+            )
+
+    root = tmp_path / "admissions"
+    arguments = {
+        "artifact_kind": "CANONICAL_CONTRACT",
+        "artifact_digest": _digest("7"),
+        "subject_bindings": {"lineage_id": "LINEAGE-017"},
+    }
+    original = api.FileArtifactAdmissionAuthority(
+        root, RotatingProvider("v1", {"v1": b"old-key"})
+    ).admit(**arguments)
+
+    replayed = api.FileArtifactAdmissionAuthority(
+        root,
+        RotatingProvider("v2", {"v2": b"new-key", "v1": b"old-key"}),
+    ).admit(**arguments)
+
+    assert replayed == original
