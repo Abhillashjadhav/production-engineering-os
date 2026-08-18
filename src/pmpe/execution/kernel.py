@@ -337,6 +337,8 @@ class BubblewrapSandbox:
             (
                 "--dev",
                 "/dev",
+                "--remount-ro",
+                "/dev",
                 "--proc",
                 "/proc",
                 "--size",
