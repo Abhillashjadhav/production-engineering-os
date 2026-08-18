@@ -165,9 +165,7 @@ class _FailingSandbox:
     "error_name",
     ("ExecutableUnavailable", "ExecutionTimedOut", "OutputLimitExceeded"),
 )
-def test_execution_boundary_failures_block_receipt(
-    tmp_path: Path, error_name: str
-) -> None:
+def test_execution_boundary_failures_block_receipt(tmp_path: Path, error_name: str) -> None:
     api = _api()
     repository, commit = _repository(tmp_path)
 
@@ -284,11 +282,14 @@ def test_repository_relative_executable_is_resolved_from_snapshot_workspace(
                 api.ExecutionPolicy(),
             )
     else:
-        assert runner.run(
-            tmp_path,
-            api.ExecutionCommand(argv=("./run-tests",)),
-            api.ExecutionPolicy(),
-        ).return_code == 1
+        assert (
+            runner.run(
+                tmp_path,
+                api.ExecutionCommand(argv=("./run-tests",)),
+                api.ExecutionPolicy(),
+            ).return_code
+            == 1
+        )
 
 
 def test_bubblewrap_binds_workspace_before_hiding_host_tmp(tmp_path: Path) -> None:
@@ -345,9 +346,9 @@ def test_child_stderr_prefixed_with_bwrap_is_not_a_setup_failure(
     monkeypatch.setattr(
         shutil,
         "which",
-        lambda name, path=None: "/usr/bin/bwrap"
-        if name == "bwrap"
-        else original_which(name, path=path),
+        lambda name, path=None: (
+            "/usr/bin/bwrap" if name == "bwrap" else original_which(name, path=path)
+        ),
     )
     monkeypatch.setattr(kernel_module, "_run_bounded_process", lambda *args, **kwargs: outcome)
 
