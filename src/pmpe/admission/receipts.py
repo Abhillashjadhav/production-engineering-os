@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import hmac
 import json
 import os
@@ -23,6 +25,7 @@ _FINGERPRINT_DOMAIN = "pmpe.artifact-admission.v1"
 _MAX_RECEIPT_BYTES = 64 * 1024
 _KIND = re.compile(r"[A-Z][A-Z0-9_]{1,63}\Z")
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
+_RENAME_NOREPLACE = 1
 
 
 class AdmissionReceiptError(ValueError):
@@ -34,6 +37,42 @@ class AdmissionReceiptConflictError(AdmissionReceiptError):
 
 
 AdmissionReceiptConflict = AdmissionReceiptConflictError
+
+
+def _rename_noreplace(
+    source: str,
+    target: str,
+    *,
+    source_directory: int,
+    target_directory: int,
+) -> None:
+    try:
+        renameat2 = ctypes.CDLL(None, use_errno=True).renameat2
+    except AttributeError as exc:
+        raise AdmissionReceiptError("atomic no-replace publication is unavailable") from exc
+    renameat2.argtypes = (
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    )
+    renameat2.restype = ctypes.c_int
+    result = renameat2(
+        source_directory,
+        os.fsencode(source),
+        target_directory,
+        os.fsencode(target),
+        _RENAME_NOREPLACE,
+    )
+    if result == 0:
+        return
+    error = ctypes.get_errno()
+    if error == errno.EEXIST:
+        raise FileExistsError(error, os.strerror(error), target)
+    if error in {errno.ENOSYS, errno.EINVAL, errno.ENOTSUP}:
+        raise AdmissionReceiptError("atomic no-replace publication is unavailable")
+    raise OSError(error, os.strerror(error), target)
 
 
 def _validate_subject(
@@ -145,7 +184,9 @@ class _FileReceiptBoundary:
         try:
             descriptor = os.open(
                 filename,
-                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0),
+                os.O_RDONLY
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_NONBLOCK", 0),
                 dir_fd=directory_descriptor,
             )
         except FileNotFoundError:
@@ -256,12 +297,26 @@ class FileArtifactAdmissionAuthority(_FileReceiptBoundary):
             os.fsync(descriptor)
             os.close(descriptor)
             descriptor = None
-            os.rename(
-                temporary,
-                target,
-                src_dir_fd=directory,
-                dst_dir_fd=directory,
-            )
+            try:
+                _rename_noreplace(
+                    temporary,
+                    target,
+                    source_directory=directory,
+                    target_directory=directory,
+                )
+            except FileExistsError:
+                try:
+                    raced = self._read(directory, target)
+                except AdmissionReceiptError as exc:
+                    raise AdmissionReceiptConflict(
+                        "artifact identity was claimed by unsafe authority evidence"
+                    ) from exc
+                if raced != encoded:
+                    raise AdmissionReceiptConflict(
+                        "artifact already has different authority evidence"
+                    ) from None
+                os.fsync(directory)
+                return receipt
             temporary = None
             os.fsync(directory)
         except (AdmissionReceiptError, AdmissionReceiptConflict):
