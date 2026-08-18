@@ -689,3 +689,52 @@ def test_parent_sync_failure_does_not_leak_the_open_child_directory(
         )
 
     assert len(tuple(Path("/proc/self/fd").iterdir())) == before
+
+
+def test_existing_receipt_replays_when_only_the_new_current_key_is_misconfigured(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+
+    class RotationProvider:
+        def __init__(self, current: str, *, publish_current: bool) -> None:
+            self.key_version = current
+            self.publish_current = publish_current
+
+        @staticmethod
+        def _value(version: str, domain: str, payload: bytes) -> str:
+            return hmac.new(
+                f"key-{version}".encode(),
+                domain.encode() + b"\0" + payload,
+                hashlib.sha256,
+            ).hexdigest()
+
+        def fingerprint(self, domain: str, payload: bytes) -> str:
+            return self._value(self.key_version, domain, payload)
+
+        def candidate_fingerprints(
+            self, domain: str, payload: bytes
+        ) -> tuple[KeyedFingerprint, ...]:
+            versions = ["v1"]
+            if self.publish_current:
+                versions.append(self.key_version)
+            return tuple(
+                KeyedFingerprint(version, self._value(version, domain, payload))
+                for version in dict.fromkeys(versions)
+            )
+
+    root = tmp_path / "admissions"
+    arguments = {
+        "artifact_kind": "CANONICAL_CONTRACT",
+        "artifact_digest": _digest("a"),
+        "subject_bindings": {"lineage_id": "LINEAGE-020"},
+    }
+    original = api.FileArtifactAdmissionAuthority(
+        root, RotationProvider("v1", publish_current=True)
+    ).admit(**arguments)
+
+    replayed = api.FileArtifactAdmissionAuthority(
+        root, RotationProvider("v2", publish_current=False)
+    ).admit(**arguments)
+
+    assert replayed == original
