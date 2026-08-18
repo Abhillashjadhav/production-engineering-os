@@ -438,6 +438,7 @@ def test_bare_workspace_tool_is_resolved_against_the_sandbox_mount(
     )
 
     assert observed.return_code == 1
+    assert observed.resolved_executable == "/workspace/run-tests"
 
 
 def test_bubblewrap_process_is_launched_with_resource_limits(
@@ -490,3 +491,29 @@ def test_execution_policy_rejects_noncanonical_absolute_path_entries() -> None:
 
     with pytest.raises(api.ExecutionError):
         api.ExecutionPolicy(executable_path="/workspace/../usr/bin")
+
+
+def test_execution_receipt_signs_the_resolved_sandbox_executable(tmp_path: Path) -> None:
+    api = _api()
+    repository, commit = _repository(tmp_path)
+
+    class ResolvedSandbox:
+        identity = "resolved-sandbox/1"
+
+        def run(self, workspace: Path, command: object, policy: object) -> object:
+            return api.CommandOutcome(
+                1,
+                b"meaningful red\n",
+                b"",
+                resolved_executable="/usr/bin/pytest",
+            )
+
+    result = _kernel(tmp_path, ResolvedSandbox()).execute(
+        repository=repository,
+        commit_sha=commit,
+        plan_digest="sha256:" + "9" * 64,
+        command=api.ExecutionCommand(argv=("pytest", "--json-report")),
+    )
+
+    assert result.resolved_executable == "/usr/bin/pytest"
+    assert result.receipt_bindings["resolved_executable"] == "/usr/bin/pytest"
