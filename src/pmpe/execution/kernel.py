@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import math
 import os
 import re
 import selectors
@@ -97,6 +98,10 @@ class ExecutionPolicy:
     timeout_seconds: float = 300.0
     max_output_bytes: int = 1024 * 1024
     max_archive_bytes: int = 64 * 1024 * 1024
+    max_memory_bytes: int = 1024 * 1024 * 1024
+    max_processes: int = 128
+    max_file_bytes: int = 64 * 1024 * 1024
+    max_open_files: int = 256
     executable_path: str = "/usr/local/bin:/usr/bin:/bin"
 
     def __post_init__(self) -> None:
@@ -105,8 +110,16 @@ class ExecutionPolicy:
             not 0 < self.timeout_seconds <= 3600
             or not 0 < self.max_output_bytes <= 16 * 1024 * 1024
             or not 0 < self.max_archive_bytes <= 256 * 1024 * 1024
+            or not 16 * 1024 * 1024 <= self.max_memory_bytes <= 8 * 1024 * 1024 * 1024
+            or not 0 < self.max_processes <= 1024
+            or not 0 < self.max_file_bytes <= 1024 * 1024 * 1024
+            or not 16 <= self.max_open_files <= 4096
             or not path_entries
-            or any(not entry or not Path(entry).is_absolute() for entry in path_entries)
+            or any(
+                not entry.startswith("/")
+                or any(part in {"", ".", ".."} for part in entry.split("/")[1:])
+                for entry in path_entries
+            )
             or "\0" in self.executable_path
         ):
             raise ExecutionError("execution policy exceeds its bounded domain")
@@ -117,7 +130,11 @@ class ExecutionPolicy:
             {
                 "executable_path": self.executable_path,
                 "max_archive_bytes": self.max_archive_bytes,
+                "max_file_bytes": self.max_file_bytes,
+                "max_memory_bytes": self.max_memory_bytes,
+                "max_open_files": self.max_open_files,
                 "max_output_bytes": self.max_output_bytes,
+                "max_processes": self.max_processes,
                 "timeout_seconds": self.timeout_seconds,
             }
         )
@@ -261,10 +278,11 @@ def _run_bounded_process(
 class BubblewrapSandbox:
     """Linux namespace sandbox with only the disposable workspace writable."""
 
-    identity = "bubblewrap-readonly-root-no-network/1"
+    identity = "bubblewrap-readonly-root-no-network-rlimit/2"
 
-    def __init__(self, executable: str = "bwrap") -> None:
+    def __init__(self, executable: str = "bwrap", limiter_executable: str = "prlimit") -> None:
         self.executable = executable
+        self.limiter_executable = limiter_executable
         self._available: bool | None = None
 
     def _argv(
@@ -273,9 +291,10 @@ class BubblewrapSandbox:
         command: ExecutionCommand,
         policy: ExecutionPolicy,
         status_fd: int | None = None,
+        executable: str | None = None,
     ) -> list[str]:
         argv = [
-            self.executable,
+            executable or self.executable,
             "--die-with-parent",
             "--new-session",
             "--unshare-all",
@@ -310,10 +329,63 @@ class BubblewrapSandbox:
         argv.extend(("--", *command.argv))
         return argv
 
+    def _resource_argv(
+        self,
+        *,
+        limiter: str,
+        sandbox: str,
+        workspace: Path,
+        command: ExecutionCommand,
+        policy: ExecutionPolicy,
+        status_fd: int,
+    ) -> list[str]:
+        return [
+            limiter,
+            f"--as={policy.max_memory_bytes}",
+            f"--cpu={math.ceil(policy.timeout_seconds) + 1}",
+            f"--fsize={policy.max_file_bytes}",
+            f"--nofile={policy.max_open_files}",
+            f"--nproc={policy.max_processes}",
+            "--",
+            *self._argv(
+                workspace,
+                command,
+                policy,
+                status_fd,
+                executable=sandbox,
+            ),
+        ]
+
+    @staticmethod
+    def _host_path(workspace: Path, sandbox_path: PurePosixPath) -> Path:
+        workspace_mount = PurePosixPath("/workspace")
+        private_tmp = PurePosixPath("/tmp")
+        try:
+            relative = sandbox_path.relative_to(workspace_mount)
+        except ValueError:
+            try:
+                sandbox_path.relative_to(private_tmp)
+            except ValueError:
+                return Path(str(sandbox_path))
+            return Path("")
+        candidate = workspace.joinpath(*relative.parts).resolve()
+        try:
+            candidate.relative_to(workspace.resolve())
+        except ValueError:
+            return Path("")
+        return candidate
+
+    @classmethod
+    def _host_search_path(cls, workspace: Path, executable_path: str) -> str:
+        entries = [
+            cls._host_path(workspace, PurePosixPath(entry)) for entry in executable_path.split(":")
+        ]
+        return ":".join(str(entry) for entry in entries if str(entry))
+
     def is_available(self) -> bool:
         if self._available is not None:
             return self._available
-        executable = shutil.which(self.executable)
+        executable = shutil.which(self.executable, path=_GIT_ENV["PATH"])
         if executable is None:
             self._available = False
             return False
@@ -339,7 +411,7 @@ class BubblewrapSandbox:
     ) -> CommandOutcome:
         requested = Path(command.argv[0])
         if requested.is_absolute():
-            executable = requested
+            executable = self._host_path(workspace, PurePosixPath(command.argv[0]))
         elif "/" in command.argv[0]:
             executable = (workspace / requested).resolve()
             try:
@@ -347,17 +419,31 @@ class BubblewrapSandbox:
             except ValueError:
                 executable = Path("")
         else:
-            located = shutil.which(command.argv[0], path=policy.executable_path)
+            located = shutil.which(
+                command.argv[0],
+                path=self._host_search_path(workspace, policy.executable_path),
+            )
             executable = Path(located) if located is not None else Path("")
         if not executable.is_file() or not os.access(executable, os.X_OK):
             raise ExecutableUnavailable(f"executable is unavailable: {command.argv[0]}")
-        if shutil.which(self.executable) is None:
+        sandbox = shutil.which(self.executable, path=_GIT_ENV["PATH"])
+        limiter = shutil.which(self.limiter_executable, path=_GIT_ENV["PATH"])
+        if sandbox is None:
             raise ExecutionIsolationUnavailable("bubblewrap is unavailable")
+        if limiter is None:
+            raise ExecutionIsolationUnavailable("process resource limiter is unavailable")
         if not self.is_available():
             raise ExecutionIsolationUnavailable("bubblewrap could not establish isolation")
         status_pipe = os.pipe()
         outcome = _run_bounded_process(
-            self._argv(workspace, command, policy, status_pipe[1]),
+            self._resource_argv(
+                limiter=limiter,
+                sandbox=sandbox,
+                workspace=workspace,
+                command=command,
+                policy=policy,
+                status_fd=status_pipe[1],
+            ),
             cwd=workspace,
             environment=_GIT_ENV,
             timeout_seconds=policy.timeout_seconds,

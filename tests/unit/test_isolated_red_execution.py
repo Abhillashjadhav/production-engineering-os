@@ -223,12 +223,12 @@ def test_bubblewrap_runner_blocks_missing_executable_and_bounds_output(tmp_path:
         runner.run(tmp_path, api.ExecutionCommand(argv=("definitely-not-a-tool",)), policy)
     if not runner.is_available():
         with pytest.raises(api.ExecutionIsolationUnavailable):
-            runner.run(tmp_path, api.ExecutionCommand(argv=(sys.executable, "-V")), policy)
+            runner.run(tmp_path, api.ExecutionCommand(argv=("python3", "-V")), policy)
         return
     with pytest.raises(api.OutputLimitExceeded):
         runner.run(
             tmp_path,
-            api.ExecutionCommand(argv=(sys.executable, "-c", "print('x' * 4096)")),
+            api.ExecutionCommand(argv=("python3", "-c", "print('x' * 4096)")),
             policy,
         )
 
@@ -297,7 +297,7 @@ def test_bubblewrap_binds_workspace_before_hiding_host_tmp(tmp_path: Path) -> No
     runner = api.BubblewrapSandbox()
     argv = runner._argv(  # noqa: SLF001 - exact sandbox policy is the contract under test
         tmp_path,
-        api.ExecutionCommand(argv=(sys.executable, "-V")),
+        api.ExecutionCommand(argv=("python3", "-V")),
         api.ExecutionPolicy(),
     )
 
@@ -354,7 +354,7 @@ def test_child_stderr_prefixed_with_bwrap_is_not_a_setup_failure(
 
     observed = runner.run(
         tmp_path,
-        api.ExecutionCommand(argv=(sys.executable, "-V")),
+        api.ExecutionCommand(argv=("python3", "-V")),
         api.ExecutionPolicy(),
     )
 
@@ -428,9 +428,7 @@ def test_bare_workspace_tool_is_resolved_against_the_sandbox_mount(
     monkeypatch.setattr(
         kernel_module,
         "_run_bounded_process",
-        lambda *args, **kwargs: api.CommandOutcome(
-            1, b"", b"", b'{"child-pid": 123}'
-        ),
+        lambda *args, **kwargs: api.CommandOutcome(1, b"", b"", b'{"child-pid": 123}'),
     )
 
     observed = runner.run(
@@ -474,7 +472,7 @@ def test_bubblewrap_process_is_launched_with_resource_limits(
 
     runner.run(
         tmp_path,
-        api.ExecutionCommand(argv=(sys.executable, "-V")),
+        api.ExecutionCommand(argv=("python3", "-V")),
         policy,
     )
 
