@@ -643,3 +643,51 @@ def test_exact_replay_remains_idempotent_across_key_rotation(tmp_path: Path) -> 
     ).admit(**arguments)
 
     assert replayed == original
+
+
+def test_new_receipt_is_not_published_when_current_key_is_not_verifiable(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+
+    class MisconfiguredProvider(_FingerprintProvider):
+        def candidate_fingerprints(
+            self, domain: str, payload: bytes
+        ) -> tuple[KeyedFingerprint, ...]:
+            return ()
+
+    root = tmp_path / "admissions"
+    with pytest.raises(api.AdmissionReceiptError):
+        api.FileArtifactAdmissionAuthority(root, MisconfiguredProvider()).admit(
+            artifact_kind="CANONICAL_CONTRACT",
+            artifact_digest=_digest("8"),
+            subject_bindings={"lineage_id": "LINEAGE-018"},
+        )
+
+    assert not (root / "CANONICAL_CONTRACT" / ("8" * 64 + ".json")).exists()
+
+
+def test_parent_sync_failure_does_not_leak_the_open_child_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    original_fsync = os.fsync
+
+    def failed_fsync(descriptor: int) -> None:
+        if Path(os.readlink(f"/proc/self/fd/{descriptor}")).is_dir():
+            raise OSError("injected parent sync failure")
+        original_fsync(descriptor)
+
+    before = len(tuple(Path("/proc/self/fd").iterdir()))
+    monkeypatch.setattr(os, "fsync", failed_fsync)
+
+    with pytest.raises(api.AdmissionReceiptError):
+        api.FileArtifactAdmissionAuthority(
+            tmp_path / "admissions", _FingerprintProvider()
+        ).admit(
+            artifact_kind="CANONICAL_CONTRACT",
+            artifact_digest=_digest("9"),
+            subject_bindings={"lineage_id": "LINEAGE-019"},
+        )
+
+    assert len(tuple(Path("/proc/self/fd").iterdir())) == before
