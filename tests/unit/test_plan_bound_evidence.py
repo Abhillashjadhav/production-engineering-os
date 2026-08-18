@@ -36,8 +36,19 @@ class _FingerprintProvider:
 class _OutputSandbox:
     identity = "fixture-sandbox/1"
 
-    def __init__(self, stdout: bytes, stderr: bytes = b"", return_code: int = 1) -> None:
-        self.outcome = CommandOutcome(return_code, stdout, stderr)
+    def __init__(
+        self,
+        stdout: bytes,
+        stderr: bytes = b"",
+        return_code: int = 1,
+        resolved_executable: str = "/usr/bin/pytest",
+    ) -> None:
+        self.outcome = CommandOutcome(
+            return_code,
+            stdout,
+            stderr,
+            resolved_executable=resolved_executable,
+        )
 
     def run(
         self, workspace: Path, command: ExecutionCommand, policy: ExecutionPolicy
@@ -87,7 +98,14 @@ def _execution(
     repository, commit = _repository(tmp_path)
     kernel = IsolatedExecutionKernel(
         authority=FileArtifactAdmissionAuthority(tmp_path / "receipts", _FingerprintProvider()),
-        sandbox=_OutputSandbox(stdout, stderr, return_code),
+        sandbox=_OutputSandbox(
+            stdout,
+            stderr,
+            return_code,
+            resolved_executable=(
+                "/usr/bin/node" if command.argv[0] == "node" else "/usr/bin/pytest"
+            ),
+        ),
         policy=ExecutionPolicy(timeout_seconds=5, max_output_bytes=64 * 1024),
     )
     return kernel.execute(

@@ -105,6 +105,7 @@ class MeaningfulRedGate:
                 "isolation_policy": execution.isolation_policy,
                 "plan_digest": expectation.plan_digest,
                 "policy_digest": execution.receipt_bindings.get("policy_digest", ""),
+                "resolved_executable": execution.resolved_executable,
                 "return_code": execution.return_code,
                 "stderr_digest": execution.stderr_digest,
                 "stdout_digest": execution.stdout_digest,
