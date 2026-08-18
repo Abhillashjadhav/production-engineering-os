@@ -540,6 +540,7 @@ def test_corrupted_reachable_git_object_blocks_exact_commit_execution(tmp_path: 
     blob_id = _git(repository, "rev-parse", f"{commit}:tracked.txt")
     loose_object = repository / ".git" / "objects" / blob_id[:2] / blob_id[2:]
     replacement = b"tampered!\n"
+    loose_object.chmod(loose_object.stat().st_mode | 0o200)
     loose_object.write_bytes(
         zlib.compress(b"blob " + str(len(replacement)).encode() + b"\0" + replacement)
     )
