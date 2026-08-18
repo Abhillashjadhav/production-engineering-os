@@ -461,3 +461,75 @@ def test_publication_does_not_use_replacing_rename(
     )
 
     assert receipt.artifact_digest == _digest("1")
+
+
+def test_exact_receipt_won_by_publication_race_is_fsynced_before_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    from pmpe.admission import receipts as receipt_module
+
+    fsynced_files: set[Path] = set()
+    original_fsync = os.fsync
+
+    def raced_publication(
+        source: str,
+        target: str,
+        *,
+        source_directory: int,
+        target_directory: int,
+    ) -> None:
+        source_fd = os.open(source, os.O_RDONLY, dir_fd=source_directory)
+        try:
+            payload = os.read(source_fd, 64 * 1024)
+        finally:
+            os.close(source_fd)
+        target_fd = os.open(
+            target,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+            0o600,
+            dir_fd=target_directory,
+        )
+        try:
+            os.write(target_fd, payload)
+        finally:
+            os.close(target_fd)
+        raise FileExistsError(target)
+
+    def recording_fsync(descriptor: int) -> None:
+        linked_path = Path(os.readlink(f"/proc/self/fd/{descriptor}"))
+        if linked_path.is_file():
+            fsynced_files.add(linked_path)
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(receipt_module, "_rename_noreplace", raced_publication)
+    monkeypatch.setattr(os, "fsync", recording_fsync)
+    root = tmp_path / "admissions"
+    api.FileArtifactAdmissionAuthority(root, _FingerprintProvider()).admit(
+        artifact_kind="CANONICAL_CONTRACT",
+        artifact_digest=_digest("2"),
+        subject_bindings={"lineage_id": "LINEAGE-013"},
+    )
+
+    target = root / "CANONICAL_CONTRACT" / (_digest("2")[7:] + ".json")
+    assert target in fsynced_files
+
+
+def test_surrogate_receipt_strings_fail_closed(tmp_path: Path) -> None:
+    api = _api()
+    provider = _FingerprintProvider()
+    root = tmp_path / "admissions"
+    receipt = api.FileArtifactAdmissionAuthority(root, provider).admit(
+        artifact_kind="CANONICAL_CONTRACT",
+        artifact_digest=_digest("3"),
+        subject_bindings={"lineage_id": "LINEAGE-014"},
+    )
+
+    malformed = replace(receipt, fingerprint="\ud800")
+
+    assert not api.FileArtifactAdmissionVerifier(root, provider).verify(
+        malformed,
+        artifact_kind="CANONICAL_CONTRACT",
+        artifact_digest=_digest("3"),
+        subject_bindings={"lineage_id": "LINEAGE-014"},
+    )
