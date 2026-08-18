@@ -9,6 +9,7 @@ import subprocess
 import sys
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -287,3 +288,64 @@ def test_repository_relative_executable_is_resolved_from_snapshot_workspace(
             api.ExecutionCommand(argv=("./run-tests",)),
             api.ExecutionPolicy(),
         ).return_code == 1
+
+
+def test_bubblewrap_binds_workspace_before_hiding_host_tmp(tmp_path: Path) -> None:
+    api = _api()
+    runner = api.BubblewrapSandbox()
+    argv = runner._argv(  # noqa: SLF001 - exact sandbox policy is the contract under test
+        tmp_path,
+        api.ExecutionCommand(argv=(sys.executable, "-V")),
+        api.ExecutionPolicy(),
+    )
+
+    bind_index = argv.index("--bind")
+    tmpfs_index = argv.index("--tmpfs")
+    chdir_index = argv.index("--chdir")
+    assert bind_index < tmpfs_index
+    assert argv[bind_index + 2] == "/workspace"
+    assert argv[chdir_index + 1] == "/workspace"
+
+
+def test_export_attributes_cannot_change_the_admitted_tree(tmp_path: Path) -> None:
+    api = _api()
+    repository, _ = _repository(tmp_path)
+    (repository / ".gitattributes").write_text("tracked.txt export-ignore\n")
+    _git(repository, "add", ".gitattributes")
+    _git(repository, "commit", "-qm", "archive attributes")
+    admitted_commit = _git(repository, "rev-parse", "HEAD")
+    sandbox = _MutatingSandbox()
+
+    _kernel(tmp_path, sandbox).execute(
+        repository=repository,
+        commit_sha=admitted_commit,
+        plan_digest="sha256:" + "0" * 64,
+        command=api.ExecutionCommand(argv=(sys.executable, "-c", "raise SystemExit(1)")),
+    )
+
+    assert sandbox.observed_source == "committed\n"
+
+
+def test_child_stderr_prefixed_with_bwrap_is_not_a_setup_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    from pmpe.execution import kernel as kernel_module
+
+    runner = api.BubblewrapSandbox()
+    runner._available = True  # noqa: SLF001 - skip the host-specific probe in this unit test
+    outcome = SimpleNamespace(
+        return_code=1,
+        stdout=b"",
+        stderr=b"bwrap: child assertion failed",
+        isolation_status=b'{"child-pid": 123}',
+    )
+    monkeypatch.setattr(kernel_module, "_run_bounded_process", lambda *args, **kwargs: outcome)
+
+    observed = runner.run(
+        tmp_path,
+        api.ExecutionCommand(argv=(sys.executable, "-V")),
+        api.ExecutionPolicy(),
+    )
+
+    assert observed.stderr == b"bwrap: child assertion failed"
