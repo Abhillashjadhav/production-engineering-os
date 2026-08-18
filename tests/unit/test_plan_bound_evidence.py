@@ -5,8 +5,8 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 import subprocess
-import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -841,27 +841,32 @@ def test_pytest_failure_exit_requires_at_least_one_failed_node() -> None:
     assert parsed.blocking_failure == "pytest runner error without failed node"
 
 
-def test_tap_leaf_selection_scales_linearly() -> None:
-    api = _api()
-    adapter = api.Tap13Adapter()
+def test_tap_leaf_selection_consumes_records_once() -> None:
+    from pmpe.evidence import adapters as adapter_module
 
-    def elapsed(count: int) -> float:
-        payload = (
-            "TAP version 13\n"
-            + "\n".join(f"ok {index} - node-{index}" for index in range(1, count + 1))
-            + f"\n1..{count}\n"
-        ).encode()
-        started = time.perf_counter()
-        parsed = adapter.parse(payload, b"", 0)
-        duration = time.perf_counter() - started
-        assert len(parsed.nodes) == count
-        return duration
+    class SinglePassRecords(list[tuple[int, int, re.Match[str]]]):
+        iterations = 0
 
-    elapsed(100)
-    small = elapsed(1000)
-    large = elapsed(4000)
+        def __iter__(self):  # type: ignore[no-untyped-def]
+            self.iterations += 1
+            assert self.iterations == 1
+            return super().__iter__()
 
-    assert large < small * 10
+    records = SinglePassRecords()
+    for index, (indent, line) in enumerate(
+        (
+            (4, "ok 1 - child"),
+            (0, "not ok 1 - parent"),
+            (0, "ok 2 - leaf"),
+        )
+    ):
+        match = adapter_module._TAP_RESULT.fullmatch(line)  # noqa: SLF001
+        assert match is not None
+        records.append((index, indent, match))
+
+    selected = list(adapter_module._tap_leaf_records(records))  # noqa: SLF001
+
+    assert [record[0] for record in selected] == [0, 2]
 
 
 def test_pytest_evidence_rejects_workspace_configuration_and_conftest_hooks() -> None:

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from pathlib import PurePosixPath
 from typing import Any, Protocol, runtime_checkable
 
@@ -107,6 +107,18 @@ def _tap_plan_is_consistent(
     return bool(records) and covered == {index for index, _, _ in records}
 
 
+def _tap_leaf_records(
+    records: Iterable[tuple[int, int, re.Match[str]]],
+) -> Iterator[tuple[int, int, re.Match[str]]]:
+    previous_indent: int | None = None
+    for record in records:
+        _index, indent, _match = record
+        is_parent_summary = previous_indent is not None and previous_indent > indent
+        previous_indent = indent
+        if not is_parent_summary:
+            yield record
+
+
 def _tap_assertion_id(title: str) -> str:
     matches = _TAP_ASSERTION_MARKER.findall(title)
     return matches[0] if len(matches) == 1 else ""
@@ -198,6 +210,9 @@ class PytestJsonReportAdapter:
                 return ParsedEvidence((), "malformed pytest node result")
             call = _mapping(test.get("call"))
             setup = _mapping(test.get("setup"))
+            teardown = _mapping(test.get("teardown"))
+            if teardown.get("outcome") == "failed":
+                return ParsedEvidence((), f"pytest teardown failure: {node_id}")
             if outcome == "passed":
                 failure_kind = ""
             elif outcome == "skipped":
@@ -301,14 +316,7 @@ class Tap13Adapter:
             stripped = lines[index].strip()
             if _TAP_RESULT.fullmatch(stripped) or _TAP_PLAN.fullmatch(stripped):
                 next_boundary = index
-        previous_record_indent: int | None = None
-        for record_index, indent, record in records:
-            is_parent_summary = (
-                previous_record_indent is not None and previous_record_indent > indent
-            )
-            previous_record_indent = indent
-            if is_parent_summary:
-                continue
+        for record_index, _indent, record in _tap_leaf_records(records):
             outcome = "passed" if record.group(1) == "ok" else "failed"
             title = record.group(3)
             assertion_id = _tap_assertion_id(title)
