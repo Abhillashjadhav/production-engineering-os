@@ -207,7 +207,11 @@ class _FileReceiptBoundary:
                         os.mkdir(component, 0o700, dir_fd=descriptor)
                     child = os.open(component, flags, dir_fd=descriptor)
                 if create:
-                    os.fsync(descriptor)
+                    try:
+                        os.fsync(descriptor)
+                    except OSError:
+                        os.close(child)
+                        raise
                 os.close(descriptor)
                 descriptor = child
             return descriptor
@@ -317,6 +321,10 @@ class FileArtifactAdmissionAuthority(_FileReceiptBoundary):
                 "receipt_digest": canonical_digest(payload),
             }
         )
+        if not _provider_verifies(receipt, self.provider):
+            raise AdmissionReceiptError(
+                "current admission key is absent or inconsistent in the candidate set"
+            )
         encoded = canonical_json_bytes(receipt.as_dict()) + b"\n"
         if len(encoded) > _MAX_RECEIPT_BYTES:
             raise AdmissionReceiptError("admission receipt exceeds its size limit")

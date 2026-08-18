@@ -682,9 +682,7 @@ def test_parent_sync_failure_does_not_leak_the_open_child_directory(
     monkeypatch.setattr(os, "fsync", failed_fsync)
 
     with pytest.raises(api.AdmissionReceiptError):
-        api.FileArtifactAdmissionAuthority(
-            tmp_path / "admissions", _FingerprintProvider()
-        ).admit(
+        api.FileArtifactAdmissionAuthority(tmp_path / "admissions", _FingerprintProvider()).admit(
             artifact_kind="CANONICAL_CONTRACT",
             artifact_digest=_digest("9"),
             subject_bindings={"lineage_id": "LINEAGE-019"},
