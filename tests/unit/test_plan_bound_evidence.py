@@ -177,9 +177,7 @@ def test_planted_pytest_assertion_failure_authorizes_meaningful_red(tmp_path: Pa
     api = _api()
     stdout = _pytest_report()
     command = ExecutionCommand(("pytest", "--json-report"))
-    result = _execution(
-        tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
-    )
+    result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
 
     decision = _gate(tmp_path).evaluate(
         expectations=(_expectation(command=command, execution=result),),
@@ -234,9 +232,7 @@ def test_non_python_tap13_adapter_proves_assertion_behavior(tmp_path: Path) -> N
     api = _api()
     stdout = _tap_assertion_report()
     command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
-    result = _execution(
-        tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
-    )
+    result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
     expectation = _expectation(
         tool="node:test",
         evidence_format="tap13/v1",
@@ -259,20 +255,20 @@ def test_missing_duplicate_and_unknown_command_results_are_rejected(tmp_path: Pa
     api = _api()
     stdout = _pytest_report()
     command = ExecutionCommand(("pytest", "--json-report"))
-    result = _execution(
-        tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
-    )
+    result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
     expectation = _expectation(command=command, execution=result)
     submission = api.EvidenceSubmission("CMD-001", result, stdout, b"")
 
     assert not _gate(tmp_path).evaluate(expectations=(expectation,), submissions=()).authorized
-    assert not _gate(tmp_path).evaluate(
-        expectations=(expectation,), submissions=(submission, submission)
-    ).authorized
+    assert (
+        not _gate(tmp_path)
+        .evaluate(expectations=(expectation,), submissions=(submission, submission))
+        .authorized
+    )
     unknown = replace(submission, command_id="CMD-UNKNOWN")
-    assert not _gate(tmp_path).evaluate(
-        expectations=(expectation,), submissions=(unknown,)
-    ).authorized
+    assert (
+        not _gate(tmp_path).evaluate(expectations=(expectation,), submissions=(unknown,)).authorized
+    )
 
 
 @pytest.mark.parametrize(
@@ -290,9 +286,7 @@ def test_wrong_tool_format_node_or_assertion_is_rejected(
 ) -> None:
     api = _api()
     command = ExecutionCommand(("pytest", "--json-report"))
-    result = _execution(
-        tmp_path, payload, command=command, plan_digest="sha256:" + "a" * 64
-    )
+    result = _execution(tmp_path, payload, command=command, plan_digest="sha256:" + "a" * 64)
 
     decision = _gate(tmp_path).evaluate(
         expectations=(_expectation(command=command, execution=result, **expectation_changes),),
@@ -336,21 +330,21 @@ def test_raw_output_tampering_and_forged_execution_receipt_are_rejected(tmp_path
     api = _api()
     stdout = _pytest_report()
     command = ExecutionCommand(("pytest", "--json-report"))
-    result = _execution(
-        tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
-    )
+    result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
     expectation = _expectation(command=command, execution=result)
 
     tampered = api.EvidenceSubmission("CMD-001", result, stdout + b" ", b"")
-    assert not _gate(tmp_path).evaluate(
-        expectations=(expectation,), submissions=(tampered,)
-    ).authorized
+    assert (
+        not _gate(tmp_path)
+        .evaluate(expectations=(expectation,), submissions=(tampered,))
+        .authorized
+    )
 
     forged_result = replace(result, receipt=replace(result.receipt, fingerprint="0" * 64))
     forged = api.EvidenceSubmission("CMD-001", forged_result, stdout, b"")
-    assert not _gate(tmp_path).evaluate(
-        expectations=(expectation,), submissions=(forged,)
-    ).authorized
+    assert (
+        not _gate(tmp_path).evaluate(expectations=(expectation,), submissions=(forged,)).authorized
+    )
 
 
 def test_registry_rejects_unsupported_or_duplicate_tool_format_pairs() -> None:
@@ -369,9 +363,7 @@ def test_declared_adapter_must_match_the_executed_tool(tmp_path: Path) -> None:
     api = _api()
     stdout = _pytest_report()
     command = ExecutionCommand(("python", "emit_fabricated.py"))
-    result = _execution(
-        tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
-    )
+    result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
 
     decision = _gate(tmp_path).evaluate(
         expectations=(_expectation(command=command, execution=result),),
@@ -386,21 +378,23 @@ def test_expectation_binds_exact_commit_and_subject_digest(tmp_path: Path) -> No
     api = _api()
     stdout = _pytest_report()
     command = ExecutionCommand(("pytest", "--json-report"))
-    result = _execution(
-        tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
-    )
+    result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
     expected = _expectation(command=command, execution=result)
     submission = api.EvidenceSubmission("CMD-001", result, stdout, b"")
 
     wrong_commit = replace(expected, commit_sha="f" * 40)
     wrong_subject = replace(expected, subject_digest="sha256:" + "f" * 64)
 
-    assert not _gate(tmp_path).evaluate(
-        expectations=(wrong_commit,), submissions=(submission,)
-    ).authorized
-    assert not _gate(tmp_path).evaluate(
-        expectations=(wrong_subject,), submissions=(submission,)
-    ).authorized
+    assert (
+        not _gate(tmp_path)
+        .evaluate(expectations=(wrong_commit,), submissions=(submission,))
+        .authorized
+    )
+    assert (
+        not _gate(tmp_path)
+        .evaluate(expectations=(wrong_subject,), submissions=(submission,))
+        .authorized
+    )
 
 
 def test_signed_execution_fields_are_recomputed_before_parsing(tmp_path: Path) -> None:
@@ -439,9 +433,7 @@ def test_pytest_configuration_name_containing_assert_is_not_assertion(
     api = _api()
     stdout = _pytest_report(message="fixture 'assertion_client' not found")
     command = ExecutionCommand(("pytest", "--json-report"))
-    result = _execution(
-        tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
-    )
+    result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
 
     decision = _gate(tmp_path).evaluate(
         expectations=(_expectation(command=command, execution=result),),
@@ -516,9 +508,7 @@ def test_tap_skip_directive_is_not_counted_as_a_pass(tmp_path: Path) -> None:
         b"ok 2 - optional feature # SKIP unavailable\n1..2\n",
     )
     command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
-    result = _execution(
-        tmp_path, payload, command=command, plan_digest="sha256:" + "a" * 64
-    )
+    result = _execution(tmp_path, payload, command=command, plan_digest="sha256:" + "a" * 64)
     expectation = _expectation(
         tool="node:test",
         evidence_format="tap13/v1",
@@ -557,9 +547,7 @@ def test_adapter_rejects_repository_relative_tool_impersonation(
     api = _api()
     expectation = _expectation(
         tool="pytest" if "pytest" in command.argv[0] else "node:test",
-        evidence_format=(
-            "pytest-json-report/v1" if "pytest" in command.argv[0] else "tap13/v1"
-        ),
+        evidence_format=("pytest-json-report/v1" if "pytest" in command.argv[0] else "tap13/v1"),
         command=command,
     )
 
@@ -571,9 +559,7 @@ def test_pytest_runtime_error_containing_assert_is_not_assertion(tmp_path: Path)
     api = _api()
     stdout = _pytest_report(message="NameError: name 'assertion_client' is not defined")
     command = ExecutionCommand(("pytest", "--json-report"))
-    result = _execution(
-        tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
-    )
+    result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
 
     decision = _gate(tmp_path).evaluate(
         expectations=(_expectation(command=command, execution=result),),
@@ -588,9 +574,7 @@ def test_generic_node_assertion_code_is_not_a_plan_assertion(tmp_path: Path) -> 
     api = _api()
     stdout = _tap_assertion_report().replace(b" [assertion:ASSERT-001]", b"")
     command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
-    result = _execution(
-        tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
-    )
+    result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
     expectation = _expectation(
         tool="node:test",
         evidence_format="tap13/v1",
@@ -627,9 +611,7 @@ not ok 1 - feature suite
 1..1
 """
     command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
-    result = _execution(
-        tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64
-    )
+    result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
     expectation = _expectation(
         tool="node:test",
         evidence_format="tap13/v1",

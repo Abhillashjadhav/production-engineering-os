@@ -85,9 +85,10 @@ class MeaningfulRedGate:
             if execution.receipt_bindings.get("command_digest") != expected_command_digest:
                 reasons.append(f"{expectation.command_id}: wrong command digest")
                 continue
-            if _digest(submission.stdout) != execution.stdout_digest or _digest(
-                submission.stderr
-            ) != execution.stderr_digest:
+            if (
+                _digest(submission.stdout) != execution.stdout_digest
+                or _digest(submission.stderr) != execution.stderr_digest
+            ):
                 reasons.append(f"{expectation.command_id}: raw output digest mismatch")
                 continue
             if not self.verifier.verify(

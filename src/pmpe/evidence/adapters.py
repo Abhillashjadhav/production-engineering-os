@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 from collections.abc import Iterable, Mapping
 from typing import Any, Protocol, runtime_checkable
@@ -17,8 +16,12 @@ from pmpe.evidence.models import (
 )
 from pmpe.execution import ExecutionCommand
 
-_TAP_RESULT = re.compile(r"(ok|not ok)\s+[0-9]+\s+-\s+(.+?)(?:\s+#\s+(.+))?\Z")
+_TAP_RESULT = re.compile(r"(ok|not ok)\s+([0-9]+)\s+-\s+(.+?)(?:\s+#\s+(.+))?\Z")
 _TAP_PLAN = re.compile(r"1\.\.([0-9]+)\Z")
+_TAP_ASSERTION_MARKER = re.compile(
+    r"(?:^|\s)\[assertion:([A-Za-z0-9][A-Za-z0-9._:/-]{0,255})\](?=\s|\Z)"
+)
+_PYTHON_RUNNER = re.compile(r"python(?:3(?:\.[0-9]+)?)?\Z")
 
 
 def _digest(payload: bytes) -> str:
@@ -43,6 +46,63 @@ def _mapping(value: object) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 
 
+def _pytest_failure_kind(
+    test: Mapping[str, Any], call: Mapping[str, Any], setup: Mapping[str, Any]
+) -> str:
+    if setup.get("outcome") == "failed":
+        return "configuration"
+    crash = _mapping(call.get("crash"))
+    message = crash.get("message", "")
+    if not isinstance(message, str):
+        return "error"
+    normalized = message.strip()
+    if re.match(r"(?i)^(?:fixture|setup|configuration|config)\b", normalized):
+        return "configuration"
+    longrepr = call.get("longrepr", test.get("longrepr", ""))
+    traceback_assertion = isinstance(longrepr, str) and any(
+        line.lstrip().startswith("E   assert ")
+        or re.match(r"^AssertionError(?::|\Z)", line.strip())
+        for line in longrepr.splitlines()
+    )
+    message_assertion = bool(re.match(r"^(?:AssertionError(?::|\Z)|assert(?:\s|\())", normalized))
+    return "assertion" if message_assertion or traceback_assertion else "error"
+
+
+def _leading_spaces(line: str) -> int:
+    prefix = line[: len(line) - len(line.lstrip())]
+    if "\t" in prefix:
+        return -1
+    return len(prefix)
+
+
+def _tap_plan_is_consistent(
+    records: list[tuple[int, int, re.Match[str]]],
+    plans: list[tuple[int, int, re.Match[str]]],
+) -> bool:
+    covered: set[int] = set()
+    previous_plan: dict[int, int] = {}
+    for plan_index, indent, plan in plans:
+        start = previous_plan.get(indent, -1)
+        scoped = [
+            (index, result)
+            for index, result_indent, result in records
+            if result_indent == indent and start < index < plan_index
+        ]
+        count = int(plan.group(1))
+        if count != len(scoped) or [int(result.group(2)) for _, result in scoped] != list(
+            range(1, count + 1)
+        ):
+            return False
+        covered.update(index for index, _ in scoped)
+        previous_plan[indent] = plan_index
+    return bool(records) and covered == {index for index, _, _ in records}
+
+
+def _tap_assertion_id(title: str) -> str:
+    matches = _TAP_ASSERTION_MARKER.findall(title)
+    return matches[0] if len(matches) == 1 else ""
+
+
 @runtime_checkable
 class EvidenceAdapter(Protocol):
     tool: str
@@ -58,9 +118,12 @@ class PytestJsonReportAdapter:
     evidence_format = "pytest-json-report/v1"
 
     def supports(self, command: ExecutionCommand) -> bool:
-        executable = os.path.basename(command.argv[0])
+        executable = command.argv[0]
         direct = executable in {"pytest", "py.test"}
-        module = executable.startswith("python") and command.argv[1:3] == ("-m", "pytest")
+        module = bool(_PYTHON_RUNNER.fullmatch(executable)) and command.argv[1:3] == (
+            "-m",
+            "pytest",
+        )
         return (direct or module) and "--json-report" in command.argv
 
     def parse(self, stdout: bytes, stderr: bytes, return_code: int) -> ParsedEvidence:
@@ -97,21 +160,12 @@ class PytestJsonReportAdapter:
                 return ParsedEvidence((), "malformed pytest node result")
             call = _mapping(test.get("call"))
             setup = _mapping(test.get("setup"))
-            message = str(_mapping(call.get("crash")).get("message", ""))
-            setup_message = str(_mapping(setup.get("crash")).get("message", ""))
             if outcome == "passed":
                 failure_kind = ""
             elif outcome == "skipped":
                 failure_kind = "skip"
-            elif setup.get("outcome") == "failed" or any(
-                word in (setup_message + message).lower()
-                for word in ("fixture", "setup", "config")
-            ):
-                failure_kind = "configuration"
-            elif "assert" in message.lower():
-                failure_kind = "assertion"
             else:
-                failure_kind = "error"
+                failure_kind = _pytest_failure_kind(test, call, setup)
             nodes.append(
                 NodeEvidence(
                     node_id=node_id,
@@ -131,12 +185,11 @@ class Tap13Adapter:
     evidence_format = "tap13/v1"
 
     def supports(self, command: ExecutionCommand) -> bool:
-        executable = os.path.basename(command.argv[0])
         reporter = "--test-reporter=tap" in command.argv or any(
             command.argv[index : index + 2] == ("--test-reporter", "tap")
             for index in range(len(command.argv) - 1)
         )
-        return executable == "node" and "--test" in command.argv and reporter
+        return command.argv[0] == "node" and "--test" in command.argv and reporter
 
     def parse(self, stdout: bytes, stderr: bytes, return_code: int) -> ParsedEvidence:
         if return_code == 124:
@@ -144,57 +197,78 @@ class Tap13Adapter:
         if return_code not in {0, 1}:
             return ParsedEvidence((), "runner error")
         try:
-            lines = [line.strip() for line in stdout.decode("utf-8").splitlines() if line.strip()]
+            lines = [line for line in stdout.decode("utf-8").splitlines() if line.strip()]
         except UnicodeDecodeError:
             return ParsedEvidence((), "malformed TAP13 evidence")
-        if not lines or lines[0] != "TAP version 13":
+        if not lines or lines[0].strip() != "TAP version 13":
             return ParsedEvidence((), "malformed TAP13 evidence")
-        if any(line.lower().startswith("bail out!") for line in lines):
+        if any(line.strip().lower().startswith("bail out!") for line in lines):
             return ParsedEvidence((), "TAP13 bailout")
-        plan_values = [match for line in lines if (match := _TAP_PLAN.fullmatch(line))]
-        records = [
-            (index, match)
+        if any(_leading_spaces(line) < 0 for line in lines):
+            return ParsedEvidence((), "malformed TAP13 indentation")
+        plans = [
+            (index, _leading_spaces(line), match)
             for index, line in enumerate(lines)
-            if (match := _TAP_RESULT.fullmatch(line))
+            if (match := _TAP_PLAN.fullmatch(line.strip()))
         ]
-        if len(plan_values) != 1 or int(plan_values[0].group(1)) != len(records) or not records:
+        records = [
+            (index, _leading_spaces(line), match)
+            for index, line in enumerate(lines)
+            if (match := _TAP_RESULT.fullmatch(line.strip()))
+        ]
+        if not _tap_plan_is_consistent(records, plans):
             return ParsedEvidence((), "vacuous or inconsistent TAP13 plan")
         raw_digest = _digest(stdout)
         nodes: list[NodeEvidence] = []
-        for record_index, record in records:
+        for record_index, indent, record in records:
+            previous_peer = max(
+                (
+                    index
+                    for index, record_indent, _ in records
+                    if record_indent == indent and index < record_index
+                ),
+                default=-1,
+            )
+            if any(
+                previous_peer < child_index < record_index and child_indent > indent
+                for child_index, child_indent, _ in records
+            ):
+                continue
             outcome = "passed" if record.group(1) == "ok" else "failed"
-            metadata = {}
-            for token in (record.group(3) or "").split():
-                key, separator, value = token.partition("=")
-                if separator:
-                    metadata[key] = value
-            directive = record.group(3) or ""
+            title = record.group(3)
+            assertion_id = _tap_assertion_id(title)
+            directive = record.group(4) or ""
             if directive.upper().startswith("SKIP"):
                 outcome = "skipped"
                 failure_kind = "skip"
                 assertion_id = ""
             elif outcome == "passed":
                 failure_kind = ""
-                assertion_id = metadata.get("assertion", "")
             else:
-                failure_kind = metadata.get("kind", "error")
-                assertion_id = metadata.get("assertion", "")
                 boundary = next(
                     (
                         index
-                        for index in range(record_index + 1, len(lines))
-                        if _TAP_RESULT.fullmatch(lines[index]) or _TAP_PLAN.fullmatch(lines[index])
+                        for index, boundary_line in enumerate(
+                            lines[record_index + 1 :], start=record_index + 1
+                        )
+                        if _leading_spaces(boundary_line) <= indent
+                        and (
+                            _TAP_RESULT.fullmatch(boundary_line.strip())
+                            or _TAP_PLAN.fullmatch(boundary_line.strip())
+                        )
                     ),
                     len(lines),
                 )
                 diagnostics = "\n".join(lines[record_index + 1 : boundary])
                 code_match = re.search(r"\bcode:\s*['\"]?([A-Za-z0-9_]+)", diagnostics)
-                if code_match and code_match.group(1) == "ERR_ASSERTION":
-                    failure_kind = "assertion"
-                    assertion_id = code_match.group(1)
+                failure_kind = (
+                    "assertion"
+                    if code_match and code_match.group(1) == "ERR_ASSERTION" and assertion_id
+                    else "error"
+                )
             nodes.append(
                 NodeEvidence(
-                    node_id=record.group(2),
+                    node_id=title,
                     outcome=outcome,
                     failure_kind=failure_kind,
                     assertion_id=assertion_id,
@@ -231,9 +305,7 @@ class EvidenceAdapterRegistry:
         for expectation in expectations:
             adapter = self.resolve(expectation.tool, expectation.evidence_format)
             if not adapter.supports(expectation.command):
-                raise EvidenceError(
-                    f"declared tool does not match command: {expectation.tool}"
-                )
+                raise EvidenceError(f"declared tool does not match command: {expectation.tool}")
 
 
 def default_adapter_registry() -> EvidenceAdapterRegistry:
