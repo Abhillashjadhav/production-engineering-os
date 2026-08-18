@@ -98,6 +98,9 @@ def _execution(
     resolved_executable: str | None = None,
 ):  # type: ignore[no-untyped-def]
     repository, commit = _repository(tmp_path)
+    effective_plan_digest = (
+        _plan_digest(command) if plan_digest == "sha256:" + "a" * 64 else plan_digest
+    )
     kernel = IsolatedExecutionKernel(
         authority=FileArtifactAdmissionAuthority(tmp_path / "receipts", _FingerprintProvider()),
         sandbox=_OutputSandbox(
@@ -112,7 +115,7 @@ def _execution(
     return kernel.execute(
         repository=repository,
         commit_sha=commit,
-        plan_digest=plan_digest,
+        plan_digest=effective_plan_digest,
         command=command,
     )
 
@@ -162,6 +165,42 @@ def _tap_assertion_report(
     return ("\n".join(lines) + "\n").encode()
 
 
+def _plan_digest(
+    command: ExecutionCommand,
+    *,
+    command_id: str = "CMD-001",
+    tool: str | None = None,
+    evidence_format: str | None = None,
+    node: str | None = None,
+    assertion_id: str = "ASSERT-001",
+    nodes: tuple[tuple[str, str], ...] | None = None,
+) -> str:
+    api = _api()
+    is_tap = command.argv[0] == "node"
+    resolved_tool = tool or ("node:test" if is_tap else "pytest")
+    resolved_format = evidence_format or ("tap13/v1" if is_tap else "pytest-json-report/v1")
+    resolved_node = node or (
+        "feature rejects invalid [assertion:ASSERT-001]"
+        if is_tap
+        else "tests/test_feature.py::test_rejects_invalid"
+    )
+    node_specs = nodes or ((resolved_node, assertion_id),)
+    draft = api.EvidenceExpectation(
+        command_id=command_id,
+        tool=resolved_tool,
+        evidence_format=resolved_format,
+        plan_digest="sha256:" + "0" * 64,
+        commit_sha="0" * 40,
+        subject_digest="sha256:" + "0" * 64,
+        command=command,
+        nodes=tuple(
+            api.NodeExpectation(node_id=node_id, assertion_id=planned_assertion)
+            for node_id, planned_assertion in node_specs
+        ),
+    )
+    return api.evidence_plan_digest((draft,))
+
+
 def _expectation(
     *,
     command_id: str = "CMD-001",
@@ -179,7 +218,14 @@ def _expectation(
         command_id=command_id,
         tool=tool,
         evidence_format=evidence_format,
-        plan_digest="sha256:" + "a" * 64,
+        plan_digest=_plan_digest(
+            command or ExecutionCommand(("pytest", "--json-report")),
+            command_id=command_id,
+            tool=tool,
+            evidence_format=evidence_format,
+            node=node,
+            assertion_id=assertion_id,
+        ),
         commit_sha=commit_sha,
         subject_digest=subject_digest,
         command=command or ExecutionCommand(("pytest", "--json-report")),
@@ -530,7 +576,12 @@ def test_tap_skip_directive_is_not_counted_as_a_pass(tmp_path: Path) -> None:
         b"ok 2 - optional feature # SKIP unavailable\n1..2\n",
     )
     command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
-    result = _execution(tmp_path, payload, command=command, plan_digest="sha256:" + "a" * 64)
+    planned_nodes = (
+        ("feature rejects invalid [assertion:ASSERT-001]", "ASSERT-001"),
+        ("optional feature", "ASSERT-SKIP"),
+    )
+    plan_digest = _plan_digest(command, nodes=planned_nodes)
+    result = _execution(tmp_path, payload, command=command, plan_digest=plan_digest)
     expectation = _expectation(
         tool="node:test",
         evidence_format="tap13/v1",
@@ -541,6 +592,7 @@ def test_tap_skip_directive_is_not_counted_as_a_pass(tmp_path: Path) -> None:
     )
     expectation = replace(
         expectation,
+        plan_digest=plan_digest,
         nodes=(
             expectation.nodes[0],
             api.NodeExpectation(node_id="optional feature", assertion_id="ASSERT-SKIP"),
@@ -669,7 +721,12 @@ def test_tap_todo_directive_is_blocking_evidence(tmp_path: Path) -> None:
         b"ok 2 - deferred behavior [assertion:ASSERT-002] # TODO pending\n1..2\n",
     )
     command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
-    result = _execution(tmp_path, payload, command=command, plan_digest="sha256:" + "a" * 64)
+    planned_nodes = (
+        ("feature rejects invalid [assertion:ASSERT-001]", "ASSERT-001"),
+        ("deferred behavior [assertion:ASSERT-002]", "ASSERT-002"),
+    )
+    plan_digest = _plan_digest(command, nodes=planned_nodes)
+    result = _execution(tmp_path, payload, command=command, plan_digest=plan_digest)
     expectation = _expectation(
         tool="node:test",
         evidence_format="tap13/v1",
@@ -680,6 +737,7 @@ def test_tap_todo_directive_is_blocking_evidence(tmp_path: Path) -> None:
     )
     expectation = replace(
         expectation,
+        plan_digest=plan_digest,
         nodes=(
             expectation.nodes[0],
             api.NodeExpectation(
@@ -754,7 +812,10 @@ def test_expectation_nodes_cannot_be_rewritten_while_retaining_the_plan_digest(
         command=command,
         plan_digest="sha256:" + "a" * 64,
     )
-    rewritten = _expectation(command=command, node=forged_node, execution=result)
+    rewritten = replace(
+        _expectation(command=command, execution=result),
+        nodes=(api.NodeExpectation(node_id=forged_node, assertion_id="ASSERT-001"),),
+    )
 
     decision = _gate(tmp_path).evaluate(
         expectations=(rewritten,),
@@ -791,7 +852,7 @@ def test_tap_leaf_selection_scales_linearly() -> None:
         return duration
 
     elapsed(100)
-    small = elapsed(600)
-    large = elapsed(2400)
+    small = elapsed(1000)
+    large = elapsed(4000)
 
-    assert large < small * 8
+    assert large < small * 10

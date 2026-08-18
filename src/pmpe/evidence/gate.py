@@ -13,6 +13,7 @@ from pmpe.evidence.models import (
     EvidenceExpectation,
     EvidenceSubmission,
     NodeEvidence,
+    evidence_plan_digest,
 )
 
 
@@ -40,6 +41,16 @@ class MeaningfulRedGate:
         nodes: list[NodeEvidence] = []
         if not expectations:
             return EvidenceDecision(False, (), ("vacuous plan has no admitted commands",))
+        claimed_plan_digests = {item.plan_digest for item in expectations}
+        if (
+            len(claimed_plan_digests) != 1
+            or evidence_plan_digest(expectations) not in claimed_plan_digests
+        ):
+            return EvidenceDecision(
+                False,
+                (),
+                ("expectation contents do not match the admitted plan digest",),
+            )
         try:
             self.registry.validate_expectations(expectations)
         except EvidenceError as exc:

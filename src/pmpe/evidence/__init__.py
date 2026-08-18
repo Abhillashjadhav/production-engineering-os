@@ -14,6 +14,7 @@ from pmpe.evidence.models import (
     EvidenceSubmission,
     NodeEvidence,
     NodeExpectation,
+    evidence_plan_digest,
 )
 
 __all__ = [
@@ -22,6 +23,7 @@ __all__ = [
     "EvidenceError",
     "EvidenceExpectation",
     "EvidenceSubmission",
+    "evidence_plan_digest",
     "MeaningfulRedGate",
     "NodeEvidence",
     "NodeExpectation",

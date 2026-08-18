@@ -82,21 +82,27 @@ def _tap_plan_is_consistent(
     records: list[tuple[int, int, re.Match[str]]],
     plans: list[tuple[int, int, re.Match[str]]],
 ) -> bool:
+    records_by_indent: dict[int, list[tuple[int, int]]] = {}
+    for index, indent, result in records:
+        records_by_indent.setdefault(indent, []).append((index, int(result.group(2))))
     covered: set[int] = set()
     previous_plan: dict[int, int] = {}
+    positions: dict[int, int] = {}
     for plan_index, indent, plan in plans:
         start = previous_plan.get(indent, -1)
-        scoped = [
-            (index, result)
-            for index, result_indent, result in records
-            if result_indent == indent and start < index < plan_index
-        ]
+        peers = records_by_indent.get(indent, [])
+        position = positions.get(indent, 0)
+        while position < len(peers) and peers[position][0] <= start:
+            position += 1
+        scoped_start = position
+        while position < len(peers) and peers[position][0] < plan_index:
+            position += 1
+        scoped = peers[scoped_start:position]
         count = int(plan.group(1))
-        if count != len(scoped) or [int(result.group(2)) for _, result in scoped] != list(
-            range(1, count + 1)
-        ):
+        if count != len(scoped) or [number for _, number in scoped] != list(range(1, count + 1)):
             return False
-        covered.update(index for index, _ in scoped)
+        covered.update(index for index, _number in scoped)
+        positions[indent] = position
         previous_plan[indent] = plan_index
     return bool(records) and covered == {index for index, _, _ in records}
 
@@ -193,6 +199,8 @@ class PytestJsonReportAdapter:
             )
         if exitcode == 0 and any(node.outcome == "failed" for node in nodes):
             return ParsedEvidence((), "pytest success contradicts failed node")
+        if exitcode == 1 and not any(node.outcome == "failed" for node in nodes):
+            return ParsedEvidence((), "pytest runner error without failed node")
         return ParsedEvidence(tuple(nodes))
 
 
@@ -239,19 +247,20 @@ class Tap13Adapter:
             return ParsedEvidence((), "vacuous or inconsistent TAP13 plan")
         raw_digest = _digest(stdout)
         nodes: list[NodeEvidence] = []
+        next_boundary = len(lines)
+        boundaries: dict[int, int] = {}
+        for index in range(len(lines) - 1, -1, -1):
+            boundaries[index] = next_boundary
+            stripped = lines[index].strip()
+            if _TAP_RESULT.fullmatch(stripped) or _TAP_PLAN.fullmatch(stripped):
+                next_boundary = index
+        previous_record_indent: int | None = None
         for record_index, indent, record in records:
-            previous_peer = max(
-                (
-                    index
-                    for index, record_indent, _ in records
-                    if record_indent == indent and index < record_index
-                ),
-                default=-1,
+            is_parent_summary = (
+                previous_record_indent is not None and previous_record_indent > indent
             )
-            if any(
-                previous_peer < child_index < record_index and child_indent > indent
-                for child_index, child_indent, _ in records
-            ):
+            previous_record_indent = indent
+            if is_parent_summary:
                 continue
             outcome = "passed" if record.group(1) == "ok" else "failed"
             title = record.group(3)
@@ -268,20 +277,7 @@ class Tap13Adapter:
             elif outcome == "passed":
                 failure_kind = ""
             else:
-                boundary = next(
-                    (
-                        index
-                        for index, boundary_line in enumerate(
-                            lines[record_index + 1 :], start=record_index + 1
-                        )
-                        if _leading_spaces(boundary_line) <= indent
-                        and (
-                            _TAP_RESULT.fullmatch(boundary_line.strip())
-                            or _TAP_PLAN.fullmatch(boundary_line.strip())
-                        )
-                    ),
-                    len(lines),
-                )
+                boundary = boundaries[record_index]
                 diagnostics = "\n".join(lines[record_index + 1 : boundary])
                 code_match = re.search(r"\bcode:\s*['\"]?([A-Za-z0-9_]+)", diagnostics)
                 diagnostic_assertions = set(_TAP_ASSERTION_MARKER.findall(diagnostics))

@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 
+from pmpe.contracts.canonical import canonical_digest
 from pmpe.execution import ExecutionCommand, ExecutionResult
 
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}\Z")
@@ -60,6 +62,29 @@ class EvidenceExpectation:
             or len(node_ids) != len(set(node_ids))
         ):
             raise EvidenceError("evidence expectation is malformed or duplicate")
+
+
+def evidence_plan_digest(expectations: Iterable[EvidenceExpectation]) -> str:
+    """Canonical digest of executable expectation content, excluding observations."""
+    commands = []
+    for expectation in expectations:
+        if type(expectation) is not EvidenceExpectation:
+            raise EvidenceError("plan contains a malformed evidence expectation")
+        commands.append(
+            {
+                "command": list(expectation.command.argv),
+                "command_id": expectation.command_id,
+                "evidence_format": expectation.evidence_format,
+                "nodes": [
+                    {"assertion_id": node.assertion_id, "node_id": node.node_id}
+                    for node in expectation.nodes
+                ],
+                "tool": expectation.tool,
+            }
+        )
+    if not commands:
+        raise EvidenceError("vacuous plan has no admitted commands")
+    return canonical_digest({"commands": commands})
 
 
 @dataclass(frozen=True)
