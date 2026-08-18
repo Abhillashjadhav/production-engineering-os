@@ -393,6 +393,18 @@ def _python_declared_tool(value: object) -> str | None:
     return re.sub(r"[-_.]+", "-", match.group(0)).casefold()
 
 
+_PYTHON_TEST_EXECUTABLES = frozenset(
+    {
+        "bandit",
+        "behave",
+        "locust",
+        "mutmut",
+        "playwright",
+        "pytest",
+    }
+)
+
+
 def _node_package_executable(value: object) -> str | None:
     if not isinstance(value, str) or not value:
         return None
@@ -886,7 +898,7 @@ def _python(context: AdapterContext) -> AdapterResult:
                                 continue
                             for dependency in dependencies:
                                 declared_tool = _python_declared_tool(dependency)
-                                if declared_tool is not None:
+                                if declared_tool in _PYTHON_TEST_EXECUTABLES:
                                     items.append(
                                         (
                                             "tests_quality",

@@ -125,6 +125,7 @@ def _command_executes_tests(command: Sequence[str]) -> bool:
         "--list-tests",
         "--markers",
         "--setup-plan",
+        "--setup-only",
         "--trace-config",
         "--version",
         "-h",
@@ -329,7 +330,10 @@ class TestPlanCompiler:
                     evidence_expectation=evidence_expectation,
                     toolchain_refs=toolchain_refs,
                     command=command,
-                    expected_test_node=f"tests.generated.test_plan.test_{node_id.lower()}",
+                    expected_test_node=(
+                        "tests.generated.test_plan.GeneratedPlanTests."
+                        f"test_{node_id.lower().replace('-', '_')}"
+                    ),
                     meaningful_red_required=(
                         execution_mode == "AUTOMATED" and test_class is not TestClass.RELEASE
                     ),
@@ -575,6 +579,7 @@ class TestPlanCompiler:
             ("risks",),
             ("security", "requirements"),
             ("privacy", "requirements"),
+            ("quality_assurance", "expectations"),
             ("quality_assurance", "release_gates"),
             ("release", "expectations"),
             ("rollback", "requirements"),
@@ -615,16 +620,42 @@ class TestPlanCompiler:
             refs = [str(criterion_id), *map(str, item.get("requirement_refs", ()))]
             covered_requirements.update(map(str, item.get("requirement_refs", ())))
             method = str(item.get("verification_method", "Automated executable assertion"))
+            manual_required = _has_manual(method)
+            automated_required = "AUTOMATED" in method.upper() or not manual_required
+            reason = "Acceptance criteria require executable behavioral assertions."
+            if automated_required:
+                add(
+                    TestClass.UNIT,
+                    refs,
+                    str(item.get("criterion", criterion_id)),
+                    method,
+                    reason=reason,
+                )
+            if manual_required:
+                add(
+                    TestClass.UNIT,
+                    refs,
+                    str(item.get("criterion", criterion_id)),
+                    method,
+                    mode="MANUAL",
+                    owner="PRODUCT",
+                    reason=reason,
+                )
+
+        for expectation_id, raw in sorted(
+            _section(contract, "quality_assurance", "expectations").items()
+        ):
+            item = raw if isinstance(raw, Mapping) else {}
+            evidence_type = str(item.get("evidence_type", ""))
+            refs = [str(expectation_id), *map(str, item.get("requirement_refs", ()))]
             add(
                 TestClass.UNIT,
                 refs,
-                str(item.get("criterion", criterion_id)),
-                method,
-                mode="MANUAL"
-                if _has_manual(method) and "AUTOMATED" not in method.upper()
-                else "AUTOMATED",
-                owner="PRODUCT" if _has_manual(method) else "ENGINEERING",
-                reason="Acceptance criteria require executable behavioral assertions.",
+                str(item.get("expectation", expectation_id)),
+                evidence_type or "Quality-assurance evidence",
+                mode="AUTOMATED" if evidence_type == "AUTOMATED_TEST" else "MANUAL",
+                owner="ENGINEERING" if evidence_type == "AUTOMATED_TEST" else "PRODUCT",
+                reason="Typed quality-assurance expectations require matching evidence.",
             )
 
         for requirement_id, raw in sorted(_section(contract, "functional_requirements").items()):

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 from pmpe.contracts.canonical import canonical_digest
+from pmpe.quality.test_evidence import run_tests_with_evidence
 
 from .models import TestPlan, TestPlanDiagnostic, TestPlanDisposition
 
@@ -191,3 +194,62 @@ class MeaningfulRedGate:
             commit_sha=run.commit_sha,
             red_run_digest=run.run_digest(),
         )
+
+
+def execute_meaningful_red(
+    plan: TestPlan,
+    workspace: Path,
+    *,
+    expected_commit_sha: str,
+) -> MeaningfulRedRun:
+    """Run the fixed evidence harness and derive red claims from its raw output."""
+
+    repository = Path(workspace).resolve()
+    commit = subprocess.run(
+        ("git", "-C", str(repository), "rev-parse", "HEAD"),
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    ).stdout.strip()
+    if commit != expected_commit_sha:
+        raise ValueError("meaningful-red workspace is not at the expected commit")
+    status = subprocess.run(
+        ("git", "-C", str(repository), "status", "--porcelain", "--untracked-files=all"),
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    ).stdout
+    if status:
+        raise ValueError("meaningful-red workspace contains uncommitted changes")
+    evidence = run_tests_with_evidence(repository)
+    by_node = evidence.by_node()
+    executions: list[RedTestExecution] = []
+    for node in plan.nodes:
+        if (
+            node.status != "PLANNED"
+            or node.execution_mode != "AUTOMATED"
+            or not node.meaningful_red_required
+        ):
+            continue
+        observed = by_node.get(node.expected_test_node)
+        if observed is None:
+            continue
+        executions.append(
+            RedTestExecution(
+                plan_node_id=node.node_id,
+                test_node_id=observed.node_id,
+                outcome=observed.outcome.upper(),
+                failure_kind=observed.failure_kind.upper(),
+                observed_assertion_id=(
+                    node.assertion_id if node.assertion_id in observed.detail else ""
+                ),
+            )
+        )
+    return MeaningfulRedRun(
+        test_plan_digest=plan.plan_digest,
+        commit_sha=commit,
+        toolchain_digest=plan.toolchain_digest,
+        executions=tuple(executions),
+    )

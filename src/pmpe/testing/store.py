@@ -6,10 +6,13 @@ import json
 import os
 import secrets
 import stat
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
-from .evidence import MeaningfulRedGate, MeaningfulRedRun
+from pmpe.domain.errors import StepFailure
+
+from .evidence import MeaningfulRedGate, execute_meaningful_red
 from .models import TestPlan
 
 
@@ -177,8 +180,8 @@ class TestPlanStore:
     def authorize_implementation(
         self,
         plan: TestPlan,
-        red_run: MeaningfulRedRun,
         *,
+        workspace: Path,
         expected_commit_sha: str,
     ) -> ImplementationAuthorization:
         directory_descriptor = self._open_run_dir(create=False)
@@ -198,6 +201,16 @@ class TestPlanStore:
             or plan.disposition != "ADMITTED"
         ):
             raise TestPlanNotAdmitted("implementation refused: persisted TestPlan does not match")
+        try:
+            red_run = execute_meaningful_red(
+                plan,
+                workspace,
+                expected_commit_sha=expected_commit_sha,
+            )
+        except (OSError, StepFailure, subprocess.SubprocessError, ValueError) as exc:
+            raise TestPlanNotAdmitted(
+                "implementation refused: meaningful-red runner did not produce trusted evidence"
+            ) from exc
         admission = MeaningfulRedGate().validate(
             plan, red_run, expected_commit_sha=expected_commit_sha
         )
