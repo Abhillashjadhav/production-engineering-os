@@ -165,6 +165,12 @@ def _tap_assertion_report(
     return ("\n".join(lines) + "\n").encode()
 
 
+def _trusted_pytest_command() -> ExecutionCommand:
+    return ExecutionCommand(
+        ("pytest", "--json-report", "--noconftest", "-c", "/dev/null")
+    )
+
+
 def _plan_digest(
     command: ExecutionCommand,
     *,
@@ -856,3 +862,56 @@ def test_tap_leaf_selection_scales_linearly() -> None:
     large = elapsed(4000)
 
     assert large < small * 10
+
+
+def test_pytest_evidence_rejects_workspace_configuration_and_conftest_hooks() -> None:
+    api = _api()
+    unsafe = _expectation(command=ExecutionCommand(("pytest", "--json-report")))
+
+    with pytest.raises(api.EvidenceError, match="tool"):
+        api.default_adapter_registry().validate_expectations((unsafe,))
+
+
+def test_tap_evidence_rejects_additional_reporters_and_destinations() -> None:
+    api = _api()
+    unsafe = _expectation(
+        tool="node:test",
+        evidence_format="tap13/v1",
+        command=ExecutionCommand(
+            (
+                "node",
+                "--test",
+                "--test-reporter=tap",
+                "--test-reporter-destination=/dev/null",
+                "--test-reporter=./evil.mjs",
+                "--test-reporter-destination=stdout",
+                "test.mjs",
+            )
+        ),
+        node="feature rejects invalid [assertion:ASSERT-001]",
+    )
+
+    with pytest.raises(api.EvidenceError, match="tool"):
+        api.default_adapter_registry().validate_expectations((unsafe,))
+
+
+def test_pytest_failure_requires_the_planned_marker_in_the_call_diagnostic(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    stdout = _pytest_report(message="AssertionError: unrelated preliminary failure")
+    command = _trusted_pytest_command()
+    result = _execution(
+        tmp_path,
+        stdout,
+        command=command,
+        plan_digest="sha256:" + "a" * 64,
+    )
+
+    decision = _gate(tmp_path).evaluate(
+        expectations=(_expectation(command=command, execution=result),),
+        submissions=(api.EvidenceSubmission("CMD-001", result, stdout, b""),),
+    )
+
+    assert not decision.authorized
+    assert any("assertion" in reason for reason in decision.reasons)
