@@ -823,6 +823,27 @@ def test_runtime_symlink_target_must_remain_inside_mounted_roots(
     assert resolved is None
 
 
+def test_mounted_alternative_resolving_into_runtime_root_is_available(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    original_resolve = Path.resolve
+
+    def mounted_target(path: Path, strict: bool = False) -> Path:
+        if path == Path("/etc/alternatives/awk"):
+            return Path("/usr/bin/mawk")
+        return original_resolve(path, strict=strict)
+
+    monkeypatch.setattr(Path, "resolve", mounted_target)
+
+    resolved = api.BubblewrapSandbox()._host_path(  # noqa: SLF001 - mount identity contract
+        tmp_path,
+        PurePosixPath("/etc/alternatives/awk"),
+    )
+
+    assert resolved == Path("/etc/alternatives/awk")
+
+
 def test_execution_is_wrapped_in_an_aggregate_cgroup_scope(tmp_path: Path) -> None:
     api = _api()
     runner = api.BubblewrapSandbox()
