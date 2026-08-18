@@ -172,6 +172,7 @@ class MeaningfulRedGate:
                     "configuration",
                     "timeout",
                     "skip",
+                    "todo",
                     "internal",
                     "error",
                 }:

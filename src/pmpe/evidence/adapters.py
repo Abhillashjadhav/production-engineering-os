@@ -19,10 +19,7 @@ from pmpe.execution import ExecutionCommand
 
 _TAP_RESULT = re.compile(r"(ok|not ok)\s+([0-9]+)\s+-\s+(.+?)(?:\s+#\s+(.+))?\Z")
 _TAP_PLAN = re.compile(r"1\.\.([0-9]+)\Z")
-_TAP_ASSERTION_MARKER = re.compile(
-    r"(?:^|\s)\[assertion:([A-Za-z0-9][A-Za-z0-9._:/-]{0,255})\](?=\s|\Z)"
-)
-_PYTHON_RUNNER = re.compile(r"python(?:3(?:\.[0-9]+)?)?\Z")
+_TAP_ASSERTION_MARKER = re.compile(r"\[assertion:([A-Za-z0-9][A-Za-z0-9._:/-]{0,255})\]")
 _TRUSTED_RUNNER_DIRECTORIES = {
     PurePosixPath("/usr/local/bin"),
     PurePosixPath("/usr/bin"),
@@ -138,11 +135,7 @@ class PytestJsonReportAdapter:
     def supports(self, command: ExecutionCommand) -> bool:
         executable = command.argv[0]
         direct = executable in {"pytest", "py.test"}
-        module = bool(_PYTHON_RUNNER.fullmatch(executable)) and command.argv[1:3] == (
-            "-m",
-            "pytest",
-        )
-        return (direct or module) and "--json-report" in command.argv
+        return direct and "--json-report" in command.argv
 
     def supports_execution(self, command: ExecutionCommand, resolved_executable: str) -> bool:
         return self.supports(command) and _is_trusted_system_runner(
@@ -268,6 +261,10 @@ class Tap13Adapter:
                 outcome = "skipped"
                 failure_kind = "skip"
                 assertion_id = ""
+            elif directive.upper().startswith("TODO"):
+                outcome = "skipped"
+                failure_kind = "todo"
+                assertion_id = ""
             elif outcome == "passed":
                 failure_kind = ""
             else:
@@ -287,9 +284,13 @@ class Tap13Adapter:
                 )
                 diagnostics = "\n".join(lines[record_index + 1 : boundary])
                 code_match = re.search(r"\bcode:\s*['\"]?([A-Za-z0-9_]+)", diagnostics)
+                diagnostic_assertions = set(_TAP_ASSERTION_MARKER.findall(diagnostics))
                 failure_kind = (
                     "assertion"
-                    if code_match and code_match.group(1) == "ERR_ASSERTION" and assertion_id
+                    if code_match
+                    and code_match.group(1) == "ERR_ASSERTION"
+                    and assertion_id
+                    and diagnostic_assertions == {assertion_id}
                     else "error"
                 )
             nodes.append(
