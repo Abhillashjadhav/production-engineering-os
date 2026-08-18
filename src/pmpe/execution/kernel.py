@@ -437,6 +437,7 @@ class BubblewrapSandbox:
                 sandbox_path.relative_to(private_tmp)
             except ValueError:
                 runtime_roots = (
+                    PurePosixPath("/etc/alternatives"),
                     PurePosixPath("/usr"),
                     PurePosixPath("/bin"),
                     PurePosixPath("/sbin"),
