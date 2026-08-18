@@ -281,15 +281,31 @@ def _gate(tmp_path: Path):  # type: ignore[no-untyped-def]
     )
 
 
-def test_planted_pytest_assertion_failure_authorizes_meaningful_red(tmp_path: Path) -> None:
+def _trusted_submission(
+    tmp_path: Path,
+    expectation: object,
+    execution: object,
+    stdout: bytes,
+    stderr: bytes = b"",
+):  # type: ignore[no-untyped-def]
     api = _api()
+    receipt = FileArtifactAdmissionAuthority(tmp_path / "receipts", _FingerprintProvider()).admit(
+        artifact_kind=api.ORACLE_ARTIFACT_KIND,
+        artifact_digest=api.oracle_artifact_digest(expectation),
+        subject_bindings=api.oracle_subject_bindings(expectation),
+    )
+    return api.EvidenceSubmission("CMD-001", execution, stdout, stderr, receipt)
+
+
+def test_planted_pytest_assertion_failure_authorizes_meaningful_red(tmp_path: Path) -> None:
     stdout = _pytest_report()
     command = _trusted_pytest_command()
     result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
 
+    expectation = _expectation(command=command, execution=result)
     decision = _gate(tmp_path).evaluate(
-        expectations=(_expectation(command=command, execution=result),),
-        submissions=(api.EvidenceSubmission("CMD-001", result, stdout, b""),),
+        expectations=(expectation,),
+        submissions=(_trusted_submission(tmp_path, expectation, result, stdout),),
     )
 
     assert decision.authorized
@@ -337,7 +353,6 @@ def test_non_assertion_failures_never_satisfy_meaningful_red(
 
 
 def test_non_python_tap13_adapter_proves_assertion_behavior(tmp_path: Path) -> None:
-    api = _api()
     stdout = _tap_assertion_report()
     command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
     result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
@@ -352,7 +367,7 @@ def test_non_python_tap13_adapter_proves_assertion_behavior(tmp_path: Path) -> N
 
     decision = _gate(tmp_path).evaluate(
         expectations=(expectation,),
-        submissions=(api.EvidenceSubmission("CMD-001", result, stdout, b""),),
+        submissions=(_trusted_submission(tmp_path, expectation, result, stdout),),
     )
 
     assert decision.authorized
@@ -691,7 +706,6 @@ def test_pytest_runtime_error_containing_assert_is_not_assertion(tmp_path: Path)
 
 
 def test_generic_node_assertion_code_is_not_a_plan_assertion(tmp_path: Path) -> None:
-    api = _api()
     stdout = _tap_assertion_report().replace(b" [assertion:ASSERT-001]", b"")
     command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
     result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
@@ -706,7 +720,7 @@ def test_generic_node_assertion_code_is_not_a_plan_assertion(tmp_path: Path) -> 
 
     decision = _gate(tmp_path).evaluate(
         expectations=(expectation,),
-        submissions=(api.EvidenceSubmission("CMD-001", result, stdout, b""),),
+        submissions=(_trusted_submission(tmp_path, expectation, result, stdout),),
     )
 
     assert not decision.authorized
@@ -762,8 +776,34 @@ def test_unattested_node_assertion_metadata_cannot_authorize(
     assert any("oracle" in reason for reason in decision.reasons)
 
 
-def test_nested_node_tap_plan_authorizes_leaf_assertion(tmp_path: Path) -> None:
+def test_hidden_oracle_attestation_cannot_be_replayed_for_another_command(
+    tmp_path: Path,
+) -> None:
     api = _api()
+    stdout = _tap_assertion_report()
+    command = ExecutionCommand(("node", "--test", "--test-reporter=tap", "test.mjs"))
+    result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
+    expectation = _expectation(
+        tool="node:test",
+        evidence_format="tap13/v1",
+        command=command,
+        node="feature rejects invalid [assertion:ASSERT-001]",
+        assertion_id="ASSERT-001",
+        execution=result,
+    )
+    submission = _trusted_submission(tmp_path, expectation, result, stdout)
+    replay_target = replace(expectation, command_id="CMD-OTHER")
+
+    assert submission.oracle_receipt is not None
+    assert not FileArtifactAdmissionVerifier(tmp_path / "receipts", _FingerprintProvider()).verify(
+        submission.oracle_receipt,
+        artifact_kind=api.ORACLE_ARTIFACT_KIND,
+        artifact_digest=api.oracle_artifact_digest(replay_target),
+        subject_bindings=api.oracle_subject_bindings(replay_target),
+    )
+
+
+def test_nested_node_tap_plan_authorizes_leaf_assertion(tmp_path: Path) -> None:
     stdout = b"""TAP version 13
 # Subtest: feature suite
     # Subtest: feature rejects invalid [assertion:ASSERT-001]
@@ -794,7 +834,7 @@ not ok 1 - feature suite
 
     decision = _gate(tmp_path).evaluate(
         expectations=(expectation,),
-        submissions=(api.EvidenceSubmission("CMD-001", result, stdout, b""),),
+        submissions=(_trusted_submission(tmp_path, expectation, result, stdout),),
     )
 
     assert decision.authorized

@@ -8,12 +8,15 @@ from pmpe.admission import FileArtifactAdmissionVerifier
 from pmpe.contracts.canonical import canonical_digest
 from pmpe.evidence.adapters import EvidenceAdapterRegistry
 from pmpe.evidence.models import (
+    ORACLE_ARTIFACT_KIND,
     EvidenceDecision,
     EvidenceError,
     EvidenceExpectation,
     EvidenceSubmission,
     NodeEvidence,
     evidence_plan_digest,
+    oracle_artifact_digest,
+    oracle_subject_bindings,
 )
 
 
@@ -139,6 +142,12 @@ class MeaningfulRedGate:
             if parsed.blocking_failure:
                 reasons.append(f"{expectation.command_id}: {parsed.blocking_failure}")
                 continue
+            oracle_verified = submission.oracle_receipt is not None and self.verifier.verify(
+                submission.oracle_receipt,
+                artifact_kind=ORACLE_ARTIFACT_KIND,
+                artifact_digest=oracle_artifact_digest(expectation),
+                subject_bindings=oracle_subject_bindings(expectation),
+            )
             expected_nodes = {item.node_id: item for item in expectation.nodes}
             parsed_ids = [item.node_id for item in parsed.nodes]
             duplicate_nodes = sorted(
@@ -171,6 +180,10 @@ class MeaningfulRedGate:
                 if node.failure_kind and node.failure_kind != "assertion":
                     reasons.append(
                         f"{expectation.command_id}: {node.failure_kind} is not meaningful red"
+                    )
+                if node.failure_kind == "assertion" and not oracle_verified:
+                    reasons.append(
+                        f"{expectation.command_id}: assertion oracle is not independently admitted"
                     )
                 if node.assertion_id != expected.assertion_id:
                     reasons.append(f"{expectation.command_id}: wrong assertion for {node.node_id}")
