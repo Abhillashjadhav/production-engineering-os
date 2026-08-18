@@ -1114,6 +1114,32 @@ def test_tap_evidence_rejects_custom_node_loaders_and_preloads(
         api.default_adapter_registry().validate_expectations((expectation,))
 
 
+@pytest.mark.parametrize(
+    "config_arguments",
+    (
+        ("--experimental-config-file=./node.config.json",),
+        ("--experimental-config-file", "./node.config.json"),
+        ("--experimental-default-config-file",),
+    ),
+)
+def test_tap_evidence_rejects_node_configuration_file_preloads(
+    config_arguments: tuple[str, ...],
+) -> None:
+    api = _api()
+    command = ExecutionCommand(
+        ("node", "--test", "--test-reporter=tap", *config_arguments, "test.mjs")
+    )
+    expectation = _expectation(
+        tool="node:test",
+        evidence_format="tap13/v1",
+        command=command,
+        node="feature rejects invalid [assertion:ASSERT-001]",
+    )
+
+    with pytest.raises(api.EvidenceError, match="tool"):
+        api.default_adapter_registry().validate_expectations((expectation,))
+
+
 def test_pytest_evidence_requires_a_separate_trusted_worker_process() -> None:
     api = _api()
     same_process = _expectation(
