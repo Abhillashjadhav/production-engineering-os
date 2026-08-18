@@ -991,3 +991,27 @@ def test_pytest_marker_in_preceding_traceback_source_does_not_bind_failure(
 
     assert not decision.authorized
     assert any("assertion" in reason for reason in decision.reasons)
+
+
+def test_plan_digest_binds_commit_and_subject_identity() -> None:
+    api = _api()
+    original = _expectation()
+    changed = replace(
+        original,
+        commit_sha="f" * 40,
+        subject_digest="sha256:" + "e" * 64,
+    )
+
+    assert api.evidence_plan_digest((original,)) != api.evidence_plan_digest((changed,))
+
+
+def test_pytest_evidence_requires_json_on_authenticated_stdout() -> None:
+    api = _api()
+    terminal_output_command = ExecutionCommand(
+        ("pytest", "--json-report", "--noconftest", "-c", "/dev/null")
+    )
+
+    with pytest.raises(api.EvidenceError, match="tool"):
+        api.default_adapter_registry().validate_expectations(
+            (_expectation(command=terminal_output_command),)
+        )
