@@ -383,7 +383,10 @@ def test_snapshot_materialization_uses_one_aggregate_deadline(
     from pmpe.execution import kernel as kernel_module
 
     commit = "a" * 40
-    object_ids = ("b" * 40, "c" * 40, "d" * 40)
+    object_id = hashlib.sha1(  # noqa: S324 - Git SHA-1 object identity
+        b"blob 1\0x", usedforsecurity=False
+    ).hexdigest()
+    object_ids = (object_id, object_id, object_id)
     listing = b"".join(
         f"100644 blob {object_id}\tfile-{index}.txt\0".encode()
         for index, object_id in enumerate(object_ids)
@@ -615,11 +618,7 @@ def test_bubblewrap_masks_host_credential_directories(tmp_path: Path) -> None:
         api.ExecutionPolicy(),
     )
 
-    masked = {
-        argv[index + 1]
-        for index, argument in enumerate(argv[:-1])
-        if argument == "--tmpfs"
-    }
+    masked = {argv[index + 1] for index, argument in enumerate(argv[:-1]) if argument == "--tmpfs"}
     assert {"/root", "/home", "/etc", "/var", "/run"} <= masked
 
 
@@ -671,11 +670,12 @@ def test_nested_proc_alias_is_canonicalized_to_the_workspace(
     executable.chmod(0o700)
     runner = api.BubblewrapSandbox()
     runner._available = True  # noqa: SLF001 - skip host-specific probe in this unit test
+    original_which = shutil.which
 
     def trusted_which(name: str, path: str | None = None) -> str | None:
         if name in {"bwrap", "prlimit"}:
             return f"/usr/bin/{name}"
-        return shutil.which(name, path=path)
+        return original_which(name, path=path)
 
     monkeypatch.setattr(shutil, "which", trusted_which)
     monkeypatch.setattr(

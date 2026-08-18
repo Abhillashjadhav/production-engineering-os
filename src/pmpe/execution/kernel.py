@@ -280,7 +280,7 @@ def _run_bounded_process(
 class BubblewrapSandbox:
     """Linux namespace sandbox with only the disposable workspace writable."""
 
-    identity = "bubblewrap-readonly-root-no-network-rlimit/2"
+    identity = "bubblewrap-masked-host-no-network-rlimit/3"
 
     def __init__(self, executable: str = "bwrap", limiter_executable: str = "prlimit") -> None:
         self.executable = executable
@@ -309,6 +309,16 @@ class BubblewrapSandbox:
             "--bind",
             str(workspace),
             "/workspace",
+            "--tmpfs",
+            "/root",
+            "--tmpfs",
+            "/home",
+            "--tmpfs",
+            "/etc",
+            "--tmpfs",
+            "/var",
+            "--tmpfs",
+            "/run",
             "--dev",
             "/dev",
             "--proc",
@@ -383,16 +393,25 @@ class BubblewrapSandbox:
             (PurePosixPath("/proc/self/cwd"), PurePosixPath("/workspace")),
             (PurePosixPath("/proc/self/root"), PurePosixPath("/")),
         )
-        for alias, target in aliases:
-            try:
-                relative = sandbox_path.relative_to(alias)
-            except ValueError:
-                continue
-            return target.joinpath(*relative.parts)
+        current = sandbox_path
+        for _ in range(len(sandbox_path.parts) + 1):
+            for alias, target in aliases:
+                try:
+                    relative = current.relative_to(alias)
+                except ValueError:
+                    continue
+                current = target.joinpath(*relative.parts)
+                break
+            else:
+                try:
+                    current.relative_to(PurePosixPath("/proc"))
+                except ValueError:
+                    return current
+                return None
         try:
-            sandbox_path.relative_to(PurePosixPath("/proc"))
+            current.relative_to(PurePosixPath("/proc"))
         except ValueError:
-            return sandbox_path
+            return current
         return None
 
     def is_available(self) -> bool:
@@ -644,6 +663,18 @@ def _exact_commit_archive(repository: Path, commit_sha: str, policy: ExecutionPo
             )
             if blob.return_code != 0 or len(blob.stdout) > remaining_bytes:
                 raise ExecutionError("repository blob exceeds the snapshot bound")
+            object_header = b"blob " + str(len(blob.stdout)).encode("ascii") + b"\0"
+            if len(object_id) == 40:
+                materialized_object = hashlib.sha1(  # noqa: S324 - Git SHA-1 identity
+                    object_header + blob.stdout,
+                    usedforsecurity=False,
+                ).hexdigest()
+            elif len(object_id) == 64:
+                materialized_object = hashlib.sha256(object_header + blob.stdout).hexdigest()
+            else:
+                raise ExecutionError("repository object identity is malformed")
+            if materialized_object != object_id:
+                raise ExecutionError("materialized Git object failed identity verification")
             remaining_bytes -= len(blob.stdout)
             member = tarfile.TarInfo(path)
             member.size = len(blob.stdout)
