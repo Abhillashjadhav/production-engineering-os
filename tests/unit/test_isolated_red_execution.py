@@ -465,7 +465,7 @@ def test_bubblewrap_process_is_launched_with_resource_limits(
     original_which = shutil.which
 
     def trusted_which(name: str, path: str | None = None) -> str | None:
-        if name in {"bwrap", "prlimit"}:
+        if name in {"bwrap", "prlimit", "systemd-run"}:
             return f"/usr/bin/{name}"
         return original_which(name, path=path)
 
@@ -489,7 +489,10 @@ def test_bubblewrap_process_is_launched_with_resource_limits(
         policy,
     )
 
-    assert observed_argv[0] == "/usr/bin/prlimit"
+    assert observed_argv[0] == "/usr/bin/systemd-run"
+    assert "MemoryMax=536870912" in observed_argv
+    assert "TasksMax=32" in observed_argv
+    assert "/usr/bin/prlimit" in observed_argv
     assert "--as=536870912" in observed_argv
     assert "--nproc=32" in observed_argv
     assert "--fsize=8388608" in observed_argv
