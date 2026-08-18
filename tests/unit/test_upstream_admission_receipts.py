@@ -397,3 +397,67 @@ def test_non_ascii_receipt_digest_fails_closed(tmp_path: Path) -> None:
         artifact_digest=_digest("d"),
         subject_bindings={"lineage_id": "LINEAGE-010"},
     )
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs are unavailable")
+def test_fifo_receipt_is_opened_nonblocking_and_rejected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    root = tmp_path / "admissions"
+    kind = root / "CANONICAL_CONTRACT"
+    target = kind / (_digest("e")[7:] + ".json")
+    receipt = api.FileArtifactAdmissionAuthority(root, _FingerprintProvider()).admit(
+        artifact_kind="CANONICAL_CONTRACT",
+        artifact_digest=_digest("e"),
+        subject_bindings={"lineage_id": "LINEAGE-011"},
+    )
+    target.unlink()
+    os.mkfifo(target)
+    original_open = os.open
+    inspected = False
+
+    def guarded_open(
+        path: str | bytes,
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal inspected
+        if path == target.name:
+            inspected = True
+            assert flags & os.O_NONBLOCK
+        return original_open(path, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "open", guarded_open)
+    verifier = api.FileArtifactAdmissionVerifier(root, _FingerprintProvider())
+
+    assert not verifier.verify(
+        receipt,
+        artifact_kind="CANONICAL_CONTRACT",
+        artifact_digest=_digest("e"),
+        subject_bindings={"lineage_id": "LINEAGE-011"},
+    )
+    assert inspected
+
+
+def test_publication_does_not_use_replacing_rename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+
+    def forbidden_rename(*args: object, **kwargs: object) -> None:
+        raise AssertionError("receipt publication must be atomic and no-replace")
+
+    monkeypatch.setattr(os, "rename", forbidden_rename)
+
+    receipt = api.FileArtifactAdmissionAuthority(
+        tmp_path / "admissions", _FingerprintProvider()
+    ).admit(
+        artifact_kind="CANONICAL_CONTRACT",
+        artifact_digest=_digest("1"),
+        subject_bindings={"lineage_id": "LINEAGE-012"},
+    )
+
+    assert receipt.artifact_digest == _digest("1")
