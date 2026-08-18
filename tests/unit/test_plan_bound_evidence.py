@@ -915,3 +915,28 @@ def test_pytest_failure_requires_the_planned_marker_in_the_call_diagnostic(
 
     assert not decision.authorized
     assert any("assertion" in reason for reason in decision.reasons)
+
+
+def test_pytest_teardown_failure_blocks_a_planned_call_assertion(tmp_path: Path) -> None:
+    api = _api()
+    report = json.loads(_pytest_report())
+    report["tests"][0]["teardown"] = {
+        "outcome": "failed",
+        "crash": {"message": "RuntimeError: cleanup failed"},
+    }
+    stdout = json.dumps(report).encode()
+    command = _trusted_pytest_command()
+    result = _execution(
+        tmp_path,
+        stdout,
+        command=command,
+        plan_digest="sha256:" + "a" * 64,
+    )
+
+    decision = _gate(tmp_path).evaluate(
+        expectations=(_expectation(command=command, execution=result),),
+        submissions=(api.EvidenceSubmission("CMD-001", result, stdout, b""),),
+    )
+
+    assert not decision.authorized
+    assert any("teardown" in reason for reason in decision.reasons)
