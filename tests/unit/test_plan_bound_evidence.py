@@ -94,6 +94,7 @@ def _execution(
     plan_digest: str,
     stderr: bytes = b"",
     return_code: int = 1,
+    resolved_executable: str | None = None,
 ):  # type: ignore[no-untyped-def]
     repository, commit = _repository(tmp_path)
     kernel = IsolatedExecutionKernel(
@@ -102,9 +103,8 @@ def _execution(
             stdout,
             stderr,
             return_code,
-            resolved_executable=(
-                "/usr/bin/node" if command.argv[0] == "node" else "/usr/bin/pytest"
-            ),
+            resolved_executable=resolved_executable
+            or ("/usr/bin/node" if command.argv[0] == "node" else "/usr/bin/pytest"),
         ),
         policy=ExecutionPolicy(timeout_seconds=5, max_output_bytes=64 * 1024),
     )
@@ -645,3 +645,24 @@ not ok 1 - feature suite
     )
 
     assert decision.authorized
+
+
+def test_repository_tool_cannot_impersonate_a_system_evidence_runner(tmp_path: Path) -> None:
+    api = _api()
+    stdout = _pytest_report()
+    command = ExecutionCommand(("pytest", "--json-report"))
+    result = _execution(
+        tmp_path,
+        stdout,
+        command=command,
+        plan_digest="sha256:" + "a" * 64,
+        resolved_executable="/workspace/pytest",
+    )
+
+    decision = _gate(tmp_path).evaluate(
+        expectations=(_expectation(command=command, execution=result),),
+        submissions=(api.EvidenceSubmission("CMD-001", result, stdout, b""),),
+    )
+
+    assert not decision.authorized
+    assert any("trusted system runner" in reason for reason in decision.reasons)
