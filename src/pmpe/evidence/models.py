@@ -74,11 +74,13 @@ def evidence_plan_digest(expectations: Iterable[EvidenceExpectation]) -> str:
             {
                 "command": list(expectation.command.argv),
                 "command_id": expectation.command_id,
+                "commit_sha": expectation.commit_sha,
                 "evidence_format": expectation.evidence_format,
                 "nodes": [
                     {"assertion_id": node.assertion_id, "node_id": node.node_id}
                     for node in expectation.nodes
                 ],
+                "subject_digest": expectation.subject_digest,
                 "tool": expectation.tool,
             }
         )

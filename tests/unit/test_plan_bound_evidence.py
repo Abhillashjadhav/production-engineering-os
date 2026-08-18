@@ -96,11 +96,10 @@ def _execution(
     stderr: bytes = b"",
     return_code: int = 1,
     resolved_executable: str | None = None,
+    planned_nodes: tuple[tuple[str, str], ...] | None = None,
 ):  # type: ignore[no-untyped-def]
     repository, commit = _repository(tmp_path)
-    effective_plan_digest = (
-        _plan_digest(command) if plan_digest == "sha256:" + "a" * 64 else plan_digest
-    )
+    provisional_digest = "sha256:" + "0" * 64
     kernel = IsolatedExecutionKernel(
         authority=FileArtifactAdmissionAuthority(tmp_path / "receipts", _FingerprintProvider()),
         sandbox=_OutputSandbox(
@@ -112,6 +111,21 @@ def _execution(
         ),
         policy=ExecutionPolicy(timeout_seconds=5, max_output_bytes=64 * 1024),
     )
+    if plan_digest == "sha256:" + "a" * 64 or planned_nodes is not None:
+        provisional = kernel.execute(
+            repository=repository,
+            commit_sha=commit,
+            plan_digest=provisional_digest,
+            command=command,
+        )
+        effective_plan_digest = _plan_digest(
+            command,
+            nodes=planned_nodes,
+            commit_sha=provisional.commit_sha,
+            subject_digest=provisional.subject_digest_before,
+        )
+    else:
+        effective_plan_digest = plan_digest
     return kernel.execute(
         repository=repository,
         commit_sha=commit,
@@ -168,7 +182,18 @@ def _tap_assertion_report(
 
 
 def _trusted_pytest_command() -> ExecutionCommand:
-    return ExecutionCommand(("pytest", "--json-report", "--noconftest", "-c", "/dev/null"))
+    return ExecutionCommand(
+        (
+            "pytest",
+            "--json-report",
+            "--json-report-file=/dev/stdout",
+            "--noconftest",
+            "-c",
+            "/dev/null",
+            "-p",
+            "no:terminal",
+        )
+    )
 
 
 def _plan_digest(
@@ -180,6 +205,8 @@ def _plan_digest(
     node: str | None = None,
     assertion_id: str = "ASSERT-001",
     nodes: tuple[tuple[str, str], ...] | None = None,
+    commit_sha: str = "0" * 40,
+    subject_digest: str = "sha256:" + "0" * 64,
 ) -> str:
     api = _api()
     is_tap = command.argv[0] == "node"
@@ -196,8 +223,8 @@ def _plan_digest(
         tool=resolved_tool,
         evidence_format=resolved_format,
         plan_digest="sha256:" + "0" * 64,
-        commit_sha="0" * 40,
-        subject_digest="sha256:" + "0" * 64,
+        commit_sha=commit_sha,
+        subject_digest=subject_digest,
         command=command,
         nodes=tuple(
             api.NodeExpectation(node_id=node_id, assertion_id=planned_assertion)
@@ -231,6 +258,8 @@ def _expectation(
             evidence_format=evidence_format,
             node=node,
             assertion_id=assertion_id,
+            commit_sha=commit_sha,
+            subject_digest=subject_digest,
         ),
         commit_sha=commit_sha,
         subject_digest=subject_digest,
@@ -586,8 +615,14 @@ def test_tap_skip_directive_is_not_counted_as_a_pass(tmp_path: Path) -> None:
         ("feature rejects invalid [assertion:ASSERT-001]", "ASSERT-001"),
         ("optional feature", "ASSERT-SKIP"),
     )
-    plan_digest = _plan_digest(command, nodes=planned_nodes)
-    result = _execution(tmp_path, payload, command=command, plan_digest=plan_digest)
+    result = _execution(
+        tmp_path,
+        payload,
+        command=command,
+        plan_digest="sha256:" + "a" * 64,
+        planned_nodes=planned_nodes,
+    )
+    plan_digest = str(result.receipt_bindings["plan_digest"])
     expectation = _expectation(
         tool="node:test",
         evidence_format="tap13/v1",
@@ -731,8 +766,14 @@ def test_tap_todo_directive_is_blocking_evidence(tmp_path: Path) -> None:
         ("feature rejects invalid [assertion:ASSERT-001]", "ASSERT-001"),
         ("deferred behavior [assertion:ASSERT-002]", "ASSERT-002"),
     )
-    plan_digest = _plan_digest(command, nodes=planned_nodes)
-    result = _execution(tmp_path, payload, command=command, plan_digest=plan_digest)
+    result = _execution(
+        tmp_path,
+        payload,
+        command=command,
+        plan_digest="sha256:" + "a" * 64,
+        planned_nodes=planned_nodes,
+    )
+    plan_digest = str(result.receipt_bindings["plan_digest"])
     expectation = _expectation(
         tool="node:test",
         evidence_format="tap13/v1",

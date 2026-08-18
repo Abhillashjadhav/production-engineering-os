@@ -154,6 +154,8 @@ class PytestJsonReportAdapter:
         executable = command.argv[0]
         direct = executable in {"pytest", "py.test"}
         config_files: list[str] = []
+        report_files: list[str] = []
+        plugins: list[str] = []
         malformed_config = False
         unsafe_override = False
         for index, argument in enumerate(command.argv):
@@ -166,10 +168,23 @@ class PytestJsonReportAdapter:
                 config_files.append(argument[2:].removeprefix("="))
             elif argument.startswith("--config-file="):
                 config_files.append(argument.removeprefix("--config-file="))
+            if argument == "--json-report-file":
+                if index + 1 >= len(command.argv):
+                    malformed_config = True
+                else:
+                    report_files.append(command.argv[index + 1])
+            elif argument.startswith("--json-report-file="):
+                report_files.append(argument.removeprefix("--json-report-file="))
+            if argument == "-p":
+                if index + 1 >= len(command.argv):
+                    malformed_config = True
+                else:
+                    plugins.append(command.argv[index + 1])
+            elif argument.startswith("-p") and not argument.startswith("--"):
+                plugins.append(argument[2:].removeprefix("="))
             if (
-                argument in {"-o", "-p", "--override-ini"}
+                argument in {"-o", "--override-ini"}
                 or (argument.startswith("-o") and not argument.startswith("--"))
-                or (argument.startswith("-p") and not argument.startswith("--"))
                 or argument.startswith("--override-ini=")
             ):
                 unsafe_override = True
@@ -180,6 +195,8 @@ class PytestJsonReportAdapter:
             and command.argv.count("--json-report") == 1
             and command.argv.count("--noconftest") == 1
             and config_files == ["/dev/null"]
+            and report_files == ["/dev/stdout"]
+            and plugins == ["no:terminal"]
         )
 
     def supports_execution(self, command: ExecutionCommand, resolved_executable: str) -> bool:
