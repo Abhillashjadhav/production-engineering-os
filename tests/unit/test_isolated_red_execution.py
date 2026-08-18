@@ -801,6 +801,27 @@ def test_runtime_root_traversal_is_not_a_canonical_executable_identity(
     assert resolved is None
 
 
+def test_runtime_symlink_target_must_remain_inside_mounted_roots(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    original_resolve = Path.resolve
+
+    def escaped_target(path: Path, strict: bool = False) -> Path:
+        if path == Path("/usr/bin/linked-tool"):
+            return Path("/opt/unmounted-tool")
+        return original_resolve(path, strict=strict)
+
+    monkeypatch.setattr(Path, "resolve", escaped_target)
+
+    resolved = api.BubblewrapSandbox()._host_path(  # noqa: SLF001 - mount identity contract
+        tmp_path,
+        PurePosixPath("/usr/bin/linked-tool"),
+    )
+
+    assert resolved is None
+
+
 def test_execution_is_wrapped_in_an_aggregate_cgroup_scope(tmp_path: Path) -> None:
     api = _api()
     runner = api.BubblewrapSandbox()
