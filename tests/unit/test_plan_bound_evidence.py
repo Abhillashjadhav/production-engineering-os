@@ -1064,3 +1064,17 @@ def test_pytest_evidence_rejects_workspace_response_files() -> None:
 
     with pytest.raises(api.EvidenceError, match="tool"):
         api.default_adapter_registry().validate_expectations((_expectation(command=command),))
+
+
+@pytest.mark.parametrize(
+    "capture_arguments",
+    (("-s",), ("-qs",), ("--capture=no",), ("--capture", "tee-sys")),
+)
+def test_pytest_evidence_rejects_stdout_exposing_capture_modes(
+    capture_arguments: tuple[str, ...],
+) -> None:
+    api = _api()
+    command = ExecutionCommand(_trusted_pytest_command().argv + capture_arguments)
+
+    with pytest.raises(api.EvidenceError, match="tool"):
+        api.default_adapter_registry().validate_expectations((_expectation(command=command),))
