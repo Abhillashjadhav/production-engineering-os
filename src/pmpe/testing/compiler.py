@@ -92,6 +92,27 @@ def _class_for_text(value: Any, *, default: TestClass) -> TestClass:
     return default
 
 
+def _command_invokes_tool(command: Sequence[str], tool: str) -> bool:
+    if not command or not tool.strip():
+        return False
+
+    def executable(value: str) -> str:
+        name = value.replace("\\", "/").rsplit("/", 1)[-1].casefold()
+        return name.removesuffix(".exe")
+
+    expected = executable(tool)
+    invoked = executable(command[0])
+    if invoked == expected:
+        return True
+    if invoked in {"py", "python", "python3"} and len(command) > 2 and command[1] == "-m":
+        return executable(command[2]) == expected
+    if invoked == "npx" and len(command) > 1:
+        return executable(command[1]) == expected
+    if invoked in {"pnpm", "yarn"} and len(command) > 2 and command[1] == "exec":
+        return executable(command[2]) == expected
+    return False
+
+
 class TestPlanCompiler:
     def __init__(self) -> None:
         schema = packaged_schema_dir() / "test_plan.schema.json"
@@ -119,6 +140,33 @@ class TestPlanCompiler:
                 disposition=TestPlanDisposition.ERROR,
             )
             return self._result("sha256:" + "0" * 64, [diagnostic], None)
+
+        invalid_capabilities = [
+            index
+            for index, capability in enumerate(capabilities)
+            if type(capability) is not RepositoryTestCapability
+        ]
+        if invalid_capabilities:
+            diagnostics.extend(
+                _diagnostic(
+                    "TESTPLAN.TOOLCHAIN.TYPE",
+                    f"/capabilities/{index}",
+                    "Capability input is not a canonical RepositoryTestCapability.",
+                    "Use the typed repository-intelligence adapter output.",
+                )
+                for index in invalid_capabilities
+            )
+            input_digest = canonical_digest(
+                {
+                    "architecture_pack_digest": getattr(architecture_pack, "pack_digest", ""),
+                    "contract_digest": contract_digest,
+                    "invalid_capability_indexes": invalid_capabilities,
+                    "repository_snapshot_digest": getattr(
+                        repository_snapshot, "snapshot_digest", ""
+                    ),
+                }
+            )
+            return self._result(input_digest, diagnostics, None)
 
         capability_payload = sorted(
             (item.as_dict() for item in capabilities),
@@ -454,6 +502,19 @@ class TestPlanCompiler:
                     )
                 )
                 continue
+            if not _command_invokes_tool(capability.command, capability.tool):
+                diagnostics.append(
+                    _diagnostic(
+                        "TESTPLAN.TOOLCHAIN.COMMAND_TOOL_MISMATCH",
+                        path + "/command",
+                        (
+                            "Executable capability command does not invoke its claimed "
+                            f"tool {capability.tool!r}."
+                        ),
+                        "Bind the exact repository-backed invocation to the declared tool.",
+                    )
+                )
+                continue
             result[capability.test_class] = capability
         return result
 
@@ -536,11 +597,19 @@ class TestPlanCompiler:
         ):
             item = raw if isinstance(raw, Mapping) else {}
             test_class = _class_for_text(item.get("category", ""), default=TestClass.UNIT)
+            expectation = str(item.get("evidence_expectation", "Executed non-functional assertion"))
+            manual_only = _has_manual(expectation) and "AUTOMATED" not in expectation.upper()
             add(
                 test_class,
                 [str(requirement_id)],
                 str(item.get("requirement", requirement_id)),
-                str(item.get("evidence_expectation", "Executed non-functional assertion")),
+                expectation,
+                mode="MANUAL" if manual_only else "AUTOMATED",
+                owner="ACCESSIBILITY"
+                if manual_only and test_class is TestClass.ACCESSIBILITY
+                else "PRODUCT"
+                if manual_only
+                else "ENGINEERING",
                 reason=(
                     "Contract non-functional requirements select their applicable evidence class."
                 ),

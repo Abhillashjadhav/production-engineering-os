@@ -297,8 +297,7 @@ def test_capability_command_must_invoke_its_observed_tool() -> None:
 
     assert result.disposition.value == "BLOCKED"
     assert any(
-        item.rule_id == "TESTPLAN.TOOLCHAIN.COMMAND_TOOL_MISMATCH"
-        for item in result.diagnostics
+        item.rule_id == "TESTPLAN.TOOLCHAIN.COMMAND_TOOL_MISMATCH" for item in result.diagnostics
     )
 
 
@@ -419,9 +418,7 @@ def test_manual_only_accessibility_nfr_requires_no_automated_capability() -> Non
     assert result.disposition.value == "ADMITTED"
     assert result.plan is not None
     matching_nodes = [
-        node
-        for node in result.plan.nodes
-        if "NFR-ACCESSIBILITY-MANUAL-001" in node.target_refs
+        node for node in result.plan.nodes if "NFR-ACCESSIBILITY-MANUAL-001" in node.target_refs
     ]
     assert matching_nodes
     assert all(node.execution_mode == "MANUAL" for node in matching_nodes)
