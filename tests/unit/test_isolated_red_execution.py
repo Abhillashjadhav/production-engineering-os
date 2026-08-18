@@ -7,6 +7,7 @@ import hmac
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -164,9 +165,7 @@ class _FailingSandbox:
     "error_name",
     ("ExecutableUnavailable", "ExecutionTimedOut", "OutputLimitExceeded"),
 )
-def test_execution_boundary_failures_block_receipt(
-    tmp_path: Path, error_name: str
-) -> None:
+def test_execution_boundary_failures_block_receipt(tmp_path: Path, error_name: str) -> None:
     api = _api()
     repository, commit = _repository(tmp_path)
 
@@ -283,11 +282,14 @@ def test_repository_relative_executable_is_resolved_from_snapshot_workspace(
                 api.ExecutionPolicy(),
             )
     else:
-        assert runner.run(
-            tmp_path,
-            api.ExecutionCommand(argv=("./run-tests",)),
-            api.ExecutionPolicy(),
-        ).return_code == 1
+        assert (
+            runner.run(
+                tmp_path,
+                api.ExecutionCommand(argv=("./run-tests",)),
+                api.ExecutionPolicy(),
+            ).return_code
+            == 1
+        )
 
 
 def test_bubblewrap_binds_workspace_before_hiding_host_tmp(tmp_path: Path) -> None:
@@ -340,6 +342,14 @@ def test_child_stderr_prefixed_with_bwrap_is_not_a_setup_failure(
         stderr=b"bwrap: child assertion failed",
         isolation_status=b'{"child-pid": 123}',
     )
+    original_which = shutil.which
+    monkeypatch.setattr(
+        shutil,
+        "which",
+        lambda name, path=None: (
+            "/usr/bin/bwrap" if name == "bwrap" else original_which(name, path=path)
+        ),
+    )
     monkeypatch.setattr(kernel_module, "_run_bounded_process", lambda *args, **kwargs: outcome)
 
     observed = runner.run(
@@ -349,3 +359,46 @@ def test_child_stderr_prefixed_with_bwrap_is_not_a_setup_failure(
     )
 
     assert observed.stderr == b"bwrap: child assertion failed"
+
+
+def test_execution_policy_rejects_relative_or_empty_path_entries() -> None:
+    api = _api()
+
+    with pytest.raises(api.ExecutionError):
+        api.ExecutionPolicy(executable_path="/usr/bin:.")
+    with pytest.raises(api.ExecutionError):
+        api.ExecutionPolicy(executable_path=":/usr/bin")
+
+
+def test_snapshot_materialization_uses_one_aggregate_deadline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    api = _api()
+    from pmpe.execution import kernel as kernel_module
+
+    commit = "a" * 40
+    object_ids = ("b" * 40, "c" * 40, "d" * 40)
+    listing = b"".join(
+        f"100644 blob {object_id}\tfile-{index}.txt\0".encode()
+        for index, object_id in enumerate(object_ids)
+    )
+
+    def delayed_git(argv: object, **kwargs: object) -> object:
+        arguments = list(argv)  # type: ignore[arg-type]
+        if "rev-parse" in arguments:
+            return api.CommandOutcome(0, (commit + "\n").encode(), b"")
+        if "ls-tree" in arguments:
+            return api.CommandOutcome(0, listing, b"")
+        if "cat-file" in arguments:
+            time.sleep(0.03)
+            return api.CommandOutcome(0, b"x", b"")
+        raise AssertionError(arguments)
+
+    monkeypatch.setattr(kernel_module, "_run_bounded_process", delayed_git)
+
+    with pytest.raises(api.ExecutionTimedOut):
+        kernel_module._exact_commit_archive(  # noqa: SLF001 - aggregate deadline contract
+            tmp_path,
+            commit,
+            api.ExecutionPolicy(timeout_seconds=0.05),
+        )

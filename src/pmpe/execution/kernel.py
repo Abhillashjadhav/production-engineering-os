@@ -100,11 +100,13 @@ class ExecutionPolicy:
     executable_path: str = "/usr/local/bin:/usr/bin:/bin"
 
     def __post_init__(self) -> None:
+        path_entries = self.executable_path.split(":")
         if (
             not 0 < self.timeout_seconds <= 3600
             or not 0 < self.max_output_bytes <= 16 * 1024 * 1024
             or not 0 < self.max_archive_bytes <= 256 * 1024 * 1024
-            or not self.executable_path.startswith("/")
+            or not path_entries
+            or any(not entry or not Path(entry).is_absolute() for entry in path_entries)
             or "\0" in self.executable_path
         ):
             raise ExecutionError("execution policy exceeds its bounded domain")
@@ -438,6 +440,14 @@ def _exact_commit_archive(repository: Path, commit_sha: str, policy: ExecutionPo
         raise ExecutionError("commit identity is not a full canonical Git object ID")
     if not repository.is_dir():
         raise ExecutionError("repository is unavailable")
+    deadline = time.monotonic() + policy.timeout_seconds
+
+    def remaining_time(maximum: float) -> float:
+        budget = deadline - time.monotonic()
+        if budget <= 0:
+            raise ExecutionTimedOut("exact-commit materialization timed out")
+        return min(maximum, budget)
+
     base = [
         "git",
         "--no-replace-objects",
@@ -450,7 +460,7 @@ def _exact_commit_archive(repository: Path, commit_sha: str, policy: ExecutionPo
         [*base, "rev-parse", "--verify", f"{commit_sha}^{{commit}}"],
         cwd=repository,
         environment=_GIT_ENV,
-        timeout_seconds=min(policy.timeout_seconds, 30.0),
+        timeout_seconds=remaining_time(30.0),
         max_output_bytes=4096,
     )
     resolved_identity = resolved.stdout.decode("ascii", "replace").strip()
@@ -460,7 +470,7 @@ def _exact_commit_archive(repository: Path, commit_sha: str, policy: ExecutionPo
         [*base, "ls-tree", "-rz", "--full-tree", commit_sha],
         cwd=repository,
         environment=_GIT_ENV,
-        timeout_seconds=min(policy.timeout_seconds, 60.0),
+        timeout_seconds=remaining_time(60.0),
         max_output_bytes=min(policy.max_archive_bytes, 8 * 1024 * 1024),
     )
     if listed.return_code != 0:
@@ -468,7 +478,7 @@ def _exact_commit_archive(repository: Path, commit_sha: str, policy: ExecutionPo
     records = [record for record in listed.stdout.split(b"\0") if record]
     if len(records) > _MAX_ARCHIVE_MEMBERS:
         raise ExecutionError("repository tree contains too many members")
-    remaining = policy.max_archive_bytes
+    remaining_bytes = policy.max_archive_bytes
     archive_buffer = io.BytesIO()
     with tarfile.open(fileobj=archive_buffer, mode="w:") as archive:
         for record in records:
@@ -485,17 +495,18 @@ def _exact_commit_archive(repository: Path, commit_sha: str, policy: ExecutionPo
                 [*base, "cat-file", "blob", object_id],
                 cwd=repository,
                 environment=_GIT_ENV,
-                timeout_seconds=min(policy.timeout_seconds, 30.0),
-                max_output_bytes=max(1, remaining),
+                timeout_seconds=remaining_time(30.0),
+                max_output_bytes=max(1, remaining_bytes),
             )
-            if blob.return_code != 0 or len(blob.stdout) > remaining:
+            if blob.return_code != 0 or len(blob.stdout) > remaining_bytes:
                 raise ExecutionError("repository blob exceeds the snapshot bound")
-            remaining -= len(blob.stdout)
+            remaining_bytes -= len(blob.stdout)
             member = tarfile.TarInfo(path)
             member.size = len(blob.stdout)
             member.mode = 0o755 if mode == "100755" else 0o644
             member.mtime = 0
             archive.addfile(member, io.BytesIO(blob.stdout))
+    remaining_time(policy.timeout_seconds)
     encoded = archive_buffer.getvalue()
     if len(encoded) > policy.max_archive_bytes:
         raise ExecutionError("repository snapshot exceeds its archive bound")
