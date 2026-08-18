@@ -352,9 +352,7 @@ def test_mkdir_race_loser_persists_the_shared_parent_entry(
     raced = False
     fsynced_directories: set[Path] = set()
 
-    def raced_mkdir(
-        path: str | bytes, mode: int = 0o777, *, dir_fd: int | None = None
-    ) -> None:
+    def raced_mkdir(path: str | bytes, mode: int = 0o777, *, dir_fd: int | None = None) -> None:
         nonlocal raced
         if path == root.name and not raced:
             raced = True
