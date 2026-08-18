@@ -1056,3 +1056,13 @@ def test_pytest_evidence_requires_json_on_authenticated_stdout() -> None:
         api.default_adapter_registry().validate_expectations(
             (_expectation(command=terminal_output_command),)
         )
+
+
+def test_pytest_evidence_rejects_workspace_response_files() -> None:
+    api = _api()
+    command = ExecutionCommand(_trusted_pytest_command().argv + ("@args.txt",))
+
+    with pytest.raises(api.EvidenceError, match="tool"):
+        api.default_adapter_registry().validate_expectations(
+            (_expectation(command=command),)
+        )
