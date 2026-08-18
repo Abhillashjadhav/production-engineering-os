@@ -141,7 +141,23 @@ class PytestJsonReportAdapter:
     def supports(self, command: ExecutionCommand) -> bool:
         executable = command.argv[0]
         direct = executable in {"pytest", "py.test"}
-        return direct and "--json-report" in command.argv
+        config_files: list[str] = []
+        malformed_config = False
+        for index, argument in enumerate(command.argv):
+            if argument == "-c":
+                if index + 1 >= len(command.argv):
+                    malformed_config = True
+                else:
+                    config_files.append(command.argv[index + 1])
+            elif argument.startswith("-c="):
+                config_files.append(argument.removeprefix("-c="))
+        return (
+            direct
+            and not malformed_config
+            and command.argv.count("--json-report") == 1
+            and command.argv.count("--noconftest") == 1
+            and config_files == ["/dev/null"]
+        )
 
     def supports_execution(self, command: ExecutionCommand, resolved_executable: str) -> bool:
         return self.supports(command) and _is_trusted_system_runner(
@@ -188,6 +204,16 @@ class PytestJsonReportAdapter:
                 failure_kind = "skip"
             else:
                 failure_kind = _pytest_failure_kind(test, call, setup)
+                if failure_kind == "assertion":
+                    crash = _mapping(call.get("crash"))
+                    message = crash.get("message", "")
+                    longrepr = call.get("longrepr", test.get("longrepr", ""))
+                    diagnostics = "\n".join(
+                        value for value in (message, longrepr) if isinstance(value, str)
+                    )
+                    diagnostic_assertions = set(_TAP_ASSERTION_MARKER.findall(diagnostics))
+                    if not assertion_id or diagnostic_assertions != {assertion_id}:
+                        assertion_id = ""
             nodes.append(
                 NodeEvidence(
                     node_id=node_id,
@@ -209,11 +235,32 @@ class Tap13Adapter:
     evidence_format = "tap13/v1"
 
     def supports(self, command: ExecutionCommand) -> bool:
-        reporter = "--test-reporter=tap" in command.argv or any(
-            command.argv[index : index + 2] == ("--test-reporter", "tap")
-            for index in range(len(command.argv) - 1)
+        reporters: list[str] = []
+        destinations: list[str] = []
+        malformed = False
+        index = 1
+        while index < len(command.argv):
+            argument = command.argv[index]
+            if argument in {"--test-reporter", "--test-reporter-destination"}:
+                if index + 1 >= len(command.argv):
+                    malformed = True
+                    break
+                target = reporters if argument == "--test-reporter" else destinations
+                target.append(command.argv[index + 1])
+                index += 2
+                continue
+            if argument.startswith("--test-reporter="):
+                reporters.append(argument.removeprefix("--test-reporter="))
+            elif argument.startswith("--test-reporter-destination="):
+                destinations.append(argument.removeprefix("--test-reporter-destination="))
+            index += 1
+        return (
+            command.argv[0] == "node"
+            and "--test" in command.argv
+            and not malformed
+            and reporters == ["tap"]
+            and not destinations
         )
-        return command.argv[0] == "node" and "--test" in command.argv and reporter
 
     def supports_execution(self, command: ExecutionCommand, resolved_executable: str) -> bool:
         return self.supports(command) and _is_trusted_system_runner(resolved_executable, {"node"})

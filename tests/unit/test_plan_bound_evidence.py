@@ -125,9 +125,11 @@ def _pytest_report(
     node: str = "tests/test_feature.py::test_rejects_invalid",
     assertion_id: str = "ASSERT-001",
     outcome: str = "failed",
-    message: str = "assert False",
+    message: str | None = None,
     exitcode: int = 1,
 ) -> bytes:
+    if message is None:
+        message = f"AssertionError: [assertion:{assertion_id}] planned assertion failed"
     phase = {"outcome": outcome}
     if outcome == "failed":
         phase["crash"] = {"message": message}
@@ -166,9 +168,7 @@ def _tap_assertion_report(
 
 
 def _trusted_pytest_command() -> ExecutionCommand:
-    return ExecutionCommand(
-        ("pytest", "--json-report", "--noconftest", "-c", "/dev/null")
-    )
+    return ExecutionCommand(("pytest", "--json-report", "--noconftest", "-c", "/dev/null"))
 
 
 def _plan_digest(
@@ -225,7 +225,7 @@ def _expectation(
         tool=tool,
         evidence_format=evidence_format,
         plan_digest=_plan_digest(
-            command or ExecutionCommand(("pytest", "--json-report")),
+            command or _trusted_pytest_command(),
             command_id=command_id,
             tool=tool,
             evidence_format=evidence_format,
@@ -234,7 +234,7 @@ def _expectation(
         ),
         commit_sha=commit_sha,
         subject_digest=subject_digest,
-        command=command or ExecutionCommand(("pytest", "--json-report")),
+        command=command or _trusted_pytest_command(),
         nodes=(api.NodeExpectation(node_id=node, assertion_id=assertion_id),),
     )
 
@@ -250,7 +250,7 @@ def _gate(tmp_path: Path):  # type: ignore[no-untyped-def]
 def test_planted_pytest_assertion_failure_authorizes_meaningful_red(tmp_path: Path) -> None:
     api = _api()
     stdout = _pytest_report()
-    command = ExecutionCommand(("pytest", "--json-report"))
+    command = _trusted_pytest_command()
     result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
 
     decision = _gate(tmp_path).evaluate(
@@ -284,7 +284,7 @@ def test_non_assertion_failures_never_satisfy_meaningful_red(
     tmp_path: Path, payload: bytes, return_code: int, reason: str
 ) -> None:
     api = _api()
-    command = ExecutionCommand(("pytest", "--json-report"))
+    command = _trusted_pytest_command()
     result = _execution(
         tmp_path,
         payload,
@@ -328,7 +328,7 @@ def test_non_python_tap13_adapter_proves_assertion_behavior(tmp_path: Path) -> N
 def test_missing_duplicate_and_unknown_command_results_are_rejected(tmp_path: Path) -> None:
     api = _api()
     stdout = _pytest_report()
-    command = ExecutionCommand(("pytest", "--json-report"))
+    command = _trusted_pytest_command()
     result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
     expectation = _expectation(command=command, execution=result)
     submission = api.EvidenceSubmission("CMD-001", result, stdout, b"")
@@ -359,7 +359,7 @@ def test_wrong_tool_format_node_or_assertion_is_rejected(
     tmp_path: Path, expectation_changes: dict[str, str], payload: bytes
 ) -> None:
     api = _api()
-    command = ExecutionCommand(("pytest", "--json-report"))
+    command = _trusted_pytest_command()
     result = _execution(tmp_path, payload, command=command, plan_digest="sha256:" + "a" * 64)
 
     decision = _gate(tmp_path).evaluate(
@@ -372,7 +372,7 @@ def test_wrong_tool_format_node_or_assertion_is_rejected(
 
 def test_duplicate_nodes_and_vacuous_all_passed_results_are_rejected(tmp_path: Path) -> None:
     api = _api()
-    command = ExecutionCommand(("pytest", "--json-report"))
+    command = _trusted_pytest_command()
     duplicated = json.loads(_pytest_report())
     duplicated["tests"].append(dict(duplicated["tests"][0]))
     duplicate_payload = json.dumps(duplicated).encode()
@@ -403,7 +403,7 @@ def test_duplicate_nodes_and_vacuous_all_passed_results_are_rejected(tmp_path: P
 def test_raw_output_tampering_and_forged_execution_receipt_are_rejected(tmp_path: Path) -> None:
     api = _api()
     stdout = _pytest_report()
-    command = ExecutionCommand(("pytest", "--json-report"))
+    command = _trusted_pytest_command()
     result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
     expectation = _expectation(command=command, execution=result)
 
@@ -451,7 +451,7 @@ def test_declared_adapter_must_match_the_executed_tool(tmp_path: Path) -> None:
 def test_expectation_binds_exact_commit_and_subject_digest(tmp_path: Path) -> None:
     api = _api()
     stdout = _pytest_report()
-    command = ExecutionCommand(("pytest", "--json-report"))
+    command = _trusted_pytest_command()
     result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
     expected = _expectation(command=command, execution=result)
     submission = api.EvidenceSubmission("CMD-001", result, stdout, b"")
@@ -506,7 +506,7 @@ def test_pytest_configuration_name_containing_assert_is_not_assertion(
 ) -> None:
     api = _api()
     stdout = _pytest_report(message="fixture 'assertion_client' not found")
-    command = ExecutionCommand(("pytest", "--json-report"))
+    command = _trusted_pytest_command()
     result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
 
     decision = _gate(tmp_path).evaluate(
@@ -521,7 +521,7 @@ def test_pytest_configuration_name_containing_assert_is_not_assertion(
 def test_contradictory_pytest_success_report_is_rejected(tmp_path: Path) -> None:
     api = _api()
     stdout = _pytest_report(exitcode=0)
-    command = ExecutionCommand(("pytest", "--json-report"))
+    command = _trusted_pytest_command()
     result = _execution(
         tmp_path,
         stdout,
@@ -638,7 +638,7 @@ def test_adapter_rejects_repository_relative_tool_impersonation(
 def test_pytest_runtime_error_containing_assert_is_not_assertion(tmp_path: Path) -> None:
     api = _api()
     stdout = _pytest_report(message="NameError: name 'assertion_client' is not defined")
-    command = ExecutionCommand(("pytest", "--json-report"))
+    command = _trusted_pytest_command()
     result = _execution(tmp_path, stdout, command=command, plan_digest="sha256:" + "a" * 64)
 
     decision = _gate(tmp_path).evaluate(
@@ -787,7 +787,7 @@ def test_tap_failure_diagnostic_must_match_the_planned_assertion(tmp_path: Path)
 def test_repository_tool_cannot_impersonate_a_system_evidence_runner(tmp_path: Path) -> None:
     api = _api()
     stdout = _pytest_report()
-    command = ExecutionCommand(("pytest", "--json-report"))
+    command = _trusted_pytest_command()
     result = _execution(
         tmp_path,
         stdout,
@@ -811,7 +811,7 @@ def test_expectation_nodes_cannot_be_rewritten_while_retaining_the_plan_digest(
     api = _api()
     forged_node = "tests/test_feature.py::test_forged_observation"
     stdout = _pytest_report(node=forged_node)
-    command = ExecutionCommand(("pytest", "--json-report"))
+    command = _trusted_pytest_command()
     result = _execution(
         tmp_path,
         stdout,
