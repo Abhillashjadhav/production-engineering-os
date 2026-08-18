@@ -192,6 +192,11 @@ def _trusted_pytest_command() -> ExecutionCommand:
             "/dev/null",
             "-p",
             "no:terminal",
+            "-p",
+            "xdist.plugin",
+            "--numprocesses=1",
+            "--dist=loadscope",
+            "--max-worker-restart=0",
         )
     )
 
@@ -1111,7 +1116,20 @@ def test_tap_evidence_rejects_custom_node_loaders_and_preloads(
 
 def test_pytest_evidence_requires_a_separate_trusted_worker_process() -> None:
     api = _api()
-    same_process = _expectation(command=_trusted_pytest_command())
+    same_process = _expectation(
+        command=ExecutionCommand(
+            (
+                "pytest",
+                "--json-report",
+                "--json-report-file=/dev/stdout",
+                "--noconftest",
+                "-c",
+                "/dev/null",
+                "-p",
+                "no:terminal",
+            )
+        )
+    )
 
     with pytest.raises(api.EvidenceError, match="tool"):
         api.default_adapter_registry().validate_expectations((same_process,))

@@ -156,6 +156,9 @@ class PytestJsonReportAdapter:
         config_files: list[str] = []
         report_files: list[str] = []
         plugins: list[str] = []
+        worker_counts: list[str] = []
+        distributions: list[str] = []
+        worker_restarts: list[str] = []
         malformed_config = False
         unsafe_override = False
         capture_override = False
@@ -183,6 +186,25 @@ class PytestJsonReportAdapter:
                     plugins.append(command.argv[index + 1])
             elif argument.startswith("-p") and not argument.startswith("--"):
                 plugins.append(argument[2:].removeprefix("="))
+            for option, values in (
+                ("--dist", distributions),
+                ("--max-worker-restart", worker_restarts),
+                ("--numprocesses", worker_counts),
+            ):
+                if argument == option:
+                    if index + 1 >= len(command.argv):
+                        malformed_config = True
+                    else:
+                        values.append(command.argv[index + 1])
+                elif argument.startswith(option + "="):
+                    values.append(argument.removeprefix(option + "="))
+            if argument == "-n":
+                if index + 1 >= len(command.argv):
+                    malformed_config = True
+                else:
+                    worker_counts.append(command.argv[index + 1])
+            elif argument.startswith("-n") and not argument.startswith("--"):
+                worker_counts.append(argument[2:].removeprefix("="))
             if (
                 argument in {"-o", "--override-ini"}
                 or (argument.startswith("-o") and not argument.startswith("--"))
@@ -208,7 +230,13 @@ class PytestJsonReportAdapter:
             and command.argv.count("--noconftest") == 1
             and config_files == ["/dev/null"]
             and report_files == ["/dev/stdout"]
-            and plugins == ["no:terminal"]
+            and plugins == ["no:terminal", "xdist.plugin"]
+            and worker_counts == ["1"]
+            and distributions == ["loadscope"]
+            and worker_restarts == ["0"]
+            and not any(
+                argument == "--tx" or argument.startswith("--tx=") for argument in command.argv[1:]
+            )
             and not any(argument.startswith("@") for argument in command.argv[1:])
         )
 
