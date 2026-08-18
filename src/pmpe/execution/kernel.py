@@ -359,7 +359,7 @@ class BubblewrapSandbox:
         ]
 
     @staticmethod
-    def _host_path(workspace: Path, sandbox_path: PurePosixPath) -> Path:
+    def _host_path(workspace: Path, sandbox_path: PurePosixPath) -> Path | None:
         workspace_mount = PurePosixPath("/workspace")
         private_tmp = PurePosixPath("/tmp")
         try:
@@ -369,13 +369,31 @@ class BubblewrapSandbox:
                 sandbox_path.relative_to(private_tmp)
             except ValueError:
                 return Path(str(sandbox_path))
-            return Path("")
+            return None
         candidate = workspace.joinpath(*relative.parts).resolve()
         try:
             candidate.relative_to(workspace.resolve())
         except ValueError:
-            return Path("")
+            return None
         return candidate
+
+    @staticmethod
+    def _canonical_sandbox_path(sandbox_path: PurePosixPath) -> PurePosixPath | None:
+        aliases = (
+            (PurePosixPath("/proc/self/cwd"), PurePosixPath("/workspace")),
+            (PurePosixPath("/proc/self/root"), PurePosixPath("/")),
+        )
+        for alias, target in aliases:
+            try:
+                relative = sandbox_path.relative_to(alias)
+            except ValueError:
+                continue
+            return target.joinpath(*relative.parts)
+        try:
+            sandbox_path.relative_to(PurePosixPath("/proc"))
+        except ValueError:
+            return sandbox_path
+        return None
 
     def is_available(self) -> bool:
         if self._available is not None:
@@ -406,28 +424,43 @@ class BubblewrapSandbox:
     ) -> CommandOutcome:
         requested = Path(command.argv[0])
         if requested.is_absolute():
-            sandbox_executable = PurePosixPath(command.argv[0])
-            executable = self._host_path(workspace, sandbox_executable)
+            sandbox_executable = self._canonical_sandbox_path(PurePosixPath(command.argv[0]))
+            executable = (
+                self._host_path(workspace, sandbox_executable)
+                if sandbox_executable is not None
+                else None
+            )
         elif "/" in command.argv[0]:
             executable = (workspace / requested).resolve()
             try:
                 workspace_relative = executable.relative_to(workspace.resolve())
             except ValueError:
-                executable = Path("")
-                sandbox_executable = PurePosixPath("")
+                executable = None
+                sandbox_executable = None
             else:
                 sandbox_executable = PurePosixPath("/workspace").joinpath(*workspace_relative.parts)
         else:
-            executable = Path("")
-            sandbox_executable = PurePosixPath("")
+            executable = None
+            sandbox_executable = None
             for entry in policy.executable_path.split(":"):
-                candidate = PurePosixPath(entry) / command.argv[0]
+                candidate = self._canonical_sandbox_path(PurePosixPath(entry) / command.argv[0])
+                if candidate is None:
+                    continue
                 host_candidate = self._host_path(workspace, candidate)
-                if host_candidate.is_file() and os.access(host_candidate, os.X_OK):
+                if (
+                    host_candidate is not None
+                    and host_candidate.is_file()
+                    and os.access(host_candidate, os.X_OK)
+                ):
                     executable = host_candidate
                     sandbox_executable = candidate
                     break
-        if not executable.is_file() or not os.access(executable, os.X_OK):
+        if (
+            executable is None
+            or sandbox_executable is None
+            or not executable.is_file()
+            or not os.access(executable, os.X_OK)
+        ):
             raise ExecutableUnavailable(f"executable is unavailable: {command.argv[0]}")
         sandbox = shutil.which(self.executable, path=_GIT_ENV["PATH"])
         limiter = shutil.which(self.limiter_executable, path=_GIT_ENV["PATH"])
@@ -561,6 +594,22 @@ def _exact_commit_archive(repository: Path, commit_sha: str, policy: ExecutionPo
     resolved_identity = resolved.stdout.decode("ascii", "replace").strip()
     if resolved.return_code != 0 or resolved_identity != commit_sha:
         raise ExecutionError("commit does not resolve to the exact admitted identity")
+    integrity = _run_bounded_process(
+        [
+            *base,
+            "fsck",
+            "--strict",
+            "--no-reflogs",
+            "--no-dangling",
+            commit_sha,
+        ],
+        cwd=repository,
+        environment=_GIT_ENV,
+        timeout_seconds=remaining_time(120.0),
+        max_output_bytes=min(policy.max_output_bytes, 1024 * 1024),
+    )
+    if integrity.return_code != 0:
+        raise ExecutionError("reachable Git object integrity verification failed")
     listed = _run_bounded_process(
         [*base, "ls-tree", "-rz", "--full-tree", commit_sha],
         cwd=repository,

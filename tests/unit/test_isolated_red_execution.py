@@ -393,6 +393,8 @@ def test_snapshot_materialization_uses_one_aggregate_deadline(
         arguments = list(argv)  # type: ignore[arg-type]
         if "rev-parse" in arguments:
             return api.CommandOutcome(0, (commit + "\n").encode(), b"")
+        if "fsck" in arguments:
+            return api.CommandOutcome(0, b"", b"")
         if "ls-tree" in arguments:
             return api.CommandOutcome(0, listing, b"")
         if "cat-file" in arguments:
