@@ -691,3 +691,44 @@ def test_nested_proc_alias_is_canonicalized_to_the_workspace(
     )
 
     assert outcome.resolved_executable == "/workspace/tool"
+
+
+def test_workspace_is_readonly_and_private_tmp_has_an_aggregate_limit(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    policy = api.ExecutionPolicy(max_writable_bytes=32 * 1024 * 1024)
+    argv = api.BubblewrapSandbox()._argv(  # noqa: SLF001 - mount policy contract
+        tmp_path,
+        api.ExecutionCommand(argv=("/usr/bin/python3", "-V")),
+        policy,
+    )
+
+    workspace_index = argv.index(str(tmp_path))
+    assert argv[workspace_index - 1] == "--ro-bind"
+    tmp_index = argv.index("/tmp")
+    assert argv[tmp_index - 3 : tmp_index + 1] == [
+        "--size",
+        str(policy.max_writable_bytes),
+        "--tmpfs",
+        "/tmp",
+    ]
+
+
+def test_host_masking_preserves_etc_alternatives_for_system_executables(
+    tmp_path: Path,
+) -> None:
+    api = _api()
+    argv = api.BubblewrapSandbox()._argv(  # noqa: SLF001 - mount policy contract
+        tmp_path,
+        api.ExecutionCommand(argv=("/usr/bin/awk", "BEGIN { exit 1 }")),
+        api.ExecutionPolicy(),
+    )
+    tmpfs_targets = {
+        argv[index + 1]
+        for index, argument in enumerate(argv[:-1])
+        if argument == "--tmpfs"
+    }
+
+    assert "/etc" not in tmpfs_targets
+    assert "/etc/alternatives" not in tmpfs_targets
