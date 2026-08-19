@@ -556,16 +556,25 @@ def _build_review_and_deploy_local_product(
         text=True,
         timeout=120,
     )
-    generated_test_result = {
-        "returncode": tests.returncode,
-        "schema_version": "1.0.0",
-        "status": "PASS" if tests.returncode == 0 else "FAIL",
-    }
-    write_json_atomic(root / "local-product" / "generated-test-result.json", generated_test_result)
     if tests.returncode != 0:
+        write_json_atomic(
+            root / "local-product" / "generated-test-result.json",
+            {
+                "returncode": tests.returncode,
+                "schema_version": "1.0.0",
+                "status": "FAIL",
+            },
+        )
         raise FullProductError(f"generated product tests failed: {tests.stderr[-500:]}")
     _remove_generated_bytecode(workspace)
     candidate_digest = tree_content_digest(workspace)
+    generated_test_result = {
+        "candidate_digest": candidate_digest,
+        "returncode": tests.returncode,
+        "schema_version": "1.0.0",
+        "status": "PASS",
+    }
+    write_json_atomic(root / "local-product" / "generated-test-result.json", generated_test_result)
     engineering_path = root / "local-product" / "engineering-verification.json"
     write_json_atomic(
         engineering_path,
@@ -850,6 +859,8 @@ def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str
         engineering_tests.get("status") == "PASS",
         generated_test_result.get("status") == "PASS",
         generated_test_result.get("returncode") == 0,
+        generated_test_result.get("candidate_digest") == engineering.get("candidate_digest"),
+        generated_test_result.get("candidate_digest") == retained_candidate_digest,
         canonical_digest(generated_test_result) == engineering.get("generated_test_result_digest"),
         deployment.get("contract_digest") == contract_digest,
         deployment.get("source_spec_digest") == engineering.get("source_spec_digest"),
