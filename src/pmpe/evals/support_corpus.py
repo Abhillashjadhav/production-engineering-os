@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -14,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from pmpe.contracts.canonical import canonical_digest
+from pmpe.workflows.locking import exclusive_file_lock
 from pmpe.workflows.support import (
     PolicyRule,
     SupportCase,
@@ -515,8 +515,7 @@ def write_support_corpus(root: Path, *, seed: int) -> CorpusPaths:
     visible_path = version_root / "visible" / "cases.json"
     oracle_path = version_root / "eval-only" / "oracles.json"
     versions_root.mkdir(parents=True, exist_ok=True)
-    with (versions_root / ".publish.lock").open("a+b") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+    with exclusive_file_lock(versions_root / ".publish.lock"):
         if version_root.exists():
             try:
                 if (

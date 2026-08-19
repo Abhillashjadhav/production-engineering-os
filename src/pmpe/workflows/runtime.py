@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import fcntl
 import html
 import os
 import shutil
@@ -14,6 +13,7 @@ from typing import Any
 
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from pmpe.workflows.decision import DecisionContract
+from pmpe.workflows.locking import exclusive_file_lock
 from pmpe.workflows.support import SupportCase
 
 
@@ -259,8 +259,7 @@ def write_workflow_report(
     ).encode()
     json_bytes = report.canonical_bytes() + b"\n"
     reports_root.mkdir(parents=True, exist_ok=True)
-    with (reports_root / ".publish.lock").open("a+b") as lock:
-        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+    with exclusive_file_lock(reports_root / ".publish.lock"):
         if version_root.exists():
             try:
                 if json_path.read_bytes() == json_bytes and markdown_path.read_bytes() == markdown:
