@@ -126,6 +126,16 @@ def test_validator_rejects_oracle_references_not_present_in_visible_case() -> No
         validate_support_corpus(mutated)
 
 
+def test_validator_rejects_empty_oracle_evidence_bindings() -> None:
+    corpus = generate_support_corpus(seed=9)
+    first = corpus.hidden_oracles[0]
+    invalid = replace(first, required_fact_ids=(), required_rule_ids=())
+    mutated = SupportCorpus(corpus.visible_cases, (invalid, *corpus.hidden_oracles[1:]))
+
+    with pytest.raises(CorpusValidationError, match="bindings must be nonempty"):
+        validate_support_corpus(mutated)
+
+
 def test_validator_rejects_trivial_all_escalate_oracle() -> None:
     corpus = generate_support_corpus(seed=10)
     trivial = tuple(
@@ -179,6 +189,27 @@ def test_validator_rejects_visible_partition_relabeling() -> None:
 
     with pytest.raises(CorpusValidationError, match="hidden oracle is malformed"):
         validate_support_corpus(SupportCorpus(tuple(visible), corpus.hidden_oracles))
+
+
+def test_validator_rejects_undersized_held_out_partition() -> None:
+    corpus = generate_support_corpus(seed=11)
+    held_out_ids = [item.case_id for item in corpus.visible_cases if item.split == "held_out"]
+    retained = set(held_out_ids[:4])
+    visible = tuple(
+        replace(item, split="development")
+        if item.split == "held_out" and item.case_id not in retained
+        else item
+        for item in corpus.visible_cases
+    )
+    oracles = tuple(
+        replace(item, split="development")
+        if item.split == "held_out" and item.case_id not in retained
+        else item
+        for item in corpus.hidden_oracles
+    )
+
+    with pytest.raises(CorpusValidationError, match="partition coverage"):
+        validate_support_corpus(SupportCorpus(visible, oracles))
 
 
 def test_every_oracle_is_grounded_in_visible_facts_and_rules() -> None:
