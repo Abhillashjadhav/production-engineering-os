@@ -199,6 +199,13 @@ def test_validator_rejects_empty_oracle_evidence_bindings() -> None:
         validate_support_corpus(mutated)
 
 
+def test_hidden_oracle_rejects_mutable_evidence_collections() -> None:
+    oracle = generate_support_corpus(seed=9).hidden_oracles[0]
+
+    with pytest.raises(CorpusValidationError, match="evidence is malformed"):
+        replace(oracle, required_fact_ids=list(oracle.required_fact_ids))  # type: ignore[arg-type]
+
+
 def test_validator_rejects_partial_conflict_evidence_or_wrong_outcome() -> None:
     corpus = generate_support_corpus(seed=9)
     index = next(
@@ -239,6 +246,35 @@ def test_validator_rejects_same_side_conflict_evidence() -> None:
 
     with pytest.raises(CorpusValidationError, match="opposing roles"):
         validate_support_corpus(SupportCorpus(corpus.visible_cases, tuple(oracles)))
+
+
+def test_validator_rejects_unequal_priority_conflict() -> None:
+    corpus = generate_support_corpus(seed=9)
+    index = next(
+        index
+        for index, item in enumerate(corpus.visible_cases)
+        if len(item.policies) == 2 and item.split == "development"
+    )
+    case = corpus.visible_cases[index]
+    policy = case.policies[1]
+    required_fact = next(fact for fact in case.facts if fact.fact_id == policy.required_fact_id)
+    changed_policy = create_policy_rule(
+        policy.rule_id,
+        policy.text,
+        100,
+        action=policy.action,
+        required_fact=required_fact,
+        human_question=policy.human_question,
+    )
+    changed = replace(
+        case,
+        policies=(case.policies[0], changed_policy),
+    )
+    cases = list(corpus.visible_cases)
+    cases[index] = changed
+
+    with pytest.raises(CorpusValidationError, match="equal priority"):
+        validate_support_corpus(SupportCorpus(tuple(cases), corpus.hidden_oracles))
 
 
 def test_validator_rejects_coordinated_rationale_and_outcome_rewrite() -> None:

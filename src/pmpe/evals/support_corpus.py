@@ -18,7 +18,6 @@ from pmpe.workflows.support import (
     VisibleFact,
     create_policy_rule,
 )
-from pmpe.workflows.support_discovery import CustomerSupportDiscoveryAdapter
 
 CorpusValidationError = VisibleCorpusError
 _OUTCOMES = frozenset({"refund", "replacement", "escalate", "request_evidence", "reject"})
@@ -71,6 +70,15 @@ class HiddenOracle:
     required_fact_ids: tuple[str, ...]
     required_rule_ids: tuple[str, ...]
     rationale_code: str
+
+    def __post_init__(self) -> None:
+        if not (
+            type(self.required_fact_ids) is tuple
+            and type(self.required_rule_ids) is tuple
+            and all(type(item) is str and item for item in self.required_fact_ids)
+            and all(type(item) is str and item for item in self.required_rule_ids)
+        ):
+            raise CorpusValidationError("hidden oracle evidence is malformed")
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -395,11 +403,23 @@ def validate_support_corpus(corpus: SupportCorpus) -> None:
                 and rule_refs & negative_rules
             ):
                 raise CorpusValidationError("oracle conflict evidence lacks opposing roles")
-        decision = CustomerSupportDiscoveryAdapter().discover(case)
+            referenced_priorities = {
+                policy.priority for policy in case.policies if policy.rule_id in rule_refs
+            }
+            if len(referenced_priorities) != 1:
+                raise CorpusValidationError("oracle conflict policies do not have equal priority")
+        highest_priority = max(policy.priority for policy in case.policies)
+        selected_policies = tuple(
+            policy for policy in case.policies if policy.priority == highest_priority
+        )
+        selected_actions = {policy.action for policy in selected_policies}
+        selected_action = (
+            "escalate" if len(selected_actions) > 1 else next(iter(selected_actions))
+        )
         if (
-            decision.selected_action != oracle.expected_outcome
-            or set(decision.action_fact_refs) != fact_refs
-            or set(decision.action_rule_refs) != rule_refs
+            selected_action != oracle.expected_outcome
+            or {policy.required_fact_id for policy in selected_policies} != fact_refs
+            or {policy.rule_id for policy in selected_policies} != rule_refs
         ):
             raise CorpusValidationError("oracle does not match the selected visible decision")
 
