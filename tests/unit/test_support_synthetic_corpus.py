@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from pmpe.contracts.canonical import canonical_digest
+import pmpe.evals.support_corpus as support_corpus_module
 from pmpe.evals.support_corpus import (
     CorpusValidationError,
     HiddenOracle,
@@ -82,6 +83,28 @@ def test_generation_and_written_artifacts_are_byte_deterministic(tmp_path: Path)
     assert generate_support_corpus(seed=41) != generate_support_corpus(seed=42)
 
 
+def test_writer_rolls_back_visible_artifact_if_oracle_publish_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    paths = write_support_corpus(tmp_path, seed=41)
+    previous_visible = paths.visible_path.read_bytes()
+    previous_oracle = paths.oracle_path.read_bytes()
+    real_write = support_corpus_module._write_atomic
+
+    def fail_oracle(path: Path, payload: bytes) -> None:
+        if path == paths.oracle_path:
+            raise OSError("simulated oracle publish failure")
+        real_write(path, payload)
+
+    monkeypatch.setattr(support_corpus_module, "_write_atomic", fail_oracle)
+
+    with pytest.raises(OSError, match="simulated"):
+        write_support_corpus(tmp_path, seed=42)
+
+    assert paths.visible_path.read_bytes() == previous_visible
+    assert paths.oracle_path.read_bytes() == previous_oracle
+
+
 def test_visible_loader_cannot_observe_hidden_oracle_fields(tmp_path: Path) -> None:
     paths = write_support_corpus(tmp_path, seed=7)
     visible_bytes = paths.visible_path.read_bytes()
@@ -118,6 +141,14 @@ def test_visible_loader_bounds_recursive_payloads(tmp_path: Path) -> None:
 
     with pytest.raises(CorpusValidationError, match="nesting or size"):
         load_visible_cases(paths.visible_path)
+
+
+def test_visible_loader_normalizes_decoder_recursion(tmp_path: Path) -> None:
+    path = tmp_path / "deep.json"
+    path.write_text("[" * 10_000 + "0" + "]" * 10_000)
+
+    with pytest.raises(CorpusValidationError, match="unreadable"):
+        load_visible_cases(path)
 
 
 def test_visible_loader_rejects_scalar_product_constraints(tmp_path: Path) -> None:

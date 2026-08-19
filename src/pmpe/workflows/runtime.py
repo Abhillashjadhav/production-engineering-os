@@ -227,9 +227,16 @@ def write_workflow_report(
         raise WorkflowEvidenceError("unverified report cannot be persisted as complete")
     json_path = Path(root) / "workflow-report.json"
     markdown_path = Path(root) / "workflow-report.md"
+    def escaped_question(question: str) -> str:
+        return (
+            html.escape(question)
+            .replace("\r\n", "&#10;")
+            .replace("\r", "&#10;")
+            .replace("\n", "&#10;")
+        )
+
     questions = "\n".join(
-        f"  - <code>{html.escape(question).replace(chr(10), '&#10;')}</code>"
-        for question in report.unresolved_questions
+        f"  - <code>{escaped_question(question)}</code>" for question in report.unresolved_questions
     )
     if not questions:
         questions = "  - none"
