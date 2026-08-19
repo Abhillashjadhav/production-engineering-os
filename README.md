@@ -30,11 +30,66 @@ security, traceability, complexity, trajectory, and drift failures, applies its
 accepted fixes, reruns tests, and writes the evidence-backed report above. It does
 not generate an arbitrary product, open a real pull request, or deploy to cloud.
 
-The live contract-admission path is available for operator-driven runs:
+The live contract-admission path requires the exact approval receipt and expected named
+approver. A self-declared `APPROVED` field is insufficient:
 
 ```bash
-pmpe eng start --contract examples/v2-demo/contract.json --run-dir runs/demo
+pmpe eng start \
+  --contract /path/to/contract-approved.json \
+  --receipt /path/to/approval-receipt.json \
+  --expected-approver <named-product-owner> \
+  --run-dir runs/demo
 ```
+
+### Try all 21 Tier-1, Tier-2, and Tier-3 Personal Execution OS workflows
+
+Run 21 reusable outcome workflows in parallel from deterministic synthetic context:
+
+```bash
+pmpe personal-workflows quickstart --output /tmp/pmpe-personal
+cat /tmp/pmpe-personal/personal-execution-report.json
+cat /tmp/pmpe-personal/mobile-review.json
+```
+
+The six Tier-1 packs—Goal-to-Verified-Release, AI Eval and Release Gate, Weekly PM Command Centre,
+Meeting-to-Decision, Evidence-to-Roadmap-to-Release, and Issue-to-Draft-PR share one real
+input schema, bounded task graph, evidence ledger, deterministic validator, mobile review,
+and approval outbox. Nine Tier-2 operational packs and six Tier-3 builder packs use the same
+contract. Calendar changes, sends, roadmap writes, PR creation, merge, model
+release, and production deployment are drafted but never executed without approval. See
+[docs/personal-execution-os.md](docs/personal-execution-os.md) and
+[docs/tier2-tier3-workflow-packs.md](docs/tier2-tier3-workflow-packs.md).
+
+The six productized Tier-1 workflows and five shared PMOS capabilities are defined by the
+[Tier-1 and PMOS launch contract](docs/tier1-pmos-launch-contract.md). Every pack must solve
+a named user problem, produce a verifiable outcome, and expose an approval-safe next action.
+
+Exercise the governed runtime seams with deterministic local fakes:
+
+```bash
+pmpe personal-runtime quickstart --output /tmp/pmpe-personal-runtime
+cat /tmp/pmpe-personal-runtime/runtime-assurance-report.json
+```
+
+This proves exact-payload calendar approval, bounded product workers, hash-chained runtime
+events and evaluations, verified rollback, and proposal-only outcome learning. The demo has
+no real connector and performs zero external writes.
+
+### Try the guided PMOS experience
+
+Create and approve a ProductDecisionContract one blocking question at a time,
+or validate a native canonical bundle/manifest pair, without configuring a
+connector or model:
+
+```bash
+pmpe guided serve --workspace /tmp/pmos-guided
+# open http://127.0.0.1:8765
+```
+
+The mobile-first approval card is bound to the exact draft digest and shows
+impact, reversibility, evidence, cost, and permissions before approval. Product
+changes after approval become ProductChangeRequests. See
+[docs/pmos-guided-experience.md](docs/pmos-guided-experience.md).
 
 - **Contract in, verified handoff out.** `pmpe eng start` refuses anything that is not an APPROVED, unblocked contract and locks a canonical digest; every later step re-verifies it and fails closed on mutation. The `draft-pr` stage records a handoff reference. It does not open a remote pull request.
 - **Claude agents propose, the Python core disposes (PD-11).** Generative work belongs to the agents in `.claude/agents/v2-*.md` (driven live by the `/production-engineer` skill); admission, state, gates, and evidence belong to deterministic Python. No model SDKs or API keys anywhere in the product.

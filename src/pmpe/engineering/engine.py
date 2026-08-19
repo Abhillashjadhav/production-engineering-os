@@ -24,6 +24,12 @@ from pmpe.assurance.findings import FindingsStore
 from pmpe.assurance.fixer_gate import FixerGate
 from pmpe.assurance.readonly_guard import readonly_snapshot, verify_unmodified
 from pmpe.assurance.reconcile import OwnerDecision, ReconciliationResult, reconcile
+from pmpe.contracts.authoring import (
+    load_json_object,
+    verify_contract_approval,
+    write_json_atomic,
+)
+from pmpe.contracts.canonical import canonical_digest as approval_contract_digest
 from pmpe.contracts.change_request import ChangeRequestStore
 from pmpe.contracts.digest import canonical_digest
 from pmpe.contracts.model import load_contract
@@ -37,7 +43,7 @@ from pmpe.deployment.policy import (
     write_production_approval,
 )
 from pmpe.deployment.simulated import SimulatedDeployOutcome, simulate_production_deploy
-from pmpe.domain.errors import PmpeError, SpecError
+from pmpe.domain.errors import ContractViolation, PmpeError, SpecError
 from pmpe.domain.serialize import atomic_write_json, jsonable
 from pmpe.engineering.candidate import (
     Candidate,
@@ -96,13 +102,42 @@ class EngineeringRun:
     # --- lifecycle -------------------------------------------------------------------
 
     @classmethod
-    def start(cls, contract_path: Path, run_dir: Path, *, agents_dir: Path) -> EngineeringRun:
+    def start(
+        cls,
+        contract_path: Path,
+        run_dir: Path,
+        *,
+        agents_dir: Path,
+        approval_receipt_path: Path | None = None,
+        expected_approver: str | None = None,
+        fixture_mode: bool = False,
+    ) -> EngineeringRun:
         run_dir = Path(run_dir)
         if (run_dir / _STATE_FILE).exists():
             raise PmpeError(
                 f"a run already exists at {run_dir} — resume it instead of starting over"
             )
+        receipt: dict[str, Any] | None = None
+        receipt_digest = ""
+        if fixture_mode:
+            if approval_receipt_path is not None or expected_approver is not None:
+                raise PmpeError("fixture mode cannot accept production approval evidence")
+        else:
+            if approval_receipt_path is None or not (expected_approver or "").strip():
+                raise ContractViolation(
+                    "engineering admission requires an approval receipt and expected approver"
+                )
+            receipt = load_json_object(Path(approval_receipt_path))
         record = ContractStore(run_dir / "registry").lock_for_run(Path(contract_path), run_dir)
+        locked_contract_object = load_json_object(run_dir / "contract.json")
+        if approval_contract_digest(locked_contract_object) != record.digest:
+            raise ContractViolation("locked contract differs from its registry digest")
+        if receipt is not None:
+            receipt_digest = verify_contract_approval(
+                locked_contract_object,
+                receipt,
+                expected_approver=str(expected_approver),
+            )
         contract = load_contract(run_dir / "contract.json")
         state: dict[str, Any] = {
             "run_id": f"eng-{record.contract_id.lower()}-v{record.version}",
@@ -112,6 +147,11 @@ class EngineeringRun:
                 "contract_id": record.contract_id,
                 "contract_version": record.version,
                 "digest": record.digest,
+            },
+            "approval": {
+                "fixture_mode": fixture_mode,
+                "expected_approver": "" if fixture_mode else str(expected_approver),
+                "receipt_digest": receipt_digest,
             },
             "requirement_ids": contract.requirement_ids(),
             "components": [],
@@ -132,12 +172,32 @@ class EngineeringRun:
             "release_verdict": "",
         }
         run = cls(run_dir, state)
+        if receipt is not None:
+            write_json_atomic(run_dir / "approval-receipt.json", receipt)
+            write_json_atomic(
+                run_dir / "approval-receipt.lock.json",
+                {
+                    "approved_contract_digest": approval_contract_digest(
+                        load_json_object(run_dir / "contract.json")
+                    ),
+                    "approval_receipt_digest": receipt_digest,
+                    "schema_version": "1.0.0",
+                },
+            )
         run.ledger.record(
             stage="contract_lock",
             agent=_CORE,
             action="lock",
             output_digests={"contract": record.digest},
         )
+        if receipt is not None:
+            run.ledger.record(
+                stage="contract_lock",
+                agent=_CORE,
+                action="lock_approval_receipt",
+                input_digests={"contract": record.digest},
+                output_digests={"approval_receipt": receipt_digest},
+            )
         run._save()
         return run
 
@@ -150,6 +210,24 @@ class EngineeringRun:
             raise PmpeError(f"no engineering run at {run_dir} (missing {_STATE_FILE})")
         state: dict[str, Any] = json.loads(path.read_text())
         ContractStore(run_dir / "registry").verify_unchanged(run_dir)
+        approval = state.get("approval")
+        if not isinstance(approval, dict):
+            raise PmpeError("run has no approval admission state")
+        if not approval.get("fixture_mode"):
+            contract = load_json_object(run_dir / "contract.json")
+            receipt = load_json_object(run_dir / "approval-receipt.json")
+            verified = verify_contract_approval(
+                contract,
+                receipt,
+                expected_approver=str(approval.get("expected_approver", "")),
+            )
+            lock = load_json_object(run_dir / "approval-receipt.lock.json")
+            if (
+                lock.get("approved_contract_digest") != approval_contract_digest(contract)
+                or lock.get("approval_receipt_digest") != verified
+                or approval.get("receipt_digest") != verified
+            ):
+                raise PmpeError("approval receipt lock changed after engineering admission")
         return cls(run_dir, state)
 
     @property

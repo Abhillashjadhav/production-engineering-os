@@ -51,7 +51,9 @@ def repo(tmp_path: Path) -> Path:
 
 @pytest.fixture()
 def run(tmp_path: Path) -> EngineeringRun:
-    return EngineeringRun.start(CONTRACT, tmp_path / "run", agents_dir=AGENTS_DIR)
+    return EngineeringRun.start(
+        CONTRACT, tmp_path / "run", agents_dir=AGENTS_DIR, fixture_mode=True
+    )
 
 
 # --- artifact builders (what live agents would return) ---------------------------------
@@ -242,7 +244,7 @@ def test_start_locks_contract_and_opens_at_assessment(run: EngineeringRun) -> No
 
 def test_start_twice_fails_closed(run: EngineeringRun) -> None:
     with pytest.raises(PmpeError, match="already"):
-        EngineeringRun.start(CONTRACT, run.run_dir, agents_dir=AGENTS_DIR)
+        EngineeringRun.start(CONTRACT, run.run_dir, agents_dir=AGENTS_DIR, fixture_mode=True)
 
 
 def test_resume_preserves_state_and_appends_nothing(run: EngineeringRun) -> None:
@@ -633,7 +635,9 @@ def test_production_requires_rollback_and_runnable_artifact(tmp_path: Path) -> N
     git.init()
     (bare / "api.py").write_text("STATUS = 'ok'\n")
     git.commit_all("chore: workspace without deploy collateral")
-    run = EngineeringRun.start(CONTRACT, tmp_path / "bare-run", agents_dir=AGENTS_DIR)
+    run = EngineeringRun.start(
+        CONTRACT, tmp_path / "bare-run", agents_dir=AGENTS_DIR, fixture_mode=True
+    )
     drive_to_deploy(run, bare)
     run.approve_production(owner="abhillash", reason="pilot cohort launch")
     with pytest.raises(DeploymentBlocked, match="ROLLBACK"):

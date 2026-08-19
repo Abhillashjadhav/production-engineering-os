@@ -1,0 +1,423 @@
+"""Deterministic synthetic starters for all governed workflow packs."""
+
+from __future__ import annotations
+
+import random
+from pathlib import Path
+from typing import Any
+
+from pmpe.contracts.authoring import write_json_atomic
+from pmpe.contracts.canonical import canonical_digest
+from pmpe.personal.catalog import GENERIC_WORKFLOW_CATALOG
+from pmpe.personal.planner import WORKFLOW_ORDER
+
+
+def _source(
+    source_id: str, kind: str, title: str, content: Any, *, observed_at: str
+) -> dict[str, Any]:
+    return {
+        "source_id": source_id,
+        "kind": kind,
+        "title": title,
+        "uri": f"synthetic://personal/{source_id.lower()}",
+        "observed_at": observed_at,
+        "content": content,
+        "content_digest": canonical_digest(content),
+    }
+
+
+def synthetic_personal_context(
+    seed: int = 2026, *, workflow_ids: tuple[str, ...] = WORKFLOW_ORDER
+) -> dict[str, Any]:
+    randomizer = random.Random(seed)
+    suffix = randomizer.choice(("A", "B", "C"))
+    candidate_digest = canonical_digest({"candidate": f"voice-pilot-{suffix}", "version": 1})
+    sources = [
+        _source(
+            "SRC-PRODUCT-DECISION",
+            "product-decision",
+            "Approved voice-support product decision",
+            {"decision": "Pilot agent assist with synthetic cases", "status": "APPROVED"},
+            observed_at="2026-08-19T09:00:00+05:30",
+        ),
+        _source(
+            "SRC-ACCEPTANCE",
+            "test-report",
+            "Acceptance and regression checks",
+            {"checks": ["scenario-suite", "privacy-boundary", "rollback"]},
+            observed_at="2026-08-19T10:00:00+05:30",
+        ),
+        _source(
+            "SRC-EVAL-RUN",
+            "eval-run",
+            "Frozen AI candidate evaluation",
+            {"candidate": f"voice-pilot-{suffix}", "cases": 3},
+            observed_at="2026-08-19T10:15:00+05:30",
+        ),
+        _source(
+            "SRC-CALENDAR",
+            "calendar-snapshot",
+            "Weekly calendar snapshot",
+            {"events": ["pilot-review", "dependency-review", "research-synthesis"]},
+            observed_at="2026-08-19T08:00:00+05:30",
+        ),
+        _source(
+            "SRC-COMMITMENTS",
+            "commitment-register",
+            "Open commitments",
+            {"open": 3, "high_impact": 2},
+            observed_at="2026-08-19T08:05:00+05:30",
+        ),
+        _source(
+            "SRC-MESSAGES",
+            "message-snapshot",
+            "Action-request messages",
+            {"messages": 2},
+            observed_at="2026-08-19T08:10:00+05:30",
+        ),
+        _source(
+            "SRC-MEETING-NOTES",
+            "meeting-notes",
+            "Voice pilot decision meeting notes",
+            {"decisions": 2, "actions": 2},
+            observed_at="2026-08-18T17:00:00+05:30",
+        ),
+        _source(
+            "SRC-CUSTOMER-SIGNALS",
+            "customer-research",
+            "Synthetic customer support signals",
+            {"signals": ["slow triage", "policy lookup", "refund risk"]},
+            observed_at="2026-08-18T16:00:00+05:30",
+        ),
+        _source(
+            "SRC-ISSUE-119",
+            "github-issue",
+            "Tier-1 workflow packs issue",
+            {"issue": 119, "status": "APPROVED_FOR_IMPLEMENTATION"},
+            observed_at="2026-08-19T11:00:00+05:30",
+        ),
+        _source(
+            "SRC-CI-RUN",
+            "ci-run",
+            "Deterministic checks for issue candidate",
+            {"pytest": "PASS", "ruff": "PASS"},
+            observed_at="2026-08-19T11:15:00+05:30",
+        ),
+    ]
+    generic_source_ids: dict[str, str] = {}
+    for index, (workflow_id, entry) in enumerate(GENERIC_WORKFLOW_CATALOG.items(), start=1):
+        source_id = f"SRC-PACK-{index:02d}"
+        generic_source_ids[workflow_id] = source_id
+        sources.append(
+            _source(
+                source_id,
+                "workflow-evidence",
+                f"Evidence for {workflow_id}",
+                {
+                    "problem_solved": entry["problem_solved"],
+                    "objective": entry["objective"],
+                    "observed_state": "synthetic verified input",
+                },
+                observed_at="2026-08-19T12:00:00+05:30",
+            )
+        )
+    inputs: dict[str, Any] = {
+        "goal-to-verified-release": {
+            "evidence_source_ids": ["SRC-PRODUCT-DECISION", "SRC-ACCEPTANCE"],
+            "goal_id": f"GOAL-VOICE-{suffix}",
+            "release_candidate_digest": candidate_digest,
+            "release_target": "voice-support-pilot",
+            "acceptance_checks": [
+                {
+                    "check_id": "CHECK-SCENARIOS",
+                    "description": "Synthetic support scenarios pass.",
+                    "status": "PASS",
+                    "evidence_source_ids": ["SRC-ACCEPTANCE"],
+                },
+                {
+                    "check_id": "CHECK-PRODUCT-TRUTH",
+                    "description": "Candidate conforms to the approved product decision.",
+                    "status": "PASS",
+                    "evidence_source_ids": ["SRC-PRODUCT-DECISION"],
+                },
+            ],
+        },
+        "ai-eval-release-gate": {
+            "evidence_source_ids": ["SRC-EVAL-RUN"],
+            "candidate_id": f"VOICE-CANDIDATE-{suffix}",
+            "release_target": "voice-support-shadow",
+            "golden_cases": [
+                {
+                    "case_id": "GOLDEN-DELAY",
+                    "expected": "Escalate delayed delivery with evidence.",
+                    "actual": "Escalate delayed delivery with evidence.",
+                    "safety_pass": True,
+                    "latency_ms": 420,
+                    "cost_usd": 0.012,
+                    "evidence_source_ids": ["SRC-EVAL-RUN"],
+                },
+                {
+                    "case_id": "GOLDEN-REFUND",
+                    "expected": "Request approval before refund action.",
+                    "actual": "Request approval before refund action.",
+                    "safety_pass": True,
+                    "latency_ms": 480,
+                    "cost_usd": 0.014,
+                    "evidence_source_ids": ["SRC-EVAL-RUN"],
+                },
+                {
+                    "case_id": "GOLDEN-POLICY",
+                    "expected": "Cite the current policy source.",
+                    "actual": "Cite the current policy source.",
+                    "safety_pass": True,
+                    "latency_ms": 510,
+                    "cost_usd": 0.013,
+                    "evidence_source_ids": ["SRC-EVAL-RUN"],
+                },
+            ],
+            "thresholds": {
+                "min_pass_rate": 1.0,
+                "max_p95_latency_ms": 600,
+                "max_average_cost_usd": 0.02,
+                "max_safety_failures": 0,
+            },
+        },
+        "weekly-pm-command-centre": {
+            "evidence_source_ids": ["SRC-CALENDAR", "SRC-COMMITMENTS", "SRC-MESSAGES"],
+            "timezone": "Asia/Kolkata",
+            "calendar_events": [
+                {
+                    "event_id": "CAL-001",
+                    "start": "2026-08-20T09:30:00+05:30",
+                    "end": "2026-08-20T10:00:00+05:30",
+                    "title": "Voice support pilot review",
+                },
+                {
+                    "event_id": "CAL-002",
+                    "start": "2026-08-20T09:45:00+05:30",
+                    "end": "2026-08-20T10:30:00+05:30",
+                    "title": "Engineering dependency review",
+                },
+            ],
+            "commitments": [
+                {
+                    "commitment_id": "COM-001",
+                    "due": "2026-08-20T14:00:00+05:30",
+                    "status": "OPEN",
+                    "impact": "HIGH",
+                    "text": "Approve the pilot release recommendation.",
+                },
+                {
+                    "commitment_id": "COM-002",
+                    "due": "2026-08-21T18:00:00+05:30",
+                    "status": "OPEN",
+                    "impact": "MEDIUM",
+                    "text": "Publish verified demo evidence.",
+                },
+            ],
+            "messages": [
+                {
+                    "message_id": "MSG-001",
+                    "importance": 3,
+                    "subject": "Pilot decision required",
+                    "action_requested": "Share the go or no-go recommendation.",
+                }
+            ],
+        },
+        "meeting-to-decision": {
+            "evidence_source_ids": ["SRC-MEETING-NOTES", "SRC-PRODUCT-DECISION"],
+            "meeting_id": "MEET-VOICE-001",
+            "title": "Voice support pilot decision",
+            "scheduled_at": "2026-08-20T09:30:00+05:30",
+            "agenda": ["Review eval evidence", "Confirm release boundary"],
+            "prior_decisions": [
+                "Use synthetic cases for the public demo.",
+                "Keep refunds and production changes approval-gated.",
+            ],
+            "notes": ["The candidate met the frozen synthetic threshold."],
+            "action_items": [
+                {
+                    "action_id": "ACT-001",
+                    "owner": "product-owner",
+                    "due": "2026-08-20",
+                    "text": "Approve the release recommendation.",
+                },
+                {
+                    "action_id": "ACT-002",
+                    "owner": "engineering-owner",
+                    "due": "2026-08-21",
+                    "text": "Verify held-out cases.",
+                },
+            ],
+            "follow_up_target": "voice-pilot-stakeholders",
+        },
+        "evidence-to-roadmap-to-release": {
+            "evidence_source_ids": [
+                "SRC-CUSTOMER-SIGNALS",
+                "SRC-PRODUCT-DECISION",
+                "SRC-ACCEPTANCE",
+            ],
+            "claims": [
+                {
+                    "claim_id": "CLAIM-TRIAGE",
+                    "text": (
+                        "Support triage and policy lookup are the initial workflow bottlenecks."
+                    ),
+                    "source_ids": ["SRC-CUSTOMER-SIGNALS"],
+                },
+                {
+                    "claim_id": "CLAIM-BOUNDARY",
+                    "text": "High-impact actions must remain approval-gated.",
+                    "source_ids": ["SRC-PRODUCT-DECISION"],
+                },
+            ],
+            "options": [
+                {
+                    "option_id": "OPTION-ASSIST",
+                    "title": "Agent-assist pilot",
+                    "pros": ["Preserves human judgment", "Supports shadow evaluation"],
+                    "cons": ["Requires reviewer capacity"],
+                },
+                {
+                    "option_id": "OPTION-AUTONOMOUS",
+                    "title": "Autonomous support agent",
+                    "pros": ["Higher automation ceiling"],
+                    "cons": ["Exceeds the approved risk boundary"],
+                },
+            ],
+            "approved_option_id": "OPTION-ASSIST",
+            "requirements": [
+                "Cite current policy evidence.",
+                "Request approval before refunds or external sends.",
+            ],
+            "release_checks": [
+                {
+                    "check_id": "CHECK-ROADMAP-EVIDENCE",
+                    "description": "Roadmap claims have admitted evidence.",
+                    "status": "PASS",
+                    "evidence_source_ids": ["SRC-CUSTOMER-SIGNALS"],
+                },
+                {
+                    "check_id": "CHECK-ROADMAP-RELEASE",
+                    "description": "Release checks pass.",
+                    "status": "PASS",
+                    "evidence_source_ids": ["SRC-ACCEPTANCE"],
+                },
+            ],
+            "roadmap_target": "voice-support-roadmap",
+        },
+        "issue-to-draft-pr": {
+            "evidence_source_ids": ["SRC-ISSUE-119", "SRC-CI-RUN"],
+            "repository": "Abhillashjadhav/production-engineering-os",
+            "issue_number": 119,
+            "issue_title": "Ship six Tier-1 workflow packs",
+            "issue_body": (
+                "Create usable, evidence-led workflow packs without changing product truth."
+            ),
+            "impact_paths": ["src/pmpe/personal", "tests/unit/test_personal_execution.py"],
+            "dependencies": ["Personal Execution OS runtime", "RFC 8785 digests"],
+            "candidate_digest": candidate_digest,
+            "checks": [
+                {
+                    "check_id": "CHECK-PYTEST",
+                    "description": "Focused unit tests pass.",
+                    "status": "PASS",
+                    "evidence_source_ids": ["SRC-CI-RUN"],
+                },
+                {
+                    "check_id": "CHECK-RUFF",
+                    "description": "Ruff passes.",
+                    "status": "PASS",
+                    "evidence_source_ids": ["SRC-CI-RUN"],
+                },
+            ],
+            "pr_title": "feat: add six Tier-1 workflow packs",
+            "pr_body": "Implements #119 with deterministic evidence and approval gates.",
+        },
+    }
+    for index, (workflow_id, entry) in enumerate(GENERIC_WORKFLOW_CATALOG.items(), start=1):
+        source_id = generic_source_ids[workflow_id]
+        inputs[workflow_id] = {
+            "evidence_source_ids": [source_id],
+            "subject_id": f"SUBJECT-PACK-{index:02d}",
+            "objective": entry["objective"],
+            "records": [
+                {
+                    "record_id": f"RECORD-PACK-{index:02d}",
+                    "title": entry["output_name"].replace("-", " ").title(),
+                    "content": {
+                        "problem_solved": entry["problem_solved"],
+                        "proposed_outcome": entry["output_name"],
+                    },
+                    "evidence_source_ids": [source_id],
+                }
+            ],
+            "checks": [
+                {
+                    "check_id": f"CHECK-PACK-{index:02d}",
+                    "description": "Required source evidence and output target are present.",
+                    "status": "PASS",
+                    "evidence_source_ids": [source_id],
+                }
+            ],
+            "output_target": entry["output_name"],
+            "approval_actions": [
+                {
+                    "action_type": action_type,
+                    "target": f"configured-target/{workflow_id}",
+                    "operation": action_type,
+                    "reason": "Publishing or applying the verified proposal is consequential.",
+                    "reversibility": (
+                        "The local proposal is reversible; the external action may not be."
+                    ),
+                }
+                for action_type in entry["approvals"]
+            ],
+        }
+    selected = tuple(workflow_ids)
+    return {
+        "schema_version": "1.0.0",
+        "request_id": f"PERSONAL-ALL-TIERS-{suffix}",
+        "problem": "PMs and builders can generate artifacts but cannot reliably complete work.",
+        "hypothesis": "Governed outcome packs will reduce rework and incomplete handoffs.",
+        "proposed_answer": "Run role-specific packs on one evidence and approval runtime.",
+        "target_outcome": "Each selected workflow returns a verified outcome and safe next action.",
+        "deadline": "2026-08-29T18:00:00+05:30",
+        "success": {
+            "north_star": (
+                "Percentage of accepted work contracts completed with verified evidence "
+                "by deadline."
+            ),
+            "leading": [
+                "Time to first verified outcome",
+                "First-pass deliverable acceptance",
+                "Percentage of selected workflows with complete provenance",
+            ],
+            "guardrails": [
+                "Zero unauthorized external writes",
+                "Zero silent failures presented as completed work",
+                "Every material result links to admitted evidence",
+            ],
+        },
+        "trade_off": "More approval latency in exchange for verifiable high-impact actions.",
+        "scope": [
+            "Tier-1, Tier-2 and Tier-3 local workflow packs",
+            "Synthetic and user-supplied JSON inputs",
+        ],
+        "non_goals": ["Sending messages", "Merging code", "Deploying production"],
+        "workflow_ids": list(selected),
+        "approved_by": "synthetic-demo-user",
+        "evidence_sources": sources,
+        "workflow_inputs": {workflow_id: inputs[workflow_id] for workflow_id in selected},
+    }
+
+
+def write_synthetic_personal_context(
+    root: Path,
+    seed: int = 2026,
+    *,
+    workflow_ids: tuple[str, ...] = WORKFLOW_ORDER,
+) -> Path:
+    output = Path(root) / "synthetic-workflow-request.json"
+    write_json_atomic(output, synthetic_personal_context(seed, workflow_ids=workflow_ids))
+    return output
