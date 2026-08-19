@@ -93,7 +93,10 @@ class PolicyRule:
             and 0 <= self.priority <= 100
             and self.action in {"escalate", "refund", "reject", "replacement", "request_evidence"}
             and _bounded_identifier(self.required_fact_id)
+            and type(self.required_fact_digest) is str
+            and len(self.required_fact_digest) == 71
             and self.required_fact_digest.startswith("sha256:")
+            and all(character in "0123456789abcdef" for character in self.required_fact_digest[7:])
             and (
                 not self.human_question
                 or (
@@ -168,14 +171,19 @@ class SupportCase:
 
 
 def _reject_oracle_fields(value: object) -> None:
-    if isinstance(value, dict):
-        if _FORBIDDEN_ORACLE_FIELDS.intersection(value):
-            raise VisibleCorpusError("visible corpus contains hidden oracle field")
-        for item in value.values():
-            _reject_oracle_fields(item)
-    elif isinstance(value, list):
-        for item in value:
-            _reject_oracle_fields(item)
+    stack = [(value, 0)]
+    visited = 0
+    while stack:
+        current, depth = stack.pop()
+        visited += 1
+        if depth > 64 or visited > 100_000:
+            raise VisibleCorpusError("visible corpus nesting or size exceeds limits")
+        if isinstance(current, dict):
+            if _FORBIDDEN_ORACLE_FIELDS.intersection(current):
+                raise VisibleCorpusError("visible corpus contains hidden oracle field")
+            stack.extend((item, depth + 1) for item in current.values())
+        elif isinstance(current, list):
+            stack.extend((item, depth + 1) for item in current)
 
 
 def load_visible_cases(path: Path) -> tuple[SupportCase, ...]:
@@ -191,8 +199,7 @@ def load_visible_cases(path: Path) -> tuple[SupportCase, ...]:
     if not isinstance(raw_cases, list):
         raise VisibleCorpusError("visible corpus cases are missing")
     if any(
-        not isinstance(item, dict)
-        or not isinstance(item.get("product_constraints"), list)
+        not isinstance(item, dict) or not isinstance(item.get("product_constraints"), list)
         for item in raw_cases
     ):
         raise VisibleCorpusError("visible corpus product constraints must be an array")

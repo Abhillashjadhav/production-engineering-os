@@ -106,6 +106,19 @@ def test_validator_rejects_oracle_leakage_into_visible_payload(tmp_path: Path) -
         load_visible_cases(paths.visible_path)
 
 
+def test_visible_loader_bounds_recursive_payloads(tmp_path: Path) -> None:
+    paths = write_support_corpus(tmp_path, seed=8)
+    nested: object = "leaf"
+    for _ in range(70):
+        nested = [nested]
+    payload = json.loads(paths.visible_path.read_text())
+    payload["extra"] = nested
+    paths.visible_path.write_text(json.dumps(payload))
+
+    with pytest.raises(CorpusValidationError, match="nesting or size"):
+        load_visible_cases(paths.visible_path)
+
+
 def test_visible_loader_rejects_scalar_product_constraints(tmp_path: Path) -> None:
     paths = write_support_corpus(tmp_path, seed=8)
     payload = json.loads(paths.visible_path.read_text())
