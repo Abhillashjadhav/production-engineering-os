@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 import pmpe.evals.support_corpus as support_corpus_module
+from pmpe.contracts.canonical import canonical_digest
 from pmpe.evals.support_corpus import (
     CorpusValidationError,
     HiddenOracle,
@@ -345,6 +346,17 @@ def test_validator_rejects_conflict_policy_with_corrupted_direction() -> None:
         validate_support_corpus(SupportCorpus(tuple(cases), corpus.hidden_oracles))
 
 
+def test_validator_binds_oracle_to_complete_visible_case_content() -> None:
+    corpus = generate_support_corpus(seed=9)
+    case = corpus.visible_cases[0]
+
+    with pytest.raises(CorpusValidationError, match="support case is malformed"):
+        replace(
+            case,
+            facts=(replace(case.facts[0], text="Evidence now contradicts the expected decision."),),
+        )
+
+
 def test_validator_rejects_coordinated_rationale_and_outcome_rewrite() -> None:
     corpus = generate_support_corpus(seed=9)
     first = replace(
@@ -370,9 +382,15 @@ def test_validator_does_not_require_lower_priority_distractor_evidence() -> None
         required_fact=case.facts[0],
     )
     changed = replace(case, policies=(*case.policies, distractor))
+    oracle = replace(
+        corpus.hidden_oracles[0], visible_case_digest=canonical_digest(changed.as_dict())
+    )
 
     validate_support_corpus(
-        SupportCorpus((changed, *corpus.visible_cases[1:]), corpus.hidden_oracles)
+        SupportCorpus(
+            (changed, *corpus.visible_cases[1:]),
+            (oracle, *corpus.hidden_oracles[1:]),
+        )
     )
 
 
@@ -424,6 +442,7 @@ def test_validator_rejects_trivial_all_escalate_oracle() -> None:
             required_fact_ids=item.required_fact_ids,
             required_rule_ids=item.required_rule_ids,
             rationale_code="manual-review",
+            visible_case_digest=item.visible_case_digest,
         )
         for item in corpus.hidden_oracles
     )
