@@ -116,6 +116,16 @@ def test_visible_loader_rejects_scalar_product_constraints(tmp_path: Path) -> No
         load_visible_cases(paths.visible_path)
 
 
+def test_visible_loader_normalizes_unpaired_unicode_surrogate(tmp_path: Path) -> None:
+    paths = write_support_corpus(tmp_path, seed=8)
+    payload = json.loads(paths.visible_path.read_text())
+    payload["cases"][0]["ticket_text"] = "\ud800"
+    paths.visible_path.write_text(json.dumps(payload))
+
+    with pytest.raises(CorpusValidationError, match="malformed"):
+        load_visible_cases(paths.visible_path)
+
+
 def test_validator_rejects_oracle_references_not_present_in_visible_case() -> None:
     corpus = generate_support_corpus(seed=9)
     first = corpus.hidden_oracles[0]

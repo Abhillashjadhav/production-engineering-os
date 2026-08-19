@@ -37,7 +37,12 @@ def _bounded_identifier(value: object) -> bool:
 
 
 def _bounded_text(value: object, *, maximum: int = 4096) -> bool:
-    return type(value) is str and 0 < len(value.encode("utf-8")) <= maximum and "\0" not in value
+    if type(value) is not str or "\0" in value:
+        return False
+    try:
+        return 0 < len(value.encode("utf-8")) <= maximum
+    except UnicodeEncodeError:
+        return False
 
 
 @dataclass(frozen=True)
