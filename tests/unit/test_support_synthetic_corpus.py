@@ -82,7 +82,7 @@ def test_generation_and_written_artifacts_are_byte_deterministic(tmp_path: Path)
     assert generate_support_corpus(seed=41) != generate_support_corpus(seed=42)
 
 
-def test_writer_rolls_back_visible_artifact_if_oracle_publish_fails(
+def test_writer_keeps_prior_version_immutable_if_new_oracle_publish_fails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     paths = write_support_corpus(tmp_path, seed=41)
@@ -91,7 +91,7 @@ def test_writer_rolls_back_visible_artifact_if_oracle_publish_fails(
     real_write = support_corpus_module._write_atomic
 
     def fail_oracle(path: Path, payload: bytes) -> None:
-        if path == paths.oracle_path:
+        if path.parent.name == "eval-only":
             raise OSError("simulated oracle publish failure")
         real_write(path, payload)
 
@@ -102,6 +102,15 @@ def test_writer_rolls_back_visible_artifact_if_oracle_publish_fails(
 
     assert paths.visible_path.read_bytes() == previous_visible
     assert paths.oracle_path.read_bytes() == previous_oracle
+
+
+def test_different_corpora_publish_to_distinct_immutable_versions(tmp_path: Path) -> None:
+    first = write_support_corpus(tmp_path, seed=41)
+    second = write_support_corpus(tmp_path, seed=42)
+
+    assert first.visible_path.parents[1] != second.visible_path.parents[1]
+    assert first.oracle_path.parents[1] != second.oracle_path.parents[1]
+    assert first.visible_path.read_bytes() != second.visible_path.read_bytes()
 
 
 def test_visible_loader_cannot_observe_hidden_oracle_fields(tmp_path: Path) -> None:
