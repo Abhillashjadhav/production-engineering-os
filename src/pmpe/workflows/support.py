@@ -124,6 +124,12 @@ def load_visible_cases(path: Path) -> tuple[SupportCase, ...]:
     raw_cases = payload.get("cases")
     if not isinstance(raw_cases, list):
         raise VisibleCorpusError("visible corpus cases are missing")
+    if any(
+        not isinstance(item, dict)
+        or not isinstance(item.get("product_constraints"), list)
+        for item in raw_cases
+    ):
+        raise VisibleCorpusError("visible corpus product constraints must be an array")
     try:
         cases = tuple(
             SupportCase(

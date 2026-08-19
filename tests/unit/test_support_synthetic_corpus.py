@@ -106,6 +106,16 @@ def test_validator_rejects_oracle_leakage_into_visible_payload(tmp_path: Path) -
         load_visible_cases(paths.visible_path)
 
 
+def test_visible_loader_rejects_scalar_product_constraints(tmp_path: Path) -> None:
+    paths = write_support_corpus(tmp_path, seed=8)
+    payload = json.loads(paths.visible_path.read_text())
+    payload["cases"][0]["product_constraints"] = "refund"
+    paths.visible_path.write_text(json.dumps(payload))
+
+    with pytest.raises(CorpusValidationError, match="constraints must be an array"):
+        load_visible_cases(paths.visible_path)
+
+
 def test_validator_rejects_oracle_references_not_present_in_visible_case() -> None:
     corpus = generate_support_corpus(seed=9)
     first = corpus.hidden_oracles[0]
