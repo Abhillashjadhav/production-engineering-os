@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 from contextlib import suppress
 from dataclasses import asdict, dataclass, replace
@@ -480,11 +481,25 @@ def write_support_corpus(root: Path, *, seed: int) -> CorpusPaths:
         }
     )
     version = hashlib.sha256(visible_bytes + oracle_bytes).hexdigest()
-    version_root = Path(root) / "versions" / version
+    versions_root = Path(root) / "versions"
+    version_root = versions_root / version
     visible_path = version_root / "visible" / "cases.json"
     oracle_path = version_root / "eval-only" / "oracles.json"
-    _write_atomic(visible_path, visible_bytes)
-    _write_atomic(oracle_path, oracle_bytes)
+    if version_root.exists():
+        return CorpusPaths(visible_path, oracle_path)
+    versions_root.mkdir(parents=True, exist_ok=True)
+    staged_root = Path(tempfile.mkdtemp(dir=versions_root, prefix=".corpus-"))
+    try:
+        _write_atomic(staged_root / "visible" / "cases.json", visible_bytes)
+        _write_atomic(staged_root / "eval-only" / "oracles.json", oracle_bytes)
+        try:
+            os.replace(staged_root, version_root)
+        except OSError:
+            if not version_root.exists():
+                raise
+    finally:
+        if staged_root.exists():
+            shutil.rmtree(staged_root)
     return CorpusPaths(visible_path, oracle_path)
 
 

@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import pmpe.workflows.runtime as runtime_module
 from pmpe.evals.support_corpus import generate_support_corpus
 from pmpe.workflows.decision import create_decision_contract
 from pmpe.workflows.runtime import (
@@ -111,6 +112,25 @@ def test_distinct_reports_publish_to_immutable_versions(tmp_path: Path) -> None:
 
     assert first.json_path.parent != second.json_path.parent
     assert first.json_path.exists() and second.json_path.exists()
+
+
+def test_report_version_is_not_visible_until_both_formats_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    case, contract, plan, report = _run(0)
+    real_write = runtime_module._write_atomic
+
+    def fail_markdown(path: Path, payload: bytes) -> None:
+        if path.name == "workflow-report.md":
+            raise OSError("simulated Markdown failure")
+        real_write(path, payload)
+
+    monkeypatch.setattr(runtime_module, "_write_atomic", fail_markdown)
+
+    with pytest.raises(OSError, match="Markdown failure"):
+        write_workflow_report(tmp_path, case, contract, plan, report)
+
+    assert list((tmp_path / "reports").glob("[!.]*")) == []
 
 
 def test_human_decision_report_persists_unresolved_questions(tmp_path: Path) -> None:

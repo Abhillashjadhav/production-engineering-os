@@ -114,6 +114,24 @@ def test_different_corpora_publish_to_distinct_immutable_versions(tmp_path: Path
     assert first.visible_path.read_bytes() != second.visible_path.read_bytes()
 
 
+def test_corpus_version_is_not_visible_until_both_artifacts_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_write = support_corpus_module._write_atomic
+
+    def fail_oracle(path: Path, payload: bytes) -> None:
+        if path.parent.name == "eval-only":
+            raise OSError("simulated staged oracle failure")
+        real_write(path, payload)
+
+    monkeypatch.setattr(support_corpus_module, "_write_atomic", fail_oracle)
+
+    with pytest.raises(OSError, match="staged oracle"):
+        write_support_corpus(tmp_path, seed=43)
+
+    assert list((tmp_path / "versions").glob("[!.]*")) == []
+
+
 def test_visible_loader_cannot_observe_hidden_oracle_fields(tmp_path: Path) -> None:
     paths = write_support_corpus(tmp_path, seed=7)
     visible_bytes = paths.visible_path.read_bytes()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import os
+import shutil
 import tempfile
 from contextlib import suppress
 from dataclasses import asdict, dataclass
@@ -225,9 +226,11 @@ def write_workflow_report(
 ) -> WorkflowReportPaths:
     if not verify_workflow_report(case, contract, plan, report):
         raise WorkflowEvidenceError("unverified report cannot be persisted as complete")
-    version_root = Path(root) / "reports" / report.report_digest.removeprefix("sha256:")
+    reports_root = Path(root) / "reports"
+    version_root = reports_root / report.report_digest.removeprefix("sha256:")
     json_path = version_root / "workflow-report.json"
     markdown_path = version_root / "workflow-report.md"
+
     def escaped_question(question: str) -> str:
         return (
             html.escape(question)
@@ -253,6 +256,19 @@ def write_workflow_report(
         f"- Execution: `{report.execution_digest}`\n"
         f"- Report: `{report.report_digest}`\n"
     ).encode()
-    _write_atomic(json_path, report.canonical_bytes() + b"\n")
-    _write_atomic(markdown_path, markdown)
+    if version_root.exists():
+        return WorkflowReportPaths(json_path, markdown_path)
+    reports_root.mkdir(parents=True, exist_ok=True)
+    staged_root = Path(tempfile.mkdtemp(dir=reports_root, prefix=".report-"))
+    try:
+        _write_atomic(staged_root / "workflow-report.json", report.canonical_bytes() + b"\n")
+        _write_atomic(staged_root / "workflow-report.md", markdown)
+        try:
+            os.replace(staged_root, version_root)
+        except OSError:
+            if not version_root.exists():
+                raise
+    finally:
+        if staged_root.exists():
+            shutil.rmtree(staged_root)
     return WorkflowReportPaths(json_path, markdown_path)
