@@ -461,3 +461,23 @@ def test_full_product_verifier_binds_tests_to_candidate(repo_root: Path, tmp_pat
     (output / "full-product-manifest.json").write_text(json.dumps(manifest))
     with pytest.raises(FullProductError, match="semantic verification failed"):
         verify_full_product_quickstart(output, expected_digest=str(manifest["manifest_digest"]))
+
+
+def test_full_product_verifier_rejects_malformed_handoff_objects(
+    repo_root: Path, tmp_path: Path
+) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    stages = manifest["stages"]
+    stage = next(item for item in stages if item["stage_id"] == "engineering-handoff")
+    handoff_path = output / stage["artifact"]
+    handoff = json.loads(handoff_path.read_text())
+    handoff["contract"] = []
+    handoff_path.write_text(json.dumps(handoff))
+    stage["artifact_digest"] = canonical_digest(handoff)
+    projection = dict(manifest)
+    projection.pop("manifest_digest")
+    manifest["manifest_digest"] = canonical_digest(projection)
+    (output / "full-product-manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(FullProductError, match="handoff contract or approval"):
+        verify_full_product_quickstart(output, expected_digest=str(manifest["manifest_digest"]))

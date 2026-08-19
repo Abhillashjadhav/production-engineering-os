@@ -777,6 +777,10 @@ def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str
     receipt = artifacts["approval-receipt"]
     verified_receipt = verify_contract_approval(contract, receipt, expected_approver=_APPROVER)
     handoff = artifacts["engineering-handoff"]
+    handoff_contract = handoff.get("contract")
+    handoff_approval = handoff.get("approval")
+    if not isinstance(handoff_contract, dict) or not isinstance(handoff_approval, dict):
+        raise FullProductError("engineering handoff contract or approval is not an object")
     workflows, workflows_directory = _verify_evidence_index(root, artifacts["workflow-execution"])
     runtime, runtime_directory = _verify_evidence_index(root, artifacts["runtime-assurance"])
     engineering = artifacts["engineering-verification"]
@@ -823,8 +827,8 @@ def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str
         manifest["workflow_pack_count"] == 21,
         manifest["pending_approvals"] == len(pending_approval_ids),
         manifest["external_provider_writes"] == 0,
-        handoff.get("contract", {}).get("digest") == contract_digest,
-        handoff.get("approval", {}).get("receipt_digest") == verified_receipt,
+        handoff_contract.get("digest") == contract_digest,
+        handoff_approval.get("receipt_digest") == verified_receipt,
         load_json_object(workflows_directory / "product-contract-binding.json")
         == _product_contract_binding(
             contract,
