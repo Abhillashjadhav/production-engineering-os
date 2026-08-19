@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -30,7 +31,14 @@ def _lock(handle: BinaryIO) -> None:
     if os.name == "nt":
         import msvcrt
 
-        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)  # type: ignore[attr-defined]
+        while True:
+            try:
+                msvcrt.locking(  # type: ignore[attr-defined]
+                    handle.fileno(), msvcrt.LK_NBLCK, 1  # type: ignore[attr-defined]
+                )
+                break
+            except OSError:
+                time.sleep(0.1)
     else:
         import fcntl
 
