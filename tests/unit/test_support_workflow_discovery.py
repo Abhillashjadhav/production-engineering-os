@@ -96,6 +96,34 @@ def test_policy_text_change_invalidates_bound_structured_semantics() -> None:
         replace(case.policies[0], text="Refunds are forbidden.")
 
 
+def test_policy_priority_change_invalidates_bound_structured_semantics() -> None:
+    case = generate_support_corpus(seed=15).visible_cases[0]
+
+    with pytest.raises(VisibleCorpusError, match="policy rule is malformed"):
+        replace(case.policies[0], priority=case.policies[0].priority + 1)
+
+
+def test_non_escalation_action_with_human_question_stays_human_bound() -> None:
+    case = generate_support_corpus(seed=19).visible_cases[0]
+    policy = case.policies[0]
+    human_bound = create_policy_rule(
+        policy.rule_id,
+        policy.text,
+        policy.priority,
+        action=policy.action,
+        required_fact_id=policy.required_fact_id,
+        human_question="A manager must approve this otherwise eligible refund.",
+    )
+
+    decision = CustomerSupportDiscoveryAdapter().discover(replace(case, policies=(human_bound,)))
+
+    assert decision.selected_action == "refund"
+    assert decision.status == "NEEDS_HUMAN_DECISION"
+    assert decision.unresolved_questions == (
+        "A manager must approve this otherwise eligible refund.",
+    )
+
+
 def test_conflict_preserves_rule_specific_human_questions() -> None:
     corpus = generate_support_corpus(seed=18)
     case = next(

@@ -54,7 +54,7 @@ class CustomerSupportDiscoveryAdapter:
             )
         else:
             action = next(iter(actions))
-            status = "NEEDS_HUMAN_DECISION" if action == "escalate" else "ADMITTED"
+            status = "NEEDS_HUMAN_DECISION" if action == "escalate" or questions else "ADMITTED"
         fact_refs = tuple(sorted({item[3] for item in selected}))
         rule_refs = tuple(sorted(item[1] for item in selected))
         return create_decision_contract(

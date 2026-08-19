@@ -71,6 +71,7 @@ class PolicyRule:
         semantic_payload = {
             "action": self.action,
             "human_question": self.human_question,
+            "priority": self.priority,
             "required_fact_id": self.required_fact_id,
             "rule_id": self.rule_id,
             "text": self.text,
@@ -100,6 +101,7 @@ def create_policy_rule(
     payload = {
         "action": action,
         "human_question": human_question,
+        "priority": priority,
         "required_fact_id": required_fact_id,
         "rule_id": rule_id,
         "text": text,
