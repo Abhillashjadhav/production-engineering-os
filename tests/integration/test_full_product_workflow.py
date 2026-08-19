@@ -69,3 +69,15 @@ def test_full_product_verifier_rejects_tampered_retained_candidate(
     )
     with pytest.raises(FullProductError, match="semantic verification failed"):
         verify_full_product_quickstart(output, expected_digest=manifest["manifest_digest"])
+
+
+def test_full_product_verifier_rejects_reintroduced_bytecode(
+    repo_root: Path, tmp_path: Path
+) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    cache = output / "local-product" / "workspace" / "app" / "__pycache__"
+    cache.mkdir()
+    (cache / "api.cpython-311.pyc").write_bytes(b"unverified executable bytecode")
+    with pytest.raises(FullProductError, match="contains executable bytecode"):
+        verify_full_product_quickstart(output, expected_digest=manifest["manifest_digest"])
