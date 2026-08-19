@@ -6,7 +6,11 @@ import pytest
 
 from pmpe.evals.support_corpus import generate_support_corpus
 from pmpe.workflows.decision import DecisionContractError
-from pmpe.workflows.support import PolicyRule, VisibleFact
+from pmpe.workflows.support import (
+    VisibleCorpusError,
+    VisibleFact,
+    create_policy_rule,
+)
 from pmpe.workflows.support_discovery import CustomerSupportDiscoveryAdapter
 
 
@@ -39,7 +43,7 @@ def test_contract_is_deterministic_and_traces_action_to_visible_truth() -> None:
 
 def test_equal_priority_policy_conflict_escalates_with_named_question() -> None:
     corpus = generate_support_corpus(seed=13)
-    case = next(item for item in corpus.visible_cases if "CONTRADICTION" in item.case_id)
+    case = next(item for item in corpus.visible_cases if len(item.policies) == 2)
 
     decision = CustomerSupportDiscoveryAdapter().discover(case)
 
@@ -51,7 +55,11 @@ def test_equal_priority_policy_conflict_escalates_with_named_question() -> None:
 
 def test_missing_evidence_requests_evidence_instead_of_inventing_it() -> None:
     corpus = generate_support_corpus(seed=14)
-    case = next(item for item in corpus.visible_cases if "MISSING" in item.case_id)
+    case = next(
+        item
+        for item in corpus.visible_cases
+        if any(policy.action == "request_evidence" for policy in item.policies)
+    )
 
     decision = CustomerSupportDiscoveryAdapter().discover(case)
 
@@ -60,15 +68,60 @@ def test_missing_evidence_requests_evidence_instead_of_inventing_it() -> None:
     assert decision.action_fact_refs == ("FACT-NO-RECEIPT",)
 
 
-def test_unknown_policy_fails_closed() -> None:
+def test_new_policy_identifier_uses_structured_semantics_not_corpus_vocabulary() -> None:
     case = generate_support_corpus(seed=15).visible_cases[0]
     mutated = replace(
         case,
-        policies=(PolicyRule("RULE-UNKNOWN", "An unrecognized action may be taken.", 90),),
+        policies=(
+            create_policy_rule(
+                "RULE-NEW-VERTICAL-ID",
+                "A verified in-window purchase may be refunded.",
+                90,
+                action="refund",
+                required_fact_id=case.facts[0].fact_id,
+            ),
+        ),
     )
 
-    with pytest.raises(DecisionContractError, match="unsupported policy"):
-        CustomerSupportDiscoveryAdapter().discover(mutated)
+    decision = CustomerSupportDiscoveryAdapter().discover(mutated)
+
+    assert decision.selected_action == "refund"
+    assert decision.action_rule_refs == ("RULE-NEW-VERTICAL-ID",)
+
+
+def test_policy_text_change_invalidates_bound_structured_semantics() -> None:
+    case = generate_support_corpus(seed=15).visible_cases[0]
+
+    with pytest.raises(VisibleCorpusError, match="policy rule is malformed"):
+        replace(case.policies[0], text="Refunds are forbidden.")
+
+
+def test_conflict_preserves_rule_specific_human_questions() -> None:
+    corpus = generate_support_corpus(seed=18)
+    case = next(
+        item
+        for item in corpus.visible_cases
+        if any(policy.human_question for policy in item.policies)
+    )
+    existing = case.policies[0]
+    conflicting = create_policy_rule(
+        "RULE-SECOND-HUMAN-BOUNDARY",
+        "This claim must be rejected unless legal approves it.",
+        existing.priority,
+        action="reject",
+        required_fact_id=existing.required_fact_id,
+        human_question="A legal approver must decide whether rejection is required.",
+    )
+
+    decision = CustomerSupportDiscoveryAdapter().discover(
+        replace(case, policies=(*case.policies, conflicting))
+    )
+
+    assert decision.selected_action == "escalate"
+    assert len(decision.unresolved_questions) == 3
+    assert any("named human approver" in item for item in decision.unresolved_questions)
+    assert any("legal approver" in item for item in decision.unresolved_questions)
+    assert any("choose precedence" in item for item in decision.unresolved_questions)
 
 
 def test_rule_without_required_fact_fails_closed() -> None:
