@@ -409,6 +409,7 @@ def validate_support_corpus(corpus: SupportCorpus) -> None:
         referenced_policies = tuple(
             policy for policy in case.policies if policy.rule_id in rule_refs
         )
+
         def canonical_policy_text(policy: PolicyRule) -> bool:
             allowed = {_CANONICAL_POLICY_TEXT.get(policy.rule_id)}
             if policy.rule_id == "RULE-RETURN-WINDOW":
@@ -442,6 +443,10 @@ def validate_support_corpus(corpus: SupportCorpus) -> None:
         selected_action = (
             "escalate" if len(selected_actions) > 1 else next(iter(selected_actions))
         )
+        if selected_action != "escalate" and any(
+            policy.human_question for policy in selected_policies
+        ):
+            raise CorpusValidationError("oracle omits a selected human decision gate")
         if (
             selected_action != oracle.expected_outcome
             or {policy.required_fact_id for policy in selected_policies} != fact_refs
@@ -487,7 +492,17 @@ def write_support_corpus(root: Path, *, seed: int) -> CorpusPaths:
     visible_path = version_root / "visible" / "cases.json"
     oracle_path = version_root / "eval-only" / "oracles.json"
     if version_root.exists():
-        return CorpusPaths(visible_path, oracle_path)
+        try:
+            if (
+                visible_path.read_bytes() == visible_bytes
+                and oracle_path.read_bytes() == oracle_bytes
+            ):
+                return CorpusPaths(visible_path, oracle_path)
+        except OSError:
+            pass
+        quarantine = Path(tempfile.mkdtemp(dir=versions_root, prefix=".invalid-"))
+        quarantine.rmdir()
+        os.replace(version_root, quarantine)
     versions_root.mkdir(parents=True, exist_ok=True)
     staged_root = Path(tempfile.mkdtemp(dir=versions_root, prefix=".corpus-"))
     try:

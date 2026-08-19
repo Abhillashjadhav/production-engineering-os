@@ -131,6 +131,29 @@ def test_corpus_version_is_not_visible_until_both_artifacts_exist(
     assert list((tmp_path / "versions").glob("[!.]*")) == []
 
 
+def test_writer_repairs_incomplete_preexisting_version(tmp_path: Path) -> None:
+    corpus = generate_support_corpus(seed=44)
+    visible_bytes = support_corpus_module._canonical_bytes(
+        {"cases": [item.as_dict() for item in corpus.visible_cases], "schema_version": "1.0.0"}
+    )
+    oracle_bytes = support_corpus_module._canonical_bytes(
+        {
+            "oracles": [item.as_dict() for item in corpus.hidden_oracles],
+            "schema_version": "1.0.0",
+        }
+    )
+    version = support_corpus_module.hashlib.sha256(visible_bytes + oracle_bytes).hexdigest()
+    incomplete = tmp_path / "versions" / version / "visible" / "cases.json"
+    incomplete.parent.mkdir(parents=True)
+    incomplete.write_bytes(visible_bytes)
+
+    paths = write_support_corpus(tmp_path, seed=44)
+
+    assert paths.visible_path.read_bytes() == visible_bytes
+    assert paths.oracle_path.read_bytes() == oracle_bytes
+    assert list((tmp_path / "versions").glob(".invalid-*"))
+
+
 def test_visible_loader_cannot_observe_hidden_oracle_fields(tmp_path: Path) -> None:
     paths = write_support_corpus(tmp_path, seed=7)
     visible_bytes = paths.visible_path.read_bytes()
@@ -366,6 +389,26 @@ def test_validator_rejects_oracle_when_higher_priority_policy_changes_selection(
     changed = replace(case, policies=(*case.policies, distractor))
 
     with pytest.raises(CorpusValidationError, match="selected visible decision"):
+        validate_support_corpus(
+            SupportCorpus((changed, *corpus.visible_cases[1:]), corpus.hidden_oracles)
+        )
+
+
+def test_validator_rejects_non_escalation_oracle_with_human_gate() -> None:
+    corpus = generate_support_corpus(seed=9)
+    case = corpus.visible_cases[0]
+    policy = case.policies[0]
+    human_bound = create_policy_rule(
+        policy.rule_id,
+        policy.text,
+        policy.priority,
+        action=policy.action,
+        required_fact=case.facts[0],
+        human_question="A manager must approve this refund.",
+    )
+    changed = replace(case, policies=(human_bound,))
+
+    with pytest.raises(CorpusValidationError, match="human decision gate"):
         validate_support_corpus(
             SupportCorpus((changed, *corpus.visible_cases[1:]), corpus.hidden_oracles)
         )
