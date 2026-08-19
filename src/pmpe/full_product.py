@@ -556,14 +556,12 @@ def _build_review_and_deploy_local_product(
         text=True,
         timeout=120,
     )
-    write_json_atomic(
-        root / "local-product" / "generated-test-result.json",
-        {
-            "returncode": tests.returncode,
-            "schema_version": "1.0.0",
-            "status": "PASS" if tests.returncode == 0 else "FAIL",
-        },
-    )
+    generated_test_result = {
+        "returncode": tests.returncode,
+        "schema_version": "1.0.0",
+        "status": "PASS" if tests.returncode == 0 else "FAIL",
+    }
+    write_json_atomic(root / "local-product" / "generated-test-result.json", generated_test_result)
     if tests.returncode != 0:
         raise FullProductError(f"generated product tests failed: {tests.stderr[-500:]}")
     _remove_generated_bytecode(workspace)
@@ -577,6 +575,7 @@ def _build_review_and_deploy_local_product(
             "final_review": jsonable(final_review),
             "fixes": jsonable(fixes),
             "functional_requirement_ids": [item.id for item in spec.functional_requirements],
+            "generated_test_result_digest": canonical_digest(generated_test_result),
             "initial_review": jsonable(initial_review),
             "schema_version": "1.0.0",
             "source_spec_digest": source_spec_digest,
@@ -779,6 +778,24 @@ def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str
     pending_approval_ids = workflows.get("pending_approval_ids")
     if not isinstance(pending_approval_ids, list):
         raise FullProductError("workflow report pending approvals are malformed")
+    final_review = engineering.get("final_review")
+    if not isinstance(final_review, dict):
+        raise FullProductError("engineering final review is not an object")
+    final_findings = final_review.get("findings")
+    if not isinstance(final_findings, list) or any(
+        not isinstance(finding, dict) for finding in final_findings
+    ):
+        raise FullProductError("engineering final review findings are malformed")
+    engineering_tests = engineering.get("tests")
+    if not isinstance(engineering_tests, dict):
+        raise FullProductError("engineering test summary is not an object")
+    generated_test_result_path = root / "local-product" / "generated-test-result.json"
+    if generated_test_result_path.is_symlink():
+        raise FullProductError("generated test result refuses symbolic link")
+    generated_test_result_resolved = generated_test_result_path.resolve()
+    if not generated_test_result_resolved.is_relative_to(root.resolve()):
+        raise FullProductError("generated test result escapes output")
+    generated_test_result = load_json_object(generated_test_result_resolved)
     contract_digest = canonical_digest(contract)
     unresolved_workspace = root / "local-product" / "workspace"
     if any(candidate.is_symlink() for candidate in (root / "local-product", unresolved_workspace)):
@@ -829,11 +846,11 @@ def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str
         runtime.get("learning", {}).get("installed_regression_cases") == 0,
         engineering.get("status") == "VERIFIED",
         engineering.get("contract_digest") == contract_digest,
-        all(
-            not finding.get("blocking", False)
-            for finding in engineering.get("final_review", {}).get("findings", [])
-        ),
-        engineering.get("tests", {}).get("status") == "PASS",
+        all(not finding.get("blocking", False) for finding in final_findings),
+        engineering_tests.get("status") == "PASS",
+        generated_test_result.get("status") == "PASS",
+        generated_test_result.get("returncode") == 0,
+        canonical_digest(generated_test_result) == engineering.get("generated_test_result_digest"),
         deployment.get("contract_digest") == contract_digest,
         deployment.get("source_spec_digest") == engineering.get("source_spec_digest"),
         deployment.get("candidate_digest") == engineering.get("candidate_digest"),

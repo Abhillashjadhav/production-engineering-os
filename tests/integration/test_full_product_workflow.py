@@ -399,3 +399,35 @@ def test_full_product_verifier_rejects_malformed_deployment_result(
     (output / "full-product-manifest.json").write_text(json.dumps(manifest))
     with pytest.raises(FullProductError, match="deployment result is not an object"):
         verify_full_product_quickstart(output, expected_digest=str(manifest["manifest_digest"]))
+
+
+def test_full_product_verifier_binds_generated_test_result(repo_root: Path, tmp_path: Path) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    result_path = output / "local-product" / "generated-test-result.json"
+    result = json.loads(result_path.read_text())
+    result["returncode"] = 1
+    result["status"] = "FAIL"
+    result_path.write_text(json.dumps(result))
+    with pytest.raises(FullProductError, match="semantic verification failed"):
+        verify_full_product_quickstart(output, expected_digest=str(manifest["manifest_digest"]))
+
+
+def test_full_product_verifier_rejects_malformed_engineering_findings(
+    repo_root: Path, tmp_path: Path
+) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    stages = manifest["stages"]
+    stage = next(item for item in stages if item["stage_id"] == "engineering-verification")
+    engineering_path = output / stage["artifact"]
+    engineering = json.loads(engineering_path.read_text())
+    engineering["final_review"]["findings"] = [None]
+    engineering_path.write_text(json.dumps(engineering))
+    stage["artifact_digest"] = canonical_digest(engineering)
+    projection = dict(manifest)
+    projection.pop("manifest_digest")
+    manifest["manifest_digest"] = canonical_digest(projection)
+    (output / "full-product-manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(FullProductError, match="final review findings are malformed"):
+        verify_full_product_quickstart(output, expected_digest=str(manifest["manifest_digest"]))
