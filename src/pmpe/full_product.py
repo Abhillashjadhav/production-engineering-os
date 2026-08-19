@@ -40,6 +40,7 @@ from pmpe.personal.models import (
     TaskPacket,
     TaskResult,
 )
+from pmpe.personal.planner import compile_task_graph
 from pmpe.personal.runtime.demo import run_runtime_demo
 from pmpe.personal.runtime.models import digest_for
 from pmpe.personal.runtime.registry import EventRegistry
@@ -332,6 +333,7 @@ def _verify_workflow_execution_evidence(
             evidence=native_evidence,
             report=native_report,
         )
+        result_task_ids = [item["task_id"] for item in result_items]
 
         return all(
             (
@@ -341,11 +343,14 @@ def _verify_workflow_execution_evidence(
                 canonical_digest(report_projection) == report_digest,
                 len(packet_by_task) == len(tasks),
                 all(digest_claim_is_valid(item, "packet_digest") for item in tasks),
+                compile_task_graph(native_contract) == native_packets,
                 task_graph["task_graph_digest"] == canonical_digest({"tasks": tasks}),
                 report["task_graph_digest"] == task_graph["task_graph_digest"],
                 report["evidence_ledger_digest"] == canonical_digest(evidence),
                 report["mobile_review_digest"] == canonical_digest(mobile_review),
                 all(digest_claim_is_valid(item, "result_digest") for item in result_items),
+                len(result_task_ids) == len(set(result_task_ids)),
+                set(result_task_ids) == set(packet_by_task),
                 all(
                     item["task_id"] in packet_by_task
                     and item["workflow_id"] == packet_by_task[item["task_id"]]["workflow_id"]
@@ -361,7 +366,7 @@ def _verify_workflow_execution_evidence(
                 verify_personal_execution(native_execution),
             )
         )
-    except (KeyError, TypeError, ValueError):
+    except (AttributeError, KeyError, TypeError, ValueError):
         return False
 
 

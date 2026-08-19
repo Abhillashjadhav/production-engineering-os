@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -14,6 +15,29 @@ from pmpe.full_product import (
     run_full_product_quickstart,
     verify_full_product_quickstart,
 )
+
+
+def _rebuild_workflow_stage(
+    output: Path, manifest: dict[str, Any], changed_paths: tuple[Path, ...]
+) -> str:
+    stages = manifest["stages"]
+    assert isinstance(stages, list)
+    stage = next(item for item in stages if item["stage_id"] == "workflow-execution")
+    index_path = output / stage["artifact"]
+    index = json.loads(index_path.read_text())
+    directory = output / index["directory"]
+    for path in changed_paths:
+        relative = path.relative_to(directory).as_posix()
+        entry = next(item for item in index["files"] if item["path"] == relative)
+        entry["digest"] = f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+        entry["size"] = path.stat().st_size
+    index_path.write_text(json.dumps(index))
+    stage["artifact_digest"] = canonical_digest(index)
+    manifest_projection = dict(manifest)
+    manifest_projection.pop("manifest_digest")
+    manifest["manifest_digest"] = canonical_digest(manifest_projection)
+    (output / "full-product-manifest.json").write_text(json.dumps(manifest))
+    return str(manifest["manifest_digest"])
 
 
 def test_full_product_quickstart_runs_and_reverifies(repo_root: Path, tmp_path: Path) -> None:
@@ -223,3 +247,84 @@ def test_full_product_verifier_recomputes_workflow_result_digest(
     (output / "full-product-manifest.json").write_text(json.dumps(manifest))
     with pytest.raises(FullProductError, match="semantic verification failed"):
         verify_full_product_quickstart(output, expected_digest=str(manifest["manifest_digest"]))
+
+
+def test_full_product_verifier_recompiles_task_graph(repo_root: Path, tmp_path: Path) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    task_graph_path = output / "workflows" / "task-graph.json"
+    results_path = output / "workflows" / "workflow-results.json"
+    report_path = output / "workflows" / "personal-execution-report.json"
+    task_graph = json.loads(task_graph_path.read_text())
+    packet = task_graph["tasks"][0]
+    packet["objective"] = "Tampered objective that the retained contract did not compile."
+    packet_projection = dict(packet)
+    packet_projection.pop("packet_digest")
+    packet["packet_digest"] = canonical_digest(packet_projection)
+    task_graph["task_graph_digest"] = canonical_digest({"tasks": task_graph["tasks"]})
+    task_graph_path.write_text(json.dumps(task_graph))
+    results = json.loads(results_path.read_text())
+    result = next(item for item in results["results"] if item["task_id"] == packet["task_id"])
+    result["packet_digest"] = packet["packet_digest"]
+    result_projection = dict(result)
+    result_projection.pop("result_digest")
+    result["result_digest"] = canonical_digest(result_projection)
+    results_path.write_text(json.dumps(results))
+    report = json.loads(report_path.read_text())
+    report["task_graph_digest"] = task_graph["task_graph_digest"]
+    report["result_digests"] = [item["result_digest"] for item in results["results"]]
+    report_projection = dict(report)
+    report_projection.pop("report_digest")
+    report["report_digest"] = canonical_digest(report_projection)
+    report_path.write_text(json.dumps(report))
+    expected = _rebuild_workflow_stage(
+        output, manifest, (task_graph_path, results_path, report_path)
+    )
+    with pytest.raises(FullProductError, match="semantic verification failed"):
+        verify_full_product_quickstart(output, expected_digest=expected)
+
+
+def test_full_product_verifier_requires_one_result_per_task(
+    repo_root: Path, tmp_path: Path
+) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    results_path = output / "workflows" / "workflow-results.json"
+    report_path = output / "workflows" / "personal-execution-report.json"
+    results = json.loads(results_path.read_text())
+    results["results"].pop()
+    results_path.write_text(json.dumps(results))
+    report = json.loads(report_path.read_text())
+    report["result_digests"] = [item["result_digest"] for item in results["results"]]
+    report_projection = dict(report)
+    report_projection.pop("report_digest")
+    report["report_digest"] = canonical_digest(report_projection)
+    report_path.write_text(json.dumps(report))
+    expected = _rebuild_workflow_stage(output, manifest, (results_path, report_path))
+    with pytest.raises(FullProductError, match="semantic verification failed"):
+        verify_full_product_quickstart(output, expected_digest=expected)
+
+
+def test_full_product_verifier_fails_closed_on_malformed_worker_output(
+    repo_root: Path, tmp_path: Path
+) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    results_path = output / "workflows" / "workflow-results.json"
+    report_path = output / "workflows" / "personal-execution-report.json"
+    results = json.loads(results_path.read_text())
+    result = results["results"][0]
+    result["output"]["details"] = "malformed"
+    result_projection = dict(result)
+    result_projection.pop("result_digest")
+    result["result_digest"] = canonical_digest(result_projection)
+    results_path.write_text(json.dumps(results))
+    report = json.loads(report_path.read_text())
+    report["result_digests"] = [item["result_digest"] for item in results["results"]]
+    report_projection = dict(report)
+    report_projection.pop("report_digest")
+    report["report_digest"] = canonical_digest(report_projection)
+    report_path.write_text(json.dumps(report))
+    expected = _rebuild_workflow_stage(output, manifest, (results_path, report_path))
+    with pytest.raises(FullProductError, match="semantic verification failed"):
+        verify_full_product_quickstart(output, expected_digest=expected)
