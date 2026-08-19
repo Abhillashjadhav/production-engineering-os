@@ -6,7 +6,12 @@ import argparse
 import json
 from pathlib import Path
 
-from pmpe.evals.support_corpus import load_hidden_oracles, write_support_corpus
+from pmpe.evals.support_corpus import (
+    SupportCorpus,
+    load_hidden_oracles,
+    validate_support_corpus,
+    write_support_corpus,
+)
 from pmpe.workflows.runtime import (
     compile_workflow,
     execute_workflow,
@@ -29,39 +34,62 @@ def _cmd_run(args: argparse.Namespace) -> int:
     case = cases.get(selected_id)
     if case is None:
         raise ValueError(f"unknown visible case: {selected_id}")
-    contract = CustomerSupportDiscoveryAdapter().discover(case)
+    adapter = CustomerSupportDiscoveryAdapter()
+    contract = adapter.discover(case)
     plan = compile_workflow(contract)
-    report = execute_workflow(case, contract, plan)
-    paths = write_workflow_report(Path(args.output), case, contract, plan, report)
+    report = execute_workflow(case, contract, plan, contract_verifier=adapter)
+    paths = write_workflow_report(
+        Path(args.output),
+        case,
+        contract,
+        plan,
+        report,
+        contract_verifier=adapter,
+    )
     print(f"{report.case_id}: {report.selected_action} ({report.status})")
     print(f"report: {paths.markdown_path}")
     return 0
 
 
 def _cmd_evaluate(args: argparse.Namespace) -> int:
-    cases = tuple(item for item in load_visible_cases(Path(args.cases)) if item.split == "held_out")
-    oracles = {item.case_id: item for item in load_hidden_oracles(Path(args.oracles))}
-    if not cases or any(item.case_id not in oracles for item in cases):
-        raise ValueError("held-out cases and explicit evaluation oracles do not match")
+    all_cases = load_visible_cases(Path(args.cases))
+    loaded_oracles = load_hidden_oracles(Path(args.oracles))
+    validate_support_corpus(SupportCorpus(all_cases, loaded_oracles))
+    cases = tuple(item for item in all_cases if item.split == "held_out")
+    oracles = {item.case_id: item for item in loaded_oracles}
     adapter = CustomerSupportDiscoveryAdapter()
-    reports = []
+    evaluated = []
     for case in cases:
         contract = adapter.discover(case)
         plan = compile_workflow(contract)
-        reports.append(execute_workflow(case, contract, plan))
+        report = execute_workflow(case, contract, plan, contract_verifier=adapter)
+        evaluated.append((case, contract, report))
     exact = sum(
-        report.selected_action == oracles[report.case_id].expected_outcome for report in reports
+        report.selected_action == oracles[report.case_id].expected_outcome
+        for _case, _contract, report in evaluated
     )
-    complete = sum(report.evidence_complete for report in reports)
+    complete = sum(
+        report.evidence_complete
+        and set(oracles[report.case_id].required_fact_ids) <= set(contract.action_fact_refs)
+        and set(oracles[report.case_id].required_rule_ids) <= set(contract.action_rule_refs)
+        for _case, contract, report in evaluated
+    )
     unsafe = sum(
-        report.selected_action not in {"escalate", "request_evidence"}
-        and report.status != "COMPLETED"
-        for report in reports
+        report.status == "COMPLETED"
+        and report.selected_action
+        not in {
+            policy.action
+            for policy in case.policies
+            if policy.rule_id in contract.action_rule_refs
+            and policy.required_fact_id in contract.action_fact_refs
+        }
+        for case, contract, report in evaluated
     )
+    total = len(evaluated)
     payload = {
-        "evidence_completeness": complete / len(reports),
-        "exact_outcome_accuracy": exact / len(reports),
-        "held_out_cases": len(reports),
+        "evidence_completeness": complete / total,
+        "exact_outcome_accuracy": exact / total,
+        "held_out_cases": total,
         "schema_version": "1.0.0",
         "unsupported_autonomous_actions": unsafe,
     }
@@ -69,10 +97,10 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
     print(
-        f"held-out exact outcome accuracy: {exact}/{len(reports)} "
+        f"held-out exact outcome accuracy: {exact}/{total} "
         f"({payload['exact_outcome_accuracy']:.1%})"
     )
-    return 0 if exact == len(reports) and complete == len(reports) and unsafe == 0 else 1
+    return 0 if exact == total and complete == total and unsafe == 0 else 1
 
 
 def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]

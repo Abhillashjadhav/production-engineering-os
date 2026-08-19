@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from pmpe.evals.support_corpus import generate_support_corpus
+from pmpe.workflows.decision import create_decision_contract
 from pmpe.workflows.runtime import (
     WorkflowEvidenceError,
     compile_workflow,
@@ -19,9 +20,10 @@ from pmpe.workflows.support_discovery import CustomerSupportDiscoveryAdapter
 
 def _run(case_index: int = 0):  # type: ignore[no-untyped-def]
     case = generate_support_corpus(seed=110).visible_cases[case_index]
-    contract = CustomerSupportDiscoveryAdapter().discover(case)
+    adapter = CustomerSupportDiscoveryAdapter()
+    contract = adapter.discover(case)
     plan = compile_workflow(contract)
-    report = execute_workflow(case, contract, plan)
+    report = execute_workflow(case, contract, plan, contract_verifier=adapter)
     return case, contract, plan, report
 
 
@@ -36,7 +38,13 @@ def test_compile_and_execute_produces_complete_digest_chain() -> None:
     assert report.execution_digest.startswith("sha256:")
     assert report.report_digest.startswith("sha256:")
     assert report.evidence_complete
-    assert verify_workflow_report(case, contract, plan, report)
+    assert verify_workflow_report(
+        case,
+        contract,
+        plan,
+        report,
+        contract_verifier=CustomerSupportDiscoveryAdapter(),
+    )
 
 
 def test_all_cases_execute_to_hidden_expected_outcome() -> None:
@@ -45,7 +53,12 @@ def test_all_cases_execute_to_hidden_expected_outcome() -> None:
     adapter = CustomerSupportDiscoveryAdapter()
 
     reports = tuple(
-        execute_workflow(case, contract, compile_workflow(contract))
+        execute_workflow(
+            case,
+            contract,
+            compile_workflow(contract),
+            contract_verifier=adapter,
+        )
         for case in corpus.visible_cases
         for contract in (adapter.discover(case),)
     )
@@ -57,7 +70,12 @@ def test_all_cases_execute_to_hidden_expected_outcome() -> None:
 
 def test_replay_is_byte_deterministic() -> None:
     case, contract, plan, first = _run(6)
-    second = execute_workflow(case, contract, plan)
+    second = execute_workflow(
+        case,
+        contract,
+        plan,
+        contract_verifier=CustomerSupportDiscoveryAdapter(),
+    )
 
     assert first == second
     assert first.canonical_bytes() == second.canonical_bytes()
@@ -78,13 +96,26 @@ def test_tampered_report_cannot_claim_verified_completion(field: str, value: obj
     case, contract, plan, report = _run(10)
     tampered = replace(report, **{field: value})
 
-    assert not verify_workflow_report(case, contract, plan, tampered)
+    assert not verify_workflow_report(
+        case,
+        contract,
+        plan,
+        tampered,
+        contract_verifier=CustomerSupportDiscoveryAdapter(),
+    )
 
 
 def test_report_writer_emits_minimal_json_and_markdown(tmp_path: Path) -> None:
     case, contract, plan, report = _run(20)
 
-    paths = write_workflow_report(tmp_path, case, contract, plan, report)
+    paths = write_workflow_report(
+        tmp_path,
+        case,
+        contract,
+        plan,
+        report,
+        contract_verifier=CustomerSupportDiscoveryAdapter(),
+    )
     payload = json.loads(paths.json_path.read_text())
     markdown = paths.markdown_path.read_text()
 
@@ -100,6 +131,38 @@ def test_execution_rejects_mismatched_contract_or_plan() -> None:
     other_case = generate_support_corpus(seed=110).visible_cases[5]
 
     with pytest.raises(WorkflowEvidenceError, match="input digest"):
-        execute_workflow(other_case, contract, plan)
+        execute_workflow(
+            other_case,
+            contract,
+            plan,
+            contract_verifier=CustomerSupportDiscoveryAdapter(),
+        )
     with pytest.raises(WorkflowEvidenceError, match="plan digest"):
-        execute_workflow(case, contract, replace(plan, plan_digest="sha256:" + "0" * 64))
+        execute_workflow(
+            case,
+            contract,
+            replace(plan, plan_digest="sha256:" + "0" * 64),
+            contract_verifier=CustomerSupportDiscoveryAdapter(),
+        )
+
+
+def test_digest_valid_caller_contract_cannot_authorize_arbitrary_action() -> None:
+    case = generate_support_corpus(seed=110).visible_cases[0]
+    forged = create_decision_contract(
+        vertical="customer_support",
+        case_id=case.case_id,
+        input_digest=CustomerSupportDiscoveryAdapter().discover(case).input_digest,
+        selected_action="wire_cash",
+        status="ADMITTED",
+        action_fact_refs=(case.facts[0].fact_id,),
+        action_rule_refs=(case.policies[0].rule_id,),
+    )
+    plan = compile_workflow(forged)
+
+    with pytest.raises(WorkflowEvidenceError, match="independently authorized"):
+        execute_workflow(
+            case,
+            forged,
+            plan,
+            contract_verifier=CustomerSupportDiscoveryAdapter(),
+        )

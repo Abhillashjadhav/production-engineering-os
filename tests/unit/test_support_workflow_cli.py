@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from pmpe.cli import main
-from pmpe.evals.support_corpus import write_support_corpus
+from pmpe.evals.support_corpus import CorpusValidationError, write_support_corpus
 from pmpe.workflows.support import load_visible_cases
 
 
@@ -69,3 +71,24 @@ def test_support_demo_scores_held_out_cases_in_eval_mode(tmp_path: Path) -> None
     assert evaluation["exact_outcome_accuracy"] == 1.0
     assert evaluation["evidence_completeness"] == 1.0
     assert evaluation["unsupported_autonomous_actions"] == 0
+
+
+def test_support_demo_rejects_selectively_reduced_held_out_corpus(tmp_path: Path) -> None:
+    corpus = write_support_corpus(tmp_path / "corpus", seed=110)
+    payload = json.loads(corpus.visible_path.read_text())
+    payload["cases"] = [next(item for item in payload["cases"] if item["split"] == "held_out")]
+    corpus.visible_path.write_text(json.dumps(payload))
+
+    with pytest.raises(CorpusValidationError, match="exactly one oracle"):
+        main(
+            [
+                "support-demo",
+                "evaluate",
+                "--cases",
+                str(corpus.visible_path),
+                "--oracles",
+                str(corpus.oracle_path),
+                "--output",
+                str(tmp_path / "evaluation.json"),
+            ]
+        )
