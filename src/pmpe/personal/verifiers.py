@@ -77,6 +77,11 @@ def _compile_delivery(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
         and _text(item.get("text"))
     }
     tasks = _items(data.get("tasks"))
+    task_ids = [
+        str(item["task_id"])
+        for item in tasks
+        if isinstance(item, Mapping) and _text(item.get("task_id"))
+    ]
     referenced_requirement_ids = {
         str(requirement_id)
         for item in tasks
@@ -86,6 +91,8 @@ def _compile_delivery(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
     tasks_trace = (
         bool(tasks)
         and len(requirement_ids) == len(requirements)
+        and len(task_ids) == len(tasks)
+        and len(set(task_ids)) == len(task_ids)
         and all(
             isinstance(item, Mapping)
             and _text(item.get("task_id"))
@@ -107,6 +114,12 @@ def _compile_delivery(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
             bool(_items(data.get("architecture_components"))),
             len(_items(data.get("architecture_components"))),
             ">=1",
+        ),
+        _check(
+            "task-ids-unique",
+            len(task_ids) == len(tasks) and len(set(task_ids)) == len(task_ids),
+            task_ids,
+            "one unique non-empty task_id per task",
         ),
         _check(
             "tasks-trace-to-requirements",
@@ -493,9 +506,9 @@ def _career_proof(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
         ),
         _check(
             "evidence-links-present",
-            bool(_items(data.get("evidence_links"))),
-            len(_items(data.get("evidence_links"))),
-            ">=1",
+            _non_empty_id_list(data.get("evidence_source_ids")),
+            data.get("evidence_source_ids"),
+            "non-empty admitted evidence_source_ids list",
         ),
     )
 

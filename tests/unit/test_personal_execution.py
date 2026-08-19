@@ -239,6 +239,16 @@ def test_compiler_requires_every_requirement_to_map_to_a_task() -> None:
     assert execution.approvals == ()
 
 
+def test_compiler_rejects_duplicate_task_ids() -> None:
+    context = synthetic_personal_context(workflow_ids=("prd-architecture-task-compiler",))
+    content = context["workflow_inputs"]["prd-architecture-task-compiler"]["records"][0]["content"]
+    content["tasks"].append({"task_id": "TASK-001", "requirement_ids": ["REQ-001"]})
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
+    assert "task-ids-unique" in execution.results[0].output["details"]["failed_check_ids"]
+    assert execution.approvals == ()
+
+
 def test_goal_release_acceptance_must_bind_to_candidate_evidence() -> None:
     context = synthetic_personal_context(workflow_ids=("goal-to-verified-release",))
     for source in context["evidence_sources"]:
@@ -255,6 +265,123 @@ def test_goal_release_acceptance_must_bind_to_candidate_evidence() -> None:
         if item["check_id"] == "acceptance-results-bound-to-candidate"
     )
     assert not check["passed"]
+    assert execution.approvals == ()
+
+
+def test_ai_eval_results_must_bind_to_selected_candidate() -> None:
+    context = synthetic_personal_context(workflow_ids=("ai-eval-release-gate",))
+    context["workflow_inputs"]["ai-eval-release-gate"]["candidate_id"] = "OTHER-CANDIDATE"
+    execution = run_personal_execution(context)
+    validation = execution.results[0].output["validation"]
+    assert validation["verdict"] == "HOLD"
+    assert not next(
+        item
+        for item in validation["checks"]
+        if item["check_id"] == "golden-results-bound-to-candidate"
+    )["passed"]
+    assert execution.approvals == ()
+
+
+def test_ai_eval_thresholds_must_bind_to_admitted_policy() -> None:
+    context = synthetic_personal_context(workflow_ids=("ai-eval-release-gate",))
+    context["workflow_inputs"]["ai-eval-release-gate"]["thresholds"]["max_p95_latency_ms"] = 999
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
+    assert execution.approvals == ()
+
+
+def test_roadmap_release_checks_must_bind_to_admitted_results() -> None:
+    context = synthetic_personal_context(workflow_ids=("evidence-to-roadmap-to-release",))
+    for source in context["evidence_sources"]:
+        content = source["content"]
+        if isinstance(content, dict) and "roadmap_release_results" in content:
+            content["roadmap_release_results"] = []
+            source["content_digest"] = canonical_digest(content)
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
+    assert execution.approvals == ()
+
+
+def test_roadmap_claims_and_decision_must_bind_to_admitted_evidence() -> None:
+    context = synthetic_personal_context(workflow_ids=("evidence-to-roadmap-to-release",))
+    supplied = context["workflow_inputs"]["evidence-to-roadmap-to-release"]
+    supplied["claims"][0]["text"] = "Unsupported replacement claim."
+    supplied["approved_option_id"] = "OPTION-AUTONOMOUS"
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
+    assert execution.approvals == ()
+
+
+def test_draft_pr_checks_must_bind_to_candidate_digest() -> None:
+    context = synthetic_personal_context(workflow_ids=("issue-to-draft-pr",))
+    context["workflow_inputs"]["issue-to-draft-pr"]["candidate_digest"] = canonical_digest(
+        {"candidate": "untested"}
+    )
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
+    assert execution.approvals == ()
+
+
+def test_draft_pr_issue_contract_must_bind_to_admitted_evidence() -> None:
+    context = synthetic_personal_context(workflow_ids=("issue-to-draft-pr",))
+    context["workflow_inputs"]["issue-to-draft-pr"]["issue_title"] = "Unadmitted scope"
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
+    assert execution.approvals == ()
+
+
+def test_career_proof_evidence_links_must_be_admitted() -> None:
+    context = synthetic_personal_context(workflow_ids=("career-proof-pack",))
+    content = context["workflow_inputs"]["career-proof-pack"]["records"][0]["content"]
+    content["evidence_source_ids"] = ["SRC-NOT-ADMITTED"]
+    with pytest.raises(PersonalExecutionError, match="unknown evidence source"):
+        run_personal_execution(context)
+
+
+def test_weekly_command_centre_enumerates_non_adjacent_overlaps() -> None:
+    context = synthetic_personal_context(workflow_ids=("weekly-pm-command-centre",))
+    context["workflow_inputs"]["weekly-pm-command-centre"]["calendar_events"] = [
+        {
+            "event_id": "CAL-A",
+            "start": "2026-08-20T09:00:00+05:30",
+            "end": "2026-08-20T12:00:00+05:30",
+            "title": "Long event",
+        },
+        {
+            "event_id": "CAL-B",
+            "start": "2026-08-20T10:00:00+05:30",
+            "end": "2026-08-20T10:30:00+05:30",
+            "title": "First short event",
+        },
+        {
+            "event_id": "CAL-C",
+            "start": "2026-08-20T11:00:00+05:30",
+            "end": "2026-08-20T11:30:00+05:30",
+            "title": "Second short event",
+        },
+    ]
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["details"]["conflicts"] == [
+        {"first_event_id": "CAL-A", "second_event_id": "CAL-B"},
+        {"first_event_id": "CAL-A", "second_event_id": "CAL-C"},
+    ]
+
+
+def test_weekly_command_centre_requires_exact_admitted_snapshots() -> None:
+    context = synthetic_personal_context(workflow_ids=("weekly-pm-command-centre",))
+    context["workflow_inputs"]["weekly-pm-command-centre"]["messages"][0]["action_requested"] = (
+        "Unadmitted action"
+    )
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
+    assert execution.approvals == ()
+
+
+def test_meeting_output_requires_exact_admitted_record() -> None:
+    context = synthetic_personal_context(workflow_ids=("meeting-to-decision",))
+    context["workflow_inputs"]["meeting-to-decision"]["notes"] = ["Unadmitted decision note"]
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
     assert execution.approvals == ()
 
 

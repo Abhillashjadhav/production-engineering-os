@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from pmpe.personal.catalog import GENERIC_WORKFLOW_CATALOG
@@ -22,6 +22,31 @@ Worker = Callable[[TaskPacket, dict[str, Any], str], WorkerReturn]
 
 def _provenance(claim_id: str, source_ids: tuple[str, ...]) -> dict[str, Any]:
     return {"claim_id": claim_id, "source_ids": list(source_ids)}
+
+
+def _matches_admitted_result(
+    context: Mapping[str, Any],
+    source_ids: list[str],
+    *,
+    collection: str,
+    expected: Mapping[str, Any],
+) -> bool:
+    sources = {
+        str(source["source_id"]): source
+        for source in context["evidence_sources"]
+        if isinstance(source, Mapping)
+    }
+    for source_id in source_ids:
+        source = sources.get(source_id)
+        content = source.get("content") if isinstance(source, Mapping) else None
+        results = content.get(collection) if isinstance(content, Mapping) else None
+        if isinstance(results, list) and any(
+            isinstance(result, Mapping)
+            and all(result.get(field) == value for field, value in expected.items())
+            for result in results
+        ):
+            return True
+    return False
 
 
 def _result(
@@ -239,7 +264,43 @@ def _ai_eval_release_gate(
     p95_latency = latencies[max(0, math.ceil(0.95 * len(latencies)) - 1)]
     average_cost = sum(float(item["cost_usd"]) for item in cases) / len(cases)
     safety_failures = sum(not item["safety_pass"] for item in cases)
+    unbound_cases = sorted(
+        item["case_id"]
+        for item in cases
+        if not _matches_admitted_result(
+            context,
+            item["evidence_source_ids"],
+            collection="evaluation_results",
+            expected={
+                "actual": item["actual"],
+                "candidate_id": supplied["candidate_id"],
+                "case_id": item["case_id"],
+                "cost_usd": item["cost_usd"],
+                "expected": item["expected"],
+                "latency_ms": item["latency_ms"],
+                "safety_pass": item["safety_pass"],
+            },
+        )
+    )
+    policy_bound = _matches_admitted_result(
+        context,
+        supplied["evidence_source_ids"],
+        collection="evaluation_policies",
+        expected={"candidate_id": supplied["candidate_id"], "thresholds": thresholds},
+    )
     checks = [
+        {
+            "check_id": "golden-results-bound-to-candidate",
+            "passed": not unbound_cases,
+            "observed": unbound_cases or supplied["candidate_id"],
+            "expected": supplied["candidate_id"],
+        },
+        {
+            "check_id": "thresholds-bound-to-candidate-policy",
+            "passed": policy_bound,
+            "observed": thresholds,
+            "expected": "admitted policy for selected candidate",
+        },
         {
             "check_id": "quality-pass-rate",
             "passed": pass_rate >= thresholds["min_pass_rate"],
@@ -271,9 +332,13 @@ def _ai_eval_release_gate(
         failure_taxonomy.add("QUALITY_MISMATCH")
     if any(not item["safety_pass"] for item in cases):
         failure_taxonomy.add("SAFETY_FAILURE")
-    if not checks[1]["passed"]:
+    if unbound_cases:
+        failure_taxonomy.add("UNBOUND_EVAL_EVIDENCE")
+    if not policy_bound:
+        failure_taxonomy.add("UNBOUND_EVAL_POLICY")
+    if not checks[3]["passed"]:
         failure_taxonomy.add("LATENCY_BREACH")
-    if not checks[2]["passed"]:
+    if not checks[4]["passed"]:
         failure_taxonomy.add("COST_BREACH")
     provenance = [
         _provenance(f"golden:{item['case_id']}", tuple(item["evidence_source_ids"]))
@@ -346,8 +411,10 @@ def _weekly_pm_command_centre(
     )
     events = sorted(supplied["calendar_events"], key=lambda item: (item["start"], item["event_id"]))
     conflicts: list[dict[str, str]] = []
-    for left, right in zip(events, events[1:], strict=False):
-        if right["start"] < left["end"]:
+    for index, left in enumerate(events):
+        for right in events[index + 1 :]:
+            if right["start"] >= left["end"]:
+                break
             conflicts.append(
                 {"first_event_id": left["event_id"], "second_event_id": right["event_id"]}
             )
@@ -355,7 +422,27 @@ def _weekly_pm_command_centre(
     if len(priorities) < 3:
         priorities.extend(item["action_requested"] for item in messages[: 3 - len(priorities)])
     source_ids = tuple(supplied["evidence_source_ids"])
-    checks = [
+    source_bindings = {
+        "calendar-snapshot-bound": _matches_admitted_result(
+            context,
+            supplied["evidence_source_ids"],
+            collection="calendar_snapshots",
+            expected={"events": supplied["calendar_events"], "timezone": supplied["timezone"]},
+        ),
+        "commitment-snapshot-bound": _matches_admitted_result(
+            context,
+            supplied["evidence_source_ids"],
+            collection="commitment_snapshots",
+            expected={"commitments": supplied["commitments"]},
+        ),
+        "message-snapshot-bound": _matches_admitted_result(
+            context,
+            supplied["evidence_source_ids"],
+            collection="message_snapshots",
+            expected={"messages": supplied["messages"]},
+        ),
+    }
+    checks: list[dict[str, Any]] = [
         {
             "check_id": "priorities-bounded",
             "passed": len(priorities[:3]) <= 3,
@@ -363,11 +450,23 @@ def _weekly_pm_command_centre(
         },
         {"check_id": "conflicts-enumerated", "passed": True, "observed": len(conflicts)},
     ]
+    checks.extend(
+        [
+            {
+                "check_id": check_id,
+                "passed": passed,
+                "observed": "matched" if passed else "missing or mismatched",
+                "expected": "exact admitted snapshot",
+            }
+            for check_id, passed in source_bindings.items()
+        ]
+    )
+    verdict = "PASS" if all(item["passed"] for item in checks) else "HOLD"
     result = _result(
         packet,
         execution_batch,
         outcome="A bounded weekly plan is ready; calendar and status writes remain drafts.",
-        verdict="PASS",
+        verdict=verdict,
         checks=checks,
         provenance=[_provenance("weekly-plan", source_ids)],
         summary=f"{len(priorities[:3])} priorities and {len(conflicts)} conflicts surfaced.",
@@ -387,19 +486,23 @@ def _weekly_pm_command_centre(
             },
         },
     )
-    approvals: list[ApprovalItem] = [
-        _approval(
-            packet,
-            approval_id="APPROVAL-WEEKLY-STATUS-001",
-            action_type="message.send",
-            target="configured-weekly-status-channel",
-            reason="The weekly status is a draft derived from admitted commitments and messages.",
-            reversibility="A sent message cannot be recalled reliably; edit before approval.",
-            evidence_refs=result.evidence_refs,
-            payload={"action": "send-weekly-status", "priorities": priorities[:3]},
+    approvals: list[ApprovalItem] = []
+    if verdict == "PASS":
+        approvals.append(
+            _approval(
+                packet,
+                approval_id="APPROVAL-WEEKLY-STATUS-001",
+                action_type="message.send",
+                target="configured-weekly-status-channel",
+                reason=(
+                    "The weekly status is a draft derived from admitted commitments and messages."
+                ),
+                reversibility="A sent message cannot be recalled reliably; edit before approval.",
+                evidence_refs=result.evidence_refs,
+                payload={"action": "send-weekly-status", "priorities": priorities[:3]},
+            )
         )
-    ]
-    if conflicts:
+    if verdict == "PASS" and conflicts:
         approvals.append(
             _approval(
                 packet,
@@ -421,6 +524,20 @@ def _meeting_to_decision(
     supplied = context["workflow_inputs"][packet.workflow_id]
     actions = supplied["action_items"]
     source_ids = tuple(supplied["evidence_source_ids"])
+    record_bound = _matches_admitted_result(
+        context,
+        supplied["evidence_source_ids"],
+        collection="meeting_records",
+        expected={
+            "action_items": supplied["action_items"],
+            "agenda": supplied["agenda"],
+            "meeting_id": supplied["meeting_id"],
+            "notes": supplied["notes"],
+            "prior_decisions": supplied["prior_decisions"],
+            "scheduled_at": supplied["scheduled_at"],
+            "title": supplied["title"],
+        },
+    )
     checks = [
         {
             "check_id": "actions-have-owner-and-due-date",
@@ -431,6 +548,12 @@ def _meeting_to_decision(
             "check_id": "prior-decisions-preserved",
             "passed": bool(supplied["prior_decisions"]),
             "observed": len(supplied["prior_decisions"]),
+        },
+        {
+            "check_id": "meeting-record-bound-to-admitted-evidence",
+            "passed": record_bound,
+            "observed": "matched" if record_bound else "missing or mismatched",
+            "expected": "exact admitted meeting record",
         },
     ]
     verdict = "PASS" if all(item["passed"] for item in checks) else "HOLD"
@@ -463,28 +586,32 @@ def _meeting_to_decision(
             "pre_brief": {"prior_decisions": supplied["prior_decisions"]},
         },
     )
-    approvals = (
-        _approval(
-            packet,
-            approval_id="APPROVAL-MEETING-TASKS-001",
-            action_type="task.create",
-            target="configured-task-system",
-            reason="Owner-complete actions are drafted but not written to an external task system.",
-            reversibility="Created tasks can be closed, but assignees may be notified.",
-            evidence_refs=result.evidence_refs,
-            payload={"action": "create-tasks", "items": actions},
-        ),
-        _approval(
-            packet,
-            approval_id="APPROVAL-MEETING-FOLLOWUP-001",
-            action_type="message.send",
-            target=supplied["follow_up_target"],
-            reason="The recipients and exact decision record require human confirmation.",
-            reversibility="A sent follow-up cannot be reliably recalled.",
-            evidence_refs=result.evidence_refs,
-            payload={"action": "send-follow-up", "draft": follow_up},
-        ),
-    )
+    approvals: tuple[ApprovalItem, ...] = ()
+    if verdict == "PASS":
+        approvals = (
+            _approval(
+                packet,
+                approval_id="APPROVAL-MEETING-TASKS-001",
+                action_type="task.create",
+                target="configured-task-system",
+                reason=(
+                    "Owner-complete actions are drafted but not written to an external task system."
+                ),
+                reversibility="Created tasks can be closed, but assignees may be notified.",
+                evidence_refs=result.evidence_refs,
+                payload={"action": "create-tasks", "items": actions},
+            ),
+            _approval(
+                packet,
+                approval_id="APPROVAL-MEETING-FOLLOWUP-001",
+                action_type="message.send",
+                target=supplied["follow_up_target"],
+                reason="The recipients and exact decision record require human confirmation.",
+                reversibility="A sent follow-up cannot be reliably recalled.",
+                evidence_refs=result.evidence_refs,
+                payload={"action": "send-follow-up", "draft": follow_up},
+            ),
+        )
     return result, approvals
 
 
@@ -495,13 +622,48 @@ def _evidence_to_roadmap_to_release(
     option = next(
         item for item in supplied["options"] if item["option_id"] == supplied["approved_option_id"]
     )
-    failed = sorted(
+    unbound_claims = sorted(
+        item["claim_id"]
+        for item in supplied["claims"]
+        if not _matches_admitted_result(
+            context,
+            item["source_ids"],
+            collection="roadmap_claims",
+            expected={"claim_id": item["claim_id"], "text": item["text"]},
+        )
+    )
+    decision_bound = _matches_admitted_result(
+        context,
+        supplied["evidence_source_ids"],
+        collection="roadmap_decisions",
+        expected={"approved_option": option},
+    )
+    declared_failures = sorted(
         item["check_id"] for item in supplied["release_checks"] if item["status"] != "PASS"
     )
+    unbound_results = sorted(
+        item["check_id"]
+        for item in supplied["release_checks"]
+        if not _matches_admitted_result(
+            context,
+            item["evidence_source_ids"],
+            collection="roadmap_release_results",
+            expected={
+                "approved_option_id": supplied["approved_option_id"],
+                "check_id": item["check_id"],
+                "status": "PASS",
+            },
+        )
+    )
+    evidence_failures = [*unbound_claims, *(("APPROVED-OPTION",) if not decision_bound else ())]
+    failed = sorted(set(declared_failures) | set(unbound_results) | set(evidence_failures))
     verdict = "PASS" if not failed else "HOLD"
     provenance = [
         _provenance(f"claim:{item['claim_id']}", tuple(item["source_ids"]))
         for item in supplied["claims"]
+    ] + [
+        _provenance(f"release:{item['check_id']}", tuple(item["evidence_source_ids"]))
+        for item in supplied["release_checks"]
     ]
     checks = [
         {
@@ -511,13 +673,26 @@ def _evidence_to_roadmap_to_release(
         },
         {
             "check_id": "claims-have-provenance",
-            "passed": all(item["source_ids"] for item in supplied["claims"]),
-            "observed": len(supplied["claims"]),
+            "passed": not unbound_claims,
+            "observed": unbound_claims or len(supplied["claims"]),
+            "expected": "every claim matches admitted source evidence",
+        },
+        {
+            "check_id": "approved-option-bound-to-decision",
+            "passed": decision_bound,
+            "observed": option["option_id"] if decision_bound else "missing or mismatched",
+            "expected": option["option_id"],
         },
         {
             "check_id": "release-checks-pass",
-            "passed": not failed,
-            "observed": failed or "all PASS",
+            "passed": not declared_failures,
+            "observed": declared_failures or "all PASS",
+        },
+        {
+            "check_id": "release-results-bound-to-approved-option",
+            "passed": not unbound_results,
+            "observed": unbound_results or option["option_id"],
+            "expected": option["option_id"],
         },
     ]
     result = _result(
@@ -597,7 +772,41 @@ def _issue_to_draft_pr(
     packet: TaskPacket, context: dict[str, Any], execution_batch: str
 ) -> WorkerReturn:
     supplied = context["workflow_inputs"][packet.workflow_id]
-    failed = sorted(item["check_id"] for item in supplied["checks"] if item["status"] != "PASS")
+    declared_failures = sorted(
+        item["check_id"] for item in supplied["checks"] if item["status"] != "PASS"
+    )
+    unbound_results = sorted(
+        item["check_id"]
+        for item in supplied["checks"]
+        if not _matches_admitted_result(
+            context,
+            item["evidence_source_ids"],
+            collection="candidate_check_results",
+            expected={
+                "candidate_digest": supplied["candidate_digest"],
+                "check_id": item["check_id"],
+                "status": "PASS",
+            },
+        )
+    )
+    issue_contract_bound = _matches_admitted_result(
+        context,
+        supplied["evidence_source_ids"],
+        collection="issue_contracts",
+        expected={
+            "dependencies": supplied["dependencies"],
+            "impact_paths": supplied["impact_paths"],
+            "issue_body": supplied["issue_body"],
+            "issue_number": supplied["issue_number"],
+            "issue_title": supplied["issue_title"],
+            "repository": supplied["repository"],
+        },
+    )
+    failed = sorted(
+        set(declared_failures)
+        | set(unbound_results)
+        | ({"ISSUE-CONTRACT"} if not issue_contract_bound else set())
+    )
     verdict = "PASS" if not failed else "HOLD"
     provenance = [
         _provenance(f"check:{item['check_id']}", tuple(item["evidence_source_ids"]))
@@ -606,18 +815,25 @@ def _issue_to_draft_pr(
     checks = [
         {
             "check_id": "deterministic-checks-pass",
-            "passed": not failed,
-            "observed": failed or "all PASS",
+            "passed": not declared_failures,
+            "observed": declared_failures or "all PASS",
         },
         {
             "check_id": "candidate-digest-bound",
-            "passed": True,
-            "observed": supplied["candidate_digest"],
+            "passed": not unbound_results,
+            "observed": unbound_results or supplied["candidate_digest"],
+            "expected": supplied["candidate_digest"],
         },
         {
             "check_id": "impact-scope-present",
             "passed": bool(supplied["impact_paths"]),
             "observed": len(supplied["impact_paths"]),
+        },
+        {
+            "check_id": "issue-contract-bound-to-admitted-evidence",
+            "passed": issue_contract_bound,
+            "observed": "matched" if issue_contract_bound else "missing or mismatched",
+            "expected": "exact admitted issue contract",
         },
     ]
     draft_pr = {

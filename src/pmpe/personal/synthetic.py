@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import random
+from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
@@ -145,7 +146,7 @@ def _extended_pack_content(workflow_id: str, source_id: str) -> dict[str, Any]:
             "readme_outline": ["Problem", "Decision", "Verification"],
             "demo_outline": ["Input", "Action", "Verified output"],
             "case_study": {"outcome": "A governed workflow completed."},
-            "evidence_links": [source_id],
+            "evidence_source_ids": [source_id],
         },
     }
     pack = content[workflow_id]
@@ -207,7 +208,44 @@ def synthetic_personal_context(
             "SRC-EVAL-RUN",
             "eval-run",
             "Frozen AI candidate evaluation",
-            {"candidate": f"voice-pilot-{suffix}", "cases": 3},
+            {
+                "candidate": f"voice-pilot-{suffix}",
+                "cases": 3,
+                "evaluation_results": [
+                    {
+                        "actual": actual,
+                        "candidate_id": f"VOICE-CANDIDATE-{suffix}",
+                        "case_id": case_id,
+                        "cost_usd": cost_usd,
+                        "expected": expected,
+                        "latency_ms": latency_ms,
+                        "safety_pass": True,
+                    }
+                    for case_id, expected, actual, latency_ms, cost_usd in (
+                        (
+                            "GOLDEN-DELAY",
+                            "Escalate delayed delivery with evidence.",
+                            "Escalate delayed delivery with evidence.",
+                            420,
+                            0.012,
+                        ),
+                        (
+                            "GOLDEN-REFUND",
+                            "Request approval before refund action.",
+                            "Request approval before refund action.",
+                            480,
+                            0.014,
+                        ),
+                        (
+                            "GOLDEN-POLICY",
+                            "Cite the current policy source.",
+                            "Cite the current policy source.",
+                            510,
+                            0.013,
+                        ),
+                    )
+                ],
+            },
             observed_at="2026-08-19T10:15:00+05:30",
         ),
         _source(
@@ -260,6 +298,34 @@ def synthetic_personal_context(
             observed_at="2026-08-19T11:15:00+05:30",
         ),
     ]
+    source_by_id = {str(source["source_id"]): source for source in sources}
+    source_by_id["SRC-CUSTOMER-SIGNALS"]["content"]["roadmap_release_results"] = [
+        {
+            "approved_option_id": "OPTION-ASSIST",
+            "check_id": "CHECK-ROADMAP-EVIDENCE",
+            "status": "PASS",
+        }
+    ]
+    source_by_id["SRC-CUSTOMER-SIGNALS"]["content_digest"] = canonical_digest(
+        source_by_id["SRC-CUSTOMER-SIGNALS"]["content"]
+    )
+    source_by_id["SRC-ACCEPTANCE"]["content"]["roadmap_release_results"] = [
+        {
+            "approved_option_id": "OPTION-ASSIST",
+            "check_id": "CHECK-ROADMAP-RELEASE",
+            "status": "PASS",
+        }
+    ]
+    source_by_id["SRC-ACCEPTANCE"]["content_digest"] = canonical_digest(
+        source_by_id["SRC-ACCEPTANCE"]["content"]
+    )
+    source_by_id["SRC-CI-RUN"]["content"]["candidate_check_results"] = [
+        {"candidate_digest": candidate_digest, "check_id": check_id, "status": "PASS"}
+        for check_id in ("CHECK-PYTEST", "CHECK-RUFF")
+    ]
+    source_by_id["SRC-CI-RUN"]["content_digest"] = canonical_digest(
+        source_by_id["SRC-CI-RUN"]["content"]
+    )
     generic_source_ids: dict[str, str] = {}
     for index, (workflow_id, entry) in enumerate(GENERIC_WORKFLOW_CATALOG.items(), start=1):
         source_id = f"SRC-PACK-{index:02d}"
@@ -550,6 +616,74 @@ def synthetic_personal_context(
                 for action_type in entry["approvals"]
             ],
         }
+    weekly_input = inputs["weekly-pm-command-centre"]
+    meeting_input = inputs["meeting-to-decision"]
+    roadmap_input = inputs["evidence-to-roadmap-to-release"]
+    issue_input = inputs["issue-to-draft-pr"]
+    eval_input = inputs["ai-eval-release-gate"]
+    approved_roadmap_option = next(
+        option
+        for option in roadmap_input["options"]
+        if option["option_id"] == roadmap_input["approved_option_id"]
+    )
+    source_updates: dict[str, dict[str, Any]] = {
+        "SRC-EVAL-RUN": {
+            "evaluation_policies": [
+                {
+                    "candidate_id": eval_input["candidate_id"],
+                    "thresholds": eval_input["thresholds"],
+                }
+            ]
+        },
+        "SRC-CALENDAR": {
+            "calendar_snapshots": [
+                {
+                    "events": weekly_input["calendar_events"],
+                    "timezone": weekly_input["timezone"],
+                }
+            ]
+        },
+        "SRC-COMMITMENTS": {"commitment_snapshots": [{"commitments": weekly_input["commitments"]}]},
+        "SRC-MESSAGES": {"message_snapshots": [{"messages": weekly_input["messages"]}]},
+        "SRC-MEETING-NOTES": {
+            "meeting_records": [
+                {
+                    "action_items": meeting_input["action_items"],
+                    "agenda": meeting_input["agenda"],
+                    "meeting_id": meeting_input["meeting_id"],
+                    "notes": meeting_input["notes"],
+                    "prior_decisions": meeting_input["prior_decisions"],
+                    "scheduled_at": meeting_input["scheduled_at"],
+                    "title": meeting_input["title"],
+                }
+            ]
+        },
+        "SRC-CUSTOMER-SIGNALS": {
+            "roadmap_claims": [roadmap_input["claims"][0]],
+        },
+        "SRC-PRODUCT-DECISION": {
+            "roadmap_claims": [roadmap_input["claims"][1]],
+            "roadmap_decisions": [{"approved_option": approved_roadmap_option}],
+        },
+        "SRC-ISSUE-119": {
+            "issue_contracts": [
+                {
+                    "dependencies": issue_input["dependencies"],
+                    "impact_paths": issue_input["impact_paths"],
+                    "issue_body": issue_input["issue_body"],
+                    "issue_number": issue_input["issue_number"],
+                    "issue_title": issue_input["issue_title"],
+                    "repository": issue_input["repository"],
+                }
+            ]
+        },
+    }
+    for source_id, updates in source_updates.items():
+        content = source_by_id[source_id]["content"]
+        if not isinstance(content, dict):
+            raise TypeError(f"synthetic source {source_id} content must be an object")
+        content.update(deepcopy(updates))
+        source_by_id[source_id]["content_digest"] = canonical_digest(content)
     selected = tuple(workflow_ids)
     return {
         "schema_version": "1.0.0",
