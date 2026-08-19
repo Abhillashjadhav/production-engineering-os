@@ -863,6 +863,19 @@ def _verify_full_product_quickstart(output: Path, *, expected_digest: str) -> st
     if any(path.is_symlink() for path in workspace.rglob("*")):
         raise FullProductError("retained local-product workspace refuses symbolic link")
     retained_candidate_digest = tree_content_digest(workspace)
+    approved_decisions = contract.get("approved_product_decisions")
+    approved_spec_decision = (
+        next(
+            (
+                item
+                for item in approved_decisions
+                if isinstance(item, dict) and item.get("id") == "APD-SPEC-001"
+            ),
+            None,
+        )
+        if isinstance(approved_decisions, list)
+        else None
+    )
     checks = (
         manifest["schema_version"] == "1.0.0",
         manifest["status"] == "VERIFIED_LOCAL_PRODUCT",
@@ -901,6 +914,10 @@ def _verify_full_product_quickstart(output: Path, *, expected_digest: str) -> st
         runtime.get("learning", {}).get("installed_regression_cases") == 0,
         engineering.get("status") == "VERIFIED",
         engineering.get("contract_digest") == contract_digest,
+        isinstance(approved_spec_decision, dict),
+        isinstance(approved_spec_decision, dict)
+        and approved_spec_decision.get("decision")
+        == f"Build the exact TaskFlow specification {engineering.get('source_spec_digest')}.",
         all(not finding.get("blocking", False) for finding in final_findings),
         engineering_tests.get("status") == "PASS",
         generated_test_result.get("status") == "PASS",
