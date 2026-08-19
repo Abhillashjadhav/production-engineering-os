@@ -18,6 +18,7 @@ from pmpe.workflows.support import (
     VisibleFact,
     create_policy_rule,
 )
+from pmpe.workflows.support_discovery import CustomerSupportDiscoveryAdapter
 
 CorpusValidationError = VisibleCorpusError
 _OUTCOMES = frozenset({"refund", "replacement", "escalate", "request_evidence", "reject"})
@@ -382,8 +383,25 @@ def validate_support_corpus(corpus: SupportCorpus) -> None:
             or not rule_refs <= {item.rule_id for item in case.policies}
         ):
             raise CorpusValidationError("oracle rationale and evidence do not match")
-        if rationale == "equal-priority-conflict" and (len(fact_refs) < 2 or len(rule_refs) < 2):
-            raise CorpusValidationError("oracle conflict evidence is incomplete")
+        if rationale == "equal-priority-conflict":
+            positive_facts = {"FACT-ORDER-AGE", "FACT-PURCHASE-AGE"}
+            negative_facts = {"FACT-FINAL-SALE", "FACT-CLEARANCE"}
+            positive_rules = {"RULE-RETURN-WINDOW", "RULE-COOLING-PERIOD"}
+            negative_rules = {"RULE-FINAL-SALE", "RULE-CLEARANCE-EXCLUSION"}
+            if not (
+                fact_refs & positive_facts
+                and fact_refs & negative_facts
+                and rule_refs & positive_rules
+                and rule_refs & negative_rules
+            ):
+                raise CorpusValidationError("oracle conflict evidence lacks opposing roles")
+        decision = CustomerSupportDiscoveryAdapter().discover(case)
+        if (
+            decision.selected_action != oracle.expected_outcome
+            or set(decision.action_fact_refs) != fact_refs
+            or set(decision.action_rule_refs) != rule_refs
+        ):
+            raise CorpusValidationError("oracle does not match the selected visible decision")
 
 
 def _canonical_bytes(payload: object) -> bytes:
