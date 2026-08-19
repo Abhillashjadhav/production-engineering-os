@@ -17,12 +17,12 @@ class CustomerSupportDiscoveryAdapter:
     def discover(self, case: SupportCase) -> DecisionContract:
         if type(case) is not SupportCase:
             raise DecisionContractError("customer-support input is not a visible support case")
-        facts = {item.fact_id for item in case.facts}
+        facts = {item.fact_id: canonical_digest(item.as_dict()) for item in case.facts}
         candidates: list[tuple[int, str, str, str, str]] = []
         for policy in case.policies:
-            if policy.required_fact_id not in facts:
+            if facts.get(policy.required_fact_id) != policy.required_fact_digest:
                 raise DecisionContractError(
-                    f"policy {policy.rule_id} lacks required visible fact {policy.required_fact_id}"
+                    f"policy {policy.rule_id} lacks bound visible fact {policy.required_fact_id}"
                 )
             candidates.append(
                 (

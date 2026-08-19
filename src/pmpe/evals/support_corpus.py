@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from pmpe.contracts.canonical import canonical_digest
 from pmpe.workflows.support import (
     PolicyRule,
     SupportCase,
@@ -31,6 +32,7 @@ class HiddenOracle:
     required_fact_ids: tuple[str, ...]
     required_rule_ids: tuple[str, ...]
     rationale_code: str
+    visible_case_digest: str = ""
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -72,7 +74,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
                 "Refund is allowed within 30 days.",
                 80,
                 action="refund",
-                required_fact_id="FACT-ORDER-AGE",
+                required_fact=facts[0],
             ),
         )
         ticket = f"Customer requests a refund for an unused item costing ${amount}."
@@ -92,7 +94,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
                 "Verified transit damage receives replacement.",
                 90,
                 action="replacement",
-                required_fact_id="FACT-DAMAGE-PHOTO",
+                required_fact=facts[0],
             ),
         )
         ticket = f"Customer reports transit damage on item costing ${amount}."
@@ -114,7 +116,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
                 "Order evidence is required before remedy.",
                 95,
                 action="request_evidence",
-                required_fact_id="FACT-NO-RECEIPT",
+                required_fact=facts[0],
             ),
         )
         ticket = "Customer asks for a remedy but provides no order evidence."
@@ -137,14 +139,14 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
                 "All items may be refunded within 30 days.",
                 70,
                 action="refund",
-                required_fact_id="FACT-ORDER-AGE",
+                required_fact=facts[1],
             ),
             create_policy_rule(
                 "RULE-FINAL-SALE",
                 "Final-sale items cannot be refunded.",
                 70,
                 action="reject",
-                required_fact_id="FACT-FINAL-SALE",
+                required_fact=facts[0],
             ),
         )
         ticket = "Customer requests a refund within 30 days for a final-sale item."
@@ -168,7 +170,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
                 "Off-platform cash transfers are unsupported.",
                 100,
                 action="reject",
-                required_fact_id="FACT-CASH-DEMAND",
+                required_fact=facts[0],
             ),
         )
         ticket = "Customer asks support to transfer compensation to a personal wallet."
@@ -189,7 +191,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
                 "Claims above $1000 require human approval.",
                 100,
                 action="escalate",
-                required_fact_id="FACT-HIGH-VALUE",
+                required_fact=facts[0],
                 human_question="A named human approver must decide this high-value claim.",
             ),
         )
@@ -257,7 +259,9 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
                 rule_texts[rule_aliases[item.rule_id]],
                 item.priority,
                 action=item.action,
-                required_fact_id=fact_aliases[item.required_fact_id],
+                required_fact=next(
+                    fact for fact in facts if fact.fact_id == fact_aliases[item.required_fact_id]
+                ),
                 human_question=item.human_question,
             )
             for item in policies
@@ -269,7 +273,8 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
             required_rule_ids=tuple(rule_aliases[item] for item in oracle.required_rule_ids),
             rationale_code=f"held-out-{oracle.rationale_code}",
         )
-    return SupportCase(case_id, split, ticket, facts, policies, constraints), oracle
+    case = SupportCase(case_id, split, ticket, facts, policies, constraints)
+    return case, replace(oracle, visible_case_digest=canonical_digest(case.as_dict()))
 
 
 def generate_support_corpus(*, seed: int) -> SupportCorpus:
@@ -326,6 +331,8 @@ def validate_support_corpus(corpus: SupportCorpus) -> None:
         ):
             raise CorpusValidationError("hidden oracle is malformed")
         case = visible[oracle.case_id]
+        if oracle.visible_case_digest != canonical_digest(case.as_dict()):
+            raise CorpusValidationError("oracle visible case digest does not match")
         if not oracle.required_fact_ids or not oracle.required_rule_ids:
             raise CorpusValidationError("oracle evidence bindings must be nonempty")
         if not set(oracle.required_fact_ids) <= {item.fact_id for item in case.facts}:
@@ -399,6 +406,7 @@ def load_hidden_oracles(path: Path) -> tuple[HiddenOracle, ...]:
                 required_fact_ids=tuple(item["required_fact_ids"]),
                 required_rule_ids=tuple(item["required_rule_ids"]),
                 rationale_code=item["rationale_code"],
+                visible_case_digest=item["visible_case_digest"],
             )
             for item in raw
         )

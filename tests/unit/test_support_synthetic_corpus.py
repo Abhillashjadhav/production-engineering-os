@@ -116,6 +116,16 @@ def test_visible_loader_rejects_scalar_product_constraints(tmp_path: Path) -> No
         load_visible_cases(paths.visible_path)
 
 
+def test_visible_loader_normalizes_unpaired_unicode_surrogate(tmp_path: Path) -> None:
+    paths = write_support_corpus(tmp_path, seed=8)
+    payload = json.loads(paths.visible_path.read_text())
+    payload["cases"][0]["ticket_text"] = "\ud800"
+    paths.visible_path.write_text(json.dumps(payload))
+
+    with pytest.raises(CorpusValidationError, match="malformed"):
+        load_visible_cases(paths.visible_path)
+
+
 def test_validator_rejects_oracle_references_not_present_in_visible_case() -> None:
     corpus = generate_support_corpus(seed=9)
     first = corpus.hidden_oracles[0]
@@ -146,6 +156,7 @@ def test_validator_rejects_trivial_all_escalate_oracle() -> None:
             required_fact_ids=item.required_fact_ids,
             required_rule_ids=item.required_rule_ids,
             rationale_code="manual-review",
+            visible_case_digest=item.visible_case_digest,
         )
         for item in corpus.hidden_oracles
     )
@@ -189,6 +200,16 @@ def test_validator_rejects_visible_partition_relabeling() -> None:
 
     with pytest.raises(CorpusValidationError, match="hidden oracle is malformed"):
         validate_support_corpus(SupportCorpus(tuple(visible), corpus.hidden_oracles))
+
+
+def test_validator_rejects_visible_case_content_rewrite() -> None:
+    corpus = generate_support_corpus(seed=11)
+    first = replace(corpus.visible_cases[0], ticket_text="Rewritten evaluation input.")
+
+    with pytest.raises(CorpusValidationError, match="visible case digest"):
+        validate_support_corpus(
+            SupportCorpus((first, *corpus.visible_cases[1:]), corpus.hidden_oracles)
+        )
 
 
 def test_validator_rejects_undersized_held_out_partition() -> None:
