@@ -18,13 +18,13 @@ Route → execute → verify → return. Nothing reaches the user unverified.
 |---|---|---|
 | Discovery | **Shipped** | interview-synthesizer · feedback-pattern-miner · assumption-mapper · competitor-teardown · opportunity-sizer · jtbd-framer · research-brief (all under `.claude/skills/<name>/SKILL.md`) |
 | Strategy | **Shipped** | strategy-review · roadmap-reality-check · ai-feature-go-no-go · north-star-designer · build-buy-partner · pricing-tradeoff |
-| Build | **Shipped** | model-complexity-router · builder-validator · prompt-optimizer-loop · context-auditor · pm-context-system · prd-to-eval · prototype-first-workflow · rag-vs-agent-architect · latency-ux-tradeoff · unit-economics-stress-test |
+| Build | **Shipped** | decision-contract-builder · model-complexity-router · builder-validator · prompt-optimizer-loop · context-auditor · pm-context-system · prd-to-eval · prototype-first-workflow · rag-vs-agent-architect · latency-ux-tradeoff · unit-economics-stress-test |
 | Launch | **Shipped** | launch-checklist · gtm-brief · stakeholder-update · announcement-drafter · launch-retro (+ 7 reviewer personas in `.claude/agents/`) |
 | Iterate | **Shipped** | eval-engine · llm-as-judge-designer · judge-calibration-auditor · golden-dataset-builder · failure-to-eval-capture · guardrail-designer · loop-designer · regression-gatekeeper · model-upgrade-evaluator · eval-vs-abtest-router · drift-monitor-designer · mcp-migration-auditor |
 
 ## Step 1 — Classify
 
-Map the request to lifecycle stage(s). Signals: transcripts/feedback/assumptions/competitors/market-size/jobs/research questions → Discovery. Positioning, pricing, GTM, roadmap → Strategy. Specs, evals, prototypes, AI architecture, model routing, prompts, context files, token economics, latency UX → Build. Launch checklists, GTM briefs, status updates, announcements, retros → Launch. Evals, judges, golden sets, failure capture, guardrails, loops, regression gates, model upgrades, eval-vs-experiment routing, drift monitoring, MCP migration → Iterate. If genuinely ambiguous between stages, ask ONE clarifying question — never a questionnaire.
+Map the request to lifecycle stage(s). Signals: transcripts/feedback/assumptions/competitors/market-size/jobs/research questions → Discovery. Positioning, pricing, GTM, roadmap → Strategy. Specs, evals, prototypes, AI architecture, model routing, prompts, context files, token economics, latency UX, decision-contract authoring/approval/handoff → Build. Launch checklists, GTM briefs, status updates, announcements, retros → Launch. Evals, judges, golden sets, failure capture, guardrails, loops, regression gates, model upgrades, eval-vs-experiment routing, drift monitoring, MCP migration → Iterate. If genuinely ambiguous between stages, ask ONE clarifying question — never a questionnaire.
 
 ## Step 2 — Route
 

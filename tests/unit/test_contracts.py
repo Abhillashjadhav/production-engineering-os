@@ -49,6 +49,29 @@ def test_missing_required_field_is_rejected(contract_data: dict[str, Any], tmp_p
         load_contract(_write(tmp_path, contract_data))
 
 
+def test_duplicate_json_member_is_rejected(tmp_path: Path) -> None:
+    source = tmp_path / "duplicate.json"
+    source.write_text('{"contract_id":"PDC-A","contract_id":"PDC-B"}')
+    with pytest.raises(SpecError, match="duplicate object member"):
+        load_contract(source)
+
+
+def test_duplicate_release_gate_id_is_rejected(
+    contract_data: dict[str, Any], tmp_path: Path
+) -> None:
+    duplicate = dict(contract_data["binary_release_gates"][0])
+    duplicate["description"] = "A different gate hidden behind the same identifier."
+    contract_data["binary_release_gates"].append(duplicate)
+    with pytest.raises(SpecError, match="binary_release_gates: duplicate id"):
+        load_contract(_write(tmp_path, contract_data))
+
+
+def test_unsafe_contract_id_is_rejected(contract_data: dict[str, Any], tmp_path: Path) -> None:
+    contract_data["contract_id"] = "../../outside-registry"
+    with pytest.raises(SpecError, match="contract_id"):
+        load_contract(_write(tmp_path, contract_data))
+
+
 def test_draft_contract_is_not_runnable(contract_data: dict[str, Any], tmp_path: Path) -> None:
     contract_data["contract_status"] = "DRAFT"
     contract = load_contract(_write(tmp_path, contract_data))
@@ -151,6 +174,17 @@ def test_registering_identical_content_is_idempotent(
     first = store.register(_write(tmp_path, contract_data, "a.json"))
     second = store.register(_write(tmp_path, contract_data, "b.json"))
     assert first.digest == second.digest
+
+
+def test_registry_and_approval_use_one_rfc8785_numeric_digest(
+    contract_data: dict[str, Any], tmp_path: Path
+) -> None:
+    contract_data["metadata"] = {"numeric_value": 1.0}
+    source = _write(tmp_path, contract_data)
+    record = ContractStore(tmp_path / "registry").register(source)
+    from pmpe.contracts.canonical import canonical_digest as approval_digest
+
+    assert record.digest == approval_digest(contract_data)
 
 
 def test_new_version_registers_cleanly(contract_data: dict[str, Any], tmp_path: Path) -> None:

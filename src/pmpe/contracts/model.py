@@ -8,14 +8,26 @@ document only — never inferred from chat history or repository code (rule 7).
 
 from __future__ import annotations
 
-import json
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from pmpe.config import packaged_schema_dir
+from pmpe.contracts.canonical import CanonicalInputError, strict_loads
 from pmpe.domain.errors import SpecError
 from pmpe.ingestion.schema import SchemaValidator
+
+_SAFE_CONTRACT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
+_ID_COLLECTIONS = (
+    "functional_requirements",
+    "acceptance_criteria",
+    "binary_release_gates",
+    "scored_eval_rubric",
+    "non_functional_requirements",
+    "approved_product_decisions",
+    "unresolved_questions",
+)
 
 
 @dataclass(frozen=True)
@@ -108,18 +120,24 @@ def load_contract(path: Path) -> ProductDecisionContract:
     """Load + schema-validate + type a contract. Raises SpecError on structural
     problems; semantic runnability is reported via ``blockers``, not exceptions."""
     try:
-        data: Any = json.loads(Path(path).read_text())
-    except (OSError, json.JSONDecodeError) as exc:
+        data: Any = strict_loads(Path(path).read_bytes(), "application/json")
+    except (OSError, CanonicalInputError) as exc:
         raise SpecError(f"cannot read contract {path}: {exc}") from exc
     if not isinstance(data, dict):
         raise SpecError(f"contract {path} must be a JSON object")
     errors = SchemaValidator(contract_schema_path()).validate(data)
-    seen: set[str] = set()
-    for req in data.get("functional_requirements", []):
-        rid = str(req.get("id", ""))
-        if rid in seen:
-            errors.append(f"functional_requirements: duplicate id '{rid}'")
-        seen.add(rid)
+    contract_id = data.get("contract_id")
+    if not isinstance(contract_id, str) or not _SAFE_CONTRACT_ID.fullmatch(contract_id):
+        errors.append("contract_id: unsafe or unbounded identifier")
+    for collection in _ID_COLLECTIONS:
+        seen: set[str] = set()
+        for item in data.get(collection, []):
+            if not isinstance(item, dict):
+                continue
+            item_id = str(item.get("id", ""))
+            if item_id in seen:
+                errors.append(f"{collection}: duplicate id '{item_id}'")
+            seen.add(item_id)
     if errors:
         raise SpecError(f"contract {path} violates the schema", errors)
 

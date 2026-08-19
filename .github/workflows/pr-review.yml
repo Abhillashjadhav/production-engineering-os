@@ -19,10 +19,17 @@ permissions:
 
 jobs:
   review:
-    if: github.event.pull_request.draft == false && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - name: Refuse skipped review admission
+        env:
+          IS_DRAFT: ${{ github.event.pull_request.draft }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          test "$IS_DRAFT" = "false" || { echo "::error::draft PR is not review-admitted"; exit 1; }
+          test "$HEAD_REPOSITORY" = "$GITHUB_REPOSITORY" || { echo "::error::fork PR requires an explicitly supported trusted review path"; exit 1; }
+
       - name: Checkout trusted verifier revision
         uses: actions/checkout@v4
         with:

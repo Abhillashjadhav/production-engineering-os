@@ -9,6 +9,7 @@ PD-03 rules enforced here:
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,8 @@ __all__ = [
     "ContractViolation",
     "diff_contracts",
 ]
+
+_SAFE_CONTRACT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:-]{0,127}\Z")
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,8 @@ class ContractStore:
         contract = load_contract(path)  # structural validation
         data = contract.raw
         digest = canonical_digest(data)
+        if not _SAFE_CONTRACT_ID.fullmatch(contract.contract_id):
+            raise ContractViolation("contract_id is not safe for registry storage")
         index = self._index()
         versions = index.setdefault(contract.contract_id, {})
         existing = versions.get(str(contract.contract_version))
@@ -63,6 +68,9 @@ class ContractStore:
         if existing is None:
             versions[str(contract.contract_version)] = digest
             stored = self.root / contract.contract_id / f"v{contract.contract_version}.json"
+            root = self.root.resolve()
+            if not stored.resolve().is_relative_to(root):
+                raise ContractViolation("contract registry path escapes its configured root")
             stored.parent.mkdir(parents=True, exist_ok=True)
             stored.write_text(canonical_json(data) + "\n")
             atomic_write_json(self._index_path, index)

@@ -13,6 +13,8 @@ from typing import Any
 import pytest
 
 from pmpe.cli import main
+from pmpe.contracts.authoring import approve_contract_draft
+from pmpe.contracts.canonical import canonical_digest
 from pmpe.engineering.engine import EngineeringRun
 from pmpe.gitops.local import LocalGitAdapter
 from tests.integration.test_run_engine import _arch, drive_to_deploy
@@ -20,6 +22,31 @@ from tests.integration.test_run_engine import _arch, drive_to_deploy
 ROOT = Path(__file__).resolve().parents[2]
 CONTRACT = ROOT / "tests" / "fixtures" / "v2" / "contract_approved.json"
 AGENTS_DIR = ROOT / ".claude" / "agents"
+
+
+def _receipt(tmp_path: Path) -> Path:
+    approved = json.loads(CONTRACT.read_text())
+    draft = dict(approved)
+    draft.update(contract_status="DRAFT", approved_by="", approved_at="")
+    result = approve_contract_draft(
+        draft,
+        expected_draft_digest=canonical_digest(draft),
+        approver=str(approved["approved_by"]),
+        approved_at=str(approved["approved_at"]),
+    )
+    assert result.contract == approved
+    path = tmp_path / "approval-receipt.json"
+    path.write_text(json.dumps(result.receipt))
+    return path
+
+
+def _approval_args(tmp_path: Path) -> list[str]:
+    return [
+        "--receipt",
+        str(_receipt(tmp_path)),
+        "--expected-approver",
+        "abhillash (PM Agent OS)",
+    ]
 
 
 def _write(path: Path, payload: dict[str, Any]) -> str:
@@ -49,6 +76,7 @@ def test_start_assess_submit_status_resume(
                 str(run_dir),
                 "--agents-dir",
                 str(AGENTS_DIR),
+                *_approval_args(tmp_path),
             ]
         )
         == 0
@@ -95,6 +123,7 @@ def test_non_runnable_contract_exits_3(tmp_path: Path) -> None:
             str(tmp_path / "run"),
             "--agents-dir",
             str(AGENTS_DIR),
+            *_approval_args(tmp_path),
         ]
     )
     assert rc == 3  # blocked on a human gate: the contract is not approved
@@ -112,6 +141,7 @@ def test_rejected_submission_exits_2(tmp_path: Path) -> None:
             str(run_dir),
             "--agents-dir",
             str(AGENTS_DIR),
+            *_approval_args(tmp_path),
         ]
     )
     main(
@@ -150,7 +180,7 @@ def test_production_gate_via_cli(tmp_path: Path, capsys: pytest.CaptureFixture[s
     (workspace / "deploy" / "ROLLBACK.md").write_text("# Rollback\n\nRevert and rerun run.sh.\n")
     git.commit_all("chore: base workspace")
 
-    run = EngineeringRun.start(CONTRACT, tmp_path / "run", agents_dir=AGENTS_DIR)
+    run = EngineeringRun.start(CONTRACT, tmp_path / "run", agents_dir=AGENTS_DIR, fixture_mode=True)
     drive_to_deploy(run, workspace)
     run_dir = str(run.run_dir)
     ws = str(workspace)

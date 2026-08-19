@@ -3,6 +3,15 @@
 All notable changes to PM Production Engineering OS. Format: Keep a Changelog;
 versions: SemVer.
 
+## [Unreleased]
+
+### Added
+- Governed personal runtime adapters for exact-payload calendar approval, budgeted and
+  allowlisted product workers, digest-bound append-only event/eval evidence, bounded retry
+  with verified rollback, and proposal-only outcome learning (#121).
+- `pmpe personal-runtime quickstart` deterministic local demo, synthetic fixture, runtime
+  documentation, and unit/integration assurance tests. No real connectors or external writes.
+
 ## [0.2.0] — 2026-07-16
 
 ### Added (V2 — contract-driven engineering runs)
