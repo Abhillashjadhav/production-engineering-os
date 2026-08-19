@@ -116,7 +116,7 @@ def _write_evidence_index(root: Path, directory: Path, *, report_name: str) -> P
     return index_path
 
 
-def _verify_evidence_index(root: Path, index: dict[str, Any]) -> dict[str, Any]:
+def _verify_evidence_index(root: Path, index: dict[str, Any]) -> tuple[dict[str, Any], Path]:
     if set(index) != {"directory", "files", "report", "schema_version"}:
         raise FullProductError("evidence index has an unexpected shape")
     if index["schema_version"] != "1.0.0" or not isinstance(index["files"], list):
@@ -166,7 +166,37 @@ def _verify_evidence_index(root: Path, index: dict[str, Any]) -> dict[str, Any]:
     report = str(index["report"])
     if report not in declared:
         raise FullProductError("evidence index report is not declared")
-    return load_json_object(directory / report)
+    return load_json_object(directory / report), directory
+
+
+def _product_contract_binding(
+    contract: dict[str, Any], *, stage_id: str, source_fixture: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "approved_contract_digest": canonical_digest(contract),
+        "approved_contract_id": contract["contract_id"],
+        "evidence_role": "reusable-platform-capability-assurance",
+        "product_name": contract["product_name"],
+        "scope_statement": (
+            "PMOS control assurance prerequisite; product behavior evidence is emitted by "
+            "engineering-verification and local-deployment."
+        ),
+        "source_fixture_digest": canonical_digest(source_fixture),
+        "stage_id": stage_id,
+        "transformation_id": "approved-product-contract-to-pmos-assurance-v1",
+    }
+
+
+def _bind_report_to_product_contract(
+    path: Path, contract: dict[str, Any], *, stage_id: str, source_fixture: dict[str, Any]
+) -> None:
+    report = load_json_object(path)
+    if "product_contract_binding" in report:
+        raise FullProductError("assurance report already has a product contract binding")
+    report["product_contract_binding"] = _product_contract_binding(
+        contract, stage_id=stage_id, source_fixture=source_fixture
+    )
+    write_json_atomic(path, report)
 
 
 def _decision_answers(repo_root: Path) -> dict[str, Any]:
@@ -385,18 +415,33 @@ def run_full_product_quickstart(
 
     contract_path, receipt_path, handoff_path = _write_decision_and_handoff(root, repo)
 
+    contract = load_json_object(contract_path)
     workflows_root = root / "workflows"
-    execution = run_personal_execution(synthetic_personal_context(seed))
+    personal_context = synthetic_personal_context(seed)
+    execution = run_personal_execution(personal_context)
     workflow_paths = write_personal_execution(workflows_root, execution)
+    write_json_atomic(workflows_root / "synthetic-personal-input.json", personal_context)
+    _bind_report_to_product_contract(
+        workflow_paths["report"],
+        contract,
+        stage_id="workflow-execution",
+        source_fixture=personal_context,
+    )
 
     runtime_paths = run_runtime_demo(root / "runtime")
+    runtime_context = load_json_object(runtime_paths["input"])
+    _bind_report_to_product_contract(
+        runtime_paths["report"],
+        contract,
+        stage_id="runtime-assurance",
+        source_fixture=runtime_context,
+    )
     workflow_index = _write_evidence_index(
         root, workflows_root, report_name=workflow_paths["report"].name
     )
     runtime_index = _write_evidence_index(
         root, root / "runtime", report_name=runtime_paths["report"].name
     )
-    contract = load_json_object(contract_path)
     engineering_path, deployment_path = _build_review_and_deploy_local_product(root, repo, contract)
 
     stages = [
@@ -443,7 +488,21 @@ def _load_stage_artifacts(root: Path, manifest: dict[str, Any]) -> dict[str, dic
         stage_id = stage["stage_id"]
         if not isinstance(stage_id, str) or stage_id in artifacts or stage["status"] != "VERIFIED":
             raise FullProductError("full-product stage identity or status is invalid")
-        path = (root / str(stage["artifact"])).resolve()
+        relative_artifact = Path(str(stage["artifact"]))
+        if (
+            relative_artifact.is_absolute()
+            or not relative_artifact.parts
+            or any(part in {".", ".."} for part in relative_artifact.parts)
+        ):
+            raise FullProductError("full-product artifact escapes its output directory")
+        unresolved_path = root
+        for part in relative_artifact.parts:
+            unresolved_path /= part
+            if unresolved_path.is_symlink():
+                raise FullProductError(
+                    f"full-product artifact refuses symbolic link: {unresolved_path}"
+                )
+        path = unresolved_path.resolve()
         if not path.is_relative_to(root_resolved):
             raise FullProductError("full-product artifact escapes its output directory")
         value = load_json_object(path)
@@ -455,7 +514,10 @@ def _load_stage_artifacts(root: Path, manifest: dict[str, Any]) -> dict[str, dic
 
 def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str:
     root = Path(output)
-    manifest = load_json_object(root / "full-product-manifest.json")
+    manifest_path = root / "full-product-manifest.json"
+    if manifest_path.is_symlink():
+        raise FullProductError("full-product manifest refuses symbolic link")
+    manifest = load_json_object(manifest_path)
     expected_keys = {
         "external_provider_writes",
         "label",
@@ -492,17 +554,22 @@ def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str
     receipt = artifacts["approval-receipt"]
     verified_receipt = verify_contract_approval(contract, receipt, expected_approver=_APPROVER)
     handoff = artifacts["engineering-handoff"]
-    workflows = _verify_evidence_index(root, artifacts["workflow-execution"])
-    runtime = _verify_evidence_index(root, artifacts["runtime-assurance"])
+    workflows, workflows_directory = _verify_evidence_index(root, artifacts["workflow-execution"])
+    runtime, runtime_directory = _verify_evidence_index(root, artifacts["runtime-assurance"])
     engineering = artifacts["engineering-verification"]
     deployment = artifacts["local-deployment"]
     deployment_result = deployment.get("result", {})
     contract_digest = canonical_digest(contract)
-    workspace = root / "local-product" / "workspace"
-    if not workspace.is_dir():
+    unresolved_workspace = root / "local-product" / "workspace"
+    if any(candidate.is_symlink() for candidate in (root / "local-product", unresolved_workspace)):
+        raise FullProductError("retained local-product workspace refuses symbolic link")
+    workspace = unresolved_workspace.resolve()
+    if not workspace.is_relative_to(root.resolve()) or not workspace.is_dir():
         raise FullProductError("retained local-product workspace is missing")
     if _contains_executable_bytecode(workspace):
         raise FullProductError("retained local-product workspace contains executable bytecode")
+    if any(path.is_symlink() for path in workspace.rglob("*")):
+        raise FullProductError("retained local-product workspace refuses symbolic link")
     retained_candidate_digest = tree_content_digest(workspace)
     checks = (
         manifest["schema_version"] == "1.0.0",
@@ -512,9 +579,21 @@ def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str
         manifest["external_provider_writes"] == 0,
         handoff.get("contract", {}).get("digest") == contract_digest,
         handoff.get("approval", {}).get("receipt_digest") == verified_receipt,
+        workflows.get("product_contract_binding")
+        == _product_contract_binding(
+            contract,
+            stage_id="workflow-execution",
+            source_fixture=load_json_object(workflows_directory / "synthetic-personal-input.json"),
+        ),
         workflows.get("status") == "COMPLETED_WITH_PENDING_APPROVALS",
         workflows.get("evidence_complete") is True,
         workflows.get("unauthorized_external_actions") == 0,
+        runtime.get("product_contract_binding")
+        == _product_contract_binding(
+            contract,
+            stage_id="runtime-assurance",
+            source_fixture=load_json_object(runtime_directory / "synthetic-runtime-input.json"),
+        ),
         runtime.get("status") == "COMPLETED",
         runtime.get("calendar", {}).get("external_writes") == 0,
         runtime.get("learning", {}).get("installed_regression_cases") == 0,

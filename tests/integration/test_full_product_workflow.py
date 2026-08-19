@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -128,3 +129,51 @@ def test_full_product_verifier_rejects_indexed_directory_symlink(
     runtime.symlink_to(retained_runtime, target_is_directory=True)
     with pytest.raises(FullProductError, match="refuses symbolic link"):
         verify_full_product_quickstart(output, expected_digest=manifest["manifest_digest"])
+
+
+def test_full_product_verifier_rejects_retained_workspace_symlinks(
+    repo_root: Path, tmp_path: Path
+) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    workspace = output / "local-product" / "workspace"
+    outside_file = tmp_path / "outside.py"
+    outside_file.write_text("# outside retained candidate\n")
+    nested_link = workspace / "outside.py"
+    nested_link.symlink_to(outside_file)
+    with pytest.raises(FullProductError, match="refuses symbolic link"):
+        verify_full_product_quickstart(output, expected_digest=manifest["manifest_digest"])
+    nested_link.unlink()
+    retained_workspace = tmp_path / "retained-workspace"
+    workspace.rename(retained_workspace)
+    workspace.symlink_to(retained_workspace, target_is_directory=True)
+    with pytest.raises(FullProductError, match="refuses symbolic link"):
+        verify_full_product_quickstart(output, expected_digest=manifest["manifest_digest"])
+
+
+@pytest.mark.parametrize("stage_id", ["workflow-execution", "runtime-assurance"])
+def test_full_product_verifier_rejects_unbound_assurance_stage(
+    repo_root: Path, tmp_path: Path, stage_id: str
+) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    stage = next(item for item in manifest["stages"] if item["stage_id"] == stage_id)
+    index_path = output / stage["artifact"]
+    index = json.loads(index_path.read_text())
+    directory = output / index["directory"]
+    report_path = directory / index["report"]
+    report = json.loads(report_path.read_text())
+    report["product_contract_binding"]["approved_contract_digest"] = "sha256:unbound"
+    report_path.write_text(json.dumps(report))
+    report_relative = report_path.relative_to(directory).as_posix()
+    report_entry = next(item for item in index["files"] if item["path"] == report_relative)
+    report_entry["digest"] = f"sha256:{hashlib.sha256(report_path.read_bytes()).hexdigest()}"
+    report_entry["size"] = report_path.stat().st_size
+    index_path.write_text(json.dumps(index))
+    stage["artifact_digest"] = canonical_digest(index)
+    manifest_projection = dict(manifest)
+    manifest_projection.pop("manifest_digest")
+    manifest["manifest_digest"] = canonical_digest(manifest_projection)
+    (output / "full-product-manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(FullProductError, match="semantic verification failed"):
+        verify_full_product_quickstart(output, expected_digest=str(manifest["manifest_digest"]))
