@@ -212,18 +212,41 @@ def _verify_workflow_execution_evidence(
         contract_digest = contract_projection.pop("contract_digest")
         report_projection = dict(report)
         report_digest = report_projection.pop("report_digest")
+        tasks = task_graph["tasks"]
+        result_items = results["results"]
+        approval_items = approvals["items"]
+        packet_by_task = {item["task_id"]: item for item in tasks}
+
+        def digest_claim_is_valid(item: dict[str, Any], field: str) -> bool:
+            projection = dict(item)
+            claimed_digest = projection.pop(field)
+            return bool(claimed_digest == canonical_digest(projection))
+
         return all(
             (
                 canonical_digest(source_fixture) == contract["input_digest"],
                 canonical_digest(contract_projection) == contract_digest,
                 report["contract_digest"] == contract_digest,
                 canonical_digest(report_projection) == report_digest,
+                len(packet_by_task) == len(tasks),
+                all(digest_claim_is_valid(item, "packet_digest") for item in tasks),
+                task_graph["task_graph_digest"] == canonical_digest({"tasks": tasks}),
                 report["task_graph_digest"] == task_graph["task_graph_digest"],
                 report["evidence_ledger_digest"] == canonical_digest(evidence),
                 report["mobile_review_digest"] == canonical_digest(mobile_review),
-                report["result_digests"] == [item["result_digest"] for item in results["results"]],
-                report["pending_approval_ids"]
-                == [item["approval_id"] for item in approvals["items"]],
+                all(digest_claim_is_valid(item, "result_digest") for item in result_items),
+                all(
+                    item["task_id"] in packet_by_task
+                    and item["workflow_id"] == packet_by_task[item["task_id"]]["workflow_id"]
+                    and item["packet_digest"] == packet_by_task[item["task_id"]]["packet_digest"]
+                    for item in result_items
+                ),
+                report["result_digests"] == [item["result_digest"] for item in result_items],
+                all(
+                    item["payload_digest"] == canonical_digest(item["payload"])
+                    for item in approval_items
+                ),
+                report["pending_approval_ids"] == [item["approval_id"] for item in approval_items],
             )
         )
     except (KeyError, TypeError, ValueError):
