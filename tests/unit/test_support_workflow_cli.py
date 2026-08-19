@@ -8,6 +8,18 @@ from pmpe.evals.support_corpus import write_support_corpus
 from pmpe.workflows.support import load_visible_cases
 
 
+def test_support_demo_generates_separated_visible_and_oracle_artifacts(
+    tmp_path: Path,
+) -> None:
+    output = tmp_path / "generated"
+
+    result = main(["support-demo", "generate", "--seed", "110", "--output", str(output)])
+
+    assert result == 0
+    assert (output / "visible" / "cases.json").exists()
+    assert (output / "eval-only" / "oracles.json").exists()
+
+
 def test_support_demo_runs_one_visible_case_without_oracle_input(
     tmp_path: Path, capsys: object
 ) -> None:

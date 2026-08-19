@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from pmpe.evals.support_corpus import load_hidden_oracles
+from pmpe.evals.support_corpus import load_hidden_oracles, write_support_corpus
 from pmpe.workflows.runtime import (
     compile_workflow,
     execute_workflow,
@@ -16,11 +16,19 @@ from pmpe.workflows.support import load_visible_cases
 from pmpe.workflows.support_discovery import CustomerSupportDiscoveryAdapter
 
 
+def _cmd_generate(args: argparse.Namespace) -> int:
+    paths = write_support_corpus(Path(args.output), seed=args.seed)
+    print(f"visible cases: {paths.visible_path}")
+    print(f"eval-only oracles: {paths.oracle_path}")
+    return 0
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     cases = {item.case_id: item for item in load_visible_cases(Path(args.cases))}
-    case = cases.get(args.case_id)
+    selected_id = args.case_id or sorted(cases)[0]
+    case = cases.get(selected_id)
     if case is None:
-        raise ValueError(f"unknown visible case: {args.case_id}")
+        raise ValueError(f"unknown visible case: {selected_id}")
     contract = CustomerSupportDiscoveryAdapter().discover(case)
     plan = compile_workflow(contract)
     report = execute_workflow(case, contract, plan)
@@ -70,9 +78,13 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
 def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     support = sub.add_parser("support-demo", help="run the support workflow MVP")
     commands = support.add_subparsers(dest="support_command", required=True)
+    generate = commands.add_parser("generate", help="generate the synthetic corpus")
+    generate.add_argument("--seed", type=int, default=110)
+    generate.add_argument("--output", required=True)
+    generate.set_defaults(fn=_cmd_generate)
     run = commands.add_parser("run", help="compile and execute one visible case")
     run.add_argument("--cases", required=True)
-    run.add_argument("--case-id", required=True)
+    run.add_argument("--case-id", default=None)
     run.add_argument("--output", required=True)
     run.set_defaults(fn=_cmd_run)
     evaluate = commands.add_parser("evaluate", help="score held-out cases against eval truth")
