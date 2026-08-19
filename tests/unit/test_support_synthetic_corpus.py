@@ -14,7 +14,7 @@ from pmpe.evals.support_corpus import (
     validate_support_corpus,
     write_support_corpus,
 )
-from pmpe.workflows.support import SupportCase, load_visible_cases
+from pmpe.workflows.support import SupportCase, create_policy_rule, load_visible_cases
 
 
 def test_generator_produces_held_out_decision_coverage() -> None:
@@ -145,7 +145,7 @@ def test_validator_rejects_oracle_references_not_present_in_visible_case() -> No
     invalid = replace(first, required_rule_ids=("POLICY-NOT-VISIBLE",))
     mutated = SupportCorpus(corpus.visible_cases, (invalid, *corpus.hidden_oracles[1:]))
 
-    with pytest.raises(CorpusValidationError, match="rule evidence is incomplete"):
+    with pytest.raises(CorpusValidationError, match="rationale and evidence"):
         validate_support_corpus(mutated)
 
 
@@ -155,7 +155,7 @@ def test_validator_rejects_empty_oracle_evidence_bindings() -> None:
     invalid = replace(first, required_fact_ids=(), required_rule_ids=())
     mutated = SupportCorpus(corpus.visible_cases, (invalid, *corpus.hidden_oracles[1:]))
 
-    with pytest.raises(CorpusValidationError, match="fact evidence is incomplete"):
+    with pytest.raises(CorpusValidationError, match="rationale and evidence"):
         validate_support_corpus(mutated)
 
 
@@ -179,6 +179,37 @@ def test_validator_rejects_partial_conflict_evidence_or_wrong_outcome() -> None:
         oracles[index] = invalid
         with pytest.raises(CorpusValidationError, match=message):
             validate_support_corpus(SupportCorpus(corpus.visible_cases, tuple(oracles)))
+
+
+def test_validator_rejects_coordinated_rationale_and_outcome_rewrite() -> None:
+    corpus = generate_support_corpus(seed=9)
+    first = replace(
+        corpus.hidden_oracles[0],
+        expected_outcome="reject",
+        rationale_code="unsupported-action",
+    )
+
+    with pytest.raises(CorpusValidationError, match="rationale and evidence"):
+        validate_support_corpus(
+            SupportCorpus(corpus.visible_cases, (first, *corpus.hidden_oracles[1:]))
+        )
+
+
+def test_validator_does_not_require_lower_priority_distractor_evidence() -> None:
+    corpus = generate_support_corpus(seed=9)
+    case = corpus.visible_cases[0]
+    distractor = create_policy_rule(
+        "RULE-DISTRACTOR",
+        "An unrelated lower-priority rule.",
+        0,
+        action="reject",
+        required_fact=case.facts[0],
+    )
+    changed = replace(case, policies=(*case.policies, distractor))
+
+    validate_support_corpus(
+        SupportCorpus((changed, *corpus.visible_cases[1:]), corpus.hidden_oracles)
+    )
 
 
 def test_validator_rejects_trivial_all_escalate_oracle() -> None:

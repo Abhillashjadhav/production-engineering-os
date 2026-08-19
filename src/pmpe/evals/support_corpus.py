@@ -29,6 +29,37 @@ _RATIONALE_OUTCOMES = {
     "unsupported-action": "reject",
     "high-value-approval": "escalate",
 }
+_RATIONALE_EVIDENCE = {
+    "within-window": (
+        {"FACT-ORDER-AGE", "FACT-PURCHASE-AGE"},
+        {"RULE-RETURN-WINDOW", "RULE-COOLING-PERIOD"},
+    ),
+    "verified-damage": (
+        {"FACT-DAMAGE-PHOTO", "FACT-DEFECT-VIDEO"},
+        {"RULE-DAMAGE-REPLACE", "RULE-DEFECT-REMEDY"},
+    ),
+    "missing-proof": (
+        {"FACT-NO-RECEIPT", "FACT-NO-ACCOUNT"},
+        {"RULE-PROOF-REQUIRED", "RULE-IDENTITY-REQUIRED"},
+    ),
+    "equal-priority-conflict": (
+        {"FACT-FINAL-SALE", "FACT-ORDER-AGE", "FACT-CLEARANCE", "FACT-PURCHASE-AGE"},
+        {
+            "RULE-RETURN-WINDOW",
+            "RULE-FINAL-SALE",
+            "RULE-COOLING-PERIOD",
+            "RULE-CLEARANCE-EXCLUSION",
+        },
+    ),
+    "unsupported-action": (
+        {"FACT-CASH-DEMAND", "FACT-GIFT-CARD-PAYOUT"},
+        {"RULE-CHANNEL-BOUNDARY", "RULE-PAYOUT-BOUNDARY"},
+    ),
+    "high-value-approval": (
+        {"FACT-HIGH-VALUE", "FACT-CLAIM-VALUE"},
+        {"RULE-HIGH-VALUE", "RULE-MANAGER-THRESHOLD"},
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -229,7 +260,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
         }
         fact_texts = {
             "FACT-PURCHASE-AGE": "Unused purchase was completed 12 days ago.",
-            "FACT-DEFECT-VIDEO": "A defect video passed evidence review.",
+            "FACT-DEFECT-VIDEO": "A video of the functional defect passed evidence review.",
             "FACT-NO-ACCOUNT": "No account identifier was supplied.",
             "FACT-CLEARANCE": "Item is marked clearance.",
             "FACT-GIFT-CARD-PAYOUT": "Customer requests gift-card value as a bank payout.",
@@ -339,10 +370,20 @@ def validate_support_corpus(corpus: SupportCorpus) -> None:
         rationale = oracle.rationale_code.removeprefix("held-out-")
         if _RATIONALE_OUTCOMES.get(rationale) != oracle.expected_outcome:
             raise CorpusValidationError("oracle outcome does not match its rationale")
-        if set(oracle.required_fact_ids) != {item.fact_id for item in case.facts}:
-            raise CorpusValidationError("oracle fact evidence is incomplete")
-        if set(oracle.required_rule_ids) != {item.rule_id for item in case.policies}:
-            raise CorpusValidationError("oracle rule evidence is incomplete")
+        expected_evidence = _RATIONALE_EVIDENCE.get(rationale)
+        fact_refs, rule_refs = set(oracle.required_fact_ids), set(oracle.required_rule_ids)
+        if (
+            expected_evidence is None
+            or not fact_refs
+            or not rule_refs
+            or not fact_refs <= expected_evidence[0]
+            or not rule_refs <= expected_evidence[1]
+            or not fact_refs <= {item.fact_id for item in case.facts}
+            or not rule_refs <= {item.rule_id for item in case.policies}
+        ):
+            raise CorpusValidationError("oracle rationale and evidence do not match")
+        if rationale == "equal-priority-conflict" and (len(fact_refs) < 2 or len(rule_refs) < 2):
+            raise CorpusValidationError("oracle conflict evidence is incomplete")
 
 
 def _canonical_bytes(payload: object) -> bytes:
