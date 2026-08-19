@@ -85,7 +85,34 @@ def test_catalog_declares_product_and_control_contracts_for_every_pack() -> None
 
 def test_extended_pack_holds_output_and_approvals_when_a_check_fails() -> None:
     context = synthetic_personal_context(workflow_ids=("release-readiness-room",))
-    context["workflow_inputs"]["release-readiness-room"]["checks"][0]["status"] = "FAIL"
+    record = context["workflow_inputs"]["release-readiness-room"]["records"][0]
+    record["content"]["release_checks"][0]["status"] = "FAIL"
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
+    assert execution.approvals == ()
+    assert execution.report.status == "BLOCKED_BY_VALIDATION"
+
+
+def test_extended_pack_does_not_trust_a_caller_declared_pass() -> None:
+    context = synthetic_personal_context(workflow_ids=("repo-doctor",))
+    supplied = context["workflow_inputs"]["repo-doctor"]
+    supplied["checks"][0]["status"] = "PASS"
+    supplied["records"][0]["content"]["command_runs"][0]["exit_code"] = 1
+    execution = run_personal_execution(context)
+    validation = execution.results[0].output["validation"]
+    assert validation["verdict"] == "HOLD"
+    assert (
+        "commands-executed-successfully"
+        in execution.results[0].output["details"]["failed_check_ids"]
+    )
+    assert execution.approvals == ()
+
+
+def test_roadmap_validation_hold_returns_without_consequential_approvals() -> None:
+    context = synthetic_personal_context(workflow_ids=("evidence-to-roadmap-to-release",))
+    context["workflow_inputs"]["evidence-to-roadmap-to-release"]["release_checks"][0]["status"] = (
+        "FAIL"
+    )
     execution = run_personal_execution(context)
     assert execution.results[0].output["validation"]["verdict"] == "HOLD"
     assert execution.approvals == ()

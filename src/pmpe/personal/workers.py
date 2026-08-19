@@ -14,6 +14,7 @@ from pmpe.personal.models import (
     create_approval_item,
     create_task_result,
 )
+from pmpe.personal.verifiers import verify_extended_pack
 
 WorkerReturn = tuple[TaskResult, tuple[ApprovalItem, ...]]
 Worker = Callable[[TaskPacket, dict[str, Any], str], WorkerReturn]
@@ -504,7 +505,7 @@ def _evidence_to_roadmap_to_release(
         next_decision=(
             "Approve roadmap mutation and release publication."
             if verdict == "PASS"
-            else "Approve the roadmap draft only; repair release checks before publication."
+            else "Repair release checks before any roadmap mutation or publication."
         ),
         details={
             "approved_option": option,
@@ -515,33 +516,43 @@ def _evidence_to_roadmap_to_release(
             "failed_release_check_ids": failed,
         },
     )
-    approvals: list[ApprovalItem] = [
-        _approval(
-            packet,
-            approval_id="APPROVAL-ROADMAP-UPDATE-001",
-            action_type="roadmap.update",
-            target=supplied["roadmap_target"],
-            reason="The selected option came from explicit user input, not agent prioritization.",
-            reversibility="Roadmap changes can be reverted, but stakeholders may act on them.",
-            evidence_refs=result.evidence_refs,
-            payload={
-                "action": "update-roadmap",
-                "approved_option_id": option["option_id"],
-                "requirements": supplied["requirements"],
-            },
-        )
-    ]
+    approvals: list[ApprovalItem] = []
     if verdict == "PASS":
-        approvals.append(
-            _approval(
-                packet,
-                approval_id="APPROVAL-RELEASE-PUBLISH-001",
-                action_type="release.publish",
-                target=supplied["roadmap_target"],
-                reason="All supplied release checks pass, but publication remains human-owned.",
-                reversibility="Published release communication may be corrected but not unseen.",
-                evidence_refs=result.evidence_refs,
-                payload={"action": "publish-release", "option_id": option["option_id"]},
+        approvals.extend(
+            (
+                _approval(
+                    packet,
+                    approval_id="APPROVAL-ROADMAP-UPDATE-001",
+                    action_type="roadmap.update",
+                    target=supplied["roadmap_target"],
+                    reason=(
+                        "The selected option came from explicit user input, not agent "
+                        "prioritization."
+                    ),
+                    reversibility=(
+                        "Roadmap changes can be reverted, but stakeholders may act on them."
+                    ),
+                    evidence_refs=result.evidence_refs,
+                    payload={
+                        "action": "update-roadmap",
+                        "approved_option_id": option["option_id"],
+                        "requirements": supplied["requirements"],
+                    },
+                ),
+                _approval(
+                    packet,
+                    approval_id="APPROVAL-RELEASE-PUBLISH-001",
+                    action_type="release.publish",
+                    target=supplied["roadmap_target"],
+                    reason=(
+                        "All supplied release checks pass, but publication remains human-owned."
+                    ),
+                    reversibility=(
+                        "Published release communication may be corrected but not unseen."
+                    ),
+                    evidence_refs=result.evidence_refs,
+                    payload={"action": "publish-release", "option_id": option["option_id"]},
+                ),
             )
         )
     return result, tuple(approvals)
@@ -636,29 +647,29 @@ def _generic_outcome_pack(
 ) -> WorkerReturn:
     supplied = context["workflow_inputs"][packet.workflow_id]
     entry = GENERIC_WORKFLOW_CATALOG[packet.workflow_id]
-    failed = sorted(item["check_id"] for item in supplied["checks"] if item["status"] != "PASS")
     declared_actions = tuple(item["action_type"] for item in supplied["approval_actions"])
     policy_matches = declared_actions == packet.approval_required and len(declared_actions) == len(
         set(declared_actions)
     )
-    checks = [
-        {
-            "check_id": "declared-checks-pass",
-            "passed": not failed,
-            "observed": failed or "all PASS",
-        },
-        {
-            "check_id": "records-present",
-            "passed": bool(supplied["records"]),
-            "observed": len(supplied["records"]),
-        },
-        {
-            "check_id": "approval-policy-exact",
-            "passed": policy_matches,
-            "observed": list(declared_actions),
-            "expected": list(packet.approval_required),
-        },
+    checks: list[dict[str, Any]] = [
+        dict(item) for item in verify_extended_pack(packet.workflow_id, supplied["records"])
     ]
+    checks.extend(
+        [
+            {
+                "check_id": "records-present",
+                "passed": bool(supplied["records"]),
+                "observed": len(supplied["records"]),
+            },
+            {
+                "check_id": "approval-policy-exact",
+                "passed": policy_matches,
+                "observed": list(declared_actions),
+                "expected": list(packet.approval_required),
+            },
+        ]
+    )
+    failed = sorted(str(item["check_id"]) for item in checks if not item["passed"])
     verdict = "PASS" if all(item["passed"] for item in checks) else "HOLD"
     provenance = [
         _provenance(f"record:{item['record_id']}", tuple(item["evidence_source_ids"]))
@@ -702,7 +713,7 @@ def _generic_outcome_pack(
         provenance=provenance,
         summary=(
             f"Tier {entry['tier']} · {len(supplied['records'])} evidence-backed records · "
-            f"{len(failed)} failed declared checks."
+            f"{len(failed)} failed deterministic checks."
         ),
         facts=[
             f"Problem: {entry['problem_solved']}",

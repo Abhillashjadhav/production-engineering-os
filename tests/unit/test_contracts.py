@@ -176,6 +176,17 @@ def test_registering_identical_content_is_idempotent(
     assert first.digest == second.digest
 
 
+def test_registry_and_approval_use_one_rfc8785_numeric_digest(
+    contract_data: dict[str, Any], tmp_path: Path
+) -> None:
+    contract_data["metadata"] = {"numeric_value": 1.0}
+    source = _write(tmp_path, contract_data)
+    record = ContractStore(tmp_path / "registry").register(source)
+    from pmpe.contracts.canonical import canonical_digest as approval_digest
+
+    assert record.digest == approval_digest(contract_data)
+
+
 def test_new_version_registers_cleanly(contract_data: dict[str, Any], tmp_path: Path) -> None:
     store = ContractStore(tmp_path / "registry")
     store.register(_write(tmp_path, contract_data, "v1.json"))

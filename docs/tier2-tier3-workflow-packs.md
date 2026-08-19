@@ -5,6 +5,8 @@ Issues: #123, #124, #125.
 These packs extend the same Personal Execution OS contract used by Tier 1. They are not
 standalone prompts. Every run has an outcome contract, per-task evidence allowlist,
 deterministic checks, exact approval payloads, a mobile review, and a verified report.
+Each pack has a fixed domain verifier over admitted record evidence. A supplied `PASS` label
+is advisory only and cannot create a positive verdict or approval.
 
 ## Tier 2: operational completion
 

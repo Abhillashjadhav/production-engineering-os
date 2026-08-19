@@ -383,7 +383,7 @@
                 "properties": {
                   "record_id": {"$ref": "#/$defs/id"},
                   "title": {"$ref": "#/$defs/shortText"},
-                  "content": {},
+                  "content": {"type": "object", "minProperties": 1},
                   "evidence_source_ids": {"$ref": "#/$defs/idList"}
                 }
               }

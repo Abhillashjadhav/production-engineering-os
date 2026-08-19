@@ -66,7 +66,7 @@ def _entry(
         "allowed": allowed,
         "done": (
             "Every material claim is bound to admitted evidence.",
-            "Every declared deterministic check passes before a positive verdict.",
+            "The pack-specific deterministic verifier passes before a positive verdict.",
             "Consequential actions remain exact approval payloads.",
         ),
         "budget": "20 minutes or 12000 tokens; no unauthorized external writes",

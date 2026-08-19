@@ -26,6 +26,121 @@ def _source(
     }
 
 
+def _extended_pack_content(workflow_id: str, source_id: str) -> dict[str, Any]:
+    """Return pack-specific admitted evidence that fixed verifiers can evaluate."""
+
+    content: dict[str, dict[str, Any]] = {
+        "prd-architecture-task-compiler": {
+            "requirements": ["Preserve evidence provenance"],
+            "architecture_components": ["governed-worker", "approval-outbox"],
+            "tasks": [{"task_id": "TASK-001", "requirement_ids": ["REQ-001"]}],
+            "traceability_complete": True,
+        },
+        "release-readiness-room": {
+            "release_checks": [{"check_id": "CI", "status": "PASS"}],
+            "risk_owners_complete": True,
+            "rollback_ready": True,
+        },
+        "experiment-to-decision": {
+            "hypothesis": "Guided review reduces incomplete handoffs.",
+            "decision_rule": "Ship when the frozen acceptance threshold passes.",
+            "instrumentation_verified": True,
+            "sample_size": 30,
+            "decision": "SHIP",
+        },
+        "incident-to-prevention": {
+            "timeline": ["Detection", "Containment", "Recovery"],
+            "root_cause": "A release gate did not bind the approval payload.",
+            "prevention_actions": [
+                {"owner": "engineering-owner", "verification_check": "regression-test"}
+            ],
+        },
+        "migration-impact-planner": {
+            "dependencies": ["contract-registry", "approval-receipts"],
+            "owners_complete": True,
+            "rollback_conditions": ["digest mismatch", "failed smoke test"],
+            "acceptance_checks": [{"check_id": "MIGRATION-SMOKE", "status": "PASS"}],
+        },
+        "docs-runbook-drift-maintainer": {
+            "drift_items": [
+                {
+                    "observed": "The CLI runs all selected workflow packs.",
+                    "documented": "The CLI runs three packs.",
+                    "evidence_source_ids": [source_id],
+                }
+            ],
+            "proposed_repairs": ["Correct the documented workflow count."],
+            "publish_status": "DRAFT",
+        },
+        "customer-research-synthesis": {
+            "quotes": [{"text": "Review takes too long.", "source_id": source_id}],
+            "themes": [{"theme": "approval latency", "source_ids": [source_id]}],
+            "contradictions": [],
+        },
+        "competitive-market-watch": {
+            "changes": [
+                {
+                    "change": "A competitor added approval-gated actions.",
+                    "observed_at": "2026-08-19T12:00:00+05:30",
+                    "source_ids": [source_id],
+                }
+            ],
+            "freshness_cutoff": "2026-07-20T00:00:00+05:30",
+            "conflicts": [],
+        },
+        "verified-executive-update": {
+            "claims": [{"claim": "The governed synthetic run passed.", "source_ids": [source_id]}],
+            "unverified_claim_count": 0,
+        },
+        "research-to-prototype": {
+            "hypothesis": "A visible approval outbox improves trust.",
+            "source_ids": [source_id],
+            "prototype_scope": ["local review UI", "no external writes"],
+            "verification_checks": [{"check_id": "PROTOTYPE-SMOKE", "status": "PASS"}],
+        },
+        "idea-to-deploy-starter": {
+            "starter_files": ["app.py", "README.md"],
+            "cost_budget_inr": 500,
+            "security_checks": [{"check_id": "SECRETS", "status": "PASS"}],
+            "monitoring_checks": [{"check_id": "HEALTH", "status": "PASS"}],
+            "rollback_steps": ["Restore the prior immutable release."],
+        },
+        "data-to-small-tool": {
+            "input_schema": {"columns": ["ticket_id", "priority"]},
+            "transformations": ["group by priority"],
+            "tests": [{"check_id": "FIXTURE", "status": "PASS"}],
+        },
+        "repo-doctor": {
+            "command_runs": [
+                {
+                    "command": "python -m pytest",
+                    "exit_code": 0,
+                    "evidence_source_ids": [source_id],
+                }
+            ],
+            "repair_plan": ["Preserve the reproducible test command."],
+            "verification_commands": ["python -m pytest"],
+        },
+        "learning-to-build-coach": {
+            "tasks": [
+                {
+                    "task": "Implement one evidence-bound validator.",
+                    "success_check": "The planted invalid input fails closed.",
+                }
+            ],
+            "feedback_loop": "Run the check, explain the failure, then retry.",
+            "answers_pre_generated": False,
+        },
+        "career-proof-pack": {
+            "readme_outline": ["Problem", "Decision", "Verification"],
+            "demo_outline": ["Input", "Action", "Verified output"],
+            "case_study": {"outcome": "A governed workflow completed."},
+            "evidence_links": [source_id],
+        },
+    }
+    return content[workflow_id]
+
+
 def synthetic_personal_context(
     seed: int = 2026, *, workflow_ids: tuple[str, ...] = WORKFLOW_ORDER
 ) -> dict[str, Any]:
@@ -345,10 +460,7 @@ def synthetic_personal_context(
                 {
                     "record_id": f"RECORD-PACK-{index:02d}",
                     "title": entry["output_name"].replace("-", " ").title(),
-                    "content": {
-                        "problem_solved": entry["problem_solved"],
-                        "proposed_outcome": entry["output_name"],
-                    },
+                    "content": _extended_pack_content(workflow_id, source_id),
                     "evidence_source_ids": [source_id],
                 }
             ],

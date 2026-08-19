@@ -55,7 +55,8 @@ The six Tier-1 packs—Goal-to-Verified-Release, AI Eval and Release Gate, Weekl
 Meeting-to-Decision, Evidence-to-Roadmap-to-Release, and Issue-to-Draft-PR share one real
 input schema, bounded task graph, evidence ledger, deterministic validator, mobile review,
 and approval outbox. Nine Tier-2 operational packs and six Tier-3 builder packs use the same
-contract. Calendar changes, sends, roadmap writes, PR creation, merge, model
+contract plus fixed pack-specific verifiers; caller-declared check status is never sufficient
+for a positive verdict. Calendar changes, sends, roadmap writes, PR creation, merge, model
 release, and production deployment are drafted but never executed without approval. See
 [docs/personal-execution-os.md](docs/personal-execution-os.md) and
 [docs/tier2-tier3-workflow-packs.md](docs/tier2-tier3-workflow-packs.md).
