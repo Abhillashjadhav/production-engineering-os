@@ -631,6 +631,9 @@ def synthetic_personal_context(
             "evaluation_policies": [
                 {
                     "candidate_id": eval_input["candidate_id"],
+                    "required_case_ids": sorted(
+                        str(item["case_id"]) for item in eval_input["golden_cases"]
+                    ),
                     "thresholds": eval_input["thresholds"],
                 }
             ]
@@ -663,7 +666,12 @@ def synthetic_personal_context(
         },
         "SRC-PRODUCT-DECISION": {
             "roadmap_claims": [roadmap_input["claims"][1]],
-            "roadmap_decisions": [{"approved_option": approved_roadmap_option}],
+            "roadmap_decisions": [
+                {
+                    "approved_option": approved_roadmap_option,
+                    "requirements": roadmap_input["requirements"],
+                }
+            ],
         },
         "SRC-ISSUE-119": {
             "issue_contracts": [
@@ -673,6 +681,8 @@ def synthetic_personal_context(
                     "issue_body": issue_input["issue_body"],
                     "issue_number": issue_input["issue_number"],
                     "issue_title": issue_input["issue_title"],
+                    "pr_body": issue_input["pr_body"],
+                    "pr_title": issue_input["pr_title"],
                     "repository": issue_input["repository"],
                 }
             ]

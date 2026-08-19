@@ -290,6 +290,16 @@ def test_ai_eval_thresholds_must_bind_to_admitted_policy() -> None:
     assert execution.approvals == ()
 
 
+def test_ai_eval_policy_requires_the_complete_golden_set() -> None:
+    context = synthetic_personal_context(workflow_ids=("ai-eval-release-gate",))
+    context["workflow_inputs"]["ai-eval-release-gate"]["golden_cases"] = context["workflow_inputs"][
+        "ai-eval-release-gate"
+    ]["golden_cases"][:1]
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
+    assert execution.approvals == ()
+
+
 def test_roadmap_release_checks_must_bind_to_admitted_results() -> None:
     context = synthetic_personal_context(workflow_ids=("evidence-to-roadmap-to-release",))
     for source in context["evidence_sources"]:
@@ -312,6 +322,16 @@ def test_roadmap_claims_and_decision_must_bind_to_admitted_evidence() -> None:
     assert execution.approvals == ()
 
 
+def test_roadmap_requirements_must_bind_to_admitted_decision() -> None:
+    context = synthetic_personal_context(workflow_ids=("evidence-to-roadmap-to-release",))
+    context["workflow_inputs"]["evidence-to-roadmap-to-release"]["requirements"] = [
+        "Unadmitted roadmap requirement"
+    ]
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
+    assert execution.approvals == ()
+
+
 def test_draft_pr_checks_must_bind_to_candidate_digest() -> None:
     context = synthetic_personal_context(workflow_ids=("issue-to-draft-pr",))
     context["workflow_inputs"]["issue-to-draft-pr"]["candidate_digest"] = canonical_digest(
@@ -325,6 +345,14 @@ def test_draft_pr_checks_must_bind_to_candidate_digest() -> None:
 def test_draft_pr_issue_contract_must_bind_to_admitted_evidence() -> None:
     context = synthetic_personal_context(workflow_ids=("issue-to-draft-pr",))
     context["workflow_inputs"]["issue-to-draft-pr"]["issue_title"] = "Unadmitted scope"
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
+    assert execution.approvals == ()
+
+
+def test_draft_pr_text_must_bind_to_admitted_evidence() -> None:
+    context = synthetic_personal_context(workflow_ids=("issue-to-draft-pr",))
+    context["workflow_inputs"]["issue-to-draft-pr"]["pr_body"] = "Unsupported PR claim"
     execution = run_personal_execution(context)
     assert execution.results[0].output["validation"]["verdict"] == "HOLD"
     assert execution.approvals == ()
@@ -375,6 +403,34 @@ def test_weekly_command_centre_requires_exact_admitted_snapshots() -> None:
     execution = run_personal_execution(context)
     assert execution.results[0].output["validation"]["verdict"] == "HOLD"
     assert execution.approvals == ()
+
+
+def test_weekly_command_centre_compares_mixed_offsets_as_instants() -> None:
+    context = synthetic_personal_context(workflow_ids=("weekly-pm-command-centre",))
+    supplied = context["workflow_inputs"]["weekly-pm-command-centre"]
+    supplied["calendar_events"] = [
+        {
+            "event_id": "CAL-INDIA",
+            "start": "2026-08-20T09:00:00+05:30",
+            "end": "2026-08-20T10:00:00+05:30",
+            "title": "India event",
+        },
+        {
+            "event_id": "CAL-UTC",
+            "start": "2026-08-20T04:00:00+00:00",
+            "end": "2026-08-20T05:00:00+00:00",
+            "title": "UTC event",
+        },
+    ]
+    calendar_source = next(
+        source for source in context["evidence_sources"] if source["source_id"] == "SRC-CALENDAR"
+    )
+    calendar_source["content"]["calendar_snapshots"][0]["events"] = supplied["calendar_events"]
+    calendar_source["content_digest"] = canonical_digest(calendar_source["content"])
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["details"]["conflicts"] == [
+        {"first_event_id": "CAL-INDIA", "second_event_id": "CAL-UTC"}
+    ]
 
 
 def test_meeting_output_requires_exact_admitted_record() -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping
+from datetime import datetime
 from typing import Any
 
 from pmpe.personal.catalog import GENERIC_WORKFLOW_CATALOG
@@ -286,7 +287,11 @@ def _ai_eval_release_gate(
         context,
         supplied["evidence_source_ids"],
         collection="evaluation_policies",
-        expected={"candidate_id": supplied["candidate_id"], "thresholds": thresholds},
+        expected={
+            "candidate_id": supplied["candidate_id"],
+            "required_case_ids": sorted(str(item["case_id"]) for item in cases),
+            "thresholds": thresholds,
+        },
     )
     checks = [
         {
@@ -409,11 +414,15 @@ def _weekly_pm_command_centre(
         supplied["messages"],
         key=lambda item: (-int(item["importance"]), str(item["message_id"])),
     )
-    events = sorted(supplied["calendar_events"], key=lambda item: (item["start"], item["event_id"]))
+    events = sorted(
+        supplied["calendar_events"],
+        key=lambda item: (datetime.fromisoformat(item["start"]), item["event_id"]),
+    )
     conflicts: list[dict[str, str]] = []
     for index, left in enumerate(events):
+        left_end = datetime.fromisoformat(left["end"])
         for right in events[index + 1 :]:
-            if right["start"] >= left["end"]:
+            if datetime.fromisoformat(right["start"]) >= left_end:
                 break
             conflicts.append(
                 {"first_event_id": left["event_id"], "second_event_id": right["event_id"]}
@@ -636,7 +645,7 @@ def _evidence_to_roadmap_to_release(
         context,
         supplied["evidence_source_ids"],
         collection="roadmap_decisions",
-        expected={"approved_option": option},
+        expected={"approved_option": option, "requirements": supplied["requirements"]},
     )
     declared_failures = sorted(
         item["check_id"] for item in supplied["release_checks"] if item["status"] != "PASS"
@@ -799,6 +808,8 @@ def _issue_to_draft_pr(
             "issue_body": supplied["issue_body"],
             "issue_number": supplied["issue_number"],
             "issue_title": supplied["issue_title"],
+            "pr_body": supplied["pr_body"],
+            "pr_title": supplied["pr_title"],
             "repository": supplied["repository"],
         },
     )
