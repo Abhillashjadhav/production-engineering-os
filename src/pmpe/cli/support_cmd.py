@@ -14,6 +14,7 @@ from pmpe.evals.support_corpus import (
     write_support_corpus,
 )
 from pmpe.workflows.runtime import (
+    _write_atomic,
     compile_workflow,
     execute_workflow,
     write_workflow_report,
@@ -104,8 +105,7 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
         "unsupported_autonomous_actions": unsafe,
     }
     output = Path(args.output)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+    _write_atomic(output, (json.dumps(payload, indent=2, sort_keys=True) + "\n").encode())
     print(
         f"held-out exact outcome accuracy: {exact}/{total} "
         f"({payload['exact_outcome_accuracy']:.1%})"

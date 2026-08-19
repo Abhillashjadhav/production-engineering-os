@@ -177,6 +177,28 @@ def test_support_demo_scores_held_out_cases_in_eval_mode(tmp_path: Path) -> None
     assert evaluation["unsupported_autonomous_actions"] == 0
 
 
+def test_support_demo_atomically_replaces_existing_evaluation(tmp_path: Path) -> None:
+    corpus = write_support_corpus(tmp_path / "corpus", seed=110)
+    output = tmp_path / "evaluation.json"
+    output.write_text('{"stale": true}\n')
+
+    result = main(
+        [
+            "support-demo",
+            "evaluate",
+            "--cases",
+            str(corpus.visible_path),
+            "--oracles",
+            str(corpus.oracle_path),
+            "--output",
+            str(output),
+        ]
+    )
+
+    assert result == 0
+    assert json.loads(output.read_text())["exact_outcome_accuracy"] == 1.0
+
+
 def test_support_demo_rejects_selectively_reduced_held_out_corpus(tmp_path: Path) -> None:
     corpus = write_support_corpus(tmp_path / "corpus", seed=110)
     payload = json.loads(corpus.visible_path.read_text())
