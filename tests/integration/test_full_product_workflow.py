@@ -95,3 +95,23 @@ def test_full_product_verifier_requires_all_indexed_evidence(
     (output / relative).unlink()
     with pytest.raises(FullProductError, match="evidence index path is missing"):
         verify_full_product_quickstart(output, expected_digest=manifest["manifest_digest"])
+
+
+def test_full_product_verifier_rejects_nested_index_name(repo_root: Path, tmp_path: Path) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    nested = output / "runtime" / "untrusted"
+    nested.mkdir()
+    (nested / "evidence-index.json").write_text("{}")
+    with pytest.raises(FullProductError, match="does not exactly cover"):
+        verify_full_product_quickstart(output, expected_digest=manifest["manifest_digest"])
+
+
+def test_full_product_verifier_rejects_directory_symlink(repo_root: Path, tmp_path: Path) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (output / "runtime" / "untrusted").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(FullProductError, match="refuses symbolic link"):
+        verify_full_product_quickstart(output, expected_digest=manifest["manifest_digest"])

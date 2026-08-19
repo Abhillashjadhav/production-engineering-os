@@ -91,10 +91,10 @@ def _write_evidence_index(root: Path, directory: Path, *, report_name: str) -> P
     index_path = directory / "evidence-index.json"
     files = []
     for path in sorted(directory.rglob("*")):
-        if not path.is_file() or path == index_path:
-            continue
         if path.is_symlink():
             raise FullProductError(f"evidence index refuses symbolic link: {path}")
+        if not path.is_file() or path == index_path:
+            continue
         files.append(
             {
                 "digest": _file_digest(path),
@@ -142,11 +142,13 @@ def _verify_evidence_index(root: Path, index: dict[str, Any]) -> dict[str, Any]:
         if path.stat().st_size != item["size"] or _file_digest(path) != item["digest"]:
             raise FullProductError(f"evidence index content mismatch: {relative}")
         declared.add(relative)
-    actual = {
-        path.relative_to(directory).as_posix()
-        for path in directory.rglob("*")
-        if path.is_file() and path.name != "evidence-index.json"
-    }
+    actual: set[str] = set()
+    index_path = directory / "evidence-index.json"
+    for path in directory.rglob("*"):
+        if path.is_symlink():
+            raise FullProductError(f"evidence index refuses symbolic link: {path}")
+        if path.is_file() and path != index_path:
+            actual.add(path.relative_to(directory).as_posix())
     if declared != actual:
         raise FullProductError("evidence index does not exactly cover its retained directory")
     report = str(index["report"])
