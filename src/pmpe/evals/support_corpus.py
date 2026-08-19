@@ -465,9 +465,7 @@ def validate_support_corpus(corpus: SupportCorpus) -> None:
             policy for policy in case.policies if policy.priority == highest_priority
         )
         selected_actions = {policy.action for policy in selected_policies}
-        selected_action = (
-            "escalate" if len(selected_actions) > 1 else next(iter(selected_actions))
-        )
+        selected_action = "escalate" if len(selected_actions) > 1 else next(iter(selected_actions))
         if selected_action != "escalate" and any(
             policy.human_question for policy in selected_policies
         ):
@@ -478,6 +476,8 @@ def validate_support_corpus(corpus: SupportCorpus) -> None:
             or {policy.rule_id for policy in selected_policies} != rule_refs
         ):
             raise CorpusValidationError("oracle does not match the selected visible decision")
+
+
 def _canonical_bytes(payload: object) -> bytes:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return (encoded + "\n").encode()
