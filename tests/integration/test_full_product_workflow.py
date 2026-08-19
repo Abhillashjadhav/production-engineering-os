@@ -17,12 +17,15 @@ from pmpe.full_product import (
 )
 
 
-def _rebuild_workflow_stage(
-    output: Path, manifest: dict[str, Any], changed_paths: tuple[Path, ...]
+def _rebuild_stage(
+    output: Path,
+    manifest: dict[str, Any],
+    stage_id: str,
+    changed_paths: tuple[Path, ...],
 ) -> str:
     stages = manifest["stages"]
     assert isinstance(stages, list)
-    stage = next(item for item in stages if item["stage_id"] == "workflow-execution")
+    stage = next(item for item in stages if item["stage_id"] == stage_id)
     index_path = output / stage["artifact"]
     index = json.loads(index_path.read_text())
     directory = output / index["directory"]
@@ -277,8 +280,11 @@ def test_full_product_verifier_recompiles_task_graph(repo_root: Path, tmp_path: 
     report_projection.pop("report_digest")
     report["report_digest"] = canonical_digest(report_projection)
     report_path.write_text(json.dumps(report))
-    expected = _rebuild_workflow_stage(
-        output, manifest, (task_graph_path, results_path, report_path)
+    expected = _rebuild_stage(
+        output,
+        manifest,
+        "workflow-execution",
+        (task_graph_path, results_path, report_path),
     )
     with pytest.raises(FullProductError, match="semantic verification failed"):
         verify_full_product_quickstart(output, expected_digest=expected)
@@ -300,7 +306,7 @@ def test_full_product_verifier_requires_one_result_per_task(
     report_projection.pop("report_digest")
     report["report_digest"] = canonical_digest(report_projection)
     report_path.write_text(json.dumps(report))
-    expected = _rebuild_workflow_stage(output, manifest, (results_path, report_path))
+    expected = _rebuild_stage(output, manifest, "workflow-execution", (results_path, report_path))
     with pytest.raises(FullProductError, match="semantic verification failed"):
         verify_full_product_quickstart(output, expected_digest=expected)
 
@@ -325,6 +331,37 @@ def test_full_product_verifier_fails_closed_on_malformed_worker_output(
     report_projection.pop("report_digest")
     report["report_digest"] = canonical_digest(report_projection)
     report_path.write_text(json.dumps(report))
-    expected = _rebuild_workflow_stage(output, manifest, (results_path, report_path))
+    expected = _rebuild_stage(output, manifest, "workflow-execution", (results_path, report_path))
     with pytest.raises(FullProductError, match="semantic verification failed"):
         verify_full_product_quickstart(output, expected_digest=expected)
+
+
+def test_full_product_verifier_replays_runtime_semantics(repo_root: Path, tmp_path: Path) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    events_path = output / "runtime" / "runtime-events.jsonl"
+    report_path = output / "runtime" / "runtime-assurance-report.json"
+    first_event_line = events_path.read_bytes().splitlines()[0]
+    first_event = json.loads(first_event_line)
+    events_path.write_bytes(first_event_line + b"\n")
+    report = json.loads(report_path.read_text())
+    report["event_count"] = 1
+    report["event_registry_head"] = first_event["event_digest"]
+    report_path.write_text(json.dumps(report))
+    expected = _rebuild_stage(output, manifest, "runtime-assurance", (events_path, report_path))
+    with pytest.raises(FullProductError, match="semantic verification failed"):
+        verify_full_product_quickstart(output, expected_digest=expected)
+
+
+def test_full_product_verifier_rejects_malformed_manifest_types(
+    repo_root: Path, tmp_path: Path
+) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    manifest["pending_approvals"] = "1"
+    projection = dict(manifest)
+    projection.pop("manifest_digest")
+    manifest["manifest_digest"] = canonical_digest(projection)
+    (output / "full-product-manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(FullProductError, match="value types"):
+        verify_full_product_quickstart(output, expected_digest=str(manifest["manifest_digest"]))

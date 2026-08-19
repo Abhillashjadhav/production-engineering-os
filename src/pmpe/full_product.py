@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -378,6 +379,13 @@ def _verify_runtime_execution_evidence(
         contract_digest = digest_for(source_fixture["contract"])
         task_digest = digest_for(source_fixture["task"])
         input_artifact_digest = digest_for(source_fixture["input_artifact"])
+        proposals = load_json_object(directory / "regression-proposals.json")
+        with tempfile.TemporaryDirectory(prefix="pmpe-runtime-replay-") as replay_directory:
+            replay_paths = run_runtime_demo(Path(replay_directory))
+            replay_source = load_json_object(replay_paths["input"])
+            replay_report = load_json_object(replay_paths["report"])
+            replay_proposals = load_json_object(replay_paths["proposals"])
+            replay_events = EventRegistry(replay_paths["events"]).read()
         return bool(events) and all(
             (
                 all(event.subject.contract_digest == contract_digest for event in events),
@@ -385,9 +393,14 @@ def _verify_runtime_execution_evidence(
                 events[0].subject.artifact_digest == input_artifact_digest,
                 report["event_count"] == len(events),
                 report["event_registry_head"] == events[-1].event_digest,
+                source_fixture == replay_source,
+                report == replay_report,
+                proposals == replay_proposals,
+                [event.as_dict() for event in events]
+                == [event.as_dict() for event in replay_events],
             )
         )
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, OSError, TypeError, ValueError):
         return False
 
 
@@ -722,6 +735,16 @@ def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str
     }
     if set(manifest) != expected_keys:
         raise FullProductError("full-product manifest has an unexpected shape")
+    if not (
+        isinstance(manifest["label"], str)
+        and isinstance(manifest["manifest_digest"], str)
+        and type(manifest["external_provider_writes"]) is int
+        and type(manifest["pending_approvals"]) is int
+        and isinstance(manifest["schema_version"], str)
+        and isinstance(manifest["status"], str)
+        and type(manifest["workflow_pack_count"]) is int
+    ):
+        raise FullProductError("full-product manifest value types are invalid")
     claimed = manifest["manifest_digest"]
     if claimed != expected_digest:
         raise FullProductError("manifest does not match the caller's trusted expected digest")
