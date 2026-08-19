@@ -223,6 +223,14 @@ def test_policy_rejects_non_string_required_fact_digest() -> None:
         replace(case.policies[0], required_fact_digest=None)  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("question", (None, 0, {}))
+def test_policy_rejects_non_string_human_question(question: object) -> None:
+    case = generate_support_corpus(seed=16).visible_cases[0]
+
+    with pytest.raises(VisibleCorpusError, match="policy rule is malformed"):
+        replace(case.policies[0], human_question=question)  # type: ignore[arg-type]
+
+
 def test_contract_core_is_vertical_neutral() -> None:
     case = generate_support_corpus(seed=17).visible_cases[0]
     payload = CustomerSupportDiscoveryAdapter().discover(case).as_dict()

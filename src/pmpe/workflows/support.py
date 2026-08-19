@@ -97,6 +97,7 @@ class PolicyRule:
             and len(self.required_fact_digest) == 71
             and self.required_fact_digest.startswith("sha256:")
             and all(character in "0123456789abcdef" for character in self.required_fact_digest[7:])
+            and type(self.human_question) is str
             and (
                 not self.human_question
                 or (

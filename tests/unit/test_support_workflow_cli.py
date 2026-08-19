@@ -3,10 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-
 from pmpe.cli import main
-from pmpe.evals.support_corpus import CorpusValidationError, write_support_corpus
+from pmpe.evals.support_corpus import write_support_corpus
 from pmpe.workflows.support import load_visible_cases
 
 
@@ -59,6 +57,24 @@ def test_support_demo_maps_unknown_case_to_malformed_input(tmp_path: Path) -> No
             str(corpus.visible_path),
             "--case-id",
             "SUP-UNKNOWN",
+            "--output",
+            str(tmp_path / "result"),
+        ]
+    )
+
+    assert result == 2
+
+
+def test_support_demo_maps_malformed_corpus_to_input_exit_code(tmp_path: Path) -> None:
+    malformed = tmp_path / "cases.json"
+    malformed.write_text("{not-json")
+
+    result = main(
+        [
+            "support-demo",
+            "run",
+            "--cases",
+            str(malformed),
             "--output",
             str(tmp_path / "result"),
         ]
@@ -122,16 +138,17 @@ def test_support_demo_rejects_selectively_reduced_held_out_corpus(tmp_path: Path
     payload["cases"] = [next(item for item in payload["cases"] if item["split"] == "held_out")]
     corpus.visible_path.write_text(json.dumps(payload))
 
-    with pytest.raises(CorpusValidationError, match="exactly one oracle"):
-        main(
-            [
-                "support-demo",
-                "evaluate",
-                "--cases",
-                str(corpus.visible_path),
-                "--oracles",
-                str(corpus.oracle_path),
-                "--output",
-                str(tmp_path / "evaluation.json"),
-            ]
-        )
+    result = main(
+        [
+            "support-demo",
+            "evaluate",
+            "--cases",
+            str(corpus.visible_path),
+            "--oracles",
+            str(corpus.oracle_path),
+            "--output",
+            str(tmp_path / "evaluation.json"),
+        ]
+    )
+
+    assert result == 2

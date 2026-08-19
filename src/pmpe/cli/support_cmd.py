@@ -18,19 +18,25 @@ from pmpe.workflows.runtime import (
     execute_workflow,
     write_workflow_report,
 )
-from pmpe.workflows.support import load_visible_cases
+from pmpe.workflows.support import VisibleCorpusError, load_visible_cases
 from pmpe.workflows.support_discovery import CustomerSupportDiscoveryAdapter
 
 
 def _cmd_generate(args: argparse.Namespace) -> int:
-    paths = write_support_corpus(Path(args.output), seed=args.seed)
+    try:
+        paths = write_support_corpus(Path(args.output), seed=args.seed)
+    except VisibleCorpusError as exc:
+        raise SpecError(str(exc)) from exc
     print(f"visible cases: {paths.visible_path}")
     print(f"eval-only oracles: {paths.oracle_path}")
     return 0
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
-    cases = {item.case_id: item for item in load_visible_cases(Path(args.cases))}
+    try:
+        cases = {item.case_id: item for item in load_visible_cases(Path(args.cases))}
+    except VisibleCorpusError as exc:
+        raise SpecError(str(exc)) from exc
     selected_id = args.case_id or sorted(cases)[0]
     case = cases.get(selected_id)
     if case is None:
@@ -52,9 +58,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 def _cmd_evaluate(args: argparse.Namespace) -> int:
-    all_cases = load_visible_cases(Path(args.cases))
-    loaded_oracles = load_hidden_oracles(Path(args.oracles))
-    validate_support_corpus(SupportCorpus(all_cases, loaded_oracles))
+    try:
+        all_cases = load_visible_cases(Path(args.cases))
+        loaded_oracles = load_hidden_oracles(Path(args.oracles))
+        validate_support_corpus(SupportCorpus(all_cases, loaded_oracles))
+    except VisibleCorpusError as exc:
+        raise SpecError(str(exc)) from exc
     oracles = {item.case_id: item for item in loaded_oracles}
     held_out_ids = {item.case_id for item in loaded_oracles if item.split == "held_out"}
     cases = tuple(item for item in all_cases if item.case_id in held_out_ids)
