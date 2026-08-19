@@ -89,7 +89,34 @@ def _goal_to_verified_release(
 ) -> WorkerReturn:
     supplied = context["workflow_inputs"][packet.workflow_id]
     acceptance_checks = supplied["acceptance_checks"]
-    failed = sorted(item["check_id"] for item in acceptance_checks if item["status"] != "PASS")
+    candidate_digest = supplied["release_candidate_digest"]
+    sources = {str(source["source_id"]): source for source in context["evidence_sources"]}
+    declared_failures = sorted(
+        item["check_id"] for item in acceptance_checks if item["status"] != "PASS"
+    )
+    unbound_results: list[str] = []
+    for acceptance_check in acceptance_checks:
+        check_id = acceptance_check["check_id"]
+        matching_result = False
+        for source_id in acceptance_check["evidence_source_ids"]:
+            content = sources[source_id].get("content")
+            if not isinstance(content, dict):
+                continue
+            results = content.get("acceptance_results")
+            if not isinstance(results, list):
+                continue
+            matching_result = any(
+                isinstance(item, dict)
+                and item.get("check_id") == check_id
+                and item.get("status") == "PASS"
+                and item.get("candidate_digest") == candidate_digest
+                for item in results
+            )
+            if matching_result:
+                break
+        if not matching_result:
+            unbound_results.append(check_id)
+    failed = sorted(set(declared_failures) | set(unbound_results))
     verdict = "PASS" if not failed else "HOLD"
     codex_packets = [
         {
@@ -121,13 +148,21 @@ def _goal_to_verified_release(
     checks = [
         {
             "check_id": "all-acceptance-checks-pass",
-            "passed": not failed,
-            "observed": failed or "all PASS",
+            "passed": not declared_failures,
+            "observed": declared_failures or "all PASS",
+            "expected": "all PASS",
+        },
+        {
+            "check_id": "acceptance-results-bound-to-candidate",
+            "passed": not unbound_results,
+            "observed": unbound_results or candidate_digest,
+            "expected": candidate_digest,
         },
         {
             "check_id": "candidate-digest-bound",
             "passed": True,
-            "observed": supplied["release_candidate_digest"],
+            "observed": candidate_digest,
+            "expected": candidate_digest,
         },
     ]
     result = _result(
@@ -153,7 +188,7 @@ def _goal_to_verified_release(
             else "Repair the failed checks and rerun verification."
         ),
         details={
-            "candidate_digest": supplied["release_candidate_digest"],
+            "candidate_digest": candidate_digest,
             "failed_check_ids": failed,
             "parallel_codex_tasks": codex_packets[:2],
             "verification_task": codex_packets[2],
@@ -673,6 +708,17 @@ def _generic_outcome_pack(
                 "expected": list(packet.approval_required),
             },
         ]
+    )
+    declared_check_failures = sorted(
+        str(item["check_id"]) for item in supplied["checks"] if item["status"] != "PASS"
+    )
+    checks.append(
+        {
+            "check_id": "declared-input-checks-pass",
+            "passed": not declared_check_failures,
+            "observed": declared_check_failures or "all PASS",
+            "expected": "all PASS",
+        }
     )
     failed = sorted(str(item["check_id"]) for item in checks if not item["passed"])
     verdict = "PASS" if all(item["passed"] for item in checks) else "HOLD"

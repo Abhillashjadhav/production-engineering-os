@@ -174,14 +174,33 @@ def synthetic_personal_context(
             "SRC-PRODUCT-DECISION",
             "product-decision",
             "Approved voice-support product decision",
-            {"decision": "Pilot agent assist with synthetic cases", "status": "APPROVED"},
+            {
+                "acceptance_results": [
+                    {
+                        "candidate_digest": candidate_digest,
+                        "check_id": "CHECK-PRODUCT-TRUTH",
+                        "status": "PASS",
+                    }
+                ],
+                "decision": "Pilot agent assist with synthetic cases",
+                "status": "APPROVED",
+            },
             observed_at="2026-08-19T09:00:00+05:30",
         ),
         _source(
             "SRC-ACCEPTANCE",
             "test-report",
             "Acceptance and regression checks",
-            {"checks": ["scenario-suite", "privacy-boundary", "rollback"]},
+            {
+                "acceptance_results": [
+                    {
+                        "candidate_digest": candidate_digest,
+                        "check_id": "CHECK-SCENARIOS",
+                        "status": "PASS",
+                    }
+                ],
+                "checks": ["scenario-suite", "privacy-boundary", "rollback"],
+            },
             observed_at="2026-08-19T10:00:00+05:30",
         ),
         _source(

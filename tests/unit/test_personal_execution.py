@@ -108,6 +108,18 @@ def test_extended_pack_does_not_trust_a_caller_declared_pass() -> None:
     assert execution.approvals == ()
 
 
+def test_extended_pack_holds_when_a_declared_input_check_fails() -> None:
+    context = synthetic_personal_context(workflow_ids=("release-readiness-room",))
+    context["workflow_inputs"]["release-readiness-room"]["checks"][0]["status"] = "FAIL"
+    execution = run_personal_execution(context)
+    validation = execution.results[0].output["validation"]
+    assert validation["verdict"] == "HOLD"
+    assert (
+        "declared-input-checks-pass" in execution.results[0].output["details"]["failed_check_ids"]
+    )
+    assert execution.approvals == ()
+
+
 def test_repo_doctor_binds_exit_code_to_admitted_command_result() -> None:
     context = synthetic_personal_context(workflow_ids=("repo-doctor",))
     source_id = context["workflow_inputs"]["repo-doctor"]["evidence_source_ids"][0]
@@ -210,6 +222,39 @@ def test_compiler_task_requirement_ids_must_resolve() -> None:
     assert (
         "tasks-trace-to-requirements" in execution.results[0].output["details"]["failed_check_ids"]
     )
+    assert execution.approvals == ()
+
+
+def test_compiler_requires_every_requirement_to_map_to_a_task() -> None:
+    context = synthetic_personal_context(workflow_ids=("prd-architecture-task-compiler",))
+    content = context["workflow_inputs"]["prd-architecture-task-compiler"]["records"][0]["content"]
+    content["requirements"].append(
+        {"requirement_id": "REQ-ORPHAN", "text": "This requirement must not be orphaned."}
+    )
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
+    assert (
+        "tasks-trace-to-requirements" in execution.results[0].output["details"]["failed_check_ids"]
+    )
+    assert execution.approvals == ()
+
+
+def test_goal_release_acceptance_must_bind_to_candidate_evidence() -> None:
+    context = synthetic_personal_context(workflow_ids=("goal-to-verified-release",))
+    for source in context["evidence_sources"]:
+        content = source["content"]
+        if isinstance(content, dict) and "acceptance_results" in content:
+            content["acceptance_results"] = []
+            source["content_digest"] = canonical_digest(content)
+    execution = run_personal_execution(context)
+    validation = execution.results[0].output["validation"]
+    assert validation["verdict"] == "HOLD"
+    check = next(
+        item
+        for item in validation["checks"]
+        if item["check_id"] == "acceptance-results-bound-to-candidate"
+    )
+    assert not check["passed"]
     assert execution.approvals == ()
 
 

@@ -77,6 +77,12 @@ def _compile_delivery(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
         and _text(item.get("text"))
     }
     tasks = _items(data.get("tasks"))
+    referenced_requirement_ids = {
+        str(requirement_id)
+        for item in tasks
+        if isinstance(item, Mapping) and isinstance(item.get("requirement_ids"), list)
+        for requirement_id in item["requirement_ids"]
+    }
     tasks_trace = (
         bool(tasks)
         and len(requirement_ids) == len(requirements)
@@ -87,6 +93,7 @@ def _compile_delivery(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
             and {str(value) for value in item["requirement_ids"]} <= requirement_ids
             for item in tasks
         )
+        and referenced_requirement_ids == requirement_ids
     )
     return (
         _check(
@@ -105,7 +112,7 @@ def _compile_delivery(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
             "tasks-trace-to-requirements",
             tasks_trace,
             tasks,
-            "every task requirement_id resolves to a declared requirement",
+            "every task reference resolves and every requirement maps to at least one task",
         ),
         _check(
             "traceability-complete",
