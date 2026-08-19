@@ -404,10 +404,14 @@ def _verify_runtime_execution_evidence(
         return False
 
 
-def _decision_answers(repo_root: Path) -> dict[str, Any]:
+def _load_product_spec(repo_root: Path) -> dict[str, Any]:
     raw = yaml.safe_load((repo_root / "examples" / "taskflow_mvp_spec.yaml").read_text())
     if not isinstance(raw, dict):
         raise FullProductError("local product specification is not an object")
+    return raw
+
+
+def _decision_answers(raw: dict[str, Any]) -> dict[str, Any]:
     spec_digest = canonical_digest(raw)
     return {
         "acceptance_criteria": raw["acceptance_criteria"],
@@ -461,8 +465,10 @@ def _decision_answers(repo_root: Path) -> dict[str, Any]:
     }
 
 
-def _write_decision_and_handoff(root: Path, repo_root: Path) -> tuple[Path, Path, Path]:
-    result = build_contract_draft(_decision_answers(repo_root))
+def _write_decision_and_handoff(
+    root: Path, repo_root: Path, raw_spec: dict[str, Any]
+) -> tuple[Path, Path, Path]:
+    result = build_contract_draft(_decision_answers(raw_spec))
     if result.draft is None or result.draft_digest is None:
         raise FullProductError("synthetic product truth did not produce an approvable contract")
     approved = approve_contract_draft(
@@ -505,7 +511,25 @@ def _spec_requirement_projection(raw: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _assert_contract_matches_spec(contract: dict[str, Any], raw: dict[str, Any]) -> None:
+    source_spec_digest = canonical_digest(raw)
+    approved_decisions = contract.get("approved_product_decisions")
+    approved_spec_decision = (
+        next(
+            (
+                item
+                for item in approved_decisions
+                if isinstance(item, dict) and item.get("id") == "APD-SPEC-001"
+            ),
+            None,
+        )
+        if isinstance(approved_decisions, list)
+        else None
+    )
     matches = (
+        isinstance(approved_spec_decision, dict),
+        isinstance(approved_spec_decision, dict)
+        and approved_spec_decision.get("decision")
+        == f"Build the exact TaskFlow specification {source_spec_digest}.",
         contract.get("product_name") == raw.get("product_name"),
         contract.get("problem") == raw.get("problem_statement"),
         contract.get("target_user") == raw.get("target_user"),
@@ -522,11 +546,8 @@ def _assert_contract_matches_spec(contract: dict[str, Any], raw: dict[str, Any])
 
 
 def _build_review_and_deploy_local_product(
-    root: Path, repo_root: Path, contract: dict[str, Any]
+    root: Path, contract: dict[str, Any], raw: dict[str, Any]
 ) -> tuple[Path, Path]:
-    raw = yaml.safe_load((repo_root / "examples" / "taskflow_mvp_spec.yaml").read_text())
-    if not isinstance(raw, dict):
-        raise FullProductError("local product specification is not an object")
     _assert_contract_matches_spec(contract, raw)
     contract_digest = canonical_digest(contract)
     source_spec_digest = canonical_digest(raw)
@@ -630,8 +651,9 @@ def _run_full_product_quickstart(
             raise FullProductError("full-product output directory must be empty")
     root.mkdir(parents=True, exist_ok=True)
     repo = Path(repo_root).resolve()
+    raw_spec = _load_product_spec(repo)
 
-    contract_path, receipt_path, handoff_path = _write_decision_and_handoff(root, repo)
+    contract_path, receipt_path, handoff_path = _write_decision_and_handoff(root, repo, raw_spec)
 
     contract = load_json_object(contract_path)
     workflows_root = root / "workflows"
@@ -660,7 +682,9 @@ def _run_full_product_quickstart(
     runtime_index = _write_evidence_index(
         root, root / "runtime", report_name=runtime_paths["report"].name
     )
-    engineering_path, deployment_path = _build_review_and_deploy_local_product(root, repo, contract)
+    engineering_path, deployment_path = _build_review_and_deploy_local_product(
+        root, contract, raw_spec
+    )
 
     stages = [
         _artifact(root, "decision-contract", contract_path),
@@ -698,7 +722,7 @@ def run_full_product_quickstart(
         return _run_full_product_quickstart(output, repo_root=repo_root, seed=seed)
     except FullProductError:
         raise
-    except (AttributeError, KeyError, OSError, TypeError, ValueError) as exc:
+    except (AttributeError, KeyError, OSError, TypeError, ValueError, yaml.YAMLError) as exc:
         raise FullProductError("full-product quickstart input or output is invalid") from exc
 
 

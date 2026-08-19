@@ -63,6 +63,16 @@ def test_full_product_quickstart_runs_and_reverifies(repo_root: Path, tmp_path: 
     assert deployment["result"]["healthy"] is True
     assert deployment["result"]["journey_passed"] is True
     assert deployment["contract_digest"] == manifest["stages"][0]["artifact_digest"]
+    contract = json.loads((output / "decision" / "contract.json").read_text())
+    engineering = json.loads(
+        (output / "local-product" / "engineering-verification.json").read_text()
+    )
+    approved_spec = next(
+        item for item in contract["approved_product_decisions"] if item["id"] == "APD-SPEC-001"
+    )
+    assert approved_spec["decision"] == (
+        f"Build the exact TaskFlow specification {engineering['source_spec_digest']}."
+    )
     workflow_report = json.loads(
         (output / "workflows" / "personal-execution-report.json").read_text()
     )
@@ -89,6 +99,15 @@ def test_full_product_quickstart_rejects_dangling_symlink_output(
     output.symlink_to(tmp_path / "missing-target", target_is_directory=True)
     with pytest.raises(FullProductError, match="output must be a directory"):
         run_full_product_quickstart(output, repo_root=repo_root)
+
+
+def test_full_product_quickstart_normalizes_malformed_yaml(tmp_path: Path) -> None:
+    repo_root = tmp_path / "malformed-repo"
+    examples = repo_root / "examples"
+    examples.mkdir(parents=True)
+    (examples / "taskflow_mvp_spec.yaml").write_text("scope: [unterminated\n")
+    with pytest.raises(FullProductError, match="input or output is invalid"):
+        run_full_product_quickstart(tmp_path / "output", repo_root=repo_root)
 
 
 def test_full_product_verifier_rejects_tampered_deployment(repo_root: Path, tmp_path: Path) -> None:
