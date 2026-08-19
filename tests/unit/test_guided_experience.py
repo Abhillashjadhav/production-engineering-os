@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -233,6 +234,46 @@ def test_duplicate_json_key_is_quarantined_before_schema_validation(tmp_path: Pa
     )
     assert result["status"] == "QUARANTINED"
     assert result["diagnostics"][0]["code"] == "DUPLICATE_OBJECT_KEY"
+
+
+def test_native_intake_rejects_symlinked_validated_artifact_directory(
+    tmp_path: Path,
+) -> None:
+    bundle, manifest = _canonical_pair()
+    intake_root = tmp_path / "canonical-intake"
+    experience = GuidedExperience(tmp_path)
+    outside = tmp_path / "outside-validated"
+    outside.mkdir()
+    digest_name = canonical_digest(bundle).removeprefix("sha256:")
+    (intake_root / "validated" / digest_name).symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ContractViolation, match="must not be a symbolic link"):
+        experience.intake_canonical(json.dumps(bundle), json.dumps(manifest))
+    assert list(outside.iterdir()) == []
+
+
+def test_native_intake_rejects_symlinked_quarantine_artifact_directory(
+    tmp_path: Path,
+) -> None:
+    bundle, manifest = _canonical_pair()
+    manifest = copy.deepcopy(manifest)
+    manifest["bundle"]["content_digest"] = "sha256:" + "0" * 64
+    projection = dict(manifest)
+    projection.pop("manifest_digest")
+    manifest["manifest_digest"] = canonical_digest(projection)
+    bundle_payload = json.dumps(bundle).encode()
+    manifest_payload = json.dumps(manifest).encode()
+    handle_digest = hashlib.sha256(bundle_payload + b"\0" + manifest_payload).hexdigest()
+    handle = f"QUARANTINE-{handle_digest[:20].upper()}"
+    intake_root = tmp_path / "canonical-intake"
+    experience = GuidedExperience(tmp_path)
+    outside = tmp_path / "outside-quarantine"
+    outside.mkdir()
+    (intake_root / "quarantine" / handle).symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ContractViolation, match="must not be a symbolic link"):
+        experience.intake_canonical(bundle_payload.decode(), manifest_payload.decode())
+    assert list(outside.iterdir()) == []
 
 
 def test_static_surface_is_mobile_first_and_exposes_all_approval_dimensions() -> None:

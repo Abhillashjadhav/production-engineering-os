@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import stat
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -104,10 +106,14 @@ class LocalCanonicalIntake:
         if bundle is None or manifest is None:
             raise RuntimeError("canonical intake reached admission without both artifacts")
         bundle_digest = canonical_digest(bundle)
-        target = self.validated / bundle_digest.removeprefix("sha256:")
-        target.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self._write(target / "bundle.json", canonical_json_bytes(bundle) + b"\n")
-        self._write(target / "manifest.json", canonical_json_bytes(manifest) + b"\n")
+        target_fd = self._open_artifact_directory(
+            self.validated, bundle_digest.removeprefix("sha256:")
+        )
+        try:
+            self._write_at(target_fd, "bundle.json", canonical_json_bytes(bundle) + b"\n")
+            self._write_at(target_fd, "manifest.json", canonical_json_bytes(manifest) + b"\n")
+        finally:
+            os.close(target_fd)
         return {
             "bundle_digest": bundle_digest,
             "bundle_id": bundle["bundle_id"],
@@ -186,33 +192,85 @@ class LocalCanonicalIntake:
     ) -> str:
         digest = hashlib.sha256(bundle_payload + b"\0" + manifest_payload).hexdigest()
         handle = f"QUARANTINE-{digest[:20].upper()}"
-        target = self.quarantine / handle
-        target.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self._write(target / "bundle.upload", bundle_payload)
-        self._write(target / "manifest.upload", manifest_payload)
-        self._write(
-            target / "diagnostics.json",
-            canonical_json_bytes(
-                {
-                    "diagnostics": [item.as_dict() for item in diagnostics],
-                    "profile": "PMOS-GUIDED-LOCAL-QUARANTINE-1",
-                    "quarantine_handle": handle,
-                }
+        target_fd = self._open_artifact_directory(self.quarantine, handle)
+        try:
+            self._write_at(target_fd, "bundle.upload", bundle_payload)
+            self._write_at(target_fd, "manifest.upload", manifest_payload)
+            self._write_at(
+                target_fd,
+                "diagnostics.json",
+                canonical_json_bytes(
+                    {
+                        "diagnostics": [item.as_dict() for item in diagnostics],
+                        "profile": "PMOS-GUIDED-LOCAL-QUARANTINE-1",
+                        "quarantine_handle": handle,
+                    }
+                )
+                + b"\n",
             )
-            + b"\n",
-        )
+        finally:
+            os.close(target_fd)
         return handle
 
     @staticmethod
-    def _write(path: Path, payload: bytes) -> None:
+    def _open_artifact_directory(parent: Path, name: str) -> int:
+        if not name or Path(name).name != name:
+            raise ContractViolation("canonical intake artifact directory name is unsafe")
+        directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        directory_flags |= getattr(os, "O_NOFOLLOW", 0)
+        try:
+            parent_fd = os.open(parent, directory_flags)
+        except OSError as exc:
+            raise ContractViolation("canonical intake parent directory is unsafe") from exc
+        try:
+            with suppress(FileExistsError):
+                os.mkdir(name, mode=0o700, dir_fd=parent_fd)
+            try:
+                target_fd = os.open(name, directory_flags, dir_fd=parent_fd)
+            except OSError as exc:
+                raise ContractViolation(
+                    "canonical intake artifact directory must not be a symbolic link"
+                ) from exc
+        finally:
+            os.close(parent_fd)
+        target_stat = os.fstat(target_fd)
+        if (
+            not stat.S_ISDIR(target_stat.st_mode)
+            or target_stat.st_uid != os.geteuid()
+            or stat.S_IMODE(target_stat.st_mode) & 0o077
+        ):
+            os.close(target_fd)
+            raise ContractViolation(
+                "canonical intake artifact directory must be owned and access-isolated"
+            )
+        return target_fd
+
+    @staticmethod
+    def _write_at(directory_fd: int, name: str, payload: bytes) -> None:
+        if not name or Path(name).name != name:
+            raise ContractViolation("canonical intake artifact name is unsafe")
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
         flags |= getattr(os, "O_NOFOLLOW", 0)
         try:
-            descriptor = os.open(path, flags, 0o600)
+            descriptor = os.open(name, flags, 0o600, dir_fd=directory_fd)
         except FileExistsError as exc:
-            if path.is_symlink() or path.read_bytes() != payload:
+            read_flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+            try:
+                existing_descriptor = os.open(name, read_flags, dir_fd=directory_fd)
+            except OSError as read_exc:
                 raise ContractViolation(
-                    f"refusing to overwrite existing intake artifact: {path}"
+                    f"refusing to follow existing intake artifact: {name}"
+                ) from read_exc
+            with os.fdopen(existing_descriptor, "rb") as existing:
+                existing_stat = os.fstat(existing.fileno())
+                matches = (
+                    stat.S_ISREG(existing_stat.st_mode)
+                    and existing_stat.st_uid == os.geteuid()
+                    and existing.read() == payload
+                )
+            if not matches:
+                raise ContractViolation(
+                    f"refusing to overwrite existing intake artifact: {name}"
                 ) from exc
             return
         with os.fdopen(descriptor, "wb") as stream:

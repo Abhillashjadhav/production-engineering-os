@@ -40,6 +40,12 @@ _REQUIRED_ANSWER_FIELDS = {
     "target_user": "Who specifically experiences the problem?",
 }
 
+_OPTIONAL_ANSWER_FIELDS = {
+    "approved_product_decisions",
+    "contract_id",
+    "contract_version",
+}
+
 _ACTIVITY_METRIC_TERMS = (
     "number of prompts",
     "prompts generated",
@@ -144,6 +150,12 @@ def _semantic_questions(answers: dict[str, Any]) -> list[tuple[str, str]]:
 def build_contract_draft(answers: dict[str, Any]) -> ContractDraftResult:
     if not isinstance(answers, dict):
         raise SpecError("contract answers must be a JSON object")
+    unknown_fields = sorted(set(answers) - set(_REQUIRED_ANSWER_FIELDS) - _OPTIONAL_ANSWER_FIELDS)
+    if unknown_fields:
+        raise SpecError(
+            "contract answers contain an unmapped field: "
+            f"{unknown_fields[0]}; map or remove it before approval"
+        )
     raw_findings = [
         (field, "Required product truth is missing.")
         for field in sorted(_REQUIRED_ANSWER_FIELDS)

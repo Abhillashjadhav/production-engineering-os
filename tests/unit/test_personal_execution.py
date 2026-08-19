@@ -49,6 +49,18 @@ def test_work_contract_requires_an_outcome_metric() -> None:
             non_goals=("External writes",),
             workflow_ids=("goal-to-verified-release",),
             workflow_source_ids={"goal-to-verified-release": ("SRC-001",)},
+            evidence_source_bindings={
+                "SRC-001": canonical_digest(
+                    {
+                        "content_digest": canonical_digest({"input": "approved"}),
+                        "kind": "document",
+                        "observed_at": "2026-08-19T12:00:00Z",
+                        "source_id": "SRC-001",
+                        "title": "Approved input",
+                        "uri": "local://approved-input",
+                    }
+                )
+            },
             input_digest=canonical_digest({"input": "approved"}),
             approved_by="user",
         )
@@ -582,6 +594,22 @@ def test_execution_rejects_missing_referenced_evidence() -> None:
         execution.results,
         execution.approvals,
         (),
+        execution.report,
+    )
+    assert not verify_personal_execution(changed)
+
+
+def test_execution_rejects_tampered_evidence_record_metadata() -> None:
+    execution = run_personal_execution(
+        synthetic_personal_context(workflow_ids=("goal-to-verified-release",))
+    )
+    changed_record = replace(execution.evidence[0], title="Replaced evidence title")
+    changed = PersonalExecution(
+        execution.contract,
+        execution.packets,
+        execution.results,
+        execution.approvals,
+        (changed_record, *execution.evidence[1:]),
         execution.report,
     )
     assert not verify_personal_execution(changed)

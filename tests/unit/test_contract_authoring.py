@@ -122,6 +122,13 @@ def test_contract_id_cannot_escape_registry_paths() -> None:
         build_contract_draft(answers)
 
 
+def test_unmapped_answer_field_is_rejected_before_draft_approval() -> None:
+    answers = _answers()
+    answers["data_residency"] = "EU only"
+    with pytest.raises(SpecError, match="unmapped field: data_residency"):
+        build_contract_draft(answers)
+
+
 def test_handoff_verifies_exact_receipt_and_expected_approver() -> None:
     draft = build_contract_draft(_answers())
     assert draft.draft is not None and draft.draft_digest is not None

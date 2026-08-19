@@ -51,7 +51,9 @@ def load_personal_context(path: Path) -> dict[str, Any]:
     return context
 
 
-def _build_contract(context: dict[str, Any]) -> PersonalWorkContract:
+def _build_contract(
+    context: dict[str, Any], evidence: tuple[EvidenceRecord, ...]
+) -> PersonalWorkContract:
     success = context["success"]
     workflow_source_ids = {
         workflow_id: tuple(context["workflow_inputs"][workflow_id]["evidence_source_ids"])
@@ -72,6 +74,9 @@ def _build_contract(context: dict[str, Any]) -> PersonalWorkContract:
         non_goals=tuple(context["non_goals"]),
         workflow_ids=tuple(context["workflow_ids"]),
         workflow_source_ids=workflow_source_ids,
+        evidence_source_bindings={
+            item.source_id: canonical_digest(item.as_dict()) for item in evidence
+        },
         input_digest=canonical_digest(context),
         approved_by=context["approved_by"],
     )
@@ -160,6 +165,9 @@ def _report(
     status, outcome = _status_and_outcome(results, approvals)
     packet_by_workflow = {packet.workflow_id: packet for packet in packets}
     evidence_source_ids = {item.source_id for item in evidence}
+    evidence_source_bindings = {
+        item.source_id: canonical_digest(item.as_dict()) for item in evidence
+    }
     required_source_ids = (
         {source_id for packet in packets for source_id in packet.input_refs}
         | {source_id for result in results for source_id in result.evidence_refs}
@@ -171,6 +179,7 @@ def _report(
         and len(set(result_task_ids)) == len(result_task_ids)
         and set(result_task_ids) == {packet.task_id for packet in packets}
         and required_source_ids <= evidence_source_ids
+        and evidence_source_bindings == contract.evidence_source_bindings
         and all(
             result.workflow_id in packet_by_workflow
             and validate_worker_output(
@@ -228,6 +237,11 @@ def verify_personal_execution(execution: PersonalExecution) -> bool:
             return False
         known_sources = {item.source_id for item in execution.evidence}
         if len(known_sources) != len(execution.evidence):
+            return False
+        actual_source_bindings = {
+            item.source_id: canonical_digest(item.as_dict()) for item in execution.evidence
+        }
+        if actual_source_bindings != execution.contract.evidence_source_bindings:
             return False
         required_sources = (
             {source_id for packet in packets for source_id in packet.input_refs}
@@ -323,7 +337,7 @@ def run_personal_execution(
 ) -> PersonalExecution:
     try:
         evidence = validate_personal_context(context)
-        contract = _build_contract(context)
+        contract = _build_contract(context, evidence)
         packets = compile_task_graph(contract)
     except (PersonalInputError, ValueError, KeyError, TypeError) as exc:
         raise PersonalExecutionError(str(exc)) from exc
