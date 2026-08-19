@@ -133,6 +133,17 @@ def test_report_version_is_not_visible_until_both_formats_exist(
     assert list((tmp_path / "reports").glob("[!.]*")) == []
 
 
+def test_report_writer_repairs_incomplete_existing_version(tmp_path: Path) -> None:
+    case, contract, plan, report = _run(0)
+    first = write_workflow_report(tmp_path, case, contract, plan, report)
+    first.markdown_path.unlink()
+
+    repaired = write_workflow_report(tmp_path, case, contract, plan, report)
+
+    assert repaired.json_path.exists() and repaired.markdown_path.exists()
+    assert list((tmp_path / "reports").glob(".invalid-*"))
+
+
 def test_human_decision_report_persists_unresolved_questions(tmp_path: Path) -> None:
     case, contract, plan, report = _run(25)
 

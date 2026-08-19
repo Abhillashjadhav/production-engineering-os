@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import html
 import os
 import shutil
@@ -256,19 +257,31 @@ def write_workflow_report(
         f"- Execution: `{report.execution_digest}`\n"
         f"- Report: `{report.report_digest}`\n"
     ).encode()
-    if version_root.exists():
-        return WorkflowReportPaths(json_path, markdown_path)
+    json_bytes = report.canonical_bytes() + b"\n"
     reports_root.mkdir(parents=True, exist_ok=True)
-    staged_root = Path(tempfile.mkdtemp(dir=reports_root, prefix=".report-"))
-    try:
-        _write_atomic(staged_root / "workflow-report.json", report.canonical_bytes() + b"\n")
-        _write_atomic(staged_root / "workflow-report.md", markdown)
+    with (reports_root / ".publish.lock").open("a+b") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        if version_root.exists():
+            try:
+                if json_path.read_bytes() == json_bytes and markdown_path.read_bytes() == markdown:
+                    return WorkflowReportPaths(json_path, markdown_path)
+            except OSError:
+                pass
+            quarantine = Path(tempfile.mkdtemp(dir=reports_root, prefix=".invalid-"))
+            quarantine.rmdir()
+            os.replace(version_root, quarantine)
+        staged_root = Path(tempfile.mkdtemp(dir=reports_root, prefix=".report-"))
         try:
-            os.replace(staged_root, version_root)
-        except OSError:
-            if not version_root.exists():
-                raise
-    finally:
-        if staged_root.exists():
-            shutil.rmtree(staged_root)
+            _write_atomic(staged_root / "workflow-report.json", json_bytes)
+            _write_atomic(staged_root / "workflow-report.md", markdown)
+            try:
+                os.replace(staged_root, version_root)
+            except OSError:
+                if not (
+                    json_path.read_bytes() == json_bytes and markdown_path.read_bytes() == markdown
+                ):
+                    raise
+        finally:
+            if staged_root.exists():
+                shutil.rmtree(staged_root)
     return WorkflowReportPaths(json_path, markdown_path)

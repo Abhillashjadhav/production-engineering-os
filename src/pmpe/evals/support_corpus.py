@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
@@ -517,31 +518,36 @@ def write_support_corpus(root: Path, *, seed: int) -> CorpusPaths:
     version_root = versions_root / version
     visible_path = version_root / "visible" / "cases.json"
     oracle_path = version_root / "eval-only" / "oracles.json"
-    if version_root.exists():
-        try:
-            if (
-                visible_path.read_bytes() == visible_bytes
-                and oracle_path.read_bytes() == oracle_bytes
-            ):
-                return CorpusPaths(visible_path, oracle_path)
-        except OSError:
-            pass
-        quarantine = Path(tempfile.mkdtemp(dir=versions_root, prefix=".invalid-"))
-        quarantine.rmdir()
-        os.replace(version_root, quarantine)
     versions_root.mkdir(parents=True, exist_ok=True)
-    staged_root = Path(tempfile.mkdtemp(dir=versions_root, prefix=".corpus-"))
-    try:
-        _write_atomic(staged_root / "visible" / "cases.json", visible_bytes)
-        _write_atomic(staged_root / "eval-only" / "oracles.json", oracle_bytes)
+    with (versions_root / ".publish.lock").open("a+b") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        if version_root.exists():
+            try:
+                if (
+                    visible_path.read_bytes() == visible_bytes
+                    and oracle_path.read_bytes() == oracle_bytes
+                ):
+                    return CorpusPaths(visible_path, oracle_path)
+            except OSError:
+                pass
+            quarantine = Path(tempfile.mkdtemp(dir=versions_root, prefix=".invalid-"))
+            quarantine.rmdir()
+            os.replace(version_root, quarantine)
+        staged_root = Path(tempfile.mkdtemp(dir=versions_root, prefix=".corpus-"))
         try:
-            os.replace(staged_root, version_root)
-        except OSError:
-            if not version_root.exists():
-                raise
-    finally:
-        if staged_root.exists():
-            shutil.rmtree(staged_root)
+            _write_atomic(staged_root / "visible" / "cases.json", visible_bytes)
+            _write_atomic(staged_root / "eval-only" / "oracles.json", oracle_bytes)
+            try:
+                os.replace(staged_root, version_root)
+            except OSError:
+                if not (
+                    visible_path.read_bytes() == visible_bytes
+                    and oracle_path.read_bytes() == oracle_bytes
+                ):
+                    raise
+        finally:
+            if staged_root.exists():
+                shutil.rmtree(staged_root)
     return CorpusPaths(visible_path, oracle_path)
 
 
