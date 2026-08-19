@@ -26,7 +26,20 @@ from pmpe.engineering.engine import EngineeringRun
 from pmpe.implementation.agent import StdlibCrudGenerator
 from pmpe.implementation.workspace import write_files
 from pmpe.ingestion.normalizer import normalize_spec
-from pmpe.personal.executor import run_personal_execution, write_personal_execution
+from pmpe.personal.executor import (
+    PersonalExecution,
+    run_personal_execution,
+    verify_personal_execution,
+    write_personal_execution,
+)
+from pmpe.personal.models import (
+    ApprovalItem,
+    EvidenceRecord,
+    PersonalExecutionReport,
+    PersonalWorkContract,
+    TaskPacket,
+    TaskResult,
+)
 from pmpe.personal.runtime.demo import run_runtime_demo
 from pmpe.personal.runtime.models import digest_for
 from pmpe.personal.runtime.registry import EventRegistry
@@ -222,6 +235,104 @@ def _verify_workflow_execution_evidence(
             claimed_digest = projection.pop(field)
             return bool(claimed_digest == canonical_digest(projection))
 
+        native_contract = PersonalWorkContract(
+            schema_version=contract["schema_version"],
+            contract_id=contract["contract_id"],
+            problem=contract["problem"],
+            hypothesis=contract["hypothesis"],
+            proposed_answer=contract["proposed_answer"],
+            target_outcome=contract["target_outcome"],
+            deadline=contract["deadline"],
+            north_star_metric=contract["north_star_metric"],
+            leading_metrics=tuple(contract["leading_metrics"]),
+            guardrails=tuple(contract["guardrails"]),
+            trade_off=contract["trade_off"],
+            scope=tuple(contract["scope"]),
+            non_goals=tuple(contract["non_goals"]),
+            workflow_ids=tuple(contract["workflow_ids"]),
+            workflow_source_ids={
+                workflow_id: tuple(source_ids)
+                for workflow_id, source_ids in contract["workflow_source_ids"].items()
+            },
+            evidence_source_bindings=dict(contract["evidence_source_bindings"]),
+            approval_policy_bindings=dict(contract["approval_policy_bindings"]),
+            input_digest=contract["input_digest"],
+            approved_by=contract["approved_by"],
+            contract_digest=contract["contract_digest"],
+        )
+        native_packets = tuple(
+            TaskPacket(
+                schema_version=item["schema_version"],
+                task_id=item["task_id"],
+                workflow_id=item["workflow_id"],
+                objective=item["objective"],
+                input_refs=tuple(item["input_refs"]),
+                allowed_capabilities=tuple(item["allowed_capabilities"]),
+                prohibited_capabilities=tuple(item["prohibited_capabilities"]),
+                depends_on=tuple(item["depends_on"]),
+                definition_of_done=tuple(item["definition_of_done"]),
+                budget=item["budget"],
+                approval_required=tuple(item["approval_required"]),
+                verification_owner=item["verification_owner"],
+                contract_digest=item["contract_digest"],
+                packet_digest=item["packet_digest"],
+            )
+            for item in tasks
+        )
+        native_results = tuple(
+            TaskResult(
+                task_id=item["task_id"],
+                workflow_id=item["workflow_id"],
+                status=item["status"],
+                execution_batch=item["execution_batch"],
+                output=item["output"],
+                evidence_refs=tuple(item["evidence_refs"]),
+                packet_digest=item["packet_digest"],
+                result_digest=item["result_digest"],
+            )
+            for item in result_items
+        )
+        native_approvals = tuple(
+            ApprovalItem(
+                approval_id=item["approval_id"],
+                workflow_id=item["workflow_id"],
+                action_type=item["action_type"],
+                target=item["target"],
+                reason=item["reason"],
+                reversibility=item["reversibility"],
+                evidence_refs=tuple(item["evidence_refs"]),
+                payload=item["payload"],
+                payload_digest=item["payload_digest"],
+                status=item["status"],
+            )
+            for item in approval_items
+        )
+        native_evidence = tuple(EvidenceRecord(**item) for item in evidence["records"])
+        native_report = PersonalExecutionReport(
+            schema_version=report["schema_version"],
+            run_id=report["run_id"],
+            contract_digest=report["contract_digest"],
+            task_graph_digest=report["task_graph_digest"],
+            status=report["status"],
+            outcome=report["outcome"],
+            result_digests=tuple(report["result_digests"]),
+            pending_approval_ids=tuple(report["pending_approval_ids"]),
+            parallel_batches=report["parallel_batches"],
+            unauthorized_external_actions=report["unauthorized_external_actions"],
+            evidence_complete=report["evidence_complete"],
+            evidence_ledger_digest=report["evidence_ledger_digest"],
+            mobile_review_digest=report["mobile_review_digest"],
+            report_digest=report["report_digest"],
+        )
+        native_execution = PersonalExecution(
+            contract=native_contract,
+            packets=native_packets,
+            results=native_results,
+            approvals=native_approvals,
+            evidence=native_evidence,
+            report=native_report,
+        )
+
         return all(
             (
                 canonical_digest(source_fixture) == contract["input_digest"],
@@ -247,6 +358,7 @@ def _verify_workflow_execution_evidence(
                     for item in approval_items
                 ),
                 report["pending_approval_ids"] == [item["approval_id"] for item in approval_items],
+                verify_personal_execution(native_execution),
             )
         )
     except (KeyError, TypeError, ValueError):
