@@ -725,7 +725,7 @@ def _load_stage_artifacts(root: Path, manifest: dict[str, Any]) -> dict[str, dic
     return artifacts
 
 
-def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str:
+def _verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str:
     root = Path(output)
     manifest_path = root / "full-product-manifest.json"
     if manifest_path.is_symlink():
@@ -878,3 +878,14 @@ def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str
     if not all(checks):
         raise FullProductError("full-product semantic verification failed")
     return str(claimed)
+
+
+def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str:
+    """Verify a retained bundle and normalize malformed evidence to a fail-closed error."""
+
+    try:
+        return _verify_full_product_quickstart(output, expected_digest=expected_digest)
+    except FullProductError:
+        raise
+    except (AttributeError, KeyError, OSError, TypeError, ValueError) as exc:
+        raise FullProductError("full-product evidence is malformed") from exc
