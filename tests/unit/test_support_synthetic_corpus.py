@@ -205,11 +205,31 @@ def test_validator_rejects_partial_conflict_evidence_or_wrong_outcome() -> None:
     )
     wrong = replace(conflict, expected_outcome="refund")
 
-    for invalid, message in ((partial, "evidence is incomplete"), (wrong, "rationale")):
+    for invalid, message in ((partial, "opposing roles"), (wrong, "rationale")):
         oracles = list(corpus.hidden_oracles)
         oracles[index] = invalid
         with pytest.raises(CorpusValidationError, match=message):
             validate_support_corpus(SupportCorpus(corpus.visible_cases, tuple(oracles)))
+
+
+def test_validator_rejects_same_side_conflict_evidence() -> None:
+    corpus = generate_support_corpus(seed=9)
+    index = next(
+        index
+        for index, item in enumerate(corpus.hidden_oracles)
+        if item.rationale_code == "equal-priority-conflict"
+    )
+    conflict = corpus.hidden_oracles[index]
+    invalid = replace(
+        conflict,
+        required_fact_ids=("FACT-FINAL-SALE",),
+        required_rule_ids=("RULE-FINAL-SALE",),
+    )
+    oracles = list(corpus.hidden_oracles)
+    oracles[index] = invalid
+
+    with pytest.raises(CorpusValidationError, match="opposing roles"):
+        validate_support_corpus(SupportCorpus(corpus.visible_cases, tuple(oracles)))
 
 
 def test_validator_rejects_coordinated_rationale_and_outcome_rewrite() -> None:
