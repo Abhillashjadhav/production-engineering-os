@@ -6,6 +6,7 @@ from pmpe.evals.support_corpus import (
     HiddenOracle,
     SupportCorpus,
     generate_support_corpus,
+    load_hidden_oracles,
     validate_support_corpus,
     write_support_corpus,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "HiddenOracle",
     "SupportCorpus",
     "generate_support_corpus",
+    "load_hidden_oracles",
     "validate_support_corpus",
     "write_support_corpus",
 ]

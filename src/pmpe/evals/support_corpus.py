@@ -245,3 +245,32 @@ def write_support_corpus(root: Path, *, seed: int) -> CorpusPaths:
         ),
     )
     return CorpusPaths(visible_path, oracle_path)
+
+
+def load_hidden_oracles(path: Path) -> tuple[HiddenOracle, ...]:
+    """Load hidden truth only from an explicit evaluation path."""
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise CorpusValidationError("hidden oracle corpus is unreadable") from exc
+    if not isinstance(payload, dict) or payload.get("schema_version") != "1.0.0":
+        raise CorpusValidationError("hidden oracle schema is unsupported")
+    raw = payload.get("oracles")
+    if not isinstance(raw, list):
+        raise CorpusValidationError("hidden oracles are missing")
+    try:
+        oracles = tuple(
+            HiddenOracle(
+                case_id=item["case_id"],
+                expected_outcome=item["expected_outcome"],
+                required_fact_ids=tuple(item["required_fact_ids"]),
+                required_rule_ids=tuple(item["required_rule_ids"]),
+                rationale_code=item["rationale_code"],
+            )
+            for item in raw
+        )
+    except (KeyError, TypeError) as exc:
+        raise CorpusValidationError("hidden oracle is malformed") from exc
+    if len(oracles) != len({item.case_id for item in oracles}):
+        raise CorpusValidationError("hidden oracle contains duplicate case")
+    return oracles
