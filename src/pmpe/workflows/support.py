@@ -126,7 +126,7 @@ def load_visible_cases(path: Path) -> tuple[SupportCase, ...]:
     """Load only visible inputs and reject embedded evaluation truth."""
     try:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeError, json.JSONDecodeError, RecursionError) as exc:
         raise VisibleCorpusError("visible corpus is unreadable") from exc
     _reject_oracle_fields(payload)
     if not isinstance(payload, dict) or payload.get("schema_version") != "1.0.0":
