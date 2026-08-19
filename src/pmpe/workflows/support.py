@@ -153,6 +153,7 @@ class SupportCase:
     def __post_init__(self) -> None:
         fact_ids = [item.fact_id for item in self.facts]
         rule_ids = [item.rule_id for item in self.policies]
+        facts_by_id = {item.fact_id: item for item in self.facts}
         if not (
             _bounded_identifier(self.case_id)
             and self.split in {"development", "held_out"}
@@ -164,6 +165,12 @@ class SupportCase:
             and all(_bounded_text(item, maximum=512) for item in self.product_constraints)
             and len(fact_ids) == len(set(fact_ids))
             and len(rule_ids) == len(set(rule_ids))
+            and all(
+                policy.required_fact_id in facts_by_id
+                and policy.required_fact_digest
+                == canonical_digest(asdict(facts_by_id[policy.required_fact_id]))
+                for policy in self.policies
+            )
         ):
             raise VisibleCorpusError("support case is malformed or duplicate")
 

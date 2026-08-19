@@ -62,6 +62,20 @@ _RATIONALE_EVIDENCE = {
         {"RULE-HIGH-VALUE", "RULE-MANAGER-THRESHOLD"},
     ),
 }
+_CANONICAL_POLICY_TEXT = {
+    "RULE-RETURN-WINDOW": "Refund is allowed within 30 days.",
+    "RULE-DAMAGE-REPLACE": "Verified transit damage receives replacement.",
+    "RULE-PROOF-REQUIRED": "Order evidence is required before remedy.",
+    "RULE-FINAL-SALE": "Final-sale items cannot be refunded.",
+    "RULE-CHANNEL-BOUNDARY": "Off-platform cash transfers are unsupported.",
+    "RULE-HIGH-VALUE": "Claims above $1000 require human approval.",
+    "RULE-COOLING-PERIOD": "Unused purchases qualify for reversal for 21 days.",
+    "RULE-DEFECT-REMEDY": "A verified functional defect receives a replacement unit.",
+    "RULE-IDENTITY-REQUIRED": "Account identity is required before account recovery.",
+    "RULE-CLEARANCE-EXCLUSION": "Clearance purchases cannot be reversed.",
+    "RULE-PAYOUT-BOUNDARY": "Gift-card balances cannot be paid into bank accounts.",
+    "RULE-MANAGER-THRESHOLD": "Claims over $900 require manager approval.",
+}
 
 
 @dataclass(frozen=True)
@@ -416,6 +430,17 @@ def validate_support_corpus(corpus: SupportCorpus) -> None:
             or not rule_refs <= {item.rule_id for item in case.policies}
         ):
             raise CorpusValidationError("oracle rationale and evidence do not match")
+        referenced_policies = tuple(
+            policy for policy in case.policies if policy.rule_id in rule_refs
+        )
+        def canonical_policy_text(policy: PolicyRule) -> bool:
+            allowed = {_CANONICAL_POLICY_TEXT.get(policy.rule_id)}
+            if policy.rule_id == "RULE-RETURN-WINDOW":
+                allowed.add("All items may be refunded within 30 days.")
+            return policy.text in allowed
+
+        if any(not canonical_policy_text(policy) for policy in referenced_policies):
+            raise CorpusValidationError("oracle policy semantics are not canonical")
         if rationale == "equal-priority-conflict":
             positive_facts = {"FACT-ORDER-AGE", "FACT-PURCHASE-AGE"}
             negative_facts = {"FACT-FINAL-SALE", "FACT-CLEARANCE"}
