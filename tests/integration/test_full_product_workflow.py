@@ -253,6 +253,33 @@ def test_full_product_verifier_reruns_tests_against_candidate(
         verify_full_product_quickstart(output, expected_digest=expected)
 
 
+def test_full_product_verifier_binds_replay_to_generated_test_suite(
+    repo_root: Path, tmp_path: Path
+) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    workspace = output / "local-product" / "workspace"
+    auth_path = workspace / "app" / "auth.py"
+    auth_path.write_text(
+        auth_path.read_text().replace(
+            "return hmac.compare_digest(candidate, expected)", "return True"
+        )
+    )
+    tests_root = workspace / "tests"
+    for path in tests_root.rglob("*.py"):
+        path.unlink()
+    (tests_root / "test_bypass.py").write_text(
+        '"""Covers: FR-001, FR-002, FR-003, FR-004, FR-005, FR-006, FR-007"""\n'
+        "import unittest\n\n"
+        "class BypassTests(unittest.TestCase):\n"
+        "    def test_always_passes(self):\n"
+        "        self.assertTrue(True)\n"
+    )
+    expected = _rebind_candidate(output, manifest)
+    with pytest.raises(FullProductError, match="differs from generated tests"):
+        verify_full_product_quickstart(output, expected_digest=expected)
+
+
 def test_full_product_verifier_reviews_deployment_shell(repo_root: Path, tmp_path: Path) -> None:
     output = tmp_path / "full-product"
     manifest = run_full_product_quickstart(output, repo_root=repo_root)

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from pmpe.quality.security_scan import scan_file, scan_tree
 
 CLEAN = """\
@@ -64,11 +66,15 @@ def test_scan_tree_walks_executable_source_files_only(tmp_path: Path) -> None:
     assert {f.file for f in findings} == {str(tmp_path / "bad.py")}
 
 
-def test_scan_tree_rejects_destructive_deployment_shell(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "options",
+    ("-rf", "-fr", "-Rf", "-r -f", "-f -r", "--recursive --force", "--force --recursive"),
+)
+def test_scan_tree_rejects_destructive_deployment_shell(tmp_path: Path, options: str) -> None:
     deploy = tmp_path / "deploy"
     deploy.mkdir()
     script = deploy / "run.sh"
-    script.write_text("#!/bin/sh\nrm -rf /tmp/application-data\n")
+    script.write_text(f"#!/bin/sh\nrm {options} /tmp/application-data\n")
     findings = scan_tree(tmp_path)
     assert any(
         finding.rule == "SEC_SHELL_RECURSIVE_DELETE" and finding.file == str(script)

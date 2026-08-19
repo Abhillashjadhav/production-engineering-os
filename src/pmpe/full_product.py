@@ -109,6 +109,17 @@ def _run_retained_product_tests(workspace: Path) -> subprocess.CompletedProcess[
         raise FullProductError("retained candidate tests timed out") from exc
 
 
+def _assert_retained_test_suite(workspace: Path, expected: dict[str, str]) -> None:
+    tests_root = workspace / "tests"
+    actual = {
+        path.relative_to(workspace).as_posix(): path.read_text()
+        for path in tests_root.rglob("*")
+        if path.is_file()
+    }
+    if actual != expected:
+        raise FullProductError("retained candidate test suite differs from generated tests")
+
+
 def _artifact(root: Path, stage_id: str, path: Path) -> dict[str, str]:
     value = load_json_object(path)
     return {
@@ -886,13 +897,6 @@ def _verify_full_product_quickstart(output: Path, *, expected_digest: str) -> st
     if any(path.is_symlink() for path in workspace.rglob("*")):
         raise FullProductError("retained local-product workspace refuses symbolic link")
     retained_candidate_digest = tree_content_digest(workspace)
-    replayed_tests = _run_retained_product_tests(workspace)
-    if replayed_tests.returncode != 0:
-        raise FullProductError("retained candidate tests failed")
-    if tree_content_digest(workspace) != retained_candidate_digest:
-        raise FullProductError("retained candidate tests changed the workspace")
-    if _contains_executable_bytecode(workspace):
-        raise FullProductError("retained candidate tests emitted executable bytecode")
     source_spec_digest = engineering.get("source_spec_digest")
     _assert_contract_matches_spec(contract, retained_source_spec)
     replay_spec = normalize_spec(retained_source_spec)
@@ -900,6 +904,18 @@ def _verify_full_product_quickstart(output: Path, *, expected_digest: str) -> st
     if not replay_validation.ok or replay_validation.questions:
         raise FullProductError("retained source specification no longer validates")
     replay_plan = EngineeringPlanner().plan(replay_spec)
+    generated_tests = TestArchitect().design(replay_spec, replay_plan)
+    _assert_retained_test_suite(
+        workspace,
+        {generated_file.path: generated_file.content for generated_file in generated_tests.files},
+    )
+    replayed_tests = _run_retained_product_tests(workspace)
+    if replayed_tests.returncode != 0:
+        raise FullProductError("retained candidate tests failed")
+    if tree_content_digest(workspace) != retained_candidate_digest:
+        raise FullProductError("retained candidate tests changed the workspace")
+    if _contains_executable_bytecode(workspace):
+        raise FullProductError("retained candidate tests emitted executable bytecode")
     replay_review = jsonable(PrReviewer().review(workspace, replay_spec, replay_plan))
     approved_decisions = contract.get("approved_product_decisions")
     approved_spec_decision = (

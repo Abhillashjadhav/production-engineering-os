@@ -59,7 +59,11 @@ _RULES: tuple[_Rule, ...] = (
 _SHELL_RULES: tuple[_Rule, ...] = (
     _Rule(
         "SEC_SHELL_RECURSIVE_DELETE",
-        re.compile(r"\brm\s+-[A-Za-z]*r[A-Za-z]*f[A-Za-z]*\b"),
+        re.compile(
+            r"\brm\b"
+            r"(?=[^;&|\n]*(?:--recursive|-[A-Za-z]*[rR][A-Za-z]*))"
+            r"(?=[^;&|\n]*(?:--force|-[A-Za-z]*f[A-Za-z]*))"
+        ),
         "recursive forced deletion in an executable deployment script",
     ),
     _Rule(
