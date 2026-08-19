@@ -28,6 +28,8 @@ from pmpe.implementation.workspace import write_files
 from pmpe.ingestion.normalizer import normalize_spec
 from pmpe.personal.executor import run_personal_execution, write_personal_execution
 from pmpe.personal.runtime.demo import run_runtime_demo
+from pmpe.personal.runtime.models import digest_for
+from pmpe.personal.runtime.registry import EventRegistry
 from pmpe.personal.synthetic import synthetic_personal_context
 from pmpe.planning.planner import EngineeringPlanner
 from pmpe.review.fixer import FixAgent
@@ -187,16 +189,66 @@ def _product_contract_binding(
     }
 
 
-def _bind_report_to_product_contract(
+def _write_product_contract_binding(
     path: Path, contract: dict[str, Any], *, stage_id: str, source_fixture: dict[str, Any]
 ) -> None:
-    report = load_json_object(path)
-    if "product_contract_binding" in report:
-        raise FullProductError("assurance report already has a product contract binding")
-    report["product_contract_binding"] = _product_contract_binding(
-        contract, stage_id=stage_id, source_fixture=source_fixture
+    write_json_atomic(
+        path,
+        _product_contract_binding(contract, stage_id=stage_id, source_fixture=source_fixture),
     )
-    write_json_atomic(path, report)
+
+
+def _verify_workflow_execution_evidence(
+    directory: Path, report: dict[str, Any], source_fixture: dict[str, Any]
+) -> bool:
+    try:
+        contract = load_json_object(directory / "personal-work-contract.json")
+        task_graph = load_json_object(directory / "task-graph.json")
+        results = load_json_object(directory / "workflow-results.json")
+        evidence = load_json_object(directory / "evidence-ledger.json")
+        approvals = load_json_object(directory / "approval-outbox.json")
+        mobile_review = load_json_object(directory / "mobile-review.json")
+        contract_projection = dict(contract)
+        contract_digest = contract_projection.pop("contract_digest")
+        report_projection = dict(report)
+        report_digest = report_projection.pop("report_digest")
+        return all(
+            (
+                canonical_digest(source_fixture) == contract["input_digest"],
+                canonical_digest(contract_projection) == contract_digest,
+                report["contract_digest"] == contract_digest,
+                canonical_digest(report_projection) == report_digest,
+                report["task_graph_digest"] == task_graph["task_graph_digest"],
+                report["evidence_ledger_digest"] == canonical_digest(evidence),
+                report["mobile_review_digest"] == canonical_digest(mobile_review),
+                report["result_digests"] == [item["result_digest"] for item in results["results"]],
+                report["pending_approval_ids"]
+                == [item["approval_id"] for item in approvals["items"]],
+            )
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def _verify_runtime_execution_evidence(
+    directory: Path, report: dict[str, Any], source_fixture: dict[str, Any]
+) -> bool:
+    try:
+        events = EventRegistry(directory / "runtime-events.jsonl").read()
+        contract_digest = digest_for(source_fixture["contract"])
+        task_digest = digest_for(source_fixture["task"])
+        input_artifact_digest = digest_for(source_fixture["input_artifact"])
+        return bool(events) and all(
+            (
+                all(event.subject.contract_digest == contract_digest for event in events),
+                all(event.subject.task_digest == task_digest for event in events),
+                events[0].subject.artifact_digest == input_artifact_digest,
+                report["event_count"] == len(events),
+                report["event_registry_head"] == events[-1].event_digest,
+            )
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 def _decision_answers(repo_root: Path) -> dict[str, Any]:
@@ -421,8 +473,8 @@ def run_full_product_quickstart(
     execution = run_personal_execution(personal_context)
     workflow_paths = write_personal_execution(workflows_root, execution)
     write_json_atomic(workflows_root / "synthetic-personal-input.json", personal_context)
-    _bind_report_to_product_contract(
-        workflow_paths["report"],
+    _write_product_contract_binding(
+        workflows_root / "product-contract-binding.json",
         contract,
         stage_id="workflow-execution",
         source_fixture=personal_context,
@@ -430,8 +482,8 @@ def run_full_product_quickstart(
 
     runtime_paths = run_runtime_demo(root / "runtime")
     runtime_context = load_json_object(runtime_paths["input"])
-    _bind_report_to_product_contract(
-        runtime_paths["report"],
+    _write_product_contract_binding(
+        root / "runtime" / "product-contract-binding.json",
         contract,
         stage_id="runtime-assurance",
         source_fixture=runtime_context,
@@ -579,20 +631,30 @@ def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str
         manifest["external_provider_writes"] == 0,
         handoff.get("contract", {}).get("digest") == contract_digest,
         handoff.get("approval", {}).get("receipt_digest") == verified_receipt,
-        workflows.get("product_contract_binding")
+        load_json_object(workflows_directory / "product-contract-binding.json")
         == _product_contract_binding(
             contract,
             stage_id="workflow-execution",
             source_fixture=load_json_object(workflows_directory / "synthetic-personal-input.json"),
         ),
+        _verify_workflow_execution_evidence(
+            workflows_directory,
+            workflows,
+            load_json_object(workflows_directory / "synthetic-personal-input.json"),
+        ),
         workflows.get("status") == "COMPLETED_WITH_PENDING_APPROVALS",
         workflows.get("evidence_complete") is True,
         workflows.get("unauthorized_external_actions") == 0,
-        runtime.get("product_contract_binding")
+        load_json_object(runtime_directory / "product-contract-binding.json")
         == _product_contract_binding(
             contract,
             stage_id="runtime-assurance",
             source_fixture=load_json_object(runtime_directory / "synthetic-runtime-input.json"),
+        ),
+        _verify_runtime_execution_evidence(
+            runtime_directory,
+            runtime,
+            load_json_object(runtime_directory / "synthetic-runtime-input.json"),
         ),
         runtime.get("status") == "COMPLETED",
         runtime.get("calendar", {}).get("external_writes") == 0,

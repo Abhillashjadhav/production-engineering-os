@@ -35,6 +35,12 @@ def test_full_product_quickstart_runs_and_reverifies(repo_root: Path, tmp_path: 
     assert deployment["result"]["healthy"] is True
     assert deployment["result"]["journey_passed"] is True
     assert deployment["contract_digest"] == manifest["stages"][0]["artifact_digest"]
+    workflow_report = json.loads(
+        (output / "workflows" / "personal-execution-report.json").read_text()
+    )
+    workflow_report_projection = dict(workflow_report)
+    workflow_report_digest = workflow_report_projection.pop("report_digest")
+    assert canonical_digest(workflow_report_projection) == workflow_report_digest
     assert (
         verify_full_product_quickstart(output, expected_digest=manifest["manifest_digest"])
         == manifest["manifest_digest"]
@@ -151,9 +157,15 @@ def test_full_product_verifier_rejects_retained_workspace_symlinks(
         verify_full_product_quickstart(output, expected_digest=manifest["manifest_digest"])
 
 
-@pytest.mark.parametrize("stage_id", ["workflow-execution", "runtime-assurance"])
-def test_full_product_verifier_rejects_unbound_assurance_stage(
-    repo_root: Path, tmp_path: Path, stage_id: str
+@pytest.mark.parametrize(
+    ("stage_id", "source_name"),
+    [
+        ("workflow-execution", "synthetic-personal-input.json"),
+        ("runtime-assurance", "synthetic-runtime-input.json"),
+    ],
+)
+def test_full_product_verifier_rejects_fixture_not_bound_to_execution(
+    repo_root: Path, tmp_path: Path, stage_id: str, source_name: str
 ) -> None:
     output = tmp_path / "full-product"
     manifest = run_full_product_quickstart(output, repo_root=repo_root)
@@ -161,14 +173,22 @@ def test_full_product_verifier_rejects_unbound_assurance_stage(
     index_path = output / stage["artifact"]
     index = json.loads(index_path.read_text())
     directory = output / index["directory"]
-    report_path = directory / index["report"]
-    report = json.loads(report_path.read_text())
-    report["product_contract_binding"]["approved_contract_digest"] = "sha256:unbound"
-    report_path.write_text(json.dumps(report))
-    report_relative = report_path.relative_to(directory).as_posix()
-    report_entry = next(item for item in index["files"] if item["path"] == report_relative)
-    report_entry["digest"] = f"sha256:{hashlib.sha256(report_path.read_bytes()).hexdigest()}"
-    report_entry["size"] = report_path.stat().st_size
+    source_path = directory / source_name
+    source = json.loads(source_path.read_text())
+    if stage_id == "runtime-assurance":
+        source["contract"]["outcome"] = "Tampered after runtime execution."
+    else:
+        source["tampered_after_execution"] = True
+    source_path.write_text(json.dumps(source))
+    binding_path = directory / "product-contract-binding.json"
+    binding = json.loads(binding_path.read_text())
+    binding["source_fixture_digest"] = canonical_digest(source)
+    binding_path.write_text(json.dumps(binding))
+    for path in (source_path, binding_path):
+        relative = path.relative_to(directory).as_posix()
+        entry = next(item for item in index["files"] if item["path"] == relative)
+        entry["digest"] = f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+        entry["size"] = path.stat().st_size
     index_path.write_text(json.dumps(index))
     stage["artifact_digest"] = canonical_digest(index)
     manifest_projection = dict(manifest)
