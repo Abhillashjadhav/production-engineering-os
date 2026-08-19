@@ -241,6 +241,25 @@ def test_validator_rejects_same_side_conflict_evidence() -> None:
         validate_support_corpus(SupportCorpus(corpus.visible_cases, tuple(oracles)))
 
 
+def test_validator_rejects_unequal_priority_conflict() -> None:
+    corpus = generate_support_corpus(seed=9)
+    index = next(
+        index
+        for index, item in enumerate(corpus.visible_cases)
+        if len(item.policies) == 2 and item.split == "development"
+    )
+    case = corpus.visible_cases[index]
+    changed = replace(
+        case,
+        policies=(case.policies[0], replace(case.policies[1], priority=100)),
+    )
+    cases = list(corpus.visible_cases)
+    cases[index] = changed
+
+    with pytest.raises(CorpusValidationError, match="equal priority"):
+        validate_support_corpus(SupportCorpus(tuple(cases), corpus.hidden_oracles))
+
+
 def test_validator_rejects_coordinated_rationale_and_outcome_rewrite() -> None:
     corpus = generate_support_corpus(seed=9)
     first = replace(

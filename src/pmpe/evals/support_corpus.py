@@ -345,6 +345,11 @@ def validate_support_corpus(corpus: SupportCorpus) -> None:
                 and rule_refs & negative_rules
             ):
                 raise CorpusValidationError("oracle conflict evidence lacks opposing roles")
+            referenced_priorities = {
+                policy.priority for policy in case.policies if policy.rule_id in rule_refs
+            }
+            if len(referenced_priorities) != 1:
+                raise CorpusValidationError("oracle conflict policies do not have equal priority")
 
 
 def _canonical_bytes(payload: object) -> bytes:
