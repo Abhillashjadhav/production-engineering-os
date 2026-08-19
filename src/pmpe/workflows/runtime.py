@@ -70,6 +70,7 @@ class WorkflowReport:
     plan_digest: str
     execution_digest: str
     step_evidence: tuple[StepEvidence, ...]
+    unresolved_questions: tuple[str, ...]
     evidence_complete: bool
     report_digest: str
 
@@ -168,6 +169,7 @@ def execute_workflow(
         "selected_action": contract.selected_action,
         "status": status,
         "step_evidence": [asdict(item) for item in steps],
+        "unresolved_questions": list(contract.unresolved_questions),
     }
     return WorkflowReport(
         schema_version="1.0.0",
@@ -179,6 +181,7 @@ def execute_workflow(
         plan_digest=plan.plan_digest,
         execution_digest=execution_digest,
         step_evidence=steps,
+        unresolved_questions=contract.unresolved_questions,
         evidence_complete=True,
         report_digest=canonical_digest(payload),
     )
@@ -223,11 +226,15 @@ def write_workflow_report(
         raise WorkflowEvidenceError("unverified report cannot be persisted as complete")
     json_path = Path(root) / "workflow-report.json"
     markdown_path = Path(root) / "workflow-report.md"
+    questions = "\n".join(f"  - {question}" for question in report.unresolved_questions)
+    if not questions:
+        questions = "  - none"
     markdown = (
         f"# Workflow result: {report.case_id}\n\n"
         f"- Status: {report.status}\n"
         f"- Selected action: {report.selected_action}\n"
         f"- Evidence complete: {'yes' if report.evidence_complete else 'no'}\n"
+        f"- Unresolved questions:\n{questions}\n"
         f"- Input: `{report.input_digest}`\n"
         f"- Contract: `{report.contract_digest}`\n"
         f"- Plan: `{report.plan_digest}`\n"

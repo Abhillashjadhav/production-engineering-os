@@ -35,7 +35,10 @@ class DecisionContract:
             and self.status in {"ADMITTED", "NEEDS_HUMAN_DECISION"}
             and self.action_fact_refs
             and self.action_rule_refs
-            and (self.status != "NEEDS_HUMAN_DECISION" or self.unresolved_questions)
+            and (
+                (self.status == "ADMITTED" and not self.unresolved_questions)
+                or (self.status == "NEEDS_HUMAN_DECISION" and self.unresolved_questions)
+            )
         ):
             raise DecisionContractError("decision contract is malformed or incomplete")
 

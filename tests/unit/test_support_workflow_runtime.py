@@ -73,6 +73,7 @@ def test_replay_is_byte_deterministic() -> None:
         ("plan_digest", "sha256:" + "0" * 64),
         ("execution_digest", "sha256:" + "0" * 64),
         ("selected_action", "refund"),
+        ("unresolved_questions", ("A substituted approval question.",)),
         ("evidence_complete", False),
     ),
 )
@@ -95,6 +96,19 @@ def test_report_writer_emits_minimal_json_and_markdown(tmp_path: Path) -> None:
     assert payload["evidence_complete"] is True
     assert "Evidence complete: yes" in markdown
     assert report.report_digest in markdown
+
+
+def test_human_decision_report_persists_unresolved_questions(tmp_path: Path) -> None:
+    case, contract, plan, report = _run(25)
+
+    paths = write_workflow_report(tmp_path, case, contract, plan, report)
+    payload = json.loads(paths.json_path.read_text())
+    markdown = paths.markdown_path.read_text()
+
+    assert report.status == "NEEDS_HUMAN_DECISION"
+    assert report.unresolved_questions == contract.unresolved_questions
+    assert payload["unresolved_questions"] == list(contract.unresolved_questions)
+    assert all(question in markdown for question in contract.unresolved_questions)
 
 
 def test_execution_rejects_mismatched_contract_or_plan() -> None:
