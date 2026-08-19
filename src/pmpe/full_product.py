@@ -17,10 +17,10 @@ from pmpe.contracts.authoring import (
     write_json_atomic,
 )
 from pmpe.contracts.canonical import canonical_digest
-from pmpe.demo.synthetic import run_demo
 from pmpe.deployment.local import LocalProcessDeployer
 from pmpe.domain.errors import PmpeError
 from pmpe.domain.serialize import jsonable
+from pmpe.engineering.candidate import tree_content_digest
 from pmpe.engineering.engine import EngineeringRun
 from pmpe.implementation.agent import StdlibCrudGenerator
 from pmpe.implementation.workspace import write_files
@@ -29,6 +29,8 @@ from pmpe.personal.executor import run_personal_execution, write_personal_execut
 from pmpe.personal.runtime.demo import run_runtime_demo
 from pmpe.personal.synthetic import synthetic_personal_context
 from pmpe.planning.planner import EngineeringPlanner
+from pmpe.review.fixer import FixAgent
+from pmpe.review.reviewer import PrReviewer
 from pmpe.testing.architect import TestArchitect
 from pmpe.validation.validator import RequirementValidator
 
@@ -51,16 +53,60 @@ def _artifact(root: Path, stage_id: str, path: Path) -> dict[str, str]:
 
 
 def _decision_answers(repo_root: Path) -> dict[str, Any]:
-    contract = load_json_object(repo_root / "examples" / "v2-demo" / "contract.json")
-    for field in (
-        "approved_at",
-        "approved_by",
-        "contract_status",
-        "source_digest",
-        "unresolved_questions",
-    ):
-        contract.pop(field, None)
-    return contract
+    raw = yaml.safe_load((repo_root / "examples" / "taskflow_mvp_spec.yaml").read_text())
+    if not isinstance(raw, dict):
+        raise FullProductError("local product specification is not an object")
+    spec_digest = canonical_digest(raw)
+    return {
+        "acceptance_criteria": raw["acceptance_criteria"],
+        "approved_product_decisions": [
+            {
+                "id": "APD-SPEC-001",
+                "decision": f"Build the exact TaskFlow specification {spec_digest}.",
+            },
+            {
+                "id": "APD-DEPLOY-001",
+                "decision": (
+                    "Verify a local-process deployment; require separate approval for cloud."
+                ),
+            },
+        ],
+        "binary_release_gates": [
+            {
+                "id": "GATE-001",
+                "description": "Every functional requirement has an executed passing test.",
+            },
+            {"id": "GATE-002", "description": "Zero blocking review findings."},
+            {"id": "GATE-003", "description": "The local health check passes."},
+            {"id": "GATE-004", "description": "The authenticated user journey passes."},
+        ],
+        "contract_id": "PDC-TASKFLOW-QUICKSTART-001",
+        "contract_version": 1,
+        "desired_outcome": raw["user_outcome"],
+        "functional_requirements": raw["functional_requirements"],
+        "golden_cases": [
+            "Unauthenticated task requests are rejected.",
+            "A task can be created, listed, completed, and read back.",
+        ],
+        "guardrails": raw["guardrails"],
+        "known_risks": raw["risks"],
+        "leading_metrics": raw["leading_metrics"],
+        "non_functional_requirements": raw["non_functional_requirements"],
+        "north_star_metric": raw["north_star_metric"],
+        "out_of_scope": raw["non_goals"],
+        "problem": raw["problem_statement"],
+        "product_name": raw["product_name"],
+        "required_approvals": [
+            {"role": "product-owner", "for": "production deployment"},
+            {"role": "security-owner", "for": "credential or authentication changes"},
+        ],
+        "scope": raw["scope"],
+        "scored_eval_rubric": [
+            {"id": "RUB-001", "criterion": "Task journey correctness", "scale": "1-5"},
+            {"id": "RUB-002", "criterion": "Authentication safety", "scale": "1-5"},
+        ],
+        "target_user": raw["target_user"],
+    }
 
 
 def _write_decision_and_handoff(root: Path, repo_root: Path) -> tuple[Path, Path, Path]:
@@ -90,10 +136,48 @@ def _write_decision_and_handoff(root: Path, repo_root: Path) -> tuple[Path, Path
     return contract_path, receipt_path, handoff / "run-state.json"
 
 
-def _build_and_deploy_local_product(root: Path, repo_root: Path) -> Path:
+def _contract_requirement_projection(contract: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {key: item[key] for key in ("id", "title", "capability", "description")}
+        | ({"entity": item["entity"]} if item.get("entity") else {})
+        for item in contract["functional_requirements"]
+    ]
+
+
+def _spec_requirement_projection(raw: dict[str, Any]) -> list[dict[str, Any]]:
+    return [
+        {key: item[key] for key in ("id", "title", "capability", "description")}
+        | ({"entity": item["entity"]} if item.get("entity") else {})
+        for item in raw["functional_requirements"]
+    ]
+
+
+def _assert_contract_matches_spec(contract: dict[str, Any], raw: dict[str, Any]) -> None:
+    matches = (
+        contract.get("product_name") == raw.get("product_name"),
+        contract.get("problem") == raw.get("problem_statement"),
+        contract.get("target_user") == raw.get("target_user"),
+        contract.get("desired_outcome") == raw.get("user_outcome"),
+        contract.get("scope") == raw.get("scope"),
+        contract.get("out_of_scope") == raw.get("non_goals"),
+        contract.get("acceptance_criteria") == raw.get("acceptance_criteria"),
+        contract.get("non_functional_requirements") == raw.get("non_functional_requirements"),
+        contract.get("north_star_metric") == raw.get("north_star_metric"),
+        _contract_requirement_projection(contract) == _spec_requirement_projection(raw),
+    )
+    if not all(matches):
+        raise FullProductError("approved product contract does not match the build specification")
+
+
+def _build_review_and_deploy_local_product(
+    root: Path, repo_root: Path, contract: dict[str, Any]
+) -> tuple[Path, Path]:
     raw = yaml.safe_load((repo_root / "examples" / "taskflow_mvp_spec.yaml").read_text())
     if not isinstance(raw, dict):
         raise FullProductError("local product specification is not an object")
+    _assert_contract_matches_spec(contract, raw)
+    contract_digest = canonical_digest(contract)
+    source_spec_digest = canonical_digest(raw)
     spec = normalize_spec(raw)
     validation = RequirementValidator().validate(spec)
     if not validation.ok or validation.questions:
@@ -106,6 +190,13 @@ def _build_and_deploy_local_product(root: Path, repo_root: Path) -> Path:
     write_files(workspace, generated_tests.files)
     for task in plan.tasks:
         write_files(workspace, implementation.files_by_task.get(task.id, []))
+    deployer = LocalProcessDeployer()
+    deployer.write_artifacts(workspace, spec)
+    initial_review = PrReviewer().review(workspace, spec, plan)
+    fixes = FixAgent().apply(workspace, initial_review)
+    final_review = PrReviewer().review(workspace, spec, plan)
+    if final_review.blocking or fixes.escalated:
+        raise FullProductError("generated product has unresolved blocking review findings")
     tests = subprocess.run(
         [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-t", "."],
         cwd=workspace,
@@ -123,14 +214,45 @@ def _build_and_deploy_local_product(root: Path, repo_root: Path) -> Path:
     )
     if tests.returncode != 0:
         raise FullProductError(f"generated product tests failed: {tests.stderr[-500:]}")
-    deployer = LocalProcessDeployer()
-    deployer.write_artifacts(workspace, spec)
+    candidate_digest = tree_content_digest(workspace)
+    engineering_path = root / "local-product" / "engineering-verification.json"
+    write_json_atomic(
+        engineering_path,
+        {
+            "candidate_digest": candidate_digest,
+            "contract_digest": contract_digest,
+            "final_review": jsonable(final_review),
+            "fixes": jsonable(fixes),
+            "functional_requirement_ids": [item.id for item in spec.functional_requirements],
+            "initial_review": jsonable(initial_review),
+            "schema_version": "1.0.0",
+            "source_spec_digest": source_spec_digest,
+            "status": "VERIFIED",
+            "tests": {
+                "command": "python -m unittest discover -s tests -t .",
+                "returncode": tests.returncode,
+                "status": "PASS",
+            },
+        },
+    )
     deployment = deployer.deploy(workspace, spec)
+    if tree_content_digest(workspace) != candidate_digest:
+        raise FullProductError("deployed candidate changed after engineering verification")
     deployment_path = root / "local-product" / "deployment-result.json"
-    write_json_atomic(deployment_path, jsonable(deployment))
+    write_json_atomic(
+        deployment_path,
+        {
+            "candidate_digest": candidate_digest,
+            "contract_digest": contract_digest,
+            "product_name": spec.product_name,
+            "result": jsonable(deployment),
+            "schema_version": "1.0.0",
+            "source_spec_digest": source_spec_digest,
+        },
+    )
     if not (deployment.healthy and deployment.journey_passed):
         raise FullProductError(f"local product deployment failed: {deployment.details}")
-    return deployment_path
+    return engineering_path, deployment_path
 
 
 def run_full_product_quickstart(
@@ -149,13 +271,8 @@ def run_full_product_quickstart(
     workflow_paths = write_personal_execution(workflows_root, execution)
 
     runtime_paths = run_runtime_demo(root / "runtime")
-    run_demo(
-        root / "engineering",
-        contract=repo / "examples" / "v2-demo" / "contract.json",
-        agents_dir=repo / ".claude" / "agents",
-        evals_dir=repo / "evals",
-    )
-    deployment_path = _build_and_deploy_local_product(root, repo)
+    contract = load_json_object(contract_path)
+    engineering_path, deployment_path = _build_review_and_deploy_local_product(root, repo, contract)
 
     stages = [
         _artifact(root, "decision-contract", contract_path),
@@ -163,7 +280,7 @@ def run_full_product_quickstart(
         _artifact(root, "engineering-handoff", handoff_path),
         _artifact(root, "workflow-execution", workflow_paths["report"]),
         _artifact(root, "runtime-assurance", runtime_paths["report"]),
-        _artifact(root, "engineering-verification", root / "engineering" / "demo-report.json"),
+        _artifact(root, "engineering-verification", engineering_path),
         _artifact(root, "local-deployment", deployment_path),
     ]
     manifest: dict[str, Any] = {
@@ -180,7 +297,7 @@ def run_full_product_quickstart(
     digest_payload.pop("manifest_digest")
     manifest["manifest_digest"] = canonical_digest(digest_payload)
     write_json_atomic(root / "full-product-manifest.json", manifest)
-    verify_full_product_quickstart(root)
+    verify_full_product_quickstart(root, expected_digest=str(manifest["manifest_digest"]))
     return manifest
 
 
@@ -211,7 +328,7 @@ def _load_stage_artifacts(root: Path, manifest: dict[str, Any]) -> dict[str, dic
     return artifacts
 
 
-def verify_full_product_quickstart(output: Path) -> str:
+def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str:
     root = Path(output)
     manifest = load_json_object(root / "full-product-manifest.json")
     expected_keys = {
@@ -227,6 +344,8 @@ def verify_full_product_quickstart(output: Path) -> str:
     if set(manifest) != expected_keys:
         raise FullProductError("full-product manifest has an unexpected shape")
     claimed = manifest["manifest_digest"]
+    if claimed != expected_digest:
+        raise FullProductError("manifest does not match the caller's trusted expected digest")
     projection = dict(manifest)
     projection.pop("manifest_digest")
     if claimed != canonical_digest(projection):
@@ -252,13 +371,15 @@ def verify_full_product_quickstart(output: Path) -> str:
     runtime = artifacts["runtime-assurance"]
     engineering = artifacts["engineering-verification"]
     deployment = artifacts["local-deployment"]
+    deployment_result = deployment.get("result", {})
+    contract_digest = canonical_digest(contract)
     checks = (
         manifest["schema_version"] == "1.0.0",
         manifest["status"] == "VERIFIED_LOCAL_PRODUCT",
         manifest["workflow_pack_count"] == 21,
         manifest["pending_approvals"] > 0,
         manifest["external_provider_writes"] == 0,
-        handoff.get("contract", {}).get("digest") == canonical_digest(contract),
+        handoff.get("contract", {}).get("digest") == contract_digest,
         handoff.get("approval", {}).get("receipt_digest") == verified_receipt,
         workflows.get("status") == "COMPLETED_WITH_PENDING_APPROVALS",
         workflows.get("evidence_complete") is True,
@@ -266,12 +387,20 @@ def verify_full_product_quickstart(output: Path) -> str:
         runtime.get("status") == "COMPLETED",
         runtime.get("calendar", {}).get("external_writes") == 0,
         runtime.get("learning", {}).get("installed_regression_cases") == 0,
-        engineering.get("release_verdict") == "READY_FOR_PRODUCTION_APPROVAL",
-        engineering.get("production_blocked") is True,
-        all(engineering.get("release_gates", {}).values()),
-        deployment.get("environment") == "local",
-        deployment.get("healthy") is True,
-        deployment.get("journey_passed") is True,
+        engineering.get("status") == "VERIFIED",
+        engineering.get("contract_digest") == contract_digest,
+        all(
+            not finding.get("blocking", False)
+            for finding in engineering.get("final_review", {}).get("findings", [])
+        ),
+        engineering.get("tests", {}).get("status") == "PASS",
+        deployment.get("contract_digest") == contract_digest,
+        deployment.get("source_spec_digest") == engineering.get("source_spec_digest"),
+        deployment.get("candidate_digest") == engineering.get("candidate_digest"),
+        deployment.get("product_name") == contract.get("product_name"),
+        deployment_result.get("environment") == "local",
+        deployment_result.get("healthy") is True,
+        deployment_result.get("journey_passed") is True,
     )
     if not all(checks):
         raise FullProductError("full-product semantic verification failed")

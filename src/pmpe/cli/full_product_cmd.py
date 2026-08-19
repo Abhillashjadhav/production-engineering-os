@@ -17,11 +17,12 @@ def _cmd_quickstart(args: argparse.Namespace) -> int:
     print(f"pending approvals: {manifest['pending_approvals']}")
     print("external provider writes: 0")
     print(f"manifest: {Path(args.output) / 'full-product-manifest.json'}")
+    print(f"trusted manifest digest (retain outside the output): {manifest['manifest_digest']}")
     return 0
 
 
 def _cmd_verify(args: argparse.Namespace) -> int:
-    digest = verify_full_product_quickstart(Path(args.output))
+    digest = verify_full_product_quickstart(Path(args.output), expected_digest=args.expected_digest)
     print(f"full-product evidence verified: {digest}")
     return 0
 
@@ -38,4 +39,5 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     quickstart.set_defaults(fn=_cmd_quickstart)
     verify = commands.add_parser("verify", help="reverify an existing full-product manifest")
     verify.add_argument("--output", required=True)
+    verify.add_argument("--expected-digest", required=True)
     verify.set_defaults(fn=_cmd_verify)

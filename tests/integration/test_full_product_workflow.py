@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from pmpe.contracts.canonical import canonical_digest
 from pmpe.full_product import (
     FullProductError,
     run_full_product_quickstart,
@@ -30,9 +31,13 @@ def test_full_product_quickstart_runs_and_reverifies(repo_root: Path, tmp_path: 
         "local-deployment",
     ]
     deployment = json.loads((output / "local-product" / "deployment-result.json").read_text())
-    assert deployment["healthy"] is True
-    assert deployment["journey_passed"] is True
-    assert verify_full_product_quickstart(output) == manifest["manifest_digest"]
+    assert deployment["result"]["healthy"] is True
+    assert deployment["result"]["journey_passed"] is True
+    assert deployment["contract_digest"] == manifest["stages"][0]["artifact_digest"]
+    assert (
+        verify_full_product_quickstart(output, expected_digest=manifest["manifest_digest"])
+        == manifest["manifest_digest"]
+    )
 
 
 def test_full_product_verifier_rejects_tampered_deployment(repo_root: Path, tmp_path: Path) -> None:
@@ -40,7 +45,15 @@ def test_full_product_verifier_rejects_tampered_deployment(repo_root: Path, tmp_
     run_full_product_quickstart(output, repo_root=repo_root)
     deployment = output / "local-product" / "deployment-result.json"
     value = json.loads(deployment.read_text())
-    value["healthy"] = False
+    value["result"]["healthy"] = False
     deployment.write_text(json.dumps(value))
-    with pytest.raises(FullProductError, match="artifact digest mismatch"):
-        verify_full_product_quickstart(output)
+    manifest_path = output / "full-product-manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["stages"][-1]["artifact_digest"] = canonical_digest(value)
+    projection = dict(manifest)
+    projection.pop("manifest_digest")
+    original_trusted_digest = manifest["manifest_digest"]
+    manifest["manifest_digest"] = canonical_digest(projection)
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(FullProductError, match="trusted expected digest"):
+        verify_full_product_quickstart(output, expected_digest=original_trusted_digest)

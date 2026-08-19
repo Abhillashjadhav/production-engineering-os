@@ -84,13 +84,17 @@ into one independently verifiable evidence manifest:
 
 ```bash
 pmpe full-product quickstart --output /tmp/pmpe-full-product
-pmpe full-product verify --output /tmp/pmpe-full-product
+pmpe full-product verify \
+  --output /tmp/pmpe-full-product \
+  --expected-digest sha256:<digest-printed-by-quickstart>
 cat /tmp/pmpe-full-product/full-product-manifest.json
 ```
 
 The quickstart uses clearly labelled synthetic product truth. It starts the generated local
 product, verifies health, authentication, create/list/complete/read-back journeys, and then
-stops the process. It performs no cloud deployment or external provider write.
+stops the process. Retain the printed manifest digest outside the output directory: verification
+requires that independent trust anchor and rejects a self-consistent rewritten bundle. It
+performs no cloud deployment or external provider write.
 
 ### Try the guided PMOS experience
 
