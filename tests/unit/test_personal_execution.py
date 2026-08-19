@@ -9,6 +9,7 @@ from pathlib import Path
 import pytest
 
 from pmpe.contracts.canonical import canonical_digest
+from pmpe.personal import executor as executor_module
 from pmpe.personal.catalog import GENERIC_WORKFLOW_CATALOG, workflow_catalog_payload
 from pmpe.personal.executor import (
     PersonalExecution,
@@ -22,6 +23,7 @@ from pmpe.personal.models import (
     PersonalContractError,
     create_approval_item,
     create_personal_work_contract,
+    create_task_result,
 )
 from pmpe.personal.planner import WORKFLOW_ORDER
 from pmpe.personal.synthetic import synthetic_personal_context, write_synthetic_personal_context
@@ -61,6 +63,7 @@ def test_work_contract_requires_an_outcome_metric() -> None:
                     }
                 )
             },
+            approval_policy_bindings={"goal-to-verified-release": canonical_digest([])},
             input_digest=canonical_digest({"input": "approved"}),
             approved_by="user",
         )
@@ -561,6 +564,59 @@ def test_every_approval_bearing_result_carries_an_exact_policy() -> None:
         assert {item["approval_id"] for item in policies} == {
             item.approval_id for item in approvals
         }
+
+
+def test_mutable_result_policy_cannot_redefine_the_admitted_approval() -> None:
+    execution = run_personal_execution(
+        synthetic_personal_context(workflow_ids=("ai-eval-release-gate",))
+    )
+    packet = execution.packets[0]
+    original = execution.approvals[0]
+    forged = create_approval_item(
+        approval_id=original.approval_id,
+        workflow_id=original.workflow_id,
+        action_type=original.action_type,
+        target="forged-production-target",
+        reason=original.reason,
+        reversibility=original.reversibility,
+        evidence_refs=original.evidence_refs,
+        payload={**original.payload, "release_target": "forged-production-target"},
+    )
+    output = json.loads(json.dumps(execution.results[0].output))
+    output["details"]["approval_policy"] = [
+        {
+            "action_type": forged.action_type,
+            "approval_id": forged.approval_id,
+            "evidence_refs": list(forged.evidence_refs),
+            "payload": forged.payload,
+            "reason": forged.reason,
+            "reversibility": forged.reversibility,
+            "target": forged.target,
+        }
+    ]
+    forged_result = create_task_result(
+        packet=packet,
+        output=output,
+        evidence_refs=execution.results[0].evidence_refs,
+        execution_batch=execution.results[0].execution_batch,
+    )
+    forged_report = executor_module._report(
+        run_id=execution.report.run_id,
+        contract=execution.contract,
+        packets=execution.packets,
+        results=(forged_result,),
+        approvals=(forged,),
+        evidence=execution.evidence,
+    )
+    changed = PersonalExecution(
+        execution.contract,
+        execution.packets,
+        (forged_result,),
+        (forged,),
+        execution.evidence,
+        forged_report,
+    )
+    assert not verify_personal_execution(changed)
 
 
 def test_execution_rejects_duplicate_results_with_missing_task_coverage() -> None:

@@ -52,7 +52,9 @@ def load_personal_context(path: Path) -> dict[str, Any]:
 
 
 def _build_contract(
-    context: dict[str, Any], evidence: tuple[EvidenceRecord, ...]
+    context: dict[str, Any],
+    evidence: tuple[EvidenceRecord, ...],
+    approval_policy_bindings: dict[str, str],
 ) -> PersonalWorkContract:
     success = context["success"]
     workflow_source_ids = {
@@ -77,9 +79,41 @@ def _build_contract(
         evidence_source_bindings={
             item.source_id: canonical_digest(item.as_dict()) for item in evidence
         },
+        approval_policy_bindings=approval_policy_bindings,
         input_digest=canonical_digest(context),
         approved_by=context["approved_by"],
     )
+
+
+def _approval_policy_payload(approvals: tuple[ApprovalItem, ...]) -> list[dict[str, Any]]:
+    return [
+        {
+            "action_type": approval.action_type,
+            "approval_id": approval.approval_id,
+            "evidence_refs": list(approval.evidence_refs),
+            "payload": approval.payload,
+            "reason": approval.reason,
+            "reversibility": approval.reversibility,
+            "target": approval.target,
+        }
+        for approval in approvals
+    ]
+
+
+def _admit_approval_policy_bindings(
+    context: dict[str, Any], evidence: tuple[EvidenceRecord, ...]
+) -> dict[str, str]:
+    """Derive policies before the immutable execution contract is created."""
+
+    provisional_bindings = {
+        workflow_id: canonical_digest([]) for workflow_id in context["workflow_ids"]
+    }
+    provisional = _build_contract(context, evidence, provisional_bindings)
+    bindings: dict[str, str] = {}
+    for packet in compile_task_graph(provisional):
+        _result, approvals = execute_task(packet, context, "POLICY-ADMISSION")
+        bindings[packet.workflow_id] = canonical_digest(_approval_policy_payload(approvals))
+    return bindings
 
 
 def _status_and_outcome(
@@ -180,6 +214,11 @@ def _report(
         and set(result_task_ids) == {packet.task_id for packet in packets}
         and required_source_ids <= evidence_source_ids
         and evidence_source_bindings == contract.evidence_source_bindings
+        and all(
+            canonical_digest(result.output["details"].get("approval_policy"))
+            == contract.approval_policy_bindings.get(result.workflow_id)
+            for result in results
+        )
         and all(
             result.workflow_id in packet_by_workflow
             and validate_worker_output(
@@ -314,6 +353,10 @@ def verify_personal_execution(execution: PersonalExecution) -> bool:
             policies = result.output["details"].get("approval_policy")
             if not isinstance(policies, list):
                 return False
+            if canonical_digest(policies) != execution.contract.approval_policy_bindings.get(
+                workflow_id
+            ):
+                return False
             expected_count = (
                 len(policies) if result.output["validation"]["verdict"] == "PASS" else 0
             )
@@ -337,7 +380,8 @@ def run_personal_execution(
 ) -> PersonalExecution:
     try:
         evidence = validate_personal_context(context)
-        contract = _build_contract(context, evidence)
+        approval_policy_bindings = _admit_approval_policy_bindings(context, evidence)
+        contract = _build_contract(context, evidence, approval_policy_bindings)
         packets = compile_task_graph(contract)
     except (PersonalInputError, ValueError, KeyError, TypeError) as exc:
         raise PersonalExecutionError(str(exc)) from exc

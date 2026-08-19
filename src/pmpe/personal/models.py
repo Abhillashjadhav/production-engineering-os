@@ -57,6 +57,7 @@ class PersonalWorkContract:
     workflow_ids: tuple[str, ...]
     workflow_source_ids: dict[str, tuple[str, ...]]
     evidence_source_bindings: dict[str, str]
+    approval_policy_bindings: dict[str, str]
     input_digest: str
     approved_by: str
     contract_digest: str
@@ -95,6 +96,11 @@ class PersonalWorkContract:
                 _safe_id(source_id) and _valid_digest(record_digest)
                 for source_id, record_digest in self.evidence_source_bindings.items()
             )
+            and set(self.approval_policy_bindings) == set(self.workflow_ids)
+            and all(
+                _safe_id(workflow_id) and _valid_digest(policy_digest)
+                for workflow_id, policy_digest in self.approval_policy_bindings.items()
+            )
             and all(_bounded_text(item, maximum=1024) for item in self.leading_metrics)
             and all(_bounded_text(item, maximum=1024) for item in self.guardrails)
             and all(_bounded_text(item, maximum=1024) for item in self.scope)
@@ -127,6 +133,7 @@ def create_personal_work_contract(
     workflow_ids: tuple[str, ...],
     workflow_source_ids: dict[str, tuple[str, ...]],
     evidence_source_bindings: dict[str, str],
+    approval_policy_bindings: dict[str, str],
     input_digest: str,
     approved_by: str,
 ) -> PersonalWorkContract:
@@ -151,6 +158,7 @@ def create_personal_work_contract(
             workflow_id: list(source_ids) for workflow_id, source_ids in workflow_source_ids.items()
         },
         "evidence_source_bindings": dict(evidence_source_bindings),
+        "approval_policy_bindings": dict(approval_policy_bindings),
     }
     return PersonalWorkContract(
         schema_version="1.0.0",
@@ -169,6 +177,7 @@ def create_personal_work_contract(
         workflow_ids=workflow_ids,
         workflow_source_ids=workflow_source_ids,
         evidence_source_bindings=evidence_source_bindings,
+        approval_policy_bindings=approval_policy_bindings,
         input_digest=input_digest,
         approved_by=approved_by,
         contract_digest=canonical_digest(payload),
