@@ -773,7 +773,12 @@ def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str
     runtime, runtime_directory = _verify_evidence_index(root, artifacts["runtime-assurance"])
     engineering = artifacts["engineering-verification"]
     deployment = artifacts["local-deployment"]
-    deployment_result = deployment.get("result", {})
+    deployment_result = deployment.get("result")
+    if not isinstance(deployment_result, dict):
+        raise FullProductError("local deployment result is not an object")
+    pending_approval_ids = workflows.get("pending_approval_ids")
+    if not isinstance(pending_approval_ids, list):
+        raise FullProductError("workflow report pending approvals are malformed")
     contract_digest = canonical_digest(contract)
     unresolved_workspace = root / "local-product" / "workspace"
     if any(candidate.is_symlink() for candidate in (root / "local-product", unresolved_workspace)):
@@ -790,7 +795,7 @@ def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str
         manifest["schema_version"] == "1.0.0",
         manifest["status"] == "VERIFIED_LOCAL_PRODUCT",
         manifest["workflow_pack_count"] == 21,
-        manifest["pending_approvals"] > 0,
+        manifest["pending_approvals"] == len(pending_approval_ids),
         manifest["external_provider_writes"] == 0,
         handoff.get("contract", {}).get("digest") == contract_digest,
         handoff.get("approval", {}).get("receipt_digest") == verified_receipt,
