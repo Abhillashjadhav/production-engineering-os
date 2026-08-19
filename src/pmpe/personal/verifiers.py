@@ -53,6 +53,20 @@ def _all_have(value: Any, *fields: str) -> bool:
     )
 
 
+def _non_empty_id_list(value: Any) -> bool:
+    return isinstance(value, list) and bool(value) and all(_text(item) for item in value)
+
+
+def _all_have_id_list(value: Any, *, text_field: str, ids_field: str) -> bool:
+    items = _items(value)
+    return bool(items) and all(
+        isinstance(item, Mapping)
+        and _text(item.get(text_field))
+        and _non_empty_id_list(item.get(ids_field))
+        for item in items
+    )
+
+
 def _compile_delivery(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
     tasks = _items(data.get("tasks"))
     return (
@@ -212,13 +226,13 @@ def _customer_research(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
     return (
         _check(
             "quotes-have-source",
-            _all_have(data.get("quotes"), "text", "source_ids"),
+            _all_have_id_list(data.get("quotes"), text_field="text", ids_field="source_ids"),
             data.get("quotes"),
             "text and source_ids per quote",
         ),
         _check(
             "themes-have-sources",
-            _all_have(data.get("themes"), "theme", "source_ids"),
+            _all_have_id_list(data.get("themes"), text_field="theme", ids_field="source_ids"),
             data.get("themes"),
             "theme and source_ids per theme",
         ),
@@ -495,6 +509,7 @@ def verify_extended_pack(
     if workflow_id == "repo-doctor":
         runs = _items(merged.get("command_runs"))
         evidence_bound = bool(runs)
+        verified_commands: set[str] = set()
         for run in runs:
             if not isinstance(run, Mapping):
                 evidence_bound = False
@@ -515,12 +530,27 @@ def verify_extended_pack(
                 )
             if not matching_results:
                 evidence_bound = False
+            else:
+                verified_commands.add(str(run["command"]))
+        declared_verification_commands = _items(merged.get("verification_commands"))
+        all_verification_commands_bound = bool(declared_verification_commands) and all(
+            _text(command) and str(command) in verified_commands
+            for command in declared_verification_commands
+        )
         checks.append(
             _check(
                 "commands-bound-to-admitted-results",
                 evidence_bound,
                 runs,
                 "each successful command matches an admitted command-result artifact",
+            )
+        )
+        checks.append(
+            _check(
+                "verification-commands-bound-to-results",
+                all_verification_commands_bound,
+                declared_verification_commands,
+                "every verification command has matching successful admitted evidence",
             )
         )
     checks.append(

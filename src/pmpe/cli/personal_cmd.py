@@ -30,7 +30,10 @@ def _cmd_starter(args: argparse.Namespace) -> int:
 
 
 def _cmd_validate(args: argparse.Namespace) -> int:
-    context = load_personal_context(Path(args.input))
+    try:
+        context = load_personal_context(Path(args.input))
+    except PersonalExecutionError as exc:
+        raise SpecError(str(exc)) from exc
     print(f"workflow request OK: {context['request_id']} ({len(context['workflow_ids'])} packs)")
     return 0
 

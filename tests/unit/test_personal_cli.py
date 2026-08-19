@@ -44,6 +44,17 @@ def test_personal_workflows_validate_real_input(tmp_path, capsys) -> None:  # ty
     assert "(21 packs)" in capsys.readouterr().out
 
 
+def test_personal_workflows_validate_reports_malformed_input_without_traceback(
+    tmp_path, capsys
+) -> None:  # type: ignore[no-untyped-def]
+    request = tmp_path / "malformed.json"
+    request.write_text("{not-json")
+    assert main(["personal-workflows", "validate", "--input", str(request)]) == 2
+    captured = capsys.readouterr()
+    assert "unreadable or malformed" in captured.err
+    assert "Traceback" not in captured.err
+
+
 def test_pack_specific_starter_is_cli_runnable(tmp_path, capsys) -> None:  # type: ignore[no-untyped-def]
     output = tmp_path / "starter"
     assert (
