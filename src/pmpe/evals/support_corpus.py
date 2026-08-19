@@ -391,6 +391,7 @@ def load_hidden_oracles(path: Path) -> tuple[HiddenOracle, ...]:
         oracles = tuple(
             HiddenOracle(
                 case_id=item["case_id"],
+                split=item["split"],
                 expected_outcome=item["expected_outcome"],
                 required_fact_ids=tuple(item["required_fact_ids"]),
                 required_rule_ids=tuple(item["required_rule_ids"]),

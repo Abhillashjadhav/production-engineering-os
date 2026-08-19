@@ -37,14 +37,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
     adapter = CustomerSupportDiscoveryAdapter()
     contract = adapter.discover(case)
     plan = compile_workflow(contract)
-    report = execute_workflow(case, contract, plan, contract_verifier=adapter)
+    report = execute_workflow(case, contract, plan)
     paths = write_workflow_report(
         Path(args.output),
         case,
         contract,
         plan,
         report,
-        contract_verifier=adapter,
     )
     print(f"{report.case_id}: {report.selected_action} ({report.status})")
     print(f"report: {paths.markdown_path}")
@@ -55,14 +54,15 @@ def _cmd_evaluate(args: argparse.Namespace) -> int:
     all_cases = load_visible_cases(Path(args.cases))
     loaded_oracles = load_hidden_oracles(Path(args.oracles))
     validate_support_corpus(SupportCorpus(all_cases, loaded_oracles))
-    cases = tuple(item for item in all_cases if item.split == "held_out")
     oracles = {item.case_id: item for item in loaded_oracles}
+    held_out_ids = {item.case_id for item in loaded_oracles if item.split == "held_out"}
+    cases = tuple(item for item in all_cases if item.case_id in held_out_ids)
     adapter = CustomerSupportDiscoveryAdapter()
     evaluated = []
     for case in cases:
         contract = adapter.discover(case)
         plan = compile_workflow(contract)
-        report = execute_workflow(case, contract, plan, contract_verifier=adapter)
+        report = execute_workflow(case, contract, plan)
         evaluated.append((case, contract, report))
     exact = sum(
         report.selected_action == oracles[report.case_id].expected_outcome

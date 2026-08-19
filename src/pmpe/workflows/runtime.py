@@ -7,7 +7,7 @@ import tempfile
 from contextlib import suppress
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from pmpe.workflows.decision import DecisionContract
@@ -18,10 +18,13 @@ class WorkflowEvidenceError(ValueError):
     """Raised when plan or evidence bindings are missing or inconsistent."""
 
 
-class DecisionContractVerifier(Protocol):
-    """Independent boundary that authenticates a contract for visible input."""
+def _trusted_contract(case: SupportCase, contract: DecisionContract) -> bool:
+    """Resolve verification from runtime-owned configuration, never caller input."""
+    if contract.vertical != "customer_support":
+        return False
+    from pmpe.workflows.support_discovery import CustomerSupportDiscoveryAdapter
 
-    def verify(self, case: SupportCase, contract: DecisionContract) -> bool: ...
+    return CustomerSupportDiscoveryAdapter().verify(case, contract)
 
 
 @dataclass(frozen=True)
@@ -130,8 +133,6 @@ def execute_workflow(
     case: SupportCase,
     contract: DecisionContract,
     plan: ExecutableWorkflowPlan,
-    *,
-    contract_verifier: DecisionContractVerifier,
 ) -> WorkflowReport:
     input_digest = canonical_digest(case.as_dict())
     if input_digest != contract.input_digest or input_digest != plan.input_digest:
@@ -140,7 +141,7 @@ def execute_workflow(
         raise WorkflowEvidenceError("contract case identity does not match visible case")
     if not contract.digest_is_valid() or contract.contract_digest != plan.contract_digest:
         raise WorkflowEvidenceError("contract digest does not match executable plan")
-    if not contract_verifier.verify(case, contract):
+    if not _trusted_contract(case, contract):
         raise WorkflowEvidenceError("decision contract is not independently authorized")
     if not plan.digest_is_valid():
         raise WorkflowEvidenceError("plan digest is invalid")
@@ -188,11 +189,9 @@ def verify_workflow_report(
     contract: DecisionContract,
     plan: ExecutableWorkflowPlan,
     report: WorkflowReport,
-    *,
-    contract_verifier: DecisionContractVerifier,
 ) -> bool:
     try:
-        expected = execute_workflow(case, contract, plan, contract_verifier=contract_verifier)
+        expected = execute_workflow(case, contract, plan)
     except WorkflowEvidenceError:
         return False
     return report == expected and report.canonical_bytes() == expected.canonical_bytes()
@@ -219,12 +218,8 @@ def write_workflow_report(
     contract: DecisionContract,
     plan: ExecutableWorkflowPlan,
     report: WorkflowReport,
-    *,
-    contract_verifier: DecisionContractVerifier,
 ) -> WorkflowReportPaths:
-    if not verify_workflow_report(
-        case, contract, plan, report, contract_verifier=contract_verifier
-    ):
+    if not verify_workflow_report(case, contract, plan, report):
         raise WorkflowEvidenceError("unverified report cannot be persisted as complete")
     json_path = Path(root) / "workflow-report.json"
     markdown_path = Path(root) / "workflow-report.md"

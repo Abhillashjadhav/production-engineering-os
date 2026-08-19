@@ -23,7 +23,7 @@ def _run(case_index: int = 0):  # type: ignore[no-untyped-def]
     adapter = CustomerSupportDiscoveryAdapter()
     contract = adapter.discover(case)
     plan = compile_workflow(contract)
-    report = execute_workflow(case, contract, plan, contract_verifier=adapter)
+    report = execute_workflow(case, contract, plan)
     return case, contract, plan, report
 
 
@@ -38,13 +38,7 @@ def test_compile_and_execute_produces_complete_digest_chain() -> None:
     assert report.execution_digest.startswith("sha256:")
     assert report.report_digest.startswith("sha256:")
     assert report.evidence_complete
-    assert verify_workflow_report(
-        case,
-        contract,
-        plan,
-        report,
-        contract_verifier=CustomerSupportDiscoveryAdapter(),
-    )
+    assert verify_workflow_report(case, contract, plan, report)
 
 
 def test_all_cases_execute_to_hidden_expected_outcome() -> None:
@@ -53,12 +47,7 @@ def test_all_cases_execute_to_hidden_expected_outcome() -> None:
     adapter = CustomerSupportDiscoveryAdapter()
 
     reports = tuple(
-        execute_workflow(
-            case,
-            contract,
-            compile_workflow(contract),
-            contract_verifier=adapter,
-        )
+        execute_workflow(case, contract, compile_workflow(contract))
         for case in corpus.visible_cases
         for contract in (adapter.discover(case),)
     )
@@ -70,12 +59,7 @@ def test_all_cases_execute_to_hidden_expected_outcome() -> None:
 
 def test_replay_is_byte_deterministic() -> None:
     case, contract, plan, first = _run(6)
-    second = execute_workflow(
-        case,
-        contract,
-        plan,
-        contract_verifier=CustomerSupportDiscoveryAdapter(),
-    )
+    second = execute_workflow(case, contract, plan)
 
     assert first == second
     assert first.canonical_bytes() == second.canonical_bytes()
@@ -96,26 +80,13 @@ def test_tampered_report_cannot_claim_verified_completion(field: str, value: obj
     case, contract, plan, report = _run(10)
     tampered = replace(report, **{field: value})
 
-    assert not verify_workflow_report(
-        case,
-        contract,
-        plan,
-        tampered,
-        contract_verifier=CustomerSupportDiscoveryAdapter(),
-    )
+    assert not verify_workflow_report(case, contract, plan, tampered)
 
 
 def test_report_writer_emits_minimal_json_and_markdown(tmp_path: Path) -> None:
     case, contract, plan, report = _run(20)
 
-    paths = write_workflow_report(
-        tmp_path,
-        case,
-        contract,
-        plan,
-        report,
-        contract_verifier=CustomerSupportDiscoveryAdapter(),
-    )
+    paths = write_workflow_report(tmp_path, case, contract, plan, report)
     payload = json.loads(paths.json_path.read_text())
     markdown = paths.markdown_path.read_text()
 
@@ -131,19 +102,9 @@ def test_execution_rejects_mismatched_contract_or_plan() -> None:
     other_case = generate_support_corpus(seed=110).visible_cases[5]
 
     with pytest.raises(WorkflowEvidenceError, match="input digest"):
-        execute_workflow(
-            other_case,
-            contract,
-            plan,
-            contract_verifier=CustomerSupportDiscoveryAdapter(),
-        )
+        execute_workflow(other_case, contract, plan)
     with pytest.raises(WorkflowEvidenceError, match="plan digest"):
-        execute_workflow(
-            case,
-            contract,
-            replace(plan, plan_digest="sha256:" + "0" * 64),
-            contract_verifier=CustomerSupportDiscoveryAdapter(),
-        )
+        execute_workflow(case, contract, replace(plan, plan_digest="sha256:" + "0" * 64))
 
 
 def test_digest_valid_caller_contract_cannot_authorize_arbitrary_action() -> None:
@@ -160,9 +121,4 @@ def test_digest_valid_caller_contract_cannot_authorize_arbitrary_action() -> Non
     plan = compile_workflow(forged)
 
     with pytest.raises(WorkflowEvidenceError, match="independently authorized"):
-        execute_workflow(
-            case,
-            forged,
-            plan,
-            contract_verifier=CustomerSupportDiscoveryAdapter(),
-        )
+        execute_workflow(case, forged, plan)
