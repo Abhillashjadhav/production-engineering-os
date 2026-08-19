@@ -133,9 +133,7 @@ def _verify_evidence_index(root: Path, index: dict[str, Any]) -> dict[str, Any]:
     for part in relative_directory.parts:
         unresolved_directory /= part
         if unresolved_directory.is_symlink():
-            raise FullProductError(
-                f"evidence index refuses symbolic link: {unresolved_directory}"
-            )
+            raise FullProductError(f"evidence index refuses symbolic link: {unresolved_directory}")
     directory = unresolved_directory.resolve()
     if not directory.is_relative_to(root_resolved) or not directory.is_dir():
         raise FullProductError("evidence index directory is missing or escapes output")
