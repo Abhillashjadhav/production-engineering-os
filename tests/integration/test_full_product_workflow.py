@@ -82,6 +82,15 @@ def test_full_product_quickstart_rejects_file_output(repo_root: Path, tmp_path: 
         run_full_product_quickstart(output, repo_root=repo_root)
 
 
+def test_full_product_quickstart_rejects_dangling_symlink_output(
+    repo_root: Path, tmp_path: Path
+) -> None:
+    output = tmp_path / "dangling-output"
+    output.symlink_to(tmp_path / "missing-target", target_is_directory=True)
+    with pytest.raises(FullProductError, match="output must be a directory"):
+        run_full_product_quickstart(output, repo_root=repo_root)
+
+
 def test_full_product_verifier_rejects_tampered_deployment(repo_root: Path, tmp_path: Path) -> None:
     output = tmp_path / "full-product"
     run_full_product_quickstart(output, repo_root=repo_root)

@@ -621,8 +621,10 @@ def run_full_product_quickstart(
     output: Path, *, repo_root: Path, seed: int = 2026
 ) -> dict[str, Any]:
     root = Path(output)
+    if root.is_symlink():
+        raise FullProductError("full-product output must be a directory")
     if root.exists():
-        if root.is_symlink() or not root.is_dir():
+        if not root.is_dir():
             raise FullProductError("full-product output must be a directory")
         if any(root.iterdir()):
             raise FullProductError("full-product output directory must be empty")
