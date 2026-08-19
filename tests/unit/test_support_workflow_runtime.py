@@ -97,6 +97,20 @@ def test_report_writer_emits_minimal_json_and_markdown(tmp_path: Path) -> None:
     assert payload["evidence_complete"] is True
     assert "Evidence complete: yes" in markdown
     assert report.report_digest in markdown
+    assert paths.json_path.parents[1].name == "reports"
+
+
+def test_distinct_reports_publish_to_immutable_versions(tmp_path: Path) -> None:
+    first_case, first_contract, first_plan, first_report = _run(0)
+    second_case, second_contract, second_plan, second_report = _run(5)
+
+    first = write_workflow_report(tmp_path, first_case, first_contract, first_plan, first_report)
+    second = write_workflow_report(
+        tmp_path, second_case, second_contract, second_plan, second_report
+    )
+
+    assert first.json_path.parent != second.json_path.parent
+    assert first.json_path.exists() and second.json_path.exists()
 
 
 def test_human_decision_report_persists_unresolved_questions(tmp_path: Path) -> None:

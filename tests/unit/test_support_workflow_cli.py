@@ -16,8 +16,8 @@ def test_support_demo_generates_separated_visible_and_oracle_artifacts(
     result = main(["support-demo", "generate", "--seed", "110", "--output", str(output)])
 
     assert result == 0
-    assert (output / "visible" / "cases.json").exists()
-    assert (output / "eval-only" / "oracles.json").exists()
+    assert len(list(output.glob("versions/*/visible/cases.json"))) == 1
+    assert len(list(output.glob("versions/*/eval-only/oracles.json"))) == 1
 
 
 def test_support_demo_runs_one_visible_case_without_oracle_input(
@@ -41,7 +41,8 @@ def test_support_demo_runs_one_visible_case_without_oracle_input(
     )
 
     assert result == 0
-    report = json.loads((output / "workflow-report.json").read_text())
+    report_path = next(output.glob("reports/*/workflow-report.json"))
+    report = json.loads(report_path.read_text())
     assert report["selected_action"] == "refund"
     assert report["evidence_complete"] is True
 

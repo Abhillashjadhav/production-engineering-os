@@ -225,8 +225,9 @@ def write_workflow_report(
 ) -> WorkflowReportPaths:
     if not verify_workflow_report(case, contract, plan, report):
         raise WorkflowEvidenceError("unverified report cannot be persisted as complete")
-    json_path = Path(root) / "workflow-report.json"
-    markdown_path = Path(root) / "workflow-report.md"
+    version_root = Path(root) / "reports" / report.report_digest.removeprefix("sha256:")
+    json_path = version_root / "workflow-report.json"
+    markdown_path = version_root / "workflow-report.md"
     def escaped_question(question: str) -> str:
         return (
             html.escape(question)
