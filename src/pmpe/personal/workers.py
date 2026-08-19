@@ -652,7 +652,12 @@ def _generic_outcome_pack(
         set(declared_actions)
     )
     checks: list[dict[str, Any]] = [
-        dict(item) for item in verify_extended_pack(packet.workflow_id, supplied["records"])
+        dict(item)
+        for item in verify_extended_pack(
+            packet.workflow_id,
+            supplied["records"],
+            {str(source["source_id"]): source for source in context["evidence_sources"]},
+        )
     ]
     checks.extend(
         [

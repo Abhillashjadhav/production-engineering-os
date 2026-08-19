@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
+from datetime import datetime
 from typing import Any, TypedDict
 
 
@@ -211,9 +212,9 @@ def _customer_research(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
     return (
         _check(
             "quotes-have-source",
-            _all_have(data.get("quotes"), "text", "source_id"),
+            _all_have(data.get("quotes"), "text", "source_ids"),
             data.get("quotes"),
-            "text and source_id per quote",
+            "text and source_ids per quote",
         ),
         _check(
             "themes-have-sources",
@@ -231,6 +232,24 @@ def _customer_research(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
 
 
 def _market_watch(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
+    changes = _items(data.get("changes"))
+    cutoff_raw = data.get("freshness_cutoff")
+    fresh = False
+    try:
+        cutoff = datetime.fromisoformat(str(cutoff_raw).replace("Z", "+00:00"))
+        observed = [
+            datetime.fromisoformat(str(item["observed_at"]).replace("Z", "+00:00"))
+            for item in changes
+            if isinstance(item, Mapping)
+        ]
+        fresh = (
+            bool(changes)
+            and len(observed) == len(changes)
+            and cutoff.tzinfo is not None
+            and all(item.tzinfo is not None and item >= cutoff for item in observed)
+        )
+    except (KeyError, TypeError, ValueError):
+        fresh = False
     return (
         _check(
             "changes-have-fresh-sources",
@@ -239,10 +258,10 @@ def _market_watch(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
             "change/observed_at/source_ids per item",
         ),
         _check(
-            "freshness-cutoff-present",
-            _text(data.get("freshness_cutoff")),
-            data.get("freshness_cutoff"),
-            "non-empty",
+            "changes-meet-freshness-cutoff",
+            fresh,
+            {"changes": changes, "freshness_cutoff": cutoff_raw},
+            "every observed_at >= freshness_cutoff with explicit timezone",
         ),
         _check(
             "conflicts-explicit",
@@ -352,19 +371,19 @@ def _small_tool(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
 
 def _repo_doctor(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
     runs = _items(data.get("command_runs"))
-    commands_pass = bool(runs) and all(
+    commands_are_structured = bool(runs) and all(
         isinstance(item, Mapping)
         and _text(item.get("command"))
-        and item.get("exit_code") == 0
         and bool(_items(item.get("evidence_source_ids")))
+        and _text(item.get("output_digest"))
         for item in runs
     )
     return (
         _check(
-            "commands-executed-successfully",
-            commands_pass,
+            "command-evidence-declared",
+            commands_are_structured,
             runs,
-            "command + exit_code 0 + evidence per run",
+            "command + output_digest + evidence_source_ids per run",
         ),
         _check(
             "repair-plan-present",
@@ -453,7 +472,9 @@ _VERIFIERS: dict[str, Verifier] = {
 
 
 def verify_extended_pack(
-    workflow_id: str, records: Sequence[Mapping[str, Any]]
+    workflow_id: str,
+    records: Sequence[Mapping[str, Any]],
+    evidence_sources: Mapping[str, Mapping[str, Any]],
 ) -> tuple[VerifiedCheck, ...]:
     """Evaluate admitted record content with the fixed verifier for one pack."""
 
@@ -471,6 +492,37 @@ def verify_extended_pack(
                 merged[str(key)] = value
     verifier = _VERIFIERS[workflow_id]
     checks = list(verifier(merged))
+    if workflow_id == "repo-doctor":
+        runs = _items(merged.get("command_runs"))
+        evidence_bound = bool(runs)
+        for run in runs:
+            if not isinstance(run, Mapping):
+                evidence_bound = False
+                continue
+            matching_results: list[Mapping[str, Any]] = []
+            for source_id in _items(run.get("evidence_source_ids")):
+                source = evidence_sources.get(str(source_id), {})
+                content = source.get("content") if isinstance(source, Mapping) else None
+                if not isinstance(content, Mapping):
+                    continue
+                matching_results.extend(
+                    item
+                    for item in _items(content.get("command_results"))
+                    if isinstance(item, Mapping)
+                    and item.get("command") == run.get("command")
+                    and item.get("exit_code") == run.get("exit_code") == 0
+                    and item.get("output_digest") == run.get("output_digest")
+                )
+            if not matching_results:
+                evidence_bound = False
+        checks.append(
+            _check(
+                "commands-bound-to-admitted-results",
+                evidence_bound,
+                runs,
+                "each successful command matches an admitted command-result artifact",
+            )
+        )
     checks.append(
         _check(
             "record-content-unambiguous",

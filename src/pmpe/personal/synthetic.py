@@ -73,7 +73,7 @@ def _extended_pack_content(workflow_id: str, source_id: str) -> dict[str, Any]:
             "publish_status": "DRAFT",
         },
         "customer-research-synthesis": {
-            "quotes": [{"text": "Review takes too long.", "source_id": source_id}],
+            "quotes": [{"text": "Review takes too long.", "source_ids": [source_id]}],
             "themes": [{"theme": "approval latency", "source_ids": [source_id]}],
             "contradictions": [],
         },
@@ -116,6 +116,7 @@ def _extended_pack_content(workflow_id: str, source_id: str) -> dict[str, Any]:
                     "command": "python -m pytest",
                     "exit_code": 0,
                     "evidence_source_ids": [source_id],
+                    "output_digest": canonical_digest({"stdout": "1599 passed"}),
                 }
             ],
             "repair_plan": ["Preserve the reproducible test command."],
@@ -223,16 +224,25 @@ def synthetic_personal_context(
     for index, (workflow_id, entry) in enumerate(GENERIC_WORKFLOW_CATALOG.items(), start=1):
         source_id = f"SRC-PACK-{index:02d}"
         generic_source_ids[workflow_id] = source_id
+        source_content: dict[str, Any] = {
+            "problem_solved": entry["problem_solved"],
+            "objective": entry["objective"],
+            "observed_state": "synthetic verified input",
+        }
+        if workflow_id == "repo-doctor":
+            source_content["command_results"] = [
+                {
+                    "command": "python -m pytest",
+                    "exit_code": 0,
+                    "output_digest": canonical_digest({"stdout": "1599 passed"}),
+                }
+            ]
         sources.append(
             _source(
                 source_id,
                 "workflow-evidence",
                 f"Evidence for {workflow_id}",
-                {
-                    "problem_solved": entry["problem_solved"],
-                    "objective": entry["objective"],
-                    "observed_state": "synthetic verified input",
-                },
+                source_content,
                 observed_at="2026-08-19T12:00:00+05:30",
             )
         )

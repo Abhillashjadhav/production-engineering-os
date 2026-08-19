@@ -102,10 +102,45 @@ def test_extended_pack_does_not_trust_a_caller_declared_pass() -> None:
     validation = execution.results[0].output["validation"]
     assert validation["verdict"] == "HOLD"
     assert (
-        "commands-executed-successfully"
+        "commands-bound-to-admitted-results"
         in execution.results[0].output["details"]["failed_check_ids"]
     )
     assert execution.approvals == ()
+
+
+def test_repo_doctor_binds_exit_code_to_admitted_command_result() -> None:
+    context = synthetic_personal_context(workflow_ids=("repo-doctor",))
+    source_id = context["workflow_inputs"]["repo-doctor"]["evidence_source_ids"][0]
+    source = next(item for item in context["evidence_sources"] if item["source_id"] == source_id)
+    source["content"]["command_results"] = []
+    source["content_digest"] = canonical_digest(source["content"])
+    execution = run_personal_execution(context)
+    validation = execution.results[0].output["validation"]
+    assert validation["verdict"] == "HOLD"
+    assert (
+        "commands-bound-to-admitted-results"
+        in execution.results[0].output["details"]["failed_check_ids"]
+    )
+    assert execution.approvals == ()
+
+
+def test_market_watch_enforces_freshness_cutoff() -> None:
+    context = synthetic_personal_context(workflow_ids=("competitive-market-watch",))
+    supplied = context["workflow_inputs"]["competitive-market-watch"]
+    supplied["records"][0]["content"]["changes"][0]["observed_at"] = "2020-01-01T00:00:00+05:30"
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
+    assert execution.approvals == ()
+
+
+def test_customer_quote_source_must_be_in_the_admitted_packet() -> None:
+    context = synthetic_personal_context(workflow_ids=("customer-research-synthesis",))
+    quote = context["workflow_inputs"]["customer-research-synthesis"]["records"][0]["content"][
+        "quotes"
+    ][0]
+    quote["source_ids"] = ["SRC-NOT-ADMITTED"]
+    with pytest.raises(PersonalExecutionError, match="unknown evidence source"):
+        run_personal_execution(context)
 
 
 def test_roadmap_validation_hold_returns_without_consequential_approvals() -> None:
