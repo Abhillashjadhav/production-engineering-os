@@ -181,21 +181,20 @@ def test_conflict_preserves_rule_specific_human_questions() -> None:
 
 def test_rule_without_required_fact_fails_closed() -> None:
     case = generate_support_corpus(seed=16).visible_cases[0]
-    mutated = replace(
-        case,
-        facts=(VisibleFact("FACT-UNRELATED", "A different fact is visible.", "TICKET-X"),),
-    )
 
-    with pytest.raises(DecisionContractError, match="bound visible fact"):
-        CustomerSupportDiscoveryAdapter().discover(mutated)
+    with pytest.raises(VisibleCorpusError, match="support case is malformed"):
+        replace(
+            case,
+            facts=(VisibleFact("FACT-UNRELATED", "A different fact is visible.", "TICKET-X"),),
+        )
 
 
 def test_changed_fact_text_invalidates_policy_authorization() -> None:
     case = generate_support_corpus(seed=16).visible_cases[0]
     changed = replace(case.facts[0], text="Order delivered 100 days ago and is used.")
 
-    with pytest.raises(DecisionContractError, match="bound visible fact"):
-        CustomerSupportDiscoveryAdapter().discover(replace(case, facts=(changed,)))
+    with pytest.raises(VisibleCorpusError, match="support case is malformed"):
+        replace(case, facts=(changed,))
 
 
 def test_contract_constructor_rejects_payload_digest_mismatch() -> None:

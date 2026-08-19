@@ -295,6 +295,33 @@ def test_validator_rejects_unequal_priority_conflict() -> None:
         validate_support_corpus(SupportCorpus(tuple(cases), corpus.hidden_oracles))
 
 
+def test_validator_rejects_conflict_policy_with_corrupted_direction() -> None:
+    corpus = generate_support_corpus(seed=9)
+    index = next(
+        index for index, item in enumerate(corpus.visible_cases) if len(item.policies) == 2
+    )
+    case = corpus.visible_cases[index]
+    policy = case.policies[0]
+    required_fact = next(fact for fact in case.facts if fact.fact_id == policy.required_fact_id)
+    corrupted = create_policy_rule(
+        policy.rule_id,
+        "Items cannot be refunded.",
+        policy.priority,
+        action=policy.action,
+        required_fact=required_fact,
+        human_question=policy.human_question,
+    )
+    changed = replace(
+        case,
+        policies=(corrupted, case.policies[1]),
+    )
+    cases = list(corpus.visible_cases)
+    cases[index] = changed
+
+    with pytest.raises(CorpusValidationError, match="policy semantics"):
+        validate_support_corpus(SupportCorpus(tuple(cases), corpus.hidden_oracles))
+
+
 def test_validator_rejects_coordinated_rationale_and_outcome_rewrite() -> None:
     corpus = generate_support_corpus(seed=9)
     first = replace(
