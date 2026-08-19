@@ -200,6 +200,7 @@ Corrections create a new manifest; sealed evidence is not overwritten.
 | PMOS → intake | Contract content is untrusted until schema, digest, approvals, ownership, and semantic rules pass. No secret values are permitted. |
 | Agent → control plane | Agent artifacts are untrusted proposals. Deterministic admission, task/file scope, and product-boundary rules apply. |
 | Reviewer → candidate | Reviewer is read-only, sees the frozen exact candidate, and is separate from fixer/verifier. Formal GitHub approval is a distinct human event. |
+| Test implementation → evidence gate | Runner output and serialized error metadata are untrusted. A plan-bound assertion failure authorizes meaningful red only when an independent hidden-oracle admission receipt binds the exact command, commit, subject, plan, tool, format, node, and assertion. |
 | PEOS → GitHub | Least-privilege token; issue/branch/draft-PR only by stage. No force-push, self-approval, or merge authority. |
 | PEOS → build/dependency network | Pinned/locked sources, egress allowlist, SCA/SBOM/provenance, no credential persistence. |
 | PEOS → staging/production | Short-lived target-scoped identity, protected environment, exact-subject approval, network/data policy, audit log. |
