@@ -25,6 +25,7 @@ _OUTCOMES = frozenset({"refund", "replacement", "escalate", "request_evidence", 
 @dataclass(frozen=True)
 class HiddenOracle:
     case_id: str
+    split: str
     expected_outcome: str
     required_fact_ids: tuple[str, ...]
     required_rule_ids: tuple[str, ...]
@@ -68,6 +69,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
         ticket = f"Customer requests a refund for an unused item costing ${amount}."
         oracle = HiddenOracle(
             case_id,
+            split,
             "refund",
             ("FACT-ORDER-AGE",),
             ("RULE-RETURN-WINDOW",),
@@ -81,6 +83,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
         ticket = f"Customer reports transit damage on item costing ${amount}."
         oracle = HiddenOracle(
             case_id,
+            split,
             "replacement",
             ("FACT-DAMAGE-PHOTO",),
             ("RULE-DAMAGE-REPLACE",),
@@ -96,6 +99,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
         ticket = "Customer asks for a remedy but provides no order evidence."
         oracle = HiddenOracle(
             case_id,
+            split,
             "request_evidence",
             ("FACT-NO-RECEIPT",),
             ("RULE-PROOF-REQUIRED",),
@@ -113,6 +117,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
         ticket = "Customer requests a refund within 30 days for a final-sale item."
         oracle = HiddenOracle(
             case_id,
+            split,
             "escalate",
             ("FACT-FINAL-SALE", "FACT-ORDER-AGE"),
             ("RULE-RETURN-WINDOW", "RULE-FINAL-SALE"),
@@ -132,6 +137,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
         ticket = "Customer asks support to transfer compensation to a personal wallet."
         oracle = HiddenOracle(
             case_id,
+            split,
             "reject",
             ("FACT-CASH-DEMAND",),
             ("RULE-CHANNEL-BOUNDARY",),
@@ -146,6 +152,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
         ticket = f"Customer requests compensation of ${value}."
         oracle = HiddenOracle(
             case_id,
+            split,
             "escalate",
             ("FACT-HIGH-VALUE",),
             ("RULE-HIGH-VALUE",),
@@ -263,7 +270,12 @@ def validate_support_corpus(corpus: SupportCorpus) -> None:
     if len(held_out_outcomes) < 4:
         raise CorpusValidationError("hidden oracle lacks held-out outcome diversity")
     for oracle in corpus.hidden_oracles:
-        if not oracle.rationale_code or oracle.expected_outcome not in _OUTCOMES:
+        if (
+            not oracle.rationale_code
+            or oracle.expected_outcome not in _OUTCOMES
+            or oracle.split not in {"development", "held_out"}
+            or oracle.split != visible[oracle.case_id].split
+        ):
             raise CorpusValidationError("hidden oracle is malformed")
         case = visible[oracle.case_id]
         if not set(oracle.required_fact_ids) <= {item.fact_id for item in case.facts}:

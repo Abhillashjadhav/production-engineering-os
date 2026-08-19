@@ -121,6 +121,7 @@ def test_validator_rejects_trivial_all_escalate_oracle() -> None:
     trivial = tuple(
         HiddenOracle(
             case_id=item.case_id,
+            split=item.split,
             expected_outcome="escalate",
             required_fact_ids=item.required_fact_ids,
             required_rule_ids=item.required_rule_ids,
@@ -156,6 +157,18 @@ def test_validator_rejects_duplicate_or_mismatched_cases() -> None:
         )
     with pytest.raises(CorpusValidationError, match="one oracle"):
         validate_support_corpus(SupportCorpus(corpus.visible_cases, corpus.hidden_oracles[1:]))
+
+
+def test_validator_rejects_visible_partition_relabeling() -> None:
+    corpus = generate_support_corpus(seed=11)
+    held_out_index = next(
+        index for index, item in enumerate(corpus.visible_cases) if item.split == "held_out"
+    )
+    visible = list(corpus.visible_cases)
+    visible[held_out_index] = replace(visible[held_out_index], split="development")
+
+    with pytest.raises(CorpusValidationError, match="hidden oracle is malformed"):
+        validate_support_corpus(SupportCorpus(tuple(visible), corpus.hidden_oracles))
 
 
 def test_every_oracle_is_grounded_in_visible_facts_and_rules() -> None:
