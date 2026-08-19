@@ -11,6 +11,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from pmpe.contracts.canonical import canonical_digest
+
 _FORBIDDEN_ORACLE_FIELDS = frozenset(
     {
         "expected_outcome",
@@ -59,21 +61,84 @@ class VisibleFact:
         ):
             raise VisibleCorpusError("visible fact is malformed")
 
+    def as_dict(self) -> dict[str, str]:
+        return asdict(self)
+
 
 @dataclass(frozen=True)
 class PolicyRule:
     rule_id: str
     text: str
     priority: int
+    action: str
+    required_fact_id: str
+    required_fact_digest: str
+    human_question: str
+    semantic_digest: str
 
     def __post_init__(self) -> None:
+        semantic_payload = {
+            "action": self.action,
+            "human_question": self.human_question,
+            "priority": self.priority,
+            "required_fact_id": self.required_fact_id,
+            "required_fact_digest": self.required_fact_digest,
+            "rule_id": self.rule_id,
+            "text": self.text,
+        }
         if not (
             _bounded_identifier(self.rule_id)
             and _bounded_text(self.text)
             and type(self.priority) is int
             and 0 <= self.priority <= 100
+            and self.action in {"escalate", "refund", "reject", "replacement", "request_evidence"}
+            and _bounded_identifier(self.required_fact_id)
+            and type(self.required_fact_digest) is str
+            and len(self.required_fact_digest) == 71
+            and self.required_fact_digest.startswith("sha256:")
+            and all(character in "0123456789abcdef" for character in self.required_fact_digest[7:])
+            and type(self.human_question) is str
+            and (
+                not self.human_question
+                or (
+                    bool(self.human_question.strip())
+                    and _bounded_text(self.human_question, maximum=1024)
+                )
+            )
+            and (self.action != "escalate" or bool(self.human_question.strip()))
+            and self.semantic_digest == canonical_digest(semantic_payload)
         ):
             raise VisibleCorpusError("policy rule is malformed")
+
+
+def create_policy_rule(
+    rule_id: str,
+    text: str,
+    priority: int,
+    *,
+    action: str,
+    required_fact: VisibleFact,
+    human_question: str = "",
+) -> PolicyRule:
+    payload = {
+        "action": action,
+        "human_question": human_question,
+        "priority": priority,
+        "required_fact_id": required_fact.fact_id,
+        "required_fact_digest": canonical_digest(asdict(required_fact)),
+        "rule_id": rule_id,
+        "text": text,
+    }
+    return PolicyRule(
+        rule_id,
+        text,
+        priority,
+        action,
+        required_fact.fact_id,
+        canonical_digest(asdict(required_fact)),
+        human_question,
+        canonical_digest(payload),
+    )
 
 
 @dataclass(frozen=True)
@@ -88,6 +153,7 @@ class SupportCase:
     def __post_init__(self) -> None:
         fact_ids = [item.fact_id for item in self.facts]
         rule_ids = [item.rule_id for item in self.policies]
+        facts_by_id = {item.fact_id: item for item in self.facts}
         if not (
             _bounded_identifier(self.case_id)
             and self.split in {"development", "held_out"}
@@ -99,6 +165,12 @@ class SupportCase:
             and all(_bounded_text(item, maximum=512) for item in self.product_constraints)
             and len(fact_ids) == len(set(fact_ids))
             and len(rule_ids) == len(set(rule_ids))
+            and all(
+                policy.required_fact_id in facts_by_id
+                and policy.required_fact_digest
+                == canonical_digest(asdict(facts_by_id[policy.required_fact_id]))
+                for policy in self.policies
+            )
         ):
             raise VisibleCorpusError("support case is malformed or duplicate")
 
@@ -135,8 +207,7 @@ def load_visible_cases(path: Path) -> tuple[SupportCase, ...]:
     if not isinstance(raw_cases, list):
         raise VisibleCorpusError("visible corpus cases are missing")
     if any(
-        not isinstance(item, dict)
-        or not isinstance(item.get("product_constraints"), list)
+        not isinstance(item, dict) or not isinstance(item.get("product_constraints"), list)
         for item in raw_cases
     ):
         raise VisibleCorpusError("visible corpus product constraints must be an array")
