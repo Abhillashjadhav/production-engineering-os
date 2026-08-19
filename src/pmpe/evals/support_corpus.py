@@ -301,10 +301,11 @@ def validate_support_corpus(corpus: SupportCorpus) -> None:
         raise CorpusValidationError("duplicate case oracle")
     if set(case_ids) != set(oracle_ids):
         raise CorpusValidationError("every visible case requires exactly one oracle")
-    if len(case_ids) < 30 or {item.split for item in corpus.visible_cases} != {
-        "development",
-        "held_out",
-    }:
+    split_counts = {
+        split: sum(item.split == split for item in corpus.visible_cases)
+        for split in ("development", "held_out")
+    }
+    if len(case_ids) < 30 or any(count < 10 for count in split_counts.values()):
         raise CorpusValidationError("corpus lacks required case and partition coverage")
     outcomes = {item.expected_outcome for item in corpus.hidden_oracles}
     if not outcomes <= _OUTCOMES or len(outcomes) < 4:
@@ -325,6 +326,8 @@ def validate_support_corpus(corpus: SupportCorpus) -> None:
         ):
             raise CorpusValidationError("hidden oracle is malformed")
         case = visible[oracle.case_id]
+        if not oracle.required_fact_ids or not oracle.required_rule_ids:
+            raise CorpusValidationError("oracle evidence bindings must be nonempty")
         if not set(oracle.required_fact_ids) <= {item.fact_id for item in case.facts}:
             raise CorpusValidationError("oracle references unknown visible fact")
         if not set(oracle.required_rule_ids) <= {item.rule_id for item in case.policies}:

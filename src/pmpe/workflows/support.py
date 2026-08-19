@@ -84,6 +84,7 @@ class PolicyRule:
             and self.action in {"escalate", "refund", "reject", "replacement", "request_evidence"}
             and _bounded_identifier(self.required_fact_id)
             and (not self.human_question or _bounded_text(self.human_question, maximum=1024))
+            and (self.action != "escalate" or bool(self.human_question))
             and self.semantic_digest == canonical_digest(semantic_payload)
         ):
             raise VisibleCorpusError("policy rule is malformed")
@@ -170,6 +171,12 @@ def load_visible_cases(path: Path) -> tuple[SupportCase, ...]:
     raw_cases = payload.get("cases")
     if not isinstance(raw_cases, list):
         raise VisibleCorpusError("visible corpus cases are missing")
+    if any(
+        not isinstance(item, dict)
+        or not isinstance(item.get("product_constraints"), list)
+        for item in raw_cases
+    ):
+        raise VisibleCorpusError("visible corpus product constraints must be an array")
     try:
         cases = tuple(
             SupportCase(

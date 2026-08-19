@@ -5,7 +5,7 @@ from dataclasses import replace
 import pytest
 
 from pmpe.evals.support_corpus import generate_support_corpus
-from pmpe.workflows.decision import DecisionContractError
+from pmpe.workflows.decision import DecisionContractError, create_decision_contract
 from pmpe.workflows.support import (
     VisibleCorpusError,
     VisibleFact,
@@ -122,6 +122,31 @@ def test_non_escalation_action_with_human_question_stays_human_bound() -> None:
     assert decision.unresolved_questions == (
         "A manager must approve this otherwise eligible refund.",
     )
+
+
+def test_admitted_contract_cannot_carry_unresolved_questions() -> None:
+    with pytest.raises(DecisionContractError, match="malformed or incomplete"):
+        create_decision_contract(
+            vertical="customer_support",
+            case_id="SUP-1",
+            input_digest="sha256:input",
+            selected_action="refund",
+            status="ADMITTED",
+            action_fact_refs=("FACT-1",),
+            action_rule_refs=("RULE-1",),
+            unresolved_questions=("Who approves this action?",),
+        )
+
+
+def test_escalation_policy_requires_a_named_human_question() -> None:
+    with pytest.raises(VisibleCorpusError, match="policy rule is malformed"):
+        create_policy_rule(
+            "RULE-ESCALATE",
+            "Escalate this case.",
+            100,
+            action="escalate",
+            required_fact_id="FACT-1",
+        )
 
 
 def test_conflict_preserves_rule_specific_human_questions() -> None:
