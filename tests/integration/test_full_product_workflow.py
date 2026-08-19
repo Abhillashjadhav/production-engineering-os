@@ -75,6 +75,13 @@ def test_full_product_quickstart_runs_and_reverifies(repo_root: Path, tmp_path: 
     )
 
 
+def test_full_product_quickstart_rejects_file_output(repo_root: Path, tmp_path: Path) -> None:
+    output = tmp_path / "not-a-directory"
+    output.write_text("occupied by a file")
+    with pytest.raises(FullProductError, match="output must be a directory"):
+        run_full_product_quickstart(output, repo_root=repo_root)
+
+
 def test_full_product_verifier_rejects_tampered_deployment(repo_root: Path, tmp_path: Path) -> None:
     output = tmp_path / "full-product"
     run_full_product_quickstart(output, repo_root=repo_root)
