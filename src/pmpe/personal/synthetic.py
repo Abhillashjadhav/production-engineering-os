@@ -11,6 +11,15 @@ from pmpe.contracts.canonical import canonical_digest
 from pmpe.personal.catalog import GENERIC_WORKFLOW_CATALOG
 from pmpe.personal.planner import WORKFLOW_ORDER
 
+_RESULT_COLLECTIONS = (
+    "release_checks",
+    "acceptance_checks",
+    "verification_checks",
+    "security_checks",
+    "monitoring_checks",
+    "tests",
+)
+
 
 def _source(
     source_id: str, kind: str, title: str, content: Any, *, observed_at: str
@@ -31,7 +40,7 @@ def _extended_pack_content(workflow_id: str, source_id: str) -> dict[str, Any]:
 
     content: dict[str, dict[str, Any]] = {
         "prd-architecture-task-compiler": {
-            "requirements": ["Preserve evidence provenance"],
+            "requirements": [{"requirement_id": "REQ-001", "text": "Preserve evidence provenance"}],
             "architecture_components": ["governed-worker", "approval-outbox"],
             "tasks": [{"task_id": "TASK-001", "requirement_ids": ["REQ-001"]}],
             "traceability_complete": True,
@@ -139,7 +148,19 @@ def _extended_pack_content(workflow_id: str, source_id: str) -> dict[str, Any]:
             "evidence_links": [source_id],
         },
     }
-    return content[workflow_id]
+    pack = content[workflow_id]
+    for collection in _RESULT_COLLECTIONS:
+        for item in pack.get(collection, []):
+            item["evidence_source_ids"] = [source_id]
+            item["result_digest"] = canonical_digest(
+                {
+                    "check_id": item["check_id"],
+                    "collection": collection,
+                    "status": item["status"],
+                    "workflow_id": workflow_id,
+                }
+            )
+    return pack
 
 
 def synthetic_personal_context(
@@ -229,6 +250,20 @@ def synthetic_personal_context(
             "objective": entry["objective"],
             "observed_state": "synthetic verified input",
         }
+        pack_content = _extended_pack_content(workflow_id, source_id)
+        check_results = [
+            {
+                "check_id": item["check_id"],
+                "collection": collection,
+                "result_digest": item["result_digest"],
+                "status": item["status"],
+                "workflow_id": workflow_id,
+            }
+            for collection in _RESULT_COLLECTIONS
+            for item in pack_content.get(collection, [])
+        ]
+        if check_results:
+            source_content["check_results"] = check_results
         if workflow_id == "repo-doctor":
             source_content["command_results"] = [
                 {

@@ -167,6 +167,52 @@ def test_repo_doctor_requires_every_verification_command_to_have_evidence() -> N
     assert execution.approvals == ()
 
 
+@pytest.mark.parametrize(
+    ("workflow_id", "collection", "ids_field"),
+    [
+        ("docs-runbook-drift-maintainer", "drift_items", "evidence_source_ids"),
+        ("competitive-market-watch", "changes", "source_ids"),
+        ("verified-executive-update", "claims", "source_ids"),
+    ],
+)
+def test_extended_provenance_fields_require_non_empty_id_lists(
+    workflow_id: str, collection: str, ids_field: str
+) -> None:
+    context = synthetic_personal_context(workflow_ids=(workflow_id,))
+    item = context["workflow_inputs"][workflow_id]["records"][0]["content"][collection][0]
+    item[ids_field] = "SRC-NOT-ADMITTED"
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
+    assert execution.approvals == ()
+
+
+def test_release_check_pass_must_match_an_admitted_result_artifact() -> None:
+    context = synthetic_personal_context(workflow_ids=("release-readiness-room",))
+    source_id = context["workflow_inputs"]["release-readiness-room"]["evidence_source_ids"][0]
+    source = next(item for item in context["evidence_sources"] if item["source_id"] == source_id)
+    source["content"]["check_results"] = []
+    source["content_digest"] = canonical_digest(source["content"])
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
+    assert (
+        "declared-results-bound-to-admitted-artifacts"
+        in execution.results[0].output["details"]["failed_check_ids"]
+    )
+    assert execution.approvals == ()
+
+
+def test_compiler_task_requirement_ids_must_resolve() -> None:
+    context = synthetic_personal_context(workflow_ids=("prd-architecture-task-compiler",))
+    content = context["workflow_inputs"]["prd-architecture-task-compiler"]["records"][0]["content"]
+    content["tasks"][0]["requirement_ids"] = ["REQ-NOT-EXIST"]
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
+    assert (
+        "tasks-trace-to-requirements" in execution.results[0].output["details"]["failed_check_ids"]
+    )
+    assert execution.approvals == ()
+
+
 def test_roadmap_validation_hold_returns_without_consequential_approvals() -> None:
     context = synthetic_personal_context(workflow_ids=("evidence-to-roadmap-to-release",))
     context["workflow_inputs"]["evidence-to-roadmap-to-release"]["release_checks"][0]["status"] = (

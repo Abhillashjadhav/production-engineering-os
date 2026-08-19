@@ -57,24 +57,43 @@ def _non_empty_id_list(value: Any) -> bool:
     return isinstance(value, list) and bool(value) and all(_text(item) for item in value)
 
 
-def _all_have_id_list(value: Any, *, text_field: str, ids_field: str) -> bool:
+def _all_have_id_list(value: Any, *, text_fields: tuple[str, ...], ids_field: str) -> bool:
     items = _items(value)
     return bool(items) and all(
         isinstance(item, Mapping)
-        and _text(item.get(text_field))
+        and all(_text(item.get(field)) for field in text_fields)
         and _non_empty_id_list(item.get(ids_field))
         for item in items
     )
 
 
 def _compile_delivery(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
+    requirements = _items(data.get("requirements"))
+    requirement_ids = {
+        str(item["requirement_id"])
+        for item in requirements
+        if isinstance(item, Mapping)
+        and _text(item.get("requirement_id"))
+        and _text(item.get("text"))
+    }
     tasks = _items(data.get("tasks"))
+    tasks_trace = (
+        bool(tasks)
+        and len(requirement_ids) == len(requirements)
+        and all(
+            isinstance(item, Mapping)
+            and _text(item.get("task_id"))
+            and _non_empty_id_list(item.get("requirement_ids"))
+            and {str(value) for value in item["requirement_ids"]} <= requirement_ids
+            for item in tasks
+        )
+    )
     return (
         _check(
             "prd-requirements-present",
-            bool(_items(data.get("requirements"))),
-            len(_items(data.get("requirements"))),
-            ">=1",
+            bool(requirements) and len(requirement_ids) == len(requirements),
+            requirements,
+            "unique requirement_id and text per requirement",
         ),
         _check(
             "architecture-components-present",
@@ -84,9 +103,9 @@ def _compile_delivery(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
         ),
         _check(
             "tasks-trace-to-requirements",
-            _all_have(tasks, "task_id", "requirement_ids"),
-            len(tasks),
-            "all tasks have task_id and requirement_ids",
+            tasks_trace,
+            tasks,
+            "every task requirement_id resolves to a declared requirement",
         ),
         _check(
             "traceability-complete",
@@ -203,7 +222,11 @@ def _docs_drift(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
     return (
         _check(
             "drift-evidence-present",
-            _all_have(data.get("drift_items"), "observed", "documented", "evidence_source_ids"),
+            _all_have_id_list(
+                data.get("drift_items"),
+                text_fields=("observed", "documented"),
+                ids_field="evidence_source_ids",
+            ),
             data.get("drift_items"),
             "observed/documented/evidence per item",
         ),
@@ -226,13 +249,13 @@ def _customer_research(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
     return (
         _check(
             "quotes-have-source",
-            _all_have_id_list(data.get("quotes"), text_field="text", ids_field="source_ids"),
+            _all_have_id_list(data.get("quotes"), text_fields=("text",), ids_field="source_ids"),
             data.get("quotes"),
             "text and source_ids per quote",
         ),
         _check(
             "themes-have-sources",
-            _all_have_id_list(data.get("themes"), text_field="theme", ids_field="source_ids"),
+            _all_have_id_list(data.get("themes"), text_fields=("theme",), ids_field="source_ids"),
             data.get("themes"),
             "theme and source_ids per theme",
         ),
@@ -267,7 +290,11 @@ def _market_watch(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
     return (
         _check(
             "changes-have-fresh-sources",
-            _all_have(data.get("changes"), "change", "observed_at", "source_ids"),
+            _all_have_id_list(
+                data.get("changes"),
+                text_fields=("change", "observed_at"),
+                ids_field="source_ids",
+            ),
             data.get("changes"),
             "change/observed_at/source_ids per item",
         ),
@@ -290,7 +317,7 @@ def _executive_update(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
     return (
         _check(
             "claims-have-sources",
-            _all_have(data.get("claims"), "claim", "source_ids"),
+            _all_have_id_list(data.get("claims"), text_fields=("claim",), ids_field="source_ids"),
             data.get("claims"),
             "claim and source_ids per item",
         ),
@@ -310,9 +337,9 @@ def _prototype(data: Mapping[str, Any]) -> tuple[VerifiedCheck, ...]:
         ),
         _check(
             "source-set-present",
-            bool(_items(data.get("source_ids"))),
-            len(_items(data.get("source_ids"))),
-            ">=1",
+            _non_empty_id_list(data.get("source_ids")),
+            data.get("source_ids"),
+            "non-empty ID list",
         ),
         _check(
             "prototype-scope-present",
@@ -484,6 +511,15 @@ _VERIFIERS: dict[str, Verifier] = {
     "career-proof-pack": _career_proof,
 }
 
+_RESULT_COLLECTIONS = (
+    "release_checks",
+    "acceptance_checks",
+    "verification_checks",
+    "security_checks",
+    "monitoring_checks",
+    "tests",
+)
+
 
 def verify_extended_pack(
     workflow_id: str,
@@ -506,6 +542,48 @@ def verify_extended_pack(
                 merged[str(key)] = value
     verifier = _VERIFIERS[workflow_id]
     checks = list(verifier(merged))
+    declared_results = [
+        (collection, item)
+        for collection in _RESULT_COLLECTIONS
+        for item in _items(merged.get(collection))
+    ]
+    if declared_results:
+        all_results_bound = True
+        for collection, item in declared_results:
+            if (
+                not isinstance(item, Mapping)
+                or item.get("status") != "PASS"
+                or not _text(item.get("check_id"))
+                or not _text(item.get("result_digest"))
+                or not _non_empty_id_list(item.get("evidence_source_ids"))
+            ):
+                all_results_bound = False
+                continue
+            matching = False
+            for source_id in item["evidence_source_ids"]:
+                source = evidence_sources.get(str(source_id), {})
+                content = source.get("content") if isinstance(source, Mapping) else None
+                if not isinstance(content, Mapping):
+                    continue
+                matching = matching or any(
+                    isinstance(result, Mapping)
+                    and result.get("workflow_id") == workflow_id
+                    and result.get("collection") == collection
+                    and result.get("check_id") == item.get("check_id")
+                    and result.get("status") == item.get("status")
+                    and result.get("result_digest") == item.get("result_digest")
+                    for result in _items(content.get("check_results"))
+                )
+            if not matching:
+                all_results_bound = False
+        checks.append(
+            _check(
+                "declared-results-bound-to-admitted-artifacts",
+                all_results_bound,
+                [item for _collection, item in declared_results],
+                "every PASS matches an admitted check-result artifact",
+            )
+        )
     if workflow_id == "repo-doctor":
         runs = _items(merged.get("command_runs"))
         evidence_bound = bool(runs)
