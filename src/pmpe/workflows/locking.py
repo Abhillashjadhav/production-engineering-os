@@ -35,7 +35,9 @@ def _lock(handle: BinaryIO) -> None:
         while True:
             try:
                 msvcrt.locking(  # type: ignore[attr-defined]
-                    handle.fileno(), msvcrt.LK_NBLCK, 1  # type: ignore[attr-defined]
+                    handle.fileno(),
+                    msvcrt.LK_NBLCK,  # type: ignore[attr-defined]
+                    1,
                 )
                 break
             except OSError as exc:
