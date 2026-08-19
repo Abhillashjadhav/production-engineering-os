@@ -7,6 +7,7 @@ from collections.abc import Callable, Mapping
 from datetime import datetime
 from typing import Any
 
+from pmpe.contracts.canonical import canonical_digest
 from pmpe.personal.catalog import GENERIC_WORKFLOW_CATALOG
 from pmpe.personal.models import (
     ApprovalItem,
@@ -921,6 +922,19 @@ def _generic_outcome_pack(
             {str(source["source_id"]): source for source in context["evidence_sources"]},
         )
     ]
+    unbound_records = sorted(
+        str(record["record_id"])
+        for record in supplied["records"]
+        if not _matches_admitted_result(
+            context,
+            record["evidence_source_ids"],
+            collection="record_artifacts",
+            expected={
+                "content_digest": canonical_digest(record["content"]),
+                "record_id": record["record_id"],
+            },
+        )
+    )
     checks.extend(
         [
             {
@@ -933,6 +947,12 @@ def _generic_outcome_pack(
                 "passed": policy_matches,
                 "observed": list(declared_actions),
                 "expected": list(packet.approval_required),
+            },
+            {
+                "check_id": "records-bound-to-admitted-artifacts",
+                "passed": not unbound_records,
+                "observed": unbound_records or "all records matched",
+                "expected": "every complete record digest matches admitted evidence",
             },
         ]
     )
@@ -964,6 +984,7 @@ def _generic_outcome_pack(
         "target": supplied["output_target"],
         "tier": entry["tier"],
     }
+    artifact_digest = canonical_digest(artifact)
     approval_policy = [
         {
             "action_type": item["action_type"],
@@ -972,6 +993,7 @@ def _generic_outcome_pack(
             "reversibility": item["reversibility"],
             "payload": {
                 "operation": item["operation"],
+                "artifact_digest": artifact_digest,
                 "output_target": supplied["output_target"],
                 "subject_id": supplied["subject_id"],
             },
@@ -1007,6 +1029,7 @@ def _generic_outcome_pack(
         details={
             "approval_policy": approval_policy,
             "artifact": artifact,
+            "artifact_digest": artifact_digest,
             "failed_check_ids": failed,
             "problem_solved": entry["problem_solved"],
         },

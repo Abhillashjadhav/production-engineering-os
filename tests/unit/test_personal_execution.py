@@ -93,6 +93,31 @@ def test_extended_pack_holds_output_and_approvals_when_a_check_fails() -> None:
     assert execution.report.status == "BLOCKED_BY_VALIDATION"
 
 
+def test_extended_pack_complete_record_must_match_admitted_artifact() -> None:
+    context = synthetic_personal_context(workflow_ids=("verified-executive-update",))
+    claim = context["workflow_inputs"]["verified-executive-update"]["records"][0]["content"][
+        "claims"
+    ][0]
+    claim["claim"] = "Unsupported executive claim"
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
+    assert (
+        "records-bound-to-admitted-artifacts"
+        in execution.results[0].output["details"]["failed_check_ids"]
+    )
+    assert execution.approvals == ()
+
+
+def test_extended_pack_approval_payload_binds_verified_artifact_digest() -> None:
+    execution = run_personal_execution(
+        synthetic_personal_context(workflow_ids=("idea-to-deploy-starter",))
+    )
+    result = execution.results[0]
+    artifact = result.output["details"]["artifact"]
+    assert result.output["details"]["artifact_digest"] == canonical_digest(artifact)
+    assert execution.approvals[0].payload["artifact_digest"] == canonical_digest(artifact)
+
+
 def test_extended_pack_does_not_trust_a_caller_declared_pass() -> None:
     context = synthetic_personal_context(workflow_ids=("repo-doctor",))
     supplied = context["workflow_inputs"]["repo-doctor"]

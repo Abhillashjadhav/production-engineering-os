@@ -336,6 +336,12 @@ def synthetic_personal_context(
             "observed_state": "synthetic verified input",
         }
         pack_content = _extended_pack_content(workflow_id, source_id)
+        source_content["record_artifacts"] = [
+            {
+                "content_digest": canonical_digest(pack_content),
+                "record_id": f"RECORD-PACK-{index:02d}",
+            }
+        ]
         check_results = [
             {
                 "check_id": item["check_id"],
