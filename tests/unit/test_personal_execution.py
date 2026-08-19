@@ -108,6 +108,16 @@ def test_extended_pack_complete_record_must_match_admitted_artifact() -> None:
     assert execution.approvals == ()
 
 
+def test_extended_pack_record_title_must_match_admitted_artifact() -> None:
+    context = synthetic_personal_context(workflow_ids=("verified-executive-update",))
+    context["workflow_inputs"]["verified-executive-update"]["records"][0]["title"] = (
+        "Unsupported executive claim"
+    )
+    execution = run_personal_execution(context)
+    assert execution.results[0].output["validation"]["verdict"] == "HOLD"
+    assert execution.approvals == ()
+
+
 def test_extended_pack_approval_payload_binds_verified_artifact_digest() -> None:
     execution = run_personal_execution(
         synthetic_personal_context(workflow_ids=("idea-to-deploy-starter",))

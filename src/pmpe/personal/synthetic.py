@@ -327,6 +327,7 @@ def synthetic_personal_context(
         source_by_id["SRC-CI-RUN"]["content"]
     )
     generic_source_ids: dict[str, str] = {}
+    generic_records: dict[str, dict[str, Any]] = {}
     for index, (workflow_id, entry) in enumerate(GENERIC_WORKFLOW_CATALOG.items(), start=1):
         source_id = f"SRC-PACK-{index:02d}"
         generic_source_ids[workflow_id] = source_id
@@ -336,10 +337,17 @@ def synthetic_personal_context(
             "observed_state": "synthetic verified input",
         }
         pack_content = _extended_pack_content(workflow_id, source_id)
+        record = {
+            "record_id": f"RECORD-PACK-{index:02d}",
+            "title": entry["output_name"].replace("-", " ").title(),
+            "content": pack_content,
+            "evidence_source_ids": [source_id],
+        }
+        generic_records[workflow_id] = record
         source_content["record_artifacts"] = [
             {
-                "content_digest": canonical_digest(pack_content),
-                "record_id": f"RECORD-PACK-{index:02d}",
+                "record_digest": canonical_digest(record),
+                "record_id": record["record_id"],
             }
         ]
         check_results = [
@@ -592,14 +600,7 @@ def synthetic_personal_context(
             "evidence_source_ids": [source_id],
             "subject_id": f"SUBJECT-PACK-{index:02d}",
             "objective": entry["objective"],
-            "records": [
-                {
-                    "record_id": f"RECORD-PACK-{index:02d}",
-                    "title": entry["output_name"].replace("-", " ").title(),
-                    "content": _extended_pack_content(workflow_id, source_id),
-                    "evidence_source_ids": [source_id],
-                }
-            ],
+            "records": [generic_records[workflow_id]],
             "checks": [
                 {
                     "check_id": f"CHECK-PACK-{index:02d}",

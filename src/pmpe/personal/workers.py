@@ -930,8 +930,8 @@ def _generic_outcome_pack(
             record["evidence_source_ids"],
             collection="record_artifacts",
             expected={
-                "content_digest": canonical_digest(record["content"]),
                 "record_id": record["record_id"],
+                "record_digest": canonical_digest(record),
             },
         )
     )
@@ -952,7 +952,7 @@ def _generic_outcome_pack(
                 "check_id": "records-bound-to-admitted-artifacts",
                 "passed": not unbound_records,
                 "observed": unbound_records or "all records matched",
-                "expected": "every complete record digest matches admitted evidence",
+                "expected": "every complete record-object digest matches admitted evidence",
             },
         ]
     )
