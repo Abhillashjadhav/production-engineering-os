@@ -373,6 +373,10 @@ def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str
     deployment = artifacts["local-deployment"]
     deployment_result = deployment.get("result", {})
     contract_digest = canonical_digest(contract)
+    workspace = root / "local-product" / "workspace"
+    if not workspace.is_dir():
+        raise FullProductError("retained local-product workspace is missing")
+    retained_candidate_digest = tree_content_digest(workspace)
     checks = (
         manifest["schema_version"] == "1.0.0",
         manifest["status"] == "VERIFIED_LOCAL_PRODUCT",
@@ -397,6 +401,7 @@ def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str
         deployment.get("contract_digest") == contract_digest,
         deployment.get("source_spec_digest") == engineering.get("source_spec_digest"),
         deployment.get("candidate_digest") == engineering.get("candidate_digest"),
+        retained_candidate_digest == engineering.get("candidate_digest"),
         deployment.get("product_name") == contract.get("product_name"),
         deployment_result.get("environment") == "local",
         deployment_result.get("healthy") is True,
