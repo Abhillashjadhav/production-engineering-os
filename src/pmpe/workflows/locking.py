@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import time
 from collections.abc import Iterator
@@ -37,7 +38,9 @@ def _lock(handle: BinaryIO) -> None:
                     handle.fileno(), msvcrt.LK_NBLCK, 1  # type: ignore[attr-defined]
                 )
                 break
-            except OSError:
+            except OSError as exc:
+                if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                    raise
                 time.sleep(0.1)
     else:
         import fcntl
