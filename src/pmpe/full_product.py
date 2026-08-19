@@ -122,7 +122,21 @@ def _verify_evidence_index(root: Path, index: dict[str, Any]) -> dict[str, Any]:
     if index["schema_version"] != "1.0.0" or not isinstance(index["files"], list):
         raise FullProductError("evidence index metadata is invalid")
     root_resolved = root.resolve()
-    directory = (root / str(index["directory"])).resolve()
+    relative_directory = Path(str(index["directory"]))
+    if (
+        relative_directory.is_absolute()
+        or not relative_directory.parts
+        or any(part in {".", ".."} for part in relative_directory.parts)
+    ):
+        raise FullProductError("evidence index directory is missing or escapes output")
+    unresolved_directory = root
+    for part in relative_directory.parts:
+        unresolved_directory /= part
+        if unresolved_directory.is_symlink():
+            raise FullProductError(
+                f"evidence index refuses symbolic link: {unresolved_directory}"
+            )
+    directory = unresolved_directory.resolve()
     if not directory.is_relative_to(root_resolved) or not directory.is_dir():
         raise FullProductError("evidence index directory is missing or escapes output")
     declared: set[str] = set()

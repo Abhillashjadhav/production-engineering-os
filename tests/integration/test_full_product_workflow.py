@@ -115,3 +115,16 @@ def test_full_product_verifier_rejects_directory_symlink(repo_root: Path, tmp_pa
     (output / "runtime" / "untrusted").symlink_to(outside, target_is_directory=True)
     with pytest.raises(FullProductError, match="refuses symbolic link"):
         verify_full_product_quickstart(output, expected_digest=manifest["manifest_digest"])
+
+
+def test_full_product_verifier_rejects_indexed_directory_symlink(
+    repo_root: Path, tmp_path: Path
+) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    runtime = output / "runtime"
+    retained_runtime = output / "retained-runtime"
+    runtime.rename(retained_runtime)
+    runtime.symlink_to(retained_runtime, target_is_directory=True)
+    with pytest.raises(FullProductError, match="refuses symbolic link"):
+        verify_full_product_quickstart(output, expected_digest=manifest["manifest_digest"])
