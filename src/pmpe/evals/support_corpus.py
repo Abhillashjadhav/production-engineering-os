@@ -21,6 +21,14 @@ from pmpe.workflows.support import (
 
 CorpusValidationError = VisibleCorpusError
 _OUTCOMES = frozenset({"refund", "replacement", "escalate", "request_evidence", "reject"})
+_RATIONALE_OUTCOMES = {
+    "within-window": "refund",
+    "verified-damage": "replacement",
+    "missing-proof": "request_evidence",
+    "equal-priority-conflict": "escalate",
+    "unsupported-action": "reject",
+    "high-value-approval": "escalate",
+}
 
 
 @dataclass(frozen=True)
@@ -328,12 +336,13 @@ def validate_support_corpus(corpus: SupportCorpus) -> None:
         ):
             raise CorpusValidationError("hidden oracle is malformed")
         case = visible[oracle.case_id]
-        if not oracle.required_fact_ids or not oracle.required_rule_ids:
-            raise CorpusValidationError("oracle evidence bindings must be nonempty")
-        if not set(oracle.required_fact_ids) <= {item.fact_id for item in case.facts}:
-            raise CorpusValidationError("oracle references unknown visible fact")
-        if not set(oracle.required_rule_ids) <= {item.rule_id for item in case.policies}:
-            raise CorpusValidationError("oracle references unknown visible rule")
+        rationale = oracle.rationale_code.removeprefix("held-out-")
+        if _RATIONALE_OUTCOMES.get(rationale) != oracle.expected_outcome:
+            raise CorpusValidationError("oracle outcome does not match its rationale")
+        if set(oracle.required_fact_ids) != {item.fact_id for item in case.facts}:
+            raise CorpusValidationError("oracle fact evidence is incomplete")
+        if set(oracle.required_rule_ids) != {item.rule_id for item in case.policies}:
+            raise CorpusValidationError("oracle rule evidence is incomplete")
 
 
 def _canonical_bytes(payload: object) -> bytes:
