@@ -540,6 +540,53 @@ def test_consequential_actions_are_exact_approval_payloads() -> None:
     assert execution.report.unauthorized_external_actions == 0
 
 
+def test_every_approval_bearing_result_carries_an_exact_policy() -> None:
+    execution = run_personal_execution(synthetic_personal_context())
+    for result in execution.results:
+        policies = result.output["details"]["approval_policy"]
+        approvals = [item for item in execution.approvals if item.workflow_id == result.workflow_id]
+        assert len(policies) == len(approvals)
+        assert {item["approval_id"] for item in policies} == {
+            item.approval_id for item in approvals
+        }
+
+
+def test_execution_rejects_duplicate_results_with_missing_task_coverage() -> None:
+    execution = run_personal_execution(
+        synthetic_personal_context(
+            workflow_ids=("goal-to-verified-release", "ai-eval-release-gate")
+        )
+    )
+    changed = PersonalExecution(
+        execution.contract,
+        execution.packets,
+        (execution.results[0], execution.results[0]),
+        tuple(
+            item
+            for item in execution.approvals
+            if item.workflow_id == execution.results[0].workflow_id
+        ),
+        execution.evidence,
+        execution.report,
+    )
+    assert not verify_personal_execution(changed)
+
+
+def test_execution_rejects_missing_referenced_evidence() -> None:
+    execution = run_personal_execution(
+        synthetic_personal_context(workflow_ids=("goal-to-verified-release",))
+    )
+    changed = PersonalExecution(
+        execution.contract,
+        execution.packets,
+        execution.results,
+        execution.approvals,
+        (),
+        execution.report,
+    )
+    assert not verify_personal_execution(changed)
+
+
 def test_goal_workflow_emits_parallel_codex_task_packets() -> None:
     execution = run_personal_execution(synthetic_personal_context())
     result = next(

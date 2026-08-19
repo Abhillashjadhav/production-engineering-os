@@ -159,10 +159,25 @@ def _report(
     mobile = mobile_review_payload(run_id=run_id, results=results, approvals=approvals)
     status, outcome = _status_and_outcome(results, approvals)
     packet_by_workflow = {packet.workflow_id: packet for packet in packets}
-    evidence_complete = len(results) == len(packets) and all(
-        result.workflow_id in packet_by_workflow
-        and validate_worker_output(result, set(packet_by_workflow[result.workflow_id].input_refs))
-        for result in results
+    evidence_source_ids = {item.source_id for item in evidence}
+    required_source_ids = (
+        {source_id for packet in packets for source_id in packet.input_refs}
+        | {source_id for result in results for source_id in result.evidence_refs}
+        | {source_id for approval in approvals for source_id in approval.evidence_refs}
+    )
+    result_task_ids = [result.task_id for result in results]
+    evidence_complete = (
+        len(results) == len(packets)
+        and len(set(result_task_ids)) == len(result_task_ids)
+        and set(result_task_ids) == {packet.task_id for packet in packets}
+        and required_source_ids <= evidence_source_ids
+        and all(
+            result.workflow_id in packet_by_workflow
+            and validate_worker_output(
+                result, set(packet_by_workflow[result.workflow_id].input_refs)
+            )
+            for result in results
+        )
     )
     payload: dict[str, Any] = {
         "contract_digest": contract.contract_digest,
@@ -206,8 +221,24 @@ def verify_personal_execution(execution: PersonalExecution) -> bool:
         packets = compile_task_graph(execution.contract)
         if packets != execution.packets or len(execution.results) != len(packets):
             return False
+        result_task_ids = [result.task_id for result in execution.results]
+        if len(set(result_task_ids)) != len(result_task_ids) or set(result_task_ids) != {
+            packet.task_id for packet in packets
+        }:
+            return False
         known_sources = {item.source_id for item in execution.evidence}
         if len(known_sources) != len(execution.evidence):
+            return False
+        required_sources = (
+            {source_id for packet in packets for source_id in packet.input_refs}
+            | {source_id for result in execution.results for source_id in result.evidence_refs}
+            | {
+                source_id
+                for approval in execution.approvals
+                for source_id in approval.evidence_refs
+            }
+        )
+        if not required_sources <= known_sources:
             return False
         packet_by_id = {packet.task_id: packet for packet in packets}
         if len(packet_by_id) != len(packets):
@@ -254,24 +285,26 @@ def verify_personal_execution(execution: PersonalExecution) -> bool:
             ):
                 return False
             policies = approval_result.output["details"].get("approval_policy")
-            if policies is not None and not any(
+            if not isinstance(policies, list) or not any(
                 approval.action_type == policy["action_type"]
+                and approval.approval_id == policy["approval_id"]
                 and approval.target == policy["target"]
                 and approval.reason == policy["reason"]
                 and approval.reversibility == policy["reversibility"]
                 and approval.payload == policy["payload"]
-                and approval.evidence_refs == approval_result.evidence_refs
+                and list(approval.evidence_refs) == policy["evidence_refs"]
                 for policy in policies
             ):
                 return False
         for workflow_id, result in result_by_workflow.items():
             policies = result.output["details"].get("approval_policy")
-            if policies is not None:
-                expected_count = (
-                    len(policies) if result.output["validation"]["verdict"] == "PASS" else 0
-                )
-                if len(approvals_by_workflow.get(workflow_id, [])) != expected_count:
-                    return False
+            if not isinstance(policies, list):
+                return False
+            expected_count = (
+                len(policies) if result.output["validation"]["verdict"] == "PASS" else 0
+            )
+            if len(approvals_by_workflow.get(workflow_id, [])) != expected_count:
+                return False
         expected_report = _report(
             run_id=execution.report.run_id,
             contract=execution.contract,

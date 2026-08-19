@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping
+from copy import deepcopy
 from datetime import datetime
 from typing import Any
 
@@ -1113,4 +1114,25 @@ def execute_task(
     worker = _WORKERS.get(packet.workflow_id)
     if worker is None:
         raise ValueError(f"no worker registered for {packet.workflow_id}")
-    return worker(packet, context, execution_batch)
+    result, approvals = worker(packet, context, execution_batch)
+    approval_policy = [
+        {
+            "action_type": approval.action_type,
+            "approval_id": approval.approval_id,
+            "evidence_refs": list(approval.evidence_refs),
+            "payload": approval.payload,
+            "reason": approval.reason,
+            "reversibility": approval.reversibility,
+            "target": approval.target,
+        }
+        for approval in approvals
+    ]
+    output = deepcopy(result.output)
+    output["details"]["approval_policy"] = approval_policy
+    result = create_task_result(
+        packet=packet,
+        output=output,
+        evidence_refs=result.evidence_refs,
+        execution_batch=execution_batch,
+    )
+    return result, approvals
