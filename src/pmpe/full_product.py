@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -54,6 +55,7 @@ from pmpe.validation.validator import RequirementValidator
 
 _APPROVER = "quickstart-product-owner"
 _APPROVED_AT = "2026-08-20T00:00:00+05:30"
+_DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
 
 class FullProductError(PmpeError):
@@ -863,6 +865,7 @@ def _verify_full_product_quickstart(output: Path, *, expected_digest: str) -> st
     if any(path.is_symlink() for path in workspace.rglob("*")):
         raise FullProductError("retained local-product workspace refuses symbolic link")
     retained_candidate_digest = tree_content_digest(workspace)
+    source_spec_digest = engineering.get("source_spec_digest")
     approved_decisions = contract.get("approved_product_decisions")
     approved_spec_decision = (
         next(
@@ -914,10 +917,11 @@ def _verify_full_product_quickstart(output: Path, *, expected_digest: str) -> st
         runtime.get("learning", {}).get("installed_regression_cases") == 0,
         engineering.get("status") == "VERIFIED",
         engineering.get("contract_digest") == contract_digest,
+        isinstance(source_spec_digest, str) and _DIGEST.fullmatch(source_spec_digest) is not None,
         isinstance(approved_spec_decision, dict),
         isinstance(approved_spec_decision, dict)
         and approved_spec_decision.get("decision")
-        == f"Build the exact TaskFlow specification {engineering.get('source_spec_digest')}.",
+        == f"Build the exact TaskFlow specification {source_spec_digest}.",
         all(not finding.get("blocking", False) for finding in final_findings),
         engineering_tests.get("status") == "PASS",
         generated_test_result.get("status") == "PASS",
