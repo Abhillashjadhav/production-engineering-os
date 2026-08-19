@@ -81,3 +81,17 @@ def test_full_product_verifier_rejects_reintroduced_bytecode(
     (cache / "api.cpython-311.pyc").write_bytes(b"unverified executable bytecode")
     with pytest.raises(FullProductError, match="contains executable bytecode"):
         verify_full_product_quickstart(output, expected_digest=manifest["manifest_digest"])
+
+
+@pytest.mark.parametrize(
+    "relative",
+    ["workflows/workflow-results.json", "runtime/runtime-events.jsonl"],
+)
+def test_full_product_verifier_requires_all_indexed_evidence(
+    repo_root: Path, tmp_path: Path, relative: str
+) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    (output / relative).unlink()
+    with pytest.raises(FullProductError, match="evidence index path is missing"):
+        verify_full_product_quickstart(output, expected_digest=manifest["manifest_digest"])

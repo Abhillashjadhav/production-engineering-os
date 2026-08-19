@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import subprocess
 import sys
 from pathlib import Path
@@ -80,6 +81,78 @@ def _artifact(root: Path, stage_id: str, path: Path) -> dict[str, str]:
         "stage_id": stage_id,
         "status": "VERIFIED",
     }
+
+
+def _file_digest(path: Path) -> str:
+    return f"sha256:{hashlib.sha256(path.read_bytes()).hexdigest()}"
+
+
+def _write_evidence_index(root: Path, directory: Path, *, report_name: str) -> Path:
+    index_path = directory / "evidence-index.json"
+    files = []
+    for path in sorted(directory.rglob("*")):
+        if not path.is_file() or path == index_path:
+            continue
+        if path.is_symlink():
+            raise FullProductError(f"evidence index refuses symbolic link: {path}")
+        files.append(
+            {
+                "digest": _file_digest(path),
+                "path": path.relative_to(directory).as_posix(),
+                "size": path.stat().st_size,
+            }
+        )
+    if report_name not in {item["path"] for item in files}:
+        raise FullProductError(f"evidence index is missing its report: {report_name}")
+    write_json_atomic(
+        index_path,
+        {
+            "directory": directory.relative_to(root).as_posix(),
+            "files": files,
+            "report": report_name,
+            "schema_version": "1.0.0",
+        },
+    )
+    return index_path
+
+
+def _verify_evidence_index(root: Path, index: dict[str, Any]) -> dict[str, Any]:
+    if set(index) != {"directory", "files", "report", "schema_version"}:
+        raise FullProductError("evidence index has an unexpected shape")
+    if index["schema_version"] != "1.0.0" or not isinstance(index["files"], list):
+        raise FullProductError("evidence index metadata is invalid")
+    root_resolved = root.resolve()
+    directory = (root / str(index["directory"])).resolve()
+    if not directory.is_relative_to(root_resolved) or not directory.is_dir():
+        raise FullProductError("evidence index directory is missing or escapes output")
+    declared: set[str] = set()
+    for item in index["files"]:
+        if not isinstance(item, dict) or set(item) != {"digest", "path", "size"}:
+            raise FullProductError("evidence index entry has an unexpected shape")
+        relative = str(item["path"])
+        candidate = directory / relative
+        path = candidate.resolve()
+        if (
+            relative in declared
+            or candidate.is_symlink()
+            or not path.is_relative_to(directory)
+            or not path.is_file()
+        ):
+            raise FullProductError(f"evidence index path is missing or unsafe: {relative}")
+        if path.stat().st_size != item["size"] or _file_digest(path) != item["digest"]:
+            raise FullProductError(f"evidence index content mismatch: {relative}")
+        declared.add(relative)
+    actual = {
+        path.relative_to(directory).as_posix()
+        for path in directory.rglob("*")
+        if path.is_file() and path.name != "evidence-index.json"
+    }
+    if declared != actual:
+        raise FullProductError("evidence index does not exactly cover its retained directory")
+    report = str(index["report"])
+    if report not in declared:
+        raise FullProductError("evidence index report is not declared")
+    return load_json_object(directory / report)
 
 
 def _decision_answers(repo_root: Path) -> dict[str, Any]:
@@ -303,6 +376,12 @@ def run_full_product_quickstart(
     workflow_paths = write_personal_execution(workflows_root, execution)
 
     runtime_paths = run_runtime_demo(root / "runtime")
+    workflow_index = _write_evidence_index(
+        root, workflows_root, report_name=workflow_paths["report"].name
+    )
+    runtime_index = _write_evidence_index(
+        root, root / "runtime", report_name=runtime_paths["report"].name
+    )
     contract = load_json_object(contract_path)
     engineering_path, deployment_path = _build_review_and_deploy_local_product(root, repo, contract)
 
@@ -310,8 +389,8 @@ def run_full_product_quickstart(
         _artifact(root, "decision-contract", contract_path),
         _artifact(root, "approval-receipt", receipt_path),
         _artifact(root, "engineering-handoff", handoff_path),
-        _artifact(root, "workflow-execution", workflow_paths["report"]),
-        _artifact(root, "runtime-assurance", runtime_paths["report"]),
+        _artifact(root, "workflow-execution", workflow_index),
+        _artifact(root, "runtime-assurance", runtime_index),
         _artifact(root, "engineering-verification", engineering_path),
         _artifact(root, "local-deployment", deployment_path),
     ]
@@ -399,8 +478,8 @@ def verify_full_product_quickstart(output: Path, *, expected_digest: str) -> str
     receipt = artifacts["approval-receipt"]
     verified_receipt = verify_contract_approval(contract, receipt, expected_approver=_APPROVER)
     handoff = artifacts["engineering-handoff"]
-    workflows = artifacts["workflow-execution"]
-    runtime = artifacts["runtime-assurance"]
+    workflows = _verify_evidence_index(root, artifacts["workflow-execution"])
+    runtime = _verify_evidence_index(root, artifacts["runtime-assurance"])
     engineering = artifacts["engineering-verification"]
     deployment = artifacts["local-deployment"]
     deployment_result = deployment.get("result", {})
