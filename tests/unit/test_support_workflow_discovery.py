@@ -207,6 +207,22 @@ def test_contract_constructor_rejects_payload_digest_mismatch() -> None:
         replace(contract, selected_action="reject")
 
 
+def test_contract_rejects_mutable_reference_collections() -> None:
+    contract = CustomerSupportDiscoveryAdapter().discover(
+        generate_support_corpus(seed=16).visible_cases[0]
+    )
+
+    with pytest.raises(DecisionContractError, match="malformed or incomplete"):
+        replace(contract, action_fact_refs=list(contract.action_fact_refs))  # type: ignore[arg-type]
+
+
+def test_policy_rejects_non_string_required_fact_digest() -> None:
+    case = generate_support_corpus(seed=16).visible_cases[0]
+
+    with pytest.raises(VisibleCorpusError, match="policy rule is malformed"):
+        replace(case.policies[0], required_fact_digest=None)  # type: ignore[arg-type]
+
+
 def test_contract_core_is_vertical_neutral() -> None:
     case = generate_support_corpus(seed=17).visible_cases[0]
     payload = CustomerSupportDiscoveryAdapter().discover(case).as_dict()

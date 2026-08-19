@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import os
 import tempfile
 from contextlib import suppress
@@ -226,7 +227,10 @@ def write_workflow_report(
         raise WorkflowEvidenceError("unverified report cannot be persisted as complete")
     json_path = Path(root) / "workflow-report.json"
     markdown_path = Path(root) / "workflow-report.md"
-    questions = "\n".join(f"  - {question}" for question in report.unresolved_questions)
+    questions = "\n".join(
+        f"  - <code>{html.escape(question).replace(chr(10), '&#10;')}</code>"
+        for question in report.unresolved_questions
+    )
     if not questions:
         questions = "  - none"
     markdown = (

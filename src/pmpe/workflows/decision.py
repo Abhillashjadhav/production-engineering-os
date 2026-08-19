@@ -35,6 +35,9 @@ class DecisionContract:
             and self.input_digest.startswith("sha256:")
             and self.selected_action
             and self.status in {"ADMITTED", "NEEDS_HUMAN_DECISION"}
+            and type(self.action_fact_refs) is tuple
+            and type(self.action_rule_refs) is tuple
+            and type(self.unresolved_questions) is tuple
             and self.action_fact_refs
             and self.action_rule_refs
             and (

@@ -15,6 +15,7 @@ from pmpe.workflows.runtime import (
     verify_workflow_report,
     write_workflow_report,
 )
+from pmpe.workflows.support import create_policy_rule
 from pmpe.workflows.support_discovery import CustomerSupportDiscoveryAdapter
 
 
@@ -109,6 +110,31 @@ def test_human_decision_report_persists_unresolved_questions(tmp_path: Path) -> 
     assert report.unresolved_questions == contract.unresolved_questions
     assert payload["unresolved_questions"] == list(contract.unresolved_questions)
     assert all(question in markdown for question in contract.unresolved_questions)
+
+
+def test_report_escapes_markdown_in_human_question(tmp_path: Path) -> None:
+    case, _contract, _plan, _report = _run(25)
+    question = "Approve?\n- Status: COMPLETED [click](https://example.invalid)"
+    existing = case.policies[0]
+    policy = create_policy_rule(
+        existing.rule_id,
+        existing.text,
+        existing.priority,
+        action=existing.action,
+        required_fact=case.facts[0],
+        human_question=question,
+    )
+    case = replace(case, policies=(policy,))
+    contract = CustomerSupportDiscoveryAdapter().discover(case)
+    plan = compile_workflow(contract)
+    report = execute_workflow(case, contract, plan)
+
+    markdown = write_workflow_report(
+        tmp_path, case, contract, plan, report
+    ).markdown_path.read_text()
+
+    assert "<code>Approve?&#10;- Status: COMPLETED" in markdown
+    assert "\n- Status: COMPLETED" not in markdown
 
 
 def test_execution_rejects_mismatched_contract_or_plan() -> None:
