@@ -122,18 +122,22 @@ class RecoveryController:
                 output = self.connector.apply(attempt)
             except RetryableRuntimeError as exc:
                 failure_class = type(exc).__name__
-                state_unchanged = self.connector.state_digest() == rollback_target_digest
-                self.registry.append(
-                    event_type="runtime.retry_scheduled",
-                    occurred_at=occurred_at,
-                    subject=subject,
-                    payload={
-                        "attempt": attempt,
-                        "error_class": type(exc).__name__,
-                        "operation_id": operation_id,
-                        "state_unchanged": state_unchanged,
-                    },
-                )
+                try:
+                    state_unchanged = self.connector.state_digest() == rollback_target_digest
+                    self.registry.append(
+                        event_type="runtime.retry_scheduled",
+                        occurred_at=occurred_at,
+                        subject=subject,
+                        payload={
+                            "attempt": attempt,
+                            "error_class": type(exc).__name__,
+                            "operation_id": operation_id,
+                            "state_unchanged": state_unchanged,
+                        },
+                    )
+                except Exception as reconciliation_exc:
+                    failure_class = f"retry_reconciliation:{type(reconciliation_exc).__name__}"
+                    break
                 if state_unchanged and attempt < policy.max_attempts:
                     continue
                 break
@@ -190,7 +194,17 @@ class RecoveryController:
         except Exception as exc:  # provider failure must fail closed, never claim rollback
             rollback_error = type(exc).__name__
             verified = False
-        final_digest = self.connector.state_digest()
+        state_digest_available = True
+        try:
+            final_digest = self.connector.state_digest()
+        except Exception as exc:
+            state_digest_available = False
+            verified = False
+            read_error = type(exc).__name__
+            rollback_error = (
+                read_error if rollback_error is None else f"{rollback_error}+{read_error}"
+            )
+            final_digest = digest_for({"operation_id": operation_id, "state_digest": "UNAVAILABLE"})
         try:
             self.registry.append(
                 event_type=(
@@ -203,6 +217,7 @@ class RecoveryController:
                     "rollback_error_class": rollback_error,
                     "rollback_target_digest": rollback_target_digest,
                     "state_digest": final_digest,
+                    "state_digest_available": state_digest_available,
                     "verified": verified,
                 },
             )

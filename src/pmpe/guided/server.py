@@ -146,9 +146,12 @@ class GuidedHandler(BaseHTTPRequestHandler):
 
 
 def serve(workspace: Path, host: str, port: int) -> None:
-    address = ipaddress.ip_address(host)
-    if not address.is_loopback or address.version != 4:
-        raise SpecError("guided local mode requires an IPv4 loopback host")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError as exc:
+        raise SpecError("guided local mode requires host 127.0.0.1") from exc
+    if str(address) != "127.0.0.1":
+        raise SpecError("guided local mode requires host 127.0.0.1")
     experience = GuidedExperience(workspace)
     with GuidedServer((host, port), experience) as server:
         print(f"PMOS guided experience: http://{host}:{server.server_port}")

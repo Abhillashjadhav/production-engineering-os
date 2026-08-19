@@ -156,7 +156,7 @@ class GovernedCalendarAdapter:
             raise RuntimeGovernanceError("calendar approval does not match the exact payload")
         if current_digest != mutation.expected_calendar_digest:
             raise RuntimeGovernanceError("calendar changed after approval payload was prepared")
-        self.registry.append(
+        self.registry.append_once(
             event_type="calendar.update_started",
             occurred_at=occurred_at,
             subject=subject,
@@ -166,6 +166,8 @@ class GovernedCalendarAdapter:
                 "payload_digest": mutation.payload_digest,
                 "pre_calendar_digest": current_digest,
             },
+            uniqueness_event_types=("calendar.update_started", "calendar.update_applied"),
+            uniqueness_field="approval_id",
         )
         self.connector.apply_update(mutation.event_id, mutation.changes)
         _updated, updated_digest = self.snapshot()

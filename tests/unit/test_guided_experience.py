@@ -250,9 +250,10 @@ def test_static_surface_is_mobile_first_and_exposes_all_approval_dimensions() ->
     assert "/api/workflows/catalog" in script
 
 
-def test_guided_server_rejects_ipv6_before_binding(tmp_path: Path) -> None:
-    with pytest.raises(SpecError, match="IPv4 loopback"):
-        serve(tmp_path, "::1", 0)
+@pytest.mark.parametrize("host", ("::1", "127.0.0.2", "localhost", "not-a-host"))
+def test_guided_server_rejects_unsupported_hosts_before_binding(tmp_path: Path, host: str) -> None:
+    with pytest.raises(SpecError, match="127.0.0.1"):
+        serve(tmp_path, host, 0)
 
 
 def test_guided_catalog_exposes_governed_tier_two_and_three_packs(tmp_path: Path) -> None:

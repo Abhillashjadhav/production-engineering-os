@@ -98,6 +98,13 @@ def test_contract_draft_cli_reports_missing_product_truth(tmp_path, capsys) -> N
     assert questions["questions"]
 
 
+def test_guided_cli_rejects_malformed_host_without_traceback(capsys) -> None:  # type: ignore[no-untyped-def]
+    assert main(["guided", "serve", "--host", "not-a-host"]) == 2
+    stderr = capsys.readouterr().err
+    assert "input rejected" in stderr
+    assert "Traceback" not in stderr
+
+
 def test_contract_handoff_requires_verified_approval_receipt(tmp_path) -> None:  # type: ignore[no-untyped-def]
     draft = build_contract_draft(_answers())
     assert draft.draft is not None and draft.draft_digest is not None

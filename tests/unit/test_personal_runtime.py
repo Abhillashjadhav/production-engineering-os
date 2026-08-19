@@ -202,6 +202,36 @@ def test_calendar_approval_consumption_survives_adapter_restart(tmp_path: Path) 
     assert connector.write_count == 1
 
 
+def test_calendar_approval_reservation_is_atomic_for_concurrent_calls(tmp_path: Path) -> None:
+    registry = EventRegistry(tmp_path / "events.jsonl")
+    connector = FakeCalendarConnector(_calendar())
+    adapter = GovernedCalendarAdapter(connector, registry)
+    mutation = adapter.propose_update(event_id="CAL-001", changes={"title": "Review"})
+    approval = CalendarApproval(
+        approval_id="APPROVAL-CONCURRENT-001",
+        action_type="calendar.update",
+        payload_digest=mutation.payload_digest,
+        approver="owner",
+        approved_at="2026-08-20T10:00:00Z",
+    )
+
+    def apply_once() -> str:
+        return adapter.apply_approved(
+            mutation, approval, subject=_subject(), occurred_at="2026-08-20T10:00:00Z"
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [pool.submit(apply_once) for _ in range(2)]
+    outcomes = []
+    for future in futures:
+        try:
+            outcomes.append(future.result())
+        except RuntimeGovernanceError as exc:
+            outcomes.append(str(exc))
+    assert connector.write_count == 1
+    assert sum("consumed" in outcome for outcome in outcomes) == 1
+
+
 def test_calendar_prejournals_before_mutation_and_blocks_on_completion_audit_failure(
     tmp_path: Path,
 ) -> None:
@@ -369,6 +399,58 @@ def test_post_apply_state_read_failure_enters_verified_rollback(tmp_path: Path) 
     )
     assert result.status == "ROLLED_BACK"
     assert result.rollback_verified
+
+
+def test_retry_state_read_failure_enters_verified_rollback(tmp_path: Path) -> None:
+    class RetryReadFailureConnector(FakeRecoverableConnector):
+        def __init__(self) -> None:
+            super().__init__({"revision": "base"}, ("retryable",))
+            self.read_count = 0
+
+        def state_digest(self) -> str:
+            self.read_count += 1
+            if self.read_count == 3:
+                raise OSError("synthetic retry reconciliation failure")
+            return super().state_digest()
+
+    connector = RetryReadFailureConnector()
+    target = connector.state_digest()
+    result = RecoveryController(connector, EventRegistry(tmp_path / "events.jsonl")).execute(
+        operation_id="OP-RETRY-READ-001",
+        subject=_subject(),
+        policy=RetryPolicy(max_attempts=1),
+        rollback_target_digest=target,
+        occurred_at="2026-08-20T10:00:00Z",
+    )
+    assert result.status == "ROLLED_BACK"
+    assert result.rollback_verified
+
+
+def test_final_rollback_state_read_failure_is_audited_as_unverified(tmp_path: Path) -> None:
+    class FinalReadFailureConnector(FakeRecoverableConnector):
+        def __init__(self) -> None:
+            super().__init__({"revision": "base"}, ("terminal",))
+            self.read_count = 0
+
+        def state_digest(self) -> str:
+            self.read_count += 1
+            if self.read_count >= 3:
+                raise OSError("synthetic rollback read failure")
+            return super().state_digest()
+
+    registry = EventRegistry(tmp_path / "events.jsonl")
+    connector = FinalReadFailureConnector()
+    target = connector.state_digest()
+    result = RecoveryController(connector, registry).execute(
+        operation_id="OP-ROLLBACK-READ-001",
+        subject=_subject(),
+        policy=RetryPolicy(max_attempts=1),
+        rollback_target_digest=target,
+        occurred_at="2026-08-20T10:00:00Z",
+    )
+    assert result.status == "BLOCKED_ROLLBACK_UNVERIFIED"
+    assert not result.rollback_verified
+    assert registry.read()[-1].event_type == "runtime.rollback_unverified"
 
 
 def test_learning_loop_only_proposes_regression_cases(tmp_path: Path) -> None:

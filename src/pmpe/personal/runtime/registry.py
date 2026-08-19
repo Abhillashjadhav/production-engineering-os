@@ -29,9 +29,14 @@ class EventRegistry:
     full chain and fails closed if history was changed.
     """
 
+    _path_locks_guard = threading.Lock()
+    _path_locks: dict[str, threading.RLock] = {}
+
     def __init__(self, path: Path) -> None:
         self.path = Path(path)
-        self._lock = threading.RLock()
+        lock_key = str(self.path.resolve())
+        with self._path_locks_guard:
+            self._lock = self._path_locks.setdefault(lock_key, threading.RLock())
 
     def read(self) -> tuple[RuntimeEvent, ...]:
         with self._lock:
@@ -151,3 +156,34 @@ class EventRegistry:
             subject=subject,
             payload=payload,
         )
+
+    def append_once(
+        self,
+        *,
+        event_type: str,
+        occurred_at: str,
+        subject: EvidenceSubject,
+        payload: dict[str, Any],
+        uniqueness_event_types: tuple[str, ...],
+        uniqueness_field: str,
+    ) -> RuntimeEvent:
+        """Atomically reserve one payload identity within this registry path."""
+
+        unique_value = payload.get(uniqueness_field)
+        if not uniqueness_event_types or not isinstance(unique_value, str) or not unique_value:
+            raise RuntimeGovernanceError("append-once uniqueness policy is malformed")
+        with self._lock:
+            if any(
+                event.event_type in uniqueness_event_types
+                and event.payload.get(uniqueness_field) == unique_value
+                for event in self.read()
+            ):
+                raise RuntimeGovernanceError(
+                    f"{uniqueness_field} has already been durably consumed"
+                )
+            return self.append(
+                event_type=event_type,
+                occurred_at=occurred_at,
+                subject=subject,
+                payload=payload,
+            )
