@@ -12,8 +12,8 @@ from pmpe.guided.server import serve
 
 def _cmd_serve(args: argparse.Namespace) -> int:
     address = ipaddress.ip_address(args.host)
-    if not address.is_loopback:
-        raise SpecError("guided local mode is loopback-only")
+    if not address.is_loopback or address.version != 4:
+        raise SpecError("guided local mode requires an IPv4 loopback host")
     serve(Path(args.workspace), args.host, args.port)
     return 0
 

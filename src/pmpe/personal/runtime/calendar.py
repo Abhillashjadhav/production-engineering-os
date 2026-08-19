@@ -111,7 +111,14 @@ class GovernedCalendarAdapter:
     def __init__(self, connector: CalendarConnector, registry: EventRegistry) -> None:
         self.connector = connector
         self.registry = registry
-        self._used_approval_ids: set[str] = set()
+
+    def _consumed_approval_ids(self) -> set[str]:
+        return {
+            str(event.payload["approval_id"])
+            for event in self.registry.read()
+            if event.event_type in {"calendar.update_started", "calendar.update_applied"}
+            and isinstance(event.payload.get("approval_id"), str)
+        }
 
     def snapshot(self) -> tuple[tuple[dict[str, Any], ...], str]:
         events = self.connector.snapshot()
@@ -141,7 +148,7 @@ class GovernedCalendarAdapter:
         occurred_at: str,
     ) -> str:
         _events, current_digest = self.snapshot()
-        if approval.approval_id in self._used_approval_ids:
+        if approval.approval_id in self._consumed_approval_ids():
             raise RuntimeGovernanceError("calendar approval has already been consumed")
         if not mutation.verify():
             raise RuntimeGovernanceError("calendar mutation changed after approval was prepared")
@@ -161,7 +168,6 @@ class GovernedCalendarAdapter:
             },
         )
         self.connector.apply_update(mutation.event_id, mutation.changes)
-        self._used_approval_ids.add(approval.approval_id)
         _updated, updated_digest = self.snapshot()
         try:
             self.registry.append(

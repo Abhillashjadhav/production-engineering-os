@@ -144,8 +144,8 @@ class RecoveryController:
                 failure_class = type(exc).__name__
                 break
             else:
-                final_digest = self.connector.state_digest()
                 try:
+                    final_digest = self.connector.state_digest()
                     self.registry.append(
                         event_type="runtime.operation_completed",
                         occurred_at=occurred_at,
@@ -158,7 +158,7 @@ class RecoveryController:
                         },
                     )
                 except Exception as exc:
-                    failure_class = f"audit:{type(exc).__name__}"
+                    failure_class = f"post_apply_verification:{type(exc).__name__}"
                     break
                 return RecoveryResult(
                     status="COMPLETED",

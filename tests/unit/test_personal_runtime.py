@@ -181,6 +181,27 @@ def test_calendar_approval_is_single_use_and_payload_cannot_mutate(tmp_path: Pat
     assert connector.write_count == 1
 
 
+def test_calendar_approval_consumption_survives_adapter_restart(tmp_path: Path) -> None:
+    registry_path = tmp_path / "events.jsonl"
+    connector = FakeCalendarConnector(_calendar())
+    first = GovernedCalendarAdapter(connector, EventRegistry(registry_path))
+    mutation = first.propose_update(event_id="CAL-001", changes={"title": "Review"})
+    approval = CalendarApproval(
+        approval_id="APPROVAL-RESTART-001",
+        action_type="calendar.update",
+        payload_digest=mutation.payload_digest,
+        approver="owner",
+        approved_at="2026-08-20T10:00:00Z",
+    )
+    first.apply_approved(mutation, approval, subject=_subject(), occurred_at="2026-08-20T10:00:00Z")
+    restarted = GovernedCalendarAdapter(connector, EventRegistry(registry_path))
+    with pytest.raises(RuntimeGovernanceError, match="already been consumed"):
+        restarted.apply_approved(
+            mutation, approval, subject=_subject(), occurred_at="2026-08-20T10:01:00Z"
+        )
+    assert connector.write_count == 1
+
+
 def test_calendar_prejournals_before_mutation_and_blocks_on_completion_audit_failure(
     tmp_path: Path,
 ) -> None:
@@ -323,6 +344,31 @@ def test_success_audit_failure_enters_verified_rollback(tmp_path: Path) -> None:
     )
     assert result.status == "ROLLED_BACK"
     assert connector.verify(target)
+
+
+def test_post_apply_state_read_failure_enters_verified_rollback(tmp_path: Path) -> None:
+    class PostApplyReadFailureConnector(FakeRecoverableConnector):
+        def __init__(self) -> None:
+            super().__init__({"revision": "base"}, ("success",))
+            self.read_count = 0
+
+        def state_digest(self) -> str:
+            self.read_count += 1
+            if self.read_count == 3:
+                raise OSError("synthetic post-apply read failure")
+            return super().state_digest()
+
+    connector = PostApplyReadFailureConnector()
+    target = connector.state_digest()
+    result = RecoveryController(connector, EventRegistry(tmp_path / "events.jsonl")).execute(
+        operation_id="OP-POST-READ-001",
+        subject=_subject(),
+        policy=RetryPolicy(max_attempts=1),
+        rollback_target_digest=target,
+        occurred_at="2026-08-20T10:00:00Z",
+    )
+    assert result.status == "ROLLED_BACK"
+    assert result.rollback_verified
 
 
 def test_learning_loop_only_proposes_regression_cases(tmp_path: Path) -> None:

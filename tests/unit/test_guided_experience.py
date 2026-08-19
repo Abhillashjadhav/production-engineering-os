@@ -10,8 +10,9 @@ from typing import Any
 import pytest
 
 from pmpe.contracts.canonical import canonical_digest
-from pmpe.domain.errors import ContractViolation
+from pmpe.domain.errors import ContractViolation, SpecError
 from pmpe.guided.experience import GuidedExperience
+from pmpe.guided.server import serve
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -247,6 +248,11 @@ def test_static_surface_is_mobile_first_and_exposes_all_approval_dimensions() ->
     assert "/api/guided/approve" in script
     assert "Browse workflow packs" in html
     assert "/api/workflows/catalog" in script
+
+
+def test_guided_server_rejects_ipv6_before_binding(tmp_path: Path) -> None:
+    with pytest.raises(SpecError, match="IPv4 loopback"):
+        serve(tmp_path, "::1", 0)
 
 
 def test_guided_catalog_exposes_governed_tier_two_and_three_packs(tmp_path: Path) -> None:

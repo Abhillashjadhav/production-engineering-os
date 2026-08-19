@@ -55,12 +55,12 @@ class GuidedHandler(BaseHTTPRequestHandler):
 
     def _read_json(self) -> dict[str, Any]:
         host = self.headers.get("Host", "").split(":", 1)[0].strip("[]")
-        if host not in {"127.0.0.1", "localhost", "::1"}:
+        if host not in {"127.0.0.1", "localhost"}:
             raise SpecError("guided local mode requires a loopback Host header")
         origin = self.headers.get("Origin")
         if origin is not None:
             parsed_origin = urlsplit(origin)
-            if parsed_origin.hostname not in {"127.0.0.1", "localhost", "::1"}:
+            if parsed_origin.hostname not in {"127.0.0.1", "localhost"}:
                 raise SpecError("cross-origin guided writes are blocked")
         content_type = self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower()
         if content_type != "application/json":
@@ -146,8 +146,9 @@ class GuidedHandler(BaseHTTPRequestHandler):
 
 
 def serve(workspace: Path, host: str, port: int) -> None:
-    if not ipaddress.ip_address(host).is_loopback:
-        raise SpecError("guided local mode is loopback-only")
+    address = ipaddress.ip_address(host)
+    if not address.is_loopback or address.version != 4:
+        raise SpecError("guided local mode requires an IPv4 loopback host")
     experience = GuidedExperience(workspace)
     with GuidedServer((host, port), experience) as server:
         print(f"PMOS guided experience: http://{host}:{server.server_port}")
