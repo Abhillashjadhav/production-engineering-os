@@ -83,6 +83,28 @@ def test_support_demo_maps_malformed_corpus_to_input_exit_code(tmp_path: Path) -
     assert result == 2
 
 
+def test_support_demo_maps_malformed_oracle_scalar_to_input_exit_code(tmp_path: Path) -> None:
+    corpus = write_support_corpus(tmp_path / "corpus", seed=110)
+    payload = json.loads(corpus.oracle_path.read_text())
+    payload["oracles"][0]["rationale_code"] = 1
+    corpus.oracle_path.write_text(json.dumps(payload))
+
+    result = main(
+        [
+            "support-demo",
+            "evaluate",
+            "--cases",
+            str(corpus.visible_path),
+            "--oracles",
+            str(corpus.oracle_path),
+            "--output",
+            str(tmp_path / "evaluation.json"),
+        ]
+    )
+
+    assert result == 2
+
+
 def test_support_demo_returns_human_gate_exit_code(tmp_path: Path) -> None:
     corpus = write_support_corpus(tmp_path / "corpus", seed=110)
     case = next(

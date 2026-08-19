@@ -19,6 +19,7 @@ from pmpe.workflows.support import (
     VisibleFact,
     create_policy_rule,
 )
+from pmpe.workflows.support_discovery import CustomerSupportDiscoveryAdapter
 
 CorpusValidationError = VisibleCorpusError
 _OUTCOMES = frozenset({"refund", "replacement", "escalate", "request_evidence", "reject"})
@@ -72,6 +73,34 @@ class HiddenOracle:
     required_rule_ids: tuple[str, ...]
     rationale_code: str
     visible_case_digest: str = ""
+
+    def __post_init__(self) -> None:
+        if not (
+            type(self.case_id) is str
+            and bool(self.case_id)
+            and self.split in {"development", "held_out"}
+            and type(self.expected_outcome) is str
+            and self.expected_outcome in _OUTCOMES
+            and type(self.required_fact_ids) is tuple
+            and all(type(item) is str and item for item in self.required_fact_ids)
+            and type(self.required_rule_ids) is tuple
+            and all(type(item) is str and item for item in self.required_rule_ids)
+            and type(self.rationale_code) is str
+            and bool(self.rationale_code)
+            and type(self.visible_case_digest) is str
+            and (
+                not self.visible_case_digest
+                or (
+                    len(self.visible_case_digest) == 71
+                    and self.visible_case_digest.startswith("sha256:")
+                    and all(
+                        character in "0123456789abcdef"
+                        for character in self.visible_case_digest[7:]
+                    )
+                )
+            )
+        ):
+            raise CorpusValidationError("hidden oracle is malformed")
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -387,8 +416,25 @@ def validate_support_corpus(corpus: SupportCorpus) -> None:
             or not rule_refs <= {item.rule_id for item in case.policies}
         ):
             raise CorpusValidationError("oracle rationale and evidence do not match")
-        if rationale == "equal-priority-conflict" and (len(fact_refs) < 2 or len(rule_refs) < 2):
-            raise CorpusValidationError("oracle conflict evidence is incomplete")
+        if rationale == "equal-priority-conflict":
+            positive_facts = {"FACT-ORDER-AGE", "FACT-PURCHASE-AGE"}
+            negative_facts = {"FACT-FINAL-SALE", "FACT-CLEARANCE"}
+            positive_rules = {"RULE-RETURN-WINDOW", "RULE-COOLING-PERIOD"}
+            negative_rules = {"RULE-FINAL-SALE", "RULE-CLEARANCE-EXCLUSION"}
+            if not (
+                fact_refs & positive_facts
+                and fact_refs & negative_facts
+                and rule_refs & positive_rules
+                and rule_refs & negative_rules
+            ):
+                raise CorpusValidationError("oracle conflict evidence lacks opposing roles")
+        decision = CustomerSupportDiscoveryAdapter().discover(case)
+        if (
+            decision.selected_action != oracle.expected_outcome
+            or set(decision.action_fact_refs) != fact_refs
+            or set(decision.action_rule_refs) != rule_refs
+        ):
+            raise CorpusValidationError("oracle does not match the selected visible decision")
 
 
 def _canonical_bytes(payload: object) -> bytes:
@@ -462,7 +508,7 @@ def load_hidden_oracles(path: Path) -> tuple[HiddenOracle, ...]:
             )
             for item in raw
         )
-    except (KeyError, TypeError) as exc:
+    except (KeyError, TypeError, CorpusValidationError) as exc:
         raise CorpusValidationError("hidden oracle is malformed") from exc
     if len(oracles) != len({item.case_id for item in oracles}):
         raise CorpusValidationError("hidden oracle contains duplicate case")

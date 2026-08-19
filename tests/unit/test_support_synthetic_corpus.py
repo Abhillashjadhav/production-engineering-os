@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from pmpe.contracts.canonical import canonical_digest
 import pmpe.evals.support_corpus as support_corpus_module
+from pmpe.contracts.canonical import canonical_digest
 from pmpe.evals.support_corpus import (
     CorpusValidationError,
     HiddenOracle,
@@ -206,11 +206,31 @@ def test_validator_rejects_partial_conflict_evidence_or_wrong_outcome() -> None:
     )
     wrong = replace(conflict, expected_outcome="refund")
 
-    for invalid, message in ((partial, "evidence is incomplete"), (wrong, "rationale")):
+    for invalid, message in ((partial, "opposing roles"), (wrong, "rationale")):
         oracles = list(corpus.hidden_oracles)
         oracles[index] = invalid
         with pytest.raises(CorpusValidationError, match=message):
             validate_support_corpus(SupportCorpus(corpus.visible_cases, tuple(oracles)))
+
+
+def test_validator_rejects_same_side_conflict_evidence() -> None:
+    corpus = generate_support_corpus(seed=9)
+    index = next(
+        index
+        for index, item in enumerate(corpus.hidden_oracles)
+        if item.rationale_code == "equal-priority-conflict"
+    )
+    conflict = corpus.hidden_oracles[index]
+    invalid = replace(
+        conflict,
+        required_fact_ids=("FACT-FINAL-SALE",),
+        required_rule_ids=("RULE-FINAL-SALE",),
+    )
+    oracles = list(corpus.hidden_oracles)
+    oracles[index] = invalid
+
+    with pytest.raises(CorpusValidationError, match="opposing roles"):
+        validate_support_corpus(SupportCorpus(corpus.visible_cases, tuple(oracles)))
 
 
 def test_validator_rejects_coordinated_rationale_and_outcome_rewrite() -> None:
@@ -248,6 +268,30 @@ def test_validator_does_not_require_lower_priority_distractor_evidence() -> None
             (oracle, *corpus.hidden_oracles[1:]),
         )
     )
+
+
+def test_validator_rejects_oracle_when_higher_priority_policy_changes_selection() -> None:
+    corpus = generate_support_corpus(seed=9)
+    case = corpus.visible_cases[0]
+    distractor = create_policy_rule(
+        "RULE-COOLING-PERIOD",
+        "A higher-priority rule rejects this request.",
+        100,
+        action="reject",
+        required_fact=case.facts[0],
+    )
+    changed = replace(case, policies=(*case.policies, distractor))
+    oracle = replace(
+        corpus.hidden_oracles[0], visible_case_digest=canonical_digest(changed.as_dict())
+    )
+
+    with pytest.raises(CorpusValidationError, match="selected visible decision"):
+        validate_support_corpus(
+            SupportCorpus(
+                (changed, *corpus.visible_cases[1:]),
+                (oracle, *corpus.hidden_oracles[1:]),
+            )
+        )
 
 
 def test_validator_rejects_trivial_all_escalate_oracle() -> None:
