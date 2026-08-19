@@ -102,7 +102,10 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
             "missing-proof",
         )
     elif archetype == "contradiction":
-        facts = (VisibleFact("FACT-FINAL-SALE", "Item is marked final sale.", source),)
+        facts = (
+            VisibleFact("FACT-FINAL-SALE", "Item is marked final sale.", source),
+            VisibleFact("FACT-ORDER-AGE", "Order delivered 7 days ago.", source),
+        )
         policies = (
             PolicyRule("RULE-RETURN-WINDOW", "All items may be refunded within 30 days.", 70),
             PolicyRule("RULE-FINAL-SALE", "Final-sale items cannot be refunded.", 70),
@@ -111,7 +114,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
         oracle = HiddenOracle(
             case_id,
             "escalate",
-            ("FACT-FINAL-SALE",),
+            ("FACT-FINAL-SALE", "FACT-ORDER-AGE"),
             ("RULE-RETURN-WINDOW", "RULE-FINAL-SALE"),
             "equal-priority-conflict",
         )
