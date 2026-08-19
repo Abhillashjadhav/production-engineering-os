@@ -43,6 +43,12 @@ class PersonalExecution:
     report: PersonalExecutionReport
 
 
+def _contract_digest_is_intact(contract: PersonalWorkContract) -> bool:
+    payload = contract.as_dict()
+    claimed = payload.pop("contract_digest", None)
+    return isinstance(claimed, str) and canonical_digest(payload) == claimed
+
+
 def load_personal_context(path: Path) -> dict[str, Any]:
     try:
         context, _evidence = load_personal_request(path)
@@ -209,7 +215,8 @@ def _report(
     )
     result_task_ids = [result.task_id for result in results]
     evidence_complete = (
-        len(results) == len(packets)
+        _contract_digest_is_intact(contract)
+        and len(results) == len(packets)
         and len(set(result_task_ids)) == len(result_task_ids)
         and set(result_task_ids) == {packet.task_id for packet in packets}
         and required_source_ids <= evidence_source_ids
@@ -266,6 +273,8 @@ def _report(
 
 def verify_personal_execution(execution: PersonalExecution) -> bool:
     try:
+        if not _contract_digest_is_intact(execution.contract):
+            return False
         packets = compile_task_graph(execution.contract)
         if packets != execution.packets or len(execution.results) != len(packets):
             return False

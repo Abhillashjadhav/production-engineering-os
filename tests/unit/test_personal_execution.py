@@ -600,6 +600,9 @@ def test_mutable_result_policy_cannot_redefine_the_admitted_approval() -> None:
         evidence_refs=execution.results[0].evidence_refs,
         execution_batch=execution.results[0].execution_batch,
     )
+    execution.contract.approval_policy_bindings[packet.workflow_id] = canonical_digest(
+        output["details"]["approval_policy"]
+    )
     forged_report = executor_module._report(
         run_id=execution.report.run_id,
         contract=execution.contract,
