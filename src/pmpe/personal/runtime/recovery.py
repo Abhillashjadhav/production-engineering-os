@@ -197,6 +197,13 @@ class RecoveryController:
         state_digest_available = True
         try:
             final_digest = self.connector.state_digest()
+            if final_digest != rollback_target_digest:
+                verified = False
+                rollback_error = (
+                    "FINAL_STATE_MISMATCH"
+                    if rollback_error is None
+                    else f"{rollback_error}+FINAL_STATE_MISMATCH"
+                )
         except Exception as exc:
             state_digest_available = False
             verified = False

@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import os
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -82,6 +84,13 @@ class EventRegistry:
                 events.append(event)
                 previous = event.event_digest
             return tuple(events)
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Serialize a governed check-and-write sequence for this registry path."""
+
+        with self._lock:
+            yield
 
     def append(
         self,

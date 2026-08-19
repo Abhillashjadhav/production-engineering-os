@@ -147,6 +147,22 @@ class GovernedCalendarAdapter:
         subject: EvidenceSubject,
         occurred_at: str,
     ) -> str:
+        with self.registry.transaction():
+            return self._apply_approved_locked(
+                mutation,
+                approval,
+                subject=subject,
+                occurred_at=occurred_at,
+            )
+
+    def _apply_approved_locked(
+        self,
+        mutation: CalendarMutation,
+        approval: CalendarApproval,
+        *,
+        subject: EvidenceSubject,
+        occurred_at: str,
+    ) -> str:
         _events, current_digest = self.snapshot()
         if approval.approval_id in self._consumed_approval_ids():
             raise RuntimeGovernanceError("calendar approval has already been consumed")

@@ -11,6 +11,7 @@ import pytest
 from pmpe.personal.runtime import (
     BoundedProductWorkerAdapter,
     CalendarApproval,
+    CalendarMutation,
     EventRegistry,
     EvidenceSubject,
     FakeCalendarConnector,
@@ -232,6 +233,47 @@ def test_calendar_approval_reservation_is_atomic_for_concurrent_calls(tmp_path: 
     assert sum("consumed" in outcome for outcome in outcomes) == 1
 
 
+def test_calendar_snapshot_check_and_write_are_serialized(tmp_path: Path) -> None:
+    connector = FakeCalendarConnector(_calendar())
+    adapter = GovernedCalendarAdapter(connector, EventRegistry(tmp_path / "events.jsonl"))
+    first = adapter.propose_update(event_id="CAL-001", changes={"title": "First"})
+    second = adapter.propose_update(event_id="CAL-001", changes={"title": "Second"})
+    approvals = (
+        CalendarApproval(
+            approval_id="APPROVAL-SNAPSHOT-001",
+            action_type="calendar.update",
+            payload_digest=first.payload_digest,
+            approver="owner",
+            approved_at="2026-08-20T10:00:00Z",
+        ),
+        CalendarApproval(
+            approval_id="APPROVAL-SNAPSHOT-002",
+            action_type="calendar.update",
+            payload_digest=second.payload_digest,
+            approver="owner",
+            approved_at="2026-08-20T10:00:00Z",
+        ),
+    )
+
+    def apply(pair: tuple[CalendarMutation, CalendarApproval]) -> str:
+        return adapter.apply_approved(
+            pair[0], pair[1], subject=_subject(), occurred_at="2026-08-20T10:00:00Z"
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        futures = [
+            pool.submit(apply, pair) for pair in zip((first, second), approvals, strict=True)
+        ]
+    outcomes = []
+    for future in futures:
+        try:
+            outcomes.append(future.result())
+        except RuntimeGovernanceError as exc:
+            outcomes.append(str(exc))
+    assert connector.write_count == 1
+    assert sum("changed after approval" in outcome for outcome in outcomes) == 1
+
+
 def test_calendar_prejournals_before_mutation_and_blocks_on_completion_audit_failure(
     tmp_path: Path,
 ) -> None:
@@ -443,6 +485,28 @@ def test_final_rollback_state_read_failure_is_audited_as_unverified(tmp_path: Pa
     target = connector.state_digest()
     result = RecoveryController(connector, registry).execute(
         operation_id="OP-ROLLBACK-READ-001",
+        subject=_subject(),
+        policy=RetryPolicy(max_attempts=1),
+        rollback_target_digest=target,
+        occurred_at="2026-08-20T10:00:00Z",
+    )
+    assert result.status == "BLOCKED_ROLLBACK_UNVERIFIED"
+    assert not result.rollback_verified
+    assert registry.read()[-1].event_type == "runtime.rollback_unverified"
+
+
+def test_final_rollback_digest_must_still_match_target(tmp_path: Path) -> None:
+    class DriftingRollbackConnector(FakeRecoverableConnector):
+        def verify(self, expected_digest: str) -> bool:
+            verified = super().verify(expected_digest)
+            self._state = {"revision": "drifted"}
+            return verified
+
+    registry = EventRegistry(tmp_path / "events.jsonl")
+    connector = DriftingRollbackConnector({"revision": "base"}, ("terminal",))
+    target = connector.state_digest()
+    result = RecoveryController(connector, registry).execute(
+        operation_id="OP-ROLLBACK-DRIFT-001",
         subject=_subject(),
         policy=RetryPolicy(max_attempts=1),
         rollback_target_digest=target,
