@@ -318,6 +318,20 @@ def test_validator_rejects_conflict_policy_with_corrupted_direction() -> None:
         validate_support_corpus(SupportCorpus(tuple(cases), corpus.hidden_oracles))
 
 
+def test_validator_binds_oracle_to_complete_visible_case_content() -> None:
+    corpus = generate_support_corpus(seed=9)
+    case = corpus.visible_cases[0]
+    changed = replace(
+        case,
+        facts=(replace(case.facts[0], text="Evidence now contradicts the expected decision."),),
+    )
+
+    with pytest.raises(CorpusValidationError, match="visible case digest"):
+        validate_support_corpus(
+            SupportCorpus((changed, *corpus.visible_cases[1:]), corpus.hidden_oracles)
+        )
+
+
 def test_validator_rejects_coordinated_rationale_and_outcome_rewrite() -> None:
     corpus = generate_support_corpus(seed=9)
     first = replace(
@@ -342,6 +356,7 @@ def test_validator_rejects_trivial_all_escalate_oracle() -> None:
             required_fact_ids=item.required_fact_ids,
             required_rule_ids=item.required_rule_ids,
             rationale_code="manual-review",
+            visible_case_digest=item.visible_case_digest,
         )
         for item in corpus.hidden_oracles
     )
