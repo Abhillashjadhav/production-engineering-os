@@ -31,6 +31,31 @@ def test_generator_produces_held_out_decision_coverage() -> None:
         "reject",
     }
     assert sum(case.split == "held_out" for case in corpus.visible_cases) >= 10
+    assert all(
+        not any(
+            label in case.case_id.casefold()
+            for label in ("refund", "replacement", "missing", "contradiction", "unsupported")
+        )
+        for case in corpus.visible_cases
+    )
+
+
+def test_held_out_templates_do_not_reuse_development_rule_ids() -> None:
+    corpus = generate_support_corpus(seed=110)
+    development_rules = {
+        rule.rule_id
+        for case in corpus.visible_cases
+        if case.split == "development"
+        for rule in case.policies
+    }
+    held_out_rules = {
+        rule.rule_id
+        for case in corpus.visible_cases
+        if case.split == "held_out"
+        for rule in case.policies
+    }
+
+    assert development_rules.isdisjoint(held_out_rules)
 
 
 def test_generation_and_written_artifacts_are_byte_deterministic(tmp_path: Path) -> None:
@@ -93,6 +118,20 @@ def test_validator_rejects_trivial_all_escalate_oracle() -> None:
 
     with pytest.raises(CorpusValidationError, match="outcome diversity"):
         validate_support_corpus(SupportCorpus(corpus.visible_cases, trivial))
+
+
+def test_validator_rejects_all_escalate_held_out_partition() -> None:
+    corpus = generate_support_corpus(seed=10)
+    split_by_id = {item.case_id: item.split for item in corpus.visible_cases}
+    mutated = tuple(
+        replace(item, expected_outcome="escalate")
+        if split_by_id[item.case_id] == "held_out"
+        else item
+        for item in corpus.hidden_oracles
+    )
+
+    with pytest.raises(CorpusValidationError, match="held-out outcome diversity"):
+        validate_support_corpus(SupportCorpus(corpus.visible_cases, mutated))
 
 
 def test_validator_rejects_duplicate_or_mismatched_cases() -> None:
