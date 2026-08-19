@@ -617,7 +617,7 @@ def _build_review_and_deploy_local_product(
     return engineering_path, deployment_path
 
 
-def run_full_product_quickstart(
+def _run_full_product_quickstart(
     output: Path, *, repo_root: Path, seed: int = 2026
 ) -> dict[str, Any]:
     root = Path(output)
@@ -687,6 +687,19 @@ def run_full_product_quickstart(
     write_json_atomic(root / "full-product-manifest.json", manifest)
     verify_full_product_quickstart(root, expected_digest=str(manifest["manifest_digest"]))
     return manifest
+
+
+def run_full_product_quickstart(
+    output: Path, *, repo_root: Path, seed: int = 2026
+) -> dict[str, Any]:
+    """Run the quickstart and normalize invalid input/filesystem failures."""
+
+    try:
+        return _run_full_product_quickstart(output, repo_root=repo_root, seed=seed)
+    except FullProductError:
+        raise
+    except (AttributeError, KeyError, OSError, TypeError, ValueError) as exc:
+        raise FullProductError("full-product quickstart input or output is invalid") from exc
 
 
 def _load_stage_artifacts(root: Path, manifest: dict[str, Any]) -> dict[str, dict[str, Any]]:
