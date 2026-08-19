@@ -56,12 +56,24 @@ def test_sql_string_interpolation_is_found(tmp_path: Path) -> None:
     assert any(f.rule == "SEC_SQL_FORMAT" for f in scan_file(p))
 
 
-def test_scan_tree_walks_python_files_only(tmp_path: Path) -> None:
+def test_scan_tree_walks_executable_source_files_only(tmp_path: Path) -> None:
     (tmp_path / "ok.py").write_text(CLEAN)
     (tmp_path / "bad.py").write_text("x = eval(y)\n")
     (tmp_path / "notes.md").write_text("eval( in prose is fine\n")
     findings = scan_tree(tmp_path)
     assert {f.file for f in findings} == {str(tmp_path / "bad.py")}
+
+
+def test_scan_tree_rejects_destructive_deployment_shell(tmp_path: Path) -> None:
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    script = deploy / "run.sh"
+    script.write_text("#!/bin/sh\nrm -rf /tmp/application-data\n")
+    findings = scan_tree(tmp_path)
+    assert any(
+        finding.rule == "SEC_SHELL_RECURSIVE_DELETE" and finding.file == str(script)
+        for finding in findings
+    )
 
 
 def test_findings_carry_file_and_line(tmp_path: Path) -> None:

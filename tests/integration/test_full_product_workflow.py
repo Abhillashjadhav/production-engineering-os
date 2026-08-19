@@ -44,6 +44,29 @@ def _rebuild_stage(
     return str(manifest["manifest_digest"])
 
 
+def _rebind_candidate(output: Path, manifest: dict[str, Any]) -> str:
+    workspace = output / "local-product" / "workspace"
+    candidate_digest = tree_content_digest(workspace)
+    test_result_path = output / "local-product" / "generated-test-result.json"
+    test_result = json.loads(test_result_path.read_text())
+    test_result["candidate_digest"] = candidate_digest
+    test_result_path.write_text(json.dumps(test_result))
+    for stage_id in ("engineering-verification", "local-deployment"):
+        stage = next(item for item in manifest["stages"] if item["stage_id"] == stage_id)
+        artifact_path = output / stage["artifact"]
+        artifact = json.loads(artifact_path.read_text())
+        artifact["candidate_digest"] = candidate_digest
+        if stage_id == "engineering-verification":
+            artifact["generated_test_result_digest"] = canonical_digest(test_result)
+        artifact_path.write_text(json.dumps(artifact))
+        stage["artifact_digest"] = canonical_digest(artifact)
+    projection = dict(manifest)
+    projection.pop("manifest_digest")
+    manifest["manifest_digest"] = canonical_digest(projection)
+    (output / "full-product-manifest.json").write_text(json.dumps(manifest))
+    return str(manifest["manifest_digest"])
+
+
 def test_full_product_quickstart_runs_and_reverifies(repo_root: Path, tmp_path: Path) -> None:
     output = tmp_path / "full-product"
     manifest = run_full_product_quickstart(output, repo_root=repo_root)
@@ -137,7 +160,7 @@ def test_full_product_verifier_rejects_tampered_retained_candidate(
     (output / "local-product" / "workspace" / "app" / "api.py").write_text(
         "# tampered after deployment\n"
     )
-    with pytest.raises(FullProductError, match="semantic verification failed"):
+    with pytest.raises(FullProductError, match="retained candidate tests failed"):
         verify_full_product_quickstart(output, expected_digest=manifest["manifest_digest"])
 
 
@@ -213,6 +236,31 @@ def test_full_product_verifier_replays_pr_review_against_candidate(
     (output / "full-product-manifest.json").write_text(json.dumps(manifest))
     with pytest.raises(FullProductError, match="semantic verification failed"):
         verify_full_product_quickstart(output, expected_digest=str(manifest["manifest_digest"]))
+
+
+def test_full_product_verifier_reruns_tests_against_candidate(
+    repo_root: Path, tmp_path: Path
+) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    auth_path = output / "local-product" / "workspace" / "app" / "auth.py"
+    original = auth_path.read_text()
+    bypassed = original.replace("return hmac.compare_digest(candidate, expected)", "return True")
+    assert bypassed != original
+    auth_path.write_text(bypassed)
+    expected = _rebind_candidate(output, manifest)
+    with pytest.raises(FullProductError, match="retained candidate tests failed"):
+        verify_full_product_quickstart(output, expected_digest=expected)
+
+
+def test_full_product_verifier_reviews_deployment_shell(repo_root: Path, tmp_path: Path) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    script = output / "local-product" / "workspace" / "deploy" / "run.sh"
+    script.write_text(script.read_text() + "rm -rf /tmp/application-data\n")
+    expected = _rebind_candidate(output, manifest)
+    with pytest.raises(FullProductError, match="semantic verification failed"):
+        verify_full_product_quickstart(output, expected_digest=expected)
 
 
 def test_full_product_verifier_rejects_reintroduced_bytecode(
@@ -568,7 +616,7 @@ def test_full_product_verifier_binds_tests_to_candidate(repo_root: Path, tmp_pat
     projection.pop("manifest_digest")
     manifest["manifest_digest"] = canonical_digest(projection)
     (output / "full-product-manifest.json").write_text(json.dumps(manifest))
-    with pytest.raises(FullProductError, match="semantic verification failed"):
+    with pytest.raises(FullProductError, match="retained candidate tests failed"):
         verify_full_product_quickstart(output, expected_digest=str(manifest["manifest_digest"]))
 
 

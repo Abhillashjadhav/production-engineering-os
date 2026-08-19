@@ -56,7 +56,20 @@ _RULES: tuple[_Rule, ...] = (
     ),
 )
 
-_SKIP_DIRS = {".git", "__pycache__", ".venv", "deploy", ".ruff_cache", ".pytest_cache"}
+_SHELL_RULES: tuple[_Rule, ...] = (
+    _Rule(
+        "SEC_SHELL_RECURSIVE_DELETE",
+        re.compile(r"\brm\s+-[A-Za-z]*r[A-Za-z]*f[A-Za-z]*\b"),
+        "recursive forced deletion in an executable deployment script",
+    ),
+    _Rule(
+        "SEC_SHELL_REMOTE_PIPE",
+        re.compile(r"\b(?:curl|wget)\b[^\n|]*\|\s*(?:ba)?sh\b"),
+        "remote content piped directly to a shell",
+    ),
+)
+
+_SKIP_DIRS = {".git", "__pycache__", ".venv", ".ruff_cache", ".pytest_cache"}
 
 
 def scan_file(path: Path, root: Path | None = None) -> list[Finding]:
@@ -66,8 +79,9 @@ def scan_file(path: Path, root: Path | None = None) -> list[Finding]:
     rel_parts = path.relative_to(root).parts if root is not None else (path.name,)
     is_test = "tests" in rel_parts or path.name.startswith("test_")
     findings: list[Finding] = []
+    rules = _RULES + (_SHELL_RULES if path.suffix == ".sh" else ())
     for lineno, line in enumerate(path.read_text().splitlines(), start=1):
-        for rule in _RULES:
+        for rule in rules:
             if rule.skip_tests and is_test:
                 continue
             if rule.pattern.search(line):
@@ -89,7 +103,9 @@ def scan_file(path: Path, root: Path | None = None) -> list[Finding]:
 
 def scan_tree(root: Path) -> list[Finding]:
     findings: list[Finding] = []
-    for path in sorted(root.rglob("*.py")):
+    for path in sorted(
+        candidate for candidate in root.rglob("*") if candidate.suffix in {".py", ".sh"}
+    ):
         if any(part in _SKIP_DIRS for part in path.relative_to(root).parts):
             continue
         findings.extend(scan_file(path, root=root))

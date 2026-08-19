@@ -92,6 +92,23 @@ def _contains_executable_bytecode(workspace: Path) -> bool:
     )
 
 
+def _run_retained_product_tests(workspace: Path) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            [sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests", "-t", "."],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env={
+                "PATH": "/usr/bin:/bin:/usr/local/bin",
+                "PYTHONDONTWRITEBYTECODE": "1",
+            },
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise FullProductError("retained candidate tests timed out") from exc
+
+
 def _artifact(root: Path, stage_id: str, path: Path) -> dict[str, str]:
     value = load_json_object(path)
     return {
@@ -869,6 +886,13 @@ def _verify_full_product_quickstart(output: Path, *, expected_digest: str) -> st
     if any(path.is_symlink() for path in workspace.rglob("*")):
         raise FullProductError("retained local-product workspace refuses symbolic link")
     retained_candidate_digest = tree_content_digest(workspace)
+    replayed_tests = _run_retained_product_tests(workspace)
+    if replayed_tests.returncode != 0:
+        raise FullProductError("retained candidate tests failed")
+    if tree_content_digest(workspace) != retained_candidate_digest:
+        raise FullProductError("retained candidate tests changed the workspace")
+    if _contains_executable_bytecode(workspace):
+        raise FullProductError("retained candidate tests emitted executable bytecode")
     source_spec_digest = engineering.get("source_spec_digest")
     _assert_contract_matches_spec(contract, retained_source_spec)
     replay_spec = normalize_spec(retained_source_spec)
