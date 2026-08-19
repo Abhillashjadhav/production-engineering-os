@@ -610,6 +610,7 @@ def _build_review_and_deploy_local_product(
             "generated_test_result_digest": canonical_digest(generated_test_result),
             "initial_review": jsonable(initial_review),
             "schema_version": "1.0.0",
+            "source_spec": raw,
             "source_spec_digest": source_spec_digest,
             "status": "VERIFIED",
             "tests": {
@@ -846,6 +847,9 @@ def _verify_full_product_quickstart(output: Path, *, expected_digest: str) -> st
     engineering_tests = engineering.get("tests")
     if not isinstance(engineering_tests, dict):
         raise FullProductError("engineering test summary is not an object")
+    retained_source_spec = engineering.get("source_spec")
+    if not isinstance(retained_source_spec, dict):
+        raise FullProductError("engineering source specification is not an object")
     generated_test_result_path = root / "local-product" / "generated-test-result.json"
     if generated_test_result_path.is_symlink():
         raise FullProductError("generated test result refuses symbolic link")
@@ -866,6 +870,13 @@ def _verify_full_product_quickstart(output: Path, *, expected_digest: str) -> st
         raise FullProductError("retained local-product workspace refuses symbolic link")
     retained_candidate_digest = tree_content_digest(workspace)
     source_spec_digest = engineering.get("source_spec_digest")
+    _assert_contract_matches_spec(contract, retained_source_spec)
+    replay_spec = normalize_spec(retained_source_spec)
+    replay_validation = RequirementValidator().validate(replay_spec)
+    if not replay_validation.ok or replay_validation.questions:
+        raise FullProductError("retained source specification no longer validates")
+    replay_plan = EngineeringPlanner().plan(replay_spec)
+    replay_review = jsonable(PrReviewer().review(workspace, replay_spec, replay_plan))
     approved_decisions = contract.get("approved_product_decisions")
     approved_spec_decision = (
         next(
@@ -918,10 +929,12 @@ def _verify_full_product_quickstart(output: Path, *, expected_digest: str) -> st
         engineering.get("status") == "VERIFIED",
         engineering.get("contract_digest") == contract_digest,
         isinstance(source_spec_digest, str) and _DIGEST.fullmatch(source_spec_digest) is not None,
+        canonical_digest(retained_source_spec) == source_spec_digest,
         isinstance(approved_spec_decision, dict),
         isinstance(approved_spec_decision, dict)
         and approved_spec_decision.get("decision")
         == f"Build the exact TaskFlow specification {source_spec_digest}.",
+        replay_review == final_review,
         all(not finding.get("blocking", False) for finding in final_findings),
         engineering_tests.get("status") == "PASS",
         generated_test_result.get("status") == "PASS",

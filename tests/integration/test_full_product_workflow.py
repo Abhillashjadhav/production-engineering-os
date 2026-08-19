@@ -182,6 +182,39 @@ def test_full_product_verifier_rejects_malformed_source_spec_digest(
         verify_full_product_quickstart(output, expected_digest=str(manifest["manifest_digest"]))
 
 
+def test_full_product_verifier_replays_pr_review_against_candidate(
+    repo_root: Path, tmp_path: Path
+) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    workspace = output / "local-product" / "workspace"
+    api_path = workspace / "app" / "api.py"
+    api_path.write_text(api_path.read_text() + "\neval('1')\n")
+    candidate_digest = tree_content_digest(workspace)
+
+    test_result_path = output / "local-product" / "generated-test-result.json"
+    test_result = json.loads(test_result_path.read_text())
+    test_result["candidate_digest"] = candidate_digest
+    test_result_path.write_text(json.dumps(test_result))
+
+    for stage_id in ("engineering-verification", "local-deployment"):
+        stage = next(item for item in manifest["stages"] if item["stage_id"] == stage_id)
+        artifact_path = output / stage["artifact"]
+        artifact = json.loads(artifact_path.read_text())
+        artifact["candidate_digest"] = candidate_digest
+        if stage_id == "engineering-verification":
+            artifact["generated_test_result_digest"] = canonical_digest(test_result)
+        artifact_path.write_text(json.dumps(artifact))
+        stage["artifact_digest"] = canonical_digest(artifact)
+
+    projection = dict(manifest)
+    projection.pop("manifest_digest")
+    manifest["manifest_digest"] = canonical_digest(projection)
+    (output / "full-product-manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(FullProductError, match="semantic verification failed"):
+        verify_full_product_quickstart(output, expected_digest=str(manifest["manifest_digest"]))
+
+
 def test_full_product_verifier_rejects_reintroduced_bytecode(
     repo_root: Path, tmp_path: Path
 ) -> None:
