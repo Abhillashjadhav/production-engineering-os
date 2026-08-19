@@ -26,6 +26,8 @@ class DecisionContract:
     contract_digest: str
 
     def __post_init__(self) -> None:
+        payload = self.as_dict()
+        claimed_digest = str(payload.pop("contract_digest"))
         if not (
             self.schema_version == "1.0.0"
             and self.vertical
@@ -39,6 +41,7 @@ class DecisionContract:
                 (self.status == "ADMITTED" and not self.unresolved_questions)
                 or (self.status == "NEEDS_HUMAN_DECISION" and self.unresolved_questions)
             )
+            and claimed_digest == canonical_digest(payload)
         ):
             raise DecisionContractError("decision contract is malformed or incomplete")
 

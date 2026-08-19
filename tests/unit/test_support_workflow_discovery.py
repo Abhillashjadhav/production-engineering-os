@@ -78,7 +78,7 @@ def test_new_policy_identifier_uses_structured_semantics_not_corpus_vocabulary()
                 "A verified in-window purchase may be refunded.",
                 90,
                 action="refund",
-                required_fact_id=case.facts[0].fact_id,
+                required_fact=case.facts[0],
             ),
         ),
     )
@@ -111,7 +111,7 @@ def test_non_escalation_action_with_human_question_stays_human_bound() -> None:
         policy.text,
         policy.priority,
         action=policy.action,
-        required_fact_id=policy.required_fact_id,
+        required_fact=case.facts[0],
         human_question="A manager must approve this otherwise eligible refund.",
     )
 
@@ -145,7 +145,7 @@ def test_escalation_policy_requires_a_named_human_question() -> None:
             "Escalate this case.",
             100,
             action="escalate",
-            required_fact_id="FACT-1",
+            required_fact=VisibleFact("FACT-1", "Visible escalation fact.", "TICKET-1"),
         )
 
 
@@ -162,7 +162,7 @@ def test_conflict_preserves_rule_specific_human_questions() -> None:
         "This claim must be rejected unless legal approves it.",
         existing.priority,
         action="reject",
-        required_fact_id=existing.required_fact_id,
+        required_fact=case.facts[0],
         human_question="A legal approver must decide whether rejection is required.",
     )
 
@@ -184,8 +184,25 @@ def test_rule_without_required_fact_fails_closed() -> None:
         facts=(VisibleFact("FACT-UNRELATED", "A different fact is visible.", "TICKET-X"),),
     )
 
-    with pytest.raises(DecisionContractError, match="required visible fact"):
+    with pytest.raises(DecisionContractError, match="bound visible fact"):
         CustomerSupportDiscoveryAdapter().discover(mutated)
+
+
+def test_changed_fact_text_invalidates_policy_authorization() -> None:
+    case = generate_support_corpus(seed=16).visible_cases[0]
+    changed = replace(case.facts[0], text="Order delivered 100 days ago and is used.")
+
+    with pytest.raises(DecisionContractError, match="bound visible fact"):
+        CustomerSupportDiscoveryAdapter().discover(replace(case, facts=(changed,)))
+
+
+def test_contract_constructor_rejects_payload_digest_mismatch() -> None:
+    contract = CustomerSupportDiscoveryAdapter().discover(
+        generate_support_corpus(seed=16).visible_cases[0]
+    )
+
+    with pytest.raises(DecisionContractError, match="malformed or incomplete"):
+        replace(contract, selected_action="reject")
 
 
 def test_contract_core_is_vertical_neutral() -> None:

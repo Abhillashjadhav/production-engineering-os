@@ -39,7 +39,12 @@ def _bounded_identifier(value: object) -> bool:
 
 
 def _bounded_text(value: object, *, maximum: int = 4096) -> bool:
-    return type(value) is str and 0 < len(value.encode("utf-8")) <= maximum and "\0" not in value
+    if type(value) is not str or "\0" in value:
+        return False
+    try:
+        return 0 < len(value.encode("utf-8")) <= maximum
+    except UnicodeEncodeError:
+        return False
 
 
 @dataclass(frozen=True)
@@ -56,6 +61,9 @@ class VisibleFact:
         ):
             raise VisibleCorpusError("visible fact is malformed")
 
+    def as_dict(self) -> dict[str, str]:
+        return asdict(self)
+
 
 @dataclass(frozen=True)
 class PolicyRule:
@@ -64,6 +72,7 @@ class PolicyRule:
     priority: int
     action: str
     required_fact_id: str
+    required_fact_digest: str
     human_question: str
     semantic_digest: str
 
@@ -73,6 +82,7 @@ class PolicyRule:
             "human_question": self.human_question,
             "priority": self.priority,
             "required_fact_id": self.required_fact_id,
+            "required_fact_digest": self.required_fact_digest,
             "rule_id": self.rule_id,
             "text": self.text,
         }
@@ -83,6 +93,7 @@ class PolicyRule:
             and 0 <= self.priority <= 100
             and self.action in {"escalate", "refund", "reject", "replacement", "request_evidence"}
             and _bounded_identifier(self.required_fact_id)
+            and self.required_fact_digest.startswith("sha256:")
             and (not self.human_question or _bounded_text(self.human_question, maximum=1024))
             and (self.action != "escalate" or bool(self.human_question))
             and self.semantic_digest == canonical_digest(semantic_payload)
@@ -96,14 +107,15 @@ def create_policy_rule(
     priority: int,
     *,
     action: str,
-    required_fact_id: str,
+    required_fact: VisibleFact,
     human_question: str = "",
 ) -> PolicyRule:
     payload = {
         "action": action,
         "human_question": human_question,
         "priority": priority,
-        "required_fact_id": required_fact_id,
+        "required_fact_id": required_fact.fact_id,
+        "required_fact_digest": canonical_digest(asdict(required_fact)),
         "rule_id": rule_id,
         "text": text,
     }
@@ -112,7 +124,8 @@ def create_policy_rule(
         text,
         priority,
         action,
-        required_fact_id,
+        required_fact.fact_id,
+        canonical_digest(asdict(required_fact)),
         human_question,
         canonical_digest(payload),
     )

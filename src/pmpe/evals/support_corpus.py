@@ -72,7 +72,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
                 "Refund is allowed within 30 days.",
                 80,
                 action="refund",
-                required_fact_id="FACT-ORDER-AGE",
+                required_fact=facts[0],
             ),
         )
         ticket = f"Customer requests a refund for an unused item costing ${amount}."
@@ -92,7 +92,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
                 "Verified transit damage receives replacement.",
                 90,
                 action="replacement",
-                required_fact_id="FACT-DAMAGE-PHOTO",
+                required_fact=facts[0],
             ),
         )
         ticket = f"Customer reports transit damage on item costing ${amount}."
@@ -114,7 +114,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
                 "Order evidence is required before remedy.",
                 95,
                 action="request_evidence",
-                required_fact_id="FACT-NO-RECEIPT",
+                required_fact=facts[0],
             ),
         )
         ticket = "Customer asks for a remedy but provides no order evidence."
@@ -137,14 +137,14 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
                 "All items may be refunded within 30 days.",
                 70,
                 action="refund",
-                required_fact_id="FACT-ORDER-AGE",
+                required_fact=facts[1],
             ),
             create_policy_rule(
                 "RULE-FINAL-SALE",
                 "Final-sale items cannot be refunded.",
                 70,
                 action="reject",
-                required_fact_id="FACT-FINAL-SALE",
+                required_fact=facts[0],
             ),
         )
         ticket = "Customer requests a refund within 30 days for a final-sale item."
@@ -168,7 +168,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
                 "Off-platform cash transfers are unsupported.",
                 100,
                 action="reject",
-                required_fact_id="FACT-CASH-DEMAND",
+                required_fact=facts[0],
             ),
         )
         ticket = "Customer asks support to transfer compensation to a personal wallet."
@@ -189,7 +189,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
                 "Claims above $1000 require human approval.",
                 100,
                 action="escalate",
-                required_fact_id="FACT-HIGH-VALUE",
+                required_fact=facts[0],
                 human_question="A named human approver must decide this high-value claim.",
             ),
         )
@@ -257,7 +257,9 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
                 rule_texts[rule_aliases[item.rule_id]],
                 item.priority,
                 action=item.action,
-                required_fact_id=fact_aliases[item.required_fact_id],
+                required_fact=next(
+                    fact for fact in facts if fact.fact_id == fact_aliases[item.required_fact_id]
+                ),
                 human_question=item.human_question,
             )
             for item in policies
