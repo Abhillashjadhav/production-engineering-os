@@ -169,7 +169,7 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
             "RULE-HIGH-VALUE": "RULE-MANAGER-THRESHOLD",
         }
         fact_texts = {
-            "FACT-PURCHASE-AGE": "Purchase was completed 12 days ago.",
+            "FACT-PURCHASE-AGE": "Unused purchase was completed 12 days ago.",
             "FACT-DEFECT-VIDEO": "A defect video passed evidence review.",
             "FACT-NO-ACCOUNT": "No account identifier was supplied.",
             "FACT-CLEARANCE": "Item is marked clearance.",

@@ -58,6 +58,19 @@ def test_held_out_templates_do_not_reuse_development_rule_ids() -> None:
     assert development_rules.isdisjoint(held_out_rules)
 
 
+def test_held_out_conflict_establishes_both_policy_predicates() -> None:
+    corpus = generate_support_corpus(seed=110)
+    conflict = next(
+        case
+        for case in corpus.visible_cases
+        if case.split == "held_out" and len(case.policies) == 2
+    )
+
+    visible_text = " ".join(item.text for item in conflict.facts).casefold()
+    assert "unused" in visible_text
+    assert "clearance" in visible_text
+
+
 def test_generation_and_written_artifacts_are_byte_deterministic(tmp_path: Path) -> None:
     first = write_support_corpus(tmp_path / "first", seed=41)
     second = write_support_corpus(tmp_path / "second", seed=41)
