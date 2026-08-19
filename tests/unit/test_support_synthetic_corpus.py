@@ -145,7 +145,7 @@ def test_validator_rejects_oracle_references_not_present_in_visible_case() -> No
     invalid = replace(first, required_rule_ids=("POLICY-NOT-VISIBLE",))
     mutated = SupportCorpus(corpus.visible_cases, (invalid, *corpus.hidden_oracles[1:]))
 
-    with pytest.raises(CorpusValidationError, match="rule evidence is incomplete"):
+    with pytest.raises(CorpusValidationError, match="rationale and evidence"):
         validate_support_corpus(mutated)
 
 
@@ -155,7 +155,7 @@ def test_validator_rejects_empty_oracle_evidence_bindings() -> None:
     invalid = replace(first, required_fact_ids=(), required_rule_ids=())
     mutated = SupportCorpus(corpus.visible_cases, (invalid, *corpus.hidden_oracles[1:]))
 
-    with pytest.raises(CorpusValidationError, match="fact evidence is incomplete"):
+    with pytest.raises(CorpusValidationError, match="rationale and evidence"):
         validate_support_corpus(mutated)
 
 
@@ -179,6 +179,20 @@ def test_validator_rejects_partial_conflict_evidence_or_wrong_outcome() -> None:
         oracles[index] = invalid
         with pytest.raises(CorpusValidationError, match=message):
             validate_support_corpus(SupportCorpus(corpus.visible_cases, tuple(oracles)))
+
+
+def test_validator_rejects_coordinated_rationale_and_outcome_rewrite() -> None:
+    corpus = generate_support_corpus(seed=9)
+    first = replace(
+        corpus.hidden_oracles[0],
+        expected_outcome="reject",
+        rationale_code="unsupported-action",
+    )
+
+    with pytest.raises(CorpusValidationError, match="rationale and evidence"):
+        validate_support_corpus(
+            SupportCorpus(corpus.visible_cases, (first, *corpus.hidden_oracles[1:]))
+        )
 
 
 def test_validator_rejects_trivial_all_escalate_oracle() -> None:
