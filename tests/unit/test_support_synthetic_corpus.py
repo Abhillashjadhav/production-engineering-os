@@ -244,7 +244,7 @@ def test_validator_rejects_empty_oracle_evidence_bindings() -> None:
 def test_hidden_oracle_rejects_mutable_evidence_collections() -> None:
     oracle = generate_support_corpus(seed=9).hidden_oracles[0]
 
-    with pytest.raises(CorpusValidationError, match="evidence is malformed"):
+    with pytest.raises(CorpusValidationError, match="hidden oracle is malformed"):
         replace(oracle, required_fact_ids=list(oracle.required_fact_ids))  # type: ignore[arg-type]
 
 
@@ -314,9 +314,13 @@ def test_validator_rejects_unequal_priority_conflict() -> None:
     )
     cases = list(corpus.visible_cases)
     cases[index] = changed
+    oracles = list(corpus.hidden_oracles)
+    oracles[index] = replace(
+        oracles[index], visible_case_digest=canonical_digest(changed.as_dict())
+    )
 
     with pytest.raises(CorpusValidationError, match="equal priority"):
-        validate_support_corpus(SupportCorpus(tuple(cases), corpus.hidden_oracles))
+        validate_support_corpus(SupportCorpus(tuple(cases), tuple(oracles)))
 
 
 def test_validator_rejects_conflict_policy_with_corrupted_direction() -> None:
@@ -341,9 +345,13 @@ def test_validator_rejects_conflict_policy_with_corrupted_direction() -> None:
     )
     cases = list(corpus.visible_cases)
     cases[index] = changed
+    oracles = list(corpus.hidden_oracles)
+    oracles[index] = replace(
+        oracles[index], visible_case_digest=canonical_digest(changed.as_dict())
+    )
 
     with pytest.raises(CorpusValidationError, match="policy semantics"):
-        validate_support_corpus(SupportCorpus(tuple(cases), corpus.hidden_oracles))
+        validate_support_corpus(SupportCorpus(tuple(cases), tuple(oracles)))
 
 
 def test_validator_binds_oracle_to_complete_visible_case_content() -> None:
@@ -405,10 +413,16 @@ def test_validator_rejects_oracle_when_higher_priority_policy_changes_selection(
         required_fact=case.facts[0],
     )
     changed = replace(case, policies=(*case.policies, distractor))
+    oracle = replace(
+        corpus.hidden_oracles[0], visible_case_digest=canonical_digest(changed.as_dict())
+    )
 
     with pytest.raises(CorpusValidationError, match="selected visible decision"):
         validate_support_corpus(
-            SupportCorpus((changed, *corpus.visible_cases[1:]), corpus.hidden_oracles)
+            SupportCorpus(
+                (changed, *corpus.visible_cases[1:]),
+                (oracle, *corpus.hidden_oracles[1:]),
+            )
         )
 
 
@@ -425,10 +439,16 @@ def test_validator_rejects_non_escalation_oracle_with_human_gate() -> None:
         human_question="A manager must approve this refund.",
     )
     changed = replace(case, policies=(human_bound,))
+    oracle = replace(
+        corpus.hidden_oracles[0], visible_case_digest=canonical_digest(changed.as_dict())
+    )
 
     with pytest.raises(CorpusValidationError, match="human decision gate"):
         validate_support_corpus(
-            SupportCorpus((changed, *corpus.visible_cases[1:]), corpus.hidden_oracles)
+            SupportCorpus(
+                (changed, *corpus.visible_cases[1:]),
+                (oracle, *corpus.hidden_oracles[1:]),
+            )
         )
 
 
@@ -486,6 +506,16 @@ def test_validator_rejects_visible_partition_relabeling() -> None:
 
     with pytest.raises(CorpusValidationError, match="hidden oracle is malformed"):
         validate_support_corpus(SupportCorpus(tuple(visible), corpus.hidden_oracles))
+
+
+def test_validator_rejects_visible_case_content_rewrite() -> None:
+    corpus = generate_support_corpus(seed=11)
+    first = replace(corpus.visible_cases[0], ticket_text="Rewritten evaluation input.")
+
+    with pytest.raises(CorpusValidationError, match="visible case digest"):
+        validate_support_corpus(
+            SupportCorpus((first, *corpus.visible_cases[1:]), corpus.hidden_oracles)
+        )
 
 
 def test_validator_rejects_undersized_held_out_partition() -> None:

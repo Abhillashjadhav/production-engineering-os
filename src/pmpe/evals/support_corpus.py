@@ -91,12 +91,31 @@ class HiddenOracle:
 
     def __post_init__(self) -> None:
         if not (
-            type(self.required_fact_ids) is tuple
-            and type(self.required_rule_ids) is tuple
+            type(self.case_id) is str
+            and bool(self.case_id)
+            and self.split in {"development", "held_out"}
+            and type(self.expected_outcome) is str
+            and self.expected_outcome in _OUTCOMES
+            and type(self.required_fact_ids) is tuple
             and all(type(item) is str and item for item in self.required_fact_ids)
+            and type(self.required_rule_ids) is tuple
             and all(type(item) is str and item for item in self.required_rule_ids)
+            and type(self.rationale_code) is str
+            and bool(self.rationale_code)
+            and type(self.visible_case_digest) is str
+            and (
+                not self.visible_case_digest
+                or (
+                    len(self.visible_case_digest) == 71
+                    and self.visible_case_digest.startswith("sha256:")
+                    and all(
+                        character in "0123456789abcdef"
+                        for character in self.visible_case_digest[7:]
+                    )
+                )
+            )
         ):
-            raise CorpusValidationError("hidden oracle evidence is malformed")
+            raise CorpusValidationError("hidden oracle is malformed")
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -395,6 +414,8 @@ def validate_support_corpus(corpus: SupportCorpus) -> None:
         ):
             raise CorpusValidationError("hidden oracle is malformed")
         case = visible[oracle.case_id]
+        if oracle.visible_case_digest != canonical_digest(case.as_dict()):
+            raise CorpusValidationError("oracle visible case digest does not match")
         rationale = oracle.rationale_code.removeprefix("held-out-")
         if _RATIONALE_OUTCOMES.get(rationale) != oracle.expected_outcome:
             raise CorpusValidationError("oracle outcome does not match its rationale")
@@ -457,10 +478,6 @@ def validate_support_corpus(corpus: SupportCorpus) -> None:
             or {policy.rule_id for policy in selected_policies} != rule_refs
         ):
             raise CorpusValidationError("oracle does not match the selected visible decision")
-        if oracle.visible_case_digest != canonical_digest(case.as_dict()):
-            raise CorpusValidationError("oracle visible case digest does not match")
-
-
 def _canonical_bytes(payload: object) -> bytes:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return (encoded + "\n").encode()
@@ -527,3 +544,41 @@ def write_support_corpus(root: Path, *, seed: int) -> CorpusPaths:
             if staged_root.exists():
                 shutil.rmtree(staged_root)
     return CorpusPaths(visible_path, oracle_path)
+
+
+def load_hidden_oracles(path: Path) -> tuple[HiddenOracle, ...]:
+    """Load hidden truth only from an explicit evaluation path."""
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise CorpusValidationError("hidden oracle corpus is unreadable") from exc
+    if not isinstance(payload, dict) or payload.get("schema_version") != "1.0.0":
+        raise CorpusValidationError("hidden oracle schema is unsupported")
+    raw = payload.get("oracles")
+    if not isinstance(raw, list):
+        raise CorpusValidationError("hidden oracles are missing")
+    if any(
+        not isinstance(item, dict)
+        or not isinstance(item.get("required_fact_ids"), list)
+        or not isinstance(item.get("required_rule_ids"), list)
+        for item in raw
+    ):
+        raise CorpusValidationError("hidden oracle evidence must be arrays")
+    try:
+        oracles = tuple(
+            HiddenOracle(
+                case_id=item["case_id"],
+                split=item["split"],
+                expected_outcome=item["expected_outcome"],
+                required_fact_ids=tuple(item["required_fact_ids"]),
+                required_rule_ids=tuple(item["required_rule_ids"]),
+                rationale_code=item["rationale_code"],
+                visible_case_digest=item["visible_case_digest"],
+            )
+            for item in raw
+        )
+    except (KeyError, TypeError, CorpusValidationError) as exc:
+        raise CorpusValidationError("hidden oracle is malformed") from exc
+    if len(oracles) != len({item.case_id for item in oracles}):
+        raise CorpusValidationError("hidden oracle contains duplicate case")
+    return oracles

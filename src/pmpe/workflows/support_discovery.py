@@ -67,3 +67,11 @@ class CustomerSupportDiscoveryAdapter:
             action_rule_refs=rule_refs,
             unresolved_questions=questions,
         )
+
+    def verify(self, case: SupportCase, contract: DecisionContract) -> bool:
+        """Recompile from visible truth; accept only the exact canonical contract."""
+        try:
+            expected = self.discover(case)
+        except DecisionContractError:
+            return False
+        return contract == expected and contract.canonical_bytes() == expected.canonical_bytes()
