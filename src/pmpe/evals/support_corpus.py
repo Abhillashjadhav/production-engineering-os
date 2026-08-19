@@ -426,8 +426,6 @@ def _write_atomic(path: Path, payload: bytes) -> None:
 
 def write_support_corpus(root: Path, *, seed: int) -> CorpusPaths:
     corpus = generate_support_corpus(seed=seed)
-    visible_path = Path(root) / "visible" / "cases.json"
-    oracle_path = Path(root) / "eval-only" / "oracles.json"
     visible_bytes = _canonical_bytes(
         {"cases": [item.as_dict() for item in corpus.visible_cases], "schema_version": "1.0.0"}
     )
@@ -437,15 +435,10 @@ def write_support_corpus(root: Path, *, seed: int) -> CorpusPaths:
             "schema_version": "1.0.0",
         }
     )
-    previous_visible = visible_path.read_bytes() if visible_path.exists() else None
+    version = hashlib.sha256(visible_bytes + oracle_bytes).hexdigest()
+    version_root = Path(root) / "versions" / version
+    visible_path = version_root / "visible" / "cases.json"
+    oracle_path = version_root / "eval-only" / "oracles.json"
     _write_atomic(visible_path, visible_bytes)
-    try:
-        _write_atomic(oracle_path, oracle_bytes)
-    except BaseException:
-        if previous_visible is None:
-            with suppress(FileNotFoundError):
-                visible_path.unlink()
-        else:
-            _write_atomic(visible_path, previous_visible)
-        raise
+    _write_atomic(oracle_path, oracle_bytes)
     return CorpusPaths(visible_path, oracle_path)
