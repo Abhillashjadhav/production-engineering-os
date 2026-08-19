@@ -94,8 +94,14 @@ class PolicyRule:
             and self.action in {"escalate", "refund", "reject", "replacement", "request_evidence"}
             and _bounded_identifier(self.required_fact_id)
             and self.required_fact_digest.startswith("sha256:")
-            and (not self.human_question or _bounded_text(self.human_question, maximum=1024))
-            and (self.action != "escalate" or bool(self.human_question))
+            and (
+                not self.human_question
+                or (
+                    bool(self.human_question.strip())
+                    and _bounded_text(self.human_question, maximum=1024)
+                )
+            )
+            and (self.action != "escalate" or bool(self.human_question.strip()))
             and self.semantic_digest == canonical_digest(semantic_payload)
         ):
             raise VisibleCorpusError("policy rule is malformed")

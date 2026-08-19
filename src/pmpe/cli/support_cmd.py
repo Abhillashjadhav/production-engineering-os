@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
+from pmpe.domain.errors import SpecError
 from pmpe.evals.support_corpus import (
     SupportCorpus,
     load_hidden_oracles,
@@ -33,7 +34,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     selected_id = args.case_id or sorted(cases)[0]
     case = cases.get(selected_id)
     if case is None:
-        raise ValueError(f"unknown visible case: {selected_id}")
+        raise SpecError(f"unknown visible case: {selected_id}")
     adapter = CustomerSupportDiscoveryAdapter()
     contract = adapter.discover(case)
     plan = compile_workflow(contract)
@@ -47,7 +48,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     )
     print(f"{report.case_id}: {report.selected_action} ({report.status})")
     print(f"report: {paths.markdown_path}")
-    return 0
+    return 3 if report.status == "NEEDS_HUMAN_DECISION" else 0
 
 
 def _cmd_evaluate(args: argparse.Namespace) -> int:

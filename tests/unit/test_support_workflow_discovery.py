@@ -139,14 +139,16 @@ def test_admitted_contract_cannot_carry_unresolved_questions() -> None:
 
 
 def test_escalation_policy_requires_a_named_human_question() -> None:
-    with pytest.raises(VisibleCorpusError, match="policy rule is malformed"):
-        create_policy_rule(
-            "RULE-ESCALATE",
-            "Escalate this case.",
-            100,
-            action="escalate",
-            required_fact=VisibleFact("FACT-1", "Visible escalation fact.", "TICKET-1"),
-        )
+    for question in ("", "   "):
+        with pytest.raises(VisibleCorpusError, match="policy rule is malformed"):
+            create_policy_rule(
+                "RULE-ESCALATE",
+                "Escalate this case.",
+                100,
+                action="escalate",
+                required_fact=VisibleFact("FACT-1", "Visible escalation fact.", "TICKET-1"),
+                human_question=question,
+            )
 
 
 def test_conflict_preserves_rule_specific_human_questions() -> None:

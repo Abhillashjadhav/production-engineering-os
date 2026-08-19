@@ -48,6 +48,49 @@ def test_support_demo_runs_one_visible_case_without_oracle_input(
     assert report["evidence_complete"] is True
 
 
+def test_support_demo_maps_unknown_case_to_malformed_input(tmp_path: Path) -> None:
+    corpus = write_support_corpus(tmp_path / "corpus", seed=110)
+
+    result = main(
+        [
+            "support-demo",
+            "run",
+            "--cases",
+            str(corpus.visible_path),
+            "--case-id",
+            "SUP-UNKNOWN",
+            "--output",
+            str(tmp_path / "result"),
+        ]
+    )
+
+    assert result == 2
+
+
+def test_support_demo_returns_human_gate_exit_code(tmp_path: Path) -> None:
+    corpus = write_support_corpus(tmp_path / "corpus", seed=110)
+    case = next(
+        item
+        for item in load_visible_cases(corpus.visible_path)
+        if any(policy.action == "escalate" for policy in item.policies)
+    )
+
+    result = main(
+        [
+            "support-demo",
+            "run",
+            "--cases",
+            str(corpus.visible_path),
+            "--case-id",
+            case.case_id,
+            "--output",
+            str(tmp_path / "result"),
+        ]
+    )
+
+    assert result == 3
+
+
 def test_support_demo_scores_held_out_cases_in_eval_mode(tmp_path: Path) -> None:
     corpus = write_support_corpus(tmp_path / "corpus", seed=110)
     output = tmp_path / "evaluation.json"
