@@ -11,6 +11,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
+from pmpe.contracts.canonical import canonical_digest
+
 _FORBIDDEN_ORACLE_FIELDS = frozenset(
     {
         "expected_outcome",
@@ -60,15 +62,57 @@ class PolicyRule:
     rule_id: str
     text: str
     priority: int
+    action: str
+    required_fact_id: str
+    human_question: str
+    semantic_digest: str
 
     def __post_init__(self) -> None:
+        semantic_payload = {
+            "action": self.action,
+            "human_question": self.human_question,
+            "required_fact_id": self.required_fact_id,
+            "rule_id": self.rule_id,
+            "text": self.text,
+        }
         if not (
             _bounded_identifier(self.rule_id)
             and _bounded_text(self.text)
             and type(self.priority) is int
             and 0 <= self.priority <= 100
+            and self.action in {"escalate", "refund", "reject", "replacement", "request_evidence"}
+            and _bounded_identifier(self.required_fact_id)
+            and (not self.human_question or _bounded_text(self.human_question, maximum=1024))
+            and self.semantic_digest == canonical_digest(semantic_payload)
         ):
             raise VisibleCorpusError("policy rule is malformed")
+
+
+def create_policy_rule(
+    rule_id: str,
+    text: str,
+    priority: int,
+    *,
+    action: str,
+    required_fact_id: str,
+    human_question: str = "",
+) -> PolicyRule:
+    payload = {
+        "action": action,
+        "human_question": human_question,
+        "required_fact_id": required_fact_id,
+        "rule_id": rule_id,
+        "text": text,
+    }
+    return PolicyRule(
+        rule_id,
+        text,
+        priority,
+        action,
+        required_fact_id,
+        human_question,
+        canonical_digest(payload),
+    )
 
 
 @dataclass(frozen=True)

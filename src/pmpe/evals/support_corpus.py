@@ -16,6 +16,7 @@ from pmpe.workflows.support import (
     SupportCase,
     VisibleCorpusError,
     VisibleFact,
+    create_policy_rule,
 )
 
 CorpusValidationError = VisibleCorpusError
@@ -64,7 +65,15 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
     oracle: HiddenOracle
     if archetype == "refund":
         facts = (VisibleFact("FACT-ORDER-AGE", "Order delivered 7 days ago.", source),)
-        policies = (PolicyRule("RULE-RETURN-WINDOW", "Refund is allowed within 30 days.", 80),)
+        policies = (
+            create_policy_rule(
+                "RULE-RETURN-WINDOW",
+                "Refund is allowed within 30 days.",
+                80,
+                action="refund",
+                required_fact_id="FACT-ORDER-AGE",
+            ),
+        )
         ticket = f"Customer requests a refund for an unused item costing ${amount}."
         oracle = HiddenOracle(
             case_id,
@@ -76,7 +85,13 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
     elif archetype == "replacement":
         facts = (VisibleFact("FACT-DAMAGE-PHOTO", "Damage photo was verified.", source),)
         policies = (
-            PolicyRule("RULE-DAMAGE-REPLACE", "Verified transit damage receives replacement.", 90),
+            create_policy_rule(
+                "RULE-DAMAGE-REPLACE",
+                "Verified transit damage receives replacement.",
+                90,
+                action="replacement",
+                required_fact_id="FACT-DAMAGE-PHOTO",
+            ),
         )
         ticket = f"Customer reports transit damage on item costing ${amount}."
         oracle = HiddenOracle(
@@ -91,7 +106,13 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
             VisibleFact("FACT-NO-RECEIPT", "No receipt or order identifier was supplied.", source),
         )
         policies = (
-            PolicyRule("RULE-PROOF-REQUIRED", "Order evidence is required before remedy.", 95),
+            create_policy_rule(
+                "RULE-PROOF-REQUIRED",
+                "Order evidence is required before remedy.",
+                95,
+                action="request_evidence",
+                required_fact_id="FACT-NO-RECEIPT",
+            ),
         )
         ticket = "Customer asks for a remedy but provides no order evidence."
         oracle = HiddenOracle(
@@ -107,8 +128,20 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
             VisibleFact("FACT-ORDER-AGE", "Order delivered 7 days ago.", source),
         )
         policies = (
-            PolicyRule("RULE-RETURN-WINDOW", "All items may be refunded within 30 days.", 70),
-            PolicyRule("RULE-FINAL-SALE", "Final-sale items cannot be refunded.", 70),
+            create_policy_rule(
+                "RULE-RETURN-WINDOW",
+                "All items may be refunded within 30 days.",
+                70,
+                action="refund",
+                required_fact_id="FACT-ORDER-AGE",
+            ),
+            create_policy_rule(
+                "RULE-FINAL-SALE",
+                "Final-sale items cannot be refunded.",
+                70,
+                action="reject",
+                required_fact_id="FACT-FINAL-SALE",
+            ),
         )
         ticket = "Customer requests a refund within 30 days for a final-sale item."
         oracle = HiddenOracle(
@@ -125,8 +158,12 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
             ),
         )
         policies = (
-            PolicyRule(
-                "RULE-CHANNEL-BOUNDARY", "Off-platform cash transfers are unsupported.", 100
+            create_policy_rule(
+                "RULE-CHANNEL-BOUNDARY",
+                "Off-platform cash transfers are unsupported.",
+                100,
+                action="reject",
+                required_fact_id="FACT-CASH-DEMAND",
             ),
         )
         ticket = "Customer asks support to transfer compensation to a personal wallet."
@@ -141,7 +178,14 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
         value = amount + 1000
         facts = (VisibleFact("FACT-HIGH-VALUE", f"Claim value is ${value}.", source),)
         policies = (
-            PolicyRule("RULE-HIGH-VALUE", "Claims above $1000 require human approval.", 100),
+            create_policy_rule(
+                "RULE-HIGH-VALUE",
+                "Claims above $1000 require human approval.",
+                100,
+                action="escalate",
+                required_fact_id="FACT-HIGH-VALUE",
+                human_question="A named human approver must decide this high-value claim.",
+            ),
         )
         ticket = f"Customer requests compensation of ${value}."
         oracle = HiddenOracle(
@@ -201,10 +245,13 @@ def _make_case(seed: int, archetype: str, index: int) -> tuple[SupportCase, Hidd
             for item in facts
         )
         policies = tuple(
-            PolicyRule(
+            create_policy_rule(
                 rule_aliases[item.rule_id],
                 rule_texts[rule_aliases[item.rule_id]],
                 item.priority,
+                action=item.action,
+                required_fact_id=fact_aliases[item.required_fact_id],
+                human_question=item.human_question,
             )
             for item in policies
         )
