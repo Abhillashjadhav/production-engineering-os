@@ -12,6 +12,15 @@ class DecisionContractError(ValueError):
     """Raised when visible truth cannot produce a safe decision contract."""
 
 
+def _valid_digest(value: object) -> bool:
+    return (
+        type(value) is str
+        and len(value) == 71
+        and value.startswith("sha256:")
+        and all(character in "0123456789abcdef" for character in value[7:])
+    )
+
+
 @dataclass(frozen=True)
 class DecisionContract:
     schema_version: str
@@ -32,7 +41,7 @@ class DecisionContract:
             self.schema_version == "1.0.0"
             and self.vertical
             and self.case_id
-            and self.input_digest.startswith("sha256:")
+            and _valid_digest(self.input_digest)
             and self.selected_action
             and self.status in {"ADMITTED", "NEEDS_HUMAN_DECISION"}
             and type(self.action_fact_refs) is tuple
@@ -44,6 +53,7 @@ class DecisionContract:
                 (self.status == "ADMITTED" and not self.unresolved_questions)
                 or (self.status == "NEEDS_HUMAN_DECISION" and self.unresolved_questions)
             )
+            and _valid_digest(claimed_digest)
             and claimed_digest == canonical_digest(payload)
         ):
             raise DecisionContractError("decision contract is malformed or incomplete")

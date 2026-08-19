@@ -216,6 +216,16 @@ def test_contract_rejects_mutable_reference_collections() -> None:
         replace(contract, action_fact_refs=list(contract.action_fact_refs))  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize("digest", ("sha256:", "sha256:not-hex", None))
+def test_contract_rejects_incomplete_or_untyped_input_digest(digest: object) -> None:
+    contract = CustomerSupportDiscoveryAdapter().discover(
+        generate_support_corpus(seed=16).visible_cases[0]
+    )
+
+    with pytest.raises(DecisionContractError, match="malformed or incomplete"):
+        replace(contract, input_digest=digest)  # type: ignore[arg-type]
+
+
 def test_policy_rejects_non_string_required_fact_digest() -> None:
     case = generate_support_corpus(seed=16).visible_cases[0]
 
