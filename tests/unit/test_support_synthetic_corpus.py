@@ -354,6 +354,17 @@ def test_validator_rejects_conflict_policy_with_corrupted_direction() -> None:
         validate_support_corpus(SupportCorpus(tuple(cases), tuple(oracles)))
 
 
+def test_validator_binds_oracle_to_complete_visible_case_content() -> None:
+    corpus = generate_support_corpus(seed=9)
+    case = corpus.visible_cases[0]
+
+    with pytest.raises(CorpusValidationError, match="support case is malformed"):
+        replace(
+            case,
+            facts=(replace(case.facts[0], text="Evidence now contradicts the expected decision."),),
+        )
+
+
 def test_validator_rejects_coordinated_rationale_and_outcome_rewrite() -> None:
     corpus = generate_support_corpus(seed=9)
     first = replace(

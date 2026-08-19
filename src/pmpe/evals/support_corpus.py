@@ -477,6 +477,8 @@ def validate_support_corpus(corpus: SupportCorpus) -> None:
             or {policy.rule_id for policy in selected_policies} != rule_refs
         ):
             raise CorpusValidationError("oracle does not match the selected visible decision")
+        if oracle.visible_case_digest != canonical_digest(case.as_dict()):
+            raise CorpusValidationError("oracle visible case digest does not match")
 
 
 def _canonical_bytes(payload: object) -> bytes:
