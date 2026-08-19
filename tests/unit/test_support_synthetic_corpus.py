@@ -100,14 +100,10 @@ def test_validator_rejects_duplicate_or_mismatched_cases() -> None:
 
     with pytest.raises(CorpusValidationError, match="duplicate case"):
         validate_support_corpus(
-            SupportCorpus(
-                (corpus.visible_cases[0], *corpus.visible_cases), corpus.hidden_oracles
-            )
+            SupportCorpus((corpus.visible_cases[0], *corpus.visible_cases), corpus.hidden_oracles)
         )
     with pytest.raises(CorpusValidationError, match="one oracle"):
-        validate_support_corpus(
-            SupportCorpus(corpus.visible_cases, corpus.hidden_oracles[1:])
-        )
+        validate_support_corpus(SupportCorpus(corpus.visible_cases, corpus.hidden_oracles[1:]))
 
 
 def test_every_oracle_is_grounded_in_visible_facts_and_rules() -> None:
