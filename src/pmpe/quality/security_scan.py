@@ -76,6 +76,24 @@ _SHELL_RULES: tuple[_Rule, ...] = (
 _SKIP_DIRS = {".git", "__pycache__", ".venv", ".ruff_cache", ".pytest_cache"}
 
 
+def _shell_logical_lines(text: str) -> list[tuple[int, str]]:
+    logical: list[tuple[int, str]] = []
+    buffered = ""
+    start = 1
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        if not buffered:
+            start = lineno
+        stripped = line.rstrip()
+        if stripped.endswith("\\"):
+            buffered += stripped[:-1] + " "
+            continue
+        logical.append((start, buffered + line))
+        buffered = ""
+    if buffered:
+        logical.append((start, buffered))
+    return logical
+
+
 def scan_file(path: Path, root: Path | None = None) -> list[Finding]:
     """Scan one file. Test-file detection uses the path RELATIVE to ``root`` when
     given — absolute ancestors named 'tests' (e.g. a runs dir under /home/x/tests/)
@@ -84,7 +102,13 @@ def scan_file(path: Path, root: Path | None = None) -> list[Finding]:
     is_test = "tests" in rel_parts or path.name.startswith("test_")
     findings: list[Finding] = []
     rules = _RULES + (_SHELL_RULES if path.suffix == ".sh" else ())
-    for lineno, line in enumerate(path.read_text().splitlines(), start=1):
+    text = path.read_text()
+    lines = (
+        _shell_logical_lines(text)
+        if path.suffix == ".sh"
+        else list(enumerate(text.splitlines(), start=1))
+    )
+    for lineno, line in lines:
         for rule in rules:
             if rule.skip_tests and is_test:
                 continue

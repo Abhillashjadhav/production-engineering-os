@@ -916,6 +916,14 @@ def _verify_full_product_quickstart(output: Path, *, expected_digest: str) -> st
         raise FullProductError("retained candidate tests changed the workspace")
     if _contains_executable_bytecode(workspace):
         raise FullProductError("retained candidate tests emitted executable bytecode")
+    try:
+        replayed_deployment = LocalProcessDeployer().deploy(workspace, replay_spec)
+    finally:
+        _remove_generated_bytecode(workspace)
+    if tree_content_digest(workspace) != retained_candidate_digest:
+        raise FullProductError("retained candidate journey changed the workspace")
+    if not (replayed_deployment.healthy and replayed_deployment.journey_passed):
+        raise FullProductError("retained candidate authenticated journey failed")
     replay_review = jsonable(PrReviewer().review(workspace, replay_spec, replay_plan))
     approved_decisions = contract.get("approved_product_decisions")
     approved_spec_decision = (

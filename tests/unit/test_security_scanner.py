@@ -68,7 +68,16 @@ def test_scan_tree_walks_executable_source_files_only(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "options",
-    ("-rf", "-fr", "-Rf", "-r -f", "-f -r", "--recursive --force", "--force --recursive"),
+    (
+        "-rf",
+        "-fr",
+        "-Rf",
+        "-r -f",
+        "-f -r",
+        "--recursive --force",
+        "--force --recursive",
+        "-r \\\n-f",
+    ),
 )
 def test_scan_tree_rejects_destructive_deployment_shell(tmp_path: Path, options: str) -> None:
     deploy = tmp_path / "deploy"

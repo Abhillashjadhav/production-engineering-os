@@ -253,6 +253,29 @@ def test_full_product_verifier_reruns_tests_against_candidate(
         verify_full_product_quickstart(output, expected_digest=expected)
 
 
+def test_full_product_verifier_replays_journey_outside_candidate_assertions(
+    repo_root: Path, tmp_path: Path
+) -> None:
+    output = tmp_path / "full-product"
+    manifest = run_full_product_quickstart(output, repo_root=repo_root)
+    workspace = output / "local-product" / "workspace"
+    auth_path = workspace / "app" / "auth.py"
+    auth_prefix = auth_path.read_text().split("def verify_token", 1)[0]
+    auth_path.write_text(auth_prefix + "def verify_token(candidate):\n    return True\n")
+    (workspace / "app" / "__init__.py").write_text(
+        "import unittest\n\n"
+        "_original_getattribute = unittest.TestCase.__getattribute__\n\n"
+        "def _ignore_assertions(self, name):\n"
+        "    if name.startswith('assert'):\n"
+        "        return lambda *args, **kwargs: None\n"
+        "    return _original_getattribute(self, name)\n\n"
+        "unittest.TestCase.__getattribute__ = _ignore_assertions\n"
+    )
+    expected = _rebind_candidate(output, manifest)
+    with pytest.raises(FullProductError, match="authenticated journey failed"):
+        verify_full_product_quickstart(output, expected_digest=expected)
+
+
 def test_full_product_verifier_binds_replay_to_generated_test_suite(
     repo_root: Path, tmp_path: Path
 ) -> None:
