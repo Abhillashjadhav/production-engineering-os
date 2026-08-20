@@ -111,16 +111,9 @@ def _slug(value: str) -> str:
 
 
 def _paths_touched_between(git: LocalGitAdapter, baseline_sha: str, tip_sha: str) -> set[str]:
-    commits = (
-        line
-        for line in git._run(  # noqa: SLF001 - exact reachable history is admission evidence
-            "rev-list", "--reverse", f"{baseline_sha}..{tip_sha}"
-        ).splitlines()
-        if line
-    )
     return {
         line
-        for revision in commits
+        for revision in _commits_between(git, baseline_sha, tip_sha)
         for line in git._run(  # noqa: SLF001 - inspect each commit, including merge parents
             "diff-tree",
             "--root",
@@ -133,6 +126,16 @@ def _paths_touched_between(git: LocalGitAdapter, baseline_sha: str, tip_sha: str
         ).splitlines()
         if line
     }
+
+
+def _commits_between(git: LocalGitAdapter, baseline_sha: str, tip_sha: str) -> tuple[str, ...]:
+    return tuple(
+        line
+        for line in git._run(  # noqa: SLF001 - exact reachable history is admission evidence
+            "rev-list", "--reverse", f"{baseline_sha}..{tip_sha}"
+        ).splitlines()
+        if line
+    )
 
 
 def _active_worktree_lock(run_dir: Path) -> _ReentrantRunLock:
@@ -1606,9 +1609,13 @@ class AtomicImplementationController:
                     "candidate tree differs from the integration manifest: "
                     f"missing={missing}; extra={extra}"
                 )
+            admitted_history: set[str] = set()
             for result in manifest.results:
                 git._run(  # noqa: SLF001 - every result must be in candidate history
                     "merge-base", "--is-ancestor", result.commit_sha, candidate_head_sha
+                )
+                admitted_history.update(
+                    _commits_between(git, manifest.baseline_sha, result.commit_sha)
                 )
                 for path in result.changed_paths:
                     if _git_tree_entry(git, result.commit_sha, path) != _git_tree_entry(
@@ -1617,6 +1624,33 @@ class AtomicImplementationController:
                         raise AtomicityViolation(
                             f"candidate tree entry for {path} differs from task {result.task_id}"
                         )
+            candidate_history = _commits_between(git, manifest.baseline_sha, candidate_head_sha)
+            integration_commits = [
+                revision for revision in candidate_history if revision not in admitted_history
+            ]
+            allowed_entries = {
+                path: {
+                    _git_tree_entry(git, manifest.baseline_sha, path),
+                    _git_tree_entry(git, result.commit_sha, path),
+                }
+                for result in manifest.results
+                for path in result.changed_paths
+            }
+            for revision in integration_commits:
+                parents = git._run(  # noqa: SLF001 - topology binds integration authority
+                    "rev-list", "--parents", "-n", "1", revision
+                ).split()[1:]
+                if len(parents) < 2:
+                    raise AtomicityViolation(
+                        "candidate history contains an unadmitted non-integration commit"
+                    )
+                if any(
+                    _git_tree_entry(git, revision, path) not in entries
+                    for path, entries in allowed_entries.items()
+                ):
+                    raise AtomicityViolation(
+                        "integration commit contains content not admitted by a specialist result"
+                    )
         except GitError as exc:
             raise AtomicityViolation(
                 "candidate head is not bound to the integration baseline and results"

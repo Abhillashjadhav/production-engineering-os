@@ -1303,6 +1303,27 @@ def test_candidate_publication_requires_exact_manifest_history_and_content(
             verification_digest="d" * 64,
         )
 
+    same_path_integrator = tmp_path / "same-path-integrator"
+    git._run("worktree", "add", "--detach", str(same_path_integrator), manifest.baseline_sha)
+    same_path_git = LocalGitAdapter(same_path_integrator)
+    (same_path_integrator / "src" / "candidate.py").write_text("EXFILTRATE = True\n")
+    same_path_git.commit_all("add unadmitted content on a manifest-owned path")
+    (same_path_integrator / "src" / "candidate.py").unlink()
+    same_path_git.commit_all("revert unadmitted same-path content")
+    same_path_git._run(  # noqa: SLF001 - construct adversarial candidate history
+        "merge", "--no-ff", head, "-m", "integrate admitted specialist result"
+    )
+    same_path_history = same_path_git._run("rev-parse", "HEAD")  # noqa: SLF001
+    git._run("worktree", "remove", "--force", str(same_path_integrator))
+
+    with pytest.raises(AtomicityViolation, match="unadmitted non-integration commit"):
+        controller.publish_candidate(
+            repo=repo,
+            manifest=manifest,
+            candidate_head_sha=same_path_history,
+            verification_digest="d" * 64,
+        )
+
     mode_integrator = tmp_path / "mode-integrator"
     git._run("worktree", "add", "--detach", str(mode_integrator), head)
     mode_git = LocalGitAdapter(mode_integrator)
