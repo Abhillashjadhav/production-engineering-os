@@ -1816,6 +1816,95 @@ def test_candidate_ready_and_dequeue_adopt_observed_effect_after_state_save_cras
     assert len(adapter.primary_pull_requests(admitted.issue.number)) == 1
 
 
+def test_candidate_publication_replays_remote_success_from_planned_journal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, adapter, repo, _, manifest, head = _integrated_candidate(tmp_path)
+    append = controller._append_effect_event
+
+    def crash_before_observed(
+        *,
+        action: str,
+        idempotency_key: str,
+        subject_digest: str,
+        status: str,
+        result_digest: str,
+    ) -> None:
+        if action == "update_draft_pr" and status == "OBSERVED":
+            raise RuntimeError("candidate observation crash")
+        append(
+            action=action,
+            idempotency_key=idempotency_key,
+            subject_digest=subject_digest,
+            status=status,
+            result_digest=result_digest,
+        )
+
+    monkeypatch.setattr(controller, "_append_effect_event", crash_before_observed)
+    with pytest.raises(RuntimeError, match="candidate observation crash"):
+        controller.publish_candidate(
+            repo=repo,
+            manifest=manifest,
+            candidate_head_sha=head,
+            verification_digest="f" * 64,
+        )
+
+    resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    published = resumed.publish_candidate(
+        repo=repo,
+        manifest=manifest,
+        candidate_head_sha=head,
+        verification_digest="f" * 64,
+    )
+    assert published == adapter.pull_request(published.number)
+
+
+def test_readmission_replays_remote_pr_update_from_planned_journal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, adapter = _controller(tmp_path)
+    admitted = controller.admit_slice(_candidate())
+    controller.cancel_all(
+        reason="new product truth",
+        partial_paths=(),
+        current_tree_sha=admitted.planning_commit.sha,
+    )
+    replacement = replace(_candidate(), test_plan_digest="1" * 64, meaningful_red_digest="2" * 64)
+    append = controller._append_effect_event
+
+    def crash_before_observed(
+        *,
+        action: str,
+        idempotency_key: str,
+        subject_digest: str,
+        status: str,
+        result_digest: str,
+    ) -> None:
+        if action == "update_draft_pr" and status == "OBSERVED":
+            raise RuntimeError("readmission PR observation crash")
+        append(
+            action=action,
+            idempotency_key=idempotency_key,
+            subject_digest=subject_digest,
+            status=status,
+            result_digest=result_digest,
+        )
+
+    monkeypatch.setattr(controller, "_append_effect_event", crash_before_observed)
+    with pytest.raises(RuntimeError, match="readmission PR observation crash"):
+        controller.readmit_after_product_input(
+            replacement,
+            restored_tree_sha=admitted.planning_commit.sha,
+        )
+
+    resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    recovered = resumed.readmit_after_product_input(
+        replacement,
+        restored_tree_sha=admitted.planning_commit.sha,
+    )
+    assert recovered.candidate_digest == replacement.digest
+
+
 def test_ready_and_dequeue_replay_remote_success_from_planned_journal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

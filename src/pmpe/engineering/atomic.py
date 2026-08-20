@@ -1380,6 +1380,104 @@ class AtomicImplementationController:
             and _canonical_digest(asdict(replace(current, blocked=True))) in observed_digests
         ):
             return
+        body_prefix = (
+            admitted.pull_request.body.split("\n## Integrated candidate\n", 1)[0]
+            + "\n## Integrated candidate\n\n"
+        )
+        if current.body.startswith(body_prefix):
+            publication = re.fullmatch(
+                r"Head `([0-9a-f]{40})`; integration `([0-9a-f]{64})`; "
+                r"verification `([0-9a-f]{64})`\.\n",
+                current.body[len(body_prefix) :],
+            )
+            if publication is not None:
+                head, integration_digest, verification_digest = publication.groups()
+                manifest = self.integration_manifest()
+                key = f"pr:{current.number}:{head}:publish"
+                related = grouped.get(key, [])
+                subject = {
+                    "pr": current.number,
+                    "expected_head": manifest.baseline_sha,
+                    "candidate_head": head,
+                    "body_digest": _canonical_digest(current.body),
+                    "integration_manifest_digest": manifest.digest,
+                    "verification_digest": verification_digest,
+                }
+                if (
+                    integration_digest == manifest.digest
+                    and current == replace(admitted.pull_request, head_sha=head, body=current.body)
+                    and [event["status"] for event in related] == ["PLANNED"]
+                    and all(
+                        event["action"] == "update_draft_pr"
+                        and event["subject_digest"] == _canonical_digest(subject)
+                        for event in related
+                    )
+                ):
+                    return
+        readmission = re.fullmatch(
+            re.escape(
+                f"Relates to #{admitted.issue.number}.\n\n"
+                "## Outcome\n\n"
+                f"{admitted.issue.outcome}\n\n"
+                "## Decisions\n\n"
+                "One issue, one exact-base branch, one primary draft PR.\n\n"
+                "## Tests / evidence\n\n"
+                "Test plan `"
+            )
+            + r"([0-9a-f]{64})"
+            + re.escape("`; meaningful red `")
+            + r"([0-9a-f]{64})"
+            + re.escape(
+                "`.\n\n"
+                "## Risks\n\nRepository identity, scope escape, and stale evidence.\n\n"
+                "## Rollback\n\nClose only this draft PR and dedicated branch; "
+                "never rewrite shared history.\n"
+            ),
+            current.body,
+        )
+        if readmission is not None:
+            test_plan_digest, meaningful_red_digest = readmission.groups()
+            candidate = IssueCandidate(
+                key=admitted.issue.key,
+                title=admitted.issue.title,
+                outcome=admitted.issue.outcome,
+                test_plan_digest=test_plan_digest,
+                meaningful_red_digest=meaningful_red_digest,
+            )
+            new_planning = self.repository.planning_commit(current.head_sha)
+            expected_planning = PlanningCommitRecord(
+                sha=current.head_sha,
+                branch=admitted.branch.name,
+                issue_number=admitted.issue.number,
+                test_plan_digest=test_plan_digest,
+                meaningful_red_digest=meaningful_red_digest,
+                test_only=True,
+            )
+            key = f"{candidate.digest[:20]}:readmit-draft-pr"
+            related = grouped.get(key, [])
+            subject = {
+                "pr": current.number,
+                "old_head": admitted.pull_request.head_sha,
+                "planning_head": current.head_sha,
+                "body_digest": _canonical_digest(current.body),
+                "restored_tree_sha": self._work_baseline_sha,
+            }
+            if (
+                new_planning == expected_planning
+                and current
+                == replace(
+                    admitted.pull_request,
+                    head_sha=current.head_sha,
+                    body=current.body,
+                )
+                and [event["status"] for event in related] == ["PLANNED"]
+                and all(
+                    event["action"] == "update_draft_pr"
+                    and event["subject_digest"] == _canonical_digest(subject)
+                    for event in related
+                )
+            ):
+                return
         raise AtomicityViolation("persisted admitted repository authority changed")
 
     def issue_lease(self, task: SpecialistTask, *, admitted: AdmittedSlice) -> SpecialistLease:
