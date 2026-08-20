@@ -157,12 +157,12 @@ def _env_wrapped_command(tokens: list[str], command: int) -> tuple[str | None, b
             cursor += 1
             continue
         if not options_ended and not assignment_seen and token.startswith("--"):
+            if token in {"--help", "--version"}:
+                return None, False
             if token in {
                 "--debug",
-                "--help",
                 "--ignore-environment",
                 "--null",
-                "--version",
             }:
                 cursor += 1
                 continue
