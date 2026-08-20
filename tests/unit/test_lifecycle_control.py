@@ -3064,11 +3064,43 @@ def test_ambiguous_v1_policy_can_replay_but_not_release_a_new_mutation(
         status="PLANNED",
     )
 
-    with pytest.raises(TransitionDeniedError, match="ambiguous historical policy"):
+    with pytest.raises(TransitionDeniedError, match="unavailable or ambiguous"):
         prejournal(cp, attempt)
 
     cp._register_mutation(attempt)
     assert prejournal(cp, attempt) == attempt
+
+
+def test_v1_policy_without_an_exact_schema_cannot_release_a_new_mutation(
+    tmp_path: Path,
+) -> None:
+    snapshot = lifecycle._policy_payload(PHASE_ZERO_POLICY)
+    snapshot["version"] = "phase-zero-v1"
+    for rule in snapshot["rules"]:
+        rule.pop("mutation_subject_fields")
+    unmapped_digest = next(
+        digest
+        for digest in lifecycle._PHASE_ZERO_V1_RELEASED_POLICY_DIGESTS
+        if digest not in lifecycle._PHASE_ZERO_V1_SCHEMA_BY_POLICY_DIGEST
+    )
+    historical_policy = lifecycle._policy_from_payload(
+        snapshot,
+        policy_digest=unmapped_digest,
+    )
+    assert not historical_policy.mutation_subject_field_variants
+    cp = control_plane(tmp_path, state=LifecycleState.PRODUCTION_APPROVAL_REQUIRED)
+    cp._policy = historical_policy
+    attempt = MutationAttempt(
+        attempt_id="unmapped-production-attempt",
+        idempotency_key="production:run-65:unmapped",
+        subject_digest=SHA,
+        action="deploy_production",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+
+    with pytest.raises(TransitionDeniedError, match="unavailable or ambiguous"):
+        prejournal(cp, attempt)
 
 
 def test_post_merge_blocking_finding_enters_safe_blocked_state(tmp_path: Path) -> None:

@@ -4976,13 +4976,23 @@ class LifecycleControlPlane:
             if attempt.subject_digest != self.subject_digest:
                 raise TransitionDeniedError("mutation attempt subject does not match")
             persisted_attempts = self._read_mutation_attempts()
-            ambiguous_historical_schema = self._policy.version == "phase-zero-v1" and any(
-                len(set(variants)) > 1
-                for variants in self._policy.mutation_subject_field_variants.values()
+            historical_schema_unavailable_or_ambiguous = (
+                self._policy.version == "phase-zero-v1"
+                and (
+                    not self._policy.mutation_subject_field_variants.get(attempt.action)
+                    or any(
+                        len(set(variants)) > 1
+                        for variants in self._policy.mutation_subject_field_variants.values()
+                    )
+                )
             )
-            if ambiguous_historical_schema and attempt.idempotency_key not in persisted_attempts:
+            if (
+                historical_schema_unavailable_or_ambiguous
+                and attempt.idempotency_key not in persisted_attempts
+            ):
                 raise TransitionDeniedError(
-                    "ambiguous historical policy may replay only an existing mutation attempt"
+                    "unavailable or ambiguous historical schema may replay only an existing "
+                    "mutation attempt"
                 )
             if not self._mutation_authorization_valid(attempt, authorization):
                 raise TransitionDeniedError(
