@@ -384,6 +384,47 @@ def _test_configuration_kind(path: str) -> str | None:
     return None
 
 
+def _python_declared_tool(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    match = re.match(r"[A-Za-z0-9][A-Za-z0-9._-]*", value.strip())
+    if match is None:
+        return None
+    return re.sub(r"[-_.]+", "-", match.group(0)).casefold()
+
+
+_PYTHON_TEST_EXECUTABLES = frozenset(
+    {
+        "bandit",
+        "behave",
+        "locust",
+        "mutmut",
+        "playwright",
+        "pytest",
+    }
+)
+
+
+def _node_package_executable(value: object) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    aliases = {"@playwright/test": "playwright"}
+    return aliases.get(value, value.rsplit("/", 1)[-1].casefold())
+
+
+def _declared_test_script_tool(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    tokens = value.strip().split()
+    if not tokens:
+        return None
+    if tokens[0] == "npx" and len(tokens) > 1:
+        return tokens[1].casefold()
+    if tokens[0] in {"pnpm", "yarn"} and len(tokens) > 2 and tokens[1] == "exec":
+        return tokens[2].casefold()
+    return tokens[0].casefold()
+
+
 def _entry_point_signal_kind(path: str) -> str | None:
     """Return a bounded conventional entry-point signal, never a recommendation."""
 
@@ -839,6 +880,36 @@ def _python(context: AdapterContext) -> AdapterResult:
                                 blocking=True,
                             )
                         )
+                    optional_dependencies = (
+                        project.get("optional-dependencies", {})
+                        if isinstance(project, dict)
+                        else {}
+                    )
+                    if isinstance(optional_dependencies, dict):
+                        for group, dependencies in optional_dependencies.items():
+                            if str(group).casefold() not in {
+                                "dev",
+                                "lint",
+                                "qa",
+                                "quality",
+                                "test",
+                                "tests",
+                            } or not isinstance(dependencies, list):
+                                continue
+                            for dependency in dependencies:
+                                declared_tool = _python_declared_tool(dependency)
+                                if declared_tool in _PYTHON_TEST_EXECUTABLES:
+                                    items.append(
+                                        (
+                                            "tests_quality",
+                                            _item(
+                                                file,
+                                                "DECLARED_QUALITY_TOOL",
+                                                "stack.python",
+                                                location=f"tool:{declared_tool}",
+                                            ),
+                                        )
+                                    )
                     tool = parsed.get("tool", {})
                     if isinstance(tool, dict):
                         pytest_configuration = tool.get("pytest")
@@ -1009,6 +1080,38 @@ def _node(context: AdapterContext) -> AdapterResult:
                             )
                         )
                     scripts = package.get("scripts", {})
+                    declared_executables = {
+                        executable
+                        for section in ("dependencies", "devDependencies")
+                        for executable in (
+                            _node_package_executable(name)
+                            for name in (
+                                package.get(section, {})
+                                if isinstance(package.get(section), dict)
+                                else {}
+                            )
+                        )
+                        if executable is not None
+                    }
+                    test_script_tools = {
+                        tool
+                        for name, command in (scripts.items() if isinstance(scripts, dict) else ())
+                        if (name == "test" or name.startswith("test:"))
+                        for tool in (_declared_test_script_tool(command),)
+                        if tool is not None and tool in declared_executables
+                    }
+                    for declared_tool in sorted(test_script_tools):
+                        items.append(
+                            (
+                                "tests_quality",
+                                _item(
+                                    file,
+                                    "DECLARED_QUALITY_TOOL",
+                                    "stack.node-web",
+                                    location=f"tool:{declared_tool}",
+                                ),
+                            )
+                        )
                     if isinstance(scripts, dict) and isinstance(scripts.get("start"), str):
                         items.append(
                             (
