@@ -9,7 +9,7 @@ cases:
   output:
     task_id: T-EVAL
     commits: [abc123]
-    tests_run: [positive, planted-negative, tamper]
+    tests_run: [positive, planted-negative, boundary, tamper]
     results: passed
     escalations: []
 - id: eval-weakened-gate
@@ -31,5 +31,15 @@ cases:
   output:
     task_id: T-EVAL
     commits: [abc123]
-    tests_run: [positive, planted-negative, tamper]
+    tests_run: [positive, planted-negative, boundary, tamper]
     results: failed
+- id: eval-missing-boundary
+  kind: planted_failure
+  expect: invalid
+  hard_gate: true
+  context: {assigned_tasks: [T-EVAL]}
+  output:
+    task_id: T-EVAL
+    commits: [abc123]
+    tests_run: [positive, planted-negative, tamper]
+    results: passed

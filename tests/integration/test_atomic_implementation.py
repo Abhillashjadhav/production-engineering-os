@@ -497,6 +497,75 @@ def test_cancellation_removes_active_worktree_after_preserving_dirty_paths(
     assert stopped.active_leases == 0
 
 
+def test_reloaded_controller_reconstructs_and_stops_active_worktree(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git = LocalGitAdapter(root)
+    git.init()
+    (root / "src").mkdir()
+    (root / "src" / "partial.py").write_text("VALUE = 1\n")
+    planning_sha = git.commit_all("base")
+    controller, adapter = _controller(tmp_path, planning_commit_sha=planning_sha)
+    admitted = controller.admit_slice(_candidate())
+    lease = controller.issue_lease(
+        SpecialistTask("T-stop", "v2-backend-engineer", ("src/",)), admitted=admitted
+    )
+
+    with controller.specialist_worktree(
+        root, lease=lease, worktrees_root=tmp_path / "worktrees"
+    ) as worktree:
+        path = worktree.path
+        (path / "src" / "partial.py").write_text("VALUE = 2\n")
+        resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+        stopped = resumed.cancel_all(
+            reason="contradictory product truth",
+            partial_paths=(),
+            current_tree_sha=planning_sha,
+        )
+        assert not path.exists()
+
+    assert stopped.partial_paths == ("src/partial.py",)
+    assert stopped.workers_stopped is True
+    assert stopped.active_leases == 0
+
+
+def test_cancellation_rejects_unregistered_persisted_worktree_target(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git = LocalGitAdapter(root)
+    git.init()
+    (root / "src").mkdir()
+    (root / "src" / "partial.py").write_text("VALUE = 1\n")
+    planning_sha = git.commit_all("base")
+    controller, adapter = _controller(tmp_path, planning_commit_sha=planning_sha)
+    admitted = controller.admit_slice(_candidate())
+    controller.issue_lease(
+        SpecialistTask("T-stop", "v2-backend-engineer", ("src/",)), admitted=admitted
+    )
+    unrelated = tmp_path / "unrelated"
+    unrelated.mkdir()
+    (unrelated / "keep.txt").write_text("do not remove\n")
+    (tmp_path / "run" / "active-worktrees.json").write_text(
+        json.dumps(
+            {
+                "T-stop": {
+                    "repo": str(root.resolve()),
+                    "worktree": str(unrelated.resolve()),
+                }
+            }
+        )
+    )
+
+    resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    with pytest.raises(AtomicityViolation, match="not registered"):
+        resumed.cancel_all(
+            reason="contradictory product truth",
+            partial_paths=(),
+            current_tree_sha=planning_sha,
+        )
+    assert (unrelated / "keep.txt").read_text() == "do not remove\n"
+
+
 def test_ready_and_dequeue_are_exact_head_governed_effects(tmp_path: Path) -> None:
     controller, adapter, repo, admitted, manifest, head = _integrated_candidate(tmp_path)
     published = controller.publish_candidate(
@@ -586,6 +655,23 @@ def test_candidate_publication_requires_exact_manifest_history_and_content(
             repo=repo,
             manifest=manifest,
             candidate_head_sha=reverted,
+            verification_digest="d" * 64,
+        )
+
+    integrator = tmp_path / "integrator"
+    git._run("worktree", "add", "--detach", str(integrator), head)
+    integration_git = LocalGitAdapter(integrator)
+    (integrator / "unmanifested.txt").write_text("must not enter candidate history\n")
+    integration_git.commit_all("add unmanifested integration content")
+    (integrator / "unmanifested.txt").unlink()
+    hidden_history = integration_git.commit_all("remove unmanifested integration content")
+    git._run("worktree", "remove", "--force", str(integrator))
+
+    with pytest.raises(AtomicityViolation, match="history touched a path outside"):
+        controller.publish_candidate(
+            repo=repo,
+            manifest=manifest,
+            candidate_head_sha=hidden_history,
             verification_digest="d" * 64,
         )
 

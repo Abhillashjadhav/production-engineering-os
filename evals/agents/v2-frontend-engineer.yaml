@@ -10,7 +10,7 @@ cases:
     task_id: T-FE
     commits: [abc123]
     changed_paths: [src/ui/view.tsx]
-    tests_run: [component, accessibility, typecheck]
+    tests_run: [component, accessibility, typecheck, build]
     results: passed
     escalations: []
 - id: frontend-out-of-scope
@@ -28,5 +28,16 @@ cases:
     task_id: T-FE
     commits: [abc123]
     changed_paths: [src/ui/view.tsx]
-    tests_run: [component, accessibility, typecheck]
+    tests_run: [component, accessibility, typecheck, build]
     results: failed
+- id: frontend-missing-build
+  kind: planted_failure
+  expect: invalid
+  hard_gate: true
+  context: {assigned_tasks: [T-FE]}
+  output:
+    task_id: T-FE
+    commits: [abc123]
+    changed_paths: [src/ui/view.tsx]
+    tests_run: [component, accessibility, typecheck]
+    results: passed

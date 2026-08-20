@@ -29,6 +29,7 @@ _SHA40 = re.compile(r"[0-9a-f]{40}")
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 _STATE_FILE = "atomic-implementation.json"
 _EFFECT_LEDGER = "repository-effects.jsonl"
+_ACTIVE_WORKTREES_FILE = "active-worktrees.json"
 _T = TypeVar("_T")
 
 
@@ -56,6 +57,31 @@ def _slug(value: str) -> str:
     if not slug:
         raise ValueError("issue key must contain a branch-safe character")
     return slug[:48]
+
+
+def _paths_touched_between(git: LocalGitAdapter, baseline_sha: str, tip_sha: str) -> set[str]:
+    commits = (
+        line
+        for line in git._run(  # noqa: SLF001 - exact reachable history is admission evidence
+            "rev-list", "--reverse", f"{baseline_sha}..{tip_sha}"
+        ).splitlines()
+        if line
+    )
+    return {
+        line
+        for revision in commits
+        for line in git._run(  # noqa: SLF001 - inspect each commit, including merge parents
+            "diff-tree",
+            "--root",
+            "--no-commit-id",
+            "--name-only",
+            "-r",
+            "-m",
+            revision,
+            "--",
+        ).splitlines()
+        if line
+    }
 
 
 @dataclass(frozen=True)
@@ -797,6 +823,7 @@ class AtomicImplementationController:
             str(task_id): int(attempt)
             for task_id, attempt in raw.get("worktree_attempts", {}).items()
         }
+        controller._load_active_worktrees()
         controller._cancelled = bool(raw.get("cancelled", False))
         controller._revocation_digest = str(raw.get("revocation_digest", ""))
         stop = raw.get("stop_evidence")
@@ -979,25 +1006,30 @@ class AtomicImplementationController:
         self, repo: Path, *, lease: SpecialistLease, worktrees_root: Path
     ) -> Iterator[SpecialistWorktree]:
         self._require_live_lease(lease)
-        repo_git = LocalGitAdapter(Path(repo))
+        repo_path = Path(repo).resolve()
+        repo_git = LocalGitAdapter(repo_path)
         if repo_git._run("rev-parse", "HEAD") != lease.baseline_sha:  # noqa: SLF001
             raise AtomicityViolation("specialist worktree must start at the admitted work baseline")
         attempt = self._worktree_attempts.get(lease.task.task_id, 0) + 1
         self._worktree_attempts[lease.task.task_id] = attempt
         self._save()
         suffix = f"{lease.lease_epoch_digest[:12]}-{attempt}"
-        with specialist_worktree(
-            Path(repo),
-            task_id=lease.task.task_id,
-            worktrees_root=Path(worktrees_root),
-            branch_name=f"specialist/{lease.task.task_id}-{suffix}",
-            worktree_name=f"{lease.task.task_id}-{suffix}",
-        ) as worktree:
-            self._active_worktrees[lease.task.task_id] = (Path(repo), worktree.path)
-            try:
+        root_path = Path(worktrees_root).resolve()
+        worktree_path = root_path / f"{lease.task.task_id}-{suffix}"
+        self._active_worktrees[lease.task.task_id] = (repo_path, worktree_path)
+        self._save_active_worktrees()
+        try:
+            with specialist_worktree(
+                repo_path,
+                task_id=lease.task.task_id,
+                worktrees_root=root_path,
+                branch_name=f"specialist/{lease.task.task_id}-{suffix}",
+                worktree_name=f"{lease.task.task_id}-{suffix}",
+            ) as worktree:
                 yield worktree
-            finally:
-                self._active_worktrees.pop(lease.task.task_id, None)
+        finally:
+            self._active_worktrees.pop(lease.task.task_id, None)
+            self._save_active_worktrees()
 
     def admit_specialist_commit(
         self, lease: SpecialistLease, repo: Path, *, commit_sha: str
@@ -1013,28 +1045,7 @@ class AtomicImplementationController:
                 "specialist commit does not descend from the exact leased baseline"
             ) from exc
         try:
-            commits = tuple(
-                line
-                for line in git._run(  # noqa: SLF001 - inspect every leased-history commit
-                    "rev-list", "--reverse", f"{lease.baseline_sha}..{commit_sha}"
-                ).splitlines()
-                if line
-            )
-            touched = {
-                line
-                for revision in commits
-                for line in git._run(  # noqa: SLF001 - per-commit allowlist enforcement
-                    "diff-tree",
-                    "--root",
-                    "--no-commit-id",
-                    "--name-only",
-                    "-r",
-                    "-m",
-                    revision,
-                    "--",
-                ).splitlines()
-                if line
-            }
+            touched = _paths_touched_between(git, lease.baseline_sha, commit_sha)
             changed = tuple(
                 sorted(
                     line
@@ -1138,16 +1149,31 @@ class AtomicImplementationController:
         _require_sha(current_tree_sha, field="current_tree_sha")
         observed_partial = {_normalize_changed_path(path) for path in partial_paths}
         for repo, worktree_path in tuple(self._active_worktrees.values()):
+            if not worktree_path.exists():
+                continue
+            repo_git = LocalGitAdapter(repo)
+            registered_worktrees = {
+                Path(line.removeprefix("worktree ")).resolve()
+                for line in repo_git._run(  # noqa: SLF001 - destructive target verification
+                    "worktree", "list", "--porcelain"
+                ).splitlines()
+                if line.startswith("worktree ")
+            }
+            if worktree_path.resolve() not in registered_worktrees:
+                raise AtomicityViolation(
+                    "persisted active worktree is not registered with the admitted repository"
+                )
             worktree_git = LocalGitAdapter(worktree_path)
             for line in worktree_git._run("status", "--porcelain").splitlines():  # noqa: SLF001
                 parts = line.split(maxsplit=1)
                 raw_path = parts[1].split(" -> ")[-1] if len(parts) == 2 else ""
                 if raw_path:
                     observed_partial.add(_normalize_changed_path(raw_path))
-            LocalGitAdapter(repo)._run(  # noqa: SLF001
-                "worktree", "remove", "--force", str(worktree_path)
-            )
+            repo_git._run("worktree", "remove", "--force", str(worktree_path))  # noqa: SLF001
+            if worktree_path.exists():
+                raise AtomicityViolation("specialist worktree remained active after cancellation")
         self._active_worktrees.clear()
+        self._save_active_worktrees()
         normalized = tuple(sorted(observed_partial))
         epochs = sorted(lease.lease_epoch_digest for lease in self._leases.values())
         lease_epoch_digest = _canonical_digest(epochs)
@@ -1411,6 +1437,13 @@ class AtomicImplementationController:
                 if line
             }
             expected_paths = {path for result in manifest.results for path in result.changed_paths}
+            history_paths = _paths_touched_between(git, manifest.baseline_sha, candidate_head_sha)
+            unexpected_history = sorted(history_paths - expected_paths)
+            if unexpected_history:
+                raise AtomicityViolation(
+                    "candidate history touched a path outside the integration manifest: "
+                    + ", ".join(unexpected_history)
+                )
             if actual_paths != expected_paths:
                 missing = sorted(expected_paths - actual_paths)
                 extra = sorted(actual_paths - expected_paths)
@@ -1850,6 +1883,37 @@ class AtomicImplementationController:
                 "cancelled": self._cancelled,
                 "revocation_digest": self._revocation_digest,
                 "stop_evidence": asdict(self._stop_evidence) if self._stop_evidence else None,
+            },
+        )
+
+    def _load_active_worktrees(self) -> None:
+        path = self.run_dir / _ACTIVE_WORKTREES_FILE
+        if not path.is_file():
+            return
+        raw = json.loads(path.read_text())
+        if not isinstance(raw, Mapping):
+            raise AtomicityViolation("active worktree registry is malformed")
+        for task_id, record in raw.items():
+            if (
+                not isinstance(record, Mapping)
+                or "repo" not in record
+                or "worktree" not in record
+                or str(task_id) not in self._leases
+            ):
+                raise AtomicityViolation("active worktree registry is malformed")
+            repo = Path(str(record["repo"]))
+            worktree = Path(str(record["worktree"]))
+            if not repo.is_absolute() or not worktree.is_absolute():
+                raise AtomicityViolation("active worktree registry is malformed")
+            self._active_worktrees[str(task_id)] = (repo, worktree)
+
+    def _save_active_worktrees(self) -> None:
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        atomic_write_json(
+            self.run_dir / _ACTIVE_WORKTREES_FILE,
+            {
+                task_id: {"repo": str(repo), "worktree": str(worktree)}
+                for task_id, (repo, worktree) in sorted(self._active_worktrees.items())
             },
         )
 

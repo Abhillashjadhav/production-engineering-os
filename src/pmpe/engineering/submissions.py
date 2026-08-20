@@ -147,7 +147,7 @@ def validate_frontend_result(data: dict[str, Any], context: dict[str, Any]) -> l
         _require_named_checks(
             data,
             agent="frontend",
-            required={"component", "accessibility", "typecheck"},
+            required={"component", "accessibility", "typecheck", "build"},
         )
     )
     return errors
@@ -173,7 +173,7 @@ def validate_eval_result(data: dict[str, Any], context: dict[str, Any]) -> list[
         _require_named_checks(
             data,
             agent="eval",
-            required={"positive", "planted-negative", "tamper"},
+            required={"positive", "planted-negative", "boundary", "tamper"},
         )
     )
     return errors
@@ -207,7 +207,7 @@ def validate_platform_result(data: dict[str, Any], context: dict[str, Any]) -> l
         _require_named_checks(
             data,
             agent="platform",
-            required={"failure", "recovery", "resource-limit"},
+            required={"failure", "recovery", "idempotency", "resource-limit"},
         )
     )
     return errors
