@@ -1055,8 +1055,7 @@ class AtomicImplementationController:
         )
         if historical_outside:
             raise AtomicityViolation(
-                "commit history touched a path outside the lease: "
-                + ", ".join(historical_outside)
+                "commit history touched a path outside the lease: " + ", ".join(historical_outside)
             )
         return self._admit_specialist_result(
             lease, commit_sha=commit_sha, changed_paths=changed, clean=True
