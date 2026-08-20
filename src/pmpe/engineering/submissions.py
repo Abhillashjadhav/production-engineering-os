@@ -129,6 +129,86 @@ def validate_specialist_result(data: dict[str, Any], context: dict[str, Any]) ->
     return errors
 
 
+def _require_named_checks(data: dict[str, Any], *, agent: str, required: set[str]) -> list[str]:
+    observed = {str(check).strip().lower() for check in data.get("tests_run") or []}
+    missing = sorted(required - observed)
+    return [f"{agent} result is missing required check(s): {', '.join(missing)}"] if missing else []
+
+
+def validate_frontend_result(data: dict[str, Any], context: dict[str, Any]) -> list[str]:
+    errors = validate_specialist_result(data, context)
+    if not data.get("changed_paths"):
+        errors.append("frontend result names no changed paths")
+    errors.extend(
+        _require_named_checks(
+            data,
+            agent="frontend",
+            required={"component", "accessibility", "typecheck"},
+        )
+    )
+    return errors
+
+
+def validate_data_migration_result(data: dict[str, Any], context: dict[str, Any]) -> list[str]:
+    errors = validate_specialist_result(data, context)
+    if data.get("rollback_evidence") != "verified":
+        errors.append("data migration result lacks verified rollback evidence")
+    errors.extend(
+        _require_named_checks(
+            data,
+            agent="data migration",
+            required={"upgrade", "downgrade", "idempotency"},
+        )
+    )
+    return errors
+
+
+def validate_eval_result(data: dict[str, Any], context: dict[str, Any]) -> list[str]:
+    errors = validate_specialist_result(data, context)
+    errors.extend(
+        _require_named_checks(
+            data,
+            agent="eval",
+            required={"positive", "planted-negative", "tamper"},
+        )
+    )
+    return errors
+
+
+def validate_security_result(data: dict[str, Any], context: dict[str, Any]) -> list[str]:
+    errors = validate_specialist_result(data, context)
+    if not str(data.get("residual_risk", "")).strip():
+        errors.append("security result lacks a residual-risk statement")
+    checks = {str(check).strip().lower() for check in data.get("tests_run") or []}
+    if "live credential probe" in checks:
+        errors.append("security result attempted prohibited live credential access")
+    errors.extend(
+        _require_named_checks(
+            data,
+            agent="security",
+            required={"planted exploit", "regression", "bandit"},
+        )
+    )
+    return errors
+
+
+def validate_platform_result(data: dict[str, Any], context: dict[str, Any]) -> list[str]:
+    errors = validate_specialist_result(data, context)
+    if data.get("rollback_evidence") != "verified":
+        errors.append("platform result lacks verified rollback evidence")
+    checks = {str(check).strip().lower() for check in data.get("tests_run") or []}
+    if "production deployment" in checks:
+        errors.append("platform result attempted a prohibited production deployment")
+    errors.extend(
+        _require_named_checks(
+            data,
+            agent="platform",
+            required={"failure", "recovery", "resource-limit"},
+        )
+    )
+    return errors
+
+
 def validate_integration_result(data: dict[str, Any], context: dict[str, Any]) -> list[str]:
     errors: list[str] = _boundary_errors(data, "integration")
     for key in ("integrated_branches", "checks_run", "candidate_digest"):
@@ -201,11 +281,11 @@ VALIDATORS = {
     "v2-system-architect": validate_architecture_pack,
     "v2-implementation-planner": validate_plan,
     "v2-backend-engineer": validate_specialist_result,
-    "frontend-engineer": validate_specialist_result,
-    "data-migration-engineer": validate_specialist_result,
-    "eval-engineer": validate_specialist_result,
-    "security-engineer": validate_specialist_result,
-    "platform-reliability-engineer": validate_specialist_result,
+    "frontend-engineer": validate_frontend_result,
+    "data-migration-engineer": validate_data_migration_result,
+    "eval-engineer": validate_eval_result,
+    "security-engineer": validate_security_result,
+    "platform-reliability-engineer": validate_platform_result,
     "v2-test-engineer": validate_specialist_result,
     "v2-integration-engineer": validate_integration_result,
     "v2-code-reviewer": validate_review_output,

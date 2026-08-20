@@ -1017,7 +1017,7 @@ class AtomicImplementationController:
                 sorted(
                     line
                     for line in git._run(  # noqa: SLF001 - adapter is the local git seam
-                        "diff-tree", "--no-commit-id", "--name-only", "-r", commit_sha
+                        "diff", "--name-only", lease.baseline_sha, commit_sha, "--"
                     ).splitlines()
                     if line
                 )
@@ -1074,6 +1074,15 @@ class AtomicImplementationController:
         if missing:
             raise AtomicityViolation("specialist result missing for task(s): " + ", ".join(missing))
         results = tuple(self._results[key] for key in sorted(self._results))
+        path_owners: dict[str, str] = {}
+        for result in results:
+            for path in result.changed_paths:
+                prior = path_owners.get(path)
+                if prior is not None:
+                    raise AtomicityViolation(
+                        f"specialist results overlap on {path}: {prior}, {result.task_id}"
+                    )
+                path_owners[path] = result.task_id
         payload = {
             "baseline_sha": self._work_baseline_sha,
             "results": [asdict(result) for result in results],
@@ -1281,6 +1290,7 @@ class AtomicImplementationController:
     def publish_candidate(
         self,
         *,
+        repo: Path,
         manifest: IntegrationManifest,
         candidate_head_sha: str,
         verification_digest: str,
@@ -1291,6 +1301,7 @@ class AtomicImplementationController:
             raise AtomicityViolation("integration manifest is stale or not authoritative")
         _require_sha(candidate_head_sha, field="candidate_head_sha")
         _require_digest(verification_digest, field="verification_digest")
+        self._verify_integrated_candidate(Path(repo), manifest, candidate_head_sha)
         current = self.repository.pull_request(self._admitted.pull_request.number)
         if current is None or not current.open or not current.draft:
             raise AtomicityViolation("candidate publication requires the admitted draft PR")
@@ -1344,6 +1355,46 @@ class AtomicImplementationController:
         self._published_candidate_head = candidate_head_sha
         self._save()
         return updated
+
+    @staticmethod
+    def _verify_integrated_candidate(
+        repo: Path, manifest: IntegrationManifest, candidate_head_sha: str
+    ) -> None:
+        git = LocalGitAdapter(repo)
+        try:
+            git._run(  # noqa: SLF001 - candidate ancestry is release evidence
+                "merge-base", "--is-ancestor", manifest.baseline_sha, candidate_head_sha
+            )
+            actual_paths = {
+                line
+                for line in git._run(  # noqa: SLF001 - exact range is release evidence
+                    "diff", "--name-only", manifest.baseline_sha, candidate_head_sha, "--"
+                ).splitlines()
+                if line
+            }
+            expected_paths = {path for result in manifest.results for path in result.changed_paths}
+            if actual_paths != expected_paths:
+                missing = sorted(expected_paths - actual_paths)
+                extra = sorted(actual_paths - expected_paths)
+                raise AtomicityViolation(
+                    "candidate tree differs from the integration manifest: "
+                    f"missing={missing}; extra={extra}"
+                )
+            for result in manifest.results:
+                git._run(  # noqa: SLF001 - every result must be in candidate history
+                    "merge-base", "--is-ancestor", result.commit_sha, candidate_head_sha
+                )
+                for path in result.changed_paths:
+                    if _git_blob(git, result.commit_sha, path) != _git_blob(
+                        git, candidate_head_sha, path
+                    ):
+                        raise AtomicityViolation(
+                            f"candidate content for {path} differs from task {result.task_id}"
+                        )
+        except GitError as exc:
+            raise AtomicityViolation(
+                "candidate head is not bound to the integration baseline and results"
+            ) from exc
 
     def mark_ready(
         self,
@@ -1739,6 +1790,13 @@ def _normalize_changed_path(value: str) -> str:
 def _path_allowed(path: str, allowed: str) -> bool:
     normalized = _normalize_allowed_path(allowed)
     return path.startswith(normalized) if normalized.endswith("/") else path == normalized
+
+
+def _git_blob(git: LocalGitAdapter, commit_sha: str, path: str) -> str:
+    try:
+        return git._run("rev-parse", f"{commit_sha}:{path}")  # noqa: SLF001
+    except GitError:
+        return "<missing>"
 
 
 def _decode_admitted(raw: Mapping[str, object]) -> AdmittedSlice:

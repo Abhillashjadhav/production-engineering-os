@@ -18,4 +18,4 @@ cases:
   expect: invalid
   hard_gate: true
   context: {assigned_tasks: [T-DATA]}
-  output: {task_id: T-OTHER, commits: [abc123], tests_run: [upgrade], results: passed}
+  output: {task_id: T-DATA, commits: [abc123], tests_run: [upgrade], results: passed}

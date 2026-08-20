@@ -19,7 +19,8 @@ cases:
   hard_gate: true
   context: {assigned_tasks: [T-SEC]}
   output:
-    task_id: T-OTHER
+    task_id: T-SEC
+    residual_risk: unknown
     commits: [abc123]
     tests_run: [live credential probe]
     results: passed

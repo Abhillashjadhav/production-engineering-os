@@ -7,8 +7,10 @@ from pathlib import Path
 import pytest
 
 from pmpe.engineering.atomic import (
+    AdmittedSlice,
     AtomicImplementationController,
     AtomicityViolation,
+    IntegrationManifest,
     IssueCandidate,
     IssueRecord,
     MemoryRepositoryAdapter,
@@ -48,6 +50,44 @@ def _controller(
         expected_base_sha=BASE_SHA,
     )
     return controller, adapter
+
+
+def _integrated_candidate(
+    tmp_path: Path,
+) -> tuple[
+    AtomicImplementationController,
+    MemoryRepositoryAdapter,
+    Path,
+    AdmittedSlice,
+    IntegrationManifest,
+    str,
+]:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git = LocalGitAdapter(root)
+    git.init()
+    (root / "src").mkdir()
+    (root / "src" / "base.py").write_text("BASE = True\n")
+    planning_sha = git.commit_all("base")
+    controller, adapter = _controller(tmp_path, planning_commit_sha=planning_sha)
+    admitted = controller.admit_slice(_candidate())
+    lease = controller.issue_lease(
+        SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
+    )
+    with controller.specialist_worktree(
+        root, lease=lease, worktrees_root=tmp_path / "worktrees"
+    ) as worktree:
+        (worktree.path / "src" / "candidate.py").write_text("VALUE = 1\n")
+        candidate_head = worktree.commit("implement candidate")
+    controller.admit_specialist_commit(lease, root, commit_sha=candidate_head)
+    return (
+        controller,
+        adapter,
+        root,
+        admitted,
+        controller.integration_manifest(),
+        candidate_head,
+    )
 
 
 def test_fresh_slice_is_issue_first_and_opens_one_atomic_draft_pr(tmp_path: Path) -> None:
@@ -365,6 +405,32 @@ def test_specialist_commit_must_descend_from_exact_lease_baseline(tmp_path: Path
         controller.admit_specialist_commit(lease, root, commit_sha=unrelated)
 
 
+def test_specialist_admission_diffs_full_range_from_lease_baseline(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git = LocalGitAdapter(root)
+    git.init()
+    (root / "src").mkdir()
+    (root / "src" / "allowed.py").write_text("VALUE = 1\n")
+    planning_sha = git.commit_all("base")
+    controller, _ = _controller(tmp_path, planning_commit_sha=planning_sha)
+    admitted = controller.admit_slice(_candidate())
+    lease = controller.issue_lease(
+        SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
+    )
+    with controller.specialist_worktree(
+        root, lease=lease, worktrees_root=tmp_path / "worktrees"
+    ) as worktree:
+        (worktree.path / "docs").mkdir()
+        (worktree.path / "docs" / "escape.md").write_text("outside\n")
+        worktree.commit("out of scope first commit")
+        (worktree.path / "src" / "allowed.py").write_text("VALUE = 2\n")
+        tip = worktree.commit("allowed tip")
+
+    with pytest.raises(AtomicityViolation, match="outside the lease"):
+        controller.admit_specialist_commit(lease, root, commit_sha=tip)
+
+
 def test_cancellation_removes_active_worktree_after_preserving_dirty_paths(
     tmp_path: Path,
 ) -> None:
@@ -400,20 +466,9 @@ def test_cancellation_removes_active_worktree_after_preserving_dirty_paths(
 
 
 def test_ready_and_dequeue_are_exact_head_governed_effects(tmp_path: Path) -> None:
-    controller, adapter = _controller(tmp_path)
-    admitted = controller.admit_slice(_candidate())
-    lease = controller.issue_lease(
-        SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
-    )
-    controller._admit_specialist_result(
-        lease,
-        commit_sha="4" * 40,
-        changed_paths=("src/candidate.py",),
-        clean=True,
-    )
-    manifest = controller.integration_manifest()
-    head = "a" * 39 + "b"
+    controller, adapter, repo, admitted, manifest, head = _integrated_candidate(tmp_path)
     published = controller.publish_candidate(
+        repo=repo,
         manifest=manifest,
         candidate_head_sha=head,
         verification_digest="d" * 64,
@@ -486,23 +541,39 @@ def test_ready_and_dequeue_are_exact_head_governed_effects(tmp_path: Path) -> No
     assert repair_lease.baseline_sha == head
 
 
+def test_candidate_publication_requires_exact_manifest_history_and_content(
+    tmp_path: Path,
+) -> None:
+    controller, _, repo, _, manifest, head = _integrated_candidate(tmp_path)
+    git = LocalGitAdapter(repo)
+    baseline_tree = git._run("rev-parse", f"{manifest.baseline_sha}^{{tree}}")
+    reverted = git._run("commit-tree", baseline_tree, "-p", head, "-m", "revert result")
+
+    with pytest.raises(AtomicityViolation, match="differs from the integration manifest"):
+        controller.publish_candidate(
+            repo=repo,
+            manifest=manifest,
+            candidate_head_sha=reverted,
+            verification_digest="d" * 64,
+        )
+
+    unrelated = git._run("commit-tree", baseline_tree, "-m", "unrelated")
+    with pytest.raises(AtomicityViolation, match="not bound"):
+        controller.publish_candidate(
+            repo=repo,
+            manifest=manifest,
+            candidate_head_sha=unrelated,
+            verification_digest="d" * 64,
+        )
+
+
 def test_ready_invalidation_rejects_untraceable_or_nonblocking_signal(tmp_path: Path) -> None:
     with pytest.raises(AtomicityViolation, match="credible authenticated blocking"):
-        controller, _ = _controller(tmp_path)
-        admitted = controller.admit_slice(_candidate())
-        lease = controller.issue_lease(
-            SpecialistTask("T-1", "v2-backend-engineer", ("src/",)),
-            admitted=admitted,
-        )
-        controller._admit_specialist_result(
-            lease,
-            commit_sha="a" * 39 + "b",
-            changed_paths=("src/candidate.py",),
-            clean=True,
-        )
+        controller, _, repo, _, manifest, head = _integrated_candidate(tmp_path)
         published = controller.publish_candidate(
-            manifest=controller.integration_manifest(),
-            candidate_head_sha="a" * 39 + "b",
+            repo=repo,
+            manifest=manifest,
+            candidate_head_sha=head,
             verification_digest="f" * 64,
         )
         ready = controller.mark_ready(
@@ -537,16 +608,7 @@ def test_ready_invalidation_rejects_untraceable_or_nonblocking_signal(tmp_path: 
 def test_candidate_ready_and_dequeue_adopt_observed_effect_after_state_save_crash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    controller, adapter = _controller(tmp_path)
-    admitted = controller.admit_slice(_candidate())
-    lease = controller.issue_lease(
-        SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
-    )
-    head = "a" * 39 + "b"
-    controller._admit_specialist_result(
-        lease, commit_sha=head, changed_paths=("src/candidate.py",), clean=True
-    )
-    manifest = controller.integration_manifest()
+    controller, adapter, repo, admitted, manifest, head = _integrated_candidate(tmp_path)
 
     def crash_state_save() -> None:
         raise RuntimeError("state save crash")
@@ -554,6 +616,7 @@ def test_candidate_ready_and_dequeue_adopt_observed_effect_after_state_save_cras
     monkeypatch.setattr(controller, "_save", crash_state_save)
     with pytest.raises(RuntimeError, match="state save crash"):
         controller.publish_candidate(
+            repo=repo,
             manifest=manifest,
             candidate_head_sha=head,
             verification_digest="f" * 64,
@@ -561,6 +624,7 @@ def test_candidate_ready_and_dequeue_adopt_observed_effect_after_state_save_cras
 
     resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
     published = resumed.publish_candidate(
+        repo=repo,
         manifest=manifest,
         candidate_head_sha=head,
         verification_digest="f" * 64,

@@ -19,7 +19,7 @@ cases:
   hard_gate: true
   context: {assigned_tasks: [T-PLAT]}
   output:
-    task_id: T-OTHER
+    task_id: T-PLAT
     commits: [abc123]
     tests_run: [production deployment]
     results: passed
