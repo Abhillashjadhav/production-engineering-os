@@ -34,6 +34,7 @@ class EadprReport:
     numerator_subjects: tuple[str, ...]
     failure_subjects: tuple[str, ...]
     pending_subjects: tuple[str, ...]
+    right_censored_subjects: tuple[str, ...]
     excluded_subjects: tuple[str, ...]
     manual_intervention_subjects: tuple[str, ...]
     manual_intervention_rate: float | None
@@ -67,6 +68,10 @@ def compute_eadpr(
     seal_time = _time(sealed_at)
     if start >= cutoff or seal_time < cutoff:
         raise ValueError("EADPR report bounds are invalid or not yet sealable")
+    if len({item.slice_id for item in subjects}) != len(subjects):
+        raise ValueError("EADPR slice identities must be unique")
+    if any(_time(item.eligibility_at) > _time(item.metric_due_at) for item in subjects):
+        raise ValueError("EADPR due time cannot precede eligibility")
 
     exclusions = sorted(
         item.slice_id
@@ -83,17 +88,27 @@ def compute_eadpr(
         key=lambda item: item.slice_id,
     )
     pending = sorted(item.slice_id for item in eligible if _time(item.metric_due_at) > cutoff)
+    right_censored = sorted(
+        item.slice_id
+        for item in eligible
+        if _time(item.eligibility_at) <= cutoff < _time(item.metric_due_at)
+    )
     denominator = tuple(item.slice_id for item in mature)
     manual = tuple(
         item.slice_id
         for item in mature
-        if any(_time(at) <= _time(item.metric_due_at) for at in item.manual_intervention_at)
+        if any(
+            _time(item.eligibility_at) <= _time(at) <= _time(item.metric_due_at)
+            for at in item.manual_intervention_at
+        )
     )
     numerator = tuple(
         item.slice_id
         for item in mature
         if item.qualifying_draft_pr_at
-        and _time(item.qualifying_draft_pr_at) <= _time(item.metric_due_at)
+        and _time(item.eligibility_at)
+        <= _time(item.qualifying_draft_pr_at)
+        <= _time(item.metric_due_at)
         and _DIGEST.fullmatch(item.evidence_bundle_digest)
         and item.slice_id not in manual
     )
@@ -113,6 +128,7 @@ def compute_eadpr(
         numerator_subjects=numerator,
         failure_subjects=failures,
         pending_subjects=tuple(pending),
+        right_censored_subjects=tuple(right_censored),
         excluded_subjects=tuple(exclusions),
         manual_intervention_subjects=manual,
         manual_intervention_rate=manual_rate,

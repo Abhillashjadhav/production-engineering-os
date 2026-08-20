@@ -446,12 +446,17 @@ def _digest(value: Any) -> str:
     return "sha256:" + hashlib.sha256(_canonical(value)).hexdigest()
 
 
-def _timestamp_after(value: str, boundary: datetime) -> bool:
+def _timestamp_between(value: str, lower: datetime, upper: datetime) -> bool:
     try:
         observed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return False
-    return bool(observed.tzinfo is not None and boundary.tzinfo is not None and observed > boundary)
+    return bool(
+        observed.tzinfo is not None
+        and lower.tzinfo is not None
+        and upper.tzinfo is not None
+        and lower < observed <= upper
+    )
 
 
 def _budget_policy_payload(policy: BudgetPolicy) -> dict[str, Any]:
@@ -2400,6 +2405,8 @@ _PHASE_FOUR_REVIEW_FIELDS = (
 )
 _PHASE_FOUR_MERGE_FIELDS = (
     "finding_high_watermark_digest",
+    "finding_source_set_digest",
+    "finding_inventory_epochs_digest",
     "authority_revalidation_digest",
     "native_merge_gate_digest",
 )
@@ -2408,6 +2415,13 @@ PHASE_FOUR_POLICY = LifecyclePolicy(
     tuple(
         replace(
             rule,
+            reason=(
+                "advisory_readiness_clear"
+                if rule.source is S.REVIEW_REQUIRED
+                and rule.target is S.PR_READY
+                and rule.reason == "formal_review_clear"
+                else rule.reason
+            ),
             required_evidence=tuple(
                 dict.fromkeys(
                     (
@@ -2428,6 +2442,13 @@ PHASE_FOUR_POLICY = LifecyclePolicy(
                         ),
                     )
                 )
+            ),
+            guards=(
+                rule.guards | {"no_blocking_finding"}
+                if rule.source is S.PR_READY
+                and rule.target is S.PR_MERGED
+                and rule.reason == "native_merge_linearized"
+                else rule.guards
             ),
         )
         for rule in PHASE_ZERO_POLICY.rules
@@ -2514,7 +2535,7 @@ class LifecycleControlPlane:
         subject_digest: str,
         state: LifecycleState,
         budget_policy: BudgetPolicy,
-        policy: LifecyclePolicy = PHASE_ZERO_POLICY,
+        policy: LifecyclePolicy = PHASE_FOUR_POLICY,
         trust_policy: EvidenceTrustPolicy | None = None,
         evidence_verifier: EvidenceVerifier | None = None,
         bundle_verifier: BundleVerifier | None = None,
@@ -3129,7 +3150,7 @@ class LifecycleControlPlane:
         subject_digest: str,
         initial_state: LifecycleState,
         budget_policy: BudgetPolicy,
-        lifecycle_policy: LifecyclePolicy = PHASE_ZERO_POLICY,
+        lifecycle_policy: LifecyclePolicy = PHASE_FOUR_POLICY,
         trust_policy: EvidenceTrustPolicy | None = None,
         evidence_verifier: EvidenceVerifier | None = None,
         bundle_verifier: BundleVerifier | None = None,
@@ -3915,7 +3936,7 @@ class LifecycleControlPlane:
             (
                 event
                 for event in reversed(self.events)
-                if event.reason == "formal_review_clear"
+                if event.reason in {"formal_review_clear", "advisory_readiness_clear"}
                 and (
                     (event.outcome == "APPLIED" and event.target is S.PR_READY)
                     or event.kind == "REVIEW_BINDING_ADMITTED"
@@ -4520,13 +4541,18 @@ class LifecycleControlPlane:
                     readiness_boundary = datetime.fromisoformat(
                         review_binding.observed_at.replace("Z", "+00:00")
                     )
+                    merge_observed_at = datetime.fromisoformat(
+                        context.observed_at.replace("Z", "+00:00")
+                    )
                 except ValueError:
                     readiness_boundary = None
+                    merge_observed_at = None
                 phase_four_formal_review = next(
                     (
                         approval
                         for approval in context.approvals
                         if readiness_boundary is not None
+                        and merge_observed_at is not None
                         and approval.approval_id
                         and approval.actor
                         and approval.kind == "FORMAL_REVIEW"
@@ -4539,7 +4565,9 @@ class LifecycleControlPlane:
                         == review_binding.evidence_refs.get("prospective_tree_digest")
                         and approval.review_evidence_digest
                         == review_binding.evidence_refs.get("verification_bundle_digest")
-                        and _timestamp_after(approval.submitted_at, readiness_boundary)
+                        and _timestamp_between(
+                            approval.submitted_at, readiness_boundary, merge_observed_at
+                        )
                         and context.evidence.get("formal_review_digest")
                         == _digest(asdict(approval))
                         and self.trust_policy.formal_reviewers.get(approval.actor)
@@ -4586,8 +4614,11 @@ class LifecycleControlPlane:
                 != review_binding.evidence_refs.get("prospective_tree_digest")
                 or context.evidence.get("verification_bundle_digest")
                 != review_binding.evidence_refs.get("verification_bundle_digest")
-                or context.evidence.get("formal_review_digest")
-                != review_binding.evidence_refs.get("review_digest")
+                or (
+                    self._policy.version != PHASE_FOUR_POLICY.version
+                    and context.evidence.get("formal_review_digest")
+                    != review_binding.evidence_refs.get("review_digest")
+                )
                 or merge_attempt is None
                 or context.evidence.get("merge_attempt_digest") != _digest(asdict(merge_attempt))
                 or merge_result is None
@@ -4996,8 +5027,11 @@ class LifecycleControlPlane:
                 != review_binding.evidence_refs.get("prospective_tree_digest")
                 or context.evidence.get("review_evidence_digest")
                 != review_binding.evidence_refs.get("verification_bundle_digest")
-                or context.evidence.get("evidence_bundle_digest")
-                != review_binding.evidence_refs.get("verification_bundle_digest")
+                or (
+                    self._policy.version != PHASE_FOUR_POLICY.version
+                    and context.evidence.get("evidence_bundle_digest")
+                    != review_binding.evidence_refs.get("verification_bundle_digest")
+                )
                 or review_binding.evidence_refs.get("subject_digest") != self.subject_digest
             ):
                 self._deny(

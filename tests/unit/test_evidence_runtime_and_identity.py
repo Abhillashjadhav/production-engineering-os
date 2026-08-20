@@ -11,7 +11,12 @@ from pmpe.engineering.candidate import (
     verify_review_subject,
 )
 from pmpe.engineering.ledger import EvidenceLedger
-from pmpe.orchestration.lifecycle import PHASE_FOUR_POLICY, LifecycleState
+from pmpe.orchestration.lifecycle import (
+    PHASE_FOUR_POLICY,
+    BudgetPolicy,
+    LifecycleControlPlane,
+    LifecycleState,
+)
 from pmpe.quality.runtime_matrix import verify_runtime_matrix
 
 D = "sha256:" + "a" * 64
@@ -76,6 +81,30 @@ def test_ledger_idempotency_does_not_double_count_and_rejects_conflict(tmp_path:
         )
 
 
+def test_ledger_idempotent_retry_repairs_a_truncated_crash_tail(tmp_path: Path) -> None:
+    ledger = EvidenceLedger(tmp_path, run_id="RUN-1")
+    ledger.record(
+        stage="checks",
+        agent="ci",
+        action="first",
+        output_digests={"result": D},
+        idempotency_key="check:1",
+    )
+    with ledger.path.open("ab") as stream:
+        stream.write(b'{"run_id":"RUN-1","idempotency_key":"check:2"')
+
+    recovered = ledger.record(
+        stage="checks",
+        agent="ci",
+        action="second",
+        output_digests={"result": E},
+        idempotency_key="check:2",
+    )
+
+    assert recovered["idempotency_key"] == "check:2"
+    assert [event["action"] for event in ledger.read_all()] == ["first", "second"]
+
+
 def test_declared_python_support_matches_required_ci_matrix() -> None:
     root = Path(__file__).parents[2]
     decision = verify_runtime_matrix(root / "pyproject.toml", root / ".github/workflows/ci.yml")
@@ -83,12 +112,21 @@ def test_declared_python_support_matches_required_ci_matrix() -> None:
     assert decision.declared_targets == ("3.11", "3.12")
     assert decision.tested_targets == ("3.11", "3.12")
 
+    backend = verify_runtime_matrix(
+        root / "products/pm-evals-web/backend/pyproject.toml",
+        root / ".github/workflows/ci.yml",
+        job_name="product-backend",
+    )
+    assert backend.valid, backend.reasons
+    assert backend.declared_targets == ("3.11", "3.12")
+    assert backend.tested_targets == ("3.11", "3.12")
+
 
 def test_phase_four_lifecycle_policy_requires_exact_readiness_and_native_merge_inputs() -> None:
     readiness = PHASE_FOUR_POLICY.rule(
         LifecycleState.REVIEW_REQUIRED,
         LifecycleState.PR_READY,
-        reason="formal_review_clear",
+        reason="advisory_readiness_clear",
     )
     merge = PHASE_FOUR_POLICY.rule(
         LifecycleState.PR_READY,
@@ -109,3 +147,31 @@ def test_phase_four_lifecycle_policy_requires_exact_readiness_and_native_merge_i
         "authority_revalidation_digest",
         "native_merge_gate_digest",
     } <= set(merge.required_evidence)
+
+
+def test_new_lifecycle_runs_default_to_phase_four_policy(tmp_path: Path) -> None:
+    policy = BudgetPolicy(
+        version="budget-v1",
+        limits={
+            "tokens": 10,
+            "credits": 10,
+            "elapsed_seconds": 10,
+            "external_compute_seconds": 10,
+            "spend_microunits": 10,
+        },
+        repair_attempts_per_finding=1,
+        repair_attempts_per_stage=1,
+        reserved_safety_units=1,
+        approved_by="owner",
+    )
+    control = LifecycleControlPlane.create(
+        tmp_path,
+        run_id="phase-four-default",
+        subject_digest=D,
+        initial_state=LifecycleState.CONTRACT_RECEIVED,
+        budget_policy=policy,
+    )
+    metadata = (tmp_path / "lifecycle-metadata.json").read_text()
+
+    assert control._policy is PHASE_FOUR_POLICY  # noqa: SLF001
+    assert PHASE_FOUR_POLICY.digest in metadata

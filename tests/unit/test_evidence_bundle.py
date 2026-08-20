@@ -65,6 +65,7 @@ def _item(
     result: str = "PASS",
     expires_at: str = "2026-08-21T12:00:00Z",
 ) -> EvidenceItem:
+    executed = 1 if evidence_class in {"required_checks", "meaningful_red"} else 0
     return EvidenceItem(
         evidence_id=f"{profile}:{evidence_class}",
         evidence_class=evidence_class,
@@ -78,8 +79,13 @@ def _item(
         output_digest=E,
         observed_at=NOW,
         retention_class="release+incident",
+        authentication_evidence_digest=D,
+        attestation_format="DSSE-v1",
         medium=medium,
         expires_at=expires_at,
+        executed_count=executed,
+        passed_count=1 if evidence_class == "required_checks" else 0,
+        failed_count=1 if evidence_class == "meaningful_red" else 0,
     )
 
 
@@ -224,6 +230,34 @@ def test_duplicate_evidence_identity_is_rejected() -> None:
 
     with pytest.raises(EvidenceViolation, match="duplicate evidence id"):
         seal_manifest(duplicate, expected_environment=_environment(), as_of=LATER)
+
+
+def test_green_summary_with_skipped_required_test_cannot_satisfy_readiness() -> None:
+    bundle, subject = _bundle("candidate_review")
+    items = list(bundle.manifest.items)
+    index = next(
+        index for index, item in enumerate(items) if item.evidence_class == "required_checks"
+    )
+    items[index] = replace(
+        items[index],
+        result="PASS",
+        executed_count=2,
+        passed_count=1,
+        skipped_count=1,
+    )
+    manifest = replace(bundle.manifest, items=tuple(items))
+    planted = SealedEvidenceBundle(manifest, manifest.digest)
+
+    held = assess_readiness(
+        planted,
+        subject=subject,
+        policy_digest=D,
+        environment=_environment(),
+        as_of=LATER,
+    )
+
+    assert not held.admitted
+    assert any("skipped" in reason for reason in held.reasons)
 
 
 @pytest.mark.parametrize("source", ["REVIEW_REQUIRED", "PR_READY"])

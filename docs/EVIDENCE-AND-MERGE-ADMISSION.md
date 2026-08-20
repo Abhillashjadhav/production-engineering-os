@@ -79,9 +79,9 @@ denominator, failure, pending/right-censored, excluded, and manual-intervention 
 sets. Until a target policy is approved, status is `TARGET_NOT_APPROVED` and numeric
 rates are suppressed.
 
-Package support is deliberately capped to Python 3.11 and 3.12. The runtime gate reads
-`requires-python` and the required CI test matrix; a declared-but-untested or
-tested-but-undeclared target fails.
+Root and product-backend package support are deliberately capped to Python 3.11 and
+3.12. The runtime gate reads each `requires-python` declaration and its required CI
+test matrix; a declared-but-untested or tested-but-undeclared target fails.
 
 ## Recovery
 

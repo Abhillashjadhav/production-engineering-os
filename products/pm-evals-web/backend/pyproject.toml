@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "pm-evals-web-backend"
 version = "0.1.0"
 description = "pm-evals Web backend: deterministic eval-run comparison engine and its FastAPI transport"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.13"
 dependencies = ["pydantic>=2.5", "fastapi>=0.115", "python-multipart>=0.0.9", "uvicorn>=0.30"]
 
 [project.optional-dependencies]

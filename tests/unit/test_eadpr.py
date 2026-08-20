@@ -56,6 +56,7 @@ def test_fixed_due_cohort_seals_success_failure_pending_exclusion_and_manual_com
     assert report.numerator_subjects == ("success",)
     assert report.failure_subjects == ("late", "manual")
     assert report.pending_subjects == ("pending",)
+    assert report.right_censored_subjects == ("pending",)
     assert report.excluded_subjects == ("excluded",)
     assert report.manual_intervention_subjects == ("manual",)
     assert report.rate == 0.3333
@@ -107,5 +108,25 @@ def test_sealed_report_cannot_be_rewritten_by_later_recovery() -> None:
         failed, qualifying_draft_pr_at="2026-08-02T00:00:00Z", evidence_bundle_digest=D
     )
     assert verify_eadpr(report, (recovered,))
+    assert report.numerator_subjects == ()
+    assert report.failure_subjects == ("one",)
+
+
+def test_work_completed_before_prospective_eligibility_cannot_enter_numerator() -> None:
+    subject = replace(
+        _subject("one", "2026-07-20T00:00:00Z"),
+        eligibility_at="2026-07-10T00:00:00Z",
+        qualifying_draft_pr_at="2026-07-09T23:59:59Z",
+    )
+    report = compute_eadpr(
+        (subject,),
+        policy_version="eadpr-v1",
+        target_approved=True,
+        window_start=START,
+        reporting_cutoff=CUTOFF,
+        sealed_at=SEALED,
+    )
+
+    assert report.denominator_subjects == ("one",)
     assert report.numerator_subjects == ()
     assert report.failure_subjects == ("one",)

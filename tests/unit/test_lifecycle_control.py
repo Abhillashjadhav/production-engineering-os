@@ -6,6 +6,7 @@ import hashlib
 import json
 import threading
 import time
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import asdict, fields, replace
@@ -315,6 +316,8 @@ def control_plane(
     *,
     state: LifecycleState = LifecycleState.CONTRACT_RECEIVED,
     trust_policy: EvidenceTrustPolicy = TRUST_POLICY,
+    lifecycle_policy: lifecycle.LifecyclePolicy = PHASE_ZERO_POLICY,
+    bundle_verifier: lifecycle.BundleVerifier | None = None,
 ) -> LifecycleControlPlane:
     policy, _ = budgets()
     cp = LifecycleControlPlane.create(
@@ -323,8 +326,10 @@ def control_plane(
         subject_digest=SHA,
         initial_state=LifecycleState.CONTRACT_RECEIVED,
         budget_policy=policy,
+        lifecycle_policy=lifecycle_policy,
         trust_policy=trust_policy,
         evidence_verifier=verify_external_proof,
+        bundle_verifier=bundle_verifier,
     )
     if state is not LifecycleState.CONTRACT_RECEIVED:
         cp._append(
@@ -746,6 +751,37 @@ def completion_evidence_with_review_binding(cp: LifecycleControlPlane) -> dict[s
         }
     )
     return evidence
+
+
+def test_phase_four_completion_accepts_a_distinct_completion_profile_bundle(
+    tmp_path: Path,
+) -> None:
+    completion_bundle = object_digest("sealed-completion-profile")
+    observed: list[tuple[str, dict[str, str]]] = []
+
+    def verify_bundle(digest: str, bindings: Mapping[str, str]) -> bool:
+        observed.append((digest, dict(bindings)))
+        return digest == completion_bundle
+
+    cp = control_plane(
+        tmp_path,
+        state=LifecycleState.PRODUCTION_DEPLOYED,
+        lifecycle_policy=lifecycle.PHASE_FOUR_POLICY,
+        bundle_verifier=verify_bundle,
+    )
+    evidence = completion_evidence_with_review_binding(cp)
+    review_bundle = evidence["review_evidence_digest"]
+    evidence["evidence_bundle_digest"] = completion_bundle
+
+    completed = cp.transition(
+        LifecycleState.COMPLETED,
+        context(evidence=evidence),
+        reason="observation_window_passed",
+    )
+
+    assert completed.target is LifecycleState.COMPLETED
+    assert completion_bundle != review_bundle
+    assert observed[0][0] == completion_bundle
 
 
 def test_completion_binds_release_to_persisted_merge_not_review_head(tmp_path: Path) -> None:
@@ -1427,6 +1463,7 @@ def test_staging_requires_an_authenticated_inventory_from_every_configured_sourc
         subject_digest=SHA,
         initial_state=LifecycleState.CONTRACT_RECEIVED,
         budget_policy=policy,
+        lifecycle_policy=PHASE_ZERO_POLICY,
         trust_policy=trust_policy,
         evidence_verifier=verify_external_proof,
     )
@@ -3965,6 +4002,7 @@ def test_concurrent_creation_cannot_diverge_metadata_from_initial_event(
             subject_digest=subject_digest,
             initial_state=LifecycleState.CONTRACT_RECEIVED,
             budget_policy=policy,
+            lifecycle_policy=PHASE_ZERO_POLICY,
         )
 
     successes: list[LifecycleControlPlane] = []
@@ -4112,6 +4150,118 @@ def test_native_merge_requires_the_exact_persisted_review_binding(tmp_path: Path
             context(evidence=staging_evidence, mutation=staging_attempt),
             reason="staging_admitted",
         )
+
+
+def test_phase_four_merge_keeps_advisory_and_post_ready_formal_review_distinct(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(
+        tmp_path,
+        state=LifecycleState.PR_READY,
+        lifecycle_policy=lifecycle.PHASE_FOUR_POLICY,
+    )
+    reviewed_commit = "a" * 40
+    reviewed_tree = object_digest("reviewed-tree")
+    advisory_bundle = object_digest("advisory-bundle")
+    advisory_digest = object_digest("advisory-analysis")
+    cp._append(
+        kind="REVIEW_BINDING_ADMITTED",
+        outcome="RECORDED",
+        source=cp.state,
+        target=cp.state,
+        reason="advisory_readiness_clear",
+        actor="codex-advisory",
+        evidence_refs={
+            "subject_digest": SHA,
+            "reviewed_commit_sha": reviewed_commit,
+            "prospective_tree_digest": reviewed_tree,
+            "verification_bundle_digest": advisory_bundle,
+            "review_digest": advisory_digest,
+        },
+        observed_at="2026-08-01T23:59:00Z",
+    )
+    approval = Approval(
+        approval_id="formal-review-after-ready",
+        actor="codex",
+        subject_digest=SHA,
+        kind="FORMAL_REVIEW",
+        eligible=True,
+        active=True,
+        reviewed_commit_sha=reviewed_commit,
+        reviewed_candidate_digest=reviewed_tree,
+        review_evidence_digest=advisory_bundle,
+        submitted_at="2026-08-02T00:00:00Z",
+    )
+    approval = replace(
+        approval,
+        authentication_evidence_digest=external_proof(
+            approval.actor,
+            SHA,
+            lifecycle._production_approval_payload(approval),
+        ),
+    )
+    formal_digest = object_digest(asdict(approval))
+    rule = lifecycle.PHASE_FOUR_POLICY.rule(
+        LifecycleState.PR_READY,
+        LifecycleState.PR_MERGED,
+        reason="native_merge_linearized",
+    )
+    planned_evidence = {
+        name: (
+            SHA
+            if name == "subject_digest"
+            else "a" * 40
+            if name.endswith("_sha")
+            else object_digest(name)
+        )
+        for name in rule.required_evidence
+    }
+    planned_evidence.update(
+        queue_subject_digest=SHA,
+        head_commit_sha=reviewed_commit,
+        head_digest=object_digest(reviewed_commit),
+        prospective_tree_digest=reviewed_tree,
+        verification_bundle_digest=advisory_bundle,
+        formal_review_digest=formal_digest,
+        finding_source_set_digest=object_digest(dict(TRUST_POLICY.finding_sources)),
+        finding_inventory_epochs_digest=object_digest(
+            dict.fromkeys(TRUST_POLICY.finding_sources, OTHER_SHA)
+        ),
+    )
+    merge_output = {
+        "head_commit_sha": reviewed_commit,
+        "merge_commit_sha": "b" * 40,
+        "merge_tree_digest": reviewed_tree,
+        "merge_method_digest": object_digest("protected-native-merge"),
+        "merge_actor_digest": object_digest("github-merge-queue"),
+    }
+    merge_result_digest = object_digest(merge_output)
+    planned_evidence.update(merge_output, merge_result_digest=merge_result_digest)
+    attempt = MutationAttempt(
+        attempt_id="phase-four-merge",
+        idempotency_key="merge:phase-four:1",
+        subject_digest=SHA,
+        action="enqueue_merge",
+        step_plan_digest=mutation_subject_digest("enqueue_merge", planned_evidence),
+        status="PLANNED",
+    )
+    prejournal(cp, attempt)
+    record_result(cp, attempt, status="SUCCEEDED", result_digest=merge_result_digest)
+    planned_evidence["merge_attempt_digest"] = object_digest(asdict(attempt))
+
+    merged = cp.transition(
+        LifecycleState.PR_MERGED,
+        context(
+            evidence=planned_evidence,
+            approvals=(approval,),
+            mutation=attempt,
+            usage=cp.budget_usage,
+        ),
+        reason="native_merge_linearized",
+    )
+
+    assert merged.target is LifecycleState.PR_MERGED
+    assert formal_digest != advisory_digest
 
 
 def test_budget_extension_rejects_caller_computable_owner_proof(tmp_path: Path) -> None:
@@ -4355,6 +4505,7 @@ def test_creation_recovers_the_exact_metadata_only_crash_window(
             subject_digest=SHA,
             initial_state=LifecycleState.CONTRACT_RECEIVED,
             budget_policy=policy,
+            lifecycle_policy=PHASE_ZERO_POLICY,
         )
 
     recovered = LifecycleControlPlane.create(
@@ -4363,6 +4514,7 @@ def test_creation_recovers_the_exact_metadata_only_crash_window(
         subject_digest=SHA,
         initial_state=LifecycleState.CONTRACT_RECEIVED,
         budget_policy=policy,
+        lifecycle_policy=PHASE_ZERO_POLICY,
     )
     assert recovered.run_id == "recoverable-run"
     assert LifecycleControlPlane.load(tmp_path).events == recovered.events

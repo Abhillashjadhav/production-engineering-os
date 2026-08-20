@@ -92,9 +92,9 @@ def test_admitted_intake_requires_content_addressed_payload_reference() -> None:
     with pytest.raises(ValueError, match="immutable payload reference"):
         project_intake_evidence(_outcome("ADMITTED"))
     evidence = project_intake_evidence(
-        _outcome("ADMITTED"), admitted_payload_ref=f"objects/{D}.json"
+        _outcome("ADMITTED"), admitted_payload_ref=f"objects/{D.replace(':', '-')}.json"
     )
-    assert evidence.immutable_payload_ref.endswith(f"{D}.json")
+    assert evidence.immutable_payload_ref.endswith(f"{D.replace(':', '-')}.json")
 
 
 def test_exact_proposal_replay_is_deterministic_and_regeneration_is_new_subject() -> None:

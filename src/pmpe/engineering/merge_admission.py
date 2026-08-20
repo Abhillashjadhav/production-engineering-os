@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from typing import Literal
 
 from pmpe.contracts.digest import canonical_digest
+
+_GIT_SHA = re.compile(r"^[0-9a-f]{40,64}$")
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True)
@@ -39,6 +43,8 @@ class BlockingFinding:
     credible: bool
     blocking: bool
     normalized_at: str
+    source_authority_digest: str
+    authentication_evidence_digest: str
     disposition: str = "OPEN"
     resolution_digest: str = ""
 
@@ -87,6 +93,8 @@ class MergeSnapshot:
 class EnqueueToken:
     snapshot_digest: str
     exact_input_digest: str
+    authority_digest: str
+    finding_high_watermark_digest: str
     enqueued_at: str
     invalidation_boundary: str
     enqueue_digest: str
@@ -117,6 +125,8 @@ def _blocking_finding(finding: BlockingFinding) -> bool:
     normalized_blocker = (
         finding.credible
         and finding.blocking
+        and bool(_DIGEST.fullmatch(finding.source_authority_digest))
+        and bool(_DIGEST.fullmatch(finding.authentication_evidence_digest))
         and severity
         in {
             "CRITICAL",
@@ -124,7 +134,10 @@ def _blocking_finding(finding: BlockingFinding) -> bool:
             "MEDIUM",
         }
     )
-    return normalized_blocker and finding.disposition not in {"RESOLVED", "REJECTED_WITH_EVIDENCE"}
+    resolved = finding.disposition in {"RESOLVED", "REJECTED_WITH_EVIDENCE"} and bool(
+        _DIGEST.fullmatch(finding.resolution_digest)
+    )
+    return normalized_blocker and not resolved
 
 
 def _validate_snapshot(
@@ -136,16 +149,41 @@ def _validate_snapshot(
     enqueue_digest: str = "",
 ) -> tuple[str, ...]:
     reasons: list[str] = []
+    digest_fields = (
+        snapshot.prospective_merge_tree_digest,
+        snapshot.repository_rules_digest,
+        snapshot.architecture_policy_digest,
+        snapshot.toolchain_policy_digest,
+        snapshot.environment_profile_digest,
+        snapshot.security_policy_digest,
+        snapshot.verification_policy_digest,
+        snapshot.evidence_policy_digest,
+        snapshot.authority_digest,
+        snapshot.finding_high_watermark_digest,
+    )
+    if not _GIT_SHA.fullmatch(snapshot.pr_head_sha) or not _GIT_SHA.fullmatch(
+        snapshot.protected_base_sha
+    ):
+        reasons.append("merge snapshot has a malformed head or protected-base SHA")
+    if any(not _DIGEST.fullmatch(value) for value in digest_fields):
+        reasons.append("merge snapshot has a malformed content or policy digest")
     if not snapshot.merge_queue_enforced:
         reasons.append("native merge queue or equivalent CAS gate is unavailable")
     if snapshot.bypass_used:
         reasons.append("merge bypass was used")
-    if snapshot.pending_unclassified_findings:
+    if snapshot.pending_unclassified_findings != 0:
         reasons.append("finding normalization is incomplete")
-    if any(_blocking_finding(finding) for finding in snapshot.findings):
+    if any(
+        finding.subject_sha == snapshot.pr_head_sha and _blocking_finding(finding)
+        for finding in snapshot.findings
+    ):
         reasons.append("an exact-subject blocking finding is unresolved")
     if any(
-        review.subject_sha == snapshot.pr_head_sha and review.state == "CHANGES_REQUESTED"
+        review.review_id
+        and review.actor
+        and review.eligible
+        and review.subject_sha == snapshot.pr_head_sha
+        and review.state == "CHANGES_REQUESTED"
         for review in snapshot.reviews
     ):
         reasons.append("formal changes are requested for the exact head")
@@ -154,15 +192,22 @@ def _validate_snapshot(
     valid_approvals = [
         review
         for review in snapshot.reviews
-        if review.eligible
+        if review.review_id
+        and review.actor
+        and review.eligible
         and review.state == "APPROVED"
         and review.subject_sha == snapshot.pr_head_sha
         and _time(review.submitted_at) > boundary
+        and _time(review.submitted_at) <= _time(as_of)
     ]
     if not valid_approvals:
         reasons.append("no fresh eligible formal approval after the invalidation boundary")
 
     by_name = {check.name: check for check in snapshot.checks}
+    if len(by_name) != len(snapshot.checks):
+        reasons.append("required check names are duplicated")
+    if len(set(snapshot.required_check_names)) != len(snapshot.required_check_names):
+        reasons.append("required check policy names are duplicated")
     now = _time(as_of)
     for name in snapshot.required_check_names:
         check = by_name.get(name)
@@ -180,6 +225,8 @@ def _validate_snapshot(
                 reasons.append(f"merge-group check {name} ended as {check.status}")
             if now - _time(check.observed_at) > timedelta(seconds=queue_timeout_seconds):
                 reasons.append(f"merge-group check {name} exceeded its freshness window")
+            if _time(check.observed_at) > now:
+                reasons.append(f"merge-group check {name} is from the future")
         elif check.status != "SUCCESS":
             reasons.append(f"required check {name} is {check.status}")
     return tuple(reasons)
@@ -192,6 +239,8 @@ def enqueue(
     invalidation_boundary: str,
     queue_timeout_seconds: int = 1800,
 ) -> EnqueueToken:
+    if queue_timeout_seconds <= 0:
+        raise ValueError("merge queue timeout must be positive")
     reasons = _validate_snapshot(
         snapshot,
         invalidation_boundary=invalidation_boundary,
@@ -212,6 +261,8 @@ def enqueue(
     return EnqueueToken(
         snapshot_digest,
         snapshot.exact_input_digest,
+        snapshot.authority_digest,
+        snapshot.finding_high_watermark_digest,
         enqueued_at,
         invalidation_boundary,
         enqueue_digest,
@@ -228,21 +279,28 @@ def linearize_merge(
     native_gate_authorized: bool = True,
     queue_timeout_seconds: int = 1800,
 ) -> MergeDecision:
-    reasons = list(
-        _validate_snapshot(
-            current,
-            invalidation_boundary=token.invalidation_boundary,
-            as_of=merged_at,
-            queue_timeout_seconds=queue_timeout_seconds,
-            enqueue_digest=token.enqueue_digest,
+    try:
+        reasons = list(
+            _validate_snapshot(
+                current,
+                invalidation_boundary=token.invalidation_boundary,
+                as_of=merged_at,
+                queue_timeout_seconds=queue_timeout_seconds,
+                enqueue_digest=token.enqueue_digest,
+            )
         )
-    )
+    except ValueError:
+        reasons = ["merge snapshot contains a malformed timestamp"]
     if current.exact_input_digest != token.exact_input_digest:
         reasons.append("reviewed head/base/tree or repository policy changed after enqueue")
+    if current.authority_digest != token.authority_digest:
+        reasons.append("external contract or publisher authority changed after enqueue")
+    if current.finding_high_watermark_digest != token.finding_high_watermark_digest:
+        reasons.append("finding high-watermark changed after enqueue")
     if not native_gate_authorized:
         reasons.append("native gate integrity or authorization failed")
-    if not observed_merge_sha:
-        reasons.append("observed merge SHA is absent")
+    if not _GIT_SHA.fullmatch(observed_merge_sha):
+        reasons.append("observed merge SHA is absent or malformed")
     if observed_merge_tree_digest != current.prospective_merge_tree_digest:
         reasons.append("observed merge tree differs from the reviewed prospective tree")
     if reasons:
@@ -263,22 +321,23 @@ def resolve_external_race(
     event_time = _time(external_event_at)
     merge_time = _time(native_merge_at) if native_merge_at else None
     dequeue_time = _time(dequeue_completed_at) if dequeue_completed_at else None
+    if dequeue_time is not None and dequeue_time < event_time:
+        raise ValueError("dequeue cannot complete before its triggering external event")
     if merge_time is None or (dequeue_time is not None and dequeue_time <= merge_time):
         outcome = "PRODUCT_INPUT_REQUIRED" if kind == "AUTHORITY_REVOKED" else "REVIEW_FAILED"
         return MergeDecision(False, outcome, False, ("native admission was dequeued",))
-    if merge_time >= event_time:
-        outcome = (
-            "PR_MERGED_PRODUCT_INPUT_BLOCKED"
-            if kind == "AUTHORITY_REVOKED"
-            else "PR_MERGED_REMEDIATION_REQUIRED"
-        )
-        return MergeDecision(
-            True,
-            outcome,
-            False,
-            (
-                "native merge won the external-event race; integration is retained, "
-                "rollout forbidden",
-            ),
-        )
-    return MergeDecision(True, "PR_MERGED", True, ())
+    outcome = (
+        "PR_MERGED_PRODUCT_INPUT_BLOCKED"
+        if kind == "AUTHORITY_REVOKED"
+        else "PR_MERGED_REMEDIATION_REQUIRED"
+    )
+    ordering = "before" if event_time <= merge_time else "after"
+    return MergeDecision(
+        True,
+        outcome,
+        False,
+        (
+            f"external event was observed {ordering} native merge; integration is retained, "
+            "rollout forbidden",
+        ),
+    )

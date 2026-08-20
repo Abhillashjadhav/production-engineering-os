@@ -28,7 +28,9 @@ def _declared_minors(specifier: str) -> tuple[str, ...]:
     return tuple(f"{low_major}.{minor}" for minor in range(low_minor, high_minor))
 
 
-def verify_runtime_matrix(pyproject: Path, workflow: Path) -> RuntimeMatrixDecision:
+def verify_runtime_matrix(
+    pyproject: Path, workflow: Path, *, job_name: str = "tests"
+) -> RuntimeMatrixDecision:
     project = tomllib.loads(Path(pyproject).read_text())["project"]
     try:
         declared = _declared_minors(str(project["requires-python"]))
@@ -36,7 +38,7 @@ def verify_runtime_matrix(pyproject: Path, workflow: Path) -> RuntimeMatrixDecis
         return RuntimeMatrixDecision(False, (), (), (str(exc),))
     raw = yaml.safe_load(Path(workflow).read_text())
     jobs = raw.get("jobs", {}) if isinstance(raw, dict) else {}
-    tests = jobs.get("tests", {}) if isinstance(jobs, dict) else {}
+    tests = jobs.get(job_name, {}) if isinstance(jobs, dict) else {}
     strategy = tests.get("strategy", {}) if isinstance(tests, dict) else {}
     matrix = strategy.get("matrix", {}) if isinstance(strategy, dict) else {}
     versions = matrix.get("python-version", ()) if isinstance(matrix, dict) else ()

@@ -124,16 +124,32 @@ class EvidenceItem:
     output_digest: str
     observed_at: str
     retention_class: str
+    authentication_evidence_digest: str
+    attestation_format: str
     medium: str = "ATTESTATION"
     committed_script_digest: str = ""
     expires_at: str = ""
     payload_ref: str = ""
+    executed_count: int = 0
+    passed_count: int = 0
+    failed_count: int = 0
+    skipped_count: int = 0
 
     def __post_init__(self) -> None:
         if self.result not in _RESULTS:
             raise EvidenceViolation(f"unsupported evidence result: {self.result}")
         if self.medium not in _IMMUTABLE_MEDIA | _MUTABLE_POINTER_MEDIA:
             raise EvidenceViolation(f"unsupported evidence medium: {self.medium}")
+        if (
+            min(
+                self.executed_count,
+                self.passed_count,
+                self.failed_count,
+                self.skipped_count,
+            )
+            < 0
+        ):
+            raise EvidenceViolation("execution counts cannot be negative")
 
     @property
     def digest(self) -> str:
@@ -305,6 +321,8 @@ def verify_manifest(
         reasons.append("policy digest changed")
     if not _DIGEST.fullmatch(manifest.policy_digest):
         reasons.append("policy digest is malformed")
+    if manifest.supersedes_digest and not _DIGEST.fullmatch(manifest.supersedes_digest):
+        reasons.append("superseded bundle digest is malformed")
     try:
         created = _timestamp(manifest.created_at, "created_at")
         current = _timestamp(as_of, "as_of") if as_of else created
@@ -334,6 +352,13 @@ def verify_manifest(
             reasons.append(f"{item.evidence_id}: result is {item.result}")
         if item.medium in _MUTABLE_POINTER_MEDIA:
             reasons.append(f"{item.evidence_id}: mutable {item.medium} is only a pointer")
+        if (
+            not item.producer.producer_id
+            or not _DIGEST.fullmatch(item.producer.authority_digest)
+            or not _DIGEST.fullmatch(item.authentication_evidence_digest)
+            or not item.attestation_format
+        ):
+            reasons.append(f"{item.evidence_id}: producer attestation is absent or malformed")
         if not item.invocation and not _DIGEST.fullmatch(item.committed_script_digest):
             reasons.append(f"{item.evidence_id}: executable invocation or script digest is absent")
         if not item.tool.name or not item.tool.version:
@@ -344,6 +369,17 @@ def verify_manifest(
             reasons.append(f"{item.evidence_id}: tool policy digest is malformed")
         if not _DIGEST.fullmatch(item.output_digest):
             reasons.append(f"{item.evidence_id}: output digest is malformed")
+        if item.evidence_class == "required_checks" and (
+            item.executed_count <= 0
+            or item.passed_count != item.executed_count
+            or item.failed_count
+            or item.skipped_count
+        ):
+            reasons.append(f"{item.evidence_id}: checks were missing, failed, or skipped")
+        if item.evidence_class == "meaningful_red" and (
+            item.executed_count <= 0 or item.failed_count <= 0 or item.skipped_count
+        ):
+            reasons.append(f"{item.evidence_id}: meaningful assertion red is not proven")
         try:
             observed = _timestamp(item.observed_at, f"{item.evidence_id}.observed_at")
             if observed > current:

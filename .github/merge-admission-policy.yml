@@ -20,7 +20,8 @@ required_checks:
   - tests (3.11)
   - tests (3.12)
   - security
-  - product-backend
+  - product-backend (3.11)
+  - product-backend (3.12)
   - product-frontend
   - product-e2e
   - product-preview

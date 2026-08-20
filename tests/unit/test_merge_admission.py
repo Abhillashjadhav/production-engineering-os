@@ -114,7 +114,7 @@ def test_ineligible_finding_source_can_block_but_cannot_approve() -> None:
     snapshot = replace(
         _snapshot(),
         reviews=(FormalReview("bot-review", "scanner", HEAD, "APPROVED", AFTER, False),),
-        findings=(BlockingFinding("F1", "scanner", HEAD, "HIGH", True, True, AFTER),),
+        findings=(BlockingFinding("F1", "scanner", HEAD, "HIGH", True, True, AFTER, D, E),),
     )
 
     with pytest.raises(ValueError) as exc:
@@ -205,3 +205,36 @@ def test_bypass_blocks_rollout_even_when_tree_matches() -> None:
             enqueued_at=AFTER,
             invalidation_boundary=NOW,
         )
+
+
+@pytest.mark.parametrize("field", ["authority_digest", "finding_high_watermark_digest"])
+def test_external_fences_are_rechecked_at_merge_linearization(field: str) -> None:
+    snapshot = _snapshot()
+    token = enqueue(snapshot, enqueued_at=AFTER, invalidation_boundary=NOW)
+    changed = replace(snapshot, **{field: E})
+
+    decision = linearize_merge(
+        token,
+        changed,
+        observed_merge_sha="e" * 40,
+        observed_merge_tree_digest=D,
+        merged_at=AFTER,
+    )
+
+    assert not decision.admitted
+    assert not decision.rollout_allowed
+    assert any("authority" in reason or "high-watermark" in reason for reason in decision.reasons)
+
+
+@pytest.mark.parametrize("kind", ["AUTHORITY_REVOKED", "BLOCKING_FINDING"])
+def test_external_event_observed_after_merge_still_blocks_pre_rollout_fence(kind: str) -> None:
+    result = resolve_external_race(
+        kind=kind,  # type: ignore[arg-type]
+        external_event_at="2026-08-20T12:02:00Z",
+        native_merge_at=AFTER,
+        dequeue_completed_at=None,
+    )
+
+    assert result.admitted
+    assert not result.rollout_allowed
+    assert result.outcome.startswith("PR_MERGED_")

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import asdict, dataclass
 
 from pmpe.contracts.digest import canonical_digest
 from pmpe.contracts.intake import IntakeOutcome
+
+_IMMUTABLE_OBJECT_REF = re.compile(r"^objects/sha256-[0-9a-f]{64}\.json$")
 
 
 @dataclass(frozen=True)
@@ -40,7 +43,10 @@ def project_intake_evidence(
     receipt = outcome.receipt
     correction = reservation.correction_reference
     if outcome.status == "ADMITTED":
-        if not admitted_payload_ref or outcome.admitted_payload is None:
+        if (
+            not _IMMUTABLE_OBJECT_REF.fullmatch(admitted_payload_ref)
+            or outcome.admitted_payload is None
+        ):
             raise ValueError("admitted content requires an immutable payload reference")
     elif admitted_payload_ref:
         raise ValueError("rejected raw content must never enter immutable evidence")
