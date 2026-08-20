@@ -100,6 +100,10 @@ def test_scan_tree_rejects_destructive_deployment_shell(tmp_path: Path, options:
         "/usr/bin/env bash",
         "env -i bash",
         "env -i CLEAN=1 /bin/sh",
+        "env -u HOME bash",
+        "env --unset HOME /bin/sh",
+        "env -C /tmp bash",
+        "env --chdir=/tmp /bin/sh",
     ),
 )
 def test_scan_tree_rejects_remote_pipe_in_dockerfile(tmp_path: Path, shell: str) -> None:
@@ -119,6 +123,16 @@ def test_scan_tree_allows_non_combined_rm_cleanup(tmp_path: Path, command: str) 
     script = tmp_path / "cleanup.sh"
     script.write_text(f"#!/bin/sh\n{command}\n")
     assert not any(finding.rule == "SEC_SHELL_RECURSIVE_DELETE" for finding in scan_tree(tmp_path))
+
+
+def test_scan_tree_scopes_remote_source_to_current_pipeline(tmp_path: Path) -> None:
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text(
+        "FROM python:3.11\n"
+        "RUN curl -o archive https://example.invalid/archive && verify archive; "
+        "cat verified-installer.sh | sh\n"
+    )
+    assert not any(finding.rule == "SEC_SHELL_REMOTE_PIPE" for finding in scan_tree(tmp_path))
 
 
 def test_findings_carry_file_and_line(tmp_path: Path) -> None:

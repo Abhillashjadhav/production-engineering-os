@@ -93,6 +93,33 @@ def _shell_tokens(line: str) -> list[str]:
         return []
 
 
+def _env_command_index(tokens: list[str], command: int) -> int:
+    options_with_separate_argument = {
+        "-C",
+        "-S",
+        "-u",
+        "--chdir",
+        "--split-string",
+        "--unset",
+    }
+    while command < len(tokens):
+        token = tokens[command]
+        if token == "--":
+            command += 1
+            break
+        if token in options_with_separate_argument:
+            command += 2
+            continue
+        if token.startswith("-"):
+            command += 1
+            continue
+        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", token) is not None:
+            command += 1
+            continue
+        break
+    return command
+
+
 def _shell_rule_matches(line: str) -> list[tuple[str, str]]:
     tokens = _shell_tokens(line)
     matches: list[tuple[str, str]] = []
@@ -123,20 +150,23 @@ def _shell_rule_matches(line: str) -> list[tuple[str, str]]:
             break
 
     for index, token in enumerate(tokens):
-        if token != "|" or not any(
-            _shell_basename(candidate) in {"curl", "wget"} for candidate in tokens[:index]
+        if token != "|":
+            continue
+        pipeline_start = 0
+        for candidate_index in range(index - 1, -1, -1):
+            if tokens[candidate_index] in {";", "&&", "||"}:
+                pipeline_start = candidate_index + 1
+                break
+        if not any(
+            _shell_basename(candidate) in {"curl", "wget"}
+            for candidate in tokens[pipeline_start:index]
         ):
             continue
         command = index + 1
         if command >= len(tokens):
             continue
         if _shell_basename(tokens[command]) == "env":
-            command += 1
-            while command < len(tokens) and (
-                tokens[command].startswith("-")
-                or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", tokens[command]) is not None
-            ):
-                command += 1
+            command = _env_command_index(tokens, command + 1)
         if command < len(tokens) and _shell_basename(tokens[command]) in {"sh", "bash"}:
             matches.append(("SEC_SHELL_REMOTE_PIPE", "remote content piped directly to a shell"))
             break
