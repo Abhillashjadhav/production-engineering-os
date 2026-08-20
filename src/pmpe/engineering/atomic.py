@@ -1965,8 +1965,13 @@ class AtomicImplementationController:
             raise AtomicityViolation("missing persisted worktree authority")
         raw = json.loads(path.read_text())
         leases = raw.get("leases")
+        results = raw.get("results")
         attempts = raw.get("worktree_attempts")
-        if not isinstance(leases, Mapping) or not isinstance(attempts, Mapping):
+        if (
+            not isinstance(leases, Mapping)
+            or not isinstance(results, Mapping)
+            or not isinstance(attempts, Mapping)
+        ):
             raise AtomicityViolation("persisted worktree authority is malformed")
         self._leases = {
             str(task_id): _decode_lease(lease)
@@ -1974,6 +1979,19 @@ class AtomicImplementationController:
             if isinstance(lease, Mapping)
         }
         if len(self._leases) != len(leases):
+            raise AtomicityViolation("persisted worktree authority is malformed")
+        self._results = {
+            str(task_id): SpecialistResult(
+                task_id=str(result["task_id"]),
+                specialist=str(result["specialist"]),
+                commit_sha=str(result["commit_sha"]),
+                changed_paths=tuple(result["changed_paths"]),
+                lease_epoch_digest=str(result["lease_epoch_digest"]),
+            )
+            for task_id, result in results.items()
+            if isinstance(result, Mapping)
+        }
+        if len(self._results) != len(results):
             raise AtomicityViolation("persisted worktree authority is malformed")
         self._worktree_attempts = {
             str(task_id): int(attempt) for task_id, attempt in attempts.items()

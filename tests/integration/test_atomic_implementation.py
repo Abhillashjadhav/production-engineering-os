@@ -555,6 +555,42 @@ def test_preloaded_controller_cannot_admit_commit_after_cancellation(tmp_path: P
         persisted.integration_manifest()
 
 
+def test_preloaded_controllers_preserve_all_admitted_results(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git = LocalGitAdapter(root)
+    git.init()
+    (root / "src").mkdir()
+    (root / "src" / "base.py").write_text("BASE = True\n")
+    planning_sha = git.commit_all("base")
+    controller, adapter = _controller(tmp_path, planning_commit_sha=planning_sha)
+    admitted = controller.admit_slice(_candidate())
+    lease_a = controller.issue_lease(
+        SpecialistTask("T-A", "v2-backend-engineer", ("src/a.py",)), admitted=admitted
+    )
+    lease_b = controller.issue_lease(
+        SpecialistTask("T-B", "v2-test-engineer", ("src/b.py",)), admitted=admitted
+    )
+    with controller.specialist_worktree(
+        root, lease=lease_a, worktrees_root=tmp_path / "worktrees"
+    ) as worktree_a:
+        (worktree_a.path / "src" / "a.py").write_text("A = True\n")
+        commit_a = worktree_a.commit("implement A")
+    with controller.specialist_worktree(
+        root, lease=lease_b, worktrees_root=tmp_path / "worktrees"
+    ) as worktree_b:
+        (worktree_b.path / "src" / "b.py").write_text("B = True\n")
+        commit_b = worktree_b.commit("implement B")
+    preloaded_a = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    preloaded_b = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+
+    preloaded_a.admit_specialist_commit(lease_a, root, commit_sha=commit_a)
+    preloaded_b.admit_specialist_commit(lease_b, root, commit_sha=commit_b)
+
+    persisted = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    assert [result.task_id for result in persisted.integration_manifest().results] == ["T-A", "T-B"]
+
+
 def test_integration_manifest_rejects_an_empty_implementation(tmp_path: Path) -> None:
     controller, _ = _controller(tmp_path)
     controller.admit_slice(_candidate())
