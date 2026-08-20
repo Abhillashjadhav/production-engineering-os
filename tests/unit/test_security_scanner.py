@@ -141,6 +141,8 @@ def test_scan_tree_allows_non_combined_rm_cleanup(tmp_path: Path, command: str) 
         "env - -- sh",
         "env - -i sh",
         "env - - sh",
+        "env --help - sh",
+        "env --version - sh",
     ),
 )
 def test_scan_tree_stops_env_option_parsing_at_command(tmp_path: Path, shell: str) -> None:
