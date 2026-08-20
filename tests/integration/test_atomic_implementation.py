@@ -968,6 +968,18 @@ def test_load_rejects_remote_pr_rollback_to_historical_observed_state(tmp_path: 
         AtomicImplementationController.load(tmp_path / "run", repository=adapter)
 
 
+def test_load_rejects_unjournaled_published_candidate_head(tmp_path: Path) -> None:
+    controller, adapter = _controller(tmp_path)
+    admitted = controller.admit_slice(_candidate())
+    state_path = tmp_path / "run" / "atomic-implementation.json"
+    state = json.loads(state_path.read_text())
+    state["published_candidate_head"] = admitted.planning_commit.sha
+    state_path.write_text(json.dumps(state))
+
+    with pytest.raises(AtomicityViolation, match="published candidate"):
+        AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+
+
 def test_lease_admission_replays_independent_evidence_after_state_save_crash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

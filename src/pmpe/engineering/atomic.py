@@ -953,6 +953,7 @@ class AtomicImplementationController:
         controller._verify_repository_identity()
         if controller._admitted is not None:
             controller._verify_persisted_repository_authority(controller._admitted)
+        controller._verify_persisted_publication_authority()
         return controller
 
     @property
@@ -1548,6 +1549,58 @@ class AtomicImplementationController:
                 return
         raise AtomicityViolation("persisted admitted repository authority changed")
 
+    def _verify_persisted_publication_authority(self) -> None:
+        if not self._published_candidate_head:
+            return
+        _require_sha(self._published_candidate_head, field="published_candidate_head")
+        if self._admitted is None:
+            raise AtomicityViolation("published candidate has no admitted repository slice")
+        current = self.repository.pull_request(self._admitted.pull_request.number)
+        if current is None or current.head_sha != self._published_candidate_head:
+            raise AtomicityViolation("published candidate head differs from the admitted PR")
+        try:
+            manifest = self._integration_manifest_from_results()
+        except AtomicityViolation as exc:
+            raise AtomicityViolation(
+                "published candidate lacks a complete integration manifest"
+            ) from exc
+        publication_body = current.body.split("\n## Blocked\n", 1)[0]
+        base_body, separator, integrated = publication_body.partition(
+            "\n## Integrated candidate\n\n"
+        )
+        match = re.fullmatch(
+            r"Head `([0-9a-f]{40})`; integration `([0-9a-f]{64})`; "
+            r"verification `([0-9a-f]{64})`\.\n",
+            integrated,
+        )
+        if not separator or match is None:
+            raise AtomicityViolation("published candidate PR evidence is malformed")
+        head, integration_digest, verification_digest = match.groups()
+        if head != self._published_candidate_head or integration_digest != manifest.digest:
+            raise AtomicityViolation("published candidate evidence does not match persisted state")
+        body = base_body + separator + integrated
+        key = f"pr:{current.number}:{head}:publish"
+        subject = {
+            "pr": current.number,
+            "expected_head": manifest.baseline_sha,
+            "candidate_head": head,
+            "body_digest": _canonical_digest(body),
+            "integration_manifest_digest": manifest.digest,
+            "verification_digest": verification_digest,
+        }
+        related = [event for event in self._effect_events if event["idempotency_key"] == key]
+        published_pr = replace(current, body=body, draft=True, blocked=False)
+        if (
+            [event["status"] for event in related] != ["PLANNED", "OBSERVED"]
+            or any(
+                event["action"] != "update_draft_pr"
+                or event["subject_digest"] != _canonical_digest(subject)
+                for event in related
+            )
+            or related[-1]["result_digest"] != _canonical_digest(asdict(published_pr))
+        ):
+            raise AtomicityViolation("published candidate lacks exact publication evidence")
+
     def issue_lease(self, task: SpecialistTask, *, admitted: AdmittedSlice) -> SpecialistLease:
         with self._active_worktrees_lock:
             self._refresh_worktree_authority()
@@ -1919,6 +1972,9 @@ class AtomicImplementationController:
             raise AtomicityViolation("specialist authority admission recovery is pending")
         if self._admitted is None:
             raise AtomicityViolation("repository slice has not been admitted")
+        return self._integration_manifest_from_results()
+
+    def _integration_manifest_from_results(self) -> IntegrationManifest:
         if not self._results:
             raise AtomicityViolation("integration requires at least one specialist result")
         missing = sorted(set(self._leases) - set(self._results))
