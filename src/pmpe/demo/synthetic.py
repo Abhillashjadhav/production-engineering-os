@@ -337,6 +337,7 @@ def run_demo(
                 "task_id": task,
                 "commits": [git.log()[0].sha],
                 "tests_run": [_HEALTH_TEST],
+                "results": "passed",
             },
         )
     run.submit(

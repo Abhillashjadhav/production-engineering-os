@@ -124,8 +124,95 @@ def validate_specialist_result(data: dict[str, Any], context: dict[str, Any]) ->
         if not data.get(key):
             errors.append(f"specialist result missing '{key}'")
     assigned = set(context.get("assigned_tasks", []))
-    if assigned and data.get("task_id") not in assigned:
+    if data.get("task_id") not in assigned:
         errors.append(f"specialist reported task '{data.get('task_id')}' outside its assignment")
+    result = str(data.get("results", "")).strip().lower()
+    words = result.split()
+    successful = result in {"passed", "ok", "green", "all green", "success", "succeeded"} or (
+        len(words) == 2 and words[0].isdecimal() and int(words[0]) > 0 and words[1] == "passed"
+    )
+    if not successful:
+        errors.append("specialist result does not prove successful mandatory checks")
+    return errors
+
+
+def _require_named_checks(data: dict[str, Any], *, agent: str, required: set[str]) -> list[str]:
+    observed = {str(check).strip().lower() for check in data.get("tests_run") or []}
+    missing = sorted(required - observed)
+    return [f"{agent} result is missing required check(s): {', '.join(missing)}"] if missing else []
+
+
+def validate_frontend_result(data: dict[str, Any], context: dict[str, Any]) -> list[str]:
+    errors = validate_specialist_result(data, context)
+    if not data.get("changed_paths"):
+        errors.append("frontend result names no changed paths")
+    errors.extend(
+        _require_named_checks(
+            data,
+            agent="frontend",
+            required={"component", "accessibility", "typecheck", "build"},
+        )
+    )
+    return errors
+
+
+def validate_data_migration_result(data: dict[str, Any], context: dict[str, Any]) -> list[str]:
+    errors = validate_specialist_result(data, context)
+    if data.get("rollback_evidence") != "verified":
+        errors.append("data migration result lacks verified rollback evidence")
+    errors.extend(
+        _require_named_checks(
+            data,
+            agent="data migration",
+            required={"upgrade", "downgrade", "idempotency", "partial-failure recovery"},
+        )
+    )
+    return errors
+
+
+def validate_eval_result(data: dict[str, Any], context: dict[str, Any]) -> list[str]:
+    errors = validate_specialist_result(data, context)
+    errors.extend(
+        _require_named_checks(
+            data,
+            agent="eval",
+            required={"positive", "planted-negative", "boundary", "tamper"},
+        )
+    )
+    return errors
+
+
+def validate_security_result(data: dict[str, Any], context: dict[str, Any]) -> list[str]:
+    errors = validate_specialist_result(data, context)
+    if not str(data.get("residual_risk", "")).strip():
+        errors.append("security result lacks a residual-risk statement")
+    checks = {str(check).strip().lower() for check in data.get("tests_run") or []}
+    if "live credential probe" in checks:
+        errors.append("security result attempted prohibited live credential access")
+    errors.extend(
+        _require_named_checks(
+            data,
+            agent="security",
+            required={"planted exploit", "regression", "bandit"},
+        )
+    )
+    return errors
+
+
+def validate_platform_result(data: dict[str, Any], context: dict[str, Any]) -> list[str]:
+    errors = validate_specialist_result(data, context)
+    if data.get("rollback_evidence") != "verified":
+        errors.append("platform result lacks verified rollback evidence")
+    checks = {str(check).strip().lower() for check in data.get("tests_run") or []}
+    if "production deployment" in checks:
+        errors.append("platform result attempted a prohibited production deployment")
+    errors.extend(
+        _require_named_checks(
+            data,
+            agent="platform",
+            required={"failure", "recovery", "idempotency", "resource-limit"},
+        )
+    )
     return errors
 
 
@@ -201,6 +288,11 @@ VALIDATORS = {
     "v2-system-architect": validate_architecture_pack,
     "v2-implementation-planner": validate_plan,
     "v2-backend-engineer": validate_specialist_result,
+    "frontend-engineer": validate_frontend_result,
+    "data-migration-engineer": validate_data_migration_result,
+    "eval-engineer": validate_eval_result,
+    "security-engineer": validate_security_result,
+    "platform-reliability-engineer": validate_platform_result,
     "v2-test-engineer": validate_specialist_result,
     "v2-integration-engineer": validate_integration_result,
     "v2-code-reviewer": validate_review_output,

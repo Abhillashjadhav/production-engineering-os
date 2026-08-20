@@ -122,6 +122,7 @@ def _specialist(task_id: str) -> dict[str, Any]:
         "task_id": task_id,
         "commits": ["abc1234"],
         "tests_run": [f"tests.test_{task_id.lower().replace('-', '_')}"],
+        "results": "passed",
     }
 
 
