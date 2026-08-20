@@ -1110,17 +1110,32 @@ def test_ready_and_dequeue_are_exact_head_governed_effects(tmp_path: Path) -> No
             SpecialistTask("T-fix", "v2-backend-engineer", ("src/",)),
             admitted=controller.admitted_slice,
         )
-    controller.begin_repair_cycle(
+    repair_admission = controller.begin_repair_cycle(
         exact_head_sha=head,
         finding_inventory_digest="a" * 64,
         repair_test_plan_digest="b" * 64,
         meaningful_red_digest="c" * 64,
     )
-    repair_lease = controller.issue_lease(
+    resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    repair_lease = resumed.issue_lease(
         SpecialistTask("T-fix", "v2-backend-engineer", ("src/",)),
-        admitted=controller.admitted_slice,
+        admitted=resumed.admitted_slice,
     )
     assert repair_lease.baseline_sha == head
+    assert repair_lease.repair_admission_digest == repair_admission
+
+    state_path = tmp_path / "run" / "atomic-implementation.json"
+    state = json.loads(state_path.read_text())
+    state["repair_admission_digest"] = ""
+    state_path.write_text(json.dumps(state))
+    missing_repair_evidence = AtomicImplementationController.load(
+        tmp_path / "run", repository=adapter
+    )
+    with pytest.raises(AtomicityViolation, match="persisted repair admission evidence"):
+        missing_repair_evidence.issue_lease(
+            SpecialistTask("T-fix-2", "v2-test-engineer", ("tests/",)),
+            admitted=missing_repair_evidence.admitted_slice,
+        )
 
 
 def test_preloaded_ready_and_dequeue_replays_refresh_effect_ledger(tmp_path: Path) -> None:

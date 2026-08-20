@@ -256,6 +256,7 @@ class SpecialistLease:
     admitted_candidate_digest: str
     baseline_sha: str
     lease_epoch_digest: str
+    repair_admission_digest: str = ""
     revoked: bool = False
 
 
@@ -841,6 +842,7 @@ class AtomicImplementationController:
         self._leases: dict[str, SpecialistLease] = {}
         self._results: dict[str, SpecialistResult] = {}
         self._published_candidate_head = ""
+        self._repair_admission_digest = ""
         self._cancelled = False
         self._revocation_digest = ""
         self._stop_evidence: WorkStopEvidence | None = None
@@ -880,6 +882,12 @@ class AtomicImplementationController:
                 lease_epoch_digest=str(result["lease_epoch_digest"]),
             )
         controller._published_candidate_head = str(raw.get("published_candidate_head", ""))
+        controller._repair_admission_digest = str(raw.get("repair_admission_digest", ""))
+        if controller._repair_admission_digest:
+            _require_digest(
+                controller._repair_admission_digest,
+                field="repair_admission_digest",
+            )
         controller._worktree_attempts = {
             str(task_id): int(attempt)
             for task_id, attempt in raw.get("worktree_attempts", {}).items()
@@ -1055,10 +1063,14 @@ class AtomicImplementationController:
             raise AtomicityViolation(
                 "published candidate must be invalidated and enter a repair cycle first"
             )
+        repair_required = self._work_baseline_sha != admitted.planning_commit.sha
+        if repair_required and not self._repair_admission_digest:
+            raise AtomicityViolation("repair lease requires persisted repair admission evidence")
         current = self._leases.get(task.task_id)
         subject = {
             "candidate": admitted.candidate_digest,
             "baseline": self._work_baseline_sha,
+            "repair_admission": self._repair_admission_digest,
             "task": asdict(task),
         }
         epoch = _canonical_digest(subject)
@@ -1067,6 +1079,7 @@ class AtomicImplementationController:
             admitted_candidate_digest=admitted.candidate_digest,
             baseline_sha=self._work_baseline_sha,
             lease_epoch_digest=epoch,
+            repair_admission_digest=self._repair_admission_digest,
         )
         if current is not None and current != expected:
             raise AtomicityViolation("task already has a different specialist lease")
@@ -1484,6 +1497,7 @@ class AtomicImplementationController:
         self._leases.clear()
         self._results.clear()
         self._published_candidate_head = ""
+        self._repair_admission_digest = ""
         self._cancelled = False
         self._revocation_digest = ""
         self._stop_evidence = None
@@ -1946,8 +1960,7 @@ class AtomicImplementationController:
         self._results.clear()
         self._published_candidate_head = ""
         self._work_baseline_sha = exact_head_sha
-        self._save()
-        return _canonical_digest(
+        self._repair_admission_digest = _canonical_digest(
             {
                 "head": exact_head_sha,
                 "finding_inventory": finding_inventory_digest,
@@ -1955,6 +1968,8 @@ class AtomicImplementationController:
                 "meaningful_red": meaningful_red_digest,
             }
         )
+        self._save()
+        return self._repair_admission_digest
 
     def _require_admitted_pr(
         self, number: int, exact_head_sha: str, *, allow_ready: bool = False
@@ -2177,6 +2192,7 @@ class AtomicImplementationController:
                 "leases": {key: asdict(value) for key, value in sorted(self._leases.items())},
                 "results": {key: asdict(value) for key, value in sorted(self._results.items())},
                 "published_candidate_head": self._published_candidate_head,
+                "repair_admission_digest": self._repair_admission_digest,
                 "worktree_attempts": dict(sorted(self._worktree_attempts.items())),
                 "cancelled": self._cancelled,
                 "revocation_digest": self._revocation_digest,
@@ -2194,6 +2210,7 @@ class AtomicImplementationController:
         self._leases = dict(persisted._leases)
         self._results = dict(persisted._results)
         self._published_candidate_head = persisted._published_candidate_head
+        self._repair_admission_digest = persisted._repair_admission_digest
         self._cancelled = persisted._cancelled
         self._revocation_digest = persisted._revocation_digest
         self._stop_evidence = persisted._stop_evidence
@@ -2311,5 +2328,6 @@ def _decode_lease(raw: Mapping[str, object]) -> SpecialistLease:
         admitted_candidate_digest=str(raw["admitted_candidate_digest"]),
         baseline_sha=str(raw["baseline_sha"]),
         lease_epoch_digest=str(raw["lease_epoch_digest"]),
+        repair_admission_digest=str(raw.get("repair_admission_digest", "")),
         revoked=bool(raw.get("revoked", False)),
     )
