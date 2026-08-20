@@ -196,7 +196,7 @@ def _env_wrapped_command(tokens: list[str], command: int) -> tuple[str | None, b
             else:
                 cursor += 1
             continue
-        if re.fullmatch(r"[^=]+=.*", token) is not None:
+        if "=" in token:
             assignment_seen = True
             cursor += 1
             continue
