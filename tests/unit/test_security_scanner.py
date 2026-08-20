@@ -104,6 +104,9 @@ def test_scan_tree_rejects_destructive_deployment_shell(tmp_path: Path, options:
         "env --unset HOME /bin/sh",
         "env -C /tmp bash",
         "env --chdir=/tmp /bin/sh",
+        "env -S 'bash -s'",
+        "env --split-string='bash -s'",
+        "env -S '-i /bin/sh'",
     ),
 )
 def test_scan_tree_rejects_remote_pipe_in_dockerfile(tmp_path: Path, shell: str) -> None:

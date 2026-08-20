@@ -93,31 +93,42 @@ def _shell_tokens(line: str) -> list[str]:
         return []
 
 
-def _env_command_index(tokens: list[str], command: int) -> int:
-    options_with_separate_argument = {
-        "-C",
-        "-S",
-        "-u",
-        "--chdir",
-        "--split-string",
-        "--unset",
-    }
-    while command < len(tokens):
-        token = tokens[command]
+def _env_wrapped_command(tokens: list[str], command: int) -> str | None:
+    remaining = tokens[command:]
+    cursor = 0
+    split_expansions = 0
+    while cursor < len(remaining):
+        token = remaining[cursor]
         if token == "--":
-            command += 1
-            break
-        if token in options_with_separate_argument:
-            command += 2
+            cursor += 1
+            return remaining[cursor] if cursor < len(remaining) else None
+        if token in {"-S", "--split-string"}:
+            if cursor + 1 >= len(remaining) or split_expansions >= 8:
+                return None
+            expanded = _shell_tokens(remaining[cursor + 1])
+            remaining = expanded + remaining[cursor + 2 :]
+            cursor = 0
+            split_expansions += 1
+            continue
+        if token.startswith("--split-string=") or (token.startswith("-S") and len(token) > 2):
+            if split_expansions >= 8:
+                return None
+            value = token.split("=", 1)[1] if token.startswith("--") else token[2:]
+            remaining = _shell_tokens(value) + remaining[cursor + 1 :]
+            cursor = 0
+            split_expansions += 1
+            continue
+        if token in {"-C", "-u", "--chdir", "--unset"}:
+            cursor += 2
             continue
         if token.startswith("-"):
-            command += 1
+            cursor += 1
             continue
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", token) is not None:
-            command += 1
+            cursor += 1
             continue
-        break
-    return command
+        return token
+    return None
 
 
 def _shell_rule_matches(line: str) -> list[tuple[str, str]]:
@@ -162,12 +173,14 @@ def _shell_rule_matches(line: str) -> list[tuple[str, str]]:
             for candidate in tokens[pipeline_start:index]
         ):
             continue
-        command = index + 1
-        if command >= len(tokens):
+        command_index = index + 1
+        if command_index >= len(tokens):
             continue
-        if _shell_basename(tokens[command]) == "env":
-            command = _env_command_index(tokens, command + 1)
-        if command < len(tokens) and _shell_basename(tokens[command]) in {"sh", "bash"}:
+        initial_command = tokens[command_index]
+        command: str | None = initial_command
+        if _shell_basename(initial_command) == "env":
+            command = _env_wrapped_command(tokens, command_index + 1)
+        if command is not None and _shell_basename(command) in {"sh", "bash"}:
             matches.append(("SEC_SHELL_REMOTE_PIPE", "remote content piped directly to a shell"))
             break
     return matches
