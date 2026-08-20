@@ -1066,8 +1066,16 @@ class AtomicImplementationController:
     def admit_specialist_commit(
         self, lease: SpecialistLease, repo: Path, *, commit_sha: str
     ) -> SpecialistResult:
+        with self._active_worktrees_lock:
+            self._refresh_worktree_authority()
+            self._require_live_lease(lease)
+            return self._admit_specialist_commit_locked(lease, Path(repo), commit_sha=commit_sha)
+
+    def _admit_specialist_commit_locked(
+        self, lease: SpecialistLease, repo: Path, *, commit_sha: str
+    ) -> SpecialistResult:
         _require_sha(commit_sha, field="commit_sha")
-        git = LocalGitAdapter(Path(repo))
+        git = LocalGitAdapter(repo)
         try:
             git._run(  # noqa: SLF001 - exact ancestry is part of commit admission
                 "merge-base", "--is-ancestor", lease.baseline_sha, commit_sha

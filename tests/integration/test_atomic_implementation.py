@@ -521,6 +521,40 @@ def test_waiting_worktree_admission_observes_locked_cancellation(tmp_path: Path)
     assert list((tmp_path / "worktrees").glob("*")) == []
 
 
+def test_preloaded_controller_cannot_admit_commit_after_cancellation(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git = LocalGitAdapter(root)
+    git.init()
+    (root / "src").mkdir()
+    (root / "src" / "allowed.py").write_text("VALUE = 1\n")
+    planning_sha = git.commit_all("base")
+    controller, adapter = _controller(tmp_path, planning_commit_sha=planning_sha)
+    admitted = controller.admit_slice(_candidate())
+    lease = controller.issue_lease(
+        SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
+    )
+    preloaded = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    with controller.specialist_worktree(
+        root, lease=lease, worktrees_root=tmp_path / "worktrees"
+    ) as worktree:
+        (worktree.path / "src" / "allowed.py").write_text("VALUE = 2\n")
+        commit_sha = worktree.commit("candidate that must be revoked")
+
+    controller.cancel_all(
+        reason="contradictory product truth",
+        partial_paths=(),
+        current_tree_sha=planning_sha,
+    )
+
+    with pytest.raises(AtomicityViolation, match="stale or revoked"):
+        preloaded.admit_specialist_commit(lease, root, commit_sha=commit_sha)
+    persisted = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    assert persisted.stop_evidence is not None
+    with pytest.raises(AtomicityViolation, match="non-admissible"):
+        persisted.integration_manifest()
+
+
 def test_integration_manifest_rejects_an_empty_implementation(tmp_path: Path) -> None:
     controller, _ = _controller(tmp_path)
     controller.admit_slice(_candidate())
