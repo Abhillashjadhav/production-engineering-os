@@ -981,6 +981,13 @@ class AtomicImplementationController:
             raise AtomicityViolation("admitted repository records are not atomically linked")
 
     def issue_lease(self, task: SpecialistTask, *, admitted: AdmittedSlice) -> SpecialistLease:
+        with self._active_worktrees_lock:
+            self._refresh_worktree_authority()
+            return self._issue_lease_locked(task, admitted=admitted)
+
+    def _issue_lease_locked(
+        self, task: SpecialistTask, *, admitted: AdmittedSlice
+    ) -> SpecialistLease:
         if self._cancelled:
             raise AtomicityViolation("work authority was revoked")
         if self._admitted is None or admitted != self._admitted:
@@ -1791,6 +1798,23 @@ class AtomicImplementationController:
         subject: object,
         invoke: Callable[[], _T],
     ) -> _T:
+        with self._active_worktrees_lock:
+            self._load_effect_events()
+            return self._execute_repository_effect_locked(
+                action=action,
+                idempotency_key=idempotency_key,
+                subject=subject,
+                invoke=invoke,
+            )
+
+    def _execute_repository_effect_locked(
+        self,
+        *,
+        action: str,
+        idempotency_key: str,
+        subject: object,
+        invoke: Callable[[], _T],
+    ) -> _T:
         subject_digest = _canonical_digest(subject)
         matching = [
             event for event in self._effect_events if event["idempotency_key"] == idempotency_key
@@ -1896,6 +1920,7 @@ class AtomicImplementationController:
         self._effect_events.append(body)
 
     def _load_effect_events(self) -> None:
+        self._effect_events.clear()
         path = self.run_dir / _EFFECT_LEDGER
         if not path.exists():
             return

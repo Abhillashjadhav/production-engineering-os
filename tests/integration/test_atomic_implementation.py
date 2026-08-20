@@ -591,6 +591,48 @@ def test_preloaded_controllers_preserve_all_admitted_results(tmp_path: Path) -> 
     assert [result.task_id for result in persisted.integration_manifest().results] == ["T-A", "T-B"]
 
 
+def test_preloaded_controllers_preserve_all_issued_leases(tmp_path: Path) -> None:
+    controller, adapter = _controller(tmp_path)
+    admitted = controller.admit_slice(_candidate())
+    preloaded_a = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    preloaded_b = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+
+    preloaded_a.issue_lease(
+        SpecialistTask("T-A", "v2-backend-engineer", ("src/a.py",)), admitted=admitted
+    )
+    preloaded_b.issue_lease(
+        SpecialistTask("T-B", "v2-test-engineer", ("src/b.py",)), admitted=admitted
+    )
+
+    persisted = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    assert set(persisted._leases) == {"T-A", "T-B"}
+
+
+def test_preloaded_publication_replay_preserves_effect_ledger(tmp_path: Path) -> None:
+    controller, adapter, repo, _, _, head = _integrated_candidate(tmp_path)
+    preloaded_a = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    preloaded_b = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    manifest_a = preloaded_a.integration_manifest()
+    manifest_b = preloaded_b.integration_manifest()
+
+    first = preloaded_a.publish_candidate(
+        repo=repo,
+        manifest=manifest_a,
+        candidate_head_sha=head,
+        verification_digest="d" * 64,
+    )
+    replayed = preloaded_b.publish_candidate(
+        repo=repo,
+        manifest=manifest_b,
+        candidate_head_sha=head,
+        verification_digest="d" * 64,
+    )
+
+    assert replayed == first
+    reloaded = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    assert reloaded.admitted_slice.pull_request == first
+
+
 def test_integration_manifest_rejects_an_empty_implementation(tmp_path: Path) -> None:
     controller, _ = _controller(tmp_path)
     controller.admit_slice(_candidate())
