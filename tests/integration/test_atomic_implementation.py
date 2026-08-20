@@ -114,6 +114,32 @@ def test_fresh_slice_is_issue_first_and_opens_one_atomic_draft_pr(tmp_path: Path
     assert not hasattr(adapter, "merge_pull_request")
 
 
+def test_precreated_controllers_cannot_rebind_the_run_to_another_candidate(
+    tmp_path: Path,
+) -> None:
+    adapter = MemoryRepositoryAdapter(repository="owner/repo", protected_base_sha=BASE_SHA)
+    first_controller = AtomicImplementationController(
+        run_dir=tmp_path / "run",
+        repository=adapter,
+        expected_repository="owner/repo",
+        expected_base_sha=BASE_SHA,
+    )
+    stale_controller = AtomicImplementationController(
+        run_dir=tmp_path / "run",
+        repository=adapter,
+        expected_repository="owner/repo",
+        expected_base_sha=BASE_SHA,
+    )
+    first = first_controller.admit_slice(_candidate())
+    different = replace(_candidate(), key="contract-18", title="Implement contract 18")
+
+    with pytest.raises(AtomicityViolation, match="different issue candidate"):
+        stale_controller.admit_slice(different)
+
+    assert len(adapter.issues) == 1
+    assert len(adapter.primary_pull_requests(first.issue.number)) == 1
+
+
 def test_matching_crash_recovery_reuses_every_repository_effect(tmp_path: Path) -> None:
     controller, adapter = _controller(tmp_path)
     first = controller.admit_slice(_candidate())
@@ -633,6 +659,27 @@ def test_preloaded_publication_replay_preserves_effect_ledger(tmp_path: Path) ->
     assert reloaded.admitted_slice.pull_request == first
 
 
+def test_stale_publisher_refreshes_new_leases_before_manifest_validation(
+    tmp_path: Path,
+) -> None:
+    controller, adapter, repo, admitted, old_manifest, head = _integrated_candidate(tmp_path)
+    stale_publisher = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    controller.issue_lease(
+        SpecialistTask("T-2", "v2-test-engineer", ("tests/new.py",)), admitted=admitted
+    )
+
+    with pytest.raises(AtomicityViolation, match="specialist result missing for task.*T-2"):
+        stale_publisher.publish_candidate(
+            repo=repo,
+            manifest=old_manifest,
+            candidate_head_sha=head,
+            verification_digest="d" * 64,
+        )
+
+    persisted = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    assert set(persisted._leases) == {"T-1", "T-2"}
+
+
 def test_integration_manifest_rejects_an_empty_implementation(tmp_path: Path) -> None:
     controller, _ = _controller(tmp_path)
     controller.admit_slice(_candidate())
@@ -894,6 +941,59 @@ def test_ready_and_dequeue_are_exact_head_governed_effects(tmp_path: Path) -> No
         admitted=controller.admitted_slice,
     )
     assert repair_lease.baseline_sha == head
+
+
+def test_preloaded_ready_and_dequeue_replays_refresh_effect_ledger(tmp_path: Path) -> None:
+    controller, adapter, repo, _, manifest, head = _integrated_candidate(tmp_path)
+    published = controller.publish_candidate(
+        repo=repo,
+        manifest=manifest,
+        candidate_head_sha=head,
+        verification_digest="d" * 64,
+    )
+    ready_a = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    ready_b = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    ready_arguments = {
+        "pr_number": published.number,
+        "exact_head_sha": head,
+        "base_sha": BASE_SHA,
+        "policy_digest": "1" * 64,
+        "toolchain_digest": "2" * 64,
+        "prospective_tree_digest": "3" * 64,
+        "checks_digest": "5" * 64,
+        "advisory_review_digest": "6" * 64,
+        "blocking_findings": (),
+        "authorization_digest": "7" * 64,
+    }
+
+    first_ready = ready_a.mark_ready(**ready_arguments)
+    replayed_ready = ready_b.mark_ready(**ready_arguments)
+    assert replayed_ready == first_ready
+
+    draft_a = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    draft_b = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    signal = ReadyInvalidationSignal(
+        kind="blocking_finding",
+        source="security-bot",
+        exact_head_sha=head,
+        evidence_digest="8" * 64,
+        trace_digest="0" * 64,
+        credible=True,
+        authenticated=True,
+        blocking=True,
+        reviewer_eligible=False,
+    )
+    first_draft = draft_a.invalidate_ready(
+        pr_number=published.number,
+        signal=signal,
+        authorization_digest="9" * 64,
+    )
+    replayed_draft = draft_b.invalidate_ready(
+        pr_number=published.number,
+        signal=signal,
+        authorization_digest="9" * 64,
+    )
+    assert replayed_draft == first_draft
 
 
 def test_candidate_publication_requires_exact_manifest_history_and_content(

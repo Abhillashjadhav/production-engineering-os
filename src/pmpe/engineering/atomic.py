@@ -869,6 +869,11 @@ class AtomicImplementationController:
             raise AtomicityViolation("protected base moved or differs from the admitted base")
 
     def admit_slice(self, candidate: IssueCandidate) -> AdmittedSlice:
+        with self._active_worktrees_lock:
+            self._refresh_persisted_state()
+            return self._admit_slice_locked(candidate)
+
+    def _admit_slice_locked(self, candidate: IssueCandidate) -> AdmittedSlice:
         self._verify_repository_identity()
         if self._candidate_digest and self._candidate_digest != candidate.digest:
             raise AtomicityViolation("run is already bound to a different issue candidate")
@@ -1417,24 +1422,42 @@ class AtomicImplementationController:
         candidate_head_sha: str,
         verification_digest: str,
     ) -> PullRequestRecord:
+        with self._active_worktrees_lock:
+            self._refresh_persisted_state()
+            return self._publish_candidate_locked(
+                repo=Path(repo),
+                manifest=manifest,
+                candidate_head_sha=candidate_head_sha,
+                verification_digest=verification_digest,
+            )
+
+    def _publish_candidate_locked(
+        self,
+        *,
+        repo: Path,
+        manifest: IntegrationManifest,
+        candidate_head_sha: str,
+        verification_digest: str,
+    ) -> PullRequestRecord:
         if self._admitted is None:
             raise AtomicityViolation("repository slice has not been admitted")
         if manifest != self.integration_manifest():
             raise AtomicityViolation("integration manifest is stale or not authoritative")
         _require_sha(candidate_head_sha, field="candidate_head_sha")
         _require_digest(verification_digest, field="verification_digest")
-        self._verify_integrated_candidate(Path(repo), manifest, candidate_head_sha)
+        self._verify_integrated_candidate(repo, manifest, candidate_head_sha)
         current = self.repository.pull_request(self._admitted.pull_request.number)
         if current is None or not current.open or not current.draft:
             raise AtomicityViolation("candidate publication requires the admitted draft PR")
+        base_body = self._admitted.pull_request.body.split("\n## Integrated candidate\n", 1)[0]
         body = (
-            self._admitted.pull_request.body
+            base_body
             + "\n## Integrated candidate\n\n"
             + f"Head `{candidate_head_sha}`; integration `{manifest.digest}`; "
             + f"verification `{verification_digest}`.\n"
         )
         key = f"pr:{current.number}:{candidate_head_sha}:publish"
-        expected_head_sha = self._admitted.pull_request.head_sha
+        expected_head_sha = manifest.baseline_sha
         subject = {
             "pr": current.number,
             "expected_head": expected_head_sha,
@@ -1858,6 +1881,23 @@ class AtomicImplementationController:
         subject: object,
         result: object,
     ) -> bool:
+        with self._active_worktrees_lock:
+            self._load_effect_events()
+            return self._effect_observed_matches_locked(
+                action=action,
+                idempotency_key=idempotency_key,
+                subject=subject,
+                result=result,
+            )
+
+    def _effect_observed_matches_locked(
+        self,
+        *,
+        action: str,
+        idempotency_key: str,
+        subject: object,
+        result: object,
+    ) -> bool:
         subject_digest = _canonical_digest(subject)
         try:
             result_digest = _canonical_digest(asdict(result))  # type: ignore[call-overload]
@@ -1877,6 +1917,17 @@ class AtomicImplementationController:
         return bool(observed)
 
     def _effect_planned_matches(
+        self, *, action: str, idempotency_key: str, subject: object
+    ) -> bool:
+        with self._active_worktrees_lock:
+            self._load_effect_events()
+            return self._effect_planned_matches_locked(
+                action=action,
+                idempotency_key=idempotency_key,
+                subject=subject,
+            )
+
+    def _effect_planned_matches_locked(
         self, *, action: str, idempotency_key: str, subject: object
     ) -> bool:
         subject_digest = _canonical_digest(subject)
@@ -1962,6 +2013,23 @@ class AtomicImplementationController:
             },
         )
 
+    def _refresh_persisted_state(self) -> None:
+        if not (self.run_dir / _STATE_FILE).is_file():
+            return
+        persisted = type(self).load(self.run_dir, repository=self.repository)
+        self._candidate_digest = persisted._candidate_digest
+        self._work_baseline_sha = persisted._work_baseline_sha
+        self._admitted = persisted._admitted
+        self._leases = dict(persisted._leases)
+        self._results = dict(persisted._results)
+        self._published_candidate_head = persisted._published_candidate_head
+        self._cancelled = persisted._cancelled
+        self._revocation_digest = persisted._revocation_digest
+        self._stop_evidence = persisted._stop_evidence
+        self._effect_events = list(persisted._effect_events)
+        self._active_worktrees = dict(persisted._active_worktrees)
+        self._worktree_attempts = dict(persisted._worktree_attempts)
+
     def _load_active_worktrees(self) -> None:
         self._active_worktrees.clear()
         path = self.run_dir / _ACTIVE_WORKTREES_FILE
@@ -1988,40 +2056,7 @@ class AtomicImplementationController:
         path = self.run_dir / _STATE_FILE
         if not path.is_file():
             raise AtomicityViolation("missing persisted worktree authority")
-        raw = json.loads(path.read_text())
-        leases = raw.get("leases")
-        results = raw.get("results")
-        attempts = raw.get("worktree_attempts")
-        if (
-            not isinstance(leases, Mapping)
-            or not isinstance(results, Mapping)
-            or not isinstance(attempts, Mapping)
-        ):
-            raise AtomicityViolation("persisted worktree authority is malformed")
-        self._leases = {
-            str(task_id): _decode_lease(lease)
-            for task_id, lease in leases.items()
-            if isinstance(lease, Mapping)
-        }
-        if len(self._leases) != len(leases):
-            raise AtomicityViolation("persisted worktree authority is malformed")
-        self._results = {
-            str(task_id): SpecialistResult(
-                task_id=str(result["task_id"]),
-                specialist=str(result["specialist"]),
-                commit_sha=str(result["commit_sha"]),
-                changed_paths=tuple(result["changed_paths"]),
-                lease_epoch_digest=str(result["lease_epoch_digest"]),
-            )
-            for task_id, result in results.items()
-            if isinstance(result, Mapping)
-        }
-        if len(self._results) != len(results):
-            raise AtomicityViolation("persisted worktree authority is malformed")
-        self._worktree_attempts = {
-            str(task_id): int(attempt) for task_id, attempt in attempts.items()
-        }
-        self._cancelled = bool(raw.get("cancelled", False))
+        self._refresh_persisted_state()
 
     def _save_active_worktrees(self) -> None:
         self.run_dir.mkdir(parents=True, exist_ok=True)
