@@ -1010,6 +1010,8 @@ class AtomicImplementationController:
         repo_git = LocalGitAdapter(repo_path)
         if repo_git._run("rev-parse", "HEAD") != lease.baseline_sha:  # noqa: SLF001
             raise AtomicityViolation("specialist worktree must start at the admitted work baseline")
+        if lease.task.task_id in self._active_worktrees:
+            raise AtomicityViolation("task already has an active specialist worktree")
         attempt = self._worktree_attempts.get(lease.task.task_id, 0) + 1
         self._worktree_attempts[lease.task.task_id] = attempt
         self._save()
@@ -1456,11 +1458,11 @@ class AtomicImplementationController:
                     "merge-base", "--is-ancestor", result.commit_sha, candidate_head_sha
                 )
                 for path in result.changed_paths:
-                    if _git_blob(git, result.commit_sha, path) != _git_blob(
+                    if _git_tree_entry(git, result.commit_sha, path) != _git_tree_entry(
                         git, candidate_head_sha, path
                     ):
                         raise AtomicityViolation(
-                            f"candidate content for {path} differs from task {result.task_id}"
+                            f"candidate tree entry for {path} differs from task {result.task_id}"
                         )
         except GitError as exc:
             raise AtomicityViolation(
@@ -1956,9 +1958,10 @@ def _path_allowed(path: str, allowed: str) -> bool:
     return path.startswith(normalized) if normalized.endswith("/") else path == normalized
 
 
-def _git_blob(git: LocalGitAdapter, commit_sha: str, path: str) -> str:
+def _git_tree_entry(git: LocalGitAdapter, commit_sha: str, path: str) -> str:
     try:
-        return git._run("rev-parse", f"{commit_sha}:{path}")  # noqa: SLF001
+        entry = git._run("ls-tree", commit_sha, "--", path)  # noqa: SLF001
+        return entry.split("\t", maxsplit=1)[0] if entry else "<missing>"
     except GitError:
         return "<missing>"
 

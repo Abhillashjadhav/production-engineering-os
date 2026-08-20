@@ -389,6 +389,33 @@ def test_real_worktree_enforces_allowlist_and_preserves_main(tmp_path: Path) -> 
     assert result.changed_paths == ("src/allowed.py",)
 
 
+def test_second_active_worktree_for_same_task_is_rejected(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git = LocalGitAdapter(root)
+    git.init()
+    (root / "src").mkdir()
+    (root / "src" / "allowed.py").write_text("VALUE = 1\n")
+    planning_sha = git.commit_all("base")
+    controller, _ = _controller(tmp_path, planning_commit_sha=planning_sha)
+    admitted = controller.admit_slice(_candidate())
+    lease = controller.issue_lease(
+        SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
+    )
+
+    with controller.specialist_worktree(
+        root, lease=lease, worktrees_root=tmp_path / "worktrees"
+    ) as first:
+        with (
+            pytest.raises(AtomicityViolation, match="already has an active"),
+            controller.specialist_worktree(
+                root, lease=lease, worktrees_root=tmp_path / "worktrees"
+            ),
+        ):
+            pass
+        assert first.path.exists()
+
+
 def test_specialist_commit_must_descend_from_exact_lease_baseline(tmp_path: Path) -> None:
     root = tmp_path / "repo"
     root.mkdir()
@@ -672,6 +699,21 @@ def test_candidate_publication_requires_exact_manifest_history_and_content(
             repo=repo,
             manifest=manifest,
             candidate_head_sha=hidden_history,
+            verification_digest="d" * 64,
+        )
+
+    mode_integrator = tmp_path / "mode-integrator"
+    git._run("worktree", "add", "--detach", str(mode_integrator), head)
+    mode_git = LocalGitAdapter(mode_integrator)
+    (mode_integrator / "src" / "candidate.py").chmod(0o755)
+    mode_changed = mode_git.commit_all("change specialist-owned file mode")
+    git._run("worktree", "remove", "--force", str(mode_integrator))
+
+    with pytest.raises(AtomicityViolation, match="tree entry"):
+        controller.publish_candidate(
+            repo=repo,
+            manifest=manifest,
+            candidate_head_sha=mode_changed,
             verification_digest="d" * 64,
         )
 
