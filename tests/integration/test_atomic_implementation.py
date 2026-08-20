@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from dataclasses import replace
 from pathlib import Path
+from threading import Barrier, Event, Thread
 
 import pytest
 
@@ -297,7 +298,8 @@ def test_same_scope_reset_requires_exact_restore_and_fresh_plan_and_red(
     assert resumed.issue.blocked is False
     assert resumed.pull_request.blocked is False
     assert len(adapter.primary_pull_requests(admitted.issue.number)) == 1
-    assert controller.integration_manifest().results == ()
+    with pytest.raises(AtomicityViolation, match="at least one specialist result"):
+        controller.integration_manifest()
 
 
 def test_changed_outcome_or_closed_pr_cannot_reuse_same_primary_pr(tmp_path: Path) -> None:
@@ -389,7 +391,7 @@ def test_real_worktree_enforces_allowlist_and_preserves_main(tmp_path: Path) -> 
     assert result.changed_paths == ("src/allowed.py",)
 
 
-def test_second_active_worktree_for_same_task_is_rejected(tmp_path: Path) -> None:
+def test_same_task_worktree_admission_is_atomic_across_threads(tmp_path: Path) -> None:
     root = tmp_path / "repo"
     root.mkdir()
     git = LocalGitAdapter(root)
@@ -403,17 +405,53 @@ def test_second_active_worktree_for_same_task_is_rejected(tmp_path: Path) -> Non
         SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
     )
 
-    with controller.specialist_worktree(
-        root, lease=lease, worktrees_root=tmp_path / "worktrees"
-    ) as first:
-        with (
-            pytest.raises(AtomicityViolation, match="already has an active"),
-            controller.specialist_worktree(
+    start = Barrier(3)
+    release = Event()
+    opened = Event()
+    rejected = Event()
+    outcomes: list[str] = []
+    unexpected: list[BaseException] = []
+
+    def run_attempt() -> None:
+        start.wait()
+        try:
+            with controller.specialist_worktree(
                 root, lease=lease, worktrees_root=tmp_path / "worktrees"
-            ),
-        ):
-            pass
-        assert first.path.exists()
+            ):
+                outcomes.append("opened")
+                opened.set()
+                release.wait(timeout=5)
+        except AtomicityViolation as exc:
+            if "already has an active" not in str(exc):
+                unexpected.append(exc)
+            outcomes.append("rejected")
+            rejected.set()
+        except BaseException as exc:  # pragma: no cover - asserted below
+            unexpected.append(exc)
+
+    workers = [Thread(target=run_attempt), Thread(target=run_attempt)]
+    for worker in workers:
+        worker.start()
+    start.wait()
+    try:
+        assert opened.wait(timeout=5)
+        assert rejected.wait(timeout=5)
+    finally:
+        release.set()
+        for worker in workers:
+            worker.join(timeout=5)
+
+    assert unexpected == []
+    assert sorted(outcomes) == ["opened", "rejected"]
+    assert all(not worker.is_alive() for worker in workers)
+
+
+def test_integration_manifest_rejects_an_empty_implementation(tmp_path: Path) -> None:
+    controller, _ = _controller(tmp_path)
+    controller.admit_slice(_candidate())
+
+    with pytest.raises(AtomicityViolation, match="at least one specialist result"):
+        controller.integration_manifest()
 
 
 def test_specialist_commit_must_descend_from_exact_lease_baseline(tmp_path: Path) -> None:
