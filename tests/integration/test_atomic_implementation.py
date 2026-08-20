@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import multiprocessing
 from dataclasses import replace
 from pathlib import Path
 from threading import Barrier, Event, Thread
@@ -575,6 +576,80 @@ def test_same_task_worktree_admission_is_atomic_across_threads(tmp_path: Path) -
     assert unexpected == []
     assert sorted(outcomes) == ["opened", "rejected"]
     assert all(not worker.is_alive() for worker in workers)
+
+
+def test_distinct_processes_cannot_overwrite_concurrent_lease_updates(tmp_path: Path) -> None:
+    if "fork" not in multiprocessing.get_all_start_methods():
+        pytest.skip("deterministic inherited-adapter regression requires fork")
+    controller, adapter = _controller(tmp_path)
+    admitted = controller.admit_slice(_candidate())
+    context = multiprocessing.get_context("fork")
+    first_save_started = context.Event()
+    release_first_save = context.Event()
+    second_finished = context.Event()
+    outcomes = context.Queue()
+
+    def issue_first() -> None:
+        resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+        original_save = resumed._save
+
+        def delayed_save() -> None:
+            first_save_started.set()
+            if not release_first_save.wait(timeout=5):
+                raise RuntimeError("timed out waiting to release first process save")
+            original_save()
+
+        resumed._save = delayed_save  # type: ignore[method-assign]
+        try:
+            resumed.issue_lease(
+                SpecialistTask("T-1", "v2-backend-engineer", ("src/a.py",)),
+                admitted=admitted,
+            )
+        except BaseException as exc:  # pragma: no cover - asserted in parent
+            outcomes.put(("first", repr(exc)))
+        else:
+            outcomes.put(("first", "ok"))
+
+    def issue_second() -> None:
+        if not first_save_started.wait(timeout=5):
+            outcomes.put(("second", "first save did not start"))
+            second_finished.set()
+            return
+        resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+        try:
+            resumed.issue_lease(
+                SpecialistTask("T-2", "v2-test-engineer", ("tests/b.py",)),
+                admitted=admitted,
+            )
+        except BaseException as exc:  # pragma: no cover - asserted in parent
+            outcomes.put(("second", repr(exc)))
+        else:
+            outcomes.put(("second", "ok"))
+        finally:
+            second_finished.set()
+
+    first = context.Process(target=issue_first)
+    second = context.Process(target=issue_second)
+    first.start()
+    assert first_save_started.wait(timeout=5)
+    second.start()
+    try:
+        assert not second_finished.wait(timeout=0.1)
+    finally:
+        release_first_save.set()
+        first.join(timeout=5)
+        second.join(timeout=5)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    assert first.exitcode == 0
+    assert second.exitcode == 0
+    assert sorted(outcomes.get(timeout=5) for _ in range(2)) == [
+        ("first", "ok"),
+        ("second", "ok"),
+    ]
+    persisted = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    assert set(persisted._leases) == {"T-1", "T-2"}
 
 
 def test_preloaded_controller_refreshes_attempt_counter_before_retry(tmp_path: Path) -> None:

@@ -14,10 +14,11 @@ import json
 import os
 import re
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path, PurePosixPath
-from threading import RLock
+from threading import RLock, local
+from types import TracebackType
 from typing import Protocol, TypeVar
 
 from pmpe.agents.router import ALL_PROFILES, SPECIALIST_PROFILES
@@ -25,15 +26,62 @@ from pmpe.domain.errors import GitError
 from pmpe.domain.serialize import atomic_write_json
 from pmpe.engineering.worktree import SpecialistWorktree, specialist_worktree
 from pmpe.gitops.local import LocalGitAdapter
+from pmpe.workflows.locking import exclusive_file_lock
 
 _SHA40 = re.compile(r"[0-9a-f]{40}")
 _DIGEST = re.compile(r"[0-9a-f]{64}")
 _STATE_FILE = "atomic-implementation.json"
 _EFFECT_LEDGER = "repository-effects.jsonl"
 _ACTIVE_WORKTREES_FILE = "active-worktrees.json"
+_RUN_LOCK_FILE = "atomic-implementation.lock"
 _T = TypeVar("_T")
-_ACTIVE_WORKTREE_LOCKS_GUARD = RLock()
-_ACTIVE_WORKTREE_LOCKS: dict[Path, RLock] = {}
+_RUN_LOCKS_GUARD = RLock()
+
+
+class _ReentrantRunLock:
+    """Serialize one run across threads and OS processes, including nested calls."""
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._thread_lock = RLock()
+        self._thread_state = local()
+
+    def __enter__(self) -> _ReentrantRunLock:
+        self._thread_lock.acquire()
+        depth = int(getattr(self._thread_state, "depth", 0))
+        if depth == 0:
+            file_lock = exclusive_file_lock(self._path)
+            try:
+                file_lock.__enter__()
+            except BaseException:
+                self._thread_lock.release()
+                raise
+            self._thread_state.file_lock = file_lock
+        self._thread_state.depth = depth + 1
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        depth = int(self._thread_state.depth)
+        try:
+            if depth == 1:
+                file_lock: AbstractContextManager[None] = self._thread_state.file_lock
+                try:
+                    file_lock.__exit__(exc_type, exc, traceback)
+                finally:
+                    del self._thread_state.file_lock
+                    del self._thread_state.depth
+            else:
+                self._thread_state.depth = depth - 1
+        finally:
+            self._thread_lock.release()
+
+
+_RUN_LOCKS: dict[Path, _ReentrantRunLock] = {}
 
 
 class AtomicityViolation(RuntimeError):  # noqa: N818 - policy outcome vocabulary
@@ -87,10 +135,10 @@ def _paths_touched_between(git: LocalGitAdapter, baseline_sha: str, tip_sha: str
     }
 
 
-def _active_worktree_lock(run_dir: Path) -> RLock:
+def _active_worktree_lock(run_dir: Path) -> _ReentrantRunLock:
     key = run_dir.resolve()
-    with _ACTIVE_WORKTREE_LOCKS_GUARD:
-        return _ACTIVE_WORKTREE_LOCKS.setdefault(key, RLock())
+    with _RUN_LOCKS_GUARD:
+        return _RUN_LOCKS.setdefault(key, _ReentrantRunLock(key / _RUN_LOCK_FILE))
 
 
 @dataclass(frozen=True)
