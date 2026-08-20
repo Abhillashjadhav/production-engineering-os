@@ -996,6 +996,100 @@ def test_preloaded_ready_and_dequeue_replays_refresh_effect_ledger(tmp_path: Pat
     assert replayed_draft == first_draft
 
 
+def test_ready_save_cannot_overwrite_a_concurrent_repair_cycle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, adapter, repo, _, manifest, head = _integrated_candidate(tmp_path)
+    published = controller.publish_candidate(
+        repo=repo,
+        manifest=manifest,
+        candidate_head_sha=head,
+        verification_digest="d" * 64,
+    )
+    repair_controller = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    ready_save_started = Event()
+    release_ready_save = Event()
+    repair_started = Event()
+    repair_finished = Event()
+    failures: list[BaseException] = []
+    original_save = controller._save
+
+    def delayed_ready_save() -> None:
+        ready_save_started.set()
+        if not release_ready_save.wait(timeout=5):
+            raise RuntimeError("timed out waiting to release ready save")
+        original_save()
+
+    monkeypatch.setattr(controller, "_save", delayed_ready_save)
+
+    def make_ready() -> None:
+        try:
+            controller.mark_ready(
+                pr_number=published.number,
+                exact_head_sha=head,
+                base_sha=BASE_SHA,
+                policy_digest="1" * 64,
+                toolchain_digest="2" * 64,
+                prospective_tree_digest="3" * 64,
+                checks_digest="5" * 64,
+                advisory_review_digest="6" * 64,
+                blocking_findings=(),
+                authorization_digest="7" * 64,
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            failures.append(exc)
+
+    signal = ReadyInvalidationSignal(
+        kind="blocking_finding",
+        source="security-bot",
+        exact_head_sha=head,
+        evidence_digest="8" * 64,
+        trace_digest="0" * 64,
+        credible=True,
+        authenticated=True,
+        blocking=True,
+        reviewer_eligible=False,
+    )
+
+    def repair() -> None:
+        repair_started.set()
+        try:
+            repair_controller.invalidate_ready(
+                pr_number=published.number,
+                signal=signal,
+                authorization_digest="9" * 64,
+            )
+            repair_controller.begin_repair_cycle(
+                exact_head_sha=head,
+                finding_inventory_digest="a" * 64,
+                repair_test_plan_digest="b" * 64,
+                meaningful_red_digest="c" * 64,
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            failures.append(exc)
+        finally:
+            repair_finished.set()
+
+    ready_worker = Thread(target=make_ready)
+    repair_worker = Thread(target=repair)
+    ready_worker.start()
+    assert ready_save_started.wait(timeout=5)
+    repair_worker.start()
+    assert repair_started.wait(timeout=5)
+    assert not repair_finished.wait(timeout=0.1)
+    release_ready_save.set()
+    ready_worker.join(timeout=5)
+    repair_worker.join(timeout=5)
+
+    assert failures == []
+    assert not ready_worker.is_alive()
+    assert not repair_worker.is_alive()
+    persisted = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    assert persisted._published_candidate_head == ""
+    assert persisted._results == {}
+    assert adapter.pull_request(published.number).draft is True  # type: ignore[union-attr]
+
+
 def test_candidate_publication_requires_exact_manifest_history_and_content(
     tmp_path: Path,
 ) -> None:

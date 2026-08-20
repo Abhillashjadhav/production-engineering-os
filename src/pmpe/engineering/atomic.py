@@ -1562,6 +1562,35 @@ class AtomicImplementationController:
         blocking_findings: Sequence[str],
         authorization_digest: str,
     ) -> PullRequestRecord:
+        with self._active_worktrees_lock:
+            self._refresh_persisted_state()
+            return self._mark_ready_locked(
+                pr_number=pr_number,
+                exact_head_sha=exact_head_sha,
+                base_sha=base_sha,
+                policy_digest=policy_digest,
+                toolchain_digest=toolchain_digest,
+                prospective_tree_digest=prospective_tree_digest,
+                checks_digest=checks_digest,
+                advisory_review_digest=advisory_review_digest,
+                blocking_findings=blocking_findings,
+                authorization_digest=authorization_digest,
+            )
+
+    def _mark_ready_locked(
+        self,
+        *,
+        pr_number: int,
+        exact_head_sha: str,
+        base_sha: str,
+        policy_digest: str,
+        toolchain_digest: str,
+        prospective_tree_digest: str,
+        checks_digest: str,
+        advisory_review_digest: str,
+        blocking_findings: Sequence[str],
+        authorization_digest: str,
+    ) -> PullRequestRecord:
         current = self.repository.pull_request(pr_number)
         if exact_head_sha != self._published_candidate_head:
             raise AtomicityViolation("ready action requires the published integrated candidate")
@@ -1660,6 +1689,21 @@ class AtomicImplementationController:
         signal: ReadyInvalidationSignal,
         authorization_digest: str,
     ) -> PullRequestRecord:
+        with self._active_worktrees_lock:
+            self._refresh_persisted_state()
+            return self._invalidate_ready_locked(
+                pr_number=pr_number,
+                signal=signal,
+                authorization_digest=authorization_digest,
+            )
+
+    def _invalidate_ready_locked(
+        self,
+        *,
+        pr_number: int,
+        signal: ReadyInvalidationSignal,
+        authorization_digest: str,
+    ) -> PullRequestRecord:
         _require_digest(authorization_digest, field="authorization_digest")
         if not signal.credible or not signal.authenticated or not signal.blocking:
             raise AtomicityViolation(
@@ -1751,6 +1795,23 @@ class AtomicImplementationController:
     ) -> str:
         """Admit scoped repair work only after the ready PR was governed to draft."""
 
+        with self._active_worktrees_lock:
+            self._refresh_persisted_state()
+            return self._begin_repair_cycle_locked(
+                exact_head_sha=exact_head_sha,
+                finding_inventory_digest=finding_inventory_digest,
+                repair_test_plan_digest=repair_test_plan_digest,
+                meaningful_red_digest=meaningful_red_digest,
+            )
+
+    def _begin_repair_cycle_locked(
+        self,
+        *,
+        exact_head_sha: str,
+        finding_inventory_digest: str,
+        repair_test_plan_digest: str,
+        meaningful_red_digest: str,
+    ) -> str:
         if self._admitted is None:
             raise AtomicityViolation("repository slice has not been admitted")
         current = self.repository.pull_request(self._admitted.pull_request.number)
