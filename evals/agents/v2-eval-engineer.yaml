@@ -23,4 +23,13 @@ cases:
     tests_run: [positive]
     results: passed
     scope_changes: [removed hard gate]
-
+- id: eval-failed-checks
+  kind: planted_failure
+  expect: invalid
+  hard_gate: true
+  context: {assigned_tasks: [T-EVAL]}
+  output:
+    task_id: T-EVAL
+    commits: [abc123]
+    tests_run: [positive, planted-negative, tamper]
+    results: failed

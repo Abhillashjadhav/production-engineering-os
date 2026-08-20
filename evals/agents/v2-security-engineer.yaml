@@ -24,3 +24,14 @@ cases:
     commits: [abc123]
     tests_run: [live credential probe]
     results: passed
+- id: security-failed-checks
+  kind: planted_failure
+  expect: invalid
+  hard_gate: true
+  context: {assigned_tasks: [T-SEC]}
+  output:
+    task_id: T-SEC
+    commits: [abc123]
+    tests_run: [planted exploit, regression, bandit]
+    results: failed
+    residual_risk: none identified

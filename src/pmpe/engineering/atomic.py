@@ -1204,6 +1204,13 @@ class AtomicImplementationController:
             or candidate.outcome != previous.issue.outcome
         ):
             raise AtomicityViolation("changed atomic outcome requires a new issue and primary PR")
+        if (
+            candidate.test_plan_digest == previous.planning_commit.test_plan_digest
+            or candidate.meaningful_red_digest == previous.planning_commit.meaningful_red_digest
+        ):
+            raise AtomicityViolation(
+                "product-input re-admission requires a fresh test plan and meaningful red"
+            )
         current = self.repository.pull_request(previous.pull_request.number)
         if current is None or not current.open or not current.draft:
             raise AtomicityViolation("merged, closed, or ready PR cannot be reused for recovery")
@@ -1458,6 +1465,29 @@ class AtomicImplementationController:
             )
         ):
             ready = current
+        elif (
+            current is not None
+            and current.open
+            and not current.draft
+            and current.head_sha == exact_head_sha
+            and self._effect_planned_matches(
+                action="mark_pr_ready",
+                idempotency_key=key,
+                subject=subject,
+            )
+        ):
+            ready = self._execute_repository_effect(
+                action="mark_pr_ready",
+                idempotency_key=key,
+                subject=subject,
+                invoke=lambda: self.repository.mark_ready(
+                    number=pr_number,
+                    exact_head_sha=exact_head_sha,
+                    evidence_digest=evidence,
+                    authorization_digest=authorization_digest,
+                    idempotency_key=key,
+                ),
+            )
         else:
             self._require_admitted_pr(pr_number, exact_head_sha)
             ready = self._execute_repository_effect(
@@ -1523,6 +1553,29 @@ class AtomicImplementationController:
             )
         ):
             draft = current
+        elif (
+            current is not None
+            and current.open
+            and current.draft
+            and current.head_sha == signal.exact_head_sha
+            and self._effect_planned_matches(
+                action="convert_pr_to_draft",
+                idempotency_key=key,
+                subject=subject,
+            )
+        ):
+            draft = self._execute_repository_effect(
+                action="convert_pr_to_draft",
+                idempotency_key=key,
+                subject=subject,
+                invoke=lambda: self.repository.convert_to_draft(
+                    number=pr_number,
+                    exact_head_sha=signal.exact_head_sha,
+                    evidence_digest=evidence,
+                    authorization_digest=authorization_digest,
+                    idempotency_key=key,
+                ),
+            )
         else:
             self._require_admitted_pr(pr_number, signal.exact_head_sha, allow_ready=True)
             draft = self._execute_repository_effect(
@@ -1683,6 +1736,22 @@ class AtomicImplementationController:
         if any(event["result_digest"] != result_digest for event in observed):
             raise AtomicityViolation("crash adoption result differs from journaled evidence")
         return bool(observed)
+
+    def _effect_planned_matches(
+        self, *, action: str, idempotency_key: str, subject: object
+    ) -> bool:
+        subject_digest = _canonical_digest(subject)
+        related = [
+            event for event in self._effect_events if event["idempotency_key"] == idempotency_key
+        ]
+        if any(
+            event["action"] != action or event["subject_digest"] != subject_digest
+            for event in related
+        ):
+            raise AtomicityViolation("effect replay does not match the journaled plan")
+        return any(event["status"] == "PLANNED" for event in related) and not any(
+            event["status"] == "OBSERVED" for event in related
+        )
 
     def _append_effect_event(
         self,

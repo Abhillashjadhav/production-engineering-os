@@ -279,6 +279,10 @@ def test_same_scope_reset_requires_exact_restore_and_fresh_plan_and_red(
     )
     replacement = replace(_candidate(), test_plan_digest="d" * 64, meaningful_red_digest="e" * 64)
 
+    with pytest.raises(AtomicityViolation, match="fresh test plan"):
+        controller.readmit_after_product_input(
+            _candidate(), restored_tree_sha=admitted.planning_commit.sha
+        )
     with pytest.raises(AtomicityViolation, match="exact pre-code"):
         controller.readmit_after_product_input(replacement, restored_tree_sha="0" * 40)
 
@@ -699,3 +703,99 @@ def test_candidate_ready_and_dequeue_adopt_observed_effect_after_state_save_cras
     )
     assert draft.draft is True
     assert len(adapter.primary_pull_requests(admitted.issue.number)) == 1
+
+
+def test_ready_and_dequeue_replay_remote_success_from_planned_journal(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, adapter, repo, _, manifest, head = _integrated_candidate(tmp_path)
+    published = controller.publish_candidate(
+        repo=repo,
+        manifest=manifest,
+        candidate_head_sha=head,
+        verification_digest="f" * 64,
+    )
+    original_append = controller._append_effect_event
+
+    def crash_before_ready_observed(
+        *,
+        action: str,
+        idempotency_key: str,
+        subject_digest: str,
+        status: str,
+        result_digest: str,
+    ) -> None:
+        if status == "OBSERVED":
+            raise RuntimeError("crash before ready observation")
+        original_append(
+            action=action,
+            idempotency_key=idempotency_key,
+            subject_digest=subject_digest,
+            status=status,
+            result_digest=result_digest,
+        )
+
+    monkeypatch.setattr(controller, "_append_effect_event", crash_before_ready_observed)
+
+    def mark_ready(target: AtomicImplementationController) -> PullRequestRecord:
+        return target.mark_ready(
+            pr_number=published.number,
+            exact_head_sha=head,
+            base_sha=BASE_SHA,
+            policy_digest="1" * 64,
+            toolchain_digest="2" * 64,
+            prospective_tree_digest="3" * 64,
+            checks_digest="4" * 64,
+            advisory_review_digest="5" * 64,
+            blocking_findings=(),
+            authorization_digest="6" * 64,
+        )
+
+    with pytest.raises(RuntimeError, match="before ready observation"):
+        mark_ready(controller)
+
+    resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    ready = mark_ready(resumed)
+    assert ready.draft is False
+    signal = ReadyInvalidationSignal(
+        kind="required_check_drift",
+        source="ci",
+        exact_head_sha=head,
+        evidence_digest="7" * 64,
+        trace_digest="8" * 64,
+        credible=True,
+        authenticated=True,
+        blocking=True,
+        check_state="failed",
+    )
+    original_append = resumed._append_effect_event
+
+    def crash_before_draft_observed(
+        *,
+        action: str,
+        idempotency_key: str,
+        subject_digest: str,
+        status: str,
+        result_digest: str,
+    ) -> None:
+        if status == "OBSERVED":
+            raise RuntimeError("crash before draft observation")
+        original_append(
+            action=action,
+            idempotency_key=idempotency_key,
+            subject_digest=subject_digest,
+            status=status,
+            result_digest=result_digest,
+        )
+
+    monkeypatch.setattr(resumed, "_append_effect_event", crash_before_draft_observed)
+    with pytest.raises(RuntimeError, match="before draft observation"):
+        resumed.invalidate_ready(
+            pr_number=ready.number, signal=signal, authorization_digest="9" * 64
+        )
+
+    resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    draft = resumed.invalidate_ready(
+        pr_number=ready.number, signal=signal, authorization_digest="9" * 64
+    )
+    assert draft.draft is True

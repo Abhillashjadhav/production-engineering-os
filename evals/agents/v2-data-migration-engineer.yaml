@@ -19,3 +19,14 @@ cases:
   hard_gate: true
   context: {assigned_tasks: [T-DATA]}
   output: {task_id: T-DATA, commits: [abc123], tests_run: [upgrade], results: passed}
+- id: migration-failed-checks
+  kind: planted_failure
+  expect: invalid
+  hard_gate: true
+  context: {assigned_tasks: [T-DATA]}
+  output:
+    task_id: T-DATA
+    commits: [abc123]
+    tests_run: [upgrade, downgrade, idempotency]
+    results: failed
+    rollback_evidence: verified

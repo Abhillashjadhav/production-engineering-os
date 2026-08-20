@@ -23,3 +23,14 @@ cases:
     commits: [abc123]
     tests_run: [production deployment]
     results: passed
+- id: platform-failed-checks
+  kind: planted_failure
+  expect: invalid
+  hard_gate: true
+  context: {assigned_tasks: [T-PLAT]}
+  output:
+    task_id: T-PLAT
+    commits: [abc123]
+    tests_run: [failure, recovery, resource-limit]
+    results: failed
+    rollback_evidence: verified
