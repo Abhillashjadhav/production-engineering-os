@@ -10,7 +10,9 @@ from pmpe.engineering.atomic import (
     AtomicImplementationController,
     AtomicityViolation,
     IssueCandidate,
+    IssueRecord,
     MemoryRepositoryAdapter,
+    PullRequestRecord,
     ReadyInvalidationSignal,
     SpecialistTask,
 )
@@ -90,7 +92,7 @@ def test_repository_effect_is_prejournaled_and_recovers_after_side_effect_crash(
     class CrashOnceAdapter(MemoryRepositoryAdapter):
         fail_once = True
 
-        def ensure_issue(self, candidate: IssueCandidate, *, idempotency_key: str):
+        def ensure_issue(self, candidate: IssueCandidate, *, idempotency_key: str) -> IssueRecord:
             issue = super().ensure_issue(candidate, idempotency_key=idempotency_key)
             if self.fail_once:
                 self.fail_once = False
@@ -206,8 +208,10 @@ def test_cancellation_freezes_partial_work_and_blocks_candidate_admission(
     assert stopped.active_leases == 0
     assert stopped.partial_output_admissible is False
     assert stopped.baseline_tree_sha == admitted.planning_commit.sha
-    assert controller.repository.issue(admitted.issue.number).blocked is True
-    assert controller.repository.pull_request(admitted.pull_request.number).blocked is True
+    blocked_issue = controller.repository.issue(admitted.issue.number)
+    blocked_pr = controller.repository.pull_request(admitted.pull_request.number)
+    assert blocked_issue is not None and blocked_issue.blocked is True
+    assert blocked_pr is not None and blocked_pr.blocked is True
     assert (
         AtomicImplementationController.load(
             tmp_path / "run", repository=controller.repository
@@ -392,7 +396,7 @@ def test_ready_and_dequeue_are_exact_head_governed_effects(tmp_path: Path) -> No
     assert published.head_sha == head
     assert manifest.digest in published.body
 
-    with pytest.raises(AtomicityViolation, match="stale"):
+    with pytest.raises(AtomicityViolation, match="published integrated"):
         controller.mark_ready(
             pr_number=published.number,
             exact_head_sha=admitted.planning_commit.sha,
@@ -502,3 +506,87 @@ def test_ready_invalidation_rejects_untraceable_or_nonblocking_signal(tmp_path: 
             ),
             authorization_digest="9" * 64,
         )
+
+
+def test_candidate_ready_and_dequeue_adopt_observed_effect_after_state_save_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, adapter = _controller(tmp_path)
+    admitted = controller.admit_slice(_candidate())
+    lease = controller.issue_lease(
+        SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
+    )
+    head = "a" * 39 + "b"
+    controller.admit_specialist_result(
+        lease, commit_sha=head, changed_paths=("src/candidate.py",), clean=True
+    )
+    manifest = controller.integration_manifest()
+
+    def crash_state_save() -> None:
+        raise RuntimeError("state save crash")
+
+    monkeypatch.setattr(controller, "_save", crash_state_save)
+    with pytest.raises(RuntimeError, match="state save crash"):
+        controller.publish_candidate(
+            manifest=manifest,
+            candidate_head_sha=head,
+            verification_digest="f" * 64,
+        )
+
+    resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    published = resumed.publish_candidate(
+        manifest=manifest,
+        candidate_head_sha=head,
+        verification_digest="f" * 64,
+    )
+
+    def mark_ready(target: AtomicImplementationController) -> PullRequestRecord:
+        return target.mark_ready(
+            pr_number=published.number,
+            exact_head_sha=head,
+            base_sha=BASE_SHA,
+            policy_digest="1" * 64,
+            toolchain_digest="2" * 64,
+            prospective_tree_digest="3" * 64,
+            checks_digest="4" * 64,
+            advisory_review_digest="5" * 64,
+            blocking_findings=(),
+            authorization_digest="6" * 64,
+        )
+
+    def crash_ready_save() -> None:
+        raise RuntimeError("ready save crash")
+
+    monkeypatch.setattr(resumed, "_save", crash_ready_save)
+    with pytest.raises(RuntimeError, match="ready save crash"):
+        mark_ready(resumed)
+
+    resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    ready = mark_ready(resumed)
+    signal = ReadyInvalidationSignal(
+        kind="required_check_drift",
+        source="ci",
+        exact_head_sha=head,
+        evidence_digest="7" * 64,
+        trace_digest="8" * 64,
+        credible=True,
+        authenticated=True,
+        blocking=True,
+        check_state="failed",
+    )
+
+    def crash_draft_save() -> None:
+        raise RuntimeError("draft save crash")
+
+    monkeypatch.setattr(resumed, "_save", crash_draft_save)
+    with pytest.raises(RuntimeError, match="draft save crash"):
+        resumed.invalidate_ready(
+            pr_number=ready.number, signal=signal, authorization_digest="9" * 64
+        )
+
+    resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    draft = resumed.invalidate_ready(
+        pr_number=ready.number, signal=signal, authorization_digest="9" * 64
+    )
+    assert draft.draft is True
+    assert len(adapter.primary_pull_requests(admitted.issue.number)) == 1

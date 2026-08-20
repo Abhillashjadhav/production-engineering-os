@@ -549,6 +549,15 @@ class MemoryRepositoryAdapter:
         issue = self.issue(issue_number)
         pull_request = self.pull_request(pr_number)
         if (
+            issue is not None
+            and pull_request is not None
+            and issue.blocked
+            and pull_request.blocked
+            and pull_request.head_sha == exact_head_sha
+            and idempotency_key in self._effect_keys
+        ):
+            return RepositoryBlockRecord(issue, pull_request, evidence_digest)
+        if (
             issue is None
             or pull_request is None
             or not issue.open
@@ -592,6 +601,15 @@ class MemoryRepositoryAdapter:
     ) -> RepositoryBlockRecord:
         issue = self.issue(issue_number)
         pull_request = self.pull_request(pr_number)
+        if (
+            issue is not None
+            and pull_request is not None
+            and not issue.blocked
+            and not pull_request.blocked
+            and pull_request.head_sha == exact_head_sha
+            and idempotency_key in self._effect_keys
+        ):
+            return RepositoryBlockRecord(issue, pull_request, evidence_digest)
         if (
             issue is None
             or pull_request is None
@@ -637,6 +655,15 @@ class MemoryRepositoryAdapter:
         idempotency_key: str,
     ) -> PullRequestRecord:
         current = self.pull_request(number)
+        if (
+            current is not None
+            and current.open
+            and current.draft
+            and current.head_sha == candidate_head_sha
+            and current.body == body
+            and idempotency_key in self._effect_keys
+        ):
+            return current
         if (
             current is None
             or not current.open
@@ -1170,9 +1197,10 @@ class AtomicImplementationController:
         )
         body = _primary_pr_body(previous.issue, candidate)
         pr_key = f"{prefix}:readmit-draft-pr"
+        expected_pr_head = previous.pull_request.head_sha
         pr_subject = {
             "pr": current.number,
-            "old_head": current.head_sha,
+            "old_head": expected_pr_head,
             "planning_head": planning.sha,
             "body_digest": _canonical_digest(body),
             "restored_tree_sha": restored_tree_sha,
@@ -1183,7 +1211,7 @@ class AtomicImplementationController:
             subject=pr_subject,
             invoke=lambda: self.repository.update_draft_pr(
                 number=current.number,
-                expected_head_sha=current.head_sha,
+                expected_head_sha=expected_pr_head,
                 candidate_head_sha=planning.sha,
                 body=body,
                 evidence_digest=_canonical_digest(planning_subject),
@@ -1251,32 +1279,40 @@ class AtomicImplementationController:
             + f"verification `{verification_digest}`.\n"
         )
         key = f"pr:{current.number}:{candidate_head_sha}:publish"
+        expected_head_sha = self._admitted.pull_request.head_sha
         subject = {
             "pr": current.number,
-            "expected_head": current.head_sha,
+            "expected_head": expected_head_sha,
             "candidate_head": candidate_head_sha,
             "body_digest": _canonical_digest(body),
             "integration_manifest_digest": manifest.digest,
             "verification_digest": verification_digest,
         }
-        updated = self._execute_repository_effect(
-            action="update_draft_pr",
-            idempotency_key=key,
-            subject=subject,
-            invoke=lambda: self.repository.update_draft_pr(
-                number=current.number,
-                expected_head_sha=current.head_sha,
-                candidate_head_sha=candidate_head_sha,
-                body=body,
-                evidence_digest=_canonical_digest(
-                    {
-                        "integration": manifest.digest,
-                        "verification": verification_digest,
-                    }
-                ),
+        if (
+            current.head_sha == candidate_head_sha
+            and current.body == body
+            and self._effect_observed(key)
+        ):
+            updated = current
+        else:
+            updated = self._execute_repository_effect(
+                action="update_draft_pr",
                 idempotency_key=key,
-            ),
-        )
+                subject=subject,
+                invoke=lambda: self.repository.update_draft_pr(
+                    number=current.number,
+                    expected_head_sha=expected_head_sha,
+                    candidate_head_sha=candidate_head_sha,
+                    body=body,
+                    evidence_digest=_canonical_digest(
+                        {
+                            "integration": manifest.digest,
+                            "verification": verification_digest,
+                        }
+                    ),
+                    idempotency_key=key,
+                ),
+            )
         self._admitted = replace(self._admitted, pull_request=updated)
         self._published_candidate_head = candidate_head_sha
         self._save()
@@ -1296,7 +1332,7 @@ class AtomicImplementationController:
         blocking_findings: Sequence[str],
         authorization_digest: str,
     ) -> PullRequestRecord:
-        self._require_admitted_pr(pr_number, exact_head_sha)
+        current = self.repository.pull_request(pr_number)
         if exact_head_sha != self._published_candidate_head:
             raise AtomicityViolation("ready action requires the published integrated candidate")
         if base_sha != self.expected_base_sha:
@@ -1331,18 +1367,28 @@ class AtomicImplementationController:
             "evidence": evidence,
             "authorization": authorization_digest,
         }
-        ready = self._execute_repository_effect(
-            action="mark_pr_ready",
-            idempotency_key=key,
-            subject=subject,
-            invoke=lambda: self.repository.mark_ready(
-                number=pr_number,
-                exact_head_sha=exact_head_sha,
-                evidence_digest=evidence,
-                authorization_digest=authorization_digest,
+        if (
+            current is not None
+            and current.open
+            and not current.draft
+            and current.head_sha == exact_head_sha
+            and self._effect_observed(key)
+        ):
+            ready = current
+        else:
+            self._require_admitted_pr(pr_number, exact_head_sha)
+            ready = self._execute_repository_effect(
+                action="mark_pr_ready",
                 idempotency_key=key,
-            ),
-        )
+                subject=subject,
+                invoke=lambda: self.repository.mark_ready(
+                    number=pr_number,
+                    exact_head_sha=exact_head_sha,
+                    evidence_digest=evidence,
+                    authorization_digest=authorization_digest,
+                    idempotency_key=key,
+                ),
+            )
         if self._admitted is None:
             raise AtomicityViolation("repository slice has not been admitted")
         self._admitted = replace(self._admitted, pull_request=ready)
@@ -1356,7 +1402,6 @@ class AtomicImplementationController:
         signal: ReadyInvalidationSignal,
         authorization_digest: str,
     ) -> PullRequestRecord:
-        self._require_admitted_pr(pr_number, signal.exact_head_sha, allow_ready=True)
         _require_digest(authorization_digest, field="authorization_digest")
         if not signal.credible or not signal.authenticated or not signal.blocking:
             raise AtomicityViolation(
@@ -1381,18 +1426,29 @@ class AtomicImplementationController:
             "evidence": evidence,
             "authorization": authorization_digest,
         }
-        draft = self._execute_repository_effect(
-            action="convert_pr_to_draft",
-            idempotency_key=key,
-            subject=subject,
-            invoke=lambda: self.repository.convert_to_draft(
-                number=pr_number,
-                exact_head_sha=signal.exact_head_sha,
-                evidence_digest=evidence,
-                authorization_digest=authorization_digest,
+        current = self.repository.pull_request(pr_number)
+        if (
+            current is not None
+            and current.open
+            and current.draft
+            and current.head_sha == signal.exact_head_sha
+            and self._effect_observed(key)
+        ):
+            draft = current
+        else:
+            self._require_admitted_pr(pr_number, signal.exact_head_sha, allow_ready=True)
+            draft = self._execute_repository_effect(
+                action="convert_pr_to_draft",
                 idempotency_key=key,
-            ),
-        )
+                subject=subject,
+                invoke=lambda: self.repository.convert_to_draft(
+                    number=pr_number,
+                    exact_head_sha=signal.exact_head_sha,
+                    evidence_digest=evidence,
+                    authorization_digest=authorization_digest,
+                    idempotency_key=key,
+                ),
+            )
         if self._admitted is None:
             raise AtomicityViolation("repository slice has not been admitted")
         self._admitted = replace(self._admitted, pull_request=draft)
@@ -1513,6 +1569,12 @@ class AtomicImplementationController:
                 result_digest=result_digest,
             )
         return result
+
+    def _effect_observed(self, idempotency_key: str) -> bool:
+        return any(
+            event["idempotency_key"] == idempotency_key and event["status"] == "OBSERVED"
+            for event in self._effect_events
+        )
 
     def _append_effect_event(
         self,
