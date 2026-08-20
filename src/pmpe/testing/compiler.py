@@ -102,7 +102,7 @@ def _command_invokes_tool(command: Sequence[str], tool: str) -> bool:
         name = value.replace("\\", "/").rsplit("/", 1)[-1].casefold()
         return name.removesuffix(".exe")
 
-    expected = executable(tool)
+    expected = executable({"node:test": "node"}.get(tool.casefold(), tool))
     invoked = executable(command[0])
     if invoked == expected:
         return True

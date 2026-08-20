@@ -480,6 +480,22 @@ class TestPlanStore:
                 + "; ".join(decision.reasons)
                 + ")"
             )
+        required_red = {
+            (node.node_id, node.assertion_id)
+            for expectation in expectations
+            for node in expectation.nodes
+        }
+        observed_red = {
+            (node.node_id, node.assertion_id)
+            for node in decision.nodes
+            if node.outcome == "failed" and node.failure_kind == "assertion"
+        }
+        if observed_red != required_red:
+            missing = sorted(node_id for node_id, assertion_id in required_red - observed_red)
+            raise TestPlanNotAdmitted(
+                "implementation refused: meaningful-red failed because every plan-bound "
+                "node must fail through its admitted assertion; missing: " + ", ".join(missing)
+            )
         red_run_digest = canonical_digest(
             {
                 "evidence_plan_digest": expectations[0].plan_digest,

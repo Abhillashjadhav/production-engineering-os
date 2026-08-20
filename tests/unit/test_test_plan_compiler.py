@@ -249,9 +249,16 @@ class _FingerprintProvider:
 class _PlanSandbox:
     identity = "test-plan-fixture-sandbox/1"
 
-    def __init__(self, plan: Any | None, *, failures: bool) -> None:
+    def __init__(
+        self,
+        plan: Any | None,
+        *,
+        failures: bool,
+        passing_node_ids: frozenset[str] = frozenset(),
+    ) -> None:
         self.plan = plan
         self.failures = failures
+        self.passing_node_ids = passing_node_ids
         self.commands: list[tuple[str, ...]] = []
 
     def run(
@@ -274,9 +281,13 @@ class _PlanSandbox:
         ]
         tests = []
         for node in nodes:
-            outcome = "failed" if self.failures else "passed"
+            outcome = (
+                "failed"
+                if self.failures and node.expected_test_node not in self.passing_node_ids
+                else "passed"
+            )
             call: dict[str, Any] = {"outcome": outcome}
-            if self.failures:
+            if outcome == "failed":
                 call["crash"] = {
                     "message": (f"AssertionError: [assertion:{node.assertion_id}] planned failure")
                 }
@@ -288,9 +299,10 @@ class _PlanSandbox:
                     "call": call,
                 }
             )
-        payload = json.dumps({"exitcode": 1 if self.failures else 0, "tests": tests}).encode()
+        has_failure = any(item["outcome"] == "failed" for item in tests)
+        payload = json.dumps({"exitcode": 1 if has_failure else 0, "tests": tests}).encode()
         return CommandOutcome(
-            1 if self.failures else 0,
+            1 if has_failure else 0,
             payload,
             b"",
             resolved_executable="/usr/bin/pytest",
@@ -302,10 +314,15 @@ def _new_store(
     plan: Any | None = None,
     *,
     failures: bool = True,
+    passing_node_ids: frozenset[str] = frozenset(),
 ) -> tuple[Any, _PlanSandbox]:
     provider = _FingerprintProvider()
     receipts = run_dir.parent / f"{run_dir.name}-authority"
-    sandbox = _PlanSandbox(plan, failures=failures)
+    sandbox = _PlanSandbox(
+        plan,
+        failures=failures,
+        passing_node_ids=passing_node_ids,
+    )
     store = _api().TestPlanStore(
         run_dir,
         authority=FileArtifactAdmissionAuthority(receipts, provider),
@@ -469,6 +486,36 @@ def test_capability_command_must_invoke_its_observed_tool() -> None:
 
     assert result.disposition.value == "BLOCKED"
     assert any(
+        item.rule_id == "TESTPLAN.TOOLCHAIN.COMMAND_TOOL_MISMATCH" for item in result.diagnostics
+    )
+
+
+def test_node_test_capability_invokes_the_node_executable() -> None:
+    snapshot = replace(
+        _snapshot(),
+        tool_versions=_snapshot().tool_versions + (ToolVersion(tool="node:test", version="22"),),
+        snapshot_digest="",
+    )
+    payload = snapshot.as_dict()
+    payload.pop("snapshot_digest")
+    snapshot = replace(snapshot, snapshot_digest=canonical_digest(payload))
+    capabilities = tuple(
+        replace(
+            item,
+            command=("node", "--test", "--test-reporter=tap"),
+            tool="node:test",
+            evidence_format="tap13/v1",
+        )
+        if item.test_class is _api().TestClass.UNIT
+        else item
+        for item in _capabilities()
+    )
+
+    result = _compile_with_snapshot(snapshot, capabilities=capabilities)
+
+    assert result.disposition.value == "ADMITTED"
+    assert result.plan is not None
+    assert not any(
         item.rule_id == "TESTPLAN.TOOLCHAIN.COMMAND_TOOL_MISMATCH" for item in result.diagnostics
     )
 
@@ -862,6 +909,34 @@ def test_implementation_authorization_ignores_self_asserted_red_claims(tmp_path:
     _store_admit(store, snapshot=snapshot, capabilities=_pytest_capabilities())
 
     with pytest.raises(_api().TestPlanNotAdmitted, match="vacuous result"):
+        store.authorize_implementation(
+            result.plan,
+            workspace=workspace,
+            expected_commit_sha=commit,
+        )
+
+
+def test_authorization_requires_every_meaningful_red_node_to_fail(tmp_path: Path) -> None:
+    preliminary = _compile(capabilities=_pytest_capabilities())
+    assert preliminary.plan is not None
+    workspace, commit = _runner_workspace(tmp_path, preliminary.plan, failures=True)
+    snapshot = _snapshot_at(commit)
+    result = _compile_with_snapshot(snapshot, capabilities=_pytest_capabilities())
+    assert result.plan is not None
+    required_nodes = [
+        node.expected_test_node
+        for node in result.plan.nodes
+        if node.meaningful_red_required and node.execution_mode == "AUTOMATED"
+    ]
+    assert len(required_nodes) > 1
+    store, _sandbox = _new_store(
+        tmp_path / "run",
+        result.plan,
+        passing_node_ids=frozenset({required_nodes[0]}),
+    )
+    _store_admit(store, snapshot=snapshot, capabilities=_pytest_capabilities())
+
+    with pytest.raises(_api().TestPlanNotAdmitted, match="every plan-bound node"):
         store.authorize_implementation(
             result.plan,
             workspace=workspace,
