@@ -112,6 +112,7 @@ def _env_wrapped_command(tokens: list[str], command: int) -> tuple[str | None, b
     cursor = 0
     split_expansions = 0
     options_ended = False
+    assignment_seen = False
 
     def expand_split(value: str, tail: list[str]) -> bool:
         nonlocal remaining, cursor, split_expansions
@@ -127,32 +128,32 @@ def _env_wrapped_command(tokens: list[str], command: int) -> tuple[str | None, b
 
     while cursor < len(remaining):
         token = remaining[cursor]
-        if token == "-":
+        if token == "-" and not assignment_seen:
             cursor += 1
             continue
-        if not options_ended and token == "--":
+        if not options_ended and not assignment_seen and token == "--":
             options_ended = True
             cursor += 1
             continue
-        if not options_ended and token in {"-S", "--split-string"}:
+        if not options_ended and not assignment_seen and token in {"-S", "--split-string"}:
             if cursor + 1 >= len(remaining):
                 return None, True
             if not expand_split(remaining[cursor + 1], remaining[cursor + 2 :]):
                 return None, True
             continue
-        if not options_ended and token.startswith("--split-string="):
+        if not options_ended and not assignment_seen and token.startswith("--split-string="):
             if not expand_split(token.split("=", 1)[1], remaining[cursor + 1 :]):
                 return None, True
             continue
-        if not options_ended and token in {"-C", "-u", "--chdir", "--unset"}:
+        if not options_ended and not assignment_seen and token in {"-C", "-u", "--chdir", "--unset"}:
             if cursor + 1 >= len(remaining):
                 return None, True
             cursor += 2
             continue
-        if not options_ended and token.startswith(("--chdir=", "--unset=")):
+        if not options_ended and not assignment_seen and token.startswith(("--chdir=", "--unset=")):
             cursor += 1
             continue
-        if not options_ended and token.startswith("--"):
+        if not options_ended and not assignment_seen and token.startswith("--"):
             if token in {
                 "--debug",
                 "--help",
@@ -163,7 +164,7 @@ def _env_wrapped_command(tokens: list[str], command: int) -> tuple[str | None, b
                 cursor += 1
                 continue
             return None, True
-        if not options_ended and token.startswith("-") and token != "-":
+        if not options_ended and not assignment_seen and token.startswith("-") and token != "-":
             cluster = token[1:]
             position = 0
             while position < len(cluster):
@@ -193,6 +194,7 @@ def _env_wrapped_command(tokens: list[str], command: int) -> tuple[str | None, b
                 cursor += 1
             continue
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", token) is not None:
+            assignment_seen = True
             cursor += 1
             continue
         return token, False
