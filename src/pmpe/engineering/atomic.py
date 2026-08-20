@@ -951,6 +951,8 @@ class AtomicImplementationController:
             )
         controller._verify_persisted_lease_authority()
         controller._verify_repository_identity()
+        if controller._admitted is not None:
+            controller._verify_persisted_repository_authority(controller._admitted)
         return controller
 
     @property
@@ -1278,6 +1280,107 @@ class AtomicImplementationController:
             or admitted.pull_request.issue_number != admitted.issue.number
         ):
             raise AtomicityViolation("admitted repository records are not atomically linked")
+
+    def _verify_persisted_repository_authority(self, admitted: AdmittedSlice) -> None:
+        issue = self.repository.issue(admitted.issue.number)
+        branch = self.repository.branch(admitted.branch.name)
+        planning = self.repository.planning_commit(admitted.planning_commit.sha)
+        primary = self.repository.primary_pull_requests(admitted.issue.number)
+        if branch != admitted.branch:
+            raise AtomicityViolation("admitted branch/base changed")
+        if planning != admitted.planning_commit:
+            raise AtomicityViolation("admitted planning commit changed")
+        if (
+            admitted.branch.issue_number != admitted.issue.number
+            or admitted.planning_commit.branch != admitted.branch.name
+            or admitted.pull_request.branch != admitted.branch.name
+            or admitted.pull_request.issue_number != admitted.issue.number
+        ):
+            raise AtomicityViolation("admitted repository records are not atomically linked")
+        if issue is None or len(primary) != 1:
+            raise AtomicityViolation("one-issue/one-primary-PR mapping changed")
+        current = primary[0]
+        if replace(issue, blocked=admitted.issue.blocked) != admitted.issue or (
+            current.number,
+            current.issue_number,
+            current.branch,
+            current.base_sha,
+            current.title,
+            current.open,
+        ) != (
+            admitted.pull_request.number,
+            admitted.pull_request.issue_number,
+            admitted.pull_request.branch,
+            admitted.pull_request.base_sha,
+            admitted.pull_request.title,
+            admitted.pull_request.open,
+        ):
+            raise AtomicityViolation("one-issue/one-primary-PR mapping changed")
+        if issue == admitted.issue and current == admitted.pull_request:
+            return
+
+        observed_digests = {
+            str(event["result_digest"])
+            for event in self._effect_events
+            if event["status"] == "OBSERVED"
+        }
+        if issue == admitted.issue and _canonical_digest(asdict(current)) in observed_digests:
+            return
+        if (
+            self._revocation_digest
+            and _canonical_digest(
+                asdict(RepositoryBlockRecord(issue, current, self._revocation_digest))
+            )
+            in observed_digests
+        ):
+            return
+
+        grouped: dict[str, list[dict[str, object]]] = {}
+        for event in self._effect_events:
+            grouped.setdefault(str(event["idempotency_key"]), []).append(event)
+        planned_only_actions = {
+            str(events[0]["action"])
+            for events in grouped.values()
+            if [event["status"] for event in events] == ["PLANNED"]
+        }
+        if (
+            issue == admitted.issue
+            and "mark_pr_ready" in planned_only_actions
+            and current == replace(admitted.pull_request, draft=False)
+        ):
+            return
+        if (
+            issue == admitted.issue
+            and "convert_pr_to_draft" in planned_only_actions
+            and current == replace(admitted.pull_request, draft=True)
+        ):
+            return
+        if (
+            self._stop_evidence is not None
+            and "block_slice" in planned_only_actions
+            and issue == replace(admitted.issue, blocked=True)
+            and current
+            == replace(
+                admitted.pull_request,
+                blocked=True,
+                body=admitted.pull_request.body
+                + f"\n## Blocked\n\n{self._stop_evidence.reason}. Evidence "
+                + f"`{self._revocation_digest}`.\n",
+            )
+        ):
+            return
+        if (
+            "unblock_slice"
+            in {
+                str(event["action"])
+                for event in self._effect_events
+                if event["status"] in {"PLANNED", "OBSERVED"}
+            }
+            and issue == replace(admitted.issue, blocked=False)
+            and _canonical_digest(asdict(replace(current, blocked=True))) in observed_digests
+        ):
+            return
+        raise AtomicityViolation("persisted admitted repository authority changed")
 
     def issue_lease(self, task: SpecialistTask, *, admitted: AdmittedSlice) -> SpecialistLease:
         with self._active_worktrees_lock:

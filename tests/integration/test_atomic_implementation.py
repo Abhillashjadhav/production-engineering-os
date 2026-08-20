@@ -453,7 +453,7 @@ def test_changed_outcome_or_closed_pr_cannot_reuse_same_primary_pr(tmp_path: Pat
     adapter.pull_requests[admitted.pull_request.number] = replace(
         admitted.pull_request, open=False, draft=False
     )
-    with pytest.raises(AtomicityViolation, match="cannot be reused"):
+    with pytest.raises(AtomicityViolation, match="cannot be reused|primary-PR mapping"):
         controller.readmit_after_product_input(
             replace(
                 _candidate(),
@@ -930,6 +930,21 @@ def test_load_rejects_issued_lease_deleted_from_mutable_state(tmp_path: Path) ->
     state_path.write_text(json.dumps(state))
 
     with pytest.raises(AtomicityViolation, match="lease admission ledger"):
+        AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+
+
+def test_load_rejects_tampered_primary_pr_binding(tmp_path: Path) -> None:
+    controller, adapter = _controller(tmp_path)
+    admitted = controller.admit_slice(_candidate())
+    duplicate = replace(admitted.pull_request, number=admitted.pull_request.number + 1)
+    adapter.pull_requests[duplicate.number] = duplicate
+
+    state_path = tmp_path / "run" / "atomic-implementation.json"
+    state = json.loads(state_path.read_text())
+    state["admitted"]["pull_request"]["number"] = duplicate.number
+    state_path.write_text(json.dumps(state))
+
+    with pytest.raises(AtomicityViolation, match="one-issue/one-primary-PR mapping"):
         AtomicImplementationController.load(tmp_path / "run", repository=adapter)
 
 
