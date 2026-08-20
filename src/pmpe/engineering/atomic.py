@@ -908,6 +908,7 @@ class AtomicImplementationController:
                 lease_epoch_digest=str(stop["lease_epoch_digest"]),
                 revocation_digest=str(stop["revocation_digest"]),
             )
+        controller._verify_persisted_lease_authority()
         controller._verify_repository_identity()
         return controller
 
@@ -926,6 +927,41 @@ class AtomicImplementationController:
             raise AtomicityViolation("repository identity differs from the admitted repository")
         if self.repository.protected_base_sha != self.expected_base_sha:
             raise AtomicityViolation("protected base moved or differs from the admitted base")
+
+    def _verify_persisted_lease_authority(self) -> None:
+        if self._admitted is None:
+            if self._leases or self._results or self._repair_admission_digest:
+                raise AtomicityViolation("persisted lease authority has no admitted slice")
+            return
+        repair_required = self._work_baseline_sha != self._admitted.planning_commit.sha
+        if repair_required and not self._repair_admission_digest:
+            raise AtomicityViolation("persisted repair admission evidence is missing")
+        if not repair_required and self._repair_admission_digest:
+            raise AtomicityViolation("persisted repair admission evidence is stale")
+        for task_id, lease in self._leases.items():
+            expected_epoch = _canonical_digest(
+                {
+                    "candidate": self._admitted.candidate_digest,
+                    "baseline": self._work_baseline_sha,
+                    "repair_admission": self._repair_admission_digest,
+                    "task": asdict(lease.task),
+                }
+            )
+            if (
+                task_id != lease.task.task_id
+                or lease.admitted_candidate_digest != self._admitted.candidate_digest
+                or lease.baseline_sha != self._work_baseline_sha
+                or lease.repair_admission_digest != self._repair_admission_digest
+                or lease.lease_epoch_digest != expected_epoch
+            ):
+                raise AtomicityViolation("persisted specialist lease authority is malformed")
+        if any(
+            task_id not in self._leases
+            or result.task_id != task_id
+            or result.lease_epoch_digest != self._leases[task_id].lease_epoch_digest
+            for task_id, result in self._results.items()
+        ):
+            raise AtomicityViolation("persisted specialist result authority is malformed")
 
     def admit_slice(self, candidate: IssueCandidate) -> AdmittedSlice:
         with self._active_worktrees_lock:
