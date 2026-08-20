@@ -860,6 +860,18 @@ def test_stale_publisher_refreshes_new_leases_before_manifest_validation(
     assert set(persisted._leases) == {"T-1", "T-2"}
 
 
+def test_load_rejects_tampered_specialist_result_commit_and_paths(tmp_path: Path) -> None:
+    _, adapter, _, _, _, _ = _integrated_candidate(tmp_path)
+    state_path = tmp_path / "run" / "atomic-implementation.json"
+    state = json.loads(state_path.read_text())
+    state["results"]["T-1"]["commit_sha"] = "f" * 40
+    state["results"]["T-1"]["changed_paths"] = ["outside/lease.py"]
+    state_path.write_text(json.dumps(state))
+
+    with pytest.raises(AtomicityViolation, match="persisted specialist result authority"):
+        AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+
+
 def test_integration_manifest_rejects_an_empty_implementation(tmp_path: Path) -> None:
     controller, _ = _controller(tmp_path)
     controller.admit_slice(_candidate())

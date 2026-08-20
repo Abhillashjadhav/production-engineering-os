@@ -267,6 +267,24 @@ class SpecialistResult:
     commit_sha: str
     changed_paths: tuple[str, ...]
     lease_epoch_digest: str
+    admission_digest: str = ""
+
+
+def _specialist_result_admission_digest(
+    lease: SpecialistLease,
+    *,
+    commit_sha: str,
+    changed_paths: Sequence[str],
+) -> str:
+    return _canonical_digest(
+        {
+            "task": lease.task.task_id,
+            "specialist": lease.task.specialist,
+            "lease_epoch": lease.lease_epoch_digest,
+            "commit": commit_sha,
+            "changed_paths": list(changed_paths),
+        }
+    )
 
 
 @dataclass(frozen=True)
@@ -880,6 +898,7 @@ class AtomicImplementationController:
                 commit_sha=str(result["commit_sha"]),
                 changed_paths=tuple(result["changed_paths"]),
                 lease_epoch_digest=str(result["lease_epoch_digest"]),
+                admission_digest=str(result.get("admission_digest", "")),
             )
         controller._published_candidate_head = str(raw.get("published_candidate_head", ""))
         controller._repair_admission_digest = str(raw.get("repair_admission_digest", ""))
@@ -938,30 +957,58 @@ class AtomicImplementationController:
             raise AtomicityViolation("persisted repair admission evidence is missing")
         if not repair_required and self._repair_admission_digest:
             raise AtomicityViolation("persisted repair admission evidence is stale")
-        for task_id, lease in self._leases.items():
+        for task_id, persisted_lease in self._leases.items():
             expected_epoch = _canonical_digest(
                 {
                     "candidate": self._admitted.candidate_digest,
                     "baseline": self._work_baseline_sha,
                     "repair_admission": self._repair_admission_digest,
-                    "task": asdict(lease.task),
+                    "task": asdict(persisted_lease.task),
                 }
             )
             if (
-                task_id != lease.task.task_id
-                or lease.admitted_candidate_digest != self._admitted.candidate_digest
-                or lease.baseline_sha != self._work_baseline_sha
-                or lease.repair_admission_digest != self._repair_admission_digest
-                or lease.lease_epoch_digest != expected_epoch
+                task_id != persisted_lease.task.task_id
+                or persisted_lease.admitted_candidate_digest != self._admitted.candidate_digest
+                or persisted_lease.baseline_sha != self._work_baseline_sha
+                or persisted_lease.repair_admission_digest != self._repair_admission_digest
+                or persisted_lease.lease_epoch_digest != expected_epoch
             ):
                 raise AtomicityViolation("persisted specialist lease authority is malformed")
-        if any(
-            task_id not in self._leases
-            or result.task_id != task_id
-            or result.lease_epoch_digest != self._leases[task_id].lease_epoch_digest
-            for task_id, result in self._results.items()
-        ):
-            raise AtomicityViolation("persisted specialist result authority is malformed")
+        for task_id, result in self._results.items():
+            result_lease = self._leases.get(task_id)
+            try:
+                normalized_paths = tuple(
+                    sorted({_normalize_changed_path(path) for path in result.changed_paths})
+                )
+            except AtomicityViolation as exc:
+                raise AtomicityViolation(
+                    "persisted specialist result authority is malformed"
+                ) from exc
+            outside = [
+                path
+                for path in normalized_paths
+                if result_lease is not None
+                and not any(
+                    _path_allowed(path, allowed) for allowed in result_lease.task.allowed_paths
+                )
+            ]
+            if (
+                result_lease is None
+                or result.task_id != task_id
+                or result.specialist != result_lease.task.specialist
+                or result.lease_epoch_digest != result_lease.lease_epoch_digest
+                or not _SHA40.fullmatch(result.commit_sha)
+                or not normalized_paths
+                or normalized_paths != result.changed_paths
+                or outside
+                or result.admission_digest
+                != _specialist_result_admission_digest(
+                    result_lease,
+                    commit_sha=result.commit_sha,
+                    changed_paths=result.changed_paths,
+                )
+            ):
+                raise AtomicityViolation("persisted specialist result authority is malformed")
 
     def admit_slice(self, candidate: IssueCandidate) -> AdmittedSlice:
         with self._active_worktrees_lock:
@@ -1254,6 +1301,11 @@ class AtomicImplementationController:
             commit_sha=commit_sha,
             changed_paths=normalized,
             lease_epoch_digest=lease.lease_epoch_digest,
+            admission_digest=_specialist_result_admission_digest(
+                lease,
+                commit_sha=commit_sha,
+                changed_paths=normalized,
+            ),
         )
         self._results[result.task_id] = result
         self._save()
