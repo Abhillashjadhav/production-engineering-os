@@ -1196,6 +1196,21 @@ class AtomicImplementationController:
         partial_paths: Sequence[str],
         current_tree_sha: str,
     ) -> WorkStopEvidence:
+        with self._active_worktrees_lock:
+            self._refresh_persisted_state()
+            return self._cancel_all_locked(
+                reason=reason,
+                partial_paths=partial_paths,
+                current_tree_sha=current_tree_sha,
+            )
+
+    def _cancel_all_locked(
+        self,
+        *,
+        reason: str,
+        partial_paths: Sequence[str],
+        current_tree_sha: str,
+    ) -> WorkStopEvidence:
         if self._admitted is None:
             raise AtomicityViolation("cannot stop work before repository admission")
         if not reason.strip():
@@ -1591,6 +1606,8 @@ class AtomicImplementationController:
         blocking_findings: Sequence[str],
         authorization_digest: str,
     ) -> PullRequestRecord:
+        if self._cancelled:
+            raise AtomicityViolation("cancelled run cannot enter readiness")
         current = self.repository.pull_request(pr_number)
         if exact_head_sha != self._published_candidate_head:
             raise AtomicityViolation("ready action requires the published integrated candidate")

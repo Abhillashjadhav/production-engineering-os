@@ -294,6 +294,85 @@ def test_cancellation_freezes_partial_work_and_blocks_candidate_admission(
         )
 
 
+def test_readiness_cannot_interleave_between_cancellation_save_and_repository_block(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, adapter, repo, _, manifest, head = _integrated_candidate(tmp_path)
+    published = controller.publish_candidate(
+        repo=repo,
+        manifest=manifest,
+        candidate_head_sha=head,
+        verification_digest="d" * 64,
+    )
+    ready_controller = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    cancellation_saved = Event()
+    release_cancellation = Event()
+    ready_started = Event()
+    ready_finished = Event()
+    cancellation_failures: list[BaseException] = []
+    readiness_failures: list[BaseException] = []
+    original_save = controller._save
+
+    def delayed_cancellation_save() -> None:
+        original_save()
+        if controller._cancelled and not cancellation_saved.is_set():
+            cancellation_saved.set()
+            if not release_cancellation.wait(timeout=5):
+                raise RuntimeError("timed out waiting to release cancellation")
+
+    monkeypatch.setattr(controller, "_save", delayed_cancellation_save)
+
+    def cancel() -> None:
+        try:
+            controller.cancel_all(
+                reason="blocking product contradiction",
+                partial_paths=(),
+                current_tree_sha=head,
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            cancellation_failures.append(exc)
+
+    def make_ready() -> None:
+        ready_started.set()
+        try:
+            ready_controller.mark_ready(
+                pr_number=published.number,
+                exact_head_sha=head,
+                base_sha=BASE_SHA,
+                policy_digest="1" * 64,
+                toolchain_digest="2" * 64,
+                prospective_tree_digest="3" * 64,
+                checks_digest="5" * 64,
+                advisory_review_digest="6" * 64,
+                blocking_findings=(),
+                authorization_digest="7" * 64,
+            )
+        except BaseException as exc:
+            readiness_failures.append(exc)
+        finally:
+            ready_finished.set()
+
+    cancel_worker = Thread(target=cancel)
+    ready_worker = Thread(target=make_ready)
+    cancel_worker.start()
+    assert cancellation_saved.wait(timeout=5)
+    ready_worker.start()
+    assert ready_started.wait(timeout=5)
+    assert not ready_finished.wait(timeout=0.1)
+    release_cancellation.set()
+    cancel_worker.join(timeout=5)
+    ready_worker.join(timeout=5)
+
+    assert cancellation_failures == []
+    assert len(readiness_failures) == 1
+    assert isinstance(readiness_failures[0], AtomicityViolation)
+    assert "cancelled run" in str(readiness_failures[0])
+    assert not cancel_worker.is_alive()
+    assert not ready_worker.is_alive()
+    blocked = adapter.pull_request(published.number)
+    assert blocked is not None and blocked.blocked is True and blocked.draft is True
+
+
 def test_same_scope_reset_requires_exact_restore_and_fresh_plan_and_red(
     tmp_path: Path,
 ) -> None:
