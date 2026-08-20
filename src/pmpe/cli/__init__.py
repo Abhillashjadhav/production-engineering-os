@@ -16,6 +16,7 @@ from pmpe.cli import (
     demo_cmd,
     eng_cmd,
     evals_cmd,
+    full_product_cmd,
     guided_cmd,
     personal_cmd,
     repository_cmd,
@@ -36,6 +37,7 @@ def build_parser() -> argparse.ArgumentParser:
     demo_cmd.register(sub)
     eng_cmd.register(sub)
     evals_cmd.register(sub)
+    full_product_cmd.register(sub)
     guided_cmd.register(sub)
     personal_cmd.register(sub)
     repository_cmd.register(sub)

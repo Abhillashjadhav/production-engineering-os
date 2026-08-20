@@ -76,6 +76,26 @@ This proves exact-payload calendar approval, bounded product workers, hash-chain
 events and evaluations, verified rollback, and proposal-only outcome learning. The demo has
 no real connector and performs zero external writes.
 
+### Run the complete product workflow once
+
+Join the PMOS decision, exact approval, Engineering OS handoff, all 21 workflow packs,
+runtime assurance, engineering verification, and a real generated local-process deployment
+into one independently verifiable evidence manifest:
+
+```bash
+pmpe full-product quickstart --output /tmp/pmpe-full-product
+pmpe full-product verify \
+  --output /tmp/pmpe-full-product \
+  --expected-digest sha256:<digest-printed-by-quickstart>
+cat /tmp/pmpe-full-product/full-product-manifest.json
+```
+
+The quickstart uses clearly labelled synthetic product truth. It starts the generated local
+product, verifies health, authentication, create/list/complete/read-back journeys, and then
+stops the process. Retain the printed manifest digest outside the output directory: verification
+requires that independent trust anchor and rejects a self-consistent rewritten bundle. It
+performs no cloud deployment or external provider write.
+
 ### Try the guided PMOS experience
 
 Create and approve a ProductDecisionContract one blocking question at a time,
