@@ -20,6 +20,7 @@ from pathlib import Path, PurePosixPath
 from typing import Protocol, TypeVar
 
 from pmpe.agents.router import ALL_PROFILES, SPECIALIST_PROFILES
+from pmpe.domain.errors import GitError
 from pmpe.domain.serialize import atomic_write_json
 from pmpe.engineering.worktree import SpecialistWorktree, specialist_worktree
 from pmpe.gitops.local import LocalGitAdapter
@@ -759,6 +760,7 @@ class AtomicImplementationController:
         self._stop_evidence: WorkStopEvidence | None = None
         self._effect_events: list[dict[str, object]] = []
         self._active_worktrees: dict[str, tuple[Path, Path]] = {}
+        self._worktree_attempts: dict[str, int] = {}
 
     @classmethod
     def load(
@@ -791,6 +793,10 @@ class AtomicImplementationController:
                 lease_epoch_digest=str(result["lease_epoch_digest"]),
             )
         controller._published_candidate_head = str(raw.get("published_candidate_head", ""))
+        controller._worktree_attempts = {
+            str(task_id): int(attempt)
+            for task_id, attempt in raw.get("worktree_attempts", {}).items()
+        }
         controller._cancelled = bool(raw.get("cancelled", False))
         controller._revocation_digest = str(raw.get("revocation_digest", ""))
         stop = raw.get("stop_evidence")
@@ -976,8 +982,16 @@ class AtomicImplementationController:
         repo_git = LocalGitAdapter(Path(repo))
         if repo_git._run("rev-parse", "HEAD") != lease.baseline_sha:  # noqa: SLF001
             raise AtomicityViolation("specialist worktree must start at the admitted work baseline")
+        attempt = self._worktree_attempts.get(lease.task.task_id, 0) + 1
+        self._worktree_attempts[lease.task.task_id] = attempt
+        self._save()
+        suffix = f"{lease.lease_epoch_digest[:12]}-{attempt}"
         with specialist_worktree(
-            Path(repo), task_id=lease.task.task_id, worktrees_root=Path(worktrees_root)
+            Path(repo),
+            task_id=lease.task.task_id,
+            worktrees_root=Path(worktrees_root),
+            branch_name=f"specialist/{lease.task.task_id}-{suffix}",
+            worktree_name=f"{lease.task.task_id}-{suffix}",
         ) as worktree:
             self._active_worktrees[lease.task.task_id] = (Path(repo), worktree.path)
             try:
@@ -991,6 +1005,14 @@ class AtomicImplementationController:
         _require_sha(commit_sha, field="commit_sha")
         git = LocalGitAdapter(Path(repo))
         try:
+            git._run(  # noqa: SLF001 - exact ancestry is part of commit admission
+                "merge-base", "--is-ancestor", lease.baseline_sha, commit_sha
+            )
+        except GitError as exc:
+            raise AtomicityViolation(
+                "specialist commit does not descend from the exact leased baseline"
+            ) from exc
+        try:
             changed = tuple(
                 sorted(
                     line
@@ -1000,7 +1022,7 @@ class AtomicImplementationController:
                     if line
                 )
             )
-        except Exception as exc:
+        except GitError as exc:
             raise AtomicityViolation(
                 "specialist commit is not present in the admitted repo"
             ) from exc
@@ -1291,7 +1313,12 @@ class AtomicImplementationController:
         if (
             current.head_sha == candidate_head_sha
             and current.body == body
-            and self._effect_observed(key)
+            and self._effect_observed_matches(
+                action="update_draft_pr",
+                idempotency_key=key,
+                subject=subject,
+                result=current,
+            )
         ):
             updated = current
         else:
@@ -1372,7 +1399,12 @@ class AtomicImplementationController:
             and current.open
             and not current.draft
             and current.head_sha == exact_head_sha
-            and self._effect_observed(key)
+            and self._effect_observed_matches(
+                action="mark_pr_ready",
+                idempotency_key=key,
+                subject=subject,
+                result=current,
+            )
         ):
             ready = current
         else:
@@ -1432,7 +1464,12 @@ class AtomicImplementationController:
             and current.open
             and current.draft
             and current.head_sha == signal.exact_head_sha
-            and self._effect_observed(key)
+            and self._effect_observed_matches(
+                action="convert_pr_to_draft",
+                idempotency_key=key,
+                subject=subject,
+                result=current,
+            )
         ):
             draft = current
         else:
@@ -1570,11 +1607,31 @@ class AtomicImplementationController:
             )
         return result
 
-    def _effect_observed(self, idempotency_key: str) -> bool:
-        return any(
-            event["idempotency_key"] == idempotency_key and event["status"] == "OBSERVED"
-            for event in self._effect_events
-        )
+    def _effect_observed_matches(
+        self,
+        *,
+        action: str,
+        idempotency_key: str,
+        subject: object,
+        result: object,
+    ) -> bool:
+        subject_digest = _canonical_digest(subject)
+        try:
+            result_digest = _canonical_digest(asdict(result))  # type: ignore[call-overload]
+        except TypeError as exc:
+            raise AtomicityViolation("repository adapter returned unrecordable evidence") from exc
+        related = [
+            event for event in self._effect_events if event["idempotency_key"] == idempotency_key
+        ]
+        if any(
+            event["action"] != action or event["subject_digest"] != subject_digest
+            for event in related
+        ):
+            raise AtomicityViolation("crash adoption does not match the journaled effect")
+        observed = [event for event in related if event["status"] == "OBSERVED"]
+        if any(event["result_digest"] != result_digest for event in observed):
+            raise AtomicityViolation("crash adoption result differs from journaled evidence")
+        return bool(observed)
 
     def _append_effect_event(
         self,
@@ -1638,6 +1695,7 @@ class AtomicImplementationController:
                 "leases": {key: asdict(value) for key, value in sorted(self._leases.items())},
                 "results": {key: asdict(value) for key, value in sorted(self._results.items())},
                 "published_candidate_head": self._published_candidate_head,
+                "worktree_attempts": dict(sorted(self._worktree_attempts.items())),
                 "cancelled": self._cancelled,
                 "revocation_digest": self._revocation_digest,
                 "stop_evidence": asdict(self._stop_evidence) if self._stop_evidence else None,

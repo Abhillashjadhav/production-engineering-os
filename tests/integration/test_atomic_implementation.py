@@ -331,12 +331,37 @@ def test_real_worktree_enforces_allowlist_and_preserves_main(tmp_path: Path) -> 
     with controller.specialist_worktree(
         root, lease=lease, worktrees_root=tmp_path / "worktrees"
     ) as worktree:
+        first_branch = worktree.branch
         (worktree.path / "src" / "allowed.py").write_text("VALUE = 2\n")
         commit_sha = worktree.commit("implement T-1")
+
+    with controller.specialist_worktree(
+        root, lease=lease, worktrees_root=tmp_path / "worktrees"
+    ) as retry:
+        assert retry.branch != first_branch
 
     assert (root / "src" / "allowed.py").read_text() == "VALUE = 1\n"
     result = controller.admit_specialist_commit(lease, root, commit_sha=commit_sha)
     assert result.changed_paths == ("src/allowed.py",)
+
+
+def test_specialist_commit_must_descend_from_exact_lease_baseline(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git = LocalGitAdapter(root)
+    git.init()
+    (root / "src").mkdir()
+    (root / "src" / "allowed.py").write_text("VALUE = 1\n")
+    planning_sha = git.commit_all("base")
+    unrelated = git._run("commit-tree", git._run("write-tree"), "-m", "unrelated")
+    controller, _ = _controller(tmp_path, planning_commit_sha=planning_sha)
+    admitted = controller.admit_slice(_candidate())
+    lease = controller.issue_lease(
+        SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
+    )
+
+    with pytest.raises(AtomicityViolation, match="does not descend"):
+        controller.admit_specialist_commit(lease, root, commit_sha=unrelated)
 
 
 def test_cancellation_removes_active_worktree_after_preserving_dirty_paths(
@@ -562,6 +587,19 @@ def test_candidate_ready_and_dequeue_adopt_observed_effect_after_state_save_cras
         mark_ready(resumed)
 
     resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    with pytest.raises(AtomicityViolation):
+        resumed.mark_ready(
+            pr_number=published.number,
+            exact_head_sha=head,
+            base_sha=BASE_SHA,
+            policy_digest="1" * 64,
+            toolchain_digest="2" * 64,
+            prospective_tree_digest="3" * 64,
+            checks_digest="4" * 64,
+            advisory_review_digest="5" * 64,
+            blocking_findings=(),
+            authorization_digest="0" * 64,
+        )
     ready = mark_ready(resumed)
     signal = ReadyInvalidationSignal(
         kind="required_check_drift",
@@ -585,6 +623,12 @@ def test_candidate_ready_and_dequeue_adopt_observed_effect_after_state_save_cras
         )
 
     resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    with pytest.raises(AtomicityViolation):
+        resumed.invalidate_ready(
+            pr_number=ready.number,
+            signal=replace(signal, source="different-source"),
+            authorization_digest="9" * 64,
+        )
     draft = resumed.invalidate_ready(
         pr_number=ready.number, signal=signal, authorization_digest="9" * 64
     )
