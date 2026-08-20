@@ -957,6 +957,43 @@ def test_lease_admission_replays_independent_evidence_after_state_save_crash(
     }
 
 
+def test_persisted_lease_with_planned_only_evidence_blocks_until_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, adapter = _controller(tmp_path)
+    admitted = controller.admit_slice(_candidate())
+    task = SpecialistTask("T-1", "v2-backend-engineer", ("src/",))
+    append = controller._append_effect_event
+
+    def crash_before_observed(
+        *,
+        action: str,
+        idempotency_key: str,
+        subject_digest: str,
+        status: str,
+        result_digest: str,
+    ) -> None:
+        if action == "issue_specialist_lease" and status == "OBSERVED":
+            raise RuntimeError("lease observation crash")
+        append(
+            action=action,
+            idempotency_key=idempotency_key,
+            subject_digest=subject_digest,
+            status=status,
+            result_digest=result_digest,
+        )
+
+    monkeypatch.setattr(controller, "_append_effect_event", crash_before_observed)
+    with pytest.raises(RuntimeError, match="lease observation crash"):
+        controller.issue_lease(task, admitted=admitted)
+
+    resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    with pytest.raises(AtomicityViolation, match="admission recovery is pending"):
+        resumed.integration_manifest()
+    lease = resumed.issue_lease(task, admitted=admitted)
+    assert lease == resumed._leases["T-1"]
+
+
 def test_specialist_admission_replays_independent_evidence_after_state_save_crash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -992,6 +1029,55 @@ def test_specialist_admission_replays_independent_evidence_after_state_save_cras
         AtomicImplementationController.load(tmp_path / "run", repository=adapter)._results["T-1"]
         == result
     )
+
+
+def test_persisted_result_with_planned_only_evidence_blocks_until_replay(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, adapter = _controller(tmp_path)
+    admitted = controller.admit_slice(_candidate())
+    lease = controller.issue_lease(
+        SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
+    )
+    append = controller._append_effect_event
+
+    def crash_before_observed(
+        *,
+        action: str,
+        idempotency_key: str,
+        subject_digest: str,
+        status: str,
+        result_digest: str,
+    ) -> None:
+        if action == "admit_specialist_result" and status == "OBSERVED":
+            raise RuntimeError("result observation crash")
+        append(
+            action=action,
+            idempotency_key=idempotency_key,
+            subject_digest=subject_digest,
+            status=status,
+            result_digest=result_digest,
+        )
+
+    monkeypatch.setattr(controller, "_append_effect_event", crash_before_observed)
+    with pytest.raises(RuntimeError, match="result observation crash"):
+        controller._admit_specialist_result(
+            lease,
+            commit_sha="e" * 40,
+            changed_paths=("src/result.py",),
+            clean=True,
+        )
+
+    resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    with pytest.raises(AtomicityViolation, match="admission recovery is pending"):
+        resumed.integration_manifest()
+    result = resumed._admit_specialist_result(
+        lease,
+        commit_sha="e" * 40,
+        changed_paths=("src/result.py",),
+        clean=True,
+    )
+    assert resumed.integration_manifest().results == (result,)
 
 
 def test_readmission_retires_planned_only_specialist_admission(

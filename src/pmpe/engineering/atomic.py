@@ -979,6 +979,8 @@ class AtomicImplementationController:
             raise AtomicityViolation("persisted repair admission evidence is missing")
         if not repair_required and self._repair_admission_digest:
             raise AtomicityViolation("persisted repair admission evidence is stale")
+        self._pending_lease_admission_keys.clear()
+        self._pending_result_admission_keys.clear()
         issued_lease_keys: set[str] = set()
         for task_id, persisted_lease in self._leases.items():
             expected_epoch = _canonical_digest(
@@ -1017,6 +1019,8 @@ class AtomicImplementationController:
                 raise AtomicityViolation(
                     "persisted specialist lease lacks independent admission evidence"
                 )
+            if len(related) == 1:
+                self._pending_lease_admission_keys.add(lease_key)
         admitted_result_keys: set[str] = set()
         for task_id, result in self._results.items():
             result_lease = self._leases.get(task_id)
@@ -1075,8 +1079,8 @@ class AtomicImplementationController:
                 raise AtomicityViolation(
                     "persisted specialist result lacks independent admission evidence"
                 )
-        self._pending_lease_admission_keys.clear()
-        self._pending_result_admission_keys.clear()
+            if len(related) == 1:
+                self._pending_result_admission_keys.add(admission_key)
         retired_lease_keys: set[str] = set()
         retired_admission_keys: set[str] = set()
         for event in self._effect_events:
