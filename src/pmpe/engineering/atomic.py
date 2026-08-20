@@ -1022,6 +1022,8 @@ class AtomicImplementationController:
             raise AtomicityViolation("specialist worktree must start at the admitted work baseline")
         root_path = Path(worktrees_root).resolve()
         with self._active_worktrees_lock:
+            self._refresh_worktree_authority()
+            self._require_live_lease(lease)
             self._load_active_worktrees()
             if lease.task.task_id in self._active_worktrees:
                 raise AtomicityViolation("task already has an active specialist worktree")
@@ -1181,6 +1183,7 @@ class AtomicImplementationController:
         _require_sha(current_tree_sha, field="current_tree_sha")
         observed_partial = {_normalize_changed_path(path) for path in partial_paths}
         with self._active_worktrees_lock:
+            self._refresh_worktree_authority()
             self._load_active_worktrees()
             for repo, worktree_path in tuple(self._active_worktrees.values()):
                 if not worktree_path.exists():
@@ -1199,7 +1202,7 @@ class AtomicImplementationController:
                     )
                 worktree_git = LocalGitAdapter(worktree_path)
                 for line in worktree_git._run(  # noqa: SLF001
-                    "status", "--porcelain"
+                    "status", "--porcelain", "--untracked-files=all"
                 ).splitlines():
                     parts = line.split(maxsplit=1)
                     raw_path = parts[1].split(" -> ")[-1] if len(parts) == 2 else ""
@@ -1214,38 +1217,38 @@ class AtomicImplementationController:
                     )
             self._active_worktrees.clear()
             self._save_active_worktrees()
-        normalized = tuple(sorted(observed_partial))
-        epochs = sorted(lease.lease_epoch_digest for lease in self._leases.values())
-        lease_epoch_digest = _canonical_digest(epochs)
-        revocation = _canonical_digest(
-            {
-                "candidate": self._admitted.candidate_digest,
-                "baseline": self._work_baseline_sha,
-                "current": current_tree_sha,
-                "partial_paths": normalized,
-                "lease_epoch_digest": lease_epoch_digest,
-                "reason": reason,
-                "status": "REVOKED",
+            normalized = tuple(sorted(observed_partial))
+            epochs = sorted(lease.lease_epoch_digest for lease in self._leases.values())
+            lease_epoch_digest = _canonical_digest(epochs)
+            revocation = _canonical_digest(
+                {
+                    "candidate": self._admitted.candidate_digest,
+                    "baseline": self._work_baseline_sha,
+                    "current": current_tree_sha,
+                    "partial_paths": normalized,
+                    "lease_epoch_digest": lease_epoch_digest,
+                    "reason": reason,
+                    "status": "REVOKED",
+                }
+            )
+            self._cancelled = True
+            self._revocation_digest = revocation
+            self._leases = {
+                task_id: replace(lease, revoked=True) for task_id, lease in self._leases.items()
             }
-        )
-        self._cancelled = True
-        self._revocation_digest = revocation
-        self._leases = {
-            task_id: replace(lease, revoked=True) for task_id, lease in self._leases.items()
-        }
-        stopped = WorkStopEvidence(
-            reason=reason,
-            workers_stopped=True,
-            active_leases=0,
-            partial_output_admissible=False,
-            baseline_tree_sha=self._work_baseline_sha,
-            current_tree_sha=current_tree_sha,
-            partial_paths=normalized,
-            lease_epoch_digest=lease_epoch_digest,
-            revocation_digest=revocation,
-        )
-        self._stop_evidence = stopped
-        self._save()
+            stopped = WorkStopEvidence(
+                reason=reason,
+                workers_stopped=True,
+                active_leases=0,
+                partial_output_admissible=False,
+                baseline_tree_sha=self._work_baseline_sha,
+                current_tree_sha=current_tree_sha,
+                partial_paths=normalized,
+                lease_epoch_digest=lease_epoch_digest,
+                revocation_digest=revocation,
+            )
+            self._stop_evidence = stopped
+            self._save()
         current_pr = self.repository.pull_request(self._admitted.pull_request.number)
         if current_pr is None:
             raise AtomicityViolation("admitted primary PR disappeared during cancellation")
@@ -1947,6 +1950,27 @@ class AtomicImplementationController:
             if not repo.is_absolute() or not worktree.is_absolute():
                 raise AtomicityViolation("active worktree registry is malformed")
             self._active_worktrees[str(task_id)] = (repo, worktree)
+
+    def _refresh_worktree_authority(self) -> None:
+        path = self.run_dir / _STATE_FILE
+        if not path.is_file():
+            raise AtomicityViolation("missing persisted worktree authority")
+        raw = json.loads(path.read_text())
+        leases = raw.get("leases")
+        attempts = raw.get("worktree_attempts")
+        if not isinstance(leases, Mapping) or not isinstance(attempts, Mapping):
+            raise AtomicityViolation("persisted worktree authority is malformed")
+        self._leases = {
+            str(task_id): _decode_lease(lease)
+            for task_id, lease in leases.items()
+            if isinstance(lease, Mapping)
+        }
+        if len(self._leases) != len(leases):
+            raise AtomicityViolation("persisted worktree authority is malformed")
+        self._worktree_attempts = {
+            str(task_id): int(attempt) for task_id, attempt in attempts.items()
+        }
+        self._cancelled = bool(raw.get("cancelled", False))
 
     def _save_active_worktrees(self) -> None:
         self.run_dir.mkdir(parents=True, exist_ok=True)

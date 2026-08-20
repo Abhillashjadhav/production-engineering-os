@@ -446,6 +446,81 @@ def test_same_task_worktree_admission_is_atomic_across_threads(tmp_path: Path) -
     assert all(not worker.is_alive() for worker in workers)
 
 
+def test_preloaded_controller_refreshes_attempt_counter_before_retry(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git = LocalGitAdapter(root)
+    git.init()
+    (root / "src").mkdir()
+    (root / "src" / "allowed.py").write_text("VALUE = 1\n")
+    planning_sha = git.commit_all("base")
+    controller, adapter = _controller(tmp_path, planning_commit_sha=planning_sha)
+    admitted = controller.admit_slice(_candidate())
+    lease = controller.issue_lease(
+        SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
+    )
+    preloaded = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+
+    with controller.specialist_worktree(
+        root, lease=lease, worktrees_root=tmp_path / "worktrees"
+    ) as first:
+        first_branch = first.branch
+    with preloaded.specialist_worktree(
+        root, lease=lease, worktrees_root=tmp_path / "worktrees"
+    ) as retry:
+        assert retry.branch != first_branch
+
+
+def test_waiting_worktree_admission_observes_locked_cancellation(tmp_path: Path) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git = LocalGitAdapter(root)
+    git.init()
+    (root / "src").mkdir()
+    (root / "src" / "allowed.py").write_text("VALUE = 1\n")
+    planning_sha = git.commit_all("base")
+    controller, _ = _controller(tmp_path, planning_commit_sha=planning_sha)
+    admitted = controller.admit_slice(_candidate())
+    lease = controller.issue_lease(
+        SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
+    )
+    authority_checked = Event()
+    rejected: list[BaseException] = []
+    original_require = controller._require_live_lease
+
+    def observed_require(candidate_lease: object) -> None:
+        original_require(candidate_lease)  # type: ignore[arg-type]
+        authority_checked.set()
+
+    controller._require_live_lease = observed_require  # type: ignore[method-assign]
+
+    def open_worktree() -> None:
+        try:
+            with controller.specialist_worktree(
+                root, lease=lease, worktrees_root=tmp_path / "worktrees"
+            ):
+                pass
+        except BaseException as exc:
+            rejected.append(exc)
+
+    worker = Thread(target=open_worktree)
+    with controller._active_worktrees_lock:
+        worker.start()
+        assert authority_checked.wait(timeout=5)
+        controller.cancel_all(
+            reason="contradictory product truth",
+            partial_paths=(),
+            current_tree_sha=planning_sha,
+        )
+    worker.join(timeout=5)
+
+    assert not worker.is_alive()
+    assert len(rejected) == 1
+    assert isinstance(rejected[0], AtomicityViolation)
+    assert "stale or revoked" in str(rejected[0])
+    assert list((tmp_path / "worktrees").glob("*")) == []
+
+
 def test_integration_manifest_rejects_an_empty_implementation(tmp_path: Path) -> None:
     controller, _ = _controller(tmp_path)
     controller.admit_slice(_candidate())
@@ -550,6 +625,8 @@ def test_cancellation_removes_active_worktree_after_preserving_dirty_paths(
     ) as worktree:
         path = worktree.path
         (path / "src" / "partial.py").write_text("VALUE = 2\n")
+        (path / "newdir").mkdir()
+        (path / "newdir" / "partial.txt").write_text("partial\n")
         stopped = controller.cancel_all(
             reason="contradictory product truth",
             partial_paths=(),
@@ -557,7 +634,7 @@ def test_cancellation_removes_active_worktree_after_preserving_dirty_paths(
         )
         assert not path.exists()
 
-    assert stopped.partial_paths == ("src/partial.py",)
+    assert stopped.partial_paths == ("newdir/partial.txt", "src/partial.py")
     assert stopped.workers_stopped is True
     assert stopped.active_leases == 0
 
