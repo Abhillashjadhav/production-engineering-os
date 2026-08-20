@@ -1124,6 +1124,8 @@ class AtomicImplementationController:
                 retired_lease_keys.add(admission_key)
             else:
                 retired_admission_keys.add(admission_key)
+        if issued_lease_keys & retired_lease_keys or admitted_result_keys & retired_admission_keys:
+            raise AtomicityViolation("persisted specialist authority was already retired")
         lease_events: dict[str, list[dict[str, object]]] = {}
         for event in self._effect_events:
             key = str(event["idempotency_key"])

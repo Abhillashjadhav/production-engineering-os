@@ -980,6 +980,28 @@ def test_load_rejects_unjournaled_published_candidate_head(tmp_path: Path) -> No
         AtomicImplementationController.load(tmp_path / "run", repository=adapter)
 
 
+def test_load_rejects_pre_repair_state_after_authority_retirement(tmp_path: Path) -> None:
+    controller, adapter, repo, _, manifest, head = _integrated_candidate(tmp_path)
+    controller.publish_candidate(
+        repo=repo,
+        manifest=manifest,
+        candidate_head_sha=head,
+        verification_digest="f" * 64,
+    )
+    state_path = tmp_path / "run" / "atomic-implementation.json"
+    stale_state = state_path.read_text()
+    controller.begin_repair_cycle(
+        exact_head_sha=head,
+        finding_inventory_digest="1" * 64,
+        repair_test_plan_digest="2" * 64,
+        meaningful_red_digest="3" * 64,
+    )
+    state_path.write_text(stale_state)
+
+    with pytest.raises(AtomicityViolation, match="already retired"):
+        AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+
+
 def test_lease_admission_replays_independent_evidence_after_state_save_crash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
