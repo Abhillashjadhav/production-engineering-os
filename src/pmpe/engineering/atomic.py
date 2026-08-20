@@ -879,6 +879,7 @@ class AtomicImplementationController:
         self._work_baseline_sha = ""
         self._leases: dict[str, SpecialistLease] = {}
         self._results: dict[str, SpecialistResult] = {}
+        self._pending_authority_retirement_keys: set[str] = set()
         self._pending_lease_admission_keys: set[str] = set()
         self._pending_result_admission_keys: set[str] = set()
         self._published_candidate_head = ""
@@ -984,6 +985,7 @@ class AtomicImplementationController:
             raise AtomicityViolation("persisted repair admission evidence is stale")
         self._pending_lease_admission_keys.clear()
         self._pending_result_admission_keys.clear()
+        self._pending_authority_retirement_keys.clear()
         issued_lease_keys: set[str] = set()
         for task_id, persisted_lease in self._leases.items():
             expected_epoch = _canonical_digest(
@@ -1086,6 +1088,9 @@ class AtomicImplementationController:
                 self._pending_result_admission_keys.add(admission_key)
         retired_lease_keys: set[str] = set()
         retired_admission_keys: set[str] = set()
+        observed_retired_lease_keys: set[str] = set()
+        observed_retired_admission_keys: set[str] = set()
+        retirement_events: dict[str, list[dict[str, object]]] = {}
         for event in self._effect_events:
             key = str(event["idempotency_key"])
             if (
@@ -1097,6 +1102,8 @@ class AtomicImplementationController:
                 and ":retire:" not in key
             ):
                 continue
+            retirement_events.setdefault(key, []).append(event)
+        for key, related in retirement_events.items():
             admission_key, separator, authority_digest = key.rpartition(":retire:")
             expected_action = (
                 "retire_specialist_lease"
@@ -1106,25 +1113,41 @@ class AtomicImplementationController:
                 else ""
             )
             if (
-                event["action"] != expected_action
-                or event["status"] != "OBSERVED"
-                or not separator
+                not separator
                 or not _DIGEST.fullmatch(authority_digest)
-                or not _DIGEST.fullmatch(str(event["result_digest"]))
-                or event["subject_digest"]
-                != _canonical_digest(
-                    {
-                        "admission_key": admission_key,
-                        "authority": authority_digest,
-                    }
+                or [event["status"] for event in related]
+                not in (["PLANNED"], ["PLANNED", "OBSERVED"])
+                or any(
+                    event["action"] != expected_action
+                    or not _DIGEST.fullmatch(str(event["result_digest"]))
+                    or event["subject_digest"]
+                    != _canonical_digest(
+                        {
+                            "admission_key": admission_key,
+                            "authority": authority_digest,
+                        }
+                    )
+                    or event["result_digest"] != related[0]["result_digest"]
+                    for event in related
                 )
             ):
                 raise AtomicityViolation("specialist authority retirement evidence is malformed")
             if expected_action == "retire_specialist_lease":
                 retired_lease_keys.add(admission_key)
+                if len(related) == 2:
+                    observed_retired_lease_keys.add(admission_key)
             else:
                 retired_admission_keys.add(admission_key)
-        if issued_lease_keys & retired_lease_keys or admitted_result_keys & retired_admission_keys:
+                if len(related) == 2:
+                    observed_retired_admission_keys.add(admission_key)
+            if len(related) == 1 and (
+                admission_key in issued_lease_keys or admission_key in admitted_result_keys
+            ):
+                self._pending_authority_retirement_keys.add(key)
+        if (
+            issued_lease_keys & observed_retired_lease_keys
+            or admitted_result_keys & observed_retired_admission_keys
+        ):
             raise AtomicityViolation("persisted specialist authority was already retired")
         lease_events: dict[str, list[dict[str, object]]] = {}
         for event in self._effect_events:
@@ -1611,6 +1634,7 @@ class AtomicImplementationController:
     def _issue_lease_locked(
         self, task: SpecialistTask, *, admitted: AdmittedSlice
     ) -> SpecialistLease:
+        self._require_no_pending_authority_retirement()
         if self._cancelled:
             raise AtomicityViolation("work authority was revoked")
         if self._admitted is None or admitted != self._admitted:
@@ -1902,10 +1926,13 @@ class AtomicImplementationController:
             related = [event for event in self._effect_events if event["idempotency_key"] == key]
             if any(
                 event["action"] != "retire_specialist_result"
-                or event["status"] != "OBSERVED"
                 or event["subject_digest"] != subject_digest
                 or event["result_digest"] != admission_digest
                 for event in related
+            ) or [event["status"] for event in related] not in (
+                [],
+                ["PLANNED"],
+                ["PLANNED", "OBSERVED"],
             ):
                 raise AtomicityViolation("specialist result retirement evidence changed")
             if not related:
@@ -1913,7 +1940,7 @@ class AtomicImplementationController:
                     action="retire_specialist_result",
                     idempotency_key=key,
                     subject_digest=subject_digest,
-                    status="OBSERVED",
+                    status="PLANNED",
                     result_digest=admission_digest,
                 )
             self._pending_result_admission_keys.discard(admission_key)
@@ -1947,10 +1974,13 @@ class AtomicImplementationController:
             related = [event for event in self._effect_events if event["idempotency_key"] == key]
             if any(
                 event["action"] != "retire_specialist_lease"
-                or event["status"] != "OBSERVED"
                 or event["subject_digest"] != subject_digest
                 or event["result_digest"] != admission_digest
                 for event in related
+            ) or [event["status"] for event in related] not in (
+                [],
+                ["PLANNED"],
+                ["PLANNED", "OBSERVED"],
             ):
                 raise AtomicityViolation("specialist lease retirement evidence changed")
             if not related:
@@ -1958,7 +1988,7 @@ class AtomicImplementationController:
                     action="retire_specialist_lease",
                     idempotency_key=key,
                     subject_digest=subject_digest,
-                    status="OBSERVED",
+                    status="PLANNED",
                     result_digest=admission_digest,
                 )
             self._pending_lease_admission_keys.discard(admission_key)
@@ -1967,7 +1997,33 @@ class AtomicImplementationController:
         self._retire_specialist_result_admissions(authority_digest=authority_digest)
         self._retire_specialist_lease_admissions(authority_digest=authority_digest)
 
+    def _observe_specialist_authority_retirements(self, *, authority_digest: str) -> None:
+        _require_digest(authority_digest, field="authority_digest")
+        self._load_effect_events()
+        suffix = f":retire:{authority_digest}"
+        retirement_keys = {
+            str(event["idempotency_key"])
+            for event in self._effect_events
+            if str(event["idempotency_key"]).endswith(suffix)
+        }
+        for key in sorted(retirement_keys):
+            related = [event for event in self._effect_events if event["idempotency_key"] == key]
+            if [event["status"] for event in related] == ["PLANNED", "OBSERVED"]:
+                continue
+            if [event["status"] for event in related] != ["PLANNED"]:
+                raise AtomicityViolation("specialist authority retirement cannot be observed")
+            planned = related[0]
+            self._append_effect_event(
+                action=str(planned["action"]),
+                idempotency_key=key,
+                subject_digest=str(planned["subject_digest"]),
+                status="OBSERVED",
+                result_digest=str(planned["result_digest"]),
+            )
+            self._pending_authority_retirement_keys.discard(key)
+
     def integration_manifest(self) -> IntegrationManifest:
+        self._require_no_pending_authority_retirement()
         if self._cancelled:
             raise AtomicityViolation("partial output is non-admissible after cancellation")
         if self._pending_lease_admission_keys or self._pending_result_admission_keys:
@@ -2024,6 +2080,7 @@ class AtomicImplementationController:
         partial_paths: Sequence[str],
         current_tree_sha: str,
     ) -> WorkStopEvidence:
+        self._require_no_pending_authority_retirement()
         if self._admitted is None:
             raise AtomicityViolation("cannot stop work before repository admission")
         if not reason.strip():
@@ -2202,19 +2259,33 @@ class AtomicImplementationController:
             "body_digest": _canonical_digest(body),
             "restored_tree_sha": restored_tree_sha,
         }
-        pull_request = self._execute_repository_effect(
-            action="update_draft_pr",
-            idempotency_key=pr_key,
-            subject=pr_subject,
-            invoke=lambda: self.repository.update_draft_pr(
-                number=current.number,
-                expected_head_sha=expected_pr_head,
-                candidate_head_sha=planning.sha,
-                body=body,
-                evidence_digest=_canonical_digest(planning_subject),
+        replayed_update = replace(current, blocked=True)
+        if (
+            not current.blocked
+            and current.head_sha == planning.sha
+            and current.body == body
+            and self._effect_observed_matches(
+                action="update_draft_pr",
                 idempotency_key=pr_key,
-            ),
-        )
+                subject=pr_subject,
+                result=replayed_update,
+            )
+        ):
+            pull_request = replayed_update
+        else:
+            pull_request = self._execute_repository_effect(
+                action="update_draft_pr",
+                idempotency_key=pr_key,
+                subject=pr_subject,
+                invoke=lambda: self.repository.update_draft_pr(
+                    number=current.number,
+                    expected_head_sha=expected_pr_head,
+                    candidate_head_sha=planning.sha,
+                    body=body,
+                    evidence_digest=_canonical_digest(planning_subject),
+                    idempotency_key=pr_key,
+                ),
+            )
         unblock_key = f"{prefix}:readmit-unblock"
         unblock_subject = {
             "issue": previous.issue.number,
@@ -2253,6 +2324,7 @@ class AtomicImplementationController:
         self._stop_evidence = None
         self._verify_admitted(self._admitted)
         self._save()
+        self._observe_specialist_authority_retirements(authority_digest=candidate.digest)
         return self._admitted
 
     def publish_candidate(
@@ -2463,6 +2535,7 @@ class AtomicImplementationController:
         blocking_findings: Sequence[str],
         authorization_digest: str,
     ) -> PullRequestRecord:
+        self._require_no_pending_authority_retirement()
         if self._cancelled:
             raise AtomicityViolation("cancelled run cannot enter readiness")
         current = self.repository.pull_request(pr_number)
@@ -2721,6 +2794,7 @@ class AtomicImplementationController:
         self._work_baseline_sha = exact_head_sha
         self._repair_admission_digest = repair_admission_digest
         self._save()
+        self._observe_specialist_authority_retirements(authority_digest=repair_admission_digest)
         return self._repair_admission_digest
 
     def _require_admitted_pr(
@@ -2741,6 +2815,7 @@ class AtomicImplementationController:
         return current
 
     def _require_live_lease(self, lease: SpecialistLease) -> None:
+        self._require_no_pending_authority_retirement()
         current = self._leases.get(lease.task.task_id)
         if (
             self._cancelled
@@ -2750,6 +2825,10 @@ class AtomicImplementationController:
             or current.lease_epoch_digest != lease.lease_epoch_digest
         ):
             raise AtomicityViolation("specialist lease is stale or revoked")
+
+    def _require_no_pending_authority_retirement(self) -> None:
+        if self._pending_authority_retirement_keys:
+            raise AtomicityViolation("specialist authority retirement recovery is pending")
 
     def _execute_repository_effect(
         self,
@@ -2961,6 +3040,7 @@ class AtomicImplementationController:
         self._admitted = persisted._admitted
         self._leases = dict(persisted._leases)
         self._results = dict(persisted._results)
+        self._pending_authority_retirement_keys = set(persisted._pending_authority_retirement_keys)
         self._pending_lease_admission_keys = set(persisted._pending_lease_admission_keys)
         self._pending_result_admission_keys = set(persisted._pending_result_admission_keys)
         self._published_candidate_head = persisted._published_candidate_head

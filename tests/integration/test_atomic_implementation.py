@@ -1002,6 +1002,117 @@ def test_load_rejects_pre_repair_state_after_authority_retirement(tmp_path: Path
         AtomicImplementationController.load(tmp_path / "run", repository=adapter)
 
 
+def test_repair_replays_after_retirement_plan_before_state_save_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, adapter, repo, _, manifest, head = _integrated_candidate(tmp_path)
+    controller.publish_candidate(
+        repo=repo,
+        manifest=manifest,
+        candidate_head_sha=head,
+        verification_digest="f" * 64,
+    )
+    repair = {
+        "exact_head_sha": head,
+        "finding_inventory_digest": "1" * 64,
+        "repair_test_plan_digest": "2" * 64,
+        "meaningful_red_digest": "3" * 64,
+    }
+
+    def crash_state_save() -> None:
+        raise RuntimeError("repair state save crash")
+
+    monkeypatch.setattr(controller, "_save", crash_state_save)
+    with pytest.raises(RuntimeError, match="repair state save crash"):
+        controller.begin_repair_cycle(**repair)
+
+    resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    with pytest.raises(AtomicityViolation, match="retirement recovery is pending"):
+        resumed.integration_manifest()
+    repair_digest = resumed.begin_repair_cycle(**repair)
+
+    reloaded = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    assert reloaded._repair_admission_digest == repair_digest
+    assert reloaded._leases == {}
+    assert reloaded._results == {}
+
+
+def test_repair_state_survives_crash_before_retirement_observation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, adapter, repo, _, manifest, head = _integrated_candidate(tmp_path)
+    controller.publish_candidate(
+        repo=repo,
+        manifest=manifest,
+        candidate_head_sha=head,
+        verification_digest="f" * 64,
+    )
+
+    def crash_before_observation(*, authority_digest: str) -> None:
+        raise RuntimeError(f"retirement observation crash {authority_digest}")
+
+    monkeypatch.setattr(
+        controller,
+        "_observe_specialist_authority_retirements",
+        crash_before_observation,
+    )
+    with pytest.raises(RuntimeError, match="retirement observation crash"):
+        controller.begin_repair_cycle(
+            exact_head_sha=head,
+            finding_inventory_digest="1" * 64,
+            repair_test_plan_digest="2" * 64,
+            meaningful_red_digest="3" * 64,
+        )
+
+    resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    assert resumed._repair_admission_digest
+    assert resumed._pending_authority_retirement_keys == set()
+    assert resumed._leases == {}
+    assert resumed._results == {}
+
+
+def test_readmission_replays_after_retirement_plan_before_state_save_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, adapter = _controller(tmp_path)
+    admitted = controller.admit_slice(_candidate())
+    lease = controller.issue_lease(
+        SpecialistTask("T-old", "v2-backend-engineer", ("src/",)), admitted=admitted
+    )
+    controller._admit_specialist_result(
+        lease,
+        commit_sha="d" * 40,
+        changed_paths=("src/old.py",),
+        clean=True,
+    )
+    controller.cancel_all(
+        reason="new product truth",
+        partial_paths=(),
+        current_tree_sha=admitted.planning_commit.sha,
+    )
+    replacement = replace(_candidate(), test_plan_digest="1" * 64, meaningful_red_digest="2" * 64)
+
+    def crash_state_save() -> None:
+        raise RuntimeError("readmission state save crash")
+
+    monkeypatch.setattr(controller, "_save", crash_state_save)
+    with pytest.raises(RuntimeError, match="readmission state save crash"):
+        controller.readmit_after_product_input(
+            replacement,
+            restored_tree_sha=admitted.planning_commit.sha,
+        )
+
+    resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    recovered = resumed.readmit_after_product_input(
+        replacement,
+        restored_tree_sha=admitted.planning_commit.sha,
+    )
+    reloaded = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    assert reloaded.admitted_slice == recovered
+    assert reloaded._leases == {}
+    assert reloaded._results == {}
+
+
 def test_lease_admission_replays_independent_evidence_after_state_save_crash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
