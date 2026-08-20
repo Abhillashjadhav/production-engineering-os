@@ -1319,45 +1319,80 @@ class AtomicImplementationController:
         if issue == admitted.issue and current == admitted.pull_request:
             return
 
-        observed_digests = {
-            str(event["result_digest"])
-            for event in self._effect_events
-            if event["status"] == "OBSERVED"
-        }
-        if issue == admitted.issue and _canonical_digest(asdict(current)) in observed_digests:
-            return
-        if (
-            self._revocation_digest
-            and _canonical_digest(
-                asdict(RepositoryBlockRecord(issue, current, self._revocation_digest))
-            )
-            in observed_digests
-        ):
-            return
-
         grouped: dict[str, list[dict[str, object]]] = {}
         for event in self._effect_events:
             grouped.setdefault(str(event["idempotency_key"]), []).append(event)
-        planned_only_actions = {
-            str(events[0]["action"])
-            for events in grouped.values()
-            if [event["status"] for event in events] == ["PLANNED"]
+        mutable_actions = {
+            "block_slice",
+            "convert_pr_to_draft",
+            "create_draft_pr",
+            "mark_pr_ready",
+            "unblock_slice",
+            "update_draft_pr",
+        }
+        mutable_events = [
+            event for event in self._effect_events if event["action"] in mutable_actions
+        ]
+        latest_key = str(mutable_events[-1]["idempotency_key"]) if mutable_events else ""
+
+        def transition_matches(
+            *,
+            action: str,
+            key: str,
+            subject_digest: str | None = None,
+            result_digest: str | None = None,
+        ) -> bool:
+            related = grouped.get(key, [])
+            statuses = [event["status"] for event in related]
+            if (
+                key != latest_key
+                or statuses not in (["PLANNED"], ["PLANNED", "OBSERVED"])
+                or any(event["action"] != action for event in related)
+                or (
+                    subject_digest is not None
+                    and any(event["subject_digest"] != subject_digest for event in related)
+                )
+            ):
+                return False
+            return statuses == ["PLANNED"] or (
+                result_digest is not None and related[-1]["result_digest"] == result_digest
+            )
+
+        current_digest = _canonical_digest(asdict(current))
+        ready_key = f"pr:{current.number}:{current.head_sha}:ready"
+        if (
+            issue == admitted.issue
+            and current == replace(admitted.pull_request, draft=False)
+            and transition_matches(
+                action="mark_pr_ready",
+                key=ready_key,
+                result_digest=current_digest,
+            )
+        ):
+            return
+        draft_prefix = f"pr:{current.number}:{current.head_sha}:draft:"
+        if (
+            issue == admitted.issue
+            and current == replace(admitted.pull_request, draft=True)
+            and latest_key.startswith(draft_prefix)
+            and _DIGEST.fullmatch(latest_key.removeprefix(draft_prefix))
+            and transition_matches(
+                action="convert_pr_to_draft",
+                key=latest_key,
+                result_digest=current_digest,
+            )
+        ):
+            return
+        block_key = f"pr:{current.number}:{current.head_sha}:block:{self._revocation_digest}"
+        block_subject = {
+            "issue": issue.number,
+            "pr": current.number,
+            "head": current.head_sha,
+            "reason": self._stop_evidence.reason if self._stop_evidence else "",
+            "revocation_digest": self._revocation_digest,
         }
         if (
-            issue == admitted.issue
-            and "mark_pr_ready" in planned_only_actions
-            and current == replace(admitted.pull_request, draft=False)
-        ):
-            return
-        if (
-            issue == admitted.issue
-            and "convert_pr_to_draft" in planned_only_actions
-            and current == replace(admitted.pull_request, draft=True)
-        ):
-            return
-        if (
             self._stop_evidence is not None
-            and "block_slice" in planned_only_actions
             and issue == replace(admitted.issue, blocked=True)
             and current
             == replace(
@@ -1367,17 +1402,14 @@ class AtomicImplementationController:
                 + f"\n## Blocked\n\n{self._stop_evidence.reason}. Evidence "
                 + f"`{self._revocation_digest}`.\n",
             )
-        ):
-            return
-        if (
-            "unblock_slice"
-            in {
-                str(event["action"])
-                for event in self._effect_events
-                if event["status"] in {"PLANNED", "OBSERVED"}
-            }
-            and issue == replace(admitted.issue, blocked=False)
-            and _canonical_digest(asdict(replace(current, blocked=True))) in observed_digests
+            and transition_matches(
+                action="block_slice",
+                key=block_key,
+                subject_digest=_canonical_digest(block_subject),
+                result_digest=_canonical_digest(
+                    asdict(RepositoryBlockRecord(issue, current, self._revocation_digest))
+                ),
+            )
         ):
             return
         body_prefix = (
@@ -1394,7 +1426,6 @@ class AtomicImplementationController:
                 head, integration_digest, verification_digest = publication.groups()
                 manifest = self.integration_manifest()
                 key = f"pr:{current.number}:{head}:publish"
-                related = grouped.get(key, [])
                 subject = {
                     "pr": current.number,
                     "expected_head": manifest.baseline_sha,
@@ -1406,11 +1437,11 @@ class AtomicImplementationController:
                 if (
                     integration_digest == manifest.digest
                     and current == replace(admitted.pull_request, head_sha=head, body=current.body)
-                    and [event["status"] for event in related] == ["PLANNED"]
-                    and all(
-                        event["action"] == "update_draft_pr"
-                        and event["subject_digest"] == _canonical_digest(subject)
-                        for event in related
+                    and transition_matches(
+                        action="update_draft_pr",
+                        key=key,
+                        subject_digest=_canonical_digest(subject),
+                        result_digest=current_digest,
                     )
                 ):
                     return
@@ -1453,28 +1484,65 @@ class AtomicImplementationController:
                 meaningful_red_digest=meaningful_red_digest,
                 test_only=True,
             )
-            key = f"{candidate.digest[:20]}:readmit-draft-pr"
-            related = grouped.get(key, [])
-            subject = {
+            update_key = f"{candidate.digest[:20]}:readmit-draft-pr"
+            update_subject = {
                 "pr": current.number,
                 "old_head": admitted.pull_request.head_sha,
                 "planning_head": current.head_sha,
                 "body_digest": _canonical_digest(current.body),
                 "restored_tree_sha": self._work_baseline_sha,
             }
+            intermediate = replace(
+                admitted.pull_request,
+                head_sha=current.head_sha,
+                body=current.body,
+            )
             if (
                 new_planning == expected_planning
-                and current
-                == replace(
-                    admitted.pull_request,
-                    head_sha=current.head_sha,
-                    body=current.body,
+                and current == intermediate
+                and transition_matches(
+                    action="update_draft_pr",
+                    key=update_key,
+                    subject_digest=_canonical_digest(update_subject),
+                    result_digest=current_digest,
                 )
-                and [event["status"] for event in related] == ["PLANNED"]
+            ):
+                return
+            update_events = grouped.get(update_key, [])
+            planning_subject = {
+                "branch": asdict(admitted.branch),
+                "restored_tree_sha": self._work_baseline_sha,
+                "test_plan_digest": test_plan_digest,
+                "meaningful_red_digest": meaningful_red_digest,
+                "test_only": True,
+            }
+            planning_digest = _canonical_digest(planning_subject)
+            unblock_key = f"{candidate.digest[:20]}:readmit-unblock"
+            unblock_subject = {
+                "issue": admitted.issue.number,
+                "pr": current.number,
+                "head": current.head_sha,
+                "planning_digest": planning_digest,
+            }
+            blocked_current = replace(current, blocked=True)
+            if (
+                new_planning == expected_planning
+                and issue == replace(admitted.issue, blocked=False)
+                and blocked_current == intermediate
+                and [event["status"] for event in update_events] == ["PLANNED", "OBSERVED"]
                 and all(
                     event["action"] == "update_draft_pr"
-                    and event["subject_digest"] == _canonical_digest(subject)
-                    for event in related
+                    and event["subject_digest"] == _canonical_digest(update_subject)
+                    for event in update_events
+                )
+                and update_events[-1]["result_digest"] == _canonical_digest(asdict(blocked_current))
+                and transition_matches(
+                    action="unblock_slice",
+                    key=unblock_key,
+                    subject_digest=_canonical_digest(unblock_subject),
+                    result_digest=_canonical_digest(
+                        asdict(RepositoryBlockRecord(issue, current, planning_digest))
+                    ),
                 )
             ):
                 return

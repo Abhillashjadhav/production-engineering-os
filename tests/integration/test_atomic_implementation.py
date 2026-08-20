@@ -948,6 +948,26 @@ def test_load_rejects_tampered_primary_pr_binding(tmp_path: Path) -> None:
         AtomicImplementationController.load(tmp_path / "run", repository=adapter)
 
 
+def test_load_rejects_remote_pr_rollback_to_historical_observed_state(tmp_path: Path) -> None:
+    controller, adapter = _controller(tmp_path)
+    original = controller.admit_slice(_candidate())
+    controller.cancel_all(
+        reason="new product truth",
+        partial_paths=(),
+        current_tree_sha=original.planning_commit.sha,
+    )
+    replacement = replace(_candidate(), test_plan_digest="1" * 64, meaningful_red_digest="2" * 64)
+    recovered = controller.readmit_after_product_input(
+        replacement,
+        restored_tree_sha=original.planning_commit.sha,
+    )
+
+    adapter.pull_requests[recovered.pull_request.number] = original.pull_request
+
+    with pytest.raises(AtomicityViolation, match="persisted admitted repository authority"):
+        AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+
+
 def test_lease_admission_replays_independent_evidence_after_state_save_crash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
