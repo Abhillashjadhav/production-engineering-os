@@ -100,6 +100,7 @@ def test_scan_tree_rejects_destructive_deployment_shell(tmp_path: Path, options:
         "/usr/bin/env bash",
         "env -i bash",
         "env - sh",
+        "env -- - sh",
         "env -i CLEAN=1 /bin/sh",
         "env -u HOME bash",
         "env --unset HOME /bin/sh",
