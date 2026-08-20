@@ -8,6 +8,7 @@ finding is explainable and reproducible.
 from __future__ import annotations
 
 import re
+import shlex
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -56,27 +57,8 @@ _RULES: tuple[_Rule, ...] = (
     ),
 )
 
-_SHELL_RULES: tuple[_Rule, ...] = (
-    _Rule(
-        "SEC_SHELL_RECURSIVE_DELETE",
-        re.compile(
-            r"\brm\b"
-            r"(?=[^;&|\n]*(?:--recursive|-[A-Za-z]*[rR][A-Za-z]*))"
-            r"(?=[^;&|\n]*(?:--force|-[A-Za-z]*f[A-Za-z]*))"
-        ),
-        "recursive forced deletion in an executable deployment script",
-    ),
-    _Rule(
-        "SEC_SHELL_REMOTE_PIPE",
-        re.compile(
-            r"\b(?:curl|wget)\b[^\n|]*\|\s*"
-            r"(?:(?:/usr/bin/)?env\s+)?(?:(?:/[\w.-]+)*/)?(?:ba)?sh\b"
-        ),
-        "remote content piped directly to a shell",
-    ),
-)
-
 _SKIP_DIRS = {".git", "__pycache__", ".venv", ".ruff_cache", ".pytest_cache"}
+_SHELL_SEPARATORS = {";", "&&", "||", "|"}
 
 
 def _shell_logical_lines(text: str) -> list[tuple[int, str]]:
@@ -97,6 +79,70 @@ def _shell_logical_lines(text: str) -> list[tuple[int, str]]:
     return logical
 
 
+def _shell_basename(token: str) -> str:
+    return token.rsplit("/", 1)[-1]
+
+
+def _shell_tokens(line: str) -> list[str]:
+    lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|")
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        return list(lexer)
+    except ValueError:
+        return []
+
+
+def _shell_rule_matches(line: str) -> list[tuple[str, str]]:
+    tokens = _shell_tokens(line)
+    matches: list[tuple[str, str]] = []
+    for index, token in enumerate(tokens):
+        if _shell_basename(token) != "rm":
+            continue
+        recursive = False
+        force = False
+        for option in tokens[index + 1 :]:
+            if option in _SHELL_SEPARATORS:
+                break
+            if option == "--":
+                break
+            if option == "--recursive":
+                recursive = True
+            elif option == "--force":
+                force = True
+            elif option.startswith("-") and not option.startswith("--"):
+                recursive = recursive or "r" in option[1:] or "R" in option[1:]
+                force = force or "f" in option[1:]
+        if recursive and force:
+            matches.append(
+                (
+                    "SEC_SHELL_RECURSIVE_DELETE",
+                    "recursive forced deletion in an executable deployment script",
+                )
+            )
+            break
+
+    for index, token in enumerate(tokens):
+        if token != "|" or not any(
+            _shell_basename(candidate) in {"curl", "wget"} for candidate in tokens[:index]
+        ):
+            continue
+        command = index + 1
+        if command >= len(tokens):
+            continue
+        if _shell_basename(tokens[command]) == "env":
+            command += 1
+            while command < len(tokens) and (
+                tokens[command].startswith("-")
+                or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", tokens[command]) is not None
+            ):
+                command += 1
+        if command < len(tokens) and _shell_basename(tokens[command]) in {"sh", "bash"}:
+            matches.append(("SEC_SHELL_REMOTE_PIPE", "remote content piped directly to a shell"))
+            break
+    return matches
+
+
 def scan_file(path: Path, root: Path | None = None) -> list[Finding]:
     """Scan one file. Test-file detection uses the path RELATIVE to ``root`` when
     given — absolute ancestors named 'tests' (e.g. a runs dir under /home/x/tests/)
@@ -105,7 +151,7 @@ def scan_file(path: Path, root: Path | None = None) -> list[Finding]:
     is_test = "tests" in rel_parts or path.name.startswith("test_")
     is_shell_like = path.suffix == ".sh" or path.name.startswith("Dockerfile")
     findings: list[Finding] = []
-    rules = _RULES + (_SHELL_RULES if is_shell_like else ())
+    rules = _RULES
     text = path.read_text()
     lines = (
         _shell_logical_lines(text) if is_shell_like else list(enumerate(text.splitlines(), start=1))
@@ -126,6 +172,21 @@ def scan_file(path: Path, root: Path | None = None) -> list[Finding]:
                         line=lineno,
                         message=rule.message,
                         rule=rule.id,
+                    )
+                )
+        if is_shell_like:
+            for rule_id, message in _shell_rule_matches(line):
+                findings.append(
+                    Finding(
+                        id=f"SEC-{len(findings) + 1:03d}",
+                        category="security",
+                        severity=Severity.CRITICAL,
+                        blocking=True,
+                        safe_to_autofix=False,
+                        file=str(path),
+                        line=lineno,
+                        message=message,
+                        rule=rule_id,
                     )
                 )
     return findings

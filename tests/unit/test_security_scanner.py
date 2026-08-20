@@ -91,7 +91,17 @@ def test_scan_tree_rejects_destructive_deployment_shell(tmp_path: Path, options:
     )
 
 
-@pytest.mark.parametrize("shell", ("sh", "/bin/sh", "/usr/bin/bash", "/usr/bin/env bash"))
+@pytest.mark.parametrize(
+    "shell",
+    (
+        "sh",
+        "/bin/sh",
+        "/usr/bin/bash",
+        "/usr/bin/env bash",
+        "env -i bash",
+        "env -i CLEAN=1 /bin/sh",
+    ),
+)
 def test_scan_tree_rejects_remote_pipe_in_dockerfile(tmp_path: Path, shell: str) -> None:
     deploy = tmp_path / "deploy"
     deploy.mkdir()
@@ -102,6 +112,13 @@ def test_scan_tree_rejects_remote_pipe_in_dockerfile(tmp_path: Path, shell: str)
         finding.rule == "SEC_SHELL_REMOTE_PIPE" and finding.file == str(dockerfile)
         for finding in findings
     )
+
+
+@pytest.mark.parametrize("command", ("rm -f build-reports", "rm -r build-files"))
+def test_scan_tree_allows_non_combined_rm_cleanup(tmp_path: Path, command: str) -> None:
+    script = tmp_path / "cleanup.sh"
+    script.write_text(f"#!/bin/sh\n{command}\n")
+    assert not any(finding.rule == "SEC_SHELL_RECURSIVE_DELETE" for finding in scan_tree(tmp_path))
 
 
 def test_findings_carry_file_and_line(tmp_path: Path) -> None:
