@@ -896,6 +896,18 @@ def test_load_rejects_tampered_specialist_result_commit_and_paths(tmp_path: Path
         AtomicImplementationController.load(tmp_path / "run", repository=adapter)
 
 
+def test_load_rejects_admitted_result_deleted_from_mutable_state(tmp_path: Path) -> None:
+    _, adapter, _, _, _, _ = _integrated_candidate(tmp_path)
+    state_path = tmp_path / "run" / "atomic-implementation.json"
+    state = json.loads(state_path.read_text())
+    del state["leases"]["T-1"]
+    del state["results"]["T-1"]
+    state_path.write_text(json.dumps(state))
+
+    with pytest.raises(AtomicityViolation, match="missing persisted authority"):
+        AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+
+
 def test_specialist_admission_replays_independent_evidence_after_state_save_crash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -918,6 +930,8 @@ def test_specialist_admission_replays_independent_evidence_after_state_save_cras
         )
 
     resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    with pytest.raises(AtomicityViolation, match="admission recovery is pending"):
+        resumed.integration_manifest()
     result = resumed._admit_specialist_result(
         lease,
         commit_sha="e" * 40,

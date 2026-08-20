@@ -863,6 +863,7 @@ class AtomicImplementationController:
         self._work_baseline_sha = ""
         self._leases: dict[str, SpecialistLease] = {}
         self._results: dict[str, SpecialistResult] = {}
+        self._pending_result_admission_keys: set[str] = set()
         self._published_candidate_head = ""
         self._repair_admission_digest = ""
         self._cancelled = False
@@ -978,6 +979,7 @@ class AtomicImplementationController:
                 or persisted_lease.lease_epoch_digest != expected_epoch
             ):
                 raise AtomicityViolation("persisted specialist lease authority is malformed")
+        admitted_result_keys: set[str] = set()
         for task_id, result in self._results.items():
             result_lease = self._leases.get(task_id)
             try:
@@ -1018,16 +1020,66 @@ class AtomicImplementationController:
                 for event in self._effect_events
                 if event["idempotency_key"] == _specialist_result_admission_key(result_lease)
             ]
+            admission_key = _specialist_result_admission_key(result_lease)
+            admitted_result_keys.add(admission_key)
+            expected_result_digest = _canonical_digest(asdict(result))
             if (
-                len(related) != 1
-                or related[0]["action"] != "admit_specialist_result"
-                or related[0]["status"] != "OBSERVED"
-                or related[0]["subject_digest"] != result.admission_digest
-                or related[0]["result_digest"] != _canonical_digest(asdict(result))
+                len(related) not in {1, 2}
+                or [event["status"] for event in related]
+                not in (["PLANNED"], ["PLANNED", "OBSERVED"])
+                or any(
+                    event["action"] != "admit_specialist_result"
+                    or event["subject_digest"] != result.admission_digest
+                    or event["result_digest"] != expected_result_digest
+                    for event in related
+                )
             ):
                 raise AtomicityViolation(
                     "persisted specialist result lacks independent admission evidence"
                 )
+        self._pending_result_admission_keys.clear()
+        retired_admission_keys: set[str] = set()
+        for event in self._effect_events:
+            key = str(event["idempotency_key"])
+            if event["action"] != "retire_specialist_result" and ":retire:" not in key:
+                continue
+            admission_key, separator, authority_digest = key.rpartition(":retire:")
+            if (
+                event["action"] != "retire_specialist_result"
+                or event["status"] != "OBSERVED"
+                or not separator
+                or not _DIGEST.fullmatch(authority_digest)
+                or not _DIGEST.fullmatch(str(event["result_digest"]))
+                or event["subject_digest"]
+                != _canonical_digest(
+                    {
+                        "admission_key": admission_key,
+                        "authority": authority_digest,
+                    }
+                )
+            ):
+                raise AtomicityViolation("specialist result retirement evidence is malformed")
+            retired_admission_keys.add(admission_key)
+        admission_events: dict[str, list[dict[str, object]]] = {}
+        for event in self._effect_events:
+            key = str(event["idempotency_key"])
+            if event["action"] == "admit_specialist_result" or (
+                key.startswith("specialist:") and key.endswith(":admit-result")
+            ):
+                admission_events.setdefault(key, []).append(event)
+        for key, related in admission_events.items():
+            if key in admitted_result_keys or key in retired_admission_keys:
+                continue
+            if (
+                len(related) == 1
+                and related[0]["action"] == "admit_specialist_result"
+                and related[0]["status"] == "PLANNED"
+            ):
+                self._pending_result_admission_keys.add(key)
+                continue
+            raise AtomicityViolation(
+                "specialist result admission ledger is missing persisted authority"
+            )
 
     def admit_slice(self, candidate: IssueCandidate) -> AdmittedSlice:
         with self._active_worktrees_lock:
@@ -1320,8 +1372,6 @@ class AtomicImplementationController:
         _require_sha(commit_sha, field="commit_sha")
         if not clean:
             raise AtomicityViolation("specialist result has a dirty worktree")
-        if lease.task.task_id in self._results:
-            raise AtomicityViolation(f"task {lease.task.task_id} already has an admitted result")
         normalized = tuple(sorted({_normalize_changed_path(path) for path in changed_paths}))
         if not normalized:
             raise AtomicityViolation("specialist result has no changed paths")
@@ -1344,16 +1394,22 @@ class AtomicImplementationController:
                 changed_paths=normalized,
             ),
         )
+        current = self._results.get(result.task_id)
+        if current is not None and current != result:
+            raise AtomicityViolation(f"task {lease.task.task_id} already has an admitted result")
         self._load_effect_events()
         key = _specialist_result_admission_key(lease)
         related = [event for event in self._effect_events if event["idempotency_key"] == key]
         result_digest = _canonical_digest(asdict(result))
         if any(
             event["action"] != "admit_specialist_result"
-            or event["status"] != "OBSERVED"
             or event["subject_digest"] != result.admission_digest
             or event["result_digest"] != result_digest
             for event in related
+        ) or [event["status"] for event in related] not in (
+            [],
+            ["PLANNED"],
+            ["PLANNED", "OBSERVED"],
         ):
             raise AtomicityViolation("specialist result admission evidence changed during replay")
         if not related:
@@ -1361,16 +1417,60 @@ class AtomicImplementationController:
                 action="admit_specialist_result",
                 idempotency_key=key,
                 subject_digest=result.admission_digest,
-                status="OBSERVED",
+                status="PLANNED",
                 result_digest=result_digest,
             )
         self._results[result.task_id] = result
         self._save()
+        if not any(event["status"] == "OBSERVED" for event in related):
+            self._append_effect_event(
+                action="admit_specialist_result",
+                idempotency_key=key,
+                subject_digest=result.admission_digest,
+                status="OBSERVED",
+                result_digest=result_digest,
+            )
+        self._pending_result_admission_keys.discard(key)
         return result
+
+    def _retire_specialist_result_admissions(self, *, authority_digest: str) -> None:
+        _require_digest(authority_digest, field="authority_digest")
+        self._load_effect_events()
+        for task_id, result in self._results.items():
+            lease = self._leases.get(task_id)
+            if lease is None:
+                raise AtomicityViolation("specialist result has no lease to retire")
+            admission_key = _specialist_result_admission_key(lease)
+            key = f"{admission_key}:retire:{authority_digest}"
+            subject_digest = _canonical_digest(
+                {
+                    "admission_key": admission_key,
+                    "authority": authority_digest,
+                }
+            )
+            related = [event for event in self._effect_events if event["idempotency_key"] == key]
+            if any(
+                event["action"] != "retire_specialist_result"
+                or event["status"] != "OBSERVED"
+                or event["subject_digest"] != subject_digest
+                or event["result_digest"] != result.admission_digest
+                for event in related
+            ):
+                raise AtomicityViolation("specialist result retirement evidence changed")
+            if not related:
+                self._append_effect_event(
+                    action="retire_specialist_result",
+                    idempotency_key=key,
+                    subject_digest=subject_digest,
+                    status="OBSERVED",
+                    result_digest=result.admission_digest,
+                )
 
     def integration_manifest(self) -> IntegrationManifest:
         if self._cancelled:
             raise AtomicityViolation("partial output is non-admissible after cancellation")
+        if self._pending_result_admission_keys:
+            raise AtomicityViolation("specialist result admission recovery is pending")
         if self._admitted is None:
             raise AtomicityViolation("repository slice has not been admitted")
         if not self._results:
@@ -1639,6 +1739,7 @@ class AtomicImplementationController:
             planning_commit=planning,
             pull_request=unblocked.pull_request,
         )
+        self._retire_specialist_result_admissions(authority_digest=candidate.digest)
         self._leases.clear()
         self._results.clear()
         self._published_candidate_head = ""
@@ -2101,11 +2202,7 @@ class AtomicImplementationController:
             ("meaningful_red_digest", meaningful_red_digest),
         ):
             _require_digest(value, field=field)
-        self._leases.clear()
-        self._results.clear()
-        self._published_candidate_head = ""
-        self._work_baseline_sha = exact_head_sha
-        self._repair_admission_digest = _canonical_digest(
+        repair_admission_digest = _canonical_digest(
             {
                 "head": exact_head_sha,
                 "finding_inventory": finding_inventory_digest,
@@ -2113,6 +2210,12 @@ class AtomicImplementationController:
                 "meaningful_red": meaningful_red_digest,
             }
         )
+        self._retire_specialist_result_admissions(authority_digest=repair_admission_digest)
+        self._leases.clear()
+        self._results.clear()
+        self._published_candidate_head = ""
+        self._work_baseline_sha = exact_head_sha
+        self._repair_admission_digest = repair_admission_digest
         self._save()
         return self._repair_admission_digest
 
@@ -2354,6 +2457,7 @@ class AtomicImplementationController:
         self._admitted = persisted._admitted
         self._leases = dict(persisted._leases)
         self._results = dict(persisted._results)
+        self._pending_result_admission_keys = set(persisted._pending_result_admission_keys)
         self._published_candidate_head = persisted._published_candidate_head
         self._repair_admission_digest = persisted._repair_admission_digest
         self._cancelled = persisted._cancelled
