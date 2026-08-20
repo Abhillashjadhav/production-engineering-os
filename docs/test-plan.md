@@ -28,6 +28,7 @@ verifies and the plan-bound command runs against the exact Git commit through th
 isolated execution kernel. Raw runner output is parsed by the versioned evidence
 adapter and admitted by the shared meaningful-red gate. Changing the plan, command,
 commit, subject tree, runner, or assertion invalidates authorization.
+There is no direct-worktree or unstructured-output fallback at this boundary.
 
 Executed traceability later evaluates every plan target. Skips, import failures,
 unexecuted nodes, and missing manual attestations never count as verified coverage.
