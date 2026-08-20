@@ -131,6 +131,8 @@ def _env_wrapped_command(tokens: list[str], command: int) -> tuple[str | None, b
             continue
         if token == "--":
             cursor += 1
+            while cursor < len(remaining) and remaining[cursor] == "-":
+                cursor += 1
             return (remaining[cursor] if cursor < len(remaining) else None), False
         if token in {"-S", "--split-string"}:
             if cursor + 1 >= len(remaining):
