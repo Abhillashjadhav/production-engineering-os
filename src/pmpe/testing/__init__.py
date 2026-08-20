@@ -2,13 +2,6 @@
 
 from pmpe.testing.architect import TestArchitect
 from pmpe.testing.compiler import TEST_PLAN_COMPILER_VERSION, TestPlanCompiler
-from pmpe.testing.evidence import (
-    MeaningfulRedAdmission,
-    MeaningfulRedGate,
-    MeaningfulRedRun,
-    RedTestExecution,
-    ToolExecutionReceipt,
-)
 from pmpe.testing.models import (
     TEST_PLAN_SCHEMA_VERSION,
     CoverageEntry,
@@ -34,10 +27,6 @@ __all__ = [
     "TEST_PLAN_SCHEMA_VERSION",
     "CoverageEntry",
     "ImplementationAuthorization",
-    "MeaningfulRedAdmission",
-    "MeaningfulRedGate",
-    "MeaningfulRedRun",
-    "RedTestExecution",
     "RepositoryTestCapability",
     "TestArchitect",
     "TestClass",
@@ -52,5 +41,4 @@ __all__ = [
     "TestPlanNotAdmitted",
     "TestPlanReceipt",
     "TestPlanStore",
-    "ToolExecutionReceipt",
 ]

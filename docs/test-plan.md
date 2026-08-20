@@ -16,15 +16,18 @@ The plan:
 - selects or explicitly marks not applicable the unit, integration, end-to-end,
   migration, performance, accessibility, security/privacy, and release classes;
 - distinguishes automated execution and interpretation from named manual evidence;
-- blocks when a selected class has no command, locked tool, or configuration path
-  observed in the exact repository snapshot;
+- blocks when a selected class has no command, locked tool, configuration path,
+  or structured evidence format admitted by the trusted evidence registry;
 - binds meaningful-red evidence to the plan digest, toolchain digest, pre-code commit,
   intended test node, and intended assertion; and
 - makes any manual technical evidence visible as an autonomy intervention.
 
-`TestPlanStore` persists one immutable plan per run. It returns an implementation
-authorization only after the exact persisted plan passes meaningful-red admission.
-Changing the plan changes its digest and invalidates the earlier red run.
+`TestPlanStore` persists one immutable plan and its durable compiler-admission
+receipt per run. It returns an implementation authorization only after the receipt
+verifies and the plan-bound command runs against the exact Git commit through the
+isolated execution kernel. Raw runner output is parsed by the versioned evidence
+adapter and admitted by the shared meaningful-red gate. Changing the plan, command,
+commit, subject tree, runner, or assertion invalidates authorization.
 
 Executed traceability later evaluates every plan target. Skips, import failures,
 unexecuted nodes, and missing manual attestations never count as verified coverage.

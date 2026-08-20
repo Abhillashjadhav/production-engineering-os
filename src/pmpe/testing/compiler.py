@@ -13,6 +13,8 @@ from jsonschema import Draft202012Validator
 from pmpe.architecture.models import ArchitecturePack
 from pmpe.config import packaged_schema_dir
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
+from pmpe.evidence import EvidenceAdapterRegistry, EvidenceError, default_adapter_registry
+from pmpe.execution import ExecutionCommand, ExecutionError
 from pmpe.repository.models import RepositorySnapshot
 
 from .models import (
@@ -152,9 +154,10 @@ def _is_canonical_capability(value: Any) -> bool:
 
 
 class TestPlanCompiler:
-    def __init__(self) -> None:
+    def __init__(self, registry: EvidenceAdapterRegistry | None = None) -> None:
         schema = packaged_schema_dir() / "test_plan.schema.json"
         self._schema = Draft202012Validator(json.loads(schema.read_text()))
+        self._registry = registry or default_adapter_registry()
 
     def compile(
         self,
@@ -315,13 +318,20 @@ class TestPlanCompiler:
                     *capability.observed_paths,
                 )
                 interpretation_mode = "AUTOMATED"
+            assertion_id = f"ASSERT-{node_id}"
+            expected_test_node = (
+                "tests/generated/test_plan.py::GeneratedPlanTests::"
+                f"test_{node_id.lower().replace('-', '_')}"
+            )
+            if capability is not None and capability.evidence_format == "tap13/v1":
+                expected_test_node = f"{node_id} [assertion:{assertion_id}]"
             nodes.append(
                 TestPlanNode(
                     node_id=node_id,
                     test_class=test_class,
                     target_refs=tuple(sorted(set(target_refs))),
                     assertion=assertion,
-                    assertion_id=f"ASSERT-{node_id}",
+                    assertion_id=assertion_id,
                     fixture=f"synthetic:{min(target_refs)}",
                     environment=environment,
                     owner=owner,
@@ -330,10 +340,7 @@ class TestPlanCompiler:
                     evidence_expectation=evidence_expectation,
                     toolchain_refs=toolchain_refs,
                     command=command,
-                    expected_test_node=(
-                        "tests.generated.test_plan.GeneratedPlanTests."
-                        f"test_{node_id.lower().replace('-', '_')}"
-                    ),
+                    expected_test_node=expected_test_node,
                     meaningful_red_required=(
                         execution_mode == "AUTOMATED" and test_class is not TestClass.RELEASE
                     ),
@@ -563,6 +570,24 @@ class TestPlanCompiler:
                         path + "/command",
                         "Executable capability command selects a non-executing tool mode.",
                         "Record a repository-backed invocation that executes the planned tests.",
+                    )
+                )
+                continue
+            try:
+                command = ExecutionCommand(capability.command)
+                adapter = self._registry.resolve(
+                    capability.tool,
+                    capability.evidence_format,
+                )
+                if not adapter.supports(command):
+                    raise EvidenceError("command is not admitted by the evidence adapter")
+            except (EvidenceError, ExecutionError) as exc:
+                diagnostics.append(
+                    _diagnostic(
+                        "TESTPLAN.TOOLCHAIN.EVIDENCE_REGISTRY",
+                        path + "/evidence_format",
+                        (f"Capability is not supported by the trusted evidence registry: {exc}"),
+                        "Use a registry-backed command and structured evidence format.",
                     )
                 )
                 continue

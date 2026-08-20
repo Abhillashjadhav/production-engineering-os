@@ -7,8 +7,15 @@ import json
 from pathlib import Path
 
 from pmpe.contracts import canonical_digest, diff_contracts, load_contract
+from pmpe.contracts.authoring import (
+    approve_contract_draft,
+    build_contract_draft,
+    load_json_object,
+    write_json_atomic,
+)
 from pmpe.contracts.change_request import ChangeRequestStore
 from pmpe.domain.serialize import jsonable
+from pmpe.engineering.handoff import start_approved_run
 
 
 def _cmd_contract_validate(args: argparse.Namespace) -> int:
@@ -42,6 +49,74 @@ def _cmd_contract_diff(args: argparse.Namespace) -> int:
     ):
         for entry in entries:
             print(f"{label}: {entry}")
+    return 0
+
+
+def _cmd_contract_draft(args: argparse.Namespace) -> int:
+    result = build_contract_draft(load_json_object(Path(args.answers)))
+    output = Path(args.output)
+    output.mkdir(parents=True, exist_ok=True)
+    write_json_atomic(
+        output / "source-map.json",
+        {"schema_version": "1.0.0", "source_map": result.source_map},
+    )
+    if result.draft is None:
+        write_json_atomic(
+            output / "blocking-questions.json",
+            {
+                "questions": [question.as_dict() for question in result.blocking_questions],
+                "schema_version": "1.0.0",
+                "status": result.status,
+            },
+        )
+        print(f"product input required: {len(result.blocking_questions)} blocking question(s)")
+        print(f"questions: {output / 'blocking-questions.json'}")
+        return 3
+    write_json_atomic(output / "contract-draft.json", result.draft)
+    write_json_atomic(
+        output / "draft-summary.json",
+        {
+            "contract_id": result.draft["contract_id"],
+            "contract_version": result.draft["contract_version"],
+            "draft_digest": result.draft_digest,
+            "schema_version": "1.0.0",
+            "status": result.status,
+        },
+    )
+    print(f"draft ready: {output / 'contract-draft.json'}")
+    print(f"approve exact digest: {result.draft_digest}")
+    return 0
+
+
+def _cmd_contract_approve(args: argparse.Namespace) -> int:
+    result = approve_contract_draft(
+        load_json_object(Path(args.draft)),
+        expected_draft_digest=args.expected_digest,
+        approver=args.approver,
+        approved_at=args.approved_at,
+    )
+    output = Path(args.output)
+    output.mkdir(parents=True, exist_ok=True)
+    contract_path = output / "contract-approved.json"
+    receipt_path = output / "approval-receipt.json"
+    write_json_atomic(contract_path, result.contract)
+    write_json_atomic(receipt_path, result.receipt)
+    print(f"approved contract: {contract_path}")
+    print(f"approval receipt: {receipt_path}")
+    print(f"approved contract digest: {result.receipt['approved_contract_digest']}")
+    return 0
+
+
+def _cmd_contract_handoff(args: argparse.Namespace) -> int:
+    run = start_approved_run(
+        contract_path=Path(args.contract),
+        receipt_path=Path(args.receipt),
+        expected_approver=args.expected_approver,
+        run_dir=Path(args.run_dir),
+        agents_dir=Path(args.agents_dir),
+    )
+    print(f"engineering run started: {run.status()['run_id']}")
+    print(f"contract locked: {run.contract_digest}")
     return 0
 
 
@@ -97,6 +172,33 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     p.add_argument("old")
     p.add_argument("new")
     p.set_defaults(fn=_cmd_contract_diff)
+
+    p = contract_sub.add_parser(
+        "draft", help="compile guided product answers into a reviewable draft contract"
+    )
+    p.add_argument("--answers", required=True)
+    p.add_argument("--output", required=True)
+    p.set_defaults(fn=_cmd_contract_draft)
+
+    p = contract_sub.add_parser(
+        "approve", help="approve a draft bound to its exact reviewed digest"
+    )
+    p.add_argument("--draft", required=True)
+    p.add_argument("--expected-digest", required=True)
+    p.add_argument("--approver", required=True)
+    p.add_argument("--approved-at", required=True)
+    p.add_argument("--output", required=True)
+    p.set_defaults(fn=_cmd_contract_approve)
+
+    p = contract_sub.add_parser(
+        "handoff", help="lock an approved contract and start the PEOS engineering run"
+    )
+    p.add_argument("--contract", required=True)
+    p.add_argument("--receipt", required=True)
+    p.add_argument("--expected-approver", required=True)
+    p.add_argument("--run-dir", required=True)
+    p.add_argument("--agents-dir", default=".claude/agents")
+    p.set_defaults(fn=_cmd_contract_handoff)
 
     p_pcr = sub.add_parser("change-request", help="ProductChangeRequest operations")
     pcr_sub = p_pcr.add_subparsers(dest="pcr_command", required=True)

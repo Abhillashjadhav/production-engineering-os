@@ -29,3 +29,13 @@
 ## Evidence
 
 <!-- Command output, screenshots, or run artifacts (e.g. pytest tail, a run_id). -->
+
+## Exact-head review admission
+
+<!-- Do not mark RELEASE_READY or merge until every item is backed by GitHub evidence. -->
+
+- [ ] Current head SHA recorded: `________________________`
+- [ ] Required CI is green for that exact head
+- [ ] `PR Review Agent / review` is green for that exact head
+- [ ] No unresolved current P0/P1/P2 Codex thread
+- [ ] Named human release owner has made the merge decision

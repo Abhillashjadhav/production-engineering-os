@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import hmac
 import json
 import os
 import subprocess
@@ -13,9 +15,12 @@ from typing import Any
 
 import pytest
 
+from pmpe.admission import FileArtifactAdmissionAuthority, FileArtifactAdmissionVerifier
 from pmpe.architecture.models import ArchitecturePack
 from pmpe.audit.executed import build_executed_plan_traceability
 from pmpe.contracts.canonical import canonical_digest
+from pmpe.contracts.intake import KeyedFingerprint
+from pmpe.execution import CommandOutcome, ExecutionCommand, ExecutionPolicy
 from pmpe.quality.test_evidence import TestEvidence, TestExecution
 from pmpe.repository.models import (
     AdapterMetadata,
@@ -150,29 +155,31 @@ def _architecture(contract: dict[str, Any], snapshot: RepositorySnapshot) -> Arc
 
 def _capabilities() -> tuple[Any, ...]:
     api = _api()
+    command = (
+        "pytest",
+        "--json-report",
+        "--json-report-file=/dev/stdout",
+        "--noconftest",
+        "-c",
+        "/dev/null",
+        "-p",
+        "no:terminal",
+        "-p",
+        "xdist.plugin",
+        "--numprocesses=1",
+        "--dist=loadscope",
+        "--max-worker-restart=0",
+    )
     return tuple(
         api.RepositoryTestCapability(
             test_class=test_class,
-            command=(
-                "bandit" if test_class is api.TestClass.SECURITY_PRIVACY else "pytest",
-                "-q",
-            ),
+            command=command,
             environment="ci",
-            tool=("bandit" if test_class is api.TestClass.SECURITY_PRIVACY else "pytest"),
-            evidence_format="PMPE_TEST_EVIDENCE_V1",
+            tool="pytest",
+            evidence_format="pytest-json-report/v1",
             observed_paths=("pyproject.toml",),
         )
         for test_class in api.TestClass
-        if test_class is not api.TestClass.ACCESSIBILITY
-    ) + (
-        api.RepositoryTestCapability(
-            test_class=api.TestClass.ACCESSIBILITY,
-            command=("playwright", "test"),
-            environment="ci-browser",
-            tool="playwright",
-            evidence_format="PMPE_TEST_EVIDENCE_V1",
-            observed_paths=("pyproject.toml",),
-        ),
     )
 
 
@@ -224,10 +231,89 @@ def _compile_with_snapshot(
 
 
 def _pytest_capabilities() -> tuple[Any, ...]:
-    return tuple(
-        replace(capability, command=("pytest", "-q"), tool="pytest")
-        for capability in _capabilities()
+    return _capabilities()
+
+
+class _FingerprintProvider:
+    key_version = "test-v1"
+
+    def fingerprint(self, domain: str, payload: bytes) -> str:
+        return hmac.new(
+            b"issue-67-test-key", domain.encode() + b"\0" + payload, hashlib.sha256
+        ).hexdigest()
+
+    def candidate_fingerprints(self, domain: str, payload: bytes) -> tuple[KeyedFingerprint, ...]:
+        return (KeyedFingerprint(self.key_version, self.fingerprint(domain, payload)),)
+
+
+class _PlanSandbox:
+    identity = "test-plan-fixture-sandbox/1"
+
+    def __init__(self, plan: Any | None, *, failures: bool) -> None:
+        self.plan = plan
+        self.failures = failures
+        self.commands: list[tuple[str, ...]] = []
+
+    def run(
+        self,
+        workspace: Path,
+        command: ExecutionCommand,
+        policy: ExecutionPolicy,
+    ) -> CommandOutcome:
+        del workspace, policy
+        if self.plan is None:
+            raise AssertionError("authorization sandbox has no admitted plan")
+        self.commands.append(command.argv)
+        nodes = [
+            node
+            for node in self.plan.nodes
+            if node.command == command.argv
+            and node.status == "PLANNED"
+            and node.execution_mode == "AUTOMATED"
+            and node.meaningful_red_required
+        ]
+        tests = []
+        for node in nodes:
+            outcome = "failed" if self.failures else "passed"
+            call: dict[str, Any] = {"outcome": outcome}
+            if self.failures:
+                call["crash"] = {
+                    "message": (f"AssertionError: [assertion:{node.assertion_id}] planned failure")
+                }
+            tests.append(
+                {
+                    "nodeid": node.expected_test_node,
+                    "outcome": outcome,
+                    "user_properties": [["assertion_id", node.assertion_id]],
+                    "call": call,
+                }
+            )
+        payload = json.dumps({"exitcode": 1 if self.failures else 0, "tests": tests}).encode()
+        return CommandOutcome(
+            1 if self.failures else 0,
+            payload,
+            b"",
+            resolved_executable="/usr/bin/pytest",
+        )
+
+
+def _new_store(
+    run_dir: Path,
+    plan: Any | None = None,
+    *,
+    failures: bool = True,
+) -> tuple[Any, _PlanSandbox]:
+    provider = _FingerprintProvider()
+    receipts = run_dir.parent / f"{run_dir.name}-authority"
+    sandbox = _PlanSandbox(plan, failures=failures)
+    store = _api().TestPlanStore(
+        run_dir,
+        authority=FileArtifactAdmissionAuthority(receipts, provider),
+        verifier=FileArtifactAdmissionVerifier(receipts, provider),
+        sandbox=sandbox,
+        policy=ExecutionPolicy(timeout_seconds=5, max_output_bytes=1024 * 1024),
     )
+    return store, sandbox
 
 
 def _store_admit(
@@ -274,14 +360,15 @@ def test_valid_plan_is_deterministic_digest_bound_and_complete() -> None:
     assert {decision.test_class for decision in first.plan.class_decisions} == set(_api().TestClass)
 
 
-def test_generated_test_node_ids_are_valid_unittest_identifiers() -> None:
+def test_generated_test_node_ids_are_valid_pytest_node_ids() -> None:
     result = _compile()
     assert result.plan is not None
 
     for node in result.plan.nodes:
-        parts = node.expected_test_node.split(".")
-        assert parts[-2] == "GeneratedPlanTests"
-        assert all(part.isidentifier() for part in parts)
+        path, class_name, method = node.expected_test_node.split("::")
+        assert path == "tests/generated/test_plan.py"
+        assert class_name == "GeneratedPlanTests"
+        assert method.isidentifier()
 
 
 def test_capability_order_does_not_change_compiler_identity() -> None:
@@ -404,6 +491,22 @@ def test_capability_command_must_execute_tests(command: tuple[str, ...]) -> None
     assert result.disposition.value == "BLOCKED"
     assert any(
         item.rule_id == "TESTPLAN.TOOLCHAIN.NON_EXECUTING_COMMAND" for item in result.diagnostics
+    )
+
+
+def test_capability_must_be_supported_by_trusted_evidence_registry() -> None:
+    capabilities = list(_capabilities())
+    capabilities[0] = replace(
+        capabilities[0],
+        command=("pytest", "-q"),
+        evidence_format="PMPE_TEST_EVIDENCE_V1",
+    )
+
+    result = _compile(capabilities=tuple(capabilities))
+
+    assert result.disposition.value == "BLOCKED"
+    assert any(
+        item.rule_id == "TESTPLAN.TOOLCHAIN.EVIDENCE_REGISTRY" for item in result.diagnostics
     )
 
 
@@ -662,129 +765,6 @@ def test_unproven_toolchain_capability_fails_closed(mutation: Any, rule_id: str)
     assert any(item.rule_id == rule_id for item in result.diagnostics)
 
 
-def _red_run(plan: Any) -> Any:
-    api = _api()
-    executions = tuple(
-        api.RedTestExecution(
-            plan_node_id=node.node_id,
-            test_node_id=node.expected_test_node,
-            outcome="FAILED",
-            failure_kind="ASSERTION",
-            observed_assertion_id=node.assertion_id,
-        )
-        for node in plan.nodes
-        if node.status == "PLANNED"
-        and node.execution_mode == "AUTOMATED"
-        and node.meaningful_red_required
-    )
-    return api.MeaningfulRedRun(
-        test_plan_digest=plan.plan_digest,
-        commit_sha="c" * 40,
-        toolchain_digest=plan.toolchain_digest,
-        executions=executions,
-        tool_executions=tuple(
-            api.ToolExecutionReceipt(
-                command=command,
-                returncode=1,
-                stdout_digest=canonical_digest({"output": "red"}),
-                stderr_digest=canonical_digest({"output": ""}),
-            )
-            for command in sorted(
-                {
-                    node.command
-                    for node in plan.nodes
-                    if node.status == "PLANNED"
-                    and node.execution_mode == "AUTOMATED"
-                    and node.command
-                }
-            )
-        ),
-    )
-
-
-def test_meaningful_red_admits_exact_assertion_failures() -> None:
-    result = _compile()
-    assert result.plan is not None
-
-    admission = (
-        _api()
-        .MeaningfulRedGate()
-        .validate(result.plan, _red_run(result.plan), expected_commit_sha="c" * 40)
-    )
-
-    assert admission.admitted
-    assert admission.diagnostics == ()
-
-
-@pytest.mark.parametrize(
-    ("mutation", "rule_id"),
-    [
-        (
-            lambda run: replace(
-                run,
-                executions=(replace(run.executions[0], failure_kind="IMPORT"),)
-                + run.executions[1:],
-            ),
-            "RED.FAILURE_KIND",
-        ),
-        (
-            lambda run: replace(
-                run,
-                executions=(replace(run.executions[0], outcome="SKIPPED"),) + run.executions[1:],
-            ),
-            "RED.SKIPPED",
-        ),
-        (
-            lambda run: replace(
-                run,
-                executions=(replace(run.executions[0], outcome="PASSED"),) + run.executions[1:],
-            ),
-            "RED.VACUOUS",
-        ),
-        (
-            lambda run: replace(
-                run,
-                executions=(replace(run.executions[0], observed_assertion_id="WRONG"),)
-                + run.executions[1:],
-            ),
-            "RED.ASSERTION",
-        ),
-        (
-            lambda run: replace(run, executions=run.executions[1:]),
-            "RED.MISSING",
-        ),
-    ],
-)
-def test_meaningful_red_rejects_false_red(mutation: Any, rule_id: str) -> None:
-    result = _compile()
-    assert result.plan is not None
-    run = mutation(_red_run(result.plan))
-
-    admission = _api().MeaningfulRedGate().validate(result.plan, run, expected_commit_sha="c" * 40)
-
-    assert not admission.admitted
-    assert any(item.rule_id == rule_id for item in admission.diagnostics)
-
-
-def test_changed_plan_or_wrong_commit_invalidates_red_evidence() -> None:
-    result = _compile()
-    assert result.plan is not None
-    run = _red_run(result.plan)
-
-    wrong_plan = replace(result.plan, plan_digest="sha256:" + "0" * 64)
-    wrong_plan_result = (
-        _api().MeaningfulRedGate().validate(wrong_plan, run, expected_commit_sha="c" * 40)
-    )
-    wrong_commit_result = (
-        _api().MeaningfulRedGate().validate(result.plan, run, expected_commit_sha="d" * 40)
-    )
-
-    assert not wrong_plan_result.admitted
-    assert any(item.rule_id == "RED.PLAN_DIGEST" for item in wrong_plan_result.diagnostics)
-    assert not wrong_commit_result.admitted
-    assert any(item.rule_id == "RED.COMMIT" for item in wrong_commit_result.diagnostics)
-
-
 def _runner_workspace(
     tmp_path: Path,
     plan: Any,
@@ -801,7 +781,7 @@ def _runner_workspace(
     for node in plan.nodes:
         if not node.meaningful_red_required or node.execution_mode != "AUTOMATED":
             continue
-        method = node.expected_test_node.rsplit(".", 1)[-1]
+        method = node.expected_test_node.rsplit("::", 1)[-1]
         statement = f'self.fail("{node.assertion_id}")' if failures else "self.assertTrue(True)"
         methods.extend((f"    def {method}(self):", f"        {statement}", ""))
     (generated / "test_plan.py").write_text(
@@ -844,7 +824,7 @@ def test_plan_must_be_persisted_before_implementation_authorization(tmp_path: Pa
     snapshot = _snapshot_at(commit)
     result = _compile_with_snapshot(snapshot, capabilities=_pytest_capabilities())
     assert result.plan is not None
-    store = _api().TestPlanStore(tmp_path / "run")
+    store, _sandbox = _new_store(tmp_path / "run", result.plan)
 
     with pytest.raises(_api().TestPlanNotAdmitted):
         store.authorize_implementation(
@@ -878,12 +858,32 @@ def test_implementation_authorization_ignores_self_asserted_red_claims(tmp_path:
     snapshot = _snapshot_at(commit)
     result = _compile_with_snapshot(snapshot, capabilities=_pytest_capabilities())
     assert result.plan is not None
-    store = _api().TestPlanStore(tmp_path / "run")
+    store, _sandbox = _new_store(tmp_path / "run", result.plan, failures=False)
     _store_admit(store, snapshot=snapshot, capabilities=_pytest_capabilities())
-    forged = _red_run(result.plan)
-    assert forged.executions and all(item.outcome == "FAILED" for item in forged.executions)
 
-    with pytest.raises(_api().TestPlanNotAdmitted, match="RED.VACUOUS"):
+    with pytest.raises(_api().TestPlanNotAdmitted, match="vacuous result"):
+        store.authorize_implementation(
+            result.plan,
+            workspace=workspace,
+            expected_commit_sha=commit,
+        )
+
+
+def test_authorization_rejects_tampered_compiler_admission_receipt(tmp_path: Path) -> None:
+    preliminary = _compile(capabilities=_pytest_capabilities())
+    assert preliminary.plan is not None
+    workspace, commit = _runner_workspace(tmp_path, preliminary.plan, failures=True)
+    snapshot = _snapshot_at(commit)
+    result = _compile_with_snapshot(snapshot, capabilities=_pytest_capabilities())
+    assert result.plan is not None
+    store, _sandbox = _new_store(tmp_path / "run", result.plan)
+    _store_admit(store, snapshot=snapshot, capabilities=_pytest_capabilities())
+    receipt_path = tmp_path / "run" / "test-plan.receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    receipt["fingerprint"] = "0" * 64
+    receipt_path.write_text(json.dumps(receipt))
+
+    with pytest.raises(_api().TestPlanNotAdmitted, match="admission"):
         store.authorize_implementation(
             result.plan,
             workspace=workspace,
@@ -894,7 +894,7 @@ def test_implementation_authorization_ignores_self_asserted_red_claims(tmp_path:
 def test_authorization_requires_the_plan_repository_commit(tmp_path: Path) -> None:
     result = _compile()
     assert result.plan is not None
-    store = _api().TestPlanStore(tmp_path / "run")
+    store, _sandbox = _new_store(tmp_path / "run", result.plan)
     _store_admit(store)
     workspace, commit = _runner_workspace(tmp_path, result.plan, failures=True)
     assert commit != result.plan.repository_commit
@@ -919,7 +919,7 @@ def test_authorization_executes_the_admitted_plan_command(tmp_path: Path) -> Non
     snapshot = _snapshot_at(commit)
     result = _compile_with_snapshot(snapshot, capabilities=_pytest_capabilities())
     assert result.plan is not None
-    store = _api().TestPlanStore(tmp_path / "run")
+    store, sandbox = _new_store(tmp_path / "run", result.plan)
     _store_admit(store, snapshot=snapshot, capabilities=_pytest_capabilities())
 
     store.authorize_implementation(
@@ -928,7 +928,8 @@ def test_authorization_executes_the_admitted_plan_command(tmp_path: Path) -> Non
         expected_commit_sha=commit,
     )
 
-    assert (workspace / "pytest-command-ran").read_text() == "executed"
+    assert sandbox.commands == [result.plan.nodes[0].command, result.plan.nodes[0].command]
+    assert not (workspace / "pytest-command-ran").exists()
 
 
 def test_store_rejects_a_caller_constructed_admitted_plan(tmp_path: Path) -> None:
@@ -975,7 +976,7 @@ def test_implementation_authorization_rejects_a_persisted_blocked_plan(tmp_path:
 def test_plan_store_is_idempotent_and_refuses_overwrite(tmp_path: Path) -> None:
     result = _compile()
     assert result.plan is not None
-    store = _api().TestPlanStore(tmp_path / "run")
+    store, _sandbox = _new_store(tmp_path / "run", result.plan)
 
     first = _store_admit(store)
     second = _store_admit(store)
@@ -1000,7 +1001,8 @@ def test_plan_store_rejects_a_symlinked_plan_without_reading_its_target(
     (run_dir / "test-plan.json").symlink_to(outside)
 
     with pytest.raises(_api().TestPlanNotAdmitted):
-        _store_admit(_api().TestPlanStore(run_dir))
+        store, _sandbox = _new_store(run_dir, result.plan)
+        _store_admit(store)
 
     assert outside.read_bytes() == result.plan.canonical_bytes()
 
@@ -1017,7 +1019,8 @@ def test_plan_store_rejects_a_symlinked_run_directory_without_writing_outside(
     run_dir.symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(_api().TestPlanNotAdmitted):
-        _store_admit(_api().TestPlanStore(run_dir))
+        store, _sandbox = _new_store(run_dir, result.plan)
+        _store_admit(store)
 
     assert not (outside / "test-plan.json").exists()
 

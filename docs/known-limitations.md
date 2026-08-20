@@ -92,3 +92,16 @@ Explicit, reviewed, and deliberate — each was weighed during the independent r
     that have no `.claude/agents` definition yet; routing to them fails closed
     until a definition exists (selecting an undefined specialist is a
     RoutingError by design).
+
+## Personal runtime assurance
+
+17. **Runtime connectors are protocols plus deterministic local fakes.** Calendar, product
+    worker, and recoverable-operation interfaces are ready for provider implementations, but
+    no real calendar, model, or external action connector ships in issue #121.
+18. **Registry and approval serialization is process-local.** The JSONL event chain detects
+    alteration on read and serializes threads sharing one registry instance. Multi-process or
+    distributed use needs an append service or operating-system lock. Calendar approval
+    consumption is also in memory; a real adapter needs a durable single-use receipt store.
+19. **Learning proposals require human admission.** Failed evals generate reviewable proposed
+    regression cases. They are intentionally not installed, executed, or promoted into the
+    canonical eval suite automatically.

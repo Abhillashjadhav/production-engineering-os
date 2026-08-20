@@ -23,6 +23,29 @@ validation, but PEOS cannot yet admit a natively authored canonical bundle into
 engineering. That production intake gap is an explicit blocker, not permission
 to relabel canonical content as a legacy version or bypass durable intake.
 
+**Working V2 authoring seam:** PMOS can now turn a complete guided answers file into a
+schema-valid DRAFT ProductDecisionContract, return only blocking product questions when
+truth is missing or inconsistent, record explicit approval bound to the reviewed draft
+digest, and hand the resulting APPROVED contract to `EngineeringRun`:
+
+```bash
+pmpe contract draft --answers answers.json --output /tmp/pmos-authoring
+pmpe contract approve \
+  --draft /tmp/pmos-authoring/contract-draft.json \
+  --expected-digest sha256:<reviewed-digest> \
+  --approver <named-product-owner> \
+  --approved-at 2026-08-19T12:00:00Z \
+  --output /tmp/pmos-approved
+pmpe contract handoff \
+  --contract /tmp/pmos-approved/contract-approved.json \
+  --receipt /tmp/pmos-approved/approval-receipt.json \
+  --expected-approver <named-product-owner> \
+  --run-dir /tmp/pmpe-engineering-run
+```
+
+This closes the currently executable PMOS-to-PEOS V2 seam. It does not remove the separate
+native canonical-bundle intake gap described above.
+
 ## Ownership boundary
 
 PMOS or an explicitly named product authority owns product truth: the problem,

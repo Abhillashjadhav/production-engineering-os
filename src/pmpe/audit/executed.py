@@ -107,7 +107,7 @@ def build_executed_traceability(
     evidence: TestEvidence,
     blocked_requirements: set[str],
 ) -> ExecutedTraceabilityReport:
-    executed = evidence.by_node()
+    executed = {normalize_node_id(node): item for node, item in evidence.by_node().items()}
     import_dead_modules = [
         node.removeprefix(_FAILED_TEST_PREFIX)
         for node in executed
@@ -189,7 +189,7 @@ def build_executed_plan_traceability(
 ) -> ExecutedPlanTraceabilityReport:
     """Bind executed and manual evidence to every criterion/risk/guardrail plan target."""
 
-    executed = evidence.by_node()
+    executed = {normalize_node_id(node): item for node, item in evidence.by_node().items()}
     entries: list[PlanEvidenceEntry] = []
     priority = {
         "VERIFIED": 0,

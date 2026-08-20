@@ -10,7 +10,10 @@ def test_review_agent_fails_closed_without_exact_head_codex_evidence() -> None:
     assert "scripts/verify_codex_review.py" in workflow
     assert "CLAUDE_CODE_OAUTH_TOKEN" not in workflow
     assert "anthropics/claude-code-action" not in workflow
-    assert "if: github.event.pull_request.draft == false" in workflow
+    assert "if: github.event.pull_request.draft == false" not in workflow
+    assert "Refuse skipped review admission" in workflow
+    assert "draft PR is not review-admitted" in workflow
+    assert "fork PR requires an explicitly supported trusted review path" in workflow
 
 
 def test_review_agent_only_reviews_exact_non_draft_candidates() -> None:

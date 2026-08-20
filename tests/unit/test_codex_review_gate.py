@@ -122,10 +122,26 @@ def test_exact_bot_review_is_clean_evidence_only_for_the_current_head(verifier_m
     expected = "a" * 40
 
     assert verifier_module._has_exact_bot_review(
-        [{"user": {"login": verifier_module.BOT}, "commit_id": expected}], expected
+        [
+            {
+                "user": {"login": verifier_module.BOT},
+                "commit_id": expected,
+                "state": "COMMENTED",
+                "body": verifier_module.REVIEW_MARKER,
+            }
+        ],
+        expected,
     )
     assert not verifier_module._has_exact_bot_review(
-        [{"user": {"login": verifier_module.BOT}, "commit_id": "b" * 40}], expected
+        [
+            {
+                "user": {"login": verifier_module.BOT},
+                "commit_id": "b" * 40,
+                "state": "COMMENTED",
+                "body": verifier_module.REVIEW_MARKER,
+            }
+        ],
+        expected,
     )
 
 
@@ -147,7 +163,7 @@ def test_finding_bearing_top_level_bot_review_is_not_clean_evidence(verifier_mod
 def test_deleted_review_author_cannot_crash_exact_review_scan(verifier_module) -> None:
     expected = "a" * 40
 
-    assert verifier_module._has_exact_bot_review(
+    assert not verifier_module._has_exact_bot_review(
         [
             {"user": None, "commit_id": expected, "body": ""},
             {"user": {"login": verifier_module.BOT}, "commit_id": expected, "body": ""},
@@ -159,7 +175,12 @@ def test_deleted_review_author_cannot_crash_exact_review_scan(verifier_module) -
 def test_any_exact_head_bot_review_with_a_blocker_rejects_the_evidence_set(verifier_module) -> None:
     expected = "a" * 40
     reviews = [
-        {"user": {"login": verifier_module.BOT}, "commit_id": expected, "body": ""},
+        {
+            "user": {"login": verifier_module.BOT},
+            "commit_id": expected,
+            "state": "COMMENTED",
+            "body": verifier_module.REVIEW_MARKER,
+        },
         {
             "user": {"login": verifier_module.BOT},
             "commit_id": expected,
@@ -195,7 +216,8 @@ def test_main_rechecks_review_bodies_after_thread_pagination(
     clean_review = {
         "user": {"login": verifier_module.BOT},
         "commit_id": expected,
-        "body": "",
+        "state": "COMMENTED",
+        "body": verifier_module.REVIEW_MARKER,
     }
     late_blocker = {
         "user": {"login": verifier_module.BOT},
@@ -228,13 +250,15 @@ def test_main_retries_thread_scan_when_review_set_changes(
         "id": 1,
         "user": {"login": verifier_module.BOT},
         "commit_id": expected,
-        "body": "",
+        "state": "COMMENTED",
+        "body": verifier_module.REVIEW_MARKER,
     }
     late_inline_review = {
         "id": 2,
         "user": {"login": verifier_module.BOT},
         "commit_id": expected,
-        "body": "",
+        "state": "COMMENTED",
+        "body": verifier_module.REVIEW_MARKER,
     }
     blocker_thread = {
         "isOutdated": False,

@@ -1,4 +1,4 @@
-"""Immutable TestPlan persistence and pre-implementation authorization."""
+"""Immutable TestPlan persistence and trusted pre-implementation authorization."""
 
 from __future__ import annotations
 
@@ -6,18 +6,41 @@ import json
 import os
 import secrets
 import stat
-import subprocess
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
+from pmpe.admission import (
+    AdmissionReceipt,
+    FileArtifactAdmissionAuthority,
+    FileArtifactAdmissionVerifier,
+)
 from pmpe.architecture.models import ArchitecturePack
-from pmpe.domain.errors import StepFailure
+from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
+from pmpe.evidence import (
+    ORACLE_ARTIFACT_KIND,
+    EvidenceAdapterRegistry,
+    EvidenceExpectation,
+    EvidenceSubmission,
+    MeaningfulRedGate,
+    NodeExpectation,
+    default_adapter_registry,
+    evidence_plan_digest,
+    oracle_artifact_digest,
+    oracle_subject_bindings,
+)
+from pmpe.execution import (
+    CommandOutcome,
+    ExecutionCommand,
+    ExecutionError,
+    ExecutionPolicy,
+    IsolatedExecutionKernel,
+    SandboxRunner,
+)
 from pmpe.repository.models import RepositorySnapshot
 
 from .compiler import ContractAdmission, TestPlanCompiler
-from .evidence import MeaningfulRedGate, execute_meaningful_red
 from .models import RepositoryTestCapability, TestPlan
 
 
@@ -33,13 +56,16 @@ TestPlanConflict = TestPlanConflictError
 TestPlanNotAdmitted = TestPlanNotAdmittedError
 
 _PLAN_NAME = "test-plan.json"
+_RECEIPT_NAME = "test-plan.receipt.json"
 _MAX_PLAN_BYTES = 4 * 1024 * 1024
+_MAX_RECEIPT_BYTES = 64 * 1024
 
 
 @dataclass(frozen=True)
 class TestPlanReceipt:
     plan_digest: str
     artifact_path: str
+    admission_receipt: AdmissionReceipt
 
 
 @dataclass(frozen=True)
@@ -49,10 +75,44 @@ class ImplementationAuthorization:
     commit_sha: str
 
 
+class _CapturingSandbox:
+    """Keep authenticated raw output beside the kernel-produced digests."""
+
+    def __init__(self, delegate: SandboxRunner) -> None:
+        self.delegate = delegate
+        self.identity = delegate.identity
+        self.last_outcome: CommandOutcome | None = None
+
+    def run(
+        self,
+        workspace: Path,
+        command: ExecutionCommand,
+        policy: ExecutionPolicy,
+    ) -> CommandOutcome:
+        self.last_outcome = None
+        outcome = self.delegate.run(workspace, command, policy)
+        self.last_outcome = outcome
+        return outcome
+
+
 class TestPlanStore:
-    def __init__(self, run_dir: Path) -> None:
+    def __init__(
+        self,
+        run_dir: Path,
+        *,
+        authority: FileArtifactAdmissionAuthority | None = None,
+        verifier: FileArtifactAdmissionVerifier | None = None,
+        sandbox: SandboxRunner | None = None,
+        policy: ExecutionPolicy | None = None,
+        registry: EvidenceAdapterRegistry | None = None,
+    ) -> None:
         self.run_dir = Path(run_dir)
         self.path = self.run_dir / _PLAN_NAME
+        self.authority = authority
+        self.verifier = verifier
+        self.sandbox = sandbox
+        self.policy = policy or ExecutionPolicy()
+        self.registry = registry or default_adapter_registry()
 
     def _open_run_dir(self, *, create: bool) -> int:
         """Open every directory component without following a symlink."""
@@ -85,26 +145,32 @@ class TestPlanStore:
             ) from exc
 
     @staticmethod
-    def _read_existing(directory_descriptor: int) -> bytes | None:
+    def _read_existing(
+        directory_descriptor: int,
+        name: str,
+        maximum_bytes: int,
+    ) -> bytes | None:
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
         try:
-            descriptor = os.open(_PLAN_NAME, flags, dir_fd=directory_descriptor)
+            descriptor = os.open(name, flags, dir_fd=directory_descriptor)
         except FileNotFoundError:
             return None
         except OSError as exc:
             raise TestPlanNotAdmitted(
-                "persisted TestPlan could not be opened without following symlinks"
+                "persisted TestPlan artifact could not be opened without following symlinks"
             ) from exc
         try:
             metadata = os.fstat(descriptor)
             if (
                 not stat.S_ISREG(metadata.st_mode)
                 or metadata.st_nlink != 1
-                or metadata.st_size > _MAX_PLAN_BYTES
+                or metadata.st_size > maximum_bytes
             ):
-                raise TestPlanNotAdmitted("persisted TestPlan is not a bounded regular file")
+                raise TestPlanNotAdmitted(
+                    "persisted TestPlan artifact is not a bounded regular file"
+                )
             chunks: list[bytes] = []
-            remaining = _MAX_PLAN_BYTES + 1
+            remaining = maximum_bytes + 1
             while remaining:
                 chunk = os.read(descriptor, min(remaining, 64 * 1024))
                 if not chunk:
@@ -112,38 +178,42 @@ class TestPlanStore:
                 chunks.append(chunk)
                 remaining -= len(chunk)
             payload = b"".join(chunks)
-            if len(payload) > _MAX_PLAN_BYTES:
-                raise TestPlanNotAdmitted("persisted TestPlan exceeds the safe size limit")
+            if len(payload) > maximum_bytes:
+                raise TestPlanNotAdmitted("persisted TestPlan artifact exceeds its safe limit")
             return payload
         finally:
             os.close(descriptor)
 
     @staticmethod
-    def _persist(directory_descriptor: int, payload: bytes) -> bytes:
-        temporary = f".test-plan.{secrets.token_hex(16)}.tmp"
+    def _persist(directory_descriptor: int, name: str, payload: bytes) -> bytes:
+        temporary = f".{name}.{secrets.token_hex(16)}.tmp"
         flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
         descriptor: int | None = None
         try:
             descriptor = os.open(temporary, flags, 0o600, dir_fd=directory_descriptor)
             written = 0
             while written < len(payload):
-                written += os.write(descriptor, payload[written:])
+                count = os.write(descriptor, payload[written:])
+                if count <= 0:
+                    raise OSError("TestPlan write made no progress")
+                written += count
             os.fsync(descriptor)
             os.close(descriptor)
             descriptor = None
             try:
                 os.link(
                     temporary,
-                    _PLAN_NAME,
+                    name,
                     src_dir_fd=directory_descriptor,
                     dst_dir_fd=directory_descriptor,
                     follow_symlinks=False,
                 )
             except FileExistsError:
-                existing = TestPlanStore._read_existing(directory_descriptor)
+                limit = _MAX_PLAN_BYTES if name == _PLAN_NAME else _MAX_RECEIPT_BYTES
+                existing = TestPlanStore._read_existing(directory_descriptor, name, limit)
                 if existing != payload:
                     raise TestPlanConflict(
-                        "an immutable different TestPlan already exists for this run"
+                        "an immutable different TestPlan artifact already exists for this run"
                     ) from None
                 return existing
             os.fsync(directory_descriptor)
@@ -151,7 +221,7 @@ class TestPlanStore:
         except (TestPlanConflict, TestPlanNotAdmitted):
             raise
         except OSError as exc:
-            raise TestPlanNotAdmitted("TestPlan could not be persisted safely") from exc
+            raise TestPlanNotAdmitted("TestPlan artifact could not be persisted safely") from exc
         finally:
             if descriptor is not None:
                 os.close(descriptor)
@@ -160,7 +230,21 @@ class TestPlanStore:
             except FileNotFoundError:
                 pass
             except OSError as exc:
-                raise TestPlanNotAdmitted("temporary TestPlan cleanup could not be proven") from exc
+                raise TestPlanNotAdmitted(
+                    "temporary TestPlan artifact cleanup could not be proven"
+                ) from exc
+
+    @staticmethod
+    def _receipt_bindings(plan: TestPlan, input_digest: str) -> dict[str, str]:
+        return {
+            "architecture_pack_digest": plan.architecture_pack_digest,
+            "compiler_version": plan.compiler_version,
+            "contract_digest": plan.contract_digest,
+            "input_digest": input_digest,
+            "repository_commit": plan.repository_commit,
+            "repository_snapshot_digest": plan.repository_snapshot_digest,
+            "toolchain_digest": plan.toolchain_digest,
+        }
 
     def admit(
         self,
@@ -171,7 +255,9 @@ class TestPlanStore:
         architecture_pack: ArchitecturePack,
         capabilities: Sequence[RepositoryTestCapability],
     ) -> TestPlanReceipt:
-        compilation = TestPlanCompiler().compile(
+        if self.authority is None:
+            raise TestPlanNotAdmitted("TestPlan admission authority is not configured")
+        compilation = TestPlanCompiler(self.registry).compile(
             contract_bundle,
             contract_validation,
             repository_snapshot,
@@ -189,24 +275,110 @@ class TestPlanStore:
             raise TestPlanNotAdmitted(
                 "only a compiler-produced, diagnostic-free ADMITTED TestPlan can be persisted"
             )
-        payload = plan.canonical_bytes()
+        admission_receipt = self.authority.admit(
+            artifact_kind="TEST_PLAN",
+            artifact_digest=plan.plan_digest,
+            subject_bindings=self._receipt_bindings(plan, compilation.input_digest),
+        )
+        plan_payload = plan.canonical_bytes()
+        receipt_payload = canonical_json_bytes(admission_receipt.as_dict()) + b"\n"
         directory_descriptor = self._open_run_dir(create=True)
         try:
-            existing = self._read_existing(directory_descriptor)
-            if existing is not None:
-                if existing != payload:
-                    raise TestPlanConflict(
-                        "an immutable different TestPlan already exists for this run"
-                    )
-                if not plan.digest_is_valid() or plan.disposition != "ADMITTED":
-                    raise TestPlanNotAdmitted("persisted TestPlan is not digest-valid and ADMITTED")
-            elif not plan.digest_is_valid() or plan.disposition != "ADMITTED":
-                raise TestPlanNotAdmitted("only a digest-valid ADMITTED TestPlan can be persisted")
-            else:
-                self._persist(directory_descriptor, payload)
+            existing_plan = self._read_existing(directory_descriptor, _PLAN_NAME, _MAX_PLAN_BYTES)
+            existing_receipt = self._read_existing(
+                directory_descriptor, _RECEIPT_NAME, _MAX_RECEIPT_BYTES
+            )
+            if existing_plan is not None and existing_plan != plan_payload:
+                raise TestPlanConflict(
+                    "an immutable different TestPlan already exists for this run"
+                )
+            if existing_receipt is not None and existing_receipt != receipt_payload:
+                raise TestPlanConflict(
+                    "an immutable different TestPlan receipt already exists for this run"
+                )
+            if existing_plan is None:
+                self._persist(directory_descriptor, _PLAN_NAME, plan_payload)
+            if existing_receipt is None:
+                self._persist(directory_descriptor, _RECEIPT_NAME, receipt_payload)
         finally:
             os.close(directory_descriptor)
-        return TestPlanReceipt(plan.plan_digest, str(self.path))
+        return TestPlanReceipt(plan.plan_digest, str(self.path), admission_receipt)
+
+    def _load_admitted(self, plan: TestPlan) -> AdmissionReceipt:
+        directory_descriptor = self._open_run_dir(create=False)
+        try:
+            plan_payload = self._read_existing(directory_descriptor, _PLAN_NAME, _MAX_PLAN_BYTES)
+            receipt_payload = self._read_existing(
+                directory_descriptor, _RECEIPT_NAME, _MAX_RECEIPT_BYTES
+            )
+        finally:
+            os.close(directory_descriptor)
+        if plan_payload is None or receipt_payload is None:
+            raise TestPlanNotAdmitted("implementation refused: admitted TestPlan is not persisted")
+        try:
+            persisted = json.loads(plan_payload)
+            receipt_value = json.loads(receipt_payload)
+            receipt = AdmissionReceipt.from_dict(receipt_value)
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            raise TestPlanNotAdmitted("persisted TestPlan admission is unreadable") from exc
+        if (
+            plan_payload != plan.canonical_bytes()
+            or persisted != plan.as_dict()
+            or not plan.digest_is_valid()
+            or plan.disposition != "ADMITTED"
+        ):
+            raise TestPlanNotAdmitted("implementation refused: persisted TestPlan does not match")
+        if receipt_payload != canonical_json_bytes(receipt.as_dict()) + b"\n":
+            raise TestPlanNotAdmitted(
+                "implementation refused: compiler admission receipt does not match"
+            )
+        return receipt
+
+    @staticmethod
+    def _draft_expectations(
+        plan: TestPlan,
+        *,
+        subject_digest: str,
+    ) -> tuple[EvidenceExpectation, ...]:
+        by_command: dict[tuple[str, ...], list[Any]] = {}
+        for node in plan.nodes:
+            if (
+                node.status == "PLANNED"
+                and node.execution_mode == "AUTOMATED"
+                and node.meaningful_red_required
+                and node.command
+            ):
+                by_command.setdefault(node.command, []).append(node)
+        expectations: list[EvidenceExpectation] = []
+        for index, command in enumerate(sorted(by_command), start=1):
+            nodes = sorted(by_command[command], key=lambda item: item.node_id)
+            toolchains = {(item.toolchain_refs[0], item.toolchain_refs[1]) for item in nodes}
+            if len(toolchains) != 1 or any(not item.expected_test_node for item in nodes):
+                raise TestPlanNotAdmitted(
+                    "implementation refused: plan command has ambiguous evidence bindings"
+                )
+            tool, evidence_format = next(iter(toolchains))
+            expectations.append(
+                EvidenceExpectation(
+                    command_id=f"CMD-{index:04d}",
+                    tool=tool,
+                    evidence_format=evidence_format,
+                    plan_digest="sha256:" + "0" * 64,
+                    commit_sha=plan.repository_commit,
+                    subject_digest=subject_digest,
+                    command=ExecutionCommand(command),
+                    nodes=tuple(
+                        NodeExpectation(item.expected_test_node, item.assertion_id)
+                        for item in nodes
+                    ),
+                )
+            )
+        if not expectations:
+            raise TestPlanNotAdmitted(
+                "implementation refused: TestPlan has no runner-backed meaningful-red command"
+            )
+        plan_digest = evidence_plan_digest(expectations)
+        return tuple(replace(item, plan_digest=plan_digest) for item in expectations)
 
     def authorize_implementation(
         self,
@@ -215,45 +387,114 @@ class TestPlanStore:
         workspace: Path,
         expected_commit_sha: str,
     ) -> ImplementationAuthorization:
-        directory_descriptor = self._open_run_dir(create=False)
-        try:
-            payload = self._read_existing(directory_descriptor)
-        finally:
-            os.close(directory_descriptor)
-        if payload is None:
-            raise TestPlanNotAdmitted("implementation refused: TestPlan is not persisted")
-        try:
-            persisted = json.loads(payload)
-        except json.JSONDecodeError as exc:
-            raise TestPlanNotAdmitted("persisted TestPlan is unreadable") from exc
-        if (
-            persisted != plan.as_dict()
-            or not plan.digest_is_valid()
-            or plan.disposition != "ADMITTED"
-        ):
-            raise TestPlanNotAdmitted("implementation refused: persisted TestPlan does not match")
+        receipt = self._load_admitted(plan)
         if expected_commit_sha != plan.repository_commit:
             raise TestPlanNotAdmitted(
                 "implementation refused: expected repository commit does not match TestPlan"
             )
-        try:
-            red_run = execute_meaningful_red(
-                plan,
-                workspace,
-                expected_commit_sha=expected_commit_sha,
-            )
-        except (OSError, StepFailure, subprocess.SubprocessError, ValueError) as exc:
+        if self.authority is None or self.verifier is None or self.sandbox is None:
             raise TestPlanNotAdmitted(
-                "implementation refused: meaningful-red runner did not produce trusted evidence"
+                "implementation refused: trusted execution boundary is not configured"
+            )
+        bindings = dict(receipt.subject_bindings)
+        if not self.verifier.verify(
+            receipt,
+            artifact_kind="TEST_PLAN",
+            artifact_digest=plan.plan_digest,
+            subject_bindings=bindings,
+        ) or bindings != self._receipt_bindings(plan, bindings.get("input_digest", "")):
+            raise TestPlanNotAdmitted(
+                "implementation refused: compiler admission receipt is not verified"
+            )
+
+        capturing = _CapturingSandbox(self.sandbox)
+        kernel = IsolatedExecutionKernel(
+            authority=self.authority,
+            sandbox=capturing,
+            policy=self.policy,
+        )
+        commands = sorted(
+            {
+                node.command
+                for node in plan.nodes
+                if node.status == "PLANNED"
+                and node.execution_mode == "AUTOMATED"
+                and node.meaningful_red_required
+                and node.command
+            }
+        )
+        if not commands:
+            raise TestPlanNotAdmitted(
+                "implementation refused: TestPlan has no runner-backed meaningful-red command"
+            )
+        try:
+            provisional = kernel.execute(
+                repository=Path(workspace),
+                commit_sha=expected_commit_sha,
+                plan_digest=plan.plan_digest,
+                command=ExecutionCommand(commands[0]),
+            )
+            expectations = self._draft_expectations(
+                plan,
+                subject_digest=provisional.subject_digest_before,
+            )
+            submissions: list[EvidenceSubmission] = []
+            execution_digests: list[str] = []
+            for expectation in expectations:
+                oracle_receipt = self.authority.admit(
+                    artifact_kind=ORACLE_ARTIFACT_KIND,
+                    artifact_digest=oracle_artifact_digest(expectation),
+                    subject_bindings=oracle_subject_bindings(expectation),
+                )
+                execution = kernel.execute(
+                    repository=Path(workspace),
+                    commit_sha=expected_commit_sha,
+                    plan_digest=expectation.plan_digest,
+                    command=expectation.command,
+                )
+                outcome = capturing.last_outcome
+                if outcome is None:
+                    raise ExecutionError("sandbox output was not captured")
+                submissions.append(
+                    EvidenceSubmission(
+                        expectation.command_id,
+                        execution,
+                        outcome.stdout,
+                        outcome.stderr,
+                        oracle_receipt,
+                    )
+                )
+                execution_digests.append(execution.execution_digest)
+        except (OSError, TypeError, ValueError, ExecutionError) as exc:
+            raise TestPlanNotAdmitted(
+                "implementation refused: isolated meaningful-red execution failed"
             ) from exc
-        admission = MeaningfulRedGate().validate(
-            plan, red_run, expected_commit_sha=expected_commit_sha
+
+        decision = MeaningfulRedGate(verifier=self.verifier, registry=self.registry).evaluate(
+            expectations=expectations,
+            submissions=tuple(submissions),
         )
-        if not admission.admitted:
-            rules = ", ".join(item.rule_id for item in admission.diagnostics)
-            raise TestPlanNotAdmitted(f"implementation refused: meaningful-red failed ({rules})")
-        return ImplementationAuthorization(
-            plan_digest=plan.plan_digest,
-            red_run_digest=red_run.run_digest(),
-            commit_sha=red_run.commit_sha,
+        if not decision.authorized:
+            raise TestPlanNotAdmitted(
+                "implementation refused: meaningful-red failed ("
+                + "; ".join(decision.reasons)
+                + ")"
+            )
+        red_run_digest = canonical_digest(
+            {
+                "evidence_plan_digest": expectations[0].plan_digest,
+                "execution_digests": execution_digests,
+                "nodes": [
+                    {
+                        "assertion_id": item.assertion_id,
+                        "failure_kind": item.failure_kind,
+                        "node_id": item.node_id,
+                        "outcome": item.outcome,
+                        "raw_output_digest": item.raw_output_digest,
+                    }
+                    for item in decision.nodes
+                ],
+                "test_plan_digest": plan.plan_digest,
+            }
         )
+        return ImplementationAuthorization(plan.plan_digest, red_run_digest, expected_commit_sha)

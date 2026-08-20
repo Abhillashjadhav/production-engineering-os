@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>PMOS Guided</title>
+    <link rel="stylesheet" href="/styles.css">
+    <script src="/app.js" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to main content</a>
+    <header class="site-header">
+      <div>
+        <p class="eyebrow">PM Agent OS</p>
+        <h1>Turn product intent into an approved contract</h1>
+        <p class="lede">One blocking question at a time. Nothing leaves this device.</p>
+      </div>
+      <span class="local-badge" aria-label="Connector-free local mode">Local · no connectors</span>
+    </header>
+
+    <main id="main">
+      <div class="tabs" role="tablist" aria-label="PMOS workflows">
+        <button id="author-tab" role="tab" tabindex="0" aria-selected="true" aria-controls="author-panel">
+          Create decision
+        </button>
+        <button id="intake-tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="intake-panel">
+          Import canonical bundle
+        </button>
+        <button id="catalog-tab" role="tab" tabindex="-1" aria-selected="false" aria-controls="catalog-panel">
+          Browse workflow packs
+        </button>
+      </div>
+
+      <section id="author-panel" role="tabpanel" aria-labelledby="author-tab">
+        <div id="question-view" class="card">
+          <div class="progress-row">
+            <span id="progress-label">Getting the first question…</span>
+            <progress id="progress" max="17" value="0">0 of 17</progress>
+          </div>
+          <form id="question-form">
+            <label id="question-label" for="answer">Product input</label>
+            <h2 id="question-prompt">Loading…</h2>
+            <p id="question-reason" class="muted"></p>
+            <textarea id="answer" name="answer" rows="6" required></textarea>
+            <div class="actions">
+              <button id="back" class="secondary" type="button" disabled>Back</button>
+              <button type="submit">Continue</button>
+            </div>
+          </form>
+        </div>
+
+        <section id="review-view" class="hidden" aria-labelledby="review-title">
+          <div class="section-heading">
+            <p class="eyebrow">Human decision</p>
+            <h2 id="review-title" tabindex="-1">Review exactly what approval changes</h2>
+          </div>
+          <article class="approval-card" aria-describedby="approval-help">
+            <div class="approval-header">
+              <div>
+                <p class="eyebrow">Exact digest approval</p>
+                <h3 id="approval-action"></h3>
+              </div>
+              <span class="decision-badge">Awaiting you</span>
+            </div>
+            <p id="approval-help" class="muted">
+              If any content changes, this digest changes and the approval cannot be reused.
+            </p>
+            <code id="approval-digest" class="digest"></code>
+            <details open>
+              <summary>Exact normalized decision being approved</summary>
+              <pre id="exact-draft" class="digest"></pre>
+            </details>
+            <div class="review-grid">
+              <section><h4>Impact</h4><div id="impact"></div></section>
+              <section><h4>Reversibility</h4><div id="reversibility"></div></section>
+              <section><h4>Evidence</h4><div id="evidence"></div></section>
+              <section><h4>Cost</h4><div id="cost"></div></section>
+              <section><h4>Validity</h4><div id="validity"></div></section>
+              <section class="permissions"><h4>Permissions</h4><div id="permissions"></div></section>
+            </div>
+            <form id="approval-form">
+              <label for="approver">Your name or accountable role</label>
+              <input id="approver" name="approver" autocomplete="name" required>
+              <label class="check-row">
+                <input id="digest-confirmation" type="checkbox" required>
+                I approve only the exact digest shown above.
+              </label>
+              <div class="actions">
+                <button id="edit-answers" class="secondary" type="button">Edit answers</button>
+                <button type="submit">Approve exact decision</button>
+              </div>
+            </form>
+          </article>
+        </section>
+
+        <section id="approved-view" class="card success hidden" aria-labelledby="approved-title">
+          <p class="eyebrow">Approved locally</p>
+          <h2 id="approved-title" tabindex="-1">The contract is ready for an engineering handoff</h2>
+          <p id="approved-summary"></p>
+          <details>
+            <summary>Need to change the product decision?</summary>
+            <p>An approved contract is immutable. Record the finding below as a ProductChangeRequest.</p>
+            <form id="pcr-form" class="stacked-form">
+              <label for="pcr-finding">What new finding requires a decision?</label>
+              <textarea id="pcr-finding" required></textarea>
+              <label for="pcr-reason">Why can engineering not decide it safely?</label>
+              <textarea id="pcr-reason" required></textarea>
+              <label for="pcr-options">Options, one per line</label>
+              <textarea id="pcr-options" required></textarea>
+              <label for="pcr-consequences">Engineering consequences</label>
+              <textarea id="pcr-consequences" required></textarea>
+              <label for="pcr-default">Recommended technical default</label>
+              <input id="pcr-default" required>
+              <label for="pcr-owner">Decision owner</label>
+              <input id="pcr-owner" required>
+              <button type="submit">Create change request</button>
+            </form>
+          </details>
+        </section>
+      </section>
+
+      <section id="intake-panel" class="hidden" role="tabpanel" aria-labelledby="intake-tab">
+        <div class="card">
+          <p class="eyebrow">Native canonical intake</p>
+          <h2>Validate a bundle and its manifest without conversion</h2>
+          <p class="muted">
+            Duplicate keys, schema loss, mismatched digests, provenance drift, and unsupplied members
+            are quarantined with named diagnostics.
+          </p>
+          <form id="intake-form" class="stacked-form">
+            <label for="bundle-file">Canonical bundle JSON</label>
+            <input id="bundle-file" type="file" accept="application/json,.json" required>
+            <label for="manifest-file">Canonical manifest JSON</label>
+            <input id="manifest-file" type="file" accept="application/json,.json" required>
+            <button type="submit">Validate exact artifacts</button>
+          </form>
+          <div id="intake-result" class="result" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <section id="catalog-panel" class="hidden" role="tabpanel" aria-labelledby="catalog-tab">
+        <div class="card">
+          <p class="eyebrow">Governed workflow catalogue</p>
+          <h2>Choose the outcome you need</h2>
+          <p class="muted">Every pack declares the problem, output, permissions, checks, budget, approvals, and recovery boundary.</p>
+          <div id="catalog-list" class="catalog-grid" aria-live="polite"></div>
+        </div>
+      </section>
+
+      <div id="status" class="sr-only" role="status" aria-live="polite"></div>
+    </main>
+    <footer>
+      Drafts and approvals are written only to the local workspace selected when the server starts.
+    </footer>
+  </body>
+</html>
