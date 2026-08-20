@@ -124,15 +124,11 @@ def validate_specialist_result(data: dict[str, Any], context: dict[str, Any]) ->
         if not data.get(key):
             errors.append(f"specialist result missing '{key}'")
     assigned = set(context.get("assigned_tasks", []))
-    if assigned and data.get("task_id") not in assigned:
+    if data.get("task_id") not in assigned:
         errors.append(f"specialist reported task '{data.get('task_id')}' outside its assignment")
     result = str(data.get("results", "")).strip().lower()
-    successful = bool(result) and (
-        result == "ok"
-        or "passed" in result
-        or result in {"green", "all green", "success", "succeeded"}
-    )
-    if not successful or any(marker in result for marker in ("fail", "error", "pending")):
+    successful = result in {"passed", "ok", "green", "all green", "success", "succeeded"}
+    if not successful:
         errors.append("specialist result does not prove successful mandatory checks")
     return errors
 
@@ -165,7 +161,7 @@ def validate_data_migration_result(data: dict[str, Any], context: dict[str, Any]
         _require_named_checks(
             data,
             agent="data migration",
-            required={"upgrade", "downgrade", "idempotency"},
+            required={"upgrade", "downgrade", "idempotency", "partial-failure recovery"},
         )
     )
     return errors

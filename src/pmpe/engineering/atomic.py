@@ -1013,6 +1013,28 @@ class AtomicImplementationController:
                 "specialist commit does not descend from the exact leased baseline"
             ) from exc
         try:
+            commits = tuple(
+                line
+                for line in git._run(  # noqa: SLF001 - inspect every leased-history commit
+                    "rev-list", "--reverse", f"{lease.baseline_sha}..{commit_sha}"
+                ).splitlines()
+                if line
+            )
+            touched = {
+                line
+                for revision in commits
+                for line in git._run(  # noqa: SLF001 - per-commit allowlist enforcement
+                    "diff-tree",
+                    "--root",
+                    "--no-commit-id",
+                    "--name-only",
+                    "-r",
+                    "-m",
+                    revision,
+                    "--",
+                ).splitlines()
+                if line
+            }
             changed = tuple(
                 sorted(
                     line
@@ -1026,6 +1048,16 @@ class AtomicImplementationController:
             raise AtomicityViolation(
                 "specialist commit is not present in the admitted repo"
             ) from exc
+        historical_outside = sorted(
+            path
+            for path in touched
+            if not any(_path_allowed(path, allowed) for allowed in lease.task.allowed_paths)
+        )
+        if historical_outside:
+            raise AtomicityViolation(
+                "commit history touched a path outside the lease: "
+                + ", ".join(historical_outside)
+            )
         return self._admit_specialist_result(
             lease, commit_sha=commit_sha, changed_paths=changed, clean=True
         )

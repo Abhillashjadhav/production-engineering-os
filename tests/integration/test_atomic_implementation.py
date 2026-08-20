@@ -435,6 +435,34 @@ def test_specialist_admission_diffs_full_range_from_lease_baseline(tmp_path: Pat
         controller.admit_specialist_commit(lease, root, commit_sha=tip)
 
 
+def test_specialist_admission_rejects_reverted_intermediate_path_violation(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git = LocalGitAdapter(root)
+    git.init()
+    (root / "src").mkdir()
+    (root / "src" / "allowed.py").write_text("VALUE = 1\n")
+    planning_sha = git.commit_all("base")
+    controller, _ = _controller(tmp_path, planning_commit_sha=planning_sha)
+    admitted = controller.admit_slice(_candidate())
+    lease = controller.issue_lease(
+        SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
+    )
+    with controller.specialist_worktree(
+        root, lease=lease, worktrees_root=tmp_path / "worktrees"
+    ) as worktree:
+        (worktree.path / "secret.txt").write_text("must not enter history\n")
+        worktree.commit("touch out-of-scope path")
+        (worktree.path / "secret.txt").unlink()
+        (worktree.path / "src" / "allowed.py").write_text("VALUE = 2\n")
+        tip = worktree.commit("restore tree and implement allowed change")
+
+    with pytest.raises(AtomicityViolation, match="history touched a path outside the lease"):
+        controller.admit_specialist_commit(lease, root, commit_sha=tip)
+
+
 def test_cancellation_removes_active_worktree_after_preserving_dirty_paths(
     tmp_path: Path,
 ) -> None:

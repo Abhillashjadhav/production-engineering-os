@@ -7,7 +7,7 @@ from pathlib import Path
 
 from pmpe.agents.registry import AgentRegistry
 from pmpe.engineering.submissions import VALIDATORS
-from pmpe.evals.registry import load_eval_suite, run_agent_evals
+from pmpe.evals.registry import EvalResults, load_eval_suite, run_agent_evals
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 EVALS_DIR = REPO_ROOT / "evals" / "agents"
@@ -31,7 +31,7 @@ MINIMUM_AGENTS = {
 }
 
 
-def _run():  # noqa: ANN202
+def _run() -> EvalResults:
     registry = AgentRegistry(REPO_ROOT / ".claude" / "agents")
     suite = load_eval_suite(EVALS_DIR)
     return run_agent_evals(suite, registry)
@@ -82,6 +82,34 @@ def test_specialist_result_without_success_outcome_fails_live_admission() -> Non
             "task_id": "T-SEC",
             "commits": ["abc123"],
             "tests_run": ["planted exploit", "regression", "bandit"],
+            "residual_risk": "none identified",
+        },
+        {"assigned_tasks": ["T-SEC"]},
+    )
+    assert any("successful mandatory checks" in error for error in errors)
+
+
+def test_unassigned_specialist_cannot_claim_another_agents_task() -> None:
+    errors = VALIDATORS["frontend-engineer"](
+        {
+            "task_id": "T-BACKEND",
+            "commits": ["abc123"],
+            "changed_paths": ["src/ui/button.tsx"],
+            "tests_run": ["component", "accessibility", "typecheck"],
+            "results": "passed",
+        },
+        {"assigned_tasks": []},
+    )
+    assert any("outside its assignment" in error for error in errors)
+
+
+def test_negated_success_phrase_fails_live_admission() -> None:
+    errors = VALIDATORS["security-engineer"](
+        {
+            "task_id": "T-SEC",
+            "commits": ["abc123"],
+            "tests_run": ["planted exploit", "regression", "bandit"],
+            "results": "not passed",
             "residual_risk": "none identified",
         },
         {"assigned_tasks": ["T-SEC"]},

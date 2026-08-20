@@ -9,7 +9,7 @@ cases:
   output:
     task_id: T-DATA
     commits: [abc123]
-    tests_run: [upgrade, downgrade, idempotency]
+    tests_run: [upgrade, downgrade, idempotency, partial-failure recovery]
     results: passed
     rollback_evidence: verified
     escalations: []
@@ -27,6 +27,17 @@ cases:
   output:
     task_id: T-DATA
     commits: [abc123]
-    tests_run: [upgrade, downgrade, idempotency]
+    tests_run: [upgrade, downgrade, idempotency, partial-failure recovery]
     results: failed
+    rollback_evidence: verified
+- id: migration-missing-partial-failure-recovery
+  kind: planted_failure
+  expect: invalid
+  hard_gate: true
+  context: {assigned_tasks: [T-DATA]}
+  output:
+    task_id: T-DATA
+    commits: [abc123]
+    tests_run: [upgrade, downgrade, idempotency]
+    results: passed
     rollback_evidence: verified

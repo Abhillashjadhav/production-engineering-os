@@ -14,7 +14,7 @@ cases:
     - def456
     tests_run:
     - tests.unit.test_storage
-    results: 5 passed
+    results: passed
 - id: testeng-planted-no-commits
   kind: planted_failure
   expect: invalid
