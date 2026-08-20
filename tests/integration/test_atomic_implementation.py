@@ -172,7 +172,7 @@ def test_implementation_lease_requires_red_and_scopes_task_and_paths(tmp_path: P
     assert lease.revoked is False
     assert lease.lease_epoch_digest
     with pytest.raises(AtomicityViolation, match="outside the lease"):
-        controller.admit_specialist_result(
+        controller._admit_specialist_result(
             lease,
             commit_sha="e" * 40,
             changed_paths=("src/backend/escape.py",),
@@ -219,7 +219,7 @@ def test_cancellation_freezes_partial_work_and_blocks_candidate_admission(
         == stopped
     )
     with pytest.raises(AtomicityViolation, match="revoked"):
-        controller.admit_specialist_result(
+        controller._admit_specialist_result(
             lease,
             commit_sha="1" * 40,
             changed_paths=("src/pmpe/partial.py",),
@@ -294,10 +294,10 @@ def test_integration_is_deterministic_and_rejects_duplicate_task_results(
     task_a = SpecialistTask("T-1", "v2-backend-engineer", ("src/api/",))
     lease_b = controller.issue_lease(task_b, admitted=admitted)
     lease_a = controller.issue_lease(task_a, admitted=admitted)
-    controller.admit_specialist_result(
+    controller._admit_specialist_result(
         lease_b, commit_sha="2" * 40, changed_paths=("src/ui/x.ts",), clean=True
     )
-    controller.admit_specialist_result(
+    controller._admit_specialist_result(
         lease_a, commit_sha="3" * 40, changed_paths=("src/api/x.py",), clean=True
     )
 
@@ -305,7 +305,7 @@ def test_integration_is_deterministic_and_rejects_duplicate_task_results(
 
     assert [result.task_id for result in manifest.results] == ["T-1", "T-2"]
     with pytest.raises(AtomicityViolation, match="already has"):
-        controller.admit_specialist_result(
+        controller._admit_specialist_result(
             lease_a,
             commit_sha="4" * 40,
             changed_paths=("src/api/y.py",),
@@ -360,6 +360,7 @@ def test_specialist_commit_must_descend_from_exact_lease_baseline(tmp_path: Path
         SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
     )
 
+    assert not hasattr(controller, "admit_specialist_result")
     with pytest.raises(AtomicityViolation, match="does not descend"):
         controller.admit_specialist_commit(lease, root, commit_sha=unrelated)
 
@@ -404,7 +405,7 @@ def test_ready_and_dequeue_are_exact_head_governed_effects(tmp_path: Path) -> No
     lease = controller.issue_lease(
         SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
     )
-    controller.admit_specialist_result(
+    controller._admit_specialist_result(
         lease,
         commit_sha="4" * 40,
         changed_paths=("src/candidate.py",),
@@ -493,7 +494,7 @@ def test_ready_invalidation_rejects_untraceable_or_nonblocking_signal(tmp_path: 
             SpecialistTask("T-1", "v2-backend-engineer", ("src/",)),
             admitted=admitted,
         )
-        controller.admit_specialist_result(
+        controller._admit_specialist_result(
             lease,
             commit_sha="a" * 39 + "b",
             changed_paths=("src/candidate.py",),
@@ -542,7 +543,7 @@ def test_candidate_ready_and_dequeue_adopt_observed_effect_after_state_save_cras
         SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
     )
     head = "a" * 39 + "b"
-    controller.admit_specialist_result(
+    controller._admit_specialist_result(
         lease, commit_sha=head, changed_paths=("src/candidate.py",), clean=True
     )
     manifest = controller.integration_manifest()

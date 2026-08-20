@@ -1026,11 +1026,11 @@ class AtomicImplementationController:
             raise AtomicityViolation(
                 "specialist commit is not present in the admitted repo"
             ) from exc
-        return self.admit_specialist_result(
+        return self._admit_specialist_result(
             lease, commit_sha=commit_sha, changed_paths=changed, clean=True
         )
 
-    def admit_specialist_result(
+    def _admit_specialist_result(
         self,
         lease: SpecialistLease,
         *,
