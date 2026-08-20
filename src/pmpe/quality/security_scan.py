@@ -68,7 +68,10 @@ _SHELL_RULES: tuple[_Rule, ...] = (
     ),
     _Rule(
         "SEC_SHELL_REMOTE_PIPE",
-        re.compile(r"\b(?:curl|wget)\b[^\n|]*\|\s*(?:ba)?sh\b"),
+        re.compile(
+            r"\b(?:curl|wget)\b[^\n|]*\|\s*"
+            r"(?:(?:/usr/bin/)?env\s+)?(?:(?:/[\w.-]+)*/)?(?:ba)?sh\b"
+        ),
         "remote content piped directly to a shell",
     ),
 )

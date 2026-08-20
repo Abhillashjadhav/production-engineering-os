@@ -176,7 +176,10 @@ class LocalProcessDeployer:
                     f"unauthorized {method} {probe_path} returned {status}, expected 401"
                 )
             steps.append("auth rejects missing token: ok")
-            status, _ = _request(method, f"{base}{probe_path}", token=token + "-invalid")
+            invalid_token = secrets.token_urlsafe(24)
+            while invalid_token == token:
+                invalid_token = secrets.token_urlsafe(24)
+            status, _ = _request(method, f"{base}{probe_path}", token=invalid_token)
             if status != 401:
                 return False, (
                     f"invalid-token {method} {probe_path} returned {status}, expected 401"
