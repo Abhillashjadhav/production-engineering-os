@@ -32,8 +32,9 @@ def test_default_risk_classification(
     assert engine.classify(decision).level is expected
 
 
-def test_unknown_decision_type_defaults_to_medium(engine: PolicyEngine) -> None:
-    assert engine.classify("something.never.seen").level is RiskLevel.MEDIUM
+def test_unknown_decision_type_fails_closed(engine: PolicyEngine) -> None:
+    assert engine.classify("something.never.seen").level is RiskLevel.HIGH
+    assert engine.requires_approval(engine.classify("something.never.seen").level)
 
 
 def test_only_high_requires_approval(engine: PolicyEngine) -> None:

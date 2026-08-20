@@ -5,8 +5,8 @@ Levels (docs/human-approval-model.md):
 - medium -> proceed with an explicit logged justification
 - high   -> block until explicit approval evidence exists
 
-Unknown decision types default to MEDIUM: conservative enough to leave a written
-justification in the log, without stalling the pipeline on a taxonomy gap.
+Unknown decision types fail closed at HIGH. A taxonomy gap cannot acquire mutation
+authority merely because the caller supplied a justification.
 """
 
 from __future__ import annotations
@@ -110,9 +110,8 @@ _DEFAULT_RULES: tuple[PolicyRule, ...] = (
 _DEFAULT = PolicyRule(
     "POL-DEFAULT",
     "*",
-    RiskLevel.MEDIUM,
-    "Unknown decision type: conservative default (medium) — proceeds, but only with "
-    "this logged justification. Add an explicit rule for it.",
+    RiskLevel.HIGH,
+    "Unknown decision type: fail closed until an explicit policy rule is admitted.",
 )
 
 
