@@ -148,7 +148,11 @@ def _env_wrapped_command(tokens: list[str], command: int) -> tuple[str | None, b
             if not expand_split(token.split("=", 1)[1], remaining[cursor + 1 :]):
                 return None, True
             continue
-        if not options_ended and not assignment_seen and token in {"-C", "-u", "--chdir", "--unset"}:
+        if (
+            not options_ended
+            and not assignment_seen
+            and token in {"-C", "-u", "--chdir", "--unset"}
+        ):
             if cursor + 1 >= len(remaining):
                 return None, True
             cursor += 2
