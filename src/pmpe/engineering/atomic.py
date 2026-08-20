@@ -291,6 +291,22 @@ def _specialist_result_admission_key(lease: SpecialistLease) -> str:
     return f"specialist:{lease.task.task_id}:{lease.lease_epoch_digest}:admit-result"
 
 
+def _specialist_lease_admission_digest(lease: SpecialistLease) -> str:
+    return _canonical_digest(
+        {
+            "task": asdict(lease.task),
+            "candidate": lease.admitted_candidate_digest,
+            "baseline": lease.baseline_sha,
+            "lease_epoch": lease.lease_epoch_digest,
+            "repair_admission": lease.repair_admission_digest,
+        }
+    )
+
+
+def _specialist_lease_admission_key(lease: SpecialistLease) -> str:
+    return f"specialist:{lease.task.task_id}:{lease.lease_epoch_digest}:issue-lease"
+
+
 @dataclass(frozen=True)
 class IntegrationManifest:
     baseline_sha: str
@@ -863,6 +879,7 @@ class AtomicImplementationController:
         self._work_baseline_sha = ""
         self._leases: dict[str, SpecialistLease] = {}
         self._results: dict[str, SpecialistResult] = {}
+        self._pending_lease_admission_keys: set[str] = set()
         self._pending_result_admission_keys: set[str] = set()
         self._published_candidate_head = ""
         self._repair_admission_digest = ""
@@ -962,6 +979,7 @@ class AtomicImplementationController:
             raise AtomicityViolation("persisted repair admission evidence is missing")
         if not repair_required and self._repair_admission_digest:
             raise AtomicityViolation("persisted repair admission evidence is stale")
+        issued_lease_keys: set[str] = set()
         for task_id, persisted_lease in self._leases.items():
             expected_epoch = _canonical_digest(
                 {
@@ -979,6 +997,26 @@ class AtomicImplementationController:
                 or persisted_lease.lease_epoch_digest != expected_epoch
             ):
                 raise AtomicityViolation("persisted specialist lease authority is malformed")
+            lease_key = _specialist_lease_admission_key(persisted_lease)
+            issued_lease_keys.add(lease_key)
+            lease_digest = _specialist_lease_admission_digest(persisted_lease)
+            related = [
+                event for event in self._effect_events if event["idempotency_key"] == lease_key
+            ]
+            if (
+                len(related) not in {1, 2}
+                or [event["status"] for event in related]
+                not in (["PLANNED"], ["PLANNED", "OBSERVED"])
+                or any(
+                    event["action"] != "issue_specialist_lease"
+                    or event["subject_digest"] != lease_digest
+                    or event["result_digest"] != lease_digest
+                    for event in related
+                )
+            ):
+                raise AtomicityViolation(
+                    "persisted specialist lease lacks independent admission evidence"
+                )
         admitted_result_keys: set[str] = set()
         for task_id, result in self._results.items():
             result_lease = self._leases.get(task_id)
@@ -1037,15 +1075,31 @@ class AtomicImplementationController:
                 raise AtomicityViolation(
                     "persisted specialist result lacks independent admission evidence"
                 )
+        self._pending_lease_admission_keys.clear()
         self._pending_result_admission_keys.clear()
+        retired_lease_keys: set[str] = set()
         retired_admission_keys: set[str] = set()
         for event in self._effect_events:
             key = str(event["idempotency_key"])
-            if event["action"] != "retire_specialist_result" and ":retire:" not in key:
+            if (
+                event["action"]
+                not in {
+                    "retire_specialist_lease",
+                    "retire_specialist_result",
+                }
+                and ":retire:" not in key
+            ):
                 continue
             admission_key, separator, authority_digest = key.rpartition(":retire:")
+            expected_action = (
+                "retire_specialist_lease"
+                if admission_key.endswith(":issue-lease")
+                else "retire_specialist_result"
+                if admission_key.endswith(":admit-result")
+                else ""
+            )
             if (
-                event["action"] != "retire_specialist_result"
+                event["action"] != expected_action
                 or event["status"] != "OBSERVED"
                 or not separator
                 or not _DIGEST.fullmatch(authority_digest)
@@ -1058,8 +1112,31 @@ class AtomicImplementationController:
                     }
                 )
             ):
-                raise AtomicityViolation("specialist result retirement evidence is malformed")
-            retired_admission_keys.add(admission_key)
+                raise AtomicityViolation("specialist authority retirement evidence is malformed")
+            if expected_action == "retire_specialist_lease":
+                retired_lease_keys.add(admission_key)
+            else:
+                retired_admission_keys.add(admission_key)
+        lease_events: dict[str, list[dict[str, object]]] = {}
+        for event in self._effect_events:
+            key = str(event["idempotency_key"])
+            if event["action"] == "issue_specialist_lease" or (
+                key.startswith("specialist:") and key.endswith(":issue-lease")
+            ):
+                lease_events.setdefault(key, []).append(event)
+        for key, related in lease_events.items():
+            if key in issued_lease_keys or key in retired_lease_keys:
+                continue
+            if (
+                len(related) == 1
+                and related[0]["action"] == "issue_specialist_lease"
+                and related[0]["status"] == "PLANNED"
+            ):
+                self._pending_lease_admission_keys.add(key)
+                continue
+            raise AtomicityViolation(
+                "specialist lease admission ledger is missing persisted authority"
+            )
         admission_events: dict[str, list[dict[str, object]]] = {}
         for event in self._effect_events:
             key = str(event["idempotency_key"])
@@ -1237,8 +1314,40 @@ class AtomicImplementationController:
         )
         if current is not None and current != expected:
             raise AtomicityViolation("task already has a different specialist lease")
+        self._load_effect_events()
+        key = _specialist_lease_admission_key(expected)
+        lease_digest = _specialist_lease_admission_digest(expected)
+        related = [event for event in self._effect_events if event["idempotency_key"] == key]
+        if any(
+            event["action"] != "issue_specialist_lease"
+            or event["subject_digest"] != lease_digest
+            or event["result_digest"] != lease_digest
+            for event in related
+        ) or [event["status"] for event in related] not in (
+            [],
+            ["PLANNED"],
+            ["PLANNED", "OBSERVED"],
+        ):
+            raise AtomicityViolation("specialist lease admission evidence changed during replay")
+        if not related:
+            self._append_effect_event(
+                action="issue_specialist_lease",
+                idempotency_key=key,
+                subject_digest=lease_digest,
+                status="PLANNED",
+                result_digest=lease_digest,
+            )
         self._leases[task.task_id] = expected
         self._save()
+        if not any(event["status"] == "OBSERVED" for event in related):
+            self._append_effect_event(
+                action="issue_specialist_lease",
+                idempotency_key=key,
+                subject_digest=lease_digest,
+                status="OBSERVED",
+                result_digest=lease_digest,
+            )
+        self._pending_lease_admission_keys.discard(key)
         return expected
 
     @contextmanager
@@ -1481,11 +1590,60 @@ class AtomicImplementationController:
                 )
             self._pending_result_admission_keys.discard(admission_key)
 
+    def _retire_specialist_lease_admissions(self, *, authority_digest: str) -> None:
+        _require_digest(authority_digest, field="authority_digest")
+        self._load_effect_events()
+        retirements = {
+            _specialist_lease_admission_key(lease): _specialist_lease_admission_digest(lease)
+            for lease in self._leases.values()
+        }
+        for admission_key in self._pending_lease_admission_keys:
+            planned = [
+                event
+                for event in self._effect_events
+                if event["idempotency_key"] == admission_key
+                and event["action"] == "issue_specialist_lease"
+                and event["status"] == "PLANNED"
+            ]
+            if len(planned) != 1:
+                raise AtomicityViolation("pending specialist lease evidence is malformed")
+            retirements[admission_key] = str(planned[0]["result_digest"])
+        for admission_key, admission_digest in retirements.items():
+            key = f"{admission_key}:retire:{authority_digest}"
+            subject_digest = _canonical_digest(
+                {
+                    "admission_key": admission_key,
+                    "authority": authority_digest,
+                }
+            )
+            related = [event for event in self._effect_events if event["idempotency_key"] == key]
+            if any(
+                event["action"] != "retire_specialist_lease"
+                or event["status"] != "OBSERVED"
+                or event["subject_digest"] != subject_digest
+                or event["result_digest"] != admission_digest
+                for event in related
+            ):
+                raise AtomicityViolation("specialist lease retirement evidence changed")
+            if not related:
+                self._append_effect_event(
+                    action="retire_specialist_lease",
+                    idempotency_key=key,
+                    subject_digest=subject_digest,
+                    status="OBSERVED",
+                    result_digest=admission_digest,
+                )
+            self._pending_lease_admission_keys.discard(admission_key)
+
+    def _retire_specialist_authority(self, *, authority_digest: str) -> None:
+        self._retire_specialist_result_admissions(authority_digest=authority_digest)
+        self._retire_specialist_lease_admissions(authority_digest=authority_digest)
+
     def integration_manifest(self) -> IntegrationManifest:
         if self._cancelled:
             raise AtomicityViolation("partial output is non-admissible after cancellation")
-        if self._pending_result_admission_keys:
-            raise AtomicityViolation("specialist result admission recovery is pending")
+        if self._pending_lease_admission_keys or self._pending_result_admission_keys:
+            raise AtomicityViolation("specialist authority admission recovery is pending")
         if self._admitted is None:
             raise AtomicityViolation("repository slice has not been admitted")
         if not self._results:
@@ -1754,7 +1912,7 @@ class AtomicImplementationController:
             planning_commit=planning,
             pull_request=unblocked.pull_request,
         )
-        self._retire_specialist_result_admissions(authority_digest=candidate.digest)
+        self._retire_specialist_authority(authority_digest=candidate.digest)
         self._leases.clear()
         self._results.clear()
         self._published_candidate_head = ""
@@ -2225,7 +2383,7 @@ class AtomicImplementationController:
                 "meaningful_red": meaningful_red_digest,
             }
         )
-        self._retire_specialist_result_admissions(authority_digest=repair_admission_digest)
+        self._retire_specialist_authority(authority_digest=repair_admission_digest)
         self._leases.clear()
         self._results.clear()
         self._published_candidate_head = ""
@@ -2472,6 +2630,7 @@ class AtomicImplementationController:
         self._admitted = persisted._admitted
         self._leases = dict(persisted._leases)
         self._results = dict(persisted._results)
+        self._pending_lease_admission_keys = set(persisted._pending_lease_admission_keys)
         self._pending_result_admission_keys = set(persisted._pending_result_admission_keys)
         self._published_candidate_head = persisted._published_candidate_head
         self._repair_admission_digest = persisted._repair_admission_digest

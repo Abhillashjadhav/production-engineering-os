@@ -908,6 +908,55 @@ def test_load_rejects_admitted_result_deleted_from_mutable_state(tmp_path: Path)
         AtomicImplementationController.load(tmp_path / "run", repository=adapter)
 
 
+def test_load_rejects_issued_lease_deleted_from_mutable_state(tmp_path: Path) -> None:
+    controller, adapter = _controller(tmp_path)
+    admitted = controller.admit_slice(_candidate())
+    first = controller.issue_lease(
+        SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
+    )
+    controller._admit_specialist_result(
+        first,
+        commit_sha="d" * 40,
+        changed_paths=("src/first.py",),
+        clean=True,
+    )
+    controller.issue_lease(
+        SpecialistTask("T-2", "v2-test-engineer", ("tests/",)), admitted=admitted
+    )
+
+    state_path = tmp_path / "run" / "atomic-implementation.json"
+    state = json.loads(state_path.read_text())
+    del state["leases"]["T-2"]
+    state_path.write_text(json.dumps(state))
+
+    with pytest.raises(AtomicityViolation, match="lease admission ledger"):
+        AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+
+
+def test_lease_admission_replays_independent_evidence_after_state_save_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, adapter = _controller(tmp_path)
+    admitted = controller.admit_slice(_candidate())
+    task = SpecialistTask("T-1", "v2-backend-engineer", ("src/",))
+
+    def crash_state_save() -> None:
+        raise RuntimeError("lease state save crash")
+
+    monkeypatch.setattr(controller, "_save", crash_state_save)
+    with pytest.raises(RuntimeError, match="lease state save crash"):
+        controller.issue_lease(task, admitted=admitted)
+
+    resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    with pytest.raises(AtomicityViolation, match="admission recovery is pending"):
+        resumed.integration_manifest()
+    lease = resumed.issue_lease(task, admitted=admitted)
+
+    assert AtomicImplementationController.load(tmp_path / "run", repository=adapter)._leases == {
+        "T-1": lease
+    }
+
+
 def test_specialist_admission_replays_independent_evidence_after_state_save_crash(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -964,6 +1013,46 @@ def test_readmission_retires_planned_only_specialist_admission(
             commit_sha="d" * 40,
             changed_paths=("src/old.py",),
             clean=True,
+        )
+
+    resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    resumed.cancel_all(
+        reason="new product truth",
+        partial_paths=(),
+        current_tree_sha=admitted.planning_commit.sha,
+    )
+    replacement = replace(_candidate(), test_plan_digest="1" * 64, meaningful_red_digest="2" * 64)
+    recovered = resumed.readmit_after_product_input(
+        replacement,
+        restored_tree_sha=admitted.planning_commit.sha,
+    )
+    new_lease = resumed.issue_lease(
+        SpecialistTask("T-new", "v2-test-engineer", ("tests/",)), admitted=recovered
+    )
+    resumed._admit_specialist_result(
+        new_lease,
+        commit_sha="e" * 40,
+        changed_paths=("tests/new.py",),
+        clean=True,
+    )
+
+    reloaded = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    assert [result.task_id for result in reloaded.integration_manifest().results] == ["T-new"]
+
+
+def test_readmission_retires_planned_only_specialist_lease(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, adapter = _controller(tmp_path)
+    admitted = controller.admit_slice(_candidate())
+
+    def crash_state_save() -> None:
+        raise RuntimeError("planned-only lease")
+
+    monkeypatch.setattr(controller, "_save", crash_state_save)
+    with pytest.raises(RuntimeError, match="planned-only lease"):
+        controller.issue_lease(
+            SpecialistTask("T-old", "v2-backend-engineer", ("src/",)), admitted=admitted
         )
 
     resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
