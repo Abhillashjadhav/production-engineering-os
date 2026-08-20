@@ -1,0 +1,22 @@
+agent: frontend-engineer
+stage: implement
+cases:
+- id: frontend-valid-result
+  kind: valid_output
+  expect: valid
+  hard_gate: true
+  context: {assigned_tasks: [T-FE]}
+  output:
+    task_id: T-FE
+    commits: [abc123]
+    changed_paths: [src/ui/view.tsx]
+    tests_run: [component, accessibility, typecheck]
+    results: passed
+    escalations: []
+- id: frontend-out-of-scope
+  kind: planted_failure
+  expect: invalid
+  hard_gate: true
+  context: {assigned_tasks: [T-FE]}
+  output: {task_id: T-OTHER, commits: [abc123], tests_run: [component], results: passed}
+

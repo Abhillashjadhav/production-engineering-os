@@ -1,2 +1,1 @@
-"""The V2 engineering run plane: worktrees, evidence ledger, candidate freeze,
-stage machine."""
+"""Engineering authorities for atomic work, evidence, and candidate control."""

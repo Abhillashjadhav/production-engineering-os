@@ -1,0 +1,21 @@
+agent: data-migration-engineer
+stage: implement
+cases:
+- id: migration-valid-result
+  kind: valid_output
+  expect: valid
+  hard_gate: true
+  context: {assigned_tasks: [T-DATA]}
+  output:
+    task_id: T-DATA
+    commits: [abc123]
+    tests_run: [upgrade, downgrade, idempotency]
+    results: passed
+    rollback_evidence: verified
+    escalations: []
+- id: migration-missing-rollback
+  kind: planted_failure
+  expect: invalid
+  hard_gate: true
+  context: {assigned_tasks: [T-DATA]}
+  output: {task_id: T-OTHER, commits: [abc123], tests_run: [upgrade], results: passed}

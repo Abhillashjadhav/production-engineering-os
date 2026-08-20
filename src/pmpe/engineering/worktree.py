@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
+from pmpe.domain.errors import GitError
 from pmpe.gitops.local import LocalGitAdapter
 
 
@@ -43,11 +44,17 @@ def specialist_worktree(
     worktree = SpecialistWorktree(path=wt_path, branch=branch, _git=LocalGitAdapter(wt_path))
     try:
         yield worktree
-        if worktree.has_uncommitted_changes():
+        if wt_path.exists() and worktree.has_uncommitted_changes():
             raise RuntimeError(
                 f"specialist worktree for {task_id} has uncommitted changes — commit or "
                 "escalate before leaving the task"
             )
     finally:
-        repo_git._run("worktree", "remove", "--force", str(wt_path))  # noqa: SLF001
+        try:
+            repo_git._run("worktree", "remove", "--force", str(wt_path))  # noqa: SLF001
+        except GitError:
+            # A lifecycle cancellation may already have force-removed this exact
+            # dedicated worktree after preserving its status evidence.
+            if wt_path.exists():
+                raise
         shutil.rmtree(wt_path, ignore_errors=True)

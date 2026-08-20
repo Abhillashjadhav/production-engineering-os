@@ -1,0 +1,25 @@
+agent: platform-reliability-engineer
+stage: implement
+cases:
+- id: platform-valid-result
+  kind: valid_output
+  expect: valid
+  hard_gate: true
+  context: {assigned_tasks: [T-PLAT]}
+  output:
+    task_id: T-PLAT
+    commits: [abc123]
+    tests_run: [failure, recovery, resource-limit]
+    results: passed
+    rollback_evidence: verified
+    escalations: []
+- id: platform-live-deploy
+  kind: planted_failure
+  expect: invalid
+  hard_gate: true
+  context: {assigned_tasks: [T-PLAT]}
+  output:
+    task_id: T-OTHER
+    commits: [abc123]
+    tests_run: [production deployment]
+    results: passed

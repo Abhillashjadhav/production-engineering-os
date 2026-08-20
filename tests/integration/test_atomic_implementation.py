@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from pathlib import Path
 
 import pytest
+
 from pmpe.engineering.atomic import (
     AtomicImplementationController,
     AtomicityViolation,
     IssueCandidate,
     MemoryRepositoryAdapter,
+    ReadyInvalidationSignal,
     SpecialistTask,
 )
-
 from pmpe.gitops.local import LocalGitAdapter
 
 BASE_SHA = "a" * 40
@@ -29,8 +31,14 @@ def _candidate() -> IssueCandidate:
     )
 
 
-def _controller(tmp_path: Path) -> tuple[AtomicImplementationController, MemoryRepositoryAdapter]:
-    adapter = MemoryRepositoryAdapter(repository="owner/repo", protected_base_sha=BASE_SHA)
+def _controller(
+    tmp_path: Path, *, planning_commit_sha: str | None = None
+) -> tuple[AtomicImplementationController, MemoryRepositoryAdapter]:
+    adapter = MemoryRepositoryAdapter(
+        repository="owner/repo",
+        protected_base_sha=BASE_SHA,
+        planning_commit_sha=planning_commit_sha,
+    )
     controller = AtomicImplementationController(
         run_dir=tmp_path / "run",
         repository=adapter,
@@ -76,6 +84,58 @@ def test_matching_crash_recovery_reuses_every_repository_effect(tmp_path: Path) 
     assert len(adapter.effects) == effect_count
 
 
+def test_repository_effect_is_prejournaled_and_recovers_after_side_effect_crash(
+    tmp_path: Path,
+) -> None:
+    class CrashOnceAdapter(MemoryRepositoryAdapter):
+        fail_once = True
+
+        def ensure_issue(self, candidate: IssueCandidate, *, idempotency_key: str):
+            issue = super().ensure_issue(candidate, idempotency_key=idempotency_key)
+            if self.fail_once:
+                self.fail_once = False
+                raise RuntimeError("crash after remote issue creation")
+            return issue
+
+    adapter = CrashOnceAdapter(repository="owner/repo", protected_base_sha=BASE_SHA)
+    controller = AtomicImplementationController(
+        run_dir=tmp_path / "run",
+        repository=adapter,
+        expected_repository="owner/repo",
+        expected_base_sha=BASE_SHA,
+    )
+
+    with pytest.raises(RuntimeError, match="crash after"):
+        controller.admit_slice(_candidate())
+
+    ledger = tmp_path / "run" / "repository-effects.jsonl"
+    first = [json.loads(line) for line in ledger.read_text().splitlines()]
+    assert [(event["action"], event["status"]) for event in first] == [("create_issue", "PLANNED")]
+
+    admitted = AtomicImplementationController.load(
+        tmp_path / "run", repository=adapter
+    ).admit_slice(_candidate())
+    events = [json.loads(line) for line in ledger.read_text().splitlines()]
+    assert admitted.issue.number == 1
+    assert len(adapter.issues) == 1
+    assert events[1]["action"] == "create_issue"
+    assert events[1]["status"] == "OBSERVED"
+
+
+def test_repository_effect_ledger_tampering_fails_closed(tmp_path: Path) -> None:
+    controller, adapter = _controller(tmp_path)
+    controller.admit_slice(_candidate())
+    ledger = tmp_path / "run" / "repository-effects.jsonl"
+    lines = ledger.read_text().splitlines()
+    event = json.loads(lines[0])
+    event["subject_digest"] = "0" * 64
+    lines[0] = json.dumps(event)
+    ledger.write_text("\n".join(lines) + "\n")
+
+    with pytest.raises(AtomicityViolation, match="ledger integrity"):
+        AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+
+
 @pytest.mark.parametrize("field", ["issue", "branch", "base", "pull_request"])
 def test_mismatched_or_duplicate_repository_state_fails_closed(tmp_path: Path, field: str) -> None:
     controller, adapter = _controller(tmp_path)
@@ -117,6 +177,14 @@ def test_implementation_lease_requires_red_and_scopes_task_and_paths(tmp_path: P
             clean=True,
         )
 
+    with pytest.raises(ValueError, match="belongs to"):
+        SpecialistTask(
+            task_id="T-bad",
+            specialist="frontend-engineer",
+            allowed_paths=("src/",),
+            required_capability="backend",
+        )
+
 
 def test_cancellation_freezes_partial_work_and_blocks_candidate_admission(
     tmp_path: Path,
@@ -138,12 +206,78 @@ def test_cancellation_freezes_partial_work_and_blocks_candidate_admission(
     assert stopped.active_leases == 0
     assert stopped.partial_output_admissible is False
     assert stopped.baseline_tree_sha == admitted.planning_commit.sha
+    assert controller.repository.issue(admitted.issue.number).blocked is True
+    assert controller.repository.pull_request(admitted.pull_request.number).blocked is True
+    assert (
+        AtomicImplementationController.load(
+            tmp_path / "run", repository=controller.repository
+        ).stop_evidence
+        == stopped
+    )
     with pytest.raises(AtomicityViolation, match="revoked"):
         controller.admit_specialist_result(
             lease,
             commit_sha="1" * 40,
             changed_paths=("src/pmpe/partial.py",),
             clean=True,
+        )
+
+
+def test_same_scope_reset_requires_exact_restore_and_fresh_plan_and_red(
+    tmp_path: Path,
+) -> None:
+    controller, adapter = _controller(tmp_path)
+    admitted = controller.admit_slice(_candidate())
+    controller.cancel_all(
+        reason="missing product truth",
+        partial_paths=("src/partial.py",),
+        current_tree_sha="f" * 40,
+    )
+    replacement = replace(_candidate(), test_plan_digest="d" * 64, meaningful_red_digest="e" * 64)
+
+    with pytest.raises(AtomicityViolation, match="exact pre-code"):
+        controller.readmit_after_product_input(replacement, restored_tree_sha="0" * 40)
+
+    resumed = controller.readmit_after_product_input(
+        replacement, restored_tree_sha=admitted.planning_commit.sha
+    )
+
+    assert resumed.issue.number == admitted.issue.number
+    assert resumed.pull_request.number == admitted.pull_request.number
+    assert resumed.planning_commit.sha != admitted.planning_commit.sha
+    assert resumed.planning_commit.meaningful_red_digest == "e" * 64
+    assert resumed.issue.blocked is False
+    assert resumed.pull_request.blocked is False
+    assert len(adapter.primary_pull_requests(admitted.issue.number)) == 1
+    assert controller.integration_manifest().results == ()
+
+
+def test_changed_outcome_or_closed_pr_cannot_reuse_same_primary_pr(tmp_path: Path) -> None:
+    controller, adapter = _controller(tmp_path)
+    admitted = controller.admit_slice(_candidate())
+    controller.cancel_all(
+        reason="product changed",
+        partial_paths=(),
+        current_tree_sha="f" * 40,
+    )
+
+    with pytest.raises(AtomicityViolation, match="new issue"):
+        controller.readmit_after_product_input(
+            replace(_candidate(), outcome="Different outcome"),
+            restored_tree_sha=admitted.planning_commit.sha,
+        )
+
+    adapter.pull_requests[admitted.pull_request.number] = replace(
+        admitted.pull_request, open=False, draft=False
+    )
+    with pytest.raises(AtomicityViolation, match="cannot be reused"):
+        controller.readmit_after_product_input(
+            replace(
+                _candidate(),
+                test_plan_digest="d" * 64,
+                meaningful_red_digest="e" * 64,
+            ),
+            restored_tree_sha=admitted.planning_commit.sha,
         )
 
 
@@ -182,8 +316,8 @@ def test_real_worktree_enforces_allowlist_and_preserves_main(tmp_path: Path) -> 
     git.init()
     (root / "src").mkdir()
     (root / "src" / "allowed.py").write_text("VALUE = 1\n")
-    git.commit_all("base")
-    controller, _ = _controller(tmp_path)
+    planning_sha = git.commit_all("base")
+    controller, _ = _controller(tmp_path, planning_commit_sha=planning_sha)
     admitted = controller.admit_slice(_candidate())
     lease = controller.issue_lease(
         SpecialistTask("T-1", "v2-backend-engineer", ("src/",)),
@@ -201,14 +335,84 @@ def test_real_worktree_enforces_allowlist_and_preserves_main(tmp_path: Path) -> 
     assert result.changed_paths == ("src/allowed.py",)
 
 
+def test_cancellation_removes_active_worktree_after_preserving_dirty_paths(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "repo"
+    root.mkdir()
+    git = LocalGitAdapter(root)
+    git.init()
+    (root / "src").mkdir()
+    (root / "src" / "partial.py").write_text("VALUE = 1\n")
+    planning_sha = git.commit_all("base")
+    controller, _ = _controller(tmp_path, planning_commit_sha=planning_sha)
+    admitted = controller.admit_slice(_candidate())
+    lease = controller.issue_lease(
+        SpecialistTask("T-stop", "v2-backend-engineer", ("src/",)),
+        admitted=admitted,
+    )
+
+    with controller.specialist_worktree(
+        root, lease=lease, worktrees_root=tmp_path / "worktrees"
+    ) as worktree:
+        path = worktree.path
+        (path / "src" / "partial.py").write_text("VALUE = 2\n")
+        stopped = controller.cancel_all(
+            reason="contradictory product truth",
+            partial_paths=(),
+            current_tree_sha=planning_sha,
+        )
+        assert not path.exists()
+
+    assert stopped.partial_paths == ("src/partial.py",)
+    assert stopped.workers_stopped is True
+    assert stopped.active_leases == 0
+
+
 def test_ready_and_dequeue_are_exact_head_governed_effects(tmp_path: Path) -> None:
     controller, adapter = _controller(tmp_path)
     admitted = controller.admit_slice(_candidate())
-    head = admitted.planning_commit.sha
+    lease = controller.issue_lease(
+        SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
+    )
+    controller.admit_specialist_result(
+        lease,
+        commit_sha="4" * 40,
+        changed_paths=("src/candidate.py",),
+        clean=True,
+    )
+    manifest = controller.integration_manifest()
+    head = "a" * 39 + "b"
+    published = controller.publish_candidate(
+        manifest=manifest,
+        candidate_head_sha=head,
+        verification_digest="d" * 64,
+    )
+    assert published.draft is True
+    assert published.head_sha == head
+    assert manifest.digest in published.body
+
+    with pytest.raises(AtomicityViolation, match="stale"):
+        controller.mark_ready(
+            pr_number=published.number,
+            exact_head_sha=admitted.planning_commit.sha,
+            base_sha=BASE_SHA,
+            policy_digest="1" * 64,
+            toolchain_digest="2" * 64,
+            prospective_tree_digest="3" * 64,
+            checks_digest="5" * 64,
+            advisory_review_digest="6" * 64,
+            blocking_findings=(),
+            authorization_digest="7" * 64,
+        )
 
     ready = controller.mark_ready(
         pr_number=admitted.pull_request.number,
         exact_head_sha=head,
+        base_sha=BASE_SHA,
+        policy_digest="1" * 64,
+        toolchain_digest="2" * 64,
+        prospective_tree_digest="3" * 64,
         checks_digest="5" * 64,
         advisory_review_digest="6" * 64,
         blocking_findings=(),
@@ -216,11 +420,85 @@ def test_ready_and_dequeue_are_exact_head_governed_effects(tmp_path: Path) -> No
     )
     assert ready.draft is False
 
+    bot_finding = ReadyInvalidationSignal(
+        kind="blocking_finding",
+        source="security-bot",
+        exact_head_sha=head,
+        evidence_digest="8" * 64,
+        trace_digest="0" * 64,
+        credible=True,
+        authenticated=True,
+        blocking=True,
+        reviewer_eligible=False,
+    )
     dequeued = controller.invalidate_ready(
         pr_number=ready.number,
-        observed_head_sha=head,
-        finding_digest="8" * 64,
+        signal=bot_finding,
         authorization_digest="9" * 64,
     )
     assert dequeued.draft is True
     assert adapter.invalidated_approvals == [ready.number]
+    with pytest.raises(AtomicityViolation, match="repair cycle"):
+        controller.issue_lease(
+            SpecialistTask("T-fix", "v2-backend-engineer", ("src/",)),
+            admitted=controller.admitted_slice,
+        )
+    controller.begin_repair_cycle(
+        exact_head_sha=head,
+        finding_inventory_digest="a" * 64,
+        repair_test_plan_digest="b" * 64,
+        meaningful_red_digest="c" * 64,
+    )
+    repair_lease = controller.issue_lease(
+        SpecialistTask("T-fix", "v2-backend-engineer", ("src/",)),
+        admitted=controller.admitted_slice,
+    )
+    assert repair_lease.baseline_sha == head
+
+
+def test_ready_invalidation_rejects_untraceable_or_nonblocking_signal(tmp_path: Path) -> None:
+    with pytest.raises(AtomicityViolation, match="credible authenticated blocking"):
+        controller, _ = _controller(tmp_path)
+        admitted = controller.admit_slice(_candidate())
+        lease = controller.issue_lease(
+            SpecialistTask("T-1", "v2-backend-engineer", ("src/",)),
+            admitted=admitted,
+        )
+        controller.admit_specialist_result(
+            lease,
+            commit_sha="a" * 39 + "b",
+            changed_paths=("src/candidate.py",),
+            clean=True,
+        )
+        published = controller.publish_candidate(
+            manifest=controller.integration_manifest(),
+            candidate_head_sha="a" * 39 + "b",
+            verification_digest="f" * 64,
+        )
+        ready = controller.mark_ready(
+            pr_number=published.number,
+            exact_head_sha=published.head_sha,
+            base_sha=BASE_SHA,
+            policy_digest="1" * 64,
+            toolchain_digest="2" * 64,
+            prospective_tree_digest="3" * 64,
+            checks_digest="4" * 64,
+            advisory_review_digest="5" * 64,
+            blocking_findings=(),
+            authorization_digest="6" * 64,
+        )
+        controller.invalidate_ready(
+            pr_number=ready.number,
+            signal=ReadyInvalidationSignal(
+                kind="required_check_drift",
+                source="ci",
+                exact_head_sha=ready.head_sha,
+                evidence_digest="7" * 64,
+                trace_digest="8" * 64,
+                credible=True,
+                authenticated=False,
+                blocking=True,
+                check_state="pending",
+            ),
+            authorization_digest="9" * 64,
+        )

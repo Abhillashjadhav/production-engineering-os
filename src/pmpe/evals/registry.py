@@ -25,7 +25,15 @@ STAGE_AGENTS: dict[str, tuple[str, ...]] = {
     "architecture": ("v2-system-architect",),
     "plan": ("v2-implementation-planner",),
     "route": ("v2-engineer-router",),
-    "implement": ("v2-backend-engineer", "v2-test-engineer"),
+    "implement": (
+        "v2-backend-engineer",
+        "frontend-engineer",
+        "data-migration-engineer",
+        "eval-engineer",
+        "security-engineer",
+        "platform-reliability-engineer",
+        "v2-test-engineer",
+    ),
     "integrate": ("v2-integration-engineer",),
     "review": REVIEWER_NAMES,
     "fix": ("v2-approved-findings-fixer",),
@@ -39,7 +47,7 @@ _READ_ONLY_EXPECTED = frozenset(
         *REVIEWER_NAMES,
     }
 )
-_WORKTREE_EXPECTED = frozenset({"v2-backend-engineer", "v2-test-engineer"})
+_WORKTREE_EXPECTED = frozenset(STAGE_AGENTS["implement"])
 
 
 def should_fire(agent: str, stage: str) -> bool:

@@ -14,4 +14,5 @@ def test_every_declared_specialist_has_worktree_definition_and_eval_contract() -
         definition = registry.get(specialist)
         assert definition.isolation == "worktree"
         assert definition.tools
-        assert (root / "evals" / "agents" / f"v2-{specialist}.yaml").is_file()
+        eval_name = specialist if specialist.startswith("v2-") else f"v2-{specialist}"
+        assert (root / "evals" / "agents" / f"{eval_name}.yaml").is_file()
