@@ -1327,6 +1327,17 @@ class AtomicImplementationController:
         issue/branch/draft PR can receive implementation again.
         """
 
+        with self._active_worktrees_lock:
+            self._refresh_persisted_state()
+            return self._readmit_after_product_input_locked(
+                candidate,
+                restored_tree_sha=restored_tree_sha,
+            )
+
+    def _readmit_after_product_input_locked(
+        self, candidate: IssueCandidate, *, restored_tree_sha: str
+    ) -> AdmittedSlice:
+
         if self._admitted is None or not self._cancelled:
             raise AtomicityViolation("product-input re-admission requires a stopped slice")
         _require_sha(restored_tree_sha, field="restored_tree_sha")

@@ -407,6 +407,32 @@ def test_same_scope_reset_requires_exact_restore_and_fresh_plan_and_red(
         controller.integration_manifest()
 
 
+def test_preloaded_controller_cannot_overwrite_a_completed_readmission(tmp_path: Path) -> None:
+    controller, adapter = _controller(tmp_path)
+    admitted = controller.admit_slice(_candidate())
+    controller.cancel_all(
+        reason="missing product truth",
+        partial_paths=(),
+        current_tree_sha="f" * 40,
+    )
+    stale = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    replacement = replace(_candidate(), test_plan_digest="d" * 64, meaningful_red_digest="e" * 64)
+    resumed = controller.readmit_after_product_input(
+        replacement,
+        restored_tree_sha=admitted.planning_commit.sha,
+    )
+
+    with pytest.raises(AtomicityViolation, match="requires a stopped slice"):
+        stale.readmit_after_product_input(
+            replace(replacement, test_plan_digest="1" * 64, meaningful_red_digest="2" * 64),
+            restored_tree_sha=admitted.planning_commit.sha,
+        )
+
+    persisted = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    assert persisted.admitted_slice == resumed
+    assert adapter.pull_request(resumed.pull_request.number) == resumed.pull_request
+
+
 def test_changed_outcome_or_closed_pr_cannot_reuse_same_primary_pr(tmp_path: Path) -> None:
     controller, adapter = _controller(tmp_path)
     admitted = controller.admit_slice(_candidate())
