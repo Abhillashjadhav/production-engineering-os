@@ -113,6 +113,7 @@ def _env_wrapped_command(tokens: list[str], command: int) -> tuple[str | None, b
     split_expansions = 0
     options_ended = False
     assignment_seen = False
+    dash_seen = False
 
     def expand_split(value: str, tail: list[str]) -> bool:
         nonlocal remaining, cursor, split_expansions
@@ -128,7 +129,9 @@ def _env_wrapped_command(tokens: list[str], command: int) -> tuple[str | None, b
 
     while cursor < len(remaining):
         token = remaining[cursor]
-        if token == "-" and not assignment_seen:
+        if token == "-" and not assignment_seen and not dash_seen:
+            dash_seen = True
+            options_ended = True
             cursor += 1
             continue
         if not options_ended and not assignment_seen and token == "--":
