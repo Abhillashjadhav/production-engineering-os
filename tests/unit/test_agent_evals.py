@@ -117,6 +117,34 @@ def test_negated_success_phrase_fails_live_admission() -> None:
     assert any("successful mandatory checks" in error for error in errors)
 
 
+def test_count_bearing_success_phrase_passes_live_admission() -> None:
+    errors = VALIDATORS["security-engineer"](
+        {
+            "task_id": "T-SEC",
+            "commits": ["abc123"],
+            "tests_run": ["planted exploit", "regression", "bandit"],
+            "results": "2 passed",
+            "residual_risk": "none identified",
+        },
+        {"assigned_tasks": ["T-SEC"]},
+    )
+    assert errors == []
+
+
+def test_count_bearing_mixed_failure_phrase_fails_live_admission() -> None:
+    errors = VALIDATORS["security-engineer"](
+        {
+            "task_id": "T-SEC",
+            "commits": ["abc123"],
+            "tests_run": ["planted exploit", "regression", "bandit"],
+            "results": "2 passed, 1 failed",
+            "residual_risk": "none identified",
+        },
+        {"assigned_tasks": ["T-SEC"]},
+    )
+    assert any("successful mandatory checks" in error for error in errors)
+
+
 def test_permission_case_fails_if_reviewer_gains_write_tool(tmp_path: Path) -> None:
     agents_dir = tmp_path / "agents"
     agents_dir.mkdir()

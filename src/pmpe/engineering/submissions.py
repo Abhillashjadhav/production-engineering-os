@@ -127,7 +127,10 @@ def validate_specialist_result(data: dict[str, Any], context: dict[str, Any]) ->
     if data.get("task_id") not in assigned:
         errors.append(f"specialist reported task '{data.get('task_id')}' outside its assignment")
     result = str(data.get("results", "")).strip().lower()
-    successful = result in {"passed", "ok", "green", "all green", "success", "succeeded"}
+    words = result.split()
+    successful = result in {"passed", "ok", "green", "all green", "success", "succeeded"} or (
+        len(words) == 2 and words[0].isdecimal() and int(words[0]) > 0 and words[1] == "passed"
+    )
     if not successful:
         errors.append("specialist result does not prove successful mandatory checks")
     return errors
