@@ -93,42 +93,105 @@ def _shell_tokens(line: str) -> list[str]:
         return []
 
 
-def _env_wrapped_command(tokens: list[str], command: int) -> str | None:
+def _env_split_tokens(value: str) -> list[str] | None:
+    """Conservatively split ``env -S`` values.
+
+    GNU env gives backslashes and variable expansion semantics that differ from
+    POSIX shell tokenization. Until those semantics are implemented exactly,
+    values using either feature are unresolved and therefore blocking when
+    they occur on the receiving side of a remote-content pipeline.
+    """
+    if "\\" in value or "$" in value:
+        return None
+    return _shell_tokens(value)
+
+
+def _env_wrapped_command(tokens: list[str], command: int) -> tuple[str | None, bool]:
+    """Return the wrapped command and whether env parsing was unresolved."""
     remaining = tokens[command:]
     cursor = 0
     split_expansions = 0
+
+    def expand_split(value: str, tail: list[str]) -> bool:
+        nonlocal remaining, cursor, split_expansions
+        if split_expansions >= 8:
+            return False
+        expanded = _env_split_tokens(value)
+        if expanded is None:
+            return False
+        remaining = expanded + tail
+        cursor = 0
+        split_expansions += 1
+        return True
+
     while cursor < len(remaining):
         token = remaining[cursor]
         if token == "--":
             cursor += 1
-            return remaining[cursor] if cursor < len(remaining) else None
+            return (remaining[cursor] if cursor < len(remaining) else None), False
         if token in {"-S", "--split-string"}:
-            if cursor + 1 >= len(remaining) or split_expansions >= 8:
-                return None
-            expanded = _shell_tokens(remaining[cursor + 1])
-            remaining = expanded + remaining[cursor + 2 :]
-            cursor = 0
-            split_expansions += 1
+            if cursor + 1 >= len(remaining):
+                return None, True
+            if not expand_split(remaining[cursor + 1], remaining[cursor + 2 :]):
+                return None, True
             continue
-        if token.startswith("--split-string=") or (token.startswith("-S") and len(token) > 2):
-            if split_expansions >= 8:
-                return None
-            value = token.split("=", 1)[1] if token.startswith("--") else token[2:]
-            remaining = _shell_tokens(value) + remaining[cursor + 1 :]
-            cursor = 0
-            split_expansions += 1
+        if token.startswith("--split-string="):
+            if not expand_split(token.split("=", 1)[1], remaining[cursor + 1 :]):
+                return None, True
             continue
         if token in {"-C", "-u", "--chdir", "--unset"}:
+            if cursor + 1 >= len(remaining):
+                return None, True
             cursor += 2
             continue
-        if token.startswith("-"):
+        if token.startswith(("--chdir=", "--unset=")):
             cursor += 1
+            continue
+        if token.startswith("--"):
+            if token in {
+                "--debug",
+                "--help",
+                "--ignore-environment",
+                "--null",
+                "--version",
+            }:
+                cursor += 1
+                continue
+            return None, True
+        if token.startswith("-") and token != "-":
+            cluster = token[1:]
+            position = 0
+            while position < len(cluster):
+                option = cluster[position]
+                if option in {"0", "i", "v"}:
+                    position += 1
+                    continue
+                if option not in {"C", "S", "u"}:
+                    return None, True
+                attached = cluster[position + 1 :]
+                if attached:
+                    value = attached
+                    tail = remaining[cursor + 1 :]
+                elif cursor + 1 < len(remaining):
+                    value = remaining[cursor + 1]
+                    tail = remaining[cursor + 2 :]
+                else:
+                    return None, True
+                if option == "S":
+                    if not expand_split(value, tail):
+                        return None, True
+                else:
+                    remaining = tail
+                    cursor = 0
+                break
+            else:
+                cursor += 1
             continue
         if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", token) is not None:
             cursor += 1
             continue
-        return token
-    return None
+        return token, False
+    return None, False
 
 
 def _shell_rule_matches(line: str) -> list[tuple[str, str]]:
@@ -178,9 +241,10 @@ def _shell_rule_matches(line: str) -> list[tuple[str, str]]:
             continue
         initial_command = tokens[command_index]
         command: str | None = initial_command
+        unresolved_env = False
         if _shell_basename(initial_command) == "env":
-            command = _env_wrapped_command(tokens, command_index + 1)
-        if command is not None and _shell_basename(command) in {"sh", "bash"}:
+            command, unresolved_env = _env_wrapped_command(tokens, command_index + 1)
+        if unresolved_env or (command is not None and _shell_basename(command) in {"sh", "bash"}):
             matches.append(("SEC_SHELL_REMOTE_PIPE", "remote content piped directly to a shell"))
             break
     return matches
