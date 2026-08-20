@@ -100,13 +100,12 @@ def scan_file(path: Path, root: Path | None = None) -> list[Finding]:
     must never exempt product code from the secret rule."""
     rel_parts = path.relative_to(root).parts if root is not None else (path.name,)
     is_test = "tests" in rel_parts or path.name.startswith("test_")
+    is_shell_like = path.suffix == ".sh" or path.name.startswith("Dockerfile")
     findings: list[Finding] = []
-    rules = _RULES + (_SHELL_RULES if path.suffix == ".sh" else ())
+    rules = _RULES + (_SHELL_RULES if is_shell_like else ())
     text = path.read_text()
     lines = (
-        _shell_logical_lines(text)
-        if path.suffix == ".sh"
-        else list(enumerate(text.splitlines(), start=1))
+        _shell_logical_lines(text) if is_shell_like else list(enumerate(text.splitlines(), start=1))
     )
     for lineno, line in lines:
         for rule in rules:
@@ -132,7 +131,9 @@ def scan_file(path: Path, root: Path | None = None) -> list[Finding]:
 def scan_tree(root: Path) -> list[Finding]:
     findings: list[Finding] = []
     for path in sorted(
-        candidate for candidate in root.rglob("*") if candidate.suffix in {".py", ".sh"}
+        candidate
+        for candidate in root.rglob("*")
+        if candidate.suffix in {".py", ".sh"} or candidate.name.startswith("Dockerfile")
     ):
         if any(part in _SKIP_DIRS for part in path.relative_to(root).parts):
             continue

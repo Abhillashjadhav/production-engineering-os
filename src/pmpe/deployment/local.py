@@ -176,6 +176,12 @@ class LocalProcessDeployer:
                     f"unauthorized {method} {probe_path} returned {status}, expected 401"
                 )
             steps.append("auth rejects missing token: ok")
+            status, _ = _request(method, f"{base}{probe_path}", token=token + "-invalid")
+            if status != 401:
+                return False, (
+                    f"invalid-token {method} {probe_path} returned {status}, expected 401"
+                )
+            steps.append("auth rejects invalid token: ok")
 
         item_id: int | None = None
         if "entity.create" in caps:

