@@ -1,0 +1,41 @@
+version: merge-admission/v1
+protected_branch: main
+native_gate:
+  mechanism: merge_queue_or_expected_head_compare_and_swap
+  bypass: forbidden
+  exact_inputs:
+    - pr_head_sha
+    - protected_base_sha
+    - prospective_merge_tree_digest
+    - repository_rules_digest
+    - architecture_policy_digest
+    - toolchain_policy_digest
+    - environment_profile_digest
+    - security_policy_digest
+    - verification_policy_digest
+    - evidence_policy_digest
+required_checks:
+  - format-lint
+  - types
+  - tests (3.11)
+  - tests (3.12)
+  - security
+  - product-backend
+  - product-frontend
+  - product-e2e
+  - product-preview
+formal_review:
+  after_ready_for_review: true
+  fresh_after_invalidation: true
+  eligible_approval_required: true
+  changes_requested_blocks: true
+findings:
+  pending_normalization_blocks_rollout: true
+  blocker_sources_include_ineligible_reviewers_and_bots: true
+  normalized_blocking_severities: [critical, high, credible-medium]
+external_races:
+  dequeue_first: verification_or_review_failure
+  merge_first: retain_integration_and_forbid_rollout
+attestation:
+  mutable_pr_comments_are_pointers_only: true
+  content_addressed_final_head_required: true

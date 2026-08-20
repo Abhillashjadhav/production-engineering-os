@@ -8,6 +8,7 @@ this digest; any change to the tree invalidates them all (fail closed).
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -30,6 +31,31 @@ class Candidate:
     tree_digest: str
     contract_digest: str
     frozen_at: str
+
+
+_GIT_SHA = re.compile(r"^[0-9a-f]{40,64}$")
+_CONTENT_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+@dataclass(frozen=True)
+class ReviewSubject:
+    """Exact Git and policy inputs that advisory/readiness evidence reviews."""
+
+    protected_base_sha: str
+    pr_head_sha: str
+    prospective_merge_tree_digest: str
+    repository_rules_digest: str
+    architecture_policy_digest: str
+    toolchain_policy_digest: str
+    environment_profile_digest: str
+    security_policy_digest: str
+    verification_policy_digest: str
+    evidence_policy_digest: str
+    frozen_at: str
+
+    @property
+    def digest(self) -> str:
+        return canonical_digest(self)
 
 
 def _combined_digest(files: dict[str, str]) -> str:
@@ -96,3 +122,39 @@ def verify_frozen(repo: Path, run_dir: Path) -> Candidate:
             "bound to this candidate are invalid"
         )
     return candidate
+
+
+def freeze_review_subject(run_dir: Path, subject: ReviewSubject) -> str:
+    """Persist one immutable readiness subject; retries are exact or rejected."""
+
+    if not _GIT_SHA.fullmatch(subject.protected_base_sha) or not _GIT_SHA.fullmatch(
+        subject.pr_head_sha
+    ):
+        raise CandidateViolation("review subject requires exact base and head SHAs")
+    digest_fields = (
+        subject.prospective_merge_tree_digest,
+        subject.repository_rules_digest,
+        subject.architecture_policy_digest,
+        subject.toolchain_policy_digest,
+        subject.environment_profile_digest,
+        subject.security_policy_digest,
+        subject.verification_policy_digest,
+        subject.evidence_policy_digest,
+    )
+    if any(not _CONTENT_DIGEST.fullmatch(value) for value in digest_fields):
+        raise CandidateViolation("review subject policy/tree digests are malformed")
+    path = Path(run_dir) / "review-subject.json"
+    payload = jsonable(subject)
+    if path.exists():
+        if json.loads(path.read_text()) != payload:
+            raise CandidateViolation("review subject changed after freeze")
+        return subject.digest
+    atomic_write_json(path, payload)
+    return subject.digest
+
+
+def verify_review_subject(run_dir: Path, observed: ReviewSubject) -> str:
+    path = Path(run_dir) / "review-subject.json"
+    if not path.exists() or json.loads(path.read_text()) != jsonable(observed):
+        raise CandidateViolation("protected base, PR head, merge tree, or policy changed")
+    return observed.digest

@@ -27,6 +27,7 @@ from typing import Any, NoReturn
 from pmpe.domain.serialize import atomic_write_json
 
 EvidenceVerifier = Callable[[str, str, Mapping[str, Any], str], bool]
+BundleVerifier = Callable[[str, Mapping[str, str]], bool]
 
 
 class TransitionDeniedError(RuntimeError):
@@ -282,6 +283,7 @@ class Approval:
     reviewed_candidate_digest: str = ""
     review_evidence_digest: str = ""
     authentication_evidence_digest: str = ""
+    submitted_at: str = ""
 
 
 @dataclass(frozen=True)
@@ -442,6 +444,14 @@ def _canonical(value: Any) -> bytes:
 
 def _digest(value: Any) -> str:
     return "sha256:" + hashlib.sha256(_canonical(value)).hexdigest()
+
+
+def _timestamp_after(value: str, boundary: datetime) -> bool:
+    try:
+        observed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return bool(observed.tzinfo is not None and boundary.tzinfo is not None and observed > boundary)
 
 
 def _budget_policy_payload(policy: BudgetPolicy) -> dict[str, Any]:
@@ -1096,7 +1106,7 @@ def _malformed_evidence(evidence: dict[str, str], names: tuple[str, ...]) -> tup
     malformed: list[str] = []
     for name in names:
         value = evidence.get(name, "")
-        if name == "release_sha" or name.endswith("_commit_sha"):
+        if name.endswith("_sha"):
             if not _GIT_SHA.fullmatch(value):
                 malformed.append(name)
         elif name.endswith("_digest") and not _SHA256.fullmatch(value):
@@ -2378,6 +2388,51 @@ PHASE_ZERO_POLICY = LifecyclePolicy(
         for target in _BUDGET_SAFE_RESUME_TARGETS
     ),
 )
+_PHASE_FOUR_REVIEW_FIELDS = (
+    "protected_base_sha",
+    "repository_rules_digest",
+    "architecture_policy_digest",
+    "toolchain_policy_digest",
+    "environment_profile_digest",
+    "security_policy_digest",
+    "verification_policy_digest",
+    "evidence_policy_digest",
+)
+_PHASE_FOUR_MERGE_FIELDS = (
+    "finding_high_watermark_digest",
+    "authority_revalidation_digest",
+    "native_merge_gate_digest",
+)
+PHASE_FOUR_POLICY = LifecyclePolicy(
+    "phase-four-v1",
+    tuple(
+        replace(
+            rule,
+            required_evidence=tuple(
+                dict.fromkeys(
+                    (
+                        *rule.required_evidence,
+                        *(
+                            _PHASE_FOUR_REVIEW_FIELDS
+                            if rule.source is S.REVIEW_REQUIRED
+                            and rule.target is S.PR_READY
+                            and rule.reason == "formal_review_clear"
+                            else ()
+                        ),
+                        *(
+                            _PHASE_FOUR_MERGE_FIELDS
+                            if rule.source is S.PR_READY
+                            and rule.target is S.PR_MERGED
+                            and rule.reason == "native_merge_linearized"
+                            else ()
+                        ),
+                    )
+                )
+            ),
+        )
+        for rule in PHASE_ZERO_POLICY.rules
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -2462,6 +2517,7 @@ class LifecycleControlPlane:
         policy: LifecyclePolicy = PHASE_ZERO_POLICY,
         trust_policy: EvidenceTrustPolicy | None = None,
         evidence_verifier: EvidenceVerifier | None = None,
+        bundle_verifier: BundleVerifier | None = None,
         events: list[LifecycleEvent] | None = None,
     ) -> None:
         self.run_dir = Path(run_dir)
@@ -2472,6 +2528,7 @@ class LifecycleControlPlane:
         self._policy = policy
         self._trust_policy = trust_policy or EvidenceTrustPolicy()
         self._evidence_verifier = evidence_verifier
+        self._bundle_verifier = bundle_verifier
         self._events = list(events or ())
         self._operation_lock = threading.RLock()
         self._completion_claim_active = False
@@ -3072,8 +3129,10 @@ class LifecycleControlPlane:
         subject_digest: str,
         initial_state: LifecycleState,
         budget_policy: BudgetPolicy,
+        lifecycle_policy: LifecyclePolicy = PHASE_ZERO_POLICY,
         trust_policy: EvidenceTrustPolicy | None = None,
         evidence_verifier: EvidenceVerifier | None = None,
+        bundle_verifier: BundleVerifier | None = None,
     ) -> LifecycleControlPlane:
         if initial_state is not LifecycleState.CONTRACT_RECEIVED:
             raise ValueError(
@@ -3088,16 +3147,18 @@ class LifecycleControlPlane:
             subject_digest=subject_digest,
             state=initial_state,
             budget_policy=budget_policy,
+            policy=lifecycle_policy,
             trust_policy=trust_policy,
             evidence_verifier=evidence_verifier,
+            bundle_verifier=bundle_verifier,
         )
         policy_payload = _budget_policy_payload(budget_policy)
         trust_payload = _trust_policy_payload(cp.trust_policy)
         metadata: dict[str, Any] = {
             "run_id": run_id,
             "subject_digest": subject_digest,
-            "lifecycle_policy_digest": PHASE_ZERO_POLICY.digest,
-            "lifecycle_policy": _policy_payload(PHASE_ZERO_POLICY),
+            "lifecycle_policy_digest": lifecycle_policy.digest,
+            "lifecycle_policy": _policy_payload(lifecycle_policy),
             "budget_policy": policy_payload,
             "budget_policy_digest": _digest(policy_payload),
             "trust_policy": trust_payload,
@@ -3111,7 +3172,11 @@ class LifecycleControlPlane:
                 if persisted_metadata != metadata:
                     raise ValueError("lifecycle run already exists with different metadata")
                 if ledger.exists():
-                    return cls.load(path, evidence_verifier=evidence_verifier)
+                    return cls.load(
+                        path,
+                        evidence_verifier=evidence_verifier,
+                        bundle_verifier=bundle_verifier,
+                    )
             elif ledger.exists():
                 raise ValueError("lifecycle ledger exists without bound metadata")
             else:
@@ -3208,7 +3273,11 @@ class LifecycleControlPlane:
 
     @classmethod
     def load(
-        cls, run_dir: Path, *, evidence_verifier: EvidenceVerifier | None = None
+        cls,
+        run_dir: Path,
+        *,
+        evidence_verifier: EvidenceVerifier | None = None,
+        bundle_verifier: BundleVerifier | None = None,
     ) -> LifecycleControlPlane:
         path = Path(run_dir)
         raw_events = [
@@ -3283,6 +3352,7 @@ class LifecycleControlPlane:
             policy=recorded_lifecycle_policy,
             trust_policy=trust_policy,
             evidence_verifier=evidence_verifier,
+            bundle_verifier=bundle_verifier,
             events=events,
         )
         cp._load_mutations()
@@ -4375,44 +4445,120 @@ class LifecycleControlPlane:
                 }
             )
         if "review_clear" in guards:
-            matching_review = next(
-                (
-                    approval
-                    for approval in context.approvals
-                    if approval.approval_id
-                    and approval.actor
-                    and approval.kind == "FORMAL_REVIEW"
-                    and approval.eligible
-                    and approval.active
-                    and approval.subject_digest == self.subject_digest
-                    and _GIT_SHA.fullmatch(approval.reviewed_commit_sha)
-                    and _SHA256.fullmatch(approval.reviewed_candidate_digest)
-                    and _SHA256.fullmatch(approval.review_evidence_digest)
-                    and context.evidence.get("reviewed_commit_sha") == approval.reviewed_commit_sha
-                    and context.evidence.get("prospective_tree_digest")
-                    == approval.reviewed_candidate_digest
-                    and context.evidence.get("verification_bundle_digest")
-                    == approval.review_evidence_digest
-                    and context.evidence.get("review_digest") == _digest(asdict(approval))
-                    and self.trust_policy.formal_reviewers.get(approval.actor)
-                    and self._verify_external_evidence(
-                        approval.actor,
-                        self.trust_policy.formal_reviewers[approval.actor],
-                        _production_approval_payload(approval),
-                        approval.authentication_evidence_digest,
-                    )
-                ),
-                None,
+            review_bindings = {
+                name: context.evidence.get(name, "")
+                for name in (
+                    "subject_digest",
+                    "protected_base_sha",
+                    "reviewed_commit_sha",
+                    "prospective_tree_digest",
+                    "review_digest",
+                    "repository_rules_digest",
+                    "architecture_policy_digest",
+                    "toolchain_policy_digest",
+                    "environment_profile_digest",
+                    "security_policy_digest",
+                    "verification_policy_digest",
+                    "evidence_policy_digest",
+                )
+            }
+            phase_four_advisory_clear = (
+                self._policy.version == PHASE_FOUR_POLICY.version
+                and self._bundle_verifier is not None
+                and self._bundle_verifier(
+                    context.evidence.get("verification_bundle_digest", ""), review_bindings
+                )
             )
-            if matching_review is None:
+            matching_review = None
+            if self._policy.version != PHASE_FOUR_POLICY.version:
+                matching_review = next(
+                    (
+                        approval
+                        for approval in context.approvals
+                        if approval.approval_id
+                        and approval.actor
+                        and approval.kind == "FORMAL_REVIEW"
+                        and approval.eligible
+                        and approval.active
+                        and approval.subject_digest == self.subject_digest
+                        and _GIT_SHA.fullmatch(approval.reviewed_commit_sha)
+                        and _SHA256.fullmatch(approval.reviewed_candidate_digest)
+                        and _SHA256.fullmatch(approval.review_evidence_digest)
+                        and context.evidence.get("reviewed_commit_sha")
+                        == approval.reviewed_commit_sha
+                        and context.evidence.get("prospective_tree_digest")
+                        == approval.reviewed_candidate_digest
+                        and context.evidence.get("verification_bundle_digest")
+                        == approval.review_evidence_digest
+                        and context.evidence.get("review_digest") == _digest(asdict(approval))
+                        and self.trust_policy.formal_reviewers.get(approval.actor)
+                        and self._verify_external_evidence(
+                            approval.actor,
+                            self.trust_policy.formal_reviewers[approval.actor],
+                            _production_approval_payload(approval),
+                            approval.authentication_evidence_digest,
+                        )
+                    ),
+                    None,
+                )
+            if not phase_four_advisory_clear and matching_review is None:
                 self._deny(
                     target,
                     context,
                     reason,
-                    "eligible formal review bound to the exact candidate is required",
+                    (
+                        "a sealed exact-candidate advisory EvidenceBundle is required"
+                        if self._policy.version == PHASE_FOUR_POLICY.version
+                        else "eligible formal review bound to the exact candidate is required"
+                    ),
                 )
         if "merge_binding" in guards:
             review_binding = self._latest_review_binding()
+            phase_four_formal_review = None
+            if self._policy.version == PHASE_FOUR_POLICY.version and review_binding is not None:
+                try:
+                    readiness_boundary = datetime.fromisoformat(
+                        review_binding.observed_at.replace("Z", "+00:00")
+                    )
+                except ValueError:
+                    readiness_boundary = None
+                phase_four_formal_review = next(
+                    (
+                        approval
+                        for approval in context.approvals
+                        if readiness_boundary is not None
+                        and approval.approval_id
+                        and approval.actor
+                        and approval.kind == "FORMAL_REVIEW"
+                        and approval.eligible
+                        and approval.active
+                        and approval.subject_digest == self.subject_digest
+                        and approval.reviewed_commit_sha
+                        == review_binding.evidence_refs.get("reviewed_commit_sha")
+                        and approval.reviewed_candidate_digest
+                        == review_binding.evidence_refs.get("prospective_tree_digest")
+                        and approval.review_evidence_digest
+                        == review_binding.evidence_refs.get("verification_bundle_digest")
+                        and _timestamp_after(approval.submitted_at, readiness_boundary)
+                        and context.evidence.get("formal_review_digest")
+                        == _digest(asdict(approval))
+                        and self.trust_policy.formal_reviewers.get(approval.actor)
+                        and self._verify_external_evidence(
+                            approval.actor,
+                            self.trust_policy.formal_reviewers[approval.actor],
+                            _production_approval_payload(approval),
+                            approval.authentication_evidence_digest,
+                        )
+                    ),
+                    None,
+                )
+                if phase_four_formal_review is None:
+                    self._deny(
+                        target,
+                        context,
+                        reason,
+                        "a fresh eligible formal review after readiness is required for merge",
+                    )
             merge_attempt = context.mutation
             merge_result = (
                 self._mutation_results.get(merge_attempt.idempotency_key)
@@ -4774,6 +4920,33 @@ class LifecycleControlPlane:
                     reason,
                     "trusted live observation evidence is required for completion",
                 )
+            if self._policy.version == PHASE_FOUR_POLICY.version:
+                bundle_bindings = {
+                    name: context.evidence.get(name, "")
+                    for name in (
+                        "subject_digest",
+                        "release_sha",
+                        "artifact_digest",
+                        "configuration_digest",
+                        "production_attempt_digest",
+                        "production_result_digest",
+                        "reviewed_commit_sha",
+                        "reviewed_candidate_digest",
+                        "review_evidence_digest",
+                        "live_verification_digest",
+                        "rollback_readiness_digest",
+                        "observation_window_digest",
+                    )
+                }
+                if self._bundle_verifier is None or not self._bundle_verifier(
+                    context.evidence.get("evidence_bundle_digest", ""), bundle_bindings
+                ):
+                    self._deny(
+                        target,
+                        context,
+                        reason,
+                        "a valid sealed exact-subject EvidenceBundle is required for completion",
+                    )
             review_binding = self._latest_review_binding()
             merge_binding = self._latest_merge_binding()
             production_binding = next(

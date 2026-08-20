@@ -1,0 +1,207 @@
+from __future__ import annotations
+
+from dataclasses import replace
+
+import pytest
+
+from pmpe.engineering.merge_admission import (
+    BlockingFinding,
+    FormalReview,
+    MergeSnapshot,
+    RequiredCheck,
+    enqueue,
+    linearize_merge,
+    resolve_external_race,
+)
+
+D = "sha256:" + "a" * 64
+E = "sha256:" + "b" * 64
+HEAD = "c" * 40
+BASE = "d" * 40
+NOW = "2026-08-20T12:00:00Z"
+AFTER = "2026-08-20T12:01:00Z"
+
+
+def _snapshot() -> MergeSnapshot:
+    shell = MergeSnapshot(
+        pr_head_sha=HEAD,
+        protected_base_sha=BASE,
+        prospective_merge_tree_digest=D,
+        repository_rules_digest=D,
+        architecture_policy_digest=D,
+        toolchain_policy_digest=D,
+        environment_profile_digest=D,
+        security_policy_digest=D,
+        verification_policy_digest=D,
+        evidence_policy_digest=D,
+        authority_digest=D,
+        finding_high_watermark_digest=D,
+        pending_unclassified_findings=0,
+        required_check_names=("ci",),
+        checks=(),
+        reviews=(FormalReview("r1", "eligible-human", HEAD, "APPROVED", AFTER, True),),
+        findings=(),
+        merge_queue_enforced=True,
+    )
+    return replace(
+        shell,
+        checks=(RequiredCheck("ci", HEAD, shell.exact_input_digest, "SUCCESS", AFTER),),
+    )
+
+
+def test_native_cas_admits_only_unchanged_exact_candidate() -> None:
+    snapshot = _snapshot()
+    token = enqueue(snapshot, enqueued_at=AFTER, invalidation_boundary=NOW)
+
+    decision = linearize_merge(
+        token,
+        snapshot,
+        observed_merge_sha="e" * 40,
+        observed_merge_tree_digest=D,
+        merged_at=AFTER,
+    )
+
+    assert decision.admitted
+    assert decision.rollout_allowed
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        "head",
+        "base",
+        "tree",
+        "rules",
+        "architecture",
+        "toolchain",
+        "environment",
+        "security",
+        "verification",
+        "evidence",
+    ],
+)
+def test_native_cas_rejects_ready_state_drift(change: str) -> None:
+    snapshot = _snapshot()
+    token = enqueue(snapshot, enqueued_at=AFTER, invalidation_boundary=NOW)
+    field = {
+        "head": "pr_head_sha",
+        "base": "protected_base_sha",
+        "tree": "prospective_merge_tree_digest",
+        "rules": "repository_rules_digest",
+        "architecture": "architecture_policy_digest",
+        "toolchain": "toolchain_policy_digest",
+        "environment": "environment_profile_digest",
+        "security": "security_policy_digest",
+        "verification": "verification_policy_digest",
+        "evidence": "evidence_policy_digest",
+    }[change]
+    changed_value = "f" * 40 if change in {"head", "base"} else E
+    current = replace(snapshot, **{field: changed_value})
+
+    decision = linearize_merge(
+        token,
+        current,
+        observed_merge_sha="e" * 40,
+        observed_merge_tree_digest=current.prospective_merge_tree_digest,
+        merged_at=AFTER,
+    )
+
+    assert not decision.admitted
+    assert decision.incident
+
+
+def test_ineligible_finding_source_can_block_but_cannot_approve() -> None:
+    snapshot = replace(
+        _snapshot(),
+        reviews=(FormalReview("bot-review", "scanner", HEAD, "APPROVED", AFTER, False),),
+        findings=(BlockingFinding("F1", "scanner", HEAD, "HIGH", True, True, AFTER),),
+    )
+
+    with pytest.raises(ValueError) as exc:
+        enqueue(snapshot, enqueued_at=AFTER, invalidation_boundary=NOW)
+
+    assert "blocking finding" in str(exc.value)
+    assert "no fresh eligible formal approval" in str(exc.value)
+
+
+def test_changes_requested_blocks_even_with_an_approval() -> None:
+    snapshot = _snapshot()
+    reviews = (
+        *snapshot.reviews,
+        FormalReview("r2", "other", HEAD, "CHANGES_REQUESTED", AFTER, True),
+    )
+    with pytest.raises(ValueError, match="changes are requested"):
+        enqueue(replace(snapshot, reviews=reviews), enqueued_at=AFTER, invalidation_boundary=NOW)
+
+
+def test_merge_group_must_be_exact_fresh_and_from_admitted_enqueue() -> None:
+    snapshot = _snapshot()
+    token = enqueue(snapshot, enqueued_at=AFTER, invalidation_boundary=NOW)
+    queue_check = RequiredCheck(
+        "merge-group",
+        HEAD,
+        snapshot.exact_input_digest,
+        "IN_PROGRESS",
+        AFTER,
+        event="merge_group",
+        enqueue_digest=token.enqueue_digest,
+    )
+    current = replace(
+        snapshot,
+        required_check_names=("ci", "merge-group"),
+        checks=(*snapshot.checks, queue_check),
+    )
+
+    assert linearize_merge(
+        token,
+        current,
+        observed_merge_sha="e" * 40,
+        observed_merge_tree_digest=D,
+        merged_at=AFTER,
+    ).admitted
+
+    failed = replace(queue_check, status="CANCELLED")
+    held = linearize_merge(
+        token,
+        replace(current, checks=(*snapshot.checks, failed)),
+        observed_merge_sha="e" * 40,
+        observed_merge_tree_digest=D,
+        merged_at=AFTER,
+    )
+    assert not held.admitted
+    assert any("CANCELLED" in reason for reason in held.reasons)
+
+
+@pytest.mark.parametrize("kind", ["AUTHORITY_REVOKED", "BLOCKING_FINDING"])
+def test_external_event_dequeue_first_prevents_merge(kind: str) -> None:
+    result = resolve_external_race(
+        kind=kind,  # type: ignore[arg-type]
+        external_event_at=NOW,
+        native_merge_at="2026-08-20T12:03:00Z",
+        dequeue_completed_at=AFTER,
+    )
+    assert not result.admitted
+    assert not result.rollout_allowed
+
+
+@pytest.mark.parametrize("kind", ["AUTHORITY_REVOKED", "BLOCKING_FINDING"])
+def test_external_event_merge_first_is_integration_only(kind: str) -> None:
+    result = resolve_external_race(
+        kind=kind,  # type: ignore[arg-type]
+        external_event_at=NOW,
+        native_merge_at=AFTER,
+        dequeue_completed_at="2026-08-20T12:03:00Z",
+    )
+    assert result.admitted
+    assert result.outcome.startswith("PR_MERGED_")
+    assert not result.rollout_allowed
+
+
+def test_bypass_blocks_rollout_even_when_tree_matches() -> None:
+    snapshot = _snapshot()
+    with pytest.raises(ValueError, match="bypass"):
+        enqueue(
+            replace(snapshot, bypass_used=True),
+            enqueued_at=AFTER,
+            invalidation_boundary=NOW,
+        )
