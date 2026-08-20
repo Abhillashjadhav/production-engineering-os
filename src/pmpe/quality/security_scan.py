@@ -126,6 +126,9 @@ def _env_wrapped_command(tokens: list[str], command: int) -> tuple[str | None, b
 
     while cursor < len(remaining):
         token = remaining[cursor]
+        if token == "-":
+            cursor += 1
+            continue
         if token == "--":
             cursor += 1
             return (remaining[cursor] if cursor < len(remaining) else None), False
