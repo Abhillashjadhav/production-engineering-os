@@ -945,6 +945,52 @@ def test_specialist_admission_replays_independent_evidence_after_state_save_cras
     )
 
 
+def test_readmission_retires_planned_only_specialist_admission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, adapter = _controller(tmp_path)
+    admitted = controller.admit_slice(_candidate())
+    lease = controller.issue_lease(
+        SpecialistTask("T-old", "v2-backend-engineer", ("src/",)), admitted=admitted
+    )
+
+    def crash_state_save() -> None:
+        raise RuntimeError("planned-only result")
+
+    monkeypatch.setattr(controller, "_save", crash_state_save)
+    with pytest.raises(RuntimeError, match="planned-only result"):
+        controller._admit_specialist_result(
+            lease,
+            commit_sha="d" * 40,
+            changed_paths=("src/old.py",),
+            clean=True,
+        )
+
+    resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    resumed.cancel_all(
+        reason="new product truth",
+        partial_paths=(),
+        current_tree_sha=admitted.planning_commit.sha,
+    )
+    replacement = replace(_candidate(), test_plan_digest="1" * 64, meaningful_red_digest="2" * 64)
+    recovered = resumed.readmit_after_product_input(
+        replacement,
+        restored_tree_sha=admitted.planning_commit.sha,
+    )
+    new_lease = resumed.issue_lease(
+        SpecialistTask("T-new", "v2-test-engineer", ("tests/",)), admitted=recovered
+    )
+    resumed._admit_specialist_result(
+        new_lease,
+        commit_sha="e" * 40,
+        changed_paths=("tests/new.py",),
+        clean=True,
+    )
+
+    reloaded = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    assert [result.task_id for result in reloaded.integration_manifest().results] == ["T-new"]
+
+
 def test_integration_manifest_rejects_an_empty_implementation(tmp_path: Path) -> None:
     controller, _ = _controller(tmp_path)
     controller.admit_slice(_candidate())

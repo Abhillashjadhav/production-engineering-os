@@ -1436,11 +1436,25 @@ class AtomicImplementationController:
     def _retire_specialist_result_admissions(self, *, authority_digest: str) -> None:
         _require_digest(authority_digest, field="authority_digest")
         self._load_effect_events()
+        retirements: dict[str, str] = {}
         for task_id, result in self._results.items():
             lease = self._leases.get(task_id)
             if lease is None:
                 raise AtomicityViolation("specialist result has no lease to retire")
             admission_key = _specialist_result_admission_key(lease)
+            retirements[admission_key] = result.admission_digest
+        for admission_key in self._pending_result_admission_keys:
+            planned = [
+                event
+                for event in self._effect_events
+                if event["idempotency_key"] == admission_key
+                and event["action"] == "admit_specialist_result"
+                and event["status"] == "PLANNED"
+            ]
+            if len(planned) != 1:
+                raise AtomicityViolation("pending specialist admission evidence is malformed")
+            retirements[admission_key] = str(planned[0]["result_digest"])
+        for admission_key, admission_digest in retirements.items():
             key = f"{admission_key}:retire:{authority_digest}"
             subject_digest = _canonical_digest(
                 {
@@ -1453,7 +1467,7 @@ class AtomicImplementationController:
                 event["action"] != "retire_specialist_result"
                 or event["status"] != "OBSERVED"
                 or event["subject_digest"] != subject_digest
-                or event["result_digest"] != result.admission_digest
+                or event["result_digest"] != admission_digest
                 for event in related
             ):
                 raise AtomicityViolation("specialist result retirement evidence changed")
@@ -1463,8 +1477,9 @@ class AtomicImplementationController:
                     idempotency_key=key,
                     subject_digest=subject_digest,
                     status="OBSERVED",
-                    result_digest=result.admission_digest,
+                    result_digest=admission_digest,
                 )
+            self._pending_result_admission_keys.discard(admission_key)
 
     def integration_manifest(self) -> IntegrationManifest:
         if self._cancelled:
