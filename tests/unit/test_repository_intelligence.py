@@ -1062,6 +1062,54 @@ def test_entry_points_and_test_coverage_configuration_are_explicit_inventory(
     assert (".coveragerc", "COVERAGE_CONFIGURATION") in quality
 
 
+def test_declared_quality_tools_are_exact_inventory_evidence(tmp_path: Path) -> None:
+    repo = _init_repo(tmp_path, mixed=False)
+    _write(
+        repo,
+        "pyproject.toml",
+        (
+            "[project]\nname='quality-tools'\nversion='1'\n"
+            "[project.optional-dependencies]\n"
+            "dev=['pytest>=8', 'bandit>=1.7', 'ruff>=0.5', 'mypy>=1.10', "
+            "'types-PyYAML']\n"
+            "[tool.pytest.ini_options]\ntestpaths=['tests']\n"
+        ),
+    )
+    _write(
+        repo,
+        "web/package.json",
+        json.dumps(
+            {
+                "name": "web",
+                "scripts": {
+                    "test": "vitest run",
+                    "test:e2e": "playwright test",
+                },
+                "devDependencies": {
+                    "@playwright/test": "1.61.1",
+                    "vitest": "4.1.10",
+                },
+            }
+        ),
+    )
+    _commit(repo, "declared quality tools")
+
+    snapshot = _scan(repo)
+    declared = {
+        (item.path, item.location)
+        for item in snapshot.inventory["tests_quality"].items
+        if item.kind == "DECLARED_QUALITY_TOOL"
+    }
+
+    assert ("pyproject.toml", "tool:pytest") in declared
+    assert ("pyproject.toml", "tool:bandit") in declared
+    assert ("pyproject.toml", "tool:ruff") not in declared
+    assert ("pyproject.toml", "tool:mypy") not in declared
+    assert ("pyproject.toml", "tool:types-pyyaml") not in declared
+    assert ("web/package.json", "tool:vitest") in declared
+    assert ("web/package.json", "tool:playwright") in declared
+
+
 def test_dynamic_python_entry_points_are_explicitly_unsupported(tmp_path: Path) -> None:
     repo = _init_repo(tmp_path, mixed=False)
     _write(repo, "setup.py", "from setuptools import setup\nsetup(name='fixture')\n")

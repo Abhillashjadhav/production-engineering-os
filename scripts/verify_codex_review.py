@@ -10,6 +10,7 @@ import time
 from typing import Any
 
 BOT = "chatgpt-codex-connector[bot]"
+REVIEW_MARKER = "### 💡 Codex Review"
 
 
 def _gh(*args: str) -> Any:
@@ -142,7 +143,10 @@ def _has_exact_bot_review(reviews: list[dict[str, Any]], expected: str) -> bool:
     exact = [
         review
         for review in reviews
-        if (review.get("user") or {}).get("login") == BOT and review.get("commit_id") == expected
+        if (review.get("user") or {}).get("login") == BOT
+        and review.get("commit_id") == expected
+        and review.get("state") in {"COMMENTED", "APPROVED"}
+        and REVIEW_MARKER in (review.get("body") or "")
     ]
     return bool(exact) and not _has_exact_bot_review_blocker(reviews, expected)
 

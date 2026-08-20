@@ -322,7 +322,7 @@ def run_demo(
     workspace = build_workspace(base_dir / "workspace")
     git = LocalGitAdapter(workspace)
 
-    run = EngineeringRun.start(contract, base_dir / "run", agents_dir=agents_dir)
+    run = EngineeringRun.start(contract, base_dir / "run", agents_dir=agents_dir, fixture_mode=True)
     run.record_assessment(
         {"label": "synthetic-fixture", "summary": "generated demo workspace, planted defects"}
     )

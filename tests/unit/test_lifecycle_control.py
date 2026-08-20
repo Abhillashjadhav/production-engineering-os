@@ -3015,6 +3015,62 @@ def test_phase_zero_v1_replay_allowlists_all_released_digests_and_shared_variant
     ) in variants
 
 
+def test_phase_zero_v1_schemas_do_not_inherit_active_schema_edits() -> None:
+    historical_open = lifecycle._PHASE_ZERO_V1_B9_MUTATION_SUBJECT_FIELDS["open_draft_pr"]
+    historical_cleanup = lifecycle._PHASE_ZERO_V1_B9_MUTATION_SUBJECT_FIELDS["cleanup_staging"]
+    active_open = lifecycle._MUTATION_SUBJECT_FIELDS["open_draft_pr"]
+    active_cleanup = lifecycle._MUTATION_SUBJECT_FIELDS["cleanup_staging"]
+    try:
+        lifecycle._MUTATION_SUBJECT_FIELDS["open_draft_pr"] = (
+            *active_open,
+            "future_active_field",
+        )
+        lifecycle._MUTATION_SUBJECT_FIELDS["cleanup_staging"] = (
+            *active_cleanup,
+            "future_active_field",
+        )
+
+        assert (
+            lifecycle._PHASE_ZERO_V1_B9_MUTATION_SUBJECT_FIELDS["open_draft_pr"] == historical_open
+        )
+        assert (
+            lifecycle._PHASE_ZERO_V1_B9_MUTATION_SUBJECT_FIELDS["cleanup_staging"]
+            == historical_cleanup
+        )
+    finally:
+        lifecycle._MUTATION_SUBJECT_FIELDS["open_draft_pr"] = active_open
+        lifecycle._MUTATION_SUBJECT_FIELDS["cleanup_staging"] = active_cleanup
+
+
+def test_ambiguous_v1_policy_can_replay_but_not_release_a_new_mutation(
+    tmp_path: Path,
+) -> None:
+    snapshot = lifecycle._policy_payload(PHASE_ZERO_POLICY)
+    snapshot["version"] = "phase-zero-v1"
+    for rule in snapshot["rules"]:
+        rule.pop("mutation_subject_fields")
+    historical_policy = lifecycle._policy_from_payload(
+        snapshot,
+        policy_digest=lifecycle._V1_B9_POLICY_DIGEST,
+    )
+    cp = control_plane(tmp_path, state=LifecycleState.PRODUCTION_APPROVAL_REQUIRED)
+    cp._policy = historical_policy
+    attempt = MutationAttempt(
+        attempt_id="historical-production-attempt",
+        idempotency_key="production:run-65:historical",
+        subject_digest=SHA,
+        action="deploy_production",
+        step_plan_digest=OTHER_SHA,
+        status="PLANNED",
+    )
+
+    with pytest.raises(TransitionDeniedError, match="ambiguous historical policy"):
+        prejournal(cp, attempt)
+
+    cp._register_mutation(attempt)
+    assert prejournal(cp, attempt) == attempt
+
+
 def test_post_merge_blocking_finding_enters_safe_blocked_state(tmp_path: Path) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.PR_MERGED)
     finding = FindingSignal(

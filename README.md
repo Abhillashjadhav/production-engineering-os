@@ -11,13 +11,108 @@ The seam between them is a single immutable artifact: the digest-locked contract
 
 ## Production Engineering OS (`pmpe`)
 
+### Try the verified demo
+
+Prerequisite: Python 3.11 or newer (`python3.12` is used below).
+
 ```bash
+git clone https://github.com/Abhillashjadhav/production-engineering-os.git
+cd production-engineering-os
+python3.12 -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
-pmpe demo --base-dir /tmp/pmpe-demo        # labeled synthetic end-to-end demonstration
-pmpe eng start --contract examples/v2-demo/contract.json --run-dir runs/demo
+pmpe demo --base-dir /tmp/pmpe-demo
+cat /tmp/pmpe-demo/demo-report.json
 ```
 
-- **Contract in, draft PR out.** `pmpe eng start` refuses anything that is not an APPROVED, unblocked contract and locks a canonical digest; every later step re-verifies it and fails closed on mutation.
+The demo is a labelled synthetic run. It locks a sample contract, catches planted
+security, traceability, complexity, trajectory, and drift failures, applies its
+accepted fixes, reruns tests, and writes the evidence-backed report above. It does
+not generate an arbitrary product, open a real pull request, or deploy to cloud.
+
+The live contract-admission path requires the exact approval receipt and expected named
+approver. A self-declared `APPROVED` field is insufficient:
+
+```bash
+pmpe eng start \
+  --contract /path/to/contract-approved.json \
+  --receipt /path/to/approval-receipt.json \
+  --expected-approver <named-product-owner> \
+  --run-dir runs/demo
+```
+
+### Try all 21 Tier-1, Tier-2, and Tier-3 Personal Execution OS workflows
+
+Run 21 reusable outcome workflows in parallel from deterministic synthetic context:
+
+```bash
+pmpe personal-workflows quickstart --output /tmp/pmpe-personal
+cat /tmp/pmpe-personal/personal-execution-report.json
+cat /tmp/pmpe-personal/mobile-review.json
+```
+
+The six Tier-1 packs—Goal-to-Verified-Release, AI Eval and Release Gate, Weekly PM Command Centre,
+Meeting-to-Decision, Evidence-to-Roadmap-to-Release, and Issue-to-Draft-PR share one real
+input schema, bounded task graph, evidence ledger, deterministic validator, mobile review,
+and approval outbox. Nine Tier-2 operational packs and six Tier-3 builder packs use the same
+contract plus fixed pack-specific verifiers; caller-declared check status is never sufficient
+for a positive verdict. Calendar changes, sends, roadmap writes, PR creation, merge, model
+release, and production deployment are drafted but never executed without approval. See
+[docs/personal-execution-os.md](docs/personal-execution-os.md) and
+[docs/tier2-tier3-workflow-packs.md](docs/tier2-tier3-workflow-packs.md).
+
+The six productized Tier-1 workflows and five shared PMOS capabilities are defined by the
+[Tier-1 and PMOS launch contract](docs/tier1-pmos-launch-contract.md). Every pack must solve
+a named user problem, produce a verifiable outcome, and expose an approval-safe next action.
+
+Exercise the governed runtime seams with deterministic local fakes:
+
+```bash
+pmpe personal-runtime quickstart --output /tmp/pmpe-personal-runtime
+cat /tmp/pmpe-personal-runtime/runtime-assurance-report.json
+```
+
+This proves exact-payload calendar approval, bounded product workers, hash-chained runtime
+events and evaluations, verified rollback, and proposal-only outcome learning. The demo has
+no real connector and performs zero external writes.
+
+### Run the complete product workflow once
+
+Join the PMOS decision, exact approval, Engineering OS handoff, all 21 workflow packs,
+runtime assurance, engineering verification, and a real generated local-process deployment
+into one independently verifiable evidence manifest:
+
+```bash
+pmpe full-product quickstart --output /tmp/pmpe-full-product
+pmpe full-product verify \
+  --output /tmp/pmpe-full-product \
+  --expected-digest sha256:<digest-printed-by-quickstart>
+cat /tmp/pmpe-full-product/full-product-manifest.json
+```
+
+The quickstart uses clearly labelled synthetic product truth. It starts the generated local
+product, verifies health, authentication, create/list/complete/read-back journeys, and then
+stops the process. Retain the printed manifest digest outside the output directory: verification
+requires that independent trust anchor and rejects a self-consistent rewritten bundle. It
+performs no cloud deployment or external provider write.
+
+### Try the guided PMOS experience
+
+Create and approve a ProductDecisionContract one blocking question at a time,
+or validate a native canonical bundle/manifest pair, without configuring a
+connector or model:
+
+```bash
+pmpe guided serve --workspace /tmp/pmos-guided
+# open http://127.0.0.1:8765
+```
+
+The mobile-first approval card is bound to the exact draft digest and shows
+impact, reversibility, evidence, cost, and permissions before approval. Product
+changes after approval become ProductChangeRequests. See
+[docs/pmos-guided-experience.md](docs/pmos-guided-experience.md).
+
+- **Contract in, verified handoff out.** `pmpe eng start` refuses anything that is not an APPROVED, unblocked contract and locks a canonical digest; every later step re-verifies it and fails closed on mutation. The `draft-pr` stage records a handoff reference. It does not open a remote pull request.
 - **Claude agents propose, the Python core disposes (PD-11).** Generative work belongs to the agents in `.claude/agents/v2-*.md` (driven live by the `/production-engineer` skill); admission, state, gates, and evidence belong to deterministic Python. No model SDKs or API keys anywhere in the product.
 - **Assurance that can prove itself.** Four independent reviewers — read-only by construction (tool lists) and by runtime proof (tree snapshots) — examine the same frozen candidate; findings live in an enforced lifecycle; the fixer touches only ACCEPTED ids; the verifier is never the fixer.
 - **Coverage means execution.** Traceability counts only executed, passing tests — markers, skips, and import-dead modules count against coverage, not toward it.

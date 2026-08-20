@@ -16,6 +16,7 @@ from typing import Any
 from pmpe.assurance.reconcile import OwnerDecision
 from pmpe.domain.errors import ContractViolation, SpecError
 from pmpe.engineering.engine import DeploymentBlocked, EngineeringRun
+from pmpe.engineering.handoff import start_approved_run
 from pmpe.evals.registry import STAGE_AGENTS
 from pmpe.quality.test_evidence import run_tests_with_evidence
 
@@ -43,8 +44,12 @@ def _cmd_start(args: argparse.Namespace) -> int:
 
 def _compat_start(args: argparse.Namespace) -> int:
     try:
-        run = EngineeringRun.start(
-            Path(args.contract), Path(args.run_dir), agents_dir=Path(args.agents_dir)
+        run = start_approved_run(
+            contract_path=Path(args.contract),
+            receipt_path=Path(args.receipt),
+            expected_approver=args.expected_approver,
+            run_dir=Path(args.run_dir),
+            agents_dir=Path(args.agents_dir),
         )
     except ContractViolation as exc:
         print(str(exc))
@@ -243,6 +248,8 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
 
     p = command("start", _cmd_start, "lock a contract and open a run")
     p.add_argument("--contract", required=True)
+    p.add_argument("--receipt", required=True)
+    p.add_argument("--expected-approver", required=True)
     p.add_argument("--run-dir", required=True)
     p.add_argument("--agents-dir", default=".claude/agents")
 

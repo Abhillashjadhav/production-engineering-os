@@ -658,6 +658,99 @@ _MUTATION_SUBJECT_FIELDS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+# Immutable copy of the last released phase-zero-v1 mutation schema. Historical
+# replay must never inherit fields from the active phase-zero-v2 map above.
+_PHASE_ZERO_V1_FINAL_MUTATION_SUBJECT_FIELDS = MappingProxyType(
+    {
+        "open_draft_pr": (
+            "subject_digest",
+            "issue_digest",
+            "branch_digest",
+            "red_commit_digest",
+            "draft_pr_digest",
+        ),
+        "mark_pr_ready": (
+            "subject_digest",
+            "reviewed_commit_sha",
+            "prospective_tree_digest",
+            "verification_bundle_digest",
+            "review_digest",
+        ),
+        "enqueue_merge": (
+            "subject_digest",
+            "queue_subject_digest",
+            "head_commit_sha",
+            "head_digest",
+            "base_digest",
+            "prospective_tree_digest",
+            "required_checks_digest",
+            "formal_review_digest",
+            "verification_bundle_digest",
+        ),
+        "deploy_staging": (
+            "subject_digest",
+            "merge_digest",
+            "artifact_digest",
+            "configuration_digest",
+            "deployment_target_digest",
+            "staging_authorization_digest",
+            "finding_source_set_digest",
+            "finding_inventory_epochs_digest",
+            "authority_fence_digest",
+        ),
+        "deploy_canary": (
+            "subject_digest",
+            "merge_commit_sha",
+            "merge_digest",
+            "artifact_digest",
+            "configuration_digest",
+            "migration_plan_digest",
+            "deployment_target_digest",
+            "rollout_plan_digest",
+            "staging_digest",
+            "canary_authorization_digest",
+            "canary_id_digest",
+            "authority_fence_digest",
+        ),
+        "deploy_production": (
+            "subject_digest",
+            "merge_commit_sha",
+            "merge_digest",
+            "artifact_digest",
+            "configuration_digest",
+            "migration_plan_digest",
+            "deployment_target_digest",
+            "rollout_plan_digest",
+            "staging_digest",
+            "canary_id_digest",
+            "canary_attempt_digest",
+            "canary_status_digest",
+            "authority_fence_digest",
+            "production_approval_digest",
+        ),
+        "convert_pr_to_draft": (
+            "subject_digest",
+            "finding_digest",
+            "ready_revocation_observation_digest",
+        ),
+        "cleanup_staging": (
+            "subject_digest",
+            "zero_resource_digest",
+        ),
+        "rollback": (
+            "subject_digest",
+            "failed_deployment_digest",
+            "restoration_target_digest",
+            "migration_plan_digest",
+        ),
+        "teardown_canary": (
+            "subject_digest",
+            "canary_teardown_digest",
+            "zero_resource_digest",
+        ),
+    }
+)
+
 # Kept separate from the active map so pre-v2 policy snapshots replay against
 # the exact compatibility schema rather than silently inheriting future edits.
 _PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS = MappingProxyType(
@@ -670,14 +763,36 @@ _PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS = MappingProxyType(
             "red_commit_digest",
             "draft_pr_digest",
         ),
-        "enqueue_merge": _MUTATION_SUBJECT_FIELDS["enqueue_merge"],
+        "enqueue_merge": _PHASE_ZERO_V1_FINAL_MUTATION_SUBJECT_FIELDS["enqueue_merge"],
         "deploy_staging": ("subject_digest", "merge_digest", "artifact_digest"),
         "deploy_canary": (
-            *_CANARY_ROLLOUT_SUBJECT_FIELDS,
+            "subject_digest",
+            "merge_commit_sha",
+            "merge_digest",
+            "artifact_digest",
+            "configuration_digest",
+            "migration_plan_digest",
+            "deployment_target_digest",
+            "rollout_plan_digest",
+            "staging_digest",
             "canary_authorization_digest",
             "canary_id_digest",
         ),
-        "deploy_production": (*_PRODUCTION_APPROVAL_SCOPE_FIELDS, "production_approval_digest"),
+        "deploy_production": (
+            "subject_digest",
+            "merge_commit_sha",
+            "merge_digest",
+            "artifact_digest",
+            "configuration_digest",
+            "migration_plan_digest",
+            "deployment_target_digest",
+            "rollout_plan_digest",
+            "staging_digest",
+            "canary_id_digest",
+            "canary_attempt_digest",
+            "canary_status_digest",
+            "production_approval_digest",
+        ),
         "convert_pr_to_draft": (
             "subject_digest",
             "ready_revocation_attempt_digest",
@@ -690,7 +805,7 @@ _PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS = MappingProxyType(
 )
 _PHASE_ZERO_V1_PROMOTION_MUTATION_SUBJECT_FIELDS = MappingProxyType(
     {
-        **_MUTATION_SUBJECT_FIELDS,
+        **_PHASE_ZERO_V1_FINAL_MUTATION_SUBJECT_FIELDS,
         "deploy_staging": (
             "subject_digest",
             "merge_digest",
@@ -712,16 +827,35 @@ _PHASE_ZERO_V1_PROMOTION_MUTATION_SUBJECT_FIELDS = MappingProxyType(
 _PHASE_ZERO_V1_EARLY_FENCED_MUTATION_SUBJECT_FIELDS = MappingProxyType(
     {
         **_PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS,
-        "open_draft_pr": _MUTATION_SUBJECT_FIELDS["open_draft_pr"],
-        "cleanup_staging": _MUTATION_SUBJECT_FIELDS["cleanup_staging"],
+        "open_draft_pr": _PHASE_ZERO_V1_FINAL_MUTATION_SUBJECT_FIELDS["open_draft_pr"],
+        "cleanup_staging": _PHASE_ZERO_V1_FINAL_MUTATION_SUBJECT_FIELDS["cleanup_staging"],
         "deploy_canary": (
-            *_CANARY_ROLLOUT_SUBJECT_FIELDS,
+            "subject_digest",
+            "merge_commit_sha",
+            "merge_digest",
+            "artifact_digest",
+            "configuration_digest",
+            "migration_plan_digest",
+            "deployment_target_digest",
+            "rollout_plan_digest",
+            "staging_digest",
             "canary_authorization_digest",
             "canary_id_digest",
             "authority_fence_digest",
         ),
         "deploy_production": (
-            *_PRODUCTION_APPROVAL_SCOPE_FIELDS,
+            "subject_digest",
+            "merge_commit_sha",
+            "merge_digest",
+            "artifact_digest",
+            "configuration_digest",
+            "migration_plan_digest",
+            "deployment_target_digest",
+            "rollout_plan_digest",
+            "staging_digest",
+            "canary_id_digest",
+            "canary_attempt_digest",
+            "canary_status_digest",
             "authority_fence_digest",
             "production_approval_digest",
         ),
@@ -730,13 +864,13 @@ _PHASE_ZERO_V1_EARLY_FENCED_MUTATION_SUBJECT_FIELDS = MappingProxyType(
 _PHASE_ZERO_V1_CCC_LATER_MUTATION_SUBJECT_FIELDS = MappingProxyType(
     {
         **_PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS,
-        "open_draft_pr": _MUTATION_SUBJECT_FIELDS["open_draft_pr"],
-        "cleanup_staging": _MUTATION_SUBJECT_FIELDS["cleanup_staging"],
+        "open_draft_pr": _PHASE_ZERO_V1_FINAL_MUTATION_SUBJECT_FIELDS["open_draft_pr"],
+        "cleanup_staging": _PHASE_ZERO_V1_FINAL_MUTATION_SUBJECT_FIELDS["cleanup_staging"],
     }
 )
 _PHASE_ZERO_V1_OLD_CONVERSION_MUTATION_SUBJECT_FIELDS = MappingProxyType(
     {
-        **_MUTATION_SUBJECT_FIELDS,
+        **_PHASE_ZERO_V1_FINAL_MUTATION_SUBJECT_FIELDS,
         "convert_pr_to_draft": _PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS["convert_pr_to_draft"],
     }
 )
@@ -749,16 +883,41 @@ _PHASE_ZERO_V1_786_MUTATION_SUBJECT_FIELDS = MappingProxyType(
 _PHASE_ZERO_V1_B9_MUTATION_SUBJECT_FIELDS = MappingProxyType(
     {
         **_PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS,
-        "open_draft_pr": _MUTATION_SUBJECT_FIELDS["open_draft_pr"],
-        "cleanup_staging": _MUTATION_SUBJECT_FIELDS["cleanup_staging"],
-        "deploy_production": (*_PRODUCTION_APPROVAL_SCOPE_FIELDS, "production_approval_digest"),
+        "open_draft_pr": _PHASE_ZERO_V1_FINAL_MUTATION_SUBJECT_FIELDS["open_draft_pr"],
+        "cleanup_staging": _PHASE_ZERO_V1_FINAL_MUTATION_SUBJECT_FIELDS["cleanup_staging"],
+        "deploy_production": (
+            "subject_digest",
+            "merge_commit_sha",
+            "merge_digest",
+            "artifact_digest",
+            "configuration_digest",
+            "migration_plan_digest",
+            "deployment_target_digest",
+            "rollout_plan_digest",
+            "staging_digest",
+            "canary_id_digest",
+            "canary_attempt_digest",
+            "canary_status_digest",
+            "production_approval_digest",
+        ),
     }
 )
 _PHASE_ZERO_V1_B9_FENCED_MUTATION_SUBJECT_FIELDS = MappingProxyType(
     {
         **_PHASE_ZERO_V1_B9_MUTATION_SUBJECT_FIELDS,
         "deploy_production": (
-            *_PRODUCTION_APPROVAL_SCOPE_FIELDS,
+            "subject_digest",
+            "merge_commit_sha",
+            "merge_digest",
+            "artifact_digest",
+            "configuration_digest",
+            "migration_plan_digest",
+            "deployment_target_digest",
+            "rollout_plan_digest",
+            "staging_digest",
+            "canary_id_digest",
+            "canary_attempt_digest",
+            "canary_status_digest",
             "authority_fence_digest",
             "production_approval_digest",
         ),
@@ -801,9 +960,9 @@ _PHASE_ZERO_V1_SCHEMA_BY_POLICY_DIGEST: Mapping[str, Mapping[str, tuple[str, ...
             # The pre-promotion binding policy (fc3fe15).
             _V1_PRE_PROMOTION_POLICY_DIGEST: _PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS,
             # Later v1 snapshots use the exact schema that was persisted by their policy digest.
-            _V1_READY_POLICY_DIGEST: MappingProxyType(dict(_MUTATION_SUBJECT_FIELDS)),
+            _V1_READY_POLICY_DIGEST: _PHASE_ZERO_V1_FINAL_MUTATION_SUBJECT_FIELDS,
             _V1_PROMOTION_POLICY_DIGEST: _PHASE_ZERO_V1_PROMOTION_MUTATION_SUBJECT_FIELDS,
-            _V1_FINAL_POLICY_DIGEST: MappingProxyType(dict(_MUTATION_SUBJECT_FIELDS)),
+            _V1_FINAL_POLICY_DIGEST: _PHASE_ZERO_V1_FINAL_MUTATION_SUBJECT_FIELDS,
             **dict.fromkeys(
                 _V1_EARLY_FENCED_POLICY_DIGESTS,
                 _PHASE_ZERO_V1_EARLY_FENCED_MUTATION_SUBJECT_FIELDS,
@@ -843,11 +1002,12 @@ _PHASE_ZERO_V1_MUTATION_SCHEMA_VARIANTS: Mapping[str, tuple[tuple[str, ...], ...
                     (
                         _PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS.get(name, ()),
                         _PHASE_ZERO_V1_PROMOTION_MUTATION_SUBJECT_FIELDS.get(name, ()),
-                        _MUTATION_SUBJECT_FIELDS.get(name, ()),
+                        _PHASE_ZERO_V1_FINAL_MUTATION_SUBJECT_FIELDS.get(name, ()),
                     )
                 )
             )
-            for name in set(_PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS) | set(_MUTATION_SUBJECT_FIELDS)
+            for name in set(_PHASE_ZERO_V1_MUTATION_SUBJECT_FIELDS)
+            | set(_PHASE_ZERO_V1_FINAL_MUTATION_SUBJECT_FIELDS)
         }
     )
 )
@@ -883,7 +1043,9 @@ def _v1_schema_variants_for_policy(
         return (primary,)
     if policy_digest not in _PHASE_ZERO_V1_RELEASED_POLICY_DIGESTS:
         raise ValueError("lifecycle policy snapshot has an unknown v1 mutation schema")
-    return (MappingProxyType(dict(_MUTATION_SUBJECT_FIELDS)),)
+    # A released digest without an exact schema remains readable but cannot
+    # release or admit an external mutation until an explicit policy migration.
+    return (MappingProxyType({}),)
 
 
 def mutation_subject_digest(
@@ -4813,6 +4975,15 @@ class LifecycleControlPlane:
                 )
             if attempt.subject_digest != self.subject_digest:
                 raise TransitionDeniedError("mutation attempt subject does not match")
+            persisted_attempts = self._read_mutation_attempts()
+            ambiguous_historical_schema = self._policy.version == "phase-zero-v1" and any(
+                len(set(variants)) > 1
+                for variants in self._policy.mutation_subject_field_variants.values()
+            )
+            if ambiguous_historical_schema and attempt.idempotency_key not in persisted_attempts:
+                raise TransitionDeniedError(
+                    "ambiguous historical policy may replay only an existing mutation attempt"
+                )
             if not self._mutation_authorization_valid(attempt, authorization):
                 raise TransitionDeniedError(
                     "mutation attempt lacks current external lifecycle authority"
