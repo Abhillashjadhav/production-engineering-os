@@ -287,6 +287,10 @@ def _specialist_result_admission_digest(
     )
 
 
+def _specialist_result_admission_key(lease: SpecialistLease) -> str:
+    return f"specialist:{lease.task.task_id}:{lease.lease_epoch_digest}:admit-result"
+
+
 @dataclass(frozen=True)
 class IntegrationManifest:
     baseline_sha: str
@@ -1009,6 +1013,21 @@ class AtomicImplementationController:
                 )
             ):
                 raise AtomicityViolation("persisted specialist result authority is malformed")
+            related = [
+                event
+                for event in self._effect_events
+                if event["idempotency_key"] == _specialist_result_admission_key(result_lease)
+            ]
+            if (
+                len(related) != 1
+                or related[0]["action"] != "admit_specialist_result"
+                or related[0]["status"] != "OBSERVED"
+                or related[0]["subject_digest"] != result.admission_digest
+                or related[0]["result_digest"] != _canonical_digest(asdict(result))
+            ):
+                raise AtomicityViolation(
+                    "persisted specialist result lacks independent admission evidence"
+                )
 
     def admit_slice(self, candidate: IssueCandidate) -> AdmittedSlice:
         with self._active_worktrees_lock:
@@ -1267,11 +1286,29 @@ class AtomicImplementationController:
             raise AtomicityViolation(
                 "commit history touched a path outside the lease: " + ", ".join(historical_outside)
             )
-        return self._admit_specialist_result(
+        return self._admit_specialist_result_locked(
             lease, commit_sha=commit_sha, changed_paths=changed, clean=True
         )
 
     def _admit_specialist_result(
+        self,
+        lease: SpecialistLease,
+        *,
+        commit_sha: str,
+        changed_paths: Sequence[str],
+        clean: bool,
+    ) -> SpecialistResult:
+        with self._active_worktrees_lock:
+            self._refresh_worktree_authority()
+            self._require_live_lease(lease)
+            return self._admit_specialist_result_locked(
+                lease,
+                commit_sha=commit_sha,
+                changed_paths=changed_paths,
+                clean=clean,
+            )
+
+    def _admit_specialist_result_locked(
         self,
         lease: SpecialistLease,
         *,
@@ -1307,6 +1344,26 @@ class AtomicImplementationController:
                 changed_paths=normalized,
             ),
         )
+        self._load_effect_events()
+        key = _specialist_result_admission_key(lease)
+        related = [event for event in self._effect_events if event["idempotency_key"] == key]
+        result_digest = _canonical_digest(asdict(result))
+        if any(
+            event["action"] != "admit_specialist_result"
+            or event["status"] != "OBSERVED"
+            or event["subject_digest"] != result.admission_digest
+            or event["result_digest"] != result_digest
+            for event in related
+        ):
+            raise AtomicityViolation("specialist result admission evidence changed during replay")
+        if not related:
+            self._append_effect_event(
+                action="admit_specialist_result",
+                idempotency_key=key,
+                subject_digest=result.admission_digest,
+                status="OBSERVED",
+                result_digest=result_digest,
+            )
         self._results[result.task_id] = result
         self._save()
         return result

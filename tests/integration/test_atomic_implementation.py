@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import multiprocessing
 from dataclasses import replace
@@ -861,15 +862,73 @@ def test_stale_publisher_refreshes_new_leases_before_manifest_validation(
 
 
 def test_load_rejects_tampered_specialist_result_commit_and_paths(tmp_path: Path) -> None:
-    _, adapter, _, _, _, _ = _integrated_candidate(tmp_path)
+    _, adapter, repo, _, _, head = _integrated_candidate(tmp_path)
+    git = LocalGitAdapter(repo)
+    attacker = tmp_path / "attacker"
+    git._run("worktree", "add", "--detach", str(attacker), head)
+    attacker_git = LocalGitAdapter(attacker)
+    (attacker / "src" / "candidate.py").write_text("VALUE = 'unadmitted'\n")
+    unadmitted_commit = attacker_git.commit_all("unadmitted in-scope descendant")
+    git._run("worktree", "remove", "--force", str(attacker))
+
     state_path = tmp_path / "run" / "atomic-implementation.json"
     state = json.loads(state_path.read_text())
-    state["results"]["T-1"]["commit_sha"] = "f" * 40
-    state["results"]["T-1"]["changed_paths"] = ["outside/lease.py"]
+    result = state["results"]["T-1"]
+    lease = state["leases"]["T-1"]
+    result["commit_sha"] = unadmitted_commit
+    result["changed_paths"] = ["src/candidate.py"]
+    result["admission_digest"] = hashlib.sha256(
+        json.dumps(
+            {
+                "task": lease["task"]["task_id"],
+                "specialist": lease["task"]["specialist"],
+                "lease_epoch": lease["lease_epoch_digest"],
+                "commit": unadmitted_commit,
+                "changed_paths": result["changed_paths"],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
     state_path.write_text(json.dumps(state))
 
-    with pytest.raises(AtomicityViolation, match="persisted specialist result authority"):
+    with pytest.raises(AtomicityViolation, match="independent admission evidence"):
         AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+
+
+def test_specialist_admission_replays_independent_evidence_after_state_save_crash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    controller, adapter = _controller(tmp_path)
+    admitted = controller.admit_slice(_candidate())
+    lease = controller.issue_lease(
+        SpecialistTask("T-1", "v2-backend-engineer", ("src/",)), admitted=admitted
+    )
+
+    def crash_state_save() -> None:
+        raise RuntimeError("result state save crash")
+
+    monkeypatch.setattr(controller, "_save", crash_state_save)
+    with pytest.raises(RuntimeError, match="result state save crash"):
+        controller._admit_specialist_result(
+            lease,
+            commit_sha="e" * 40,
+            changed_paths=("src/result.py",),
+            clean=True,
+        )
+
+    resumed = AtomicImplementationController.load(tmp_path / "run", repository=adapter)
+    result = resumed._admit_specialist_result(
+        lease,
+        commit_sha="e" * 40,
+        changed_paths=("src/result.py",),
+        clean=True,
+    )
+    assert result.admission_digest
+    assert (
+        AtomicImplementationController.load(tmp_path / "run", repository=adapter)._results["T-1"]
+        == result
+    )
 
 
 def test_integration_manifest_rejects_an_empty_implementation(tmp_path: Path) -> None:
