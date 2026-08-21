@@ -16,6 +16,7 @@ from typing import Any
 
 from pmpe.contracts.digest import canonical_digest
 from pmpe.contracts.intake import FileQuarantineStore
+from pmpe.orchestration.lifecycle import BudgetPolicy, LifecycleControlPlane, LifecycleState
 from pmpe.telemetry.events import EventLog
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -55,11 +56,36 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
     fields: set[str] = set()
     for path in sorted((root / "src" / "pmpe").rglob("*.py")):
         tree = ast.parse(path.read_text(), filename=str(path))
+        aliases: set[str] = set()
+        changed = True
+        while changed:
+            changed = False
+            for node in ast.walk(tree):
+                if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                    continue
+                value = node.value
+                is_emitter = bool(
+                    isinstance(value, ast.Attribute)
+                    and value.attr == "emit"
+                    or isinstance(value, ast.Name)
+                    and value.id in aliases
+                )
+                if not is_emitter:
+                    continue
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                for target in targets:
+                    if isinstance(target, ast.Name) and target.id not in aliases:
+                        aliases.add(target.id)
+                        changed = True
         for node in ast.walk(tree):
             if not (
                 isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and node.func.attr == "emit"
+                and (
+                    isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "emit"
+                    or isinstance(node.func, ast.Name)
+                    and node.func.id in aliases
+                )
             ):
                 continue
             for keyword in node.keywords:
@@ -106,14 +132,36 @@ def _verify(candidate_sha: str, policy_path: Path) -> dict[str, Any]:
         expired.write_text("{}")
         old_time = (now - timedelta(days=retention_days + 1)).timestamp()
         os.utime(expired, (old_time, old_time))
-        event_log = EventLog(
+        budget = BudgetPolicy(
+            version="privacy-verifier/v1",
+            limits={
+                "tokens": 1,
+                "credits": 1,
+                "elapsed_seconds": 1,
+                "external_compute_seconds": 1,
+                "spend_microunits": 1,
+            },
+            repair_attempts_per_finding=1,
+            repair_attempts_per_stage=1,
+            reserved_safety_units=1,
+            approved_by="repository-security-owner",
+        )
+        lifecycle = LifecycleControlPlane.create(
             current_run,
+            run_id="privacy-verification-run",
+            subject_digest=canonical_digest({"candidate_sha": candidate_sha}),
+            initial_state=LifecycleState.CONTRACT_RECEIVED,
+            budget_policy=budget,
             retention_days=retention_days,
             trusted_clock=lambda: now,
         )
+        event_log = EventLog(current_run)
         event_log.emit("privacy_verification", **dict.fromkeys(emitted_telemetry, "synthetic"))
         retention_test_passed = (
-            not expired.exists() and event_log.path.exists() and len(event_log.read_all()) == 1
+            not expired.exists()
+            and lifecycle.ledger_path.exists()
+            and event_log.path.exists()
+            and len(event_log.read_all()) == 1
         )
         telemetry_test_passed = set(emitted_telemetry) <= set(telemetry_allowlist)
 

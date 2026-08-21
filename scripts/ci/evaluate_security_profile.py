@@ -130,9 +130,22 @@ def _observed_architecture_edges(
     dynamic_import_allowlist: tuple[tuple[str, int, str], ...] = (),
 ) -> tuple[tuple[str, str], ...]:
     edges: set[tuple[str, str]] = set()
+    product_root = root / "products" / "pm-evals-web" / "backend" / "src"
+    product_packages = (
+        frozenset(
+            {
+                path.name
+                for path in product_root.iterdir()
+                if path.is_dir() and (path / "__init__.py").is_file()
+            }
+            | {path.stem for path in product_root.glob("*.py")}
+        )
+        if product_root.is_dir()
+        else frozenset()
+    )
     source_roots = (
         (root / "src" / "pmpe", "os"),
-        (root / "products" / "pm-evals-web" / "backend" / "src", "product"),
+        (product_root, "product"),
     )
     for source_root, plane in source_roots:
         if not source_root.is_dir():
@@ -151,20 +164,19 @@ def _observed_architecture_edges(
                 path,
                 current_package=current_package,
                 source_layer=source_layer,
+                product_packages=product_packages,
                 dynamic_import_allowlist=dynamic_import_allowlist,
                 edges=edges,
             )
     return tuple(sorted(edges))
 
 
-def _target_layer(module: str) -> str | None:
+def _target_layer(module: str, product_packages: frozenset[str]) -> str | None:
     if module == "pmpe":
         return "core"
     if module.startswith("pmpe."):
         return _layer(module.split(".", 2)[1])
-    if module == "pm_evals_api" or module.startswith("pm_evals_api."):
-        return "product"
-    if module == "pm_evals_compare" or module.startswith("pm_evals_compare."):
+    if module.split(".", 1)[0] in product_packages:
         return "product"
     return None
 
@@ -187,6 +199,7 @@ def _collect_architecture_edges(
     *,
     current_package: str,
     source_layer: str,
+    product_packages: frozenset[str],
     dynamic_import_allowlist: tuple[tuple[str, int, str], ...],
     edges: set[tuple[str, str]],
 ) -> None:
@@ -211,7 +224,22 @@ def _collect_architecture_edges(
                 and isinstance(node.args[0], ast.Constant)
                 and isinstance(node.args[0].value, str)
             ):
-                modules = [node.args[0].value]
+                dynamic_target = node.args[0].value
+                if dynamic_target.startswith("."):
+                    package: str | None = None
+                    if len(node.args) > 1:
+                        package_node = node.args[1]
+                        if isinstance(package_node, ast.Name) and package_node.id == "__package__":
+                            package = current_package
+                        elif isinstance(package_node, ast.Constant) and isinstance(
+                            package_node.value, str
+                        ):
+                            package = package_node.value
+                    if package is None:
+                        edges.add((source_layer, "unresolved_dynamic"))
+                        continue
+                    dynamic_target = importlib.util.resolve_name(dynamic_target, package)
+                modules = [dynamic_target]
             else:
                 relative_path = path.relative_to(root).as_posix()
                 source_line = source_lines[node.lineno - 1]
@@ -221,7 +249,7 @@ def _collect_architecture_edges(
                     edges.add((source_layer, "unresolved_dynamic"))
                 continue
         for module in modules:
-            target_layer = _target_layer(module)
+            target_layer = _target_layer(module, product_packages)
             if target_layer is not None and source_layer != target_layer:
                 edges.add((source_layer, target_layer))
 

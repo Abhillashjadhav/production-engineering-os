@@ -25,6 +25,7 @@ from types import MappingProxyType
 from typing import Any, NoReturn
 
 from pmpe.domain.serialize import atomic_write_json
+from pmpe.privacy.retention import RetentionController
 
 EvidenceVerifier = Callable[[str, str, Mapping[str, Any], str], bool]
 BundleVerifier = Callable[[str, Mapping[str, str]], bool]
@@ -3280,6 +3281,8 @@ class LifecycleControlPlane:
         trust_policy: EvidenceTrustPolicy | None = None,
         evidence_verifier: EvidenceVerifier | None = None,
         bundle_verifier: BundleVerifier | None = None,
+        retention_days: int = 30,
+        trusted_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> LifecycleControlPlane:
         if initial_state is not LifecycleState.CONTRACT_RECEIVED:
             raise ValueError(
@@ -3287,6 +3290,11 @@ class LifecycleControlPlane:
                 "use the explicit migration admission path"
             )
         path = Path(run_dir)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        RetentionController(retention_days=retention_days).purge(
+            path.parent,
+            now=trusted_clock(),
+        )
         path.mkdir(parents=True, exist_ok=True)
         cp = cls(
             path,
@@ -3310,6 +3318,7 @@ class LifecycleControlPlane:
             "budget_policy_digest": _digest(policy_payload),
             "trust_policy": trust_payload,
             "trust_policy_digest": _digest(trust_payload),
+            "retention_days": retention_days,
         }
         with cp._operation_lock, cp._exclusive_lock():
             ledger = path / cls._LEDGER_NAME
