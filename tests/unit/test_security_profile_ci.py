@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 from datetime import UTC, datetime, timedelta
@@ -305,11 +306,54 @@ def test_privacy_evidence_requires_executed_exact_candidate_artifact(tmp_path: P
         )
 
 
+def test_privacy_evidence_rejects_policy_copied_residency(tmp_path: Path) -> None:
+    policy_path = tmp_path / "security-profile-policy.json"
+    verifier_path = tmp_path / "verify_privacy_controls.py"
+    policy_path.write_text("{}")
+    verifier_path.write_text("# verifier\n")
+    artifact_path = tmp_path / "privacy-evidence.json"
+    artifact = {
+        "candidate_sha": SHA,
+        "classification": "INTERNAL",
+        "deletion_test_passed": True,
+        "emitted_telemetry": ["run_id"],
+        "policy_file_digest": "sha256:" + hashlib.sha256(policy_path.read_bytes()).hexdigest(),
+        "residency": "IN",
+        "retention_days": 30,
+        "retention_test_passed": True,
+        "telemetry_test_passed": True,
+        "verifier_file_digest": "sha256:" + hashlib.sha256(verifier_path.read_bytes()).hexdigest(),
+    }
+    artifact["evidence_digest"] = canonical_digest(artifact)
+    artifact_path.write_text(json.dumps(artifact))
+
+    with pytest.raises(ValueError, match="privacy verifier artifact"):
+        _privacy_evidence_from_artifact(
+            artifact_path,
+            candidate_sha=SHA,
+            policy_path=policy_path,
+            verifier_path=verifier_path,
+        )
+
+
 def test_ci_executes_privacy_verifier_before_composed_profile() -> None:
     root = Path(__file__).resolve().parents[2]
     workflow = (root / ".github/workflows/ci.yml").read_text()
 
+    residency = workflow.index("python scripts/ci/observe_runtime_residency.py")
     verifier = workflow.index("python scripts/ci/verify_privacy_controls.py")
     composed = workflow.index("python scripts/ci/evaluate_security_profile.py")
-    assert verifier < composed
+    assert residency < verifier < composed
+    assert "--residency-evidence /tmp/security-profile/residency-evidence.json" in workflow
     assert "--privacy-evidence /tmp/security-profile/privacy-evidence.json" in workflow
+
+
+def test_ci_keeps_editable_builds_inside_the_hash_lock() -> None:
+    root = Path(__file__).resolve().parents[2]
+    workflow = (root / ".github/workflows/ci.yml").read_text()
+    pyproject = (root / "pyproject.toml").read_text()
+    lockfile = (root / "requirements.lock").read_text()
+
+    assert 'requires = ["setuptools==' in pyproject
+    assert "setuptools==" in lockfile
+    assert workflow.count("pip install --no-deps --no-build-isolation -e .") == 3
