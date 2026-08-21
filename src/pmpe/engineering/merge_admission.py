@@ -276,16 +276,21 @@ def _validate_snapshot(
             reasons.append(f"required check {name} is bound to the wrong subject")
         if check.input_digest != snapshot.exact_input_digest:
             reasons.append(f"required check {name} has stale policy/toolchain inputs")
+        try:
+            observed = _time(check.observed_at)
+        except ValueError:
+            reasons.append(f"required check {name} has a malformed observation time")
+            continue
+        if observed > now:
+            reasons.append(f"required check {name} is from the future")
         if check.event == "merge_group":
             if linearizing and check.enqueue_digest != enqueue_digest:
                 reasons.append(f"merge-group check {name} is from another enqueue")
             allowed_statuses = {"SUCCESS"} if linearizing else {"PENDING", "IN_PROGRESS", "SUCCESS"}
             if check.status not in allowed_statuses:
                 reasons.append(f"merge-group check {name} ended as {check.status}")
-            if now - _time(check.observed_at) > timedelta(seconds=queue_timeout_seconds):
+            if now - observed > timedelta(seconds=queue_timeout_seconds):
                 reasons.append(f"merge-group check {name} exceeded its freshness window")
-            if _time(check.observed_at) > now:
-                reasons.append(f"merge-group check {name} is from the future")
         elif check.status != "SUCCESS":
             reasons.append(f"required check {name} is {check.status}")
     return tuple(reasons)

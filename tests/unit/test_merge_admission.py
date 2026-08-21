@@ -201,6 +201,47 @@ def test_unsupported_required_check_event_is_never_pull_request_equivalent() -> 
     assert any("unsupported event" in reason for reason in decision.reasons)
 
 
+@pytest.mark.parametrize("observed_at", ["not-a-time", "2099-01-01T00:00:00Z"])
+def test_pull_request_check_observation_must_be_valid_and_not_future(
+    observed_at: str,
+) -> None:
+    snapshot = _snapshot()
+    invalid_check = replace(snapshot.checks[0], observed_at=observed_at)
+    with pytest.raises(ValueError, match="observation time|future"):
+        enqueue(
+            replace(snapshot, checks=(invalid_check,)),
+            governed_policy=POLICY,
+            token_issuer=TOKEN_ISSUER,
+            token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+            token_signer=_sign_token,
+            enqueued_at=AFTER,
+            invalidation_boundary=NOW,
+        )
+
+    token = enqueue(
+        snapshot,
+        governed_policy=POLICY,
+        token_issuer=TOKEN_ISSUER,
+        token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+        token_signer=_sign_token,
+        enqueued_at=AFTER,
+        invalidation_boundary=NOW,
+    )
+    decision = linearize_merge(
+        token,
+        replace(snapshot, checks=(invalid_check,)),
+        governed_policy=POLICY,
+        trusted_token_issuers=TOKEN_ISSUERS,
+        token_authenticator=_authenticate_token,
+        observed_merge_sha="e" * 40,
+        observed_merge_tree_digest=D,
+        merged_at=AFTER,
+    )
+
+    assert not decision.admitted
+    assert any("observation time" in reason or "future" in reason for reason in decision.reasons)
+
+
 @pytest.mark.parametrize(
     "change",
     [

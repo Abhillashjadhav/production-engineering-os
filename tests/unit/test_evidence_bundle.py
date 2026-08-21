@@ -130,6 +130,22 @@ def _environment(**changes: str) -> EnvironmentFingerprint:
     return EnvironmentFingerprint(**values)
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "reason"),
+    [
+        ("runtime", "", "identity fields"),
+        ("architecture", "   ", "identity fields"),
+        ("dependency_digest", "", "canonical SHA-256"),
+        ("container_digest", "sha256:not-a-digest", "canonical SHA-256"),
+    ],
+)
+def test_environment_fingerprint_rejects_incomplete_identity(
+    field: str, value: str, reason: str
+) -> None:
+    with pytest.raises(EvidenceViolation, match=reason):
+        _environment(**{field: value})
+
+
 def _subject(profile: str) -> EvidenceSubject:
     values: dict[str, str] = {}
     for field in STAGE_PROFILES[profile].required_subject_fields:
@@ -425,6 +441,22 @@ def test_immutable_store_retries_are_idempotent_and_conflicts_fail(tmp_path: Pat
     other, _ = _bundle("candidate_review")
     with pytest.raises(EvidenceViolation, match="reused"):
         store.append(other, event_id="complete:1")
+
+
+def test_idempotent_retry_recreates_a_missing_object_but_rejects_corruption(
+    tmp_path: Path,
+) -> None:
+    bundle, _ = _bundle("completion")
+    store = ImmutableEvidenceStore(tmp_path)
+    store.append(bundle, event_id="complete:1")
+    object_path = store.objects / f"{bundle.bundle_digest.replace(':', '-')}.json"
+    object_path.unlink()
+
+    assert store.append(bundle, event_id="complete:1") == bundle.bundle_digest
+    assert object_path.exists()
+    object_path.write_text("{}")
+    with pytest.raises(EvidenceViolation, match="different bytes"):
+        store.append(bundle, event_id="complete:1")
 
 
 def test_immutable_store_keyed_retry_repairs_only_an_incomplete_final_tail(

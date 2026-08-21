@@ -89,6 +89,22 @@ class EnvironmentFingerprint:
     configuration_digest: str
     hardware_class: str = "not-applicable"
 
+    def __post_init__(self) -> None:
+        if any(
+            not value.strip()
+            for value in (self.os, self.architecture, self.runtime, self.hardware_class)
+        ):
+            raise EvidenceViolation("environment identity fields cannot be empty")
+        if any(
+            not _DIGEST.fullmatch(value)
+            for value in (
+                self.dependency_digest,
+                self.container_digest,
+                self.configuration_digest,
+            )
+        ):
+            raise EvidenceViolation("environment digests must be canonical SHA-256 digests")
+
     @property
     def digest(self) -> str:
         return canonical_digest(asdict(self))
@@ -583,17 +599,32 @@ class ImmutableEvidenceStore:
             if prior is not None:
                 if prior != event:
                     raise EvidenceViolation("event identity was reused with different evidence")
+                self._ensure_object(object_path, payload)
                 return bundle.bundle_digest
-            if object_path.exists():
-                if json.loads(object_path.read_text()) != payload:
-                    raise EvidenceViolation("content address contains different bytes")
-            else:
-                atomic_write_json(object_path, payload)
+            self._ensure_object(object_path, payload)
             with self.events.open("a") as stream:
                 stream.write(json.dumps(event, sort_keys=True) + "\n")
                 stream.flush()
                 os.fsync(stream.fileno())
             return bundle.bundle_digest
+
+    def _ensure_object(self, object_path: Path, payload: object) -> None:
+        if object_path.exists():
+            try:
+                stored = json.loads(object_path.read_text())
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                raise EvidenceViolation("content address contains invalid JSON") from exc
+            if stored != payload:
+                raise EvidenceViolation("content address contains different bytes")
+            return
+        atomic_write_json(object_path, payload)
+        with object_path.open("rb") as stream:
+            os.fsync(stream.fileno())
+        directory = os.open(self.objects, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
 
     def read_events(self) -> list[dict[str, str]]:
         self.lock.parent.mkdir(parents=True, exist_ok=True)
