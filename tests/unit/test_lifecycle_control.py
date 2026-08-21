@@ -6,9 +6,11 @@ import hashlib
 import json
 import threading
 import time
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import asdict, fields, replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -50,6 +52,7 @@ TRUST_POLICY = EvidenceTrustPolicy(
     production_approvers={"release-owner": OWNER_CREDENTIAL_DIGEST},
     budget_meters={"budget-meter": SHA},
     formal_reviewers={"codex": SHA},
+    native_merge_gates={"github-merge-queue": SHA},
     finding_sources={"finding-source": SHA},
     mutation_authorizers={"mutation-authorizer": SHA},
     live_observers={"live-observer": SHA},
@@ -261,9 +264,20 @@ def context(
         }
     )
     inventories: dict[str, str] = {}
+    inventory_observed = datetime.now(UTC).replace(microsecond=0)
+    default_inventory_observed_at = inventory_observed.isoformat().replace("+00:00", "Z")
+    default_inventory_expires_at = (
+        (inventory_observed + timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
+    )
     for source, authority_digest in TRUST_POLICY.finding_sources.items():
         inventory_digest = effective_evidence.setdefault(
             f"finding_inventory_{source}_digest", OTHER_SHA
+        )
+        inventory_observed_at = effective_evidence.setdefault(
+            f"finding_inventory_{source}_observed_at", default_inventory_observed_at
+        )
+        inventory_expires_at = effective_evidence.setdefault(
+            f"finding_inventory_{source}_expires_at", default_inventory_expires_at
         )
         inventories[source] = inventory_digest
         effective_evidence.setdefault(
@@ -277,7 +291,8 @@ def context(
                     "subject_digest": SHA,
                     "inventory_digest": inventory_digest,
                     "status": "NO_BLOCKING",
-                    "observed_at": "2026-08-02T00:01:00Z",
+                    "observed_at": inventory_observed_at,
+                    "expires_at": inventory_expires_at,
                 },
             ),
         )
@@ -315,6 +330,8 @@ def control_plane(
     *,
     state: LifecycleState = LifecycleState.CONTRACT_RECEIVED,
     trust_policy: EvidenceTrustPolicy = TRUST_POLICY,
+    lifecycle_policy: lifecycle.LifecyclePolicy = PHASE_ZERO_POLICY,
+    bundle_verifier: lifecycle.BundleVerifier | None = None,
 ) -> LifecycleControlPlane:
     policy, _ = budgets()
     cp = LifecycleControlPlane.create(
@@ -323,8 +340,10 @@ def control_plane(
         subject_digest=SHA,
         initial_state=LifecycleState.CONTRACT_RECEIVED,
         budget_policy=policy,
+        lifecycle_policy=lifecycle_policy,
         trust_policy=trust_policy,
         evidence_verifier=verify_external_proof,
+        bundle_verifier=bundle_verifier,
     )
     if state is not LifecycleState.CONTRACT_RECEIVED:
         cp._append(
@@ -341,9 +360,89 @@ def control_plane(
     return cp
 
 
+def test_no_blocker_inventory_requires_a_live_authenticated_freshness_window(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path)
+    valid = context()
+    assert cp._trusted_finding_inventory_valid(valid)
+
+    source = "finding-source"
+    authority_digest = TRUST_POLICY.finding_sources[source]
+    stale_observed = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=10)
+    stale_expires = stale_observed + timedelta(minutes=5)
+    stale_evidence = dict(valid.evidence)
+    stale_evidence[f"finding_inventory_{source}_observed_at"] = stale_observed.isoformat().replace(
+        "+00:00", "Z"
+    )
+    stale_evidence[f"finding_inventory_{source}_expires_at"] = stale_expires.isoformat().replace(
+        "+00:00", "Z"
+    )
+    payload = {
+        "source_id": source,
+        "authority_digest": authority_digest,
+        "subject_digest": SHA,
+        "inventory_digest": stale_evidence[f"finding_inventory_{source}_digest"],
+        "status": "NO_BLOCKING",
+        "observed_at": stale_evidence[f"finding_inventory_{source}_observed_at"],
+        "expires_at": stale_evidence[f"finding_inventory_{source}_expires_at"],
+    }
+    stale_evidence[f"finding_inventory_{source}_authentication_evidence_digest"] = external_proof(
+        source, authority_digest, payload
+    )
+
+    assert not cp._trusted_finding_inventory_valid(replace(valid, evidence=stale_evidence))
+
+
+def test_no_blocker_inventory_rechecks_expiry_after_source_authentication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cp = control_plane(tmp_path)
+    decision_time = datetime(2030, 1, 1, tzinfo=UTC)
+    observed_at = (decision_time - timedelta(minutes=1)).isoformat().replace("+00:00", "Z")
+    expires = decision_time + timedelta(seconds=1)
+    expires_at = expires.isoformat().replace("+00:00", "Z")
+    valid = context(
+        evidence={
+            "finding_inventory_finding-source_observed_at": observed_at,
+            "finding_inventory_finding-source_expires_at": expires_at,
+        }
+    )
+
+    class DecisionClock:
+        current = decision_time
+
+        @classmethod
+        def now(cls, timezone: object = None) -> datetime:
+            del timezone
+            return cls.current
+
+        @staticmethod
+        def fromisoformat(value: str) -> datetime:
+            return datetime.fromisoformat(value)
+
+    def expiring_verifier(
+        identity: str,
+        authority_digest: str,
+        payload: object,
+        proof: str,
+    ) -> bool:
+        authenticated = verify_external_proof(identity, authority_digest, payload, proof)
+        DecisionClock.current = expires + timedelta(seconds=1)
+        return authenticated
+
+    cp._evidence_verifier = expiring_verifier
+    monkeypatch.setattr(lifecycle, "datetime", DecisionClock)
+
+    assert not cp._trusted_finding_inventory_valid(valid)
+
+
 def mutation_authorization(
     cp: LifecycleControlPlane, attempt: MutationAttempt
 ) -> MutationAuthorization:
+    observed = datetime.now(UTC).replace(microsecond=0)
+    observed_at = observed.isoformat().replace("+00:00", "Z")
+    expires_at = (observed + timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
     body = {
         "authorizer_id": "mutation-authorizer",
         "authority_digest": SHA,
@@ -354,7 +453,8 @@ def mutation_authorization(
         "idempotency_key": attempt.idempotency_key,
         "step_plan_digest": attempt.step_plan_digest,
         "steps": list(attempt.steps),
-        "observed_at": "2026-08-02T00:01:00Z",
+        "observed_at": observed_at,
+        "expires_at": expires_at,
     }
     return MutationAuthorization(
         authorizer_id="mutation-authorizer",
@@ -366,13 +466,23 @@ def mutation_authorization(
         idempotency_key=attempt.idempotency_key,
         step_plan_digest=attempt.step_plan_digest,
         steps=attempt.steps,
-        observed_at="2026-08-02T00:01:00Z",
+        observed_at=observed_at,
+        expires_at=expires_at,
         authentication_evidence_digest=external_proof("mutation-authorizer", SHA, body),
     )
 
 
-def prejournal(cp: LifecycleControlPlane, attempt: MutationAttempt) -> MutationAttempt:
-    return cp.prejournal_mutation(attempt, authorization=mutation_authorization(cp, attempt))
+def prejournal(
+    cp: LifecycleControlPlane,
+    attempt: MutationAttempt,
+    *,
+    evidence: Mapping[str, str] | None = None,
+) -> MutationAttempt:
+    return cp.prejournal_mutation(
+        attempt,
+        authorization=mutation_authorization(cp, attempt),
+        evidence=evidence,
+    )
 
 
 def test_transition_actor_rejects_a_self_computed_credential(tmp_path: Path) -> None:
@@ -479,6 +589,11 @@ def draft_revocation_attempt(evidence: dict[str, str]) -> MutationAttempt:
 def object_digest(value: object) -> str:
     encoded = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def assert_live_utc(value: str) -> None:
+    observed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    assert abs(datetime.now(UTC) - observed) < timedelta(seconds=5)
 
 
 def adapter_result_evidence(
@@ -743,9 +858,233 @@ def completion_evidence_with_review_binding(cp: LifecycleControlPlane) -> dict[s
             "reviewed_candidate_digest": reviewed_candidate,
             "review_evidence_digest": review_evidence,
             "evidence_bundle_digest": review_evidence,
+            "finding_high_watermark_digest": object_digest("completion-findings"),
         }
     )
     return evidence
+
+
+def test_phase_four_completion_accepts_a_distinct_completion_profile_bundle(
+    tmp_path: Path,
+) -> None:
+    completion_bundle = object_digest("sealed-completion-profile")
+    observed: list[tuple[str, dict[str, str]]] = []
+
+    def verify_bundle(digest: str, bindings: Mapping[str, str]) -> bool:
+        observed.append((digest, dict(bindings)))
+        return digest == completion_bundle
+
+    cp = control_plane(
+        tmp_path,
+        state=LifecycleState.PRODUCTION_DEPLOYED,
+        lifecycle_policy=lifecycle.PHASE_FOUR_POLICY,
+        bundle_verifier=verify_bundle,
+    )
+    evidence = completion_evidence_with_review_binding(cp)
+    review_bundle = evidence["review_evidence_digest"]
+    evidence["evidence_bundle_digest"] = completion_bundle
+
+    completed = cp.transition(
+        LifecycleState.COMPLETED,
+        context(evidence=evidence),
+        reason="observation_window_passed",
+    )
+
+    assert completed.target is LifecycleState.COMPLETED
+    assert completion_bundle != review_bundle
+    assert observed[0][0] == completion_bundle
+    assert observed[0][1]["profile"] == "completion"
+    assert_live_utc(observed[0][1]["as_of"])
+
+
+def test_phase_four_readiness_holds_when_bundle_verifier_raises(tmp_path: Path) -> None:
+    unavailable = False
+    observed: list[tuple[str, dict[str, str]]] = []
+
+    def unavailable_verifier(digest: str, bindings: Mapping[str, str]) -> bool:
+        observed.append((digest, dict(bindings)))
+        if unavailable:
+            raise RuntimeError("immutable evidence store unavailable")
+        return bool(
+            digest and bindings.get("profile") == "candidate_review" and bindings.get("as_of")
+        )
+
+    cp = control_plane(
+        tmp_path,
+        state=LifecycleState.REVIEW_REQUIRED,
+        lifecycle_policy=lifecycle.PHASE_FOUR_POLICY,
+        bundle_verifier=unavailable_verifier,
+    )
+    rule = lifecycle.PHASE_FOUR_POLICY.rule(
+        LifecycleState.REVIEW_REQUIRED,
+        LifecycleState.PR_READY,
+        reason="advisory_readiness_clear",
+    )
+    evidence = {
+        name: (
+            SHA
+            if name == "subject_digest"
+            else "a" * 40
+            if name.endswith("_sha")
+            else object_digest(name)
+        )
+        for name in rule.required_evidence
+    }
+    attempt = ready_attempt(evidence)
+    prejournal(cp, attempt, evidence=evidence)
+    assert_live_utc(observed[-1][1]["as_of"])
+    record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
+    evidence.update(
+        ready_attempt_digest=object_digest(asdict(attempt)),
+        ready_result_digest=SHA,
+    )
+
+    unavailable = True
+    with pytest.raises(TransitionDeniedError, match="sealed exact-candidate"):
+        cp.transition(
+            LifecycleState.PR_READY,
+            context(evidence=evidence, mutation=attempt),
+            reason="advisory_readiness_clear",
+        )
+
+    assert cp.state is LifecycleState.REVIEW_REQUIRED
+    assert_live_utc(observed[-1][1]["as_of"])
+
+
+def test_phase_four_completion_holds_when_bundle_verifier_raises(tmp_path: Path) -> None:
+    observed: list[dict[str, str]] = []
+
+    def unavailable_verifier(digest: str, bindings: Mapping[str, str]) -> bool:
+        observed.append(dict(bindings))
+        raise RuntimeError("immutable evidence store unavailable")
+
+    cp = control_plane(
+        tmp_path,
+        state=LifecycleState.PRODUCTION_DEPLOYED,
+        lifecycle_policy=lifecycle.PHASE_FOUR_POLICY,
+        bundle_verifier=unavailable_verifier,
+    )
+    evidence = completion_evidence_with_review_binding(cp)
+
+    with pytest.raises(TransitionDeniedError, match="valid sealed exact-subject"):
+        cp.transition(
+            LifecycleState.COMPLETED,
+            context(evidence=evidence),
+            reason="observation_window_passed",
+        )
+
+    assert cp.state is LifecycleState.PRODUCTION_DEPLOYED
+    assert not cp.completion_claim_active
+    assert observed[-1]["profile"] == "completion"
+    assert_live_utc(observed[-1]["as_of"])
+
+
+def test_phase_four_staging_requires_a_sealed_exact_merge_bundle(tmp_path: Path) -> None:
+    staging_bundle = object_digest("sealed-staging-profile")
+    observed: list[tuple[str, dict[str, str]]] = []
+
+    def verify_bundle(digest: str, bindings: Mapping[str, str]) -> bool:
+        observed.append((digest, dict(bindings)))
+        return (
+            digest == staging_bundle
+            and bindings.get("profile") == "staging"
+            and bool(bindings.get("as_of"))
+            and bindings.get("observed_merge_sha") == "b" * 40
+            and bindings.get("observed_merge_tree_digest") == object_digest("merged-tree")
+        )
+
+    cp = control_plane(
+        tmp_path,
+        state=LifecycleState.PR_MERGED,
+        lifecycle_policy=lifecycle.PHASE_FOUR_POLICY,
+        bundle_verifier=verify_bundle,
+    )
+    merge_result = object_digest("integrated-merge")
+    cp._append(
+        kind="TRANSITION",
+        outcome="APPLIED",
+        source=LifecycleState.PR_READY,
+        target=LifecycleState.PR_MERGED,
+        reason="native_merge_linearized",
+        actor="github-merge-queue",
+        evidence_refs={
+            "merge_result_digest": merge_result,
+            "merge_commit_sha": "b" * 40,
+            "merge_tree_digest": object_digest("merged-tree"),
+        },
+        observed_at="2026-08-02T00:01:00Z",
+    )
+    evidence = evidence_for(
+        LifecycleState.PR_MERGED,
+        LifecycleState.STAGING_DEPLOYED,
+        reason="staging_admitted",
+    )
+    evidence.update(
+        subject_digest=SHA,
+        evidence_bundle_digest=OTHER_SHA,
+        merge_digest=merge_result,
+    )
+    alternate_bundle = dict(evidence)
+    alternate_bundle["evidence_bundle_digest"] = staging_bundle
+    assert mutation_subject_digest("deploy_staging", evidence) != mutation_subject_digest(
+        "deploy_staging", alternate_bundle
+    )
+
+    with pytest.raises(TransitionDeniedError, match="staging EvidenceBundle"):
+        cp.transition(
+            LifecycleState.STAGING_DEPLOYED,
+            context(evidence=evidence),
+            reason="staging_admitted",
+        )
+
+    invalid_attempt = MutationAttempt(
+        attempt_id="phase-four-staging-invalid",
+        idempotency_key="stage:run-65:phase-four-invalid",
+        subject_digest=SHA,
+        action="deploy_staging",
+        step_plan_digest=mutation_subject_digest("deploy_staging", evidence),
+        status="PLANNED",
+    )
+    with pytest.raises(TransitionDeniedError, match="valid sealed exact-subject bundle"):
+        prejournal(cp, invalid_attempt, evidence=evidence)
+
+    evidence["evidence_bundle_digest"] = staging_bundle
+    wrong_merge = dict(evidence)
+    wrong_merge["merge_digest"] = object_digest("unrelated-merge")
+    wrong_merge_attempt = MutationAttempt(
+        attempt_id="phase-four-staging-wrong-merge",
+        idempotency_key="stage:run-65:phase-four-wrong-merge",
+        subject_digest=SHA,
+        action="deploy_staging",
+        step_plan_digest=mutation_subject_digest("deploy_staging", wrong_merge),
+        status="PLANNED",
+    )
+    with pytest.raises(TransitionDeniedError, match="exact integrated merge"):
+        prejournal(cp, wrong_merge_attempt, evidence=wrong_merge)
+
+    attempt = MutationAttempt(
+        attempt_id="phase-four-staging",
+        idempotency_key="stage:run-65:phase-four",
+        subject_digest=SHA,
+        action="deploy_staging",
+        step_plan_digest=mutation_subject_digest("deploy_staging", evidence),
+        status="PLANNED",
+    )
+    prejournal(cp, attempt, evidence=evidence)
+    record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
+    evidence["staging_attempt_digest"] = object_digest(asdict(attempt))
+    evidence["staging_result_digest"] = SHA
+
+    deployed = cp.transition(
+        LifecycleState.STAGING_DEPLOYED,
+        context(evidence=evidence, mutation=attempt),
+        reason="staging_admitted",
+    )
+
+    assert deployed.target is LifecycleState.STAGING_DEPLOYED
+    assert observed[-1][0] == staging_bundle
+    assert_live_utc(observed[-1][1]["as_of"])
+    assert_live_utc(observed[-2][1]["as_of"])
 
 
 def test_completion_binds_release_to_persisted_merge_not_review_head(tmp_path: Path) -> None:
@@ -1427,6 +1766,7 @@ def test_staging_requires_an_authenticated_inventory_from_every_configured_sourc
         subject_digest=SHA,
         initial_state=LifecycleState.CONTRACT_RECEIVED,
         budget_policy=policy,
+        lifecycle_policy=PHASE_ZERO_POLICY,
         trust_policy=trust_policy,
         evidence_verifier=verify_external_proof,
     )
@@ -1765,6 +2105,44 @@ def test_completed_requires_exact_release_live_rollback_and_observation_evidence
     )
     assert event.subject_digest == SHA
     assert cp.completion_claim_active
+
+
+def test_phase_four_completion_rechecks_current_authenticated_blocking_findings(
+    tmp_path: Path,
+) -> None:
+    def verify_completion_bundle(digest: str, bindings: Mapping[str, str]) -> bool:
+        return bool(digest and all(bindings.values()))
+
+    cp = control_plane(
+        tmp_path,
+        state=LifecycleState.PRODUCTION_DEPLOYED,
+        lifecycle_policy=lifecycle.PHASE_FOUR_POLICY,
+        bundle_verifier=verify_completion_bundle,
+    )
+    required = completion_evidence_with_review_binding(cp)
+    required["finding_high_watermark_digest"] = object_digest("completion-findings")
+    finding = FindingSignal(
+        finding_id="late-production-blocker",
+        source="finding-source",
+        exact_subject_digest=SHA,
+        severity="HIGH",
+        credible=True,
+        blocking=True,
+        reviewer_eligible=False,
+        category="ENGINEERING",
+        disposition="OPEN",
+        affected_scope_digest=OTHER_SHA,
+    )
+
+    with pytest.raises(TransitionDeniedError, match="pending blocking finding"):
+        cp.transition(
+            LifecycleState.COMPLETED,
+            context(evidence=required, finding=finding),
+            reason="observation_window_passed",
+        )
+
+    assert cp.state is LifecycleState.PRODUCTION_DEPLOYED
+    assert not cp.completion_claim_active
 
 
 def test_completion_rejects_live_attestation_replayed_for_a_different_release(
@@ -3965,6 +4343,7 @@ def test_concurrent_creation_cannot_diverge_metadata_from_initial_event(
             subject_digest=subject_digest,
             initial_state=LifecycleState.CONTRACT_RECEIVED,
             budget_policy=policy,
+            lifecycle_policy=PHASE_ZERO_POLICY,
         )
 
     successes: list[LifecycleControlPlane] = []
@@ -4112,6 +4491,321 @@ def test_native_merge_requires_the_exact_persisted_review_binding(tmp_path: Path
             context(evidence=staging_evidence, mutation=staging_attempt),
             reason="staging_admitted",
         )
+
+
+def test_phase_four_merge_keeps_advisory_and_post_ready_formal_review_distinct(
+    tmp_path: Path,
+) -> None:
+    merge_admission_bundle = object_digest("sealed-merge-admission-profile")
+    observed_bundles: list[tuple[str, dict[str, str]]] = []
+
+    def verify_bundle(digest: str, bindings: Mapping[str, str]) -> bool:
+        observed_bundles.append((digest, dict(bindings)))
+        return (
+            digest == merge_admission_bundle
+            and bindings.get("profile") == "merge_admission"
+            and bool(bindings.get("as_of"))
+        )
+
+    cp = control_plane(
+        tmp_path,
+        state=LifecycleState.PR_READY,
+        lifecycle_policy=lifecycle.PHASE_FOUR_POLICY,
+        bundle_verifier=verify_bundle,
+    )
+    reviewed_commit = "a" * 40
+    reviewed_tree = object_digest("reviewed-tree")
+    advisory_bundle = object_digest("advisory-bundle")
+    advisory_digest = object_digest("advisory-analysis")
+    review_policy_evidence = {
+        name: "a" * 40 if name.endswith("_sha") else object_digest(name)
+        for name in lifecycle._PHASE_FOUR_REVIEW_FIELDS
+    }
+    cp._append(
+        kind="REVIEW_BINDING_ADMITTED",
+        outcome="RECORDED",
+        source=cp.state,
+        target=cp.state,
+        reason="advisory_readiness_clear",
+        actor="codex-advisory",
+        evidence_refs={
+            "subject_digest": SHA,
+            "reviewed_commit_sha": reviewed_commit,
+            "prospective_tree_digest": reviewed_tree,
+            "verification_bundle_digest": advisory_bundle,
+            "review_digest": advisory_digest,
+            **review_policy_evidence,
+        },
+        observed_at="2026-08-01T23:59:00Z",
+    )
+    approval = Approval(
+        approval_id="formal-review-after-ready",
+        actor="codex",
+        subject_digest=SHA,
+        kind="FORMAL_REVIEW",
+        eligible=True,
+        active=True,
+        reviewed_commit_sha=reviewed_commit,
+        reviewed_candidate_digest=reviewed_tree,
+        review_evidence_digest=advisory_bundle,
+        submitted_at="2026-08-02T00:00:00Z",
+    )
+    approval = replace(
+        approval,
+        authentication_evidence_digest=external_proof(
+            approval.actor,
+            SHA,
+            lifecycle._production_approval_payload(approval),
+        ),
+    )
+    formal_digest = object_digest(asdict(approval))
+    rule = lifecycle.PHASE_FOUR_POLICY.rule(
+        LifecycleState.PR_READY,
+        LifecycleState.PR_MERGED,
+        reason="native_merge_linearized",
+    )
+    planned_evidence = {
+        name: (
+            SHA
+            if name == "subject_digest"
+            else "a" * 40
+            if name.endswith("_sha")
+            else object_digest(name)
+        )
+        for name in rule.required_evidence
+    }
+    planned_evidence.update(
+        review_policy_evidence,
+        subject_digest=SHA,
+        queue_subject_digest=SHA,
+        head_commit_sha=reviewed_commit,
+        head_digest=object_digest(reviewed_commit),
+        prospective_tree_digest=reviewed_tree,
+        verification_bundle_digest=advisory_bundle,
+        merge_admission_bundle_digest=merge_admission_bundle,
+        formal_review_digest=formal_digest,
+        finding_source_set_digest=object_digest(dict(TRUST_POLICY.finding_sources)),
+        finding_inventory_epochs_digest=object_digest(
+            dict.fromkeys(TRUST_POLICY.finding_sources, OTHER_SHA)
+        ),
+    )
+    merge_output = {
+        "head_commit_sha": reviewed_commit,
+        "merge_commit_sha": "b" * 40,
+        "merge_tree_digest": reviewed_tree,
+        "merge_method_digest": object_digest("protected-native-merge"),
+        "merge_actor_digest": object_digest("github-merge-queue"),
+    }
+    merge_result_digest = object_digest(merge_output)
+    planned_evidence.update(merge_output, merge_result_digest=merge_result_digest)
+    attempt = MutationAttempt(
+        attempt_id="phase-four-merge",
+        idempotency_key="merge:phase-four:1",
+        subject_digest=SHA,
+        action="enqueue_merge",
+        step_plan_digest=mutation_subject_digest("enqueue_merge", planned_evidence),
+        status="PLANNED",
+    )
+    prejournal(cp, attempt, evidence=planned_evidence)
+    record_result(cp, attempt, status="SUCCEEDED", result_digest=merge_result_digest)
+    planned_evidence["merge_attempt_digest"] = object_digest(asdict(attempt))
+
+    with pytest.raises(TransitionDeniedError, match="native merge-gate"):
+        cp.transition(
+            LifecycleState.PR_MERGED,
+            context(
+                evidence=planned_evidence,
+                approvals=(approval,),
+                mutation=attempt,
+                usage=cp.budget_usage,
+            ),
+            reason="native_merge_linearized",
+        )
+
+    native_gate_actor = "github-merge-queue"
+    native_gate_authority = TRUST_POLICY.native_merge_gates[native_gate_actor]
+    native_gate_payload = lifecycle._native_merge_gate_payload(planned_evidence)
+    planned_evidence.update(
+        native_merge_gate_actor=native_gate_actor,
+        native_merge_gate_authority_digest=native_gate_authority,
+        native_merge_gate_digest=object_digest(native_gate_payload),
+        native_merge_gate_authentication_evidence_digest=external_proof(
+            native_gate_actor,
+            native_gate_authority,
+            native_gate_payload,
+        ),
+    )
+
+    drifted_evidence = dict(planned_evidence)
+    drifted_evidence["security_policy_digest"] = object_digest("changed-security-policy")
+    drifted_native_gate_payload = lifecycle._native_merge_gate_payload(drifted_evidence)
+    drifted_evidence.update(
+        native_merge_gate_digest=object_digest(drifted_native_gate_payload),
+        native_merge_gate_authentication_evidence_digest=external_proof(
+            native_gate_actor,
+            native_gate_authority,
+            drifted_native_gate_payload,
+        ),
+    )
+    with pytest.raises(TransitionDeniedError, match="review binding"):
+        cp.transition(
+            LifecycleState.PR_MERGED,
+            context(
+                evidence=drifted_evidence,
+                approvals=(approval,),
+                mutation=attempt,
+                usage=cp.budget_usage,
+            ),
+            reason="native_merge_linearized",
+        )
+
+    merged = cp.transition(
+        LifecycleState.PR_MERGED,
+        context(
+            evidence=planned_evidence,
+            approvals=(approval,),
+            mutation=attempt,
+            usage=cp.budget_usage,
+        ),
+        reason="native_merge_linearized",
+    )
+
+    assert merged.target is LifecycleState.PR_MERGED
+    assert formal_digest != advisory_digest
+    assert len(observed_bundles) >= 2
+    assert all(digest == merge_admission_bundle for digest, _ in observed_bundles)
+
+
+def test_phase_four_merge_revalidates_bundle_after_prejournal(tmp_path: Path) -> None:
+    bundle_available = True
+    verification_calls = 0
+    merge_admission_bundle = object_digest("expiring-merge-admission-profile")
+
+    def verify_bundle(digest: str, bindings: Mapping[str, str]) -> bool:
+        nonlocal verification_calls
+        verification_calls += 1
+        return bool(
+            bundle_available
+            and digest == merge_admission_bundle
+            and bindings.get("profile") == "merge_admission"
+            and bool(bindings.get("as_of"))
+        )
+
+    cp = control_plane(
+        tmp_path,
+        state=LifecycleState.PR_READY,
+        lifecycle_policy=lifecycle.PHASE_FOUR_POLICY,
+        bundle_verifier=verify_bundle,
+    )
+    reviewed_commit = "a" * 40
+    reviewed_tree = object_digest("reviewed-tree")
+    advisory_bundle = object_digest("advisory-bundle")
+    review_policy_evidence = {
+        name: "a" * 40 if name.endswith("_sha") else object_digest(name)
+        for name in lifecycle._PHASE_FOUR_REVIEW_FIELDS
+    }
+    cp._append(
+        kind="REVIEW_BINDING_ADMITTED",
+        outcome="RECORDED",
+        source=cp.state,
+        target=cp.state,
+        reason="advisory_readiness_clear",
+        actor="codex-advisory",
+        evidence_refs={
+            "subject_digest": SHA,
+            "reviewed_commit_sha": reviewed_commit,
+            "prospective_tree_digest": reviewed_tree,
+            "verification_bundle_digest": advisory_bundle,
+            "review_digest": object_digest("advisory-analysis"),
+            **review_policy_evidence,
+        },
+        observed_at="2026-08-01T23:59:00Z",
+    )
+    rule = lifecycle.PHASE_FOUR_POLICY.rule(
+        LifecycleState.PR_READY,
+        LifecycleState.PR_MERGED,
+        reason="native_merge_linearized",
+    )
+    evidence = {
+        name: (
+            SHA
+            if name == "subject_digest"
+            else "a" * 40
+            if name.endswith("_sha")
+            else object_digest(name)
+        )
+        for name in rule.required_evidence
+    }
+    evidence.update(
+        review_policy_evidence,
+        subject_digest=SHA,
+        queue_subject_digest=SHA,
+        head_commit_sha=reviewed_commit,
+        head_digest=object_digest(reviewed_commit),
+        prospective_tree_digest=reviewed_tree,
+        verification_bundle_digest=advisory_bundle,
+        merge_admission_bundle_digest=merge_admission_bundle,
+        finding_source_set_digest=object_digest(dict(TRUST_POLICY.finding_sources)),
+        finding_inventory_epochs_digest=object_digest(
+            dict.fromkeys(TRUST_POLICY.finding_sources, OTHER_SHA)
+        ),
+    )
+    attempt = MutationAttempt(
+        attempt_id="phase-four-expiring-merge",
+        idempotency_key="merge:phase-four:expiring",
+        subject_digest=SHA,
+        action="enqueue_merge",
+        step_plan_digest=mutation_subject_digest("enqueue_merge", evidence),
+        status="PLANNED",
+    )
+    stale_authorization = replace(
+        mutation_authorization(cp, attempt),
+        observed_at="2026-08-02T00:00:00Z",
+        expires_at="2026-08-02T00:05:00Z",
+        authentication_evidence_digest="",
+    )
+    stale_payload = {
+        "authorizer_id": stale_authorization.authorizer_id,
+        "authority_digest": stale_authorization.authority_digest,
+        "subject_digest": stale_authorization.subject_digest,
+        "source_state": stale_authorization.source_state.value,
+        "action": stale_authorization.action,
+        "attempt_id": stale_authorization.attempt_id,
+        "idempotency_key": stale_authorization.idempotency_key,
+        "step_plan_digest": stale_authorization.step_plan_digest,
+        "steps": list(stale_authorization.steps),
+        "observed_at": stale_authorization.observed_at,
+        "expires_at": stale_authorization.expires_at,
+    }
+    stale_authorization = replace(
+        stale_authorization,
+        authentication_evidence_digest=external_proof(
+            stale_authorization.authorizer_id,
+            stale_authorization.authority_digest,
+            stale_payload,
+        ),
+    )
+    with pytest.raises(TransitionDeniedError, match="current external lifecycle authority"):
+        cp.prejournal_mutation(
+            attempt,
+            authorization=stale_authorization,
+            evidence=evidence,
+        )
+    assert verification_calls == 0
+
+    prejournal(cp, attempt, evidence=evidence)
+    assert verification_calls == 1
+    bundle_available = False
+
+    with pytest.raises(TransitionDeniedError, match="merge-admission EvidenceBundle"):
+        cp.transition(
+            LifecycleState.PR_MERGED,
+            context(evidence=evidence, mutation=attempt),
+            reason="native_merge_linearized",
+        )
+
+    assert cp.state is LifecycleState.PR_READY
+    assert verification_calls == 2
 
 
 def test_budget_extension_rejects_caller_computable_owner_proof(tmp_path: Path) -> None:
@@ -4355,6 +5049,7 @@ def test_creation_recovers_the_exact_metadata_only_crash_window(
             subject_digest=SHA,
             initial_state=LifecycleState.CONTRACT_RECEIVED,
             budget_policy=policy,
+            lifecycle_policy=PHASE_ZERO_POLICY,
         )
 
     recovered = LifecycleControlPlane.create(
@@ -4363,6 +5058,7 @@ def test_creation_recovers_the_exact_metadata_only_crash_window(
         subject_digest=SHA,
         initial_state=LifecycleState.CONTRACT_RECEIVED,
         budget_policy=policy,
+        lifecycle_policy=PHASE_ZERO_POLICY,
     )
     assert recovered.run_id == "recoverable-run"
     assert LifecycleControlPlane.load(tmp_path).events == recovered.events

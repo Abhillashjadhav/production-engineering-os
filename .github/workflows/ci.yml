@@ -71,11 +71,14 @@ jobs:
 
   product-backend:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
       - run: pip install -e "products/pm-evals-web/backend[dev]"
       - name: comparison-engine tests
         run: pytest products/pm-evals-web/backend/tests -q

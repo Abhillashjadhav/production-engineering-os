@@ -82,6 +82,47 @@ class _StrictJSONError(ValueError):
     (NaN/Infinity — non-standard and not deterministically re-serializable)."""
 
 
+_MAX_JSON_NESTING = 512
+
+
+def _exceeds_json_nesting_limit(raw: str | bytes) -> bool:
+    """Detect pathological container nesting before runtime-specific JSON parsing.
+
+    CPython's JSON decoder reaches its recursion guard at different depths across
+    supported runtimes.  Scan only structural tokens outside strings so the same
+    payload receives the same named malformed-input result everywhere.
+    """
+    if isinstance(raw, bytes):
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return False
+    else:
+        text = raw
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for character in text:
+        if in_string:
+            if escaped:
+                escaped = False
+            elif character == "\\":
+                escaped = True
+            elif character == '"':
+                in_string = False
+            continue
+        if character == '"':
+            in_string = True
+        elif character in "[{":
+            depth += 1
+            if depth > _MAX_JSON_NESTING:
+                return True
+        elif character in "]}":
+            depth = max(0, depth - 1)
+    return False
+
+
 def _clip(text: str, limit: int = 64) -> str:
     # Uploaded keys and numeric literals can be megabytes long (bounded only by
     # the upload cap); never echo an unbounded slice of the payload back in an
@@ -117,6 +158,15 @@ def _forbid_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 
 def parse_run(raw: str | bytes, *, source_name: str = "upload") -> ParseResult:
     """Parse one run file. Never raises on bad input — returns named issues."""
+    if _exceeds_json_nesting_limit(raw):
+        return ParseResult(
+            issues=[
+                ParseIssue(
+                    location=source_name,
+                    message=f"not valid JSON: nesting exceeds {_MAX_JSON_NESTING} levels",
+                )
+            ]
+        )
     try:
         data = json.loads(
             raw,

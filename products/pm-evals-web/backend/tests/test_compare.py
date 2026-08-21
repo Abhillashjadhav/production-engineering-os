@@ -76,6 +76,11 @@ def test_not_json_reports_an_issue() -> None:
     assert "not valid JSON" in result.issues[0].message
 
 
+def test_nesting_guard_ignores_brackets_inside_strings() -> None:
+    result = parse_run(json.dumps({"note": "[" * 1000}))
+    assert any("unsupported format_version" in issue.message for issue in result.issues)
+
+
 def test_wrong_format_version_is_refused() -> None:
     result = parse_run(json.dumps({"format_version": 2}))
     assert any("unsupported format_version" in i.message for i in result.issues)
