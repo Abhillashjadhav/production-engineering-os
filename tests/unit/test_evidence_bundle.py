@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+import pmpe.audit.evidence as evidence_module
 from pmpe.audit.evidence import (
     STAGE_PROFILES,
     EnvironmentFingerprint,
@@ -492,6 +493,25 @@ def test_immutable_store_retries_are_idempotent_and_conflicts_fail(tmp_path: Pat
     other, _ = _bundle("candidate_review")
     with pytest.raises(EvidenceViolation, match="reused"):
         store.append(other, event_id="complete:1")
+
+
+def test_first_evidence_event_fsyncs_store_directory_before_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    synced: list[Path] = []
+    original_fsync = evidence_module.os.fsync
+
+    def recording_fsync(descriptor: int) -> None:
+        synced.append(Path(evidence_module.os.readlink(f"/proc/self/fd/{descriptor}")))
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(evidence_module.os, "fsync", recording_fsync)
+    bundle, _ = _bundle("completion")
+    store = ImmutableEvidenceStore(tmp_path)
+    store.append(bundle, event_id="complete:durable-first")
+
+    assert store.events in synced
+    assert tmp_path in synced
 
 
 def test_idempotent_retry_recreates_a_missing_object_but_rejects_corruption(

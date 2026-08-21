@@ -4060,10 +4060,13 @@ class LifecycleControlPlane:
             None,
         )
 
-    def _staging_bundle_bindings(self, evidence: Mapping[str, str]) -> dict[str, str]:
+    def _staging_bundle_bindings(
+        self, evidence: Mapping[str, str], *, as_of: str
+    ) -> dict[str, str]:
         merge_binding = self._latest_merge_binding()
         return {
             "profile": "staging",
+            "as_of": as_of,
             "subject_digest": evidence.get("subject_digest", ""),
             "observed_merge_sha": (
                 merge_binding.evidence_refs.get("merge_commit_sha", "")
@@ -4132,10 +4135,10 @@ class LifecycleControlPlane:
             )
         )
 
-    def _staging_bundle_valid(self, evidence: Mapping[str, str]) -> bool:
+    def _staging_bundle_valid(self, evidence: Mapping[str, str], *, as_of: str) -> bool:
         return self._sealed_bundle_valid(
             evidence.get("evidence_bundle_digest", ""),
-            self._staging_bundle_bindings(evidence),
+            self._staging_bundle_bindings(evidence, as_of=as_of),
         )
 
     def _sealed_bundle_valid(self, digest: str, bindings: Mapping[str, str]) -> bool:
@@ -4885,7 +4888,9 @@ class LifecycleControlPlane:
                     reason,
                     "staging is not bound to the adapter-attested integrated merge result",
                 )
-        if "staging_bundle" in guards and not self._staging_bundle_valid(context.evidence):
+        if "staging_bundle" in guards and not self._staging_bundle_valid(
+            context.evidence, as_of=context.observed_at
+        ):
             self._deny(
                 target,
                 context,
@@ -5489,7 +5494,10 @@ class LifecycleControlPlane:
                             schemas=self._policy.mutation_subject_fields,
                         )
                         or not self._staging_merge_binding_valid(evidence)
-                        or not self._staging_bundle_valid(evidence)
+                        or not self._staging_bundle_valid(
+                            evidence,
+                            as_of=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                        )
                     )
                 )
             ):

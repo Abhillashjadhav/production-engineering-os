@@ -612,6 +612,11 @@ class ImmutableEvidenceStore:
                 stream.write(json.dumps(event, sort_keys=True) + "\n")
                 stream.flush()
                 os.fsync(stream.fileno())
+            directory = os.open(self.root, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
             return bundle.bundle_digest
 
     def _ensure_object(self, object_path: Path, payload: object) -> None:

@@ -876,6 +876,7 @@ def test_phase_four_staging_requires_a_sealed_exact_merge_bundle(tmp_path: Path)
         return (
             digest == staging_bundle
             and bindings.get("profile") == "staging"
+            and bool(bindings.get("as_of"))
             and bindings.get("observed_merge_sha") == "b" * 40
             and bindings.get("observed_merge_tree_digest") == object_digest("merged-tree")
         )
@@ -970,6 +971,8 @@ def test_phase_four_staging_requires_a_sealed_exact_merge_bundle(tmp_path: Path)
 
     assert deployed.target is LifecycleState.STAGING_DEPLOYED
     assert observed[-1][0] == staging_bundle
+    assert observed[-1][1]["as_of"] == "2026-08-02T00:01:00Z"
+    assert observed[-2][1]["as_of"]
 
 
 def test_completion_binds_release_to_persisted_merge_not_review_head(tmp_path: Path) -> None:
