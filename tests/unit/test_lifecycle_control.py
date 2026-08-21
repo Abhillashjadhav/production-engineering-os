@@ -394,6 +394,49 @@ def test_no_blocker_inventory_requires_a_live_authenticated_freshness_window(
     assert not cp._trusted_finding_inventory_valid(replace(valid, evidence=stale_evidence))
 
 
+def test_no_blocker_inventory_rechecks_expiry_after_source_authentication(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cp = control_plane(tmp_path)
+    decision_time = datetime(2030, 1, 1, tzinfo=UTC)
+    observed_at = (decision_time - timedelta(minutes=1)).isoformat().replace("+00:00", "Z")
+    expires = decision_time + timedelta(seconds=1)
+    expires_at = expires.isoformat().replace("+00:00", "Z")
+    valid = context(
+        evidence={
+            "finding_inventory_finding-source_observed_at": observed_at,
+            "finding_inventory_finding-source_expires_at": expires_at,
+        }
+    )
+
+    class DecisionClock:
+        current = decision_time
+
+        @classmethod
+        def now(cls, timezone: object = None) -> datetime:
+            del timezone
+            return cls.current
+
+        @staticmethod
+        def fromisoformat(value: str) -> datetime:
+            return datetime.fromisoformat(value)
+
+    def expiring_verifier(
+        identity: str,
+        authority_digest: str,
+        payload: object,
+        proof: str,
+    ) -> bool:
+        authenticated = verify_external_proof(identity, authority_digest, payload, proof)
+        DecisionClock.current = expires + timedelta(seconds=1)
+        return authenticated
+
+    cp._evidence_verifier = expiring_verifier
+    monkeypatch.setattr(lifecycle, "datetime", DecisionClock)
+
+    assert not cp._trusted_finding_inventory_valid(valid)
+
+
 def mutation_authorization(
     cp: LifecycleControlPlane, attempt: MutationAttempt
 ) -> MutationAuthorization:

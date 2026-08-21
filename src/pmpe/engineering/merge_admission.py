@@ -17,6 +17,7 @@ _SUPPORTED_CHECK_EVENTS = {"pull_request", "merge_group"}
 EnqueueTokenSigner = Callable[[str, str, Mapping[str, object]], str]
 EnqueueTokenAuthenticator = Callable[[str, str, Mapping[str, object], str], bool]
 FindingAuthenticator = Callable[[str, str, Mapping[str, object], str], bool]
+FindingInventoryAuthenticator = Callable[[str, str, Mapping[str, object], str], bool]
 FindingResolutionAuthenticator = Callable[[str, str, Mapping[str, object], str], bool]
 
 
@@ -57,6 +58,18 @@ class BlockingFinding:
     resolution_actor: str = ""
     resolution_authority_digest: str = ""
     resolution_authentication_evidence_digest: str = ""
+
+
+@dataclass(frozen=True)
+class FindingInventoryAttestation:
+    source: str
+    subject_sha: str
+    finding_digests: tuple[str, ...]
+    high_watermark_digest: str
+    observed_at: str
+    expires_at: str
+    source_authority_digest: str
+    authentication_evidence_digest: str
 
 
 @dataclass(frozen=True)
@@ -113,6 +126,7 @@ class MergeSnapshot:
     checks: tuple[RequiredCheck, ...]
     reviews: tuple[FormalReview, ...]
     findings: tuple[BlockingFinding, ...]
+    finding_inventories: tuple[FindingInventoryAttestation, ...]
     merge_queue_enforced: bool
     bypass_used: bool = False
 
@@ -195,6 +209,14 @@ def finding_authentication_payload(finding: BlockingFinding) -> dict[str, object
     }
 
 
+def finding_inventory_authentication_payload(
+    inventory: FindingInventoryAttestation,
+) -> dict[str, object]:
+    payload = asdict(inventory)
+    payload.pop("authentication_evidence_digest")
+    return payload
+
+
 def _finding_authenticated(
     finding: BlockingFinding,
     *,
@@ -268,8 +290,10 @@ def _validate_snapshot(
     invalidation_boundary: str,
     as_of: str,
     queue_timeout_seconds: int,
+    trusted_finding_sources: Mapping[str, str],
     trusted_finding_authorities: Mapping[str, str],
     finding_authenticator: FindingAuthenticator | None,
+    finding_inventory_authenticator: FindingInventoryAuthenticator | None,
     resolution_authenticator: FindingResolutionAuthenticator | None,
     enqueue_digest: str = "",
     enqueued_at: str = "",
@@ -304,12 +328,57 @@ def _validate_snapshot(
         reasons.append("merge bypass was used")
     if snapshot.pending_unclassified_findings != 0:
         reasons.append("finding normalization is incomplete")
+    inventory_by_source = {
+        inventory.source: inventory for inventory in snapshot.finding_inventories
+    }
+    if (
+        not trusted_finding_sources
+        or len(inventory_by_source) != len(snapshot.finding_inventories)
+        or set(inventory_by_source) != set(trusted_finding_sources)
+    ):
+        reasons.append("finding inventory source coverage is incomplete")
+    for source, trusted_authority in trusted_finding_sources.items():
+        inventory = inventory_by_source.get(source)
+        expected_finding_digests = tuple(
+            sorted(
+                canonical_digest(finding_authentication_payload(finding))
+                for finding in snapshot.findings
+                if finding.source == source and finding.subject_sha == snapshot.pr_head_sha
+            )
+        )
+        try:
+            inventory_authenticated = bool(
+                inventory is not None
+                and inventory.subject_sha == snapshot.pr_head_sha
+                and inventory.finding_digests == expected_finding_digests
+                and inventory.high_watermark_digest == snapshot.finding_high_watermark_digest
+                and inventory.source_authority_digest == trusted_authority
+                and _DIGEST.fullmatch(inventory.high_watermark_digest)
+                and _DIGEST.fullmatch(inventory.authentication_evidence_digest)
+                and _time(invalidation_boundary) < _time(inventory.observed_at) <= _time(as_of)
+                and _time(inventory.observed_at) <= _time(as_of) <= _time(inventory.expires_at)
+                and _time(inventory.expires_at) - _time(inventory.observed_at)
+                <= timedelta(minutes=5)
+                and finding_inventory_authenticator is not None
+                and finding_inventory_authenticator(
+                    source,
+                    trusted_authority,
+                    finding_inventory_authentication_payload(inventory),
+                    inventory.authentication_evidence_digest,
+                )
+            )
+        except Exception:
+            inventory_authenticated = False
+        if not inventory_authenticated:
+            reasons.append(
+                f"finding inventory for {source} is incomplete, stale, or unauthenticated"
+            )
     authenticated_findings = tuple(
         (
             finding,
             _finding_authenticated(
                 finding,
-                trusted_finding_authorities=trusted_finding_authorities,
+                trusted_finding_authorities=trusted_finding_sources,
                 finding_authenticator=finding_authenticator,
             ),
         )
@@ -401,8 +470,10 @@ def enqueue(
     enqueued_at: str,
     invalidation_boundary: str,
     queue_timeout_seconds: int = 1800,
+    trusted_finding_sources: Mapping[str, str] | None = None,
     trusted_finding_authorities: Mapping[str, str] | None = None,
     finding_authenticator: FindingAuthenticator | None = None,
+    finding_inventory_authenticator: FindingInventoryAuthenticator | None = None,
     resolution_authenticator: FindingResolutionAuthenticator | None = None,
 ) -> EnqueueToken:
     if queue_timeout_seconds <= 0:
@@ -413,8 +484,10 @@ def enqueue(
         invalidation_boundary=invalidation_boundary,
         as_of=enqueued_at,
         queue_timeout_seconds=queue_timeout_seconds,
+        trusted_finding_sources=trusted_finding_sources or {},
         trusted_finding_authorities=trusted_finding_authorities or {},
         finding_authenticator=finding_authenticator,
+        finding_inventory_authenticator=finding_inventory_authenticator,
         resolution_authenticator=resolution_authenticator,
     )
     if reasons:
@@ -475,8 +548,10 @@ def linearize_merge(
     merged_at: str,
     native_gate_authorized: bool = True,
     queue_timeout_seconds: int = 1800,
+    trusted_finding_sources: Mapping[str, str] | None = None,
     trusted_finding_authorities: Mapping[str, str] | None = None,
     finding_authenticator: FindingAuthenticator | None = None,
+    finding_inventory_authenticator: FindingInventoryAuthenticator | None = None,
     resolution_authenticator: FindingResolutionAuthenticator | None = None,
 ) -> MergeDecision:
     trusted_token_authority = trusted_token_issuers.get(token.issuer_id, "")
@@ -507,8 +582,10 @@ def linearize_merge(
                 invalidation_boundary=token.invalidation_boundary,
                 as_of=merged_at,
                 queue_timeout_seconds=authenticated_queue_timeout,
+                trusted_finding_sources=trusted_finding_sources or {},
                 trusted_finding_authorities=trusted_finding_authorities or {},
                 finding_authenticator=finding_authenticator,
+                finding_inventory_authenticator=finding_inventory_authenticator,
                 resolution_authenticator=resolution_authenticator,
                 enqueue_digest=token.enqueue_digest,
                 enqueued_at=token.enqueued_at,

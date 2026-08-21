@@ -3,22 +3,26 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from pmpe.contracts.digest import canonical_digest
 from pmpe.engineering.merge_admission import (
     BlockingFinding,
+    FindingInventoryAttestation,
     FormalReview,
     GovernedMergePolicy,
     MergeSnapshot,
     RequiredCheck,
-    enqueue,
     finding_authentication_payload,
+    finding_inventory_authentication_payload,
     finding_resolution_authentication_payload,
-    linearize_merge,
     load_governed_merge_policy,
     resolve_external_race,
 )
+from pmpe.engineering.merge_admission import enqueue as _enqueue
+from pmpe.engineering.merge_admission import linearize_merge as _linearize_merge
 
 D = "sha256:" + "a" * 64
 E = "sha256:" + "b" * 64
@@ -26,10 +30,12 @@ HEAD = "c" * 40
 BASE = "d" * 40
 NOW = "2026-08-20T12:00:00Z"
 AFTER = "2026-08-20T12:01:00Z"
+EXPIRES = "2026-08-20T12:06:00Z"
 POLICY = GovernedMergePolicy(D, ("ci",))
 TOKEN_ISSUER = "merge-queue"
 TOKEN_ISSUERS = {TOKEN_ISSUER: D}
 FINDING_AUTHORITIES = {"scanner": D, "finding-owner": D}
+FINDING_SOURCES = {"scanner": D}
 
 
 def _token_proof(identity: str, authority: str, payload: Mapping[str, object]) -> str:
@@ -93,6 +99,37 @@ def _authenticate_finding(
     return proof == _finding_proof(identity, authority, payload)
 
 
+def _inventory_proof(identity: str, authority: str, payload: Mapping[str, object]) -> str:
+    from pmpe.contracts.digest import canonical_digest
+
+    return canonical_digest(
+        {
+            "test_trust_root": "outside-the-finding-inventory",
+            "identity": identity,
+            "authority": authority,
+            "payload": payload,
+        }
+    )
+
+
+def _authenticate_inventory(
+    identity: str, authority: str, payload: Mapping[str, object], proof: str
+) -> bool:
+    return proof == _inventory_proof(identity, authority, payload)
+
+
+def enqueue(snapshot: MergeSnapshot, **kwargs: Any) -> Any:
+    kwargs.setdefault("trusted_finding_sources", FINDING_SOURCES)
+    kwargs.setdefault("finding_inventory_authenticator", _authenticate_inventory)
+    return _enqueue(snapshot, **kwargs)
+
+
+def linearize_merge(*args: Any, **kwargs: Any) -> Any:
+    kwargs.setdefault("trusted_finding_sources", FINDING_SOURCES)
+    kwargs.setdefault("finding_inventory_authenticator", _authenticate_inventory)
+    return _linearize_merge(*args, **kwargs)
+
+
 def _authenticated_finding() -> BlockingFinding:
     finding = BlockingFinding("F1", "scanner", HEAD, "HIGH", True, True, AFTER, D, "")
     return replace(
@@ -103,6 +140,37 @@ def _authenticated_finding() -> BlockingFinding:
             finding_authentication_payload(finding),
         ),
     )
+
+
+def _inventory(
+    findings: tuple[BlockingFinding, ...] = (),
+) -> FindingInventoryAttestation:
+    inventory = FindingInventoryAttestation(
+        source="scanner",
+        subject_sha=HEAD,
+        finding_digests=tuple(
+            sorted(
+                canonical_digest(finding_authentication_payload(finding)) for finding in findings
+            )
+        ),
+        high_watermark_digest=D,
+        observed_at=AFTER,
+        expires_at=EXPIRES,
+        source_authority_digest=FINDING_SOURCES["scanner"],
+        authentication_evidence_digest="",
+    )
+    return replace(
+        inventory,
+        authentication_evidence_digest=_inventory_proof(
+            inventory.source,
+            inventory.source_authority_digest,
+            finding_inventory_authentication_payload(inventory),
+        ),
+    )
+
+
+def _with_findings(snapshot: MergeSnapshot, findings: tuple[BlockingFinding, ...]) -> MergeSnapshot:
+    return replace(snapshot, findings=findings, finding_inventories=(_inventory(findings),))
 
 
 def _snapshot() -> MergeSnapshot:
@@ -124,6 +192,7 @@ def _snapshot() -> MergeSnapshot:
         checks=(),
         reviews=(FormalReview("r1", "eligible-human", HEAD, "APPROVED", AFTER, True),),
         findings=(),
+        finding_inventories=(_inventory(),),
         merge_queue_enforced=True,
     )
     return replace(
@@ -355,8 +424,9 @@ def test_ineligible_finding_source_can_block_but_cannot_approve() -> None:
     snapshot = replace(
         _snapshot(),
         reviews=(FormalReview("bot-review", "scanner", HEAD, "APPROVED", AFTER, False),),
-        findings=(_authenticated_finding(),),
+        findings=(),
     )
+    snapshot = _with_findings(snapshot, (_authenticated_finding(),))
 
     with pytest.raises(ValueError) as exc:
         enqueue(
@@ -403,7 +473,7 @@ def test_blocker_resolution_requires_independent_trusted_authentication() -> Non
     )
     with pytest.raises(ValueError, match="blocking finding"):
         enqueue(
-            replace(snapshot, findings=(self_asserted,)),
+            _with_findings(snapshot, (self_asserted,)),
             governed_policy=POLICY,
             token_issuer=TOKEN_ISSUER,
             token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
@@ -428,7 +498,7 @@ def test_blocker_resolution_requires_independent_trusted_authentication() -> Non
         ),
     )
     token = enqueue(
-        replace(snapshot, findings=(authenticated,)),
+        _with_findings(snapshot, (authenticated,)),
         governed_policy=POLICY,
         token_issuer=TOKEN_ISSUER,
         token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
@@ -443,7 +513,7 @@ def test_blocker_resolution_requires_independent_trusted_authentication() -> Non
     assert token.snapshot_digest
     without_resolution_authority = linearize_merge(
         token,
-        replace(snapshot, findings=(authenticated,)),
+        _with_findings(snapshot, (authenticated,)),
         governed_policy=POLICY,
         trusted_token_issuers=TOKEN_ISSUERS,
         token_authenticator=_authenticate_token,
@@ -458,7 +528,7 @@ def test_blocker_resolution_requires_independent_trusted_authentication() -> Non
 
     admitted = linearize_merge(
         token,
-        replace(snapshot, findings=(authenticated,)),
+        _with_findings(snapshot, (authenticated,)),
         governed_policy=POLICY,
         trusted_token_issuers=TOKEN_ISSUERS,
         token_authenticator=_authenticate_token,
@@ -477,7 +547,7 @@ def test_finding_classification_requires_exact_source_authentication() -> None:
     authenticated = _authenticated_finding()
     with pytest.raises(ValueError, match="blocking finding"):
         enqueue(
-            replace(snapshot, findings=(authenticated,)),
+            _with_findings(snapshot, (authenticated,)),
             governed_policy=POLICY,
             token_issuer=TOKEN_ISSUER,
             token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
@@ -491,7 +561,7 @@ def test_finding_classification_requires_exact_source_authentication() -> None:
     tampered = replace(authenticated, blocking=False)
     with pytest.raises(ValueError, match="source attestation"):
         enqueue(
-            replace(snapshot, findings=(tampered,)),
+            _with_findings(snapshot, (tampered,)),
             governed_policy=POLICY,
             token_issuer=TOKEN_ISSUER,
             token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
@@ -513,7 +583,7 @@ def test_finding_classification_requires_exact_source_authentication() -> None:
     )
     decision = linearize_merge(
         token,
-        replace(snapshot, findings=(tampered,)),
+        _with_findings(snapshot, (tampered,)),
         governed_policy=POLICY,
         trusted_token_issuers=TOKEN_ISSUERS,
         token_authenticator=_authenticate_token,
@@ -525,6 +595,55 @@ def test_finding_classification_requires_exact_source_authentication() -> None:
     )
     assert not decision.admitted
     assert any("source attestation" in reason for reason in decision.reasons)
+
+
+def test_finding_inventory_authenticates_complete_exact_subject_boundary() -> None:
+    snapshot = _snapshot()
+    known_blocker = _authenticated_finding()
+    omitted = replace(snapshot, finding_inventories=(_inventory((known_blocker,)),))
+
+    with pytest.raises(ValueError, match="incomplete, stale, or unauthenticated"):
+        enqueue(
+            omitted,
+            governed_policy=POLICY,
+            token_issuer=TOKEN_ISSUER,
+            token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+            token_signer=_sign_token,
+            enqueued_at=AFTER,
+            invalidation_boundary=NOW,
+        )
+    with pytest.raises(ValueError, match="source coverage is incomplete"):
+        enqueue(
+            replace(snapshot, finding_inventories=()),
+            governed_policy=POLICY,
+            token_issuer=TOKEN_ISSUER,
+            token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+            token_signer=_sign_token,
+            enqueued_at=AFTER,
+            invalidation_boundary=NOW,
+        )
+
+    token = enqueue(
+        snapshot,
+        governed_policy=POLICY,
+        token_issuer=TOKEN_ISSUER,
+        token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+        token_signer=_sign_token,
+        enqueued_at=AFTER,
+        invalidation_boundary=NOW,
+    )
+    decision = linearize_merge(
+        token,
+        omitted,
+        governed_policy=POLICY,
+        trusted_token_issuers=TOKEN_ISSUERS,
+        token_authenticator=_authenticate_token,
+        observed_merge_sha="e" * 40,
+        observed_merge_tree_digest=D,
+        merged_at=AFTER,
+    )
+    assert not decision.admitted
+    assert any("incomplete, stale, or unauthenticated" in reason for reason in decision.reasons)
 
 
 @pytest.mark.parametrize("length", [41, 63])

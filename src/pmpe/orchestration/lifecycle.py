@@ -2889,7 +2889,7 @@ class LifecycleControlPlane:
         evidence = context.evidence
         sources = dict(self.trust_policy.finding_sources)
         inventories: dict[str, str] = {}
-        decision_time = datetime.now(UTC)
+        freshness_windows: list[tuple[datetime, datetime]] = []
         if not sources or evidence.get("finding_source_set_digest") != _digest(sources):
             return False
         for source, authority_digest in sources.items():
@@ -2911,7 +2911,7 @@ class LifecycleControlPlane:
                 valid_window = (
                     observed.tzinfo is not None
                     and expires.tzinfo is not None
-                    and observed <= decision_time <= expires
+                    and timedelta(0) < expires - observed
                     and expires - observed <= _MAX_FINDING_INVENTORY_LIFETIME
                 )
             except ValueError:
@@ -2927,7 +2927,11 @@ class LifecycleControlPlane:
             ):
                 return False
             inventories[source] = inventory_digest
-        return evidence.get("finding_inventory_epochs_digest") == _digest(inventories)
+            freshness_windows.append((observed, expires))
+        if evidence.get("finding_inventory_epochs_digest") != _digest(inventories):
+            return False
+        decision_time = datetime.now(UTC)
+        return all(observed <= decision_time <= expires for observed, expires in freshness_windows)
 
     def _trusted_resume_gate_valid(
         self, context: TransitionContext, stopped_event: LifecycleEvent, target: LifecycleState
