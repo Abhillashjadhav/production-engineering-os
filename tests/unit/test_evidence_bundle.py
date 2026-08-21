@@ -524,6 +524,47 @@ def test_green_summary_with_skipped_required_test_cannot_satisfy_readiness() -> 
     assert any("skipped" in reason for reason in held.reasons)
 
 
+@pytest.mark.parametrize(
+    ("passed", "failed"),
+    [
+        (0, 2),
+        (100, 1),
+    ],
+)
+def test_meaningful_red_requires_reconciled_execution_totals(passed: int, failed: int) -> None:
+    bundle, _ = _bundle("pre_code")
+    items = list(bundle.manifest.items)
+    index = next(
+        index for index, item in enumerate(items) if item.evidence_class == "meaningful_red"
+    )
+    malformed = replace(
+        items[index],
+        executed_count=1,
+        passed_count=passed,
+        failed_count=failed,
+        authentication_evidence_digest="",
+    )
+    malformed = replace(
+        malformed,
+        authentication_evidence_digest=_producer_proof(
+            malformed.producer.producer_id,
+            malformed.producer.authority_digest,
+            evidence_authentication_payload(malformed, D),
+        ),
+    )
+    items[index] = malformed
+    manifest = replace(bundle.manifest, items=tuple(items))
+
+    with pytest.raises(EvidenceViolation, match="red counts are inconsistent"):
+        seal_manifest(
+            manifest,
+            producer_policies=PRODUCER_POLICIES,
+            authenticator=_authenticate_producer,
+            expected_environment=_environment(),
+            as_of=LATER,
+        )
+
+
 @pytest.mark.parametrize("source", ["REVIEW_REQUIRED", "PR_READY"])
 def test_stale_advisory_evidence_has_exact_candidate_reverification_path(source: str) -> None:
     assert (

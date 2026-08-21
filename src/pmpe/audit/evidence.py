@@ -472,9 +472,12 @@ def verify_manifest(
         ):
             reasons.append(f"{item.evidence_id}: checks were missing, failed, or skipped")
         if item.evidence_class == "meaningful_red" and (
-            item.executed_count <= 0 or item.failed_count <= 0 or item.skipped_count
+            item.executed_count <= 0
+            or item.failed_count <= 0
+            or item.skipped_count
+            or item.passed_count + item.failed_count + item.skipped_count != item.executed_count
         ):
-            reasons.append(f"{item.evidence_id}: meaningful assertion red is not proven")
+            reasons.append(f"{item.evidence_id}: meaningful assertion red counts are inconsistent")
         try:
             observed = _timestamp(item.observed_at, f"{item.evidence_id}.observed_at")
             if observed > current:
