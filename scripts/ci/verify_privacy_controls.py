@@ -52,6 +52,33 @@ def _load_policy(path: Path) -> dict[str, Any]:
     return dict(value["privacy"])
 
 
+def _load_residency_evidence(
+    path: Path,
+    *,
+    candidate_sha: str,
+    observer_path: Path,
+    runtime_config_path: Path,
+) -> tuple[str, str]:
+    value = json.loads(path.read_text())
+    if not isinstance(value, dict):
+        raise ValueError("runtime residency evidence is malformed")
+    evidence_digest = value.pop("evidence_digest", None)
+    exact = bool(
+        isinstance(evidence_digest, str)
+        and evidence_digest == canonical_digest(value)
+        and value.get("candidate_sha") == candidate_sha
+        and value.get("observer_file_digest") == _file_digest(observer_path)
+        and value.get("runtime_config_digest") == _file_digest(runtime_config_path)
+        and value.get("storage_probe_passed") is True
+        and value.get("authority") == "runtime-storage-observer/v1"
+        and isinstance(value.get("observed_residency"), str)
+        and bool(str(value.get("observed_residency")).strip())
+    )
+    if not exact:
+        raise ValueError("runtime residency evidence is not exact or authenticated")
+    return str(value["observed_residency"]), str(evidence_digest)
+
+
 def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
     fields: set[str] = set()
     for path in sorted((root / "src" / "pmpe").rglob("*.py")):
@@ -99,7 +126,14 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
     return tuple(sorted(fields))
 
 
-def _verify(candidate_sha: str, policy_path: Path) -> dict[str, Any]:
+def _verify(
+    candidate_sha: str,
+    policy_path: Path,
+    *,
+    residency_evidence_path: Path,
+    observer_path: Path,
+    runtime_config_path: Path,
+) -> dict[str, Any]:
     if not _SHA.fullmatch(candidate_sha):
         raise ValueError("privacy verifier candidate SHA is malformed")
     privacy = _load_policy(policy_path)
@@ -107,6 +141,12 @@ def _verify(candidate_sha: str, policy_path: Path) -> dict[str, Any]:
     telemetry_allowlist = tuple(str(item) for item in privacy["telemetry_allowlist"])
     repository_root = policy_path.resolve().parents[1]
     emitted_telemetry = _inventory_telemetry_fields(repository_root)
+    observed_residency, residency_observation_digest = _load_residency_evidence(
+        residency_evidence_path,
+        candidate_sha=candidate_sha,
+        observer_path=observer_path,
+        runtime_config_path=runtime_config_path,
+    )
     now = datetime.now(UTC)
     with tempfile.TemporaryDirectory(prefix="pmpe-privacy-verifier-") as temporary:
         root = Path(temporary)
@@ -171,7 +211,9 @@ def _verify(candidate_sha: str, policy_path: Path) -> dict[str, Any]:
         "deletion_test_passed": deletion_test_passed,
         "emitted_telemetry": list(emitted_telemetry),
         "policy_file_digest": _file_digest(policy_path),
-        "residency": str(privacy["residency"]),
+        "residency": observed_residency,
+        "residency_observation_digest": residency_observation_digest,
+        "residency_test_passed": True,
         "retention_days": retention_days,
         "retention_test_passed": retention_test_passed,
         "telemetry_test_passed": telemetry_test_passed,
@@ -186,9 +228,18 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--candidate-sha", required=True)
     parser.add_argument("--policy", type=Path, required=True)
+    parser.add_argument("--residency-evidence", type=Path, required=True)
+    parser.add_argument("--runtime-config", type=Path, required=True)
+    parser.add_argument("--residency-observer", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    evidence = _verify(args.candidate_sha, args.policy)
+    evidence = _verify(
+        args.candidate_sha,
+        args.policy,
+        residency_evidence_path=args.residency_evidence,
+        observer_path=args.residency_observer,
+        runtime_config_path=args.runtime_config,
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(evidence, sort_keys=True, separators=(",", ":")) + "\n")
     return 0

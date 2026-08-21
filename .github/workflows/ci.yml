@@ -21,9 +21,9 @@ jobs:
           python-version: "3.11"
       - run: pip install --require-hashes -r requirements.lock
       - name: ruff format
-        run: ruff format --check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/verify_privacy_controls.py scripts/ci/verify_repository_secrets.py
+        run: ruff format --check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/observe_runtime_residency.py scripts/ci/verify_privacy_controls.py scripts/ci/verify_repository_secrets.py
       - name: ruff lint
-        run: ruff check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/verify_privacy_controls.py scripts/ci/verify_repository_secrets.py
+        run: ruff check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/observe_runtime_residency.py scripts/ci/verify_privacy_controls.py scripts/ci/verify_repository_secrets.py
 
   types:
     runs-on: ubuntu-latest
@@ -34,9 +34,9 @@ jobs:
           python-version: "3.11"
       - run: |
           pip install --require-hashes -r requirements.lock
-          pip install --no-deps -e .
+          pip install --no-deps --no-build-isolation -e .
       - name: mypy --strict
-        run: mypy --strict src/pmpe scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/verify_privacy_controls.py scripts/ci/verify_repository_secrets.py
+        run: mypy --strict src/pmpe scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/observe_runtime_residency.py scripts/ci/verify_privacy_controls.py scripts/ci/verify_repository_secrets.py
 
   tests:
     runs-on: ubuntu-latest
@@ -50,7 +50,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: |
           pip install --require-hashes -r requirements.lock
-          pip install --no-deps -e .
+          pip install --no-deps --no-build-isolation -e .
       - name: unit tests
         run: pytest tests/unit -q
       - name: integration tests
@@ -69,7 +69,7 @@ jobs:
           python-version: "3.11"
       - run: |
           pip install --require-hashes -r requirements.lock
-          pip install --no-deps -e .
+          pip install --no-deps --no-build-isolation -e .
       - name: bandit (fail on high severity)
         run: bandit -r src scripts/ci -q --severity-level high
       - name: bandit full report (informational)
@@ -89,11 +89,20 @@ jobs:
             --output /tmp/security-profile/secret-report.json
       - name: deterministic security profile contract (all required gates)
         run: pytest tests/unit/test_security_profiles.py -q
+      - name: observe runtime storage residency independently of policy
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python scripts/ci/observe_runtime_residency.py \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --runtime-config security/runtime-residency.json \
+            --storage-root /tmp/security-profile/residency-probe \
+            --output /tmp/security-profile/residency-evidence.json
       - name: execute privacy deletion, retention, and telemetry verifier
         env:
           CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          python scripts/ci/verify_privacy_controls.py --candidate-sha "$CANDIDATE_SHA" --policy security/security-profile-policy.json --output /tmp/security-profile/privacy-evidence.json
+          python scripts/ci/verify_privacy_controls.py --candidate-sha "$CANDIDATE_SHA" --policy security/security-profile-policy.json --residency-evidence /tmp/security-profile/residency-evidence.json --runtime-config security/runtime-residency.json --residency-observer scripts/ci/observe_runtime_residency.py --output /tmp/security-profile/privacy-evidence.json
       - name: composed security profile against exact candidate
         env:
           CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -107,6 +116,7 @@ jobs:
           path: |
             /tmp/security-profile/secret-report.json
             /tmp/security-profile/pip-audit.json
+            /tmp/security-profile/residency-evidence.json
             /tmp/security-profile/privacy-evidence.json
             /tmp/security-profile/composed-security-profile.json
           retention-days: 7

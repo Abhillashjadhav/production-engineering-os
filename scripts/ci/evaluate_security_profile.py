@@ -387,6 +387,9 @@ def _privacy_evidence_from_artifact(
         and value.get("policy_file_digest") == _file_digest(policy_path)
         and value.get("verifier_file_digest") == _file_digest(verifier_path)
         and value.get("retention_test_passed") is True
+        and value.get("residency_test_passed") is True
+        and isinstance(value.get("residency_observation_digest"), str)
+        and str(value.get("residency_observation_digest", "")).startswith("sha256:")
         and value.get("telemetry_test_passed") is True
         and isinstance(value.get("emitted_telemetry"), list)
     )

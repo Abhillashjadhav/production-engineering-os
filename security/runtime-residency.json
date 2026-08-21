@@ -1,0 +1,5 @@
+{
+  "authority": "runtime-storage-observer/v1",
+  "environment_id": "local-product-runtime",
+  "storage_region": "IN"
+}
