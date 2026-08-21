@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -15,7 +16,6 @@ from typing import Any
 
 from pmpe.contracts.digest import canonical_digest
 from pmpe.contracts.intake import FileQuarantineStore
-from pmpe.privacy.retention import RetentionController
 from pmpe.telemetry.events import EventLog
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -51,12 +51,36 @@ def _load_policy(path: Path) -> dict[str, Any]:
     return dict(value["privacy"])
 
 
+def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
+    fields: set[str] = set()
+    for path in sorted((root / "src" / "pmpe").rglob("*.py")):
+        tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "emit"
+            ):
+                continue
+            for keyword in node.keywords:
+                if keyword.arg is None:
+                    raise ValueError(
+                        f"telemetry emission uses unresolved field expansion: {path}:{node.lineno}"
+                    )
+                fields.add(keyword.arg)
+    if not fields:
+        raise ValueError("no product telemetry emissions were observed")
+    return tuple(sorted(fields))
+
+
 def _verify(candidate_sha: str, policy_path: Path) -> dict[str, Any]:
     if not _SHA.fullmatch(candidate_sha):
         raise ValueError("privacy verifier candidate SHA is malformed")
     privacy = _load_policy(policy_path)
     retention_days = int(privacy["retention_days"])
     telemetry_allowlist = tuple(str(item) for item in privacy["telemetry_allowlist"])
+    repository_root = policy_path.resolve().parents[1]
+    emitted_telemetry = _inventory_telemetry_fields(repository_root)
     now = datetime.now(UTC)
     with tempfile.TemporaryDirectory(prefix="pmpe-privacy-verifier-") as temporary:
         root = Path(temporary)
@@ -75,33 +99,21 @@ def _verify(candidate_sha: str, policy_path: Path) -> dict[str, Any]:
             and not quarantine.exists(handle)
         )
 
-        retention_root = root / "retention"
-        retention_root.mkdir()
-        expired = retention_root / "expired.json"
-        current = retention_root / "current.json"
+        runs_root = root / "runs"
+        expired = runs_root / "expired-run" / "events.jsonl"
+        current_run = runs_root / "current-run"
+        expired.parent.mkdir(parents=True)
         expired.write_text("{}")
-        current.write_text("{}")
         old_time = (now - timedelta(days=retention_days + 1)).timestamp()
-        current_time = now.timestamp()
         os.utime(expired, (old_time, old_time))
-        os.utime(current, (current_time, current_time))
-        retention = RetentionController(retention_days=retention_days).purge(
-            retention_root, now=now
+        event_log = EventLog(
+            current_run,
+            retention_days=retention_days,
+            trusted_clock=lambda: now,
         )
-        retention_test_passed = retention.deleted == ("expired.json",) and retention.retained == (
-            "current.json",
-        )
-
-        event_log = EventLog(root / "telemetry")
-        event_log.emit(
-            "privacy_verification",
-            run_id="synthetic-run",
-            latency_ms=1,
-            outcome="pass",
-        )
-        records = event_log.read_all()
-        emitted_telemetry = tuple(
-            sorted(set(records[0]) - {"ts", "type"}) if len(records) == 1 else ()
+        event_log.emit("privacy_verification", **dict.fromkeys(emitted_telemetry, "synthetic"))
+        retention_test_passed = (
+            not expired.exists() and event_log.path.exists() and len(event_log.read_all()) == 1
         )
         telemetry_test_passed = set(emitted_telemetry) <= set(telemetry_allowlist)
 

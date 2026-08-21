@@ -124,41 +124,106 @@ def _layer(package: str) -> str:
     return "core"
 
 
-def _observed_architecture_edges(root: Path) -> tuple[tuple[str, str], ...]:
+def _observed_architecture_edges(
+    root: Path,
+    *,
+    dynamic_import_allowlist: tuple[tuple[str, int, str], ...] = (),
+) -> tuple[tuple[str, str], ...]:
     edges: set[tuple[str, str]] = set()
-    source_root = root / "src" / "pmpe"
-    for path in sorted(source_root.rglob("*.py")):
-        relative_parts = path.relative_to(source_root).parts
-        source_package = relative_parts[0] if len(relative_parts) > 1 else "root"
-        package_parts = ("pmpe", *relative_parts[:-1])
-        if path.name == "__init__.py":
-            package_parts = ("pmpe", *relative_parts[:-1])
-        current_package = ".".join(package_parts)
-        tree = ast.parse(path.read_text(), filename=str(path))
-        for node in ast.walk(tree):
-            modules: list[str] = []
-            if isinstance(node, ast.Import):
-                modules = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom):
-                if node.level:
-                    relative_name = "." * node.level + (node.module or "")
-                    resolved = importlib.util.resolve_name(relative_name, current_package)
-                else:
-                    resolved = node.module or ""
-                modules = (
-                    [resolved]
-                    if node.module
-                    else [f"{resolved}.{alias.name}" for alias in node.names]
-                )
-            for module in modules:
-                if not module.startswith("pmpe."):
-                    continue
-                target_package = module.split(".", 2)[1]
+    source_roots = (
+        (root / "src" / "pmpe", "os"),
+        (root / "products" / "pm-evals-web" / "backend" / "src", "product"),
+    )
+    for source_root, plane in source_roots:
+        if not source_root.is_dir():
+            continue
+        for path in sorted(source_root.rglob("*.py")):
+            relative_parts = path.relative_to(source_root).parts
+            if plane == "os":
+                source_package = relative_parts[0] if len(relative_parts) > 1 else "root"
                 source_layer = _layer(source_package)
-                target_layer = _layer(target_package)
-                if source_layer != target_layer:
-                    edges.add((source_layer, target_layer))
+                current_package = ".".join(("pmpe", *relative_parts[:-1]))
+            else:
+                source_layer = "product"
+                current_package = ".".join(relative_parts[:-1])
+            _collect_architecture_edges(
+                root,
+                path,
+                current_package=current_package,
+                source_layer=source_layer,
+                dynamic_import_allowlist=dynamic_import_allowlist,
+                edges=edges,
+            )
     return tuple(sorted(edges))
+
+
+def _target_layer(module: str) -> str | None:
+    if module == "pmpe":
+        return "core"
+    if module.startswith("pmpe."):
+        return _layer(module.split(".", 2)[1])
+    if module == "pm_evals_api" or module.startswith("pm_evals_api."):
+        return "product"
+    if module == "pm_evals_compare" or module.startswith("pm_evals_compare."):
+        return "product"
+    return None
+
+
+def _dynamic_import_call(node: ast.Call) -> bool:
+    return bool(
+        (
+            isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "importlib"
+            and node.func.attr == "import_module"
+        )
+        or (isinstance(node.func, ast.Name) and node.func.id in {"import_module", "__import__"})
+    )
+
+
+def _collect_architecture_edges(
+    root: Path,
+    path: Path,
+    *,
+    current_package: str,
+    source_layer: str,
+    dynamic_import_allowlist: tuple[tuple[str, int, str], ...],
+    edges: set[tuple[str, str]],
+) -> None:
+    source_lines = path.read_text().splitlines()
+    tree = ast.parse("\n".join(source_lines) + "\n", filename=str(path))
+    for node in ast.walk(tree):
+        modules: list[str] = []
+        if isinstance(node, ast.Import):
+            modules = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            if node.level:
+                relative_name = "." * node.level + (node.module or "")
+                resolved = importlib.util.resolve_name(relative_name, current_package)
+            else:
+                resolved = node.module or ""
+            modules = (
+                [resolved] if node.module else [f"{resolved}.{alias.name}" for alias in node.names]
+            )
+        elif isinstance(node, ast.Call) and _dynamic_import_call(node):
+            if (
+                node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                modules = [node.args[0].value]
+            else:
+                relative_path = path.relative_to(root).as_posix()
+                source_line = source_lines[node.lineno - 1]
+                fingerprint = canonical_digest({"source_line": source_line})
+                identity = (relative_path, node.lineno, fingerprint)
+                if identity not in dynamic_import_allowlist:
+                    edges.add((source_layer, "unresolved_dynamic"))
+                continue
+        for module in modules:
+            target_layer = _target_layer(module)
+            if target_layer is not None and source_layer != target_layer:
+                edges.add((source_layer, target_layer))
 
 
 def _dependency_inventory(
@@ -408,12 +473,19 @@ def _evaluate(
     )
 
     allowed_edges = policy.trusted_architecture_allowed_edges
+    dynamic_import_allowlist = tuple(
+        (str(item["path"]), int(item["line"]), str(item["line_fingerprint"]))
+        for item in config["dynamic_import_allowlist"]
+    )
     architecture_shell = ArchitectureBoundaryObservation(
         architecture_pack_digest=_file_digest(root / "docs" / "v3" / "architecture.md"),
         boundary_policy_version="architecture-boundary/v1",
         boundary_policy_digest=policy.trusted_architecture_boundary_digest,
         allowed_edges=allowed_edges,
-        observed_edges=_observed_architecture_edges(root),
+        observed_edges=_observed_architecture_edges(
+            root,
+            dynamic_import_allowlist=dynamic_import_allowlist,
+        ),
         evidence_digest="",
     )
     architecture_payload = asdict(architecture_shell)

@@ -50,8 +50,12 @@ evidence.
 Privacy evidence is not copied from policy intent. CI executes the repository's
 quarantine deletion path, bounded retention controller, and structured event observer,
 then binds that verifier artifact to the candidate SHA and the exact policy/verifier
-file digests before profile admission. Architecture observation resolves both absolute
-and relative Python imports before checking the policy-owned layer graph.
+file digests before profile admission. The production run context applies retention to
+the actual runs root, and the verifier inventories every statically declared product
+telemetry field instead of emitting a hand-picked event. Architecture observation
+resolves absolute, relative, literal dynamic, and explicitly reviewed exact-site dynamic
+imports across both the OS and `products/pm-evals-web` Python planes before checking
+the policy-owned layer graph.
 
 CI runs `bandit -r src scripts/ci`, the complete deterministic security-profile
 contract suite, and `scripts/ci/evaluate_security_profile.py` against the checked-out

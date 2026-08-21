@@ -9,12 +9,12 @@ import pytest
 
 from pmpe.contracts.digest import canonical_digest
 from pmpe.privacy.retention import RetentionController
+from pmpe.telemetry.events import EventLog
 from scripts.ci.evaluate_security_profile import (
     _observed_architecture_edges,
     _privacy_evidence_from_artifact,
 )
 from scripts.ci.verify_privacy_controls import _inventory_telemetry_fields
-from pmpe.telemetry.events import EventLog
 
 SHA = "d" * 40
 
@@ -30,9 +30,7 @@ def test_architecture_observer_resolves_relative_imports(tmp_path: Path) -> None
 
 def test_architecture_observer_checks_both_repository_planes(tmp_path: Path) -> None:
     os_source = tmp_path / "src" / "pmpe" / "orchestration"
-    product_source = (
-        tmp_path / "products" / "pm-evals-web" / "backend" / "src" / "pm_evals_api"
-    )
+    product_source = tmp_path / "products" / "pm-evals-web" / "backend" / "src" / "pm_evals_api"
     os_source.mkdir(parents=True)
     product_source.mkdir(parents=True)
     (os_source / "worker.py").write_text("import pm_evals_api\n")

@@ -27,6 +27,56 @@
     "PSF-2.0",
     "PSFL"
   ],
+  "dynamic_import_allowlist": [
+    {
+      "justification": "Repository intelligence resolves a validated PMPE module inventory.",
+      "line": 1312,
+      "line_fingerprint": "sha256:62e834c40141c7d400331eb4c1c4c05980e81c61d0a67ee7502c915f9d2ee1bf",
+      "path": "src/pmpe/repository/scanner.py"
+    },
+    {
+      "justification": "Repository intelligence resolves a discovered dependency module.",
+      "line": 1377,
+      "line_fingerprint": "sha256:d2c19f3405ae30bdf896e61930a5639273211c386133e39a6126ad5e11ffe025",
+      "path": "src/pmpe/repository/scanner.py"
+    },
+    {
+      "justification": "Repository intelligence resolves a validated package name.",
+      "line": 1384,
+      "line_fingerprint": "sha256:bca7bc6fa882b05cf8d1b262c67aa6e3ead4c5fbb4b9e8e779dc5e6771e84f71",
+      "path": "src/pmpe/repository/scanner.py"
+    },
+    {
+      "justification": "Repository intelligence imports a discovered module for inspection.",
+      "line": 1414,
+      "line_fingerprint": "sha256:ca8a5171054f3442438f3ea56f6fb48033900e094b6ef0630397c07f2992c5d2",
+      "path": "src/pmpe/repository/scanner.py"
+    },
+    {
+      "justification": "Repository intelligence imports a discovered module for inspection.",
+      "line": 1432,
+      "line_fingerprint": "sha256:946a48dcd8f424c19d80b16099a14beca2971f8296b7e1585bc2727cb0333729",
+      "path": "src/pmpe/repository/scanner.py"
+    },
+    {
+      "justification": "Repository intelligence imports a discovered module for inspection.",
+      "line": 1451,
+      "line_fingerprint": "sha256:946a48dcd8f424c19d80b16099a14beca2971f8296b7e1585bc2727cb0333729",
+      "path": "src/pmpe/repository/scanner.py"
+    },
+    {
+      "justification": "Repository intelligence resolves a validated PMPE module inventory.",
+      "line": 1688,
+      "line_fingerprint": "sha256:8d6e37089262b9f1869a0cc524e5040170aecf5536095980f55e79e820aa6783",
+      "path": "src/pmpe/repository/scanner.py"
+    },
+    {
+      "justification": "Repository intelligence resolves a validated PMPE module inventory.",
+      "line": 1710,
+      "line_fingerprint": "sha256:8d6e37089262b9f1869a0cc524e5040170aecf5536095980f55e79e820aa6783",
+      "path": "src/pmpe/repository/scanner.py"
+    }
+  ],
   "license_fallbacks": {
     "markdown-it-py": "MIT",
     "mdurl": "MIT",
@@ -41,7 +91,30 @@
     "deletion_required": true,
     "residency": "IN",
     "retention_days": 30,
-    "telemetry_allowlist": ["latency_ms", "outcome", "run_id"]
+    "telemetry_allowlist": [
+      "artifacts",
+      "branch",
+      "checks",
+      "code",
+      "decision_type",
+      "environment",
+      "escalation_id",
+      "gate",
+      "healthy",
+      "journey_passed",
+      "justification",
+      "level",
+      "message",
+      "passed",
+      "reason",
+      "recommendation",
+      "required",
+      "rule",
+      "sha",
+      "skipped",
+      "stage",
+      "step"
+    ]
   },
   "sast_allowlist": [
     {

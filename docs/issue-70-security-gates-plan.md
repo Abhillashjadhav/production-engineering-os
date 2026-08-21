@@ -55,6 +55,10 @@ pass.
   exact-candidate verifier artifact, not from copied intent fields.
 - Architecture observation resolves relative and absolute imports before comparing
   the observed layer graph with trusted policy.
+- Telemetry evidence inventories real product emission call sites and fails closed on
+  unresolved field expansion; retention executes from the real run-context path.
+- Architecture observation includes both repository planes and literal dynamic imports;
+  unresolved dynamic imports require exact path/line/source-fingerprint policy entries.
 
 ## Rollback
 
