@@ -463,6 +463,10 @@ def _timestamp_between(value: str, lower: datetime, upper: datetime) -> bool:
     )
 
 
+def _live_utc_now() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
 def _budget_policy_payload(policy: BudgetPolicy) -> dict[str, Any]:
     return {
         "version": policy.version,
@@ -4701,7 +4705,7 @@ class LifecycleControlPlane:
                 self._policy.version == PHASE_FOUR_POLICY.version
                 and self._readiness_bundle_valid(
                     context.evidence,
-                    as_of=context.observed_at,
+                    as_of=_live_utc_now(),
                 )
             )
             matching_review = None
@@ -4751,9 +4755,7 @@ class LifecycleControlPlane:
             review_binding = self._latest_review_binding()
             phase_four_formal_review = None
             if self._policy.version == PHASE_FOUR_POLICY.version and review_binding is not None:
-                if not self._merge_admission_bundle_valid(
-                    context.evidence, as_of=context.observed_at
-                ):
+                if not self._merge_admission_bundle_valid(context.evidence, as_of=_live_utc_now()):
                     self._deny(
                         target,
                         context,
@@ -4903,7 +4905,7 @@ class LifecycleControlPlane:
                     "staging is not bound to the adapter-attested integrated merge result",
                 )
         if "staging_bundle" in guards and not self._staging_bundle_valid(
-            context.evidence, as_of=context.observed_at
+            context.evidence, as_of=_live_utc_now()
         ):
             self._deny(
                 target,
@@ -5220,7 +5222,7 @@ class LifecycleControlPlane:
             if self._policy.version == PHASE_FOUR_POLICY.version:
                 bundle_bindings = {
                     "profile": "completion",
-                    "as_of": context.observed_at,
+                    "as_of": _live_utc_now(),
                     **{
                         name: context.evidence.get(name, "")
                         for name in (
@@ -5484,7 +5486,7 @@ class LifecycleControlPlane:
                     "mutation attempt lacks current external lifecycle authority"
                 )
             if self._policy.version == PHASE_FOUR_POLICY.version:
-                release_as_of = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+                release_as_of = _live_utc_now()
                 exact_plan = bool(
                     evidence is not None
                     and attempt.step_plan_digest

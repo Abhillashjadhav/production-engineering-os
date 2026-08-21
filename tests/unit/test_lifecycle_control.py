@@ -502,6 +502,11 @@ def object_digest(value: object) -> str:
     return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
+def assert_live_utc(value: str) -> None:
+    observed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    assert abs(datetime.now(UTC) - observed) < timedelta(seconds=5)
+
+
 def adapter_result_evidence(
     attempt: MutationAttempt,
     *,
@@ -800,7 +805,7 @@ def test_phase_four_completion_accepts_a_distinct_completion_profile_bundle(
     assert completion_bundle != review_bundle
     assert observed[0][0] == completion_bundle
     assert observed[0][1]["profile"] == "completion"
-    assert observed[0][1]["as_of"] == "2026-08-02T00:01:00Z"
+    assert_live_utc(observed[0][1]["as_of"])
 
 
 def test_phase_four_readiness_holds_when_bundle_verifier_raises(tmp_path: Path) -> None:
@@ -838,7 +843,7 @@ def test_phase_four_readiness_holds_when_bundle_verifier_raises(tmp_path: Path) 
     }
     attempt = ready_attempt(evidence)
     prejournal(cp, attempt, evidence=evidence)
-    assert observed[-1][1]["as_of"]
+    assert_live_utc(observed[-1][1]["as_of"])
     record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
     evidence.update(
         ready_attempt_digest=object_digest(asdict(attempt)),
@@ -854,7 +859,7 @@ def test_phase_four_readiness_holds_when_bundle_verifier_raises(tmp_path: Path) 
         )
 
     assert cp.state is LifecycleState.REVIEW_REQUIRED
-    assert observed[-1][1]["as_of"] == "2026-08-02T00:01:00Z"
+    assert_live_utc(observed[-1][1]["as_of"])
 
 
 def test_phase_four_completion_holds_when_bundle_verifier_raises(tmp_path: Path) -> None:
@@ -882,7 +887,7 @@ def test_phase_four_completion_holds_when_bundle_verifier_raises(tmp_path: Path)
     assert cp.state is LifecycleState.PRODUCTION_DEPLOYED
     assert not cp.completion_claim_active
     assert observed[-1]["profile"] == "completion"
-    assert observed[-1]["as_of"] == "2026-08-02T00:01:00Z"
+    assert_live_utc(observed[-1]["as_of"])
 
 
 def test_phase_four_staging_requires_a_sealed_exact_merge_bundle(tmp_path: Path) -> None:
@@ -989,8 +994,8 @@ def test_phase_four_staging_requires_a_sealed_exact_merge_bundle(tmp_path: Path)
 
     assert deployed.target is LifecycleState.STAGING_DEPLOYED
     assert observed[-1][0] == staging_bundle
-    assert observed[-1][1]["as_of"] == "2026-08-02T00:01:00Z"
-    assert observed[-2][1]["as_of"]
+    assert_live_utc(observed[-1][1]["as_of"])
+    assert_live_utc(observed[-2][1]["as_of"])
 
 
 def test_completion_binds_release_to_persisted_merge_not_review_head(tmp_path: Path) -> None:
