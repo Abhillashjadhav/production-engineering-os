@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 from datetime import UTC, datetime, timedelta
@@ -44,6 +45,17 @@ def test_architecture_observer_checks_both_repository_planes(tmp_path: Path) -> 
     assert ("product", "core") in edges
 
 
+def test_architecture_observer_discovers_product_namespace_packages(tmp_path: Path) -> None:
+    os_source = tmp_path / "src" / "pmpe" / "orchestration"
+    product_source = tmp_path / "products" / "pm-evals-web" / "backend" / "src" / "pm_evals_reports"
+    os_source.mkdir(parents=True)
+    product_source.mkdir(parents=True)
+    (os_source / "worker.py").write_text("import pm_evals_reports.summary\n")
+    (product_source / "summary.py").write_text("REPORT = {}\n")
+
+    assert ("orchestration", "product") in _observed_architecture_edges(tmp_path)
+
+
 def test_architecture_observer_accounts_for_dynamic_imports(tmp_path: Path) -> None:
     source = tmp_path / "src" / "pmpe" / "orchestration"
     source.mkdir(parents=True)
@@ -60,6 +72,24 @@ def test_architecture_observer_accounts_for_dynamic_imports(tmp_path: Path) -> N
     assert ("orchestration", "unresolved_dynamic") in edges
 
 
+@pytest.mark.parametrize(
+    "source_text",
+    [
+        'import importlib as il\nil.import_module("pmpe.guided.api")\n',
+        'from importlib import import_module as load\nload("pmpe.guided.api")\n',
+    ],
+)
+def test_architecture_observer_resolves_dynamic_import_function_aliases(
+    tmp_path: Path,
+    source_text: str,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "dynamic_alias.py").write_text(source_text)
+
+    assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
+
+
 def test_architecture_observer_resolves_relative_dynamic_imports(tmp_path: Path) -> None:
     source = tmp_path / "src" / "pmpe" / "orchestration"
     source.mkdir(parents=True)
@@ -70,31 +100,80 @@ def test_architecture_observer_resolves_relative_dynamic_imports(tmp_path: Path)
     assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
 
 
-def test_retention_controller_deletes_expired_and_preserves_current_data(tmp_path: Path) -> None:
+def test_retention_controller_atomically_deletes_only_expired_completed_runs(
+    tmp_path: Path,
+) -> None:
     now = datetime(2030, 1, 31, tzinfo=UTC)
-    expired = tmp_path / "expired.json"
-    current = tmp_path / "current.json"
-    expired.write_text("expired")
-    current.write_text("current")
+    completed = tmp_path / "completed-run"
+    active = tmp_path / "active-run"
+    completed.mkdir()
+    active.mkdir()
+    completed_ledger = completed / "lifecycle-events.jsonl"
+    completed_artifact = completed / "recent-artifact.json"
+    active_ledger = active / "lifecycle-events.jsonl"
+    active_artifact = active / "old-artifact.json"
+    completed_ledger.write_text('{"target":"COMPLETED"}\n')
+    completed_artifact.write_text("recent but owned by an expired completed run")
+    active_ledger.write_text('{"target":"IMPLEMENTATION_IN_PROGRESS"}\n')
+    active_artifact.write_text("old but owned by an active run")
     old = (now - timedelta(days=31)).timestamp()
     recent = (now - timedelta(days=29)).timestamp()
-    os.utime(expired, (old, old))
-    os.utime(current, (recent, recent))
+    os.utime(completed_ledger, (old, old))
+    os.utime(completed_artifact, (recent, recent))
+    os.utime(active_ledger, (old, old))
+    os.utime(active_artifact, (old, old))
 
     result = RetentionController(retention_days=30).purge(tmp_path, now=now)
 
-    assert result.deleted == ("expired.json",)
-    assert result.retained == ("current.json",)
-    assert not expired.exists()
-    assert current.exists()
+    assert result.deleted == ("completed-run",)
+    assert result.retained == ("active-run",)
+    assert not completed.exists()
+    assert active_ledger.exists()
+    assert active_artifact.exists()
+
+
+def test_retention_controller_preserves_a_locked_completed_run(tmp_path: Path) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    completed = tmp_path / "completed-run"
+    completed.mkdir()
+    ledger = completed / "lifecycle-events.jsonl"
+    ledger.write_text('{"target":"COMPLETED"}\n')
+    old = (now - timedelta(days=31)).timestamp()
+    os.utime(ledger, (old, old))
+
+    with (completed / "lifecycle.lock").open("a+") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        result = RetentionController(retention_days=30).purge(tmp_path, now=now)
+
+    assert result.deleted == ()
+    assert result.retained == ("completed-run",)
+    assert ledger.exists()
+
+
+def test_retention_controller_deletes_expired_completed_engineering_runs(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    completed = tmp_path / "completed-engineering-run"
+    completed.mkdir()
+    state = completed / "run-state.json"
+    state.write_text('{"stage":"complete"}\n')
+    (completed / "artifact.json").write_text("belongs to the completed run")
+    old = (now - timedelta(days=31)).timestamp()
+    os.utime(state, (old, old))
+
+    result = RetentionController(retention_days=30).purge(tmp_path, now=now)
+
+    assert result.deleted == ("completed-engineering-run",)
+    assert not completed.exists()
 
 
 def test_event_log_enforces_retention_on_the_actual_runs_root(tmp_path: Path) -> None:
     now = datetime(2030, 1, 31, tzinfo=UTC)
-    expired = tmp_path / "expired-run" / "events.jsonl"
+    expired = tmp_path / "expired-run" / "lifecycle-events.jsonl"
     current_run = tmp_path / "current-run"
     expired.parent.mkdir()
-    expired.write_text("{}\n")
+    expired.write_text('{"target":"COMPLETED"}\n')
     old = (now - timedelta(days=31)).timestamp()
     os.utime(expired, (old, old))
 
@@ -111,7 +190,7 @@ def test_phase_zero_create_enforces_retention_on_shipped_lifecycle_root(tmp_path
     now = datetime(2030, 1, 31, tzinfo=UTC)
     expired = tmp_path / "expired-run" / "lifecycle-events.jsonl"
     expired.parent.mkdir()
-    expired.write_text("{}\n")
+    expired.write_text('{"target":"COMPLETED"}\n')
     old = (now - timedelta(days=31)).timestamp()
     os.utime(expired, (old, old))
     budget = BudgetPolicy(
