@@ -104,6 +104,7 @@ class SecurityGatePolicy:
     advisory_max_age_seconds: Mapping[str, int]
     trusted_waiver_authorities: Mapping[str, str]
     trusted_architecture_boundary_digest: str
+    trusted_architecture_allowed_edges: tuple[tuple[str, str], ...]
     scan_exclusions: tuple[str, ...]
     secret_allowlist: tuple[SecretAllowlistEntry, ...]
 
@@ -121,6 +122,9 @@ class SecurityGatePolicy:
                 )
             ],
             "tools": [asdict(item) for item in sorted(self.tools, key=lambda value: value.name)],
+            "trusted_architecture_allowed_edges": [
+                list(edge) for edge in sorted(self.trusted_architecture_allowed_edges)
+            ],
             "trusted_architecture_boundary_digest": self.trusted_architecture_boundary_digest,
             "trusted_advisory_sources": dict(sorted(self.trusted_advisory_sources.items())),
             "trusted_waiver_authorities": dict(sorted(self.trusted_waiver_authorities.items())),
@@ -348,6 +352,13 @@ def validate_gate_policy(policy: SecurityGatePolicy) -> None:
         raise ValueError("waiver authority is malformed")
     if not _DIGEST.fullmatch(policy.trusted_architecture_boundary_digest):
         raise ValueError("trusted architecture boundary digest is malformed")
+    if len(policy.trusted_architecture_allowed_edges) != len(
+        set(policy.trusted_architecture_allowed_edges)
+    ) or any(
+        not source or not destination
+        for source, destination in policy.trusted_architecture_allowed_edges
+    ):
+        raise ValueError("trusted architecture boundary graph is malformed")
     _validate_scan_controls(policy.scan_exclusions, policy.secret_allowlist)
     payload = policy.as_dict()
     claimed = payload.pop("policy_digest")
@@ -803,6 +814,7 @@ def _evaluate_architecture(
         and _DIGEST.fullmatch(observation.architecture_pack_digest)
         and observation.boundary_policy_version == "architecture-boundary/v1"
         and observation.boundary_policy_digest == policy.trusted_architecture_boundary_digest
+        and set(observation.allowed_edges) == set(policy.trusted_architecture_allowed_edges)
         and claimed_evidence_digest == canonical_digest(evidence_payload)
         and set(observation.observed_edges) <= set(observation.allowed_edges)
     )

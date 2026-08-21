@@ -94,6 +94,7 @@ def policy(**changes: object) -> SecurityGatePolicy:
         advisory_max_age_seconds={"pypi-advisory-db": 3600},
         trusted_waiver_authorities={"security-owner": D},
         trusted_architecture_boundary_digest=D,
+        trusted_architecture_allowed_edges=(("api", "storage"),),
         scan_exclusions=(".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache"),
         secret_allowlist=(),
     )
@@ -625,7 +626,6 @@ def test_architecture_boundary_drift_or_policy_change_blocks(tmp_path: Path) -> 
     caller_selected_policy = seal_architecture(
         replace(
             architecture_observation(),
-            boundary_policy_digest=E,
             allowed_edges=(("frontend", "database"),),
             observed_edges=(("frontend", "database"),),
         )
