@@ -500,6 +500,7 @@ _NATIVE_MERGE_GATE_BINDING_FIELDS = (
     "required_checks_digest",
     "formal_review_digest",
     "verification_bundle_digest",
+    "merge_admission_bundle_digest",
     "repository_rules_digest",
     "architecture_policy_digest",
     "toolchain_policy_digest",
@@ -671,6 +672,7 @@ _MUTATION_SUBJECT_FIELDS: dict[str, tuple[str, ...]] = {
         "required_checks_digest",
         "formal_review_digest",
         "verification_bundle_digest",
+        "merge_admission_bundle_digest",
     ),
     "deploy_staging": (
         "subject_digest",
@@ -2449,6 +2451,7 @@ _PHASE_FOUR_REVIEW_FIELDS = (
 )
 _PHASE_FOUR_MERGE_FIELDS = (
     *_PHASE_FOUR_REVIEW_FIELDS,
+    "merge_admission_bundle_digest",
     "finding_high_watermark_digest",
     "finding_source_set_digest",
     "finding_inventory_epochs_digest",
@@ -4064,6 +4067,55 @@ class LifecycleControlPlane:
             "staging_authorization_digest": evidence.get("staging_authorization_digest", ""),
         }
 
+    def _merge_admission_bundle_bindings(
+        self, evidence: Mapping[str, str], *, as_of: str
+    ) -> dict[str, str]:
+        return {
+            "profile": "merge_admission",
+            "as_of": as_of,
+            "subject_digest": evidence.get("subject_digest", ""),
+            "protected_base_sha": evidence.get("protected_base_sha", ""),
+            "pr_head_sha": evidence.get("head_commit_sha", ""),
+            "prospective_merge_tree_digest": evidence.get("prospective_tree_digest", ""),
+            "candidate_review_bundle_digest": evidence.get("verification_bundle_digest", ""),
+            "required_checks_digest": evidence.get("required_checks_digest", ""),
+            "formal_review_digest": evidence.get("formal_review_digest", ""),
+            "finding_high_watermark_digest": evidence.get("finding_high_watermark_digest", ""),
+            "finding_source_set_digest": evidence.get("finding_source_set_digest", ""),
+            "finding_inventory_epochs_digest": evidence.get("finding_inventory_epochs_digest", ""),
+            "authority_revalidation_digest": evidence.get("authority_revalidation_digest", ""),
+            "repository_rules_digest": evidence.get("repository_rules_digest", ""),
+            "architecture_policy_digest": evidence.get("architecture_policy_digest", ""),
+            "toolchain_policy_digest": evidence.get("toolchain_policy_digest", ""),
+            "environment_profile_digest": evidence.get("environment_profile_digest", ""),
+            "security_policy_digest": evidence.get("security_policy_digest", ""),
+            "verification_policy_digest": evidence.get("verification_policy_digest", ""),
+            "evidence_policy_digest": evidence.get("evidence_policy_digest", ""),
+        }
+
+    def _merge_admission_bundle_valid(self, evidence: Mapping[str, str], *, as_of: str) -> bool:
+        return self._sealed_bundle_valid(
+            evidence.get("merge_admission_bundle_digest", ""),
+            self._merge_admission_bundle_bindings(evidence, as_of=as_of),
+        )
+
+    def _merge_admission_readiness_binding_valid(self, evidence: Mapping[str, str]) -> bool:
+        review_binding = self._latest_review_binding()
+        return bool(
+            review_binding is not None
+            and evidence.get("subject_digest") == self.subject_digest
+            and evidence.get("head_commit_sha")
+            == review_binding.evidence_refs.get("reviewed_commit_sha")
+            and evidence.get("prospective_tree_digest")
+            == review_binding.evidence_refs.get("prospective_tree_digest")
+            and evidence.get("verification_bundle_digest")
+            == review_binding.evidence_refs.get("verification_bundle_digest")
+            and all(
+                evidence.get(name) == review_binding.evidence_refs.get(name)
+                for name in _PHASE_FOUR_REVIEW_FIELDS
+            )
+        )
+
     def _staging_bundle_valid(self, evidence: Mapping[str, str]) -> bool:
         return self._sealed_bundle_valid(
             evidence.get("evidence_bundle_digest", ""),
@@ -4666,6 +4718,15 @@ class LifecycleControlPlane:
             review_binding = self._latest_review_binding()
             phase_four_formal_review = None
             if self._policy.version == PHASE_FOUR_POLICY.version and review_binding is not None:
+                if not self._merge_admission_bundle_valid(
+                    context.evidence, as_of=context.observed_at
+                ):
+                    self._deny(
+                        target,
+                        context,
+                        reason,
+                        "a fresh sealed exact-subject merge-admission EvidenceBundle is required",
+                    )
                 try:
                     readiness_boundary = datetime.fromisoformat(
                         review_binding.observed_at.replace("Z", "+00:00")
@@ -5383,25 +5444,46 @@ class LifecycleControlPlane:
                 raise TransitionDeniedError(
                     "mutation attempt lacks current external lifecycle authority"
                 )
-            if (
-                self._policy.version == PHASE_FOUR_POLICY.version
-                and attempt.action == "deploy_staging"
-                and (
-                    evidence is None
-                    or attempt.step_plan_digest
-                    != mutation_subject_digest(
-                        attempt.action,
-                        evidence,
-                        schemas=self._policy.mutation_subject_fields,
+            if self._policy.version == PHASE_FOUR_POLICY.version and (
+                (
+                    attempt.action == "enqueue_merge"
+                    and (
+                        evidence is None
+                        or attempt.step_plan_digest
+                        != mutation_subject_digest(
+                            attempt.action,
+                            evidence,
+                            schemas=self._policy.mutation_subject_fields,
+                        )
+                        or not self._merge_admission_readiness_binding_valid(evidence)
+                        or not self._merge_admission_bundle_valid(
+                            evidence, as_of=authorization.observed_at
+                        )
                     )
-                    or not self._staging_merge_binding_valid(evidence)
-                    or not self._staging_bundle_valid(evidence)
+                )
+                or (
+                    attempt.action == "deploy_staging"
+                    and (
+                        evidence is None
+                        or attempt.step_plan_digest
+                        != mutation_subject_digest(
+                            attempt.action,
+                            evidence,
+                            schemas=self._policy.mutation_subject_fields,
+                        )
+                        or not self._staging_merge_binding_valid(evidence)
+                        or not self._staging_bundle_valid(evidence)
+                    )
                 )
             ):
-                raise TransitionDeniedError(
-                    "staging mutation release requires the exact integrated merge and a valid "
-                    "sealed exact-subject bundle"
+                detail = (
+                    "merge mutation release requires the exact ready candidate and a fresh "
+                    "sealed merge-admission bundle"
+                    if attempt.action == "enqueue_merge"
+                    else "staging mutation release requires the exact integrated merge and a "
+                    "valid sealed exact-subject bundle"
                 )
+                raise TransitionDeniedError(detail)
             self._register_mutation_locked(attempt)
         return attempt
 

@@ -4375,10 +4375,22 @@ def test_native_merge_requires_the_exact_persisted_review_binding(tmp_path: Path
 def test_phase_four_merge_keeps_advisory_and_post_ready_formal_review_distinct(
     tmp_path: Path,
 ) -> None:
+    merge_admission_bundle = object_digest("sealed-merge-admission-profile")
+    observed_bundles: list[tuple[str, dict[str, str]]] = []
+
+    def verify_bundle(digest: str, bindings: Mapping[str, str]) -> bool:
+        observed_bundles.append((digest, dict(bindings)))
+        return (
+            digest == merge_admission_bundle
+            and bindings.get("profile") == "merge_admission"
+            and bindings.get("as_of") == "2026-08-02T00:01:00Z"
+        )
+
     cp = control_plane(
         tmp_path,
         state=LifecycleState.PR_READY,
         lifecycle_policy=lifecycle.PHASE_FOUR_POLICY,
+        bundle_verifier=verify_bundle,
     )
     reviewed_commit = "a" * 40
     reviewed_tree = object_digest("reviewed-tree")
@@ -4443,11 +4455,13 @@ def test_phase_four_merge_keeps_advisory_and_post_ready_formal_review_distinct(
     }
     planned_evidence.update(
         review_policy_evidence,
+        subject_digest=SHA,
         queue_subject_digest=SHA,
         head_commit_sha=reviewed_commit,
         head_digest=object_digest(reviewed_commit),
         prospective_tree_digest=reviewed_tree,
         verification_bundle_digest=advisory_bundle,
+        merge_admission_bundle_digest=merge_admission_bundle,
         formal_review_digest=formal_digest,
         finding_source_set_digest=object_digest(dict(TRUST_POLICY.finding_sources)),
         finding_inventory_epochs_digest=object_digest(
@@ -4471,7 +4485,7 @@ def test_phase_four_merge_keeps_advisory_and_post_ready_formal_review_distinct(
         step_plan_digest=mutation_subject_digest("enqueue_merge", planned_evidence),
         status="PLANNED",
     )
-    prejournal(cp, attempt)
+    prejournal(cp, attempt, evidence=planned_evidence)
     record_result(cp, attempt, status="SUCCEEDED", result_digest=merge_result_digest)
     planned_evidence["merge_attempt_digest"] = object_digest(asdict(attempt))
 
@@ -4537,6 +4551,100 @@ def test_phase_four_merge_keeps_advisory_and_post_ready_formal_review_distinct(
 
     assert merged.target is LifecycleState.PR_MERGED
     assert formal_digest != advisory_digest
+    assert len(observed_bundles) >= 2
+    assert all(digest == merge_admission_bundle for digest, _ in observed_bundles)
+
+
+def test_phase_four_merge_revalidates_bundle_after_prejournal(tmp_path: Path) -> None:
+    bundle_available = True
+    merge_admission_bundle = object_digest("expiring-merge-admission-profile")
+
+    def verify_bundle(digest: str, bindings: Mapping[str, str]) -> bool:
+        return bool(
+            bundle_available
+            and digest == merge_admission_bundle
+            and bindings.get("profile") == "merge_admission"
+            and bindings.get("as_of") == "2026-08-02T00:01:00Z"
+        )
+
+    cp = control_plane(
+        tmp_path,
+        state=LifecycleState.PR_READY,
+        lifecycle_policy=lifecycle.PHASE_FOUR_POLICY,
+        bundle_verifier=verify_bundle,
+    )
+    reviewed_commit = "a" * 40
+    reviewed_tree = object_digest("reviewed-tree")
+    advisory_bundle = object_digest("advisory-bundle")
+    review_policy_evidence = {
+        name: "a" * 40 if name.endswith("_sha") else object_digest(name)
+        for name in lifecycle._PHASE_FOUR_REVIEW_FIELDS
+    }
+    cp._append(
+        kind="REVIEW_BINDING_ADMITTED",
+        outcome="RECORDED",
+        source=cp.state,
+        target=cp.state,
+        reason="advisory_readiness_clear",
+        actor="codex-advisory",
+        evidence_refs={
+            "subject_digest": SHA,
+            "reviewed_commit_sha": reviewed_commit,
+            "prospective_tree_digest": reviewed_tree,
+            "verification_bundle_digest": advisory_bundle,
+            "review_digest": object_digest("advisory-analysis"),
+            **review_policy_evidence,
+        },
+        observed_at="2026-08-01T23:59:00Z",
+    )
+    rule = lifecycle.PHASE_FOUR_POLICY.rule(
+        LifecycleState.PR_READY,
+        LifecycleState.PR_MERGED,
+        reason="native_merge_linearized",
+    )
+    evidence = {
+        name: (
+            SHA
+            if name == "subject_digest"
+            else "a" * 40
+            if name.endswith("_sha")
+            else object_digest(name)
+        )
+        for name in rule.required_evidence
+    }
+    evidence.update(
+        review_policy_evidence,
+        subject_digest=SHA,
+        queue_subject_digest=SHA,
+        head_commit_sha=reviewed_commit,
+        head_digest=object_digest(reviewed_commit),
+        prospective_tree_digest=reviewed_tree,
+        verification_bundle_digest=advisory_bundle,
+        merge_admission_bundle_digest=merge_admission_bundle,
+        finding_source_set_digest=object_digest(dict(TRUST_POLICY.finding_sources)),
+        finding_inventory_epochs_digest=object_digest(
+            dict.fromkeys(TRUST_POLICY.finding_sources, OTHER_SHA)
+        ),
+    )
+    attempt = MutationAttempt(
+        attempt_id="phase-four-expiring-merge",
+        idempotency_key="merge:phase-four:expiring",
+        subject_digest=SHA,
+        action="enqueue_merge",
+        step_plan_digest=mutation_subject_digest("enqueue_merge", evidence),
+        status="PLANNED",
+    )
+    prejournal(cp, attempt, evidence=evidence)
+    bundle_available = False
+
+    with pytest.raises(TransitionDeniedError, match="merge-admission EvidenceBundle"):
+        cp.transition(
+            LifecycleState.PR_MERGED,
+            context(evidence=evidence, mutation=attempt),
+            reason="native_merge_linearized",
+        )
+
+    assert cp.state is LifecycleState.PR_READY
 
 
 def test_budget_extension_rejects_caller_computable_owner_proof(tmp_path: Path) -> None:
