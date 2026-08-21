@@ -169,9 +169,10 @@ def _dependency_inventory(
             metadata = distribution(name).metadata
         except PackageNotFoundError as exc:
             raise ValueError(f"audited dependency {name} is not installed") from exc
+        metadata_fields = dict(metadata.items())
         license_name = (
-            metadata["License-Expression"]
-            or metadata["License"]
+            metadata_fields.get("License-Expression")
+            or metadata_fields.get("License")
             or license_fallbacks.get(name.lower(), "")
         )
         if not license_name:

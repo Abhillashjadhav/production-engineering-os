@@ -126,6 +126,150 @@
       "line_fingerprint": "sha256:19e38a14a3a1e65b3448ffe6f10d9590fec536dc7f4316642f7741e57ccdf70d",
       "path": "src/pmpe/stacks/stdlib_tests_api.py",
       "rule_id": "SEC_HARDCODED_SECRET"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 108,
+      "line_fingerprint": "sha256:7485151d0bd26ac4d7001e74fc72a41fb4c640d3e2f9e03cf1397556a5b529c8",
+      "path": "tests/e2e/test_failure_paths.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 49,
+      "line_fingerprint": "sha256:b78541d85091114f6b6936274da56a9a2dcf9af190cdd232987f58ce77e72c87",
+      "path": "tests/integration/test_quality_gates.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 43,
+      "line_fingerprint": "sha256:b78541d85091114f6b6936274da56a9a2dcf9af190cdd232987f58ce77e72c87",
+      "path": "tests/integration/test_review_and_fix.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 84,
+      "line_fingerprint": "sha256:b78541d85091114f6b6936274da56a9a2dcf9af190cdd232987f58ce77e72c87",
+      "path": "tests/integration/test_review_and_fix.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 144,
+      "line_fingerprint": "sha256:88df5f6ec9c040cdd37dc132f3229a460a01ac57b7a653dc0d03686072d86ccb",
+      "path": "tests/integration/test_run_engine.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 54,
+      "line_fingerprint": "sha256:0e5447e8907d0e187a13bbca21a010f0be4f903bc08935eaa3bad70204050da6",
+      "path": "tests/unit/test_merge_gate.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 280,
+      "line_fingerprint": "sha256:7cb1caf631f7869aedf68e8cc1a8a5c4897c08db00d40e3fe5a88fb48c6a935a",
+      "path": "tests/unit/test_repository_intelligence.py",
+      "rule_id": "SEC_EXEC"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 38,
+      "line_fingerprint": "sha256:c4525b56cc069550f7f8fa5181da8b55307556a7888c095f3a2cf5a716d377cf",
+      "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 45,
+      "line_fingerprint": "sha256:69c944dc6374ff7a410379c8f6c4ebb61536f721d3dd878a4c97547bea1316b8",
+      "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_SHELL_TRUE"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 51,
+      "line_fingerprint": "sha256:8932e901cdacbceb8a55b6223a1ef0477ad7bb3213406b3d4ed56560ae140558",
+      "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_PICKLE"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 57,
+      "line_fingerprint": "sha256:9d6a2b055c95e8ad068956f801aaba3ca8aa907aee5e56c1a54591dca534393c",
+      "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_SQL_FORMAT"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 63,
+      "line_fingerprint": "sha256:b7e7a61b81e841c848223a53be73358a598a3d648b3d6c6d3bb6cb1640fecc0c",
+      "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 64,
+      "line_fingerprint": "sha256:f96a69203a4b5fba64e935a946876cb5c2e3557dd41adff6766acb2a33c3eb93",
+      "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 169,
+      "line_fingerprint": "sha256:2cd0d1c6e3a89c889b4cdcf445dbc497b0931e70b8cdb1a251ca36d4d0e4eecb",
+      "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 176,
+      "line_fingerprint": "sha256:d8b3c7834bf55ed1053b7b4581664d0c10926e047efc4df5de32ad8ffdf36f92",
+      "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 178,
+      "line_fingerprint": "sha256:502c1872470db496074e479046e30c21fbece59820174ee74e74116cce5a589e",
+      "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_EXEC"
     }
   ],
   "version": "repository-security-profile/v1"
