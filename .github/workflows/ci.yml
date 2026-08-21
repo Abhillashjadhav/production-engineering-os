@@ -143,7 +143,7 @@ jobs:
             --head-sha "${{ github.event.pull_request.head.sha || github.sha }}" \
             --repo-root . \
             --github-output "$GITHUB_OUTPUT"
-      - uses: actions/setup-node@1e60f620b9541d9c243d3cde6c7b18aa92e891ff # v4.0.3
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: steps.frontend-paths.outcome != 'success' || steps.frontend-paths.outputs.applicable != 'false'
         with:
           node-version: "22"
@@ -192,7 +192,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -e "products/pm-evals-web/backend"
-      - uses: actions/setup-node@1e60f620b9541d9c243d3cde6c7b18aa92e891ff # v4.0.3
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
@@ -232,7 +232,7 @@ jobs:
           python-version: "3.11"
       - name: install pmpe (preview evidence tooling)
         run: pip install -e "."
-      - uses: actions/setup-node@1e60f620b9541d9c243d3cde6c7b18aa92e891ff # v4.0.3
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
