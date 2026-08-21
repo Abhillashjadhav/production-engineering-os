@@ -786,6 +786,82 @@ def test_phase_four_completion_accepts_a_distinct_completion_profile_bundle(
     assert observed[0][0] == completion_bundle
 
 
+def test_phase_four_staging_requires_a_sealed_exact_merge_bundle(tmp_path: Path) -> None:
+    staging_bundle = object_digest("sealed-staging-profile")
+    observed: list[tuple[str, dict[str, str]]] = []
+
+    def verify_bundle(digest: str, bindings: Mapping[str, str]) -> bool:
+        observed.append((digest, dict(bindings)))
+        return (
+            digest == staging_bundle
+            and bindings.get("profile") == "staging"
+            and bindings.get("observed_merge_sha") == "b" * 40
+            and bindings.get("observed_merge_tree_digest") == object_digest("merged-tree")
+        )
+
+    cp = control_plane(
+        tmp_path,
+        state=LifecycleState.PR_MERGED,
+        lifecycle_policy=lifecycle.PHASE_FOUR_POLICY,
+        bundle_verifier=verify_bundle,
+    )
+    merge_result = object_digest("integrated-merge")
+    cp._append(
+        kind="TRANSITION",
+        outcome="APPLIED",
+        source=LifecycleState.PR_READY,
+        target=LifecycleState.PR_MERGED,
+        reason="native_merge_linearized",
+        actor="github-merge-queue",
+        evidence_refs={
+            "merge_result_digest": merge_result,
+            "merge_commit_sha": "b" * 40,
+            "merge_tree_digest": object_digest("merged-tree"),
+        },
+        observed_at="2026-08-02T00:01:00Z",
+    )
+    evidence = evidence_for(
+        LifecycleState.PR_MERGED,
+        LifecycleState.STAGING_DEPLOYED,
+        reason="staging_admitted",
+    )
+    evidence.update(
+        subject_digest=SHA,
+        evidence_bundle_digest=OTHER_SHA,
+        merge_digest=merge_result,
+    )
+
+    with pytest.raises(TransitionDeniedError, match="staging EvidenceBundle"):
+        cp.transition(
+            LifecycleState.STAGING_DEPLOYED,
+            context(evidence=evidence),
+            reason="staging_admitted",
+        )
+
+    evidence["evidence_bundle_digest"] = staging_bundle
+    attempt = MutationAttempt(
+        attempt_id="phase-four-staging",
+        idempotency_key="stage:run-65:phase-four",
+        subject_digest=SHA,
+        action="deploy_staging",
+        step_plan_digest=mutation_subject_digest("deploy_staging", evidence),
+        status="PLANNED",
+    )
+    prejournal(cp, attempt)
+    record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
+    evidence["staging_attempt_digest"] = object_digest(asdict(attempt))
+    evidence["staging_result_digest"] = SHA
+
+    deployed = cp.transition(
+        LifecycleState.STAGING_DEPLOYED,
+        context(evidence=evidence, mutation=attempt),
+        reason="staging_admitted",
+    )
+
+    assert deployed.target is LifecycleState.STAGING_DEPLOYED
+    assert observed[-1][0] == staging_bundle
+
+
 def test_completion_binds_release_to_persisted_merge_not_review_head(tmp_path: Path) -> None:
     cp = control_plane(tmp_path, state=LifecycleState.PRODUCTION_DEPLOYED)
     evidence = completion_evidence_with_review_binding(cp)

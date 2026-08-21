@@ -101,6 +101,29 @@ def assess_merge_admission(
     return _decision(bundle, validation, success="MERGE_ADMITTED", failure="HOLD")
 
 
+def assess_staging(
+    bundle: SealedEvidenceBundle,
+    *,
+    subject: EvidenceSubject,
+    policy_digest: str,
+    environment: EnvironmentFingerprint,
+    as_of: str,
+    producer_policies: Mapping[str, EvidenceProducerPolicy],
+    authenticator: EvidenceAuthenticator,
+) -> EvidenceGateDecision:
+    validation = verify_bundle(
+        bundle,
+        expected_profile="staging",
+        expected_subject=subject,
+        expected_policy_digest=policy_digest,
+        producer_policies=producer_policies,
+        authenticator=authenticator,
+        expected_environment=environment,
+        as_of=as_of,
+    )
+    return _decision(bundle, validation, success="STAGING_ADMITTED", failure="HOLD")
+
+
 def assess_completion(
     bundle: SealedEvidenceBundle,
     *,

@@ -1274,7 +1274,7 @@ def _policy_from_payload(
         )
         supported_guards = frozenset(
             guard for rule in PHASE_ZERO_POLICY.rules for guard in rule.guards
-        )
+        ) | {"staging_bundle"}
         if any(not rule.guards <= supported_guards for rule in rules):
             raise ValueError("lifecycle policy snapshot contains unsupported guards")
         if any(
@@ -2457,6 +2457,7 @@ _PHASE_FOUR_MERGE_FIELDS = (
     "native_merge_gate_authority_digest",
     "native_merge_gate_authentication_evidence_digest",
 )
+_PHASE_FOUR_STAGING_FIELDS = ("subject_digest", "evidence_bundle_digest")
 _PHASE_FOUR_COMPLETION_FINDING_FIELDS = (
     "finding_high_watermark_digest",
     "finding_source_set_digest",
@@ -2493,6 +2494,13 @@ PHASE_FOUR_POLICY = LifecyclePolicy(
                             else ()
                         ),
                         *(
+                            _PHASE_FOUR_STAGING_FIELDS
+                            if rule.source is S.PR_MERGED
+                            and rule.target is S.STAGING_DEPLOYED
+                            and rule.reason == "staging_admitted"
+                            else ()
+                        ),
+                        *(
                             _PHASE_FOUR_COMPLETION_FINDING_FIELDS
                             if rule.source is S.PRODUCTION_DEPLOYED
                             and rule.target is S.COMPLETED
@@ -2502,8 +2510,9 @@ PHASE_FOUR_POLICY = LifecyclePolicy(
                     )
                 )
             ),
-            guards=(
-                rule.guards | {"no_blocking_finding"}
+            guards=rule.guards
+            | (
+                {"no_blocking_finding"}
                 if (
                     rule.source is S.PR_READY
                     and rule.target is S.PR_MERGED
@@ -2514,7 +2523,14 @@ PHASE_FOUR_POLICY = LifecyclePolicy(
                     and rule.target is S.COMPLETED
                     and rule.reason == "observation_window_passed"
                 )
-                else rule.guards
+                else frozenset()
+            )
+            | (
+                {"staging_bundle"}
+                if rule.source is S.PR_MERGED
+                and rule.target is S.STAGING_DEPLOYED
+                and rule.reason == "staging_admitted"
+                else frozenset()
             ),
         )
         for rule in PHASE_ZERO_POLICY.rules
@@ -4745,6 +4761,41 @@ class LifecycleControlPlane:
                     context,
                     reason,
                     "staging is not bound to the adapter-attested integrated merge result",
+                )
+        if "staging_bundle" in guards:
+            merge_binding = self._latest_merge_binding()
+            bundle_bindings = {
+                "profile": "staging",
+                "subject_digest": context.evidence.get("subject_digest", ""),
+                "observed_merge_sha": (
+                    merge_binding.evidence_refs.get("merge_commit_sha", "")
+                    if merge_binding is not None
+                    else ""
+                ),
+                "observed_merge_tree_digest": (
+                    merge_binding.evidence_refs.get("merge_tree_digest", "")
+                    if merge_binding is not None
+                    else ""
+                ),
+                "artifact_digest": context.evidence.get("artifact_digest", ""),
+                "configuration_digest": context.evidence.get("configuration_digest", ""),
+                "finding_source_set_digest": context.evidence.get("finding_source_set_digest", ""),
+                "finding_inventory_epochs_digest": context.evidence.get(
+                    "finding_inventory_epochs_digest", ""
+                ),
+                "authority_fence_digest": context.evidence.get("authority_fence_digest", ""),
+                "staging_authorization_digest": context.evidence.get(
+                    "staging_authorization_digest", ""
+                ),
+            }
+            if self._bundle_verifier is None or not self._bundle_verifier(
+                context.evidence.get("evidence_bundle_digest", ""), bundle_bindings
+            ):
+                self._deny(
+                    target,
+                    context,
+                    reason,
+                    "a valid sealed exact-subject staging EvidenceBundle is required",
                 )
         if "canary_binding" in guards:
             attempt = context.mutation

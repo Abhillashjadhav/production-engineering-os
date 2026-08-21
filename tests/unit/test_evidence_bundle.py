@@ -26,6 +26,7 @@ from pmpe.contracts.digest import canonical_digest
 from pmpe.quality.evidence_gate import (
     assess_completion,
     assess_readiness,
+    assess_staging,
     verification_recovery_state,
 )
 
@@ -239,6 +240,32 @@ def test_sealed_bundle_is_content_addressed_and_reconstructible() -> None:
     assert report.valid
     assert report.completeness == 1.0
     assert bundle.bundle_digest == canonical_digest(bundle.manifest)
+
+
+def test_staging_gate_accepts_only_the_sealed_staging_profile() -> None:
+    bundle, subject = _bundle("staging")
+
+    decision = assess_staging(
+        bundle,
+        subject=subject,
+        policy_digest=D,
+        environment=_environment(),
+        as_of=LATER,
+        producer_policies=PRODUCER_POLICIES,
+        authenticator=_authenticate_producer,
+    )
+
+    assert decision.admitted
+    wrong_profile, _ = _bundle("candidate_review")
+    assert not assess_staging(
+        wrong_profile,
+        subject=subject,
+        policy_digest=D,
+        environment=_environment(),
+        as_of=LATER,
+        producer_policies=PRODUCER_POLICIES,
+        authenticator=_authenticate_producer,
+    ).admitted
 
 
 def test_shape_valid_but_fabricated_producer_proofs_cannot_be_sealed() -> None:
