@@ -13,6 +13,7 @@ from pmpe.contracts.digest import canonical_digest
 
 _GIT_SHA = re.compile(r"^[0-9a-f]{40,64}$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_SUPPORTED_CHECK_EVENTS = {"pull_request", "merge_group"}
 EnqueueTokenSigner = Callable[[str, str, Mapping[str, object]], str]
 EnqueueTokenAuthenticator = Callable[[str, str, Mapping[str, object], str], bool]
 
@@ -267,6 +268,9 @@ def _validate_snapshot(
         check = by_name.get(name)
         if check is None:
             reasons.append(f"required check {name} is missing")
+            continue
+        if check.event not in _SUPPORTED_CHECK_EVENTS:
+            reasons.append(f"required check {name} has unsupported event {check.event!r}")
             continue
         if check.subject_sha != snapshot.pr_head_sha:
             reasons.append(f"required check {name} is bound to the wrong subject")

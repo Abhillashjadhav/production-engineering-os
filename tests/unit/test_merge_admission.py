@@ -163,6 +163,44 @@ def test_signed_enqueue_token_rejects_tampered_expiry() -> None:
     assert any("token authentication" in reason for reason in decision.reasons)
 
 
+def test_unsupported_required_check_event_is_never_pull_request_equivalent() -> None:
+    snapshot = _snapshot()
+    unsupported = replace(snapshot.checks[0], event="workflow_run")
+    with pytest.raises(ValueError, match="unsupported event"):
+        enqueue(
+            replace(snapshot, checks=(unsupported,)),
+            governed_policy=POLICY,
+            token_issuer=TOKEN_ISSUER,
+            token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+            token_signer=_sign_token,
+            enqueued_at=AFTER,
+            invalidation_boundary=NOW,
+        )
+
+    token = enqueue(
+        snapshot,
+        governed_policy=POLICY,
+        token_issuer=TOKEN_ISSUER,
+        token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+        token_signer=_sign_token,
+        enqueued_at=AFTER,
+        invalidation_boundary=NOW,
+    )
+    decision = linearize_merge(
+        token,
+        replace(snapshot, checks=(unsupported,)),
+        governed_policy=POLICY,
+        trusted_token_issuers=TOKEN_ISSUERS,
+        token_authenticator=_authenticate_token,
+        observed_merge_sha="e" * 40,
+        observed_merge_tree_digest=D,
+        merged_at=AFTER,
+    )
+
+    assert not decision.admitted
+    assert any("unsupported event" in reason for reason in decision.reasons)
+
+
 @pytest.mark.parametrize(
     "change",
     [
