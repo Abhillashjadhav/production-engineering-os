@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import pmpe.privacy.retention as retention_module
 from pmpe.contracts.digest import canonical_digest
 from pmpe.orchestration.lifecycle import BudgetPolicy, LifecycleControlPlane, LifecycleState
 from pmpe.privacy.retention import RetentionController
@@ -26,6 +27,14 @@ def test_architecture_observer_resolves_relative_imports(tmp_path: Path) -> None
     source.mkdir(parents=True)
     (source / "__init__.py").write_text("")
     (source / "worker.py").write_text("from ..guided import api\n")
+
+    assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
+
+
+def test_architecture_observer_resolves_names_imported_from_a_package(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "worker.py").write_text("from pmpe import guided\n")
 
     assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
 
@@ -166,6 +175,29 @@ def test_retention_controller_deletes_expired_completed_engineering_runs(
 
     assert result.deleted == ("completed-engineering-run",)
     assert not completed.exists()
+
+
+def test_retention_controller_tolerates_a_concurrently_removed_tombstone(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tombstone = tmp_path / ".retention-delete-expired-raced"
+    tombstone.mkdir()
+    real_rmtree = retention_module.shutil.rmtree
+
+    def raced_rmtree(path: Path) -> None:
+        real_rmtree(path)
+        raise FileNotFoundError(path)
+
+    monkeypatch.setattr(retention_module.shutil, "rmtree", raced_rmtree)
+
+    result = RetentionController(retention_days=30).purge(
+        tmp_path,
+        now=datetime(2030, 1, 31, tzinfo=UTC),
+    )
+
+    assert result.deleted == ()
+    assert result.retained == ()
 
 
 def test_event_log_enforces_retention_on_the_actual_runs_root(tmp_path: Path) -> None:
