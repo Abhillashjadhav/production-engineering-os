@@ -38,6 +38,7 @@ _IMMUTABLE_MEDIA = frozenset(
     }
 )
 _MUTABLE_POINTER_MEDIA = frozenset({"PR_COMMENT", "PR_METADATA", "MODEL_TEXT"})
+_PROMOTION_PROFILES = frozenset({"candidate_review", "merge_admission", "staging", "completion"})
 
 
 class EvidenceViolation(ValueError):  # noqa: N818 — deliberate domain violation
@@ -482,6 +483,8 @@ def verify_manifest(
             observed = _timestamp(item.observed_at, f"{item.evidence_id}.observed_at")
             if observed > current:
                 reasons.append(f"{item.evidence_id}: observation is from the future")
+            if manifest.profile in _PROMOTION_PROFILES and not item.expires_at:
+                reasons.append(f"{item.evidence_id}: promotion evidence expiry is absent")
             if item.expires_at and current >= _timestamp(
                 item.expires_at, f"{item.evidence_id}.expires_at"
             ):

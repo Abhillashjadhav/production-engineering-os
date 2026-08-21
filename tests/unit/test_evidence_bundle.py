@@ -330,6 +330,30 @@ def test_producer_proofs_cannot_be_reused_under_another_manifest_policy() -> Non
     assert any("producer authentication failed" in reason for reason in result.reasons)
 
 
+def test_promotion_evidence_without_expiry_cannot_remain_valid_indefinitely() -> None:
+    bundle, _ = _bundle("candidate_review")
+    items = list(bundle.manifest.items)
+    unsigned = replace(items[0], expires_at="", authentication_evidence_digest="")
+    items[0] = replace(
+        unsigned,
+        authentication_evidence_digest=_producer_proof(
+            unsigned.producer.producer_id,
+            unsigned.producer.authority_digest,
+            evidence_authentication_payload(unsigned, D),
+        ),
+    )
+    manifest = replace(bundle.manifest, items=tuple(items))
+
+    with pytest.raises(EvidenceViolation, match="promotion evidence expiry is absent"):
+        seal_manifest(
+            manifest,
+            producer_policies=PRODUCER_POLICIES,
+            authenticator=_authenticate_producer,
+            expected_environment=_environment(),
+            as_of="2036-08-20T12:30:00Z",
+        )
+
+
 @pytest.mark.parametrize(
     ("mutation", "reason"),
     [
