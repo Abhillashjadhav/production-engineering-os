@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import fcntl
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -154,9 +155,24 @@ def freeze_review_subject(run_dir: Path, subject: ReviewSubject) -> str:
         if path.exists():
             if json.loads(path.read_text()) != payload:
                 raise CandidateViolation("review subject changed after freeze")
+            _fsync_file_and_parent(path)
             return subject.digest
         atomic_write_json(path, payload)
+        _fsync_file_and_parent(path)
         return subject.digest
+
+
+def _fsync_file_and_parent(path: Path) -> None:
+    with path.open("rb") as stream:
+        os.fsync(stream.fileno())
+    directory = os.open(
+        path.parent,
+        os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+    )
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 def verify_review_subject(run_dir: Path, observed: ReviewSubject) -> str:

@@ -112,6 +112,23 @@ def test_review_subject_first_write_is_serialized_across_processes(
     assert persisted == candidate_module.jsonable(first)
 
 
+def test_review_subject_fsyncs_file_and_directory_before_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    synced: list[Path] = []
+    original_fsync = candidate_module.os.fsync
+
+    def recording_fsync(descriptor: int) -> None:
+        synced.append(Path(candidate_module.os.readlink(f"/proc/self/fd/{descriptor}")))
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(candidate_module.os, "fsync", recording_fsync)
+    freeze_review_subject(tmp_path, _review())
+
+    assert tmp_path / "review-subject.json" in synced
+    assert tmp_path in synced
+
+
 def test_ledger_idempotency_does_not_double_count_and_rejects_conflict(tmp_path: Path) -> None:
     ledger = EvidenceLedger(tmp_path, run_id="RUN-1")
     first = ledger.record(
