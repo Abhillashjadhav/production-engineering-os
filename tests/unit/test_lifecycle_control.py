@@ -864,6 +864,19 @@ def test_phase_four_staging_requires_a_sealed_exact_merge_bundle(tmp_path: Path)
         prejournal(cp, invalid_attempt, evidence=evidence)
 
     evidence["evidence_bundle_digest"] = staging_bundle
+    wrong_merge = dict(evidence)
+    wrong_merge["merge_digest"] = object_digest("unrelated-merge")
+    wrong_merge_attempt = MutationAttempt(
+        attempt_id="phase-four-staging-wrong-merge",
+        idempotency_key="stage:run-65:phase-four-wrong-merge",
+        subject_digest=SHA,
+        action="deploy_staging",
+        step_plan_digest=mutation_subject_digest("deploy_staging", wrong_merge),
+        status="PLANNED",
+    )
+    with pytest.raises(TransitionDeniedError, match="exact integrated merge"):
+        prejournal(cp, wrong_merge_attempt, evidence=wrong_merge)
+
     attempt = MutationAttempt(
         attempt_id="phase-four-staging",
         idempotency_key="stage:run-65:phase-four",

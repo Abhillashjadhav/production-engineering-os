@@ -4076,6 +4076,14 @@ class LifecycleControlPlane:
         except Exception:
             return False
 
+    def _staging_merge_binding_valid(self, evidence: Mapping[str, str]) -> bool:
+        merge_binding = self._latest_merge_binding()
+        return bool(
+            merge_binding is not None
+            and evidence.get("merge_digest")
+            == merge_binding.evidence_refs.get("merge_result_digest")
+        )
+
     def transition(
         self, target: LifecycleState, context: TransitionContext, *, reason: str
     ) -> LifecycleEvent:
@@ -5383,11 +5391,13 @@ class LifecycleControlPlane:
                         evidence,
                         schemas=self._policy.mutation_subject_fields,
                     )
+                    or not self._staging_merge_binding_valid(evidence)
                     or not self._staging_bundle_valid(evidence)
                 )
             ):
                 raise TransitionDeniedError(
-                    "staging mutation release requires a valid sealed exact-subject bundle"
+                    "staging mutation release requires the exact integrated merge and a valid "
+                    "sealed exact-subject bundle"
                 )
             self._register_mutation_locked(attempt)
         return attempt
