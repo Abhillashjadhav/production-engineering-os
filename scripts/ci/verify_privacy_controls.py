@@ -126,10 +126,10 @@ def _verify(candidate_sha: str, policy_path: Path) -> dict[str, Any]:
         )
 
         runs_root = root / "runs"
-        expired = runs_root / "expired-run" / "events.jsonl"
+        expired = runs_root / "expired-run" / "lifecycle-events.jsonl"
         current_run = runs_root / "current-run"
         expired.parent.mkdir(parents=True)
-        expired.write_text("{}")
+        expired.write_text('{"target":"COMPLETED"}\n')
         old_time = (now - timedelta(days=retention_days + 1)).timestamp()
         os.utime(expired, (old_time, old_time))
         budget = BudgetPolicy(

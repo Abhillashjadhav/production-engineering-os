@@ -136,7 +136,7 @@ def _observed_architecture_edges(
             {
                 path.name
                 for path in product_root.iterdir()
-                if path.is_dir() and (path / "__init__.py").is_file()
+                if path.is_dir() and any(source.is_file() for source in path.rglob("*.py"))
             }
             | {path.stem for path in product_root.glob("*.py")}
         )
@@ -181,15 +181,20 @@ def _target_layer(module: str, product_packages: frozenset[str]) -> str | None:
     return None
 
 
-def _dynamic_import_call(node: ast.Call) -> bool:
+def _dynamic_import_call(
+    node: ast.Call,
+    *,
+    importlib_aliases: set[str],
+    import_module_aliases: set[str],
+) -> bool:
     return bool(
         (
             isinstance(node.func, ast.Attribute)
             and isinstance(node.func.value, ast.Name)
-            and node.func.value.id == "importlib"
+            and node.func.value.id in importlib_aliases
             and node.func.attr == "import_module"
         )
-        or (isinstance(node.func, ast.Name) and node.func.id in {"import_module", "__import__"})
+        or (isinstance(node.func, ast.Name) and node.func.id in import_module_aliases)
     )
 
 
@@ -205,6 +210,17 @@ def _collect_architecture_edges(
 ) -> None:
     source_lines = path.read_text().splitlines()
     tree = ast.parse("\n".join(source_lines) + "\n", filename=str(path))
+    importlib_aliases = {"importlib"}
+    import_module_aliases = {"import_module", "__import__"}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "importlib":
+                    importlib_aliases.add(alias.asname or alias.name)
+        elif isinstance(node, ast.ImportFrom) and node.module == "importlib":
+            for alias in node.names:
+                if alias.name == "import_module":
+                    import_module_aliases.add(alias.asname or alias.name)
     for node in ast.walk(tree):
         modules: list[str] = []
         if isinstance(node, ast.Import):
@@ -218,7 +234,11 @@ def _collect_architecture_edges(
             modules = (
                 [resolved] if node.module else [f"{resolved}.{alias.name}" for alias in node.names]
             )
-        elif isinstance(node, ast.Call) and _dynamic_import_call(node):
+        elif isinstance(node, ast.Call) and _dynamic_import_call(
+            node,
+            importlib_aliases=importlib_aliases,
+            import_module_aliases=import_module_aliases,
+        ):
             if (
                 node.args
                 and isinstance(node.args[0], ast.Constant)
