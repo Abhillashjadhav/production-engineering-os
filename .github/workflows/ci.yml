@@ -21,9 +21,9 @@ jobs:
           python-version: "3.11"
       - run: pip install --require-hashes -r requirements.lock
       - name: ruff format
-        run: ruff format --check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py scripts/ci/verify_repository_secrets.py
+        run: ruff format --check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/verify_repository_secrets.py
       - name: ruff lint
-        run: ruff check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py scripts/ci/verify_repository_secrets.py
+        run: ruff check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/verify_repository_secrets.py
 
   types:
     runs-on: ubuntu-latest
@@ -36,7 +36,7 @@ jobs:
           pip install --require-hashes -r requirements.lock
           pip install --no-deps -e .
       - name: mypy --strict
-        run: mypy --strict src/pmpe scripts/ci/classify_frontend_ci.py scripts/ci/verify_repository_secrets.py
+        run: mypy --strict src/pmpe scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/verify_repository_secrets.py
 
   tests:
     runs-on: ubuntu-latest
@@ -75,7 +75,9 @@ jobs:
       - name: bandit full report (informational)
         run: bandit -r src scripts/ci -q || true
       - name: dependency audit (core lockfile blocks on any known vulnerability)
-        run: pip-audit --cache-dir /tmp/pip-audit --require-hashes -r requirements.lock --strict
+        run: |
+          mkdir -p /tmp/security-profile
+          pip-audit +            --cache-dir /tmp/pip-audit +            --require-hashes +            -r requirements.lock +            --strict +            --format json +            --output /tmp/security-profile/pip-audit.json
       - name: no-ignore exact-SHA secret gate
         env:
           CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -87,12 +89,20 @@ jobs:
             --output /tmp/security-profile/secret-report.json
       - name: deterministic security profile contract (all required gates)
         run: pytest tests/unit/test_security_profiles.py -q
-      - name: retain exact-SHA secret evidence
+      - name: composed security profile against exact candidate
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python scripts/ci/evaluate_security_profile.py +            --candidate-sha "$CANDIDATE_SHA" +            --audit-evidence /tmp/security-profile/pip-audit.json +            --output /tmp/security-profile/composed-security-profile.json
+      - name: retain exact-SHA security evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: exact-sha-secret-evidence
-          path: /tmp/security-profile/secret-report.json
+          path: |
+            /tmp/security-profile/secret-report.json
+            /tmp/security-profile/pip-audit.json
+            /tmp/security-profile/composed-security-profile.json
           retention-days: 7
           if-no-files-found: error
 

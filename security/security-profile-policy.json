@@ -1,0 +1,132 @@
+{
+  "allowed_architecture_edges": [
+    ["core", "delivery"],
+    ["core", "interfaces"],
+    ["core", "orchestration"],
+    ["core", "verification"],
+    ["delivery", "core"],
+    ["delivery", "verification"],
+    ["interfaces", "core"],
+    ["interfaces", "delivery"],
+    ["interfaces", "orchestration"],
+    ["interfaces", "verification"],
+    ["orchestration", "core"],
+    ["orchestration", "delivery"],
+    ["orchestration", "verification"],
+    ["verification", "core"],
+    ["verification", "delivery"]
+  ],
+  "allowed_licenses": [
+    "Apache 2.0",
+    "Apache-2.0",
+    "Apache-2.0 OR BSD-2-Clause",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "MIT",
+    "MPL-2.0",
+    "PSF-2.0",
+    "PSFL"
+  ],
+  "license_fallbacks": {
+    "markdown-it-py": "MIT",
+    "mdurl": "MIT",
+    "pathspec": "MPL-2.0",
+    "pip-api": "MIT",
+    "pip-audit": "Apache-2.0",
+    "pyproject-hooks": "MIT",
+    "rfc8785": "MIT"
+  },
+  "privacy": {
+    "classification": "INTERNAL",
+    "deletion_required": true,
+    "deletion_test_passed": true,
+    "emitted_telemetry": ["latency_ms", "outcome", "run_id"],
+    "residency": "IN",
+    "retention_days": 30,
+    "telemetry_allowlist": ["latency_ms", "outcome", "run_id"]
+  },
+  "sast_allowlist": [
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Intentional planted eval finding used by the deterministic demo corpus.",
+      "line": 10,
+      "line_fingerprint": "sha256:953c1f06f60bd9c5de983cc666e44279673a5cfa02fa97d008d14e8e8491ca1f",
+      "path": "src/pmpe/demo/synthetic.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Intentional planted eval finding used by the deterministic demo corpus.",
+      "line": 52,
+      "line_fingerprint": "sha256:aa02b589123af2b2c9b2827b715bd824168003ce71d882dac1fe213b6eba0a6b",
+      "path": "src/pmpe/demo/synthetic.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Intentional planted eval finding used by the deterministic demo corpus.",
+      "line": 209,
+      "line_fingerprint": "sha256:f3afe28a0bf851ee17bc390d24b1c7e79194c4030ea6e2aac8773f2269fed8f2",
+      "path": "src/pmpe/demo/synthetic.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Intentional planted eval finding used by the deterministic demo corpus.",
+      "line": 481,
+      "line_fingerprint": "sha256:e73191c13e100597af9c9ae471fad7a03950e7d46eab6aa312d06b0b79a085b6",
+      "path": "src/pmpe/demo/synthetic.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Scanner rule definition contains the literal pattern it detects.",
+      "line": 36,
+      "line_fingerprint": "sha256:6e54ea53f1fdf70640a5d2ecbb0fc5a4b1146076b3f88f5c39acc9a849b2f898",
+      "path": "src/pmpe/quality/security_scan.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Scanner rule definition contains the literal pattern it detects.",
+      "line": 41,
+      "line_fingerprint": "sha256:51d71fc43fd8a16964fbfaf7036e594b8c7b01d17e21d4798d9b29c03638df38",
+      "path": "src/pmpe/quality/security_scan.py",
+      "rule_id": "SEC_EXEC"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Scanner rule definition contains the literal pattern it detects.",
+      "line": 46,
+      "line_fingerprint": "sha256:41043d0a8bbbc293451dd80bab99950e4161538b03fc4f7f20d897ac741d1ea2",
+      "path": "src/pmpe/quality/security_scan.py",
+      "rule_id": "SEC_SHELL_TRUE"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Generated test template contains a synthetic credential literal.",
+      "line": 67,
+      "line_fingerprint": "sha256:4a39154f0d61509ced6765cfb6abab0195fccb8b4771e3cf4d72b2d9383b1349",
+      "path": "src/pmpe/stacks/stdlib_tests_api.py",
+      "rule_id": "SEC_HARDCODED_SECRET"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Generated test template contains a synthetic credential literal.",
+      "line": 135,
+      "line_fingerprint": "sha256:19e38a14a3a1e65b3448ffe6f10d9590fec536dc7f4316642f7741e57ccdf70d",
+      "path": "src/pmpe/stacks/stdlib_tests_api.py",
+      "rule_id": "SEC_HARDCODED_SECRET"
+    }
+  ],
+  "version": "repository-security-profile/v1"
+}

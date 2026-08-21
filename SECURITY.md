@@ -36,7 +36,9 @@ named and expiring. Its redacted, candidate-bound report is retained as a CI art
 The security profile control plane in `pmpe.quality.security_profiles` composes secret,
 SAST, SCA, license/pinning, SBOM, privacy, and architecture-boundary evidence into one
 canonical exact-candidate report. Tool/ruleset identity and authenticated advisory
-freshness are mandatory. Critical/high findings are non-waivable; medium/low waivers
+freshness are mandatory and freshness is rechecked at final disposition. The
+repository root must be externally authenticated as the clean checkout at the report's
+candidate SHA. Critical/high findings are non-waivable; medium/low waivers
 must be named, scoped, authenticated, expiring, and bound to the exact candidate and
 policy. Dependency inventory, product privacy intent, privacy-verifier results, and
 architecture observations require trusted-authority attestations over their payload
@@ -45,8 +47,14 @@ come only from the digest-validated gate policy. The report converts directly to
 candidate-review `required_checks` EvidenceBundle item without inventing authentication
 evidence.
 
-CI runs `bandit -r src scripts/ci` and the complete deterministic security-profile
-contract suite. Accepted, reviewed Bandit findings:
+CI runs `bandit -r src scripts/ci`, the complete deterministic security-profile
+contract suite, and `scripts/ci/evaluate_security_profile.py` against the checked-out
+candidate using the blocking pip-audit result. The composed report and its input
+evidence are retained as exact-SHA artifacts. Intentional built-in-scanner fixture
+matches use only exact path/line/rule/source-fingerprint entries with owner, rationale,
+and expiry from `security/security-profile-policy.json`.
+
+Accepted, reviewed Bandit findings:
 
 | Finding | Location | Why accepted |
 |---|---|---|

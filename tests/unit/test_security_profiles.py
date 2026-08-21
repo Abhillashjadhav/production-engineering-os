@@ -114,6 +114,7 @@ def policy(**changes: object) -> SecurityGatePolicy:
         allowed_licenses=("MIT", "Apache-2.0", "BSD-3-Clause"),
         scan_exclusions=(".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache"),
         secret_allowlist=(),
+        sast_allowlist=(),
     )
     unsigned = replace(base, **changes)
     payload = unsigned.as_dict()
@@ -549,7 +550,7 @@ def test_ci_runs_composed_profile_against_exact_candidate() -> None:
     workflow = (REPOSITORY_ROOT / ".github/workflows/ci.yml").read_text()
 
     assert "python scripts/ci/evaluate_security_profile.py" in workflow
-    assert "--candidate-sha \"$CANDIDATE_SHA\"" in workflow
+    assert '--candidate-sha "$CANDIDATE_SHA"' in workflow
     assert "composed-security-profile.json" in workflow
 
 

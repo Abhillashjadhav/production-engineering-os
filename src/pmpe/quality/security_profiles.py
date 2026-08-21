@@ -76,6 +76,7 @@ _SECRET_PATTERNS = (
 AdvisoryAuthenticator = Callable[[str, str, object, str], bool]
 WaiverAuthenticator = Callable[[str, str, object, str], bool]
 ProfileAuthenticator = Callable[[str, str, object, str], bool]
+RepositoryAuthenticator = Callable[[Path, str], bool]
 TrustedClock = Callable[[], datetime]
 
 
@@ -102,6 +103,17 @@ class SecretAllowlistEntry:
 
 
 @dataclass(frozen=True)
+class SastAllowlistEntry:
+    path: str
+    line: int
+    rule_id: str
+    line_fingerprint: str
+    justification: str
+    approved_by: str
+    expires_at: str
+
+
+@dataclass(frozen=True)
 class SecurityGatePolicy:
     version: str
     policy_digest: str
@@ -116,6 +128,7 @@ class SecurityGatePolicy:
     allowed_licenses: tuple[str, ...]
     scan_exclusions: tuple[str, ...]
     secret_allowlist: tuple[SecretAllowlistEntry, ...]
+    sast_allowlist: tuple[SastAllowlistEntry, ...]
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -124,6 +137,13 @@ class SecurityGatePolicy:
             "policy_digest": self.policy_digest,
             "required_profiles": list(self.required_profiles),
             "scan_exclusions": list(self.scan_exclusions),
+            "sast_allowlist": [
+                asdict(item)
+                for item in sorted(
+                    self.sast_allowlist,
+                    key=lambda value: (value.path, value.line, value.rule_id),
+                )
+            ],
             "secret_allowlist": [
                 asdict(item)
                 for item in sorted(
@@ -320,6 +340,10 @@ def secret_fingerprint(value: str) -> str:
     return canonical_digest({"secret_value": value})
 
 
+def sast_line_fingerprint(value: str) -> str:
+    return canonical_digest({"source_line": value})
+
+
 def _validate_scan_controls(
     exclusions: Sequence[str], allowlist: Sequence[SecretAllowlistEntry]
 ) -> None:
@@ -401,6 +425,21 @@ def validate_gate_policy(policy: SecurityGatePolicy) -> None:
     ):
         raise ValueError("trusted license allowlist is malformed")
     _validate_scan_controls(policy.scan_exclusions, policy.secret_allowlist)
+    for entry in policy.sast_allowlist:
+        candidate = Path(entry.path)
+        if (
+            not entry.path
+            or candidate.is_absolute()
+            or ".." in candidate.parts
+            or any(character in entry.path for character in "*?[]")
+            or not candidate.suffix
+        ):
+            raise ValueError("SAST allowlist must identify one exact file")
+        if entry.line <= 0 or not entry.rule_id or not _DIGEST.fullmatch(entry.line_fingerprint):
+            raise ValueError("SAST allowlist identity is malformed")
+        if not entry.justification.strip() or not entry.approved_by.strip():
+            raise ValueError("SAST allowlist requires reviewed justification")
+        _time(entry.expires_at)
     payload = policy.as_dict()
     claimed = payload.pop("policy_digest")
     if not _DIGEST.fullmatch(claimed) or claimed != canonical_digest(payload):
@@ -583,7 +622,13 @@ def scan_repository_secrets(
     )
 
 
-def _scan_sast(root: Path, subject_sha: str) -> tuple[NormalizedSecurityFinding, ...]:
+def _scan_sast(
+    root: Path,
+    subject_sha: str,
+    *,
+    allowlist: Sequence[SastAllowlistEntry],
+    now: datetime,
+) -> tuple[NormalizedSecurityFinding, ...]:
     normalized: list[NormalizedSecurityFinding] = []
     for item in scan_tree(root):
         path = Path(item.file)
@@ -591,6 +636,20 @@ def _scan_sast(root: Path, subject_sha: str) -> tuple[NormalizedSecurityFinding,
             relative = path.relative_to(root).as_posix()
         except ValueError:
             relative = path.as_posix()
+        try:
+            source_line = path.read_text(errors="replace").splitlines()[item.line - 1]
+        except (OSError, IndexError):
+            source_line = ""
+        fingerprint = sast_line_fingerprint(source_line)
+        if any(
+            entry.path == relative
+            and entry.line == item.line
+            and entry.rule_id == item.rule
+            and entry.line_fingerprint == fingerprint
+            and now <= _time(entry.expires_at)
+            for entry in allowlist
+        ):
+            continue
         severity = getattr(item.severity, "value", str(item.severity)).upper()
         normalized.append(
             _finding(
@@ -606,6 +665,39 @@ def _scan_sast(root: Path, subject_sha: str) -> tuple[NormalizedSecurityFinding,
             )
         )
     return tuple(normalized)
+
+
+def _sast_allowlist_expiry_findings(
+    allowlist: Sequence[SastAllowlistEntry],
+    *,
+    subject_sha: str,
+    initial_time: datetime,
+    final_time: datetime,
+) -> tuple[NormalizedSecurityFinding, ...]:
+    expired = tuple(
+        entry for entry in allowlist if initial_time <= _time(entry.expires_at) < final_time
+    )
+    return tuple(
+        _finding(
+            finding_id=f"SAST-ALLOWLIST-EXPIRED-{index:04d}",
+            category="SAST",
+            severity="HIGH",
+            rule_id="SAST_ALLOWLIST_EXPIRED_DURING_PROFILE",
+            path=entry.path,
+            line=entry.line,
+            message="An exact SAST false-positive allowlist entry expired during evaluation.",
+            subject_sha=subject_sha,
+            evidence={
+                "approved_by": entry.approved_by,
+                "expires_at": entry.expires_at,
+                "line_fingerprint": entry.line_fingerprint,
+                "path": entry.path,
+                "rule_id": entry.rule_id,
+                "line": entry.line,
+            },
+        )
+        for index, entry in enumerate(expired, start=1)
+    )
 
 
 def _advisory_failure(
@@ -630,7 +722,11 @@ def _evaluate_advisories(
     *,
     authenticator: AdvisoryAuthenticator | None,
     trusted_clock: TrustedClock,
-) -> tuple[tuple[NormalizedSecurityFinding, ...], tuple[str, ...]]:
+) -> tuple[
+    tuple[NormalizedSecurityFinding, ...],
+    tuple[str, ...],
+    tuple[tuple[str, datetime, datetime], ...],
+]:
     findings: list[NormalizedSecurityFinding] = []
     admitted_digests: list[str] = []
     by_source = {snapshot.source: snapshot for snapshot in subject.advisory_snapshots}
@@ -736,7 +832,35 @@ def _evaluate_advisories(
                 "Advisory source is not governed by the security policy.",
             )
         )
-    return tuple(findings), tuple(sorted(admitted_digests))
+    return (
+        tuple(findings),
+        tuple(sorted(admitted_digests)),
+        tuple(sorted(freshness_windows, key=lambda item: item[0])),
+    )
+
+
+def _advisory_final_freshness_findings(
+    freshness_windows: Sequence[tuple[str, datetime, datetime]],
+    *,
+    subject_sha: str,
+    policy: SecurityGatePolicy,
+    final_time: datetime,
+) -> tuple[NormalizedSecurityFinding, ...]:
+    findings: list[NormalizedSecurityFinding] = []
+    for source, fetched, expires in freshness_windows:
+        if not (
+            fetched <= final_time <= expires
+            and final_time - fetched <= timedelta(seconds=policy.advisory_max_age_seconds[source])
+        ):
+            findings.append(
+                _advisory_failure(
+                    subject_sha,
+                    source,
+                    "ADVISORY_STALE_AT_FINAL_DECISION",
+                    "Advisory intelligence was stale at final profile disposition.",
+                )
+            )
+    return tuple(findings)
 
 
 def _profile_evidence_payloads(subject: SecurityProfileInput) -> dict[str, object | None]:
@@ -1027,6 +1151,7 @@ def evaluate_security_profile(
     subject: SecurityProfileInput,
     policy: SecurityGatePolicy,
     *,
+    repository_authenticator: RepositoryAuthenticator | None,
     advisory_authenticator: AdvisoryAuthenticator | None,
     waiver_authenticator: WaiverAuthenticator | None,
     profile_authenticator: ProfileAuthenticator | None,
@@ -1037,6 +1162,15 @@ def evaluate_security_profile(
         raise ValueError("security profile candidate SHA is malformed")
     if not subject.repository_root.is_dir():
         raise ValueError("security profile repository root is unavailable")
+    try:
+        repository_is_exact = bool(
+            repository_authenticator is not None
+            and repository_authenticator(subject.repository_root, subject.candidate_sha)
+        )
+    except Exception:
+        repository_is_exact = False
+    if not repository_is_exact:
+        raise ValueError("security profile repository root is not the exact candidate")
     try:
         decision_time = trusted_clock()
         if decision_time.tzinfo is None:
@@ -1054,8 +1188,15 @@ def evaluate_security_profile(
             now=decision_time,
         )
     )
-    findings.extend(_scan_sast(subject.repository_root, subject.candidate_sha))
-    advisory_findings, admitted_advisories = _evaluate_advisories(
+    findings.extend(
+        _scan_sast(
+            subject.repository_root,
+            subject.candidate_sha,
+            allowlist=policy.sast_allowlist,
+            now=decision_time,
+        )
+    )
+    advisory_findings, admitted_advisories, advisory_freshness_windows = _evaluate_advisories(
         subject,
         policy,
         authenticator=advisory_authenticator,
@@ -1105,6 +1246,26 @@ def evaluate_security_profile(
     )
     findings.extend(final_allowlist_findings)
     for finding in final_allowlist_findings:
+        blocking.append(finding.digest)
+        blocked_profiles.add(_profile_for_finding(finding))
+    final_sast_allowlist_findings = _sast_allowlist_expiry_findings(
+        policy.sast_allowlist,
+        subject_sha=subject.candidate_sha,
+        initial_time=decision_time,
+        final_time=final_decision_time,
+    )
+    findings.extend(final_sast_allowlist_findings)
+    for finding in final_sast_allowlist_findings:
+        blocking.append(finding.digest)
+        blocked_profiles.add(_profile_for_finding(finding))
+    final_advisory_findings = _advisory_final_freshness_findings(
+        advisory_freshness_windows,
+        subject_sha=subject.candidate_sha,
+        policy=policy,
+        final_time=final_decision_time,
+    )
+    findings.extend(final_advisory_findings)
+    for finding in final_advisory_findings:
         blocking.append(finding.digest)
         blocked_profiles.add(_profile_for_finding(finding))
     for finding, expires_at in admitted_waivers:

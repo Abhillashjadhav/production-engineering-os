@@ -30,7 +30,8 @@ pass.
 7. Compose every required profile into one digest-bound report and EvidenceBundle
    item. Missing/unsupported gates are blocking.
 8. Pin CI verification tools; make core dependency audit and the complete profile
-   blocking.
+   blocking. Invoke the composed evaluator against the clean exact-SHA checkout and
+   retain its canonical report with the dependency-audit input.
 9. Run focused and full deterministic verification, independent exact-head review,
    finding disposition, ready revalidation, and protected merge.
 
@@ -46,6 +47,10 @@ pass.
 - A stale but refreshable snapshot enters fresh-verification-required; unavailable or
   unverifiable intelligence blocks without pretending to be a vulnerability pass.
 - Architecture policy version/digest changes invalidate the candidate profile.
+- The repository snapshot is authenticated independently before any local scan result
+  can claim the candidate SHA.
+- Advisory, secret-allowlist, SAST false-positive allowlist, and waiver authority is
+  rechecked at the single final disposition time.
 
 ## Rollback
 
