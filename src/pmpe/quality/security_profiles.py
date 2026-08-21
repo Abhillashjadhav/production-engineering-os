@@ -456,6 +456,38 @@ def _scan_secrets(
     return tuple(findings)
 
 
+def _allowlist_expiry_findings(
+    allowlist: Sequence[SecretAllowlistEntry],
+    *,
+    subject_sha: str,
+    initial_time: datetime,
+    final_time: datetime,
+) -> tuple[NormalizedSecurityFinding, ...]:
+    expired = tuple(
+        entry for entry in allowlist if initial_time <= _time(entry.expires_at) < final_time
+    )
+    return tuple(
+        _finding(
+            finding_id=f"SECRET-ALLOWLIST-EXPIRED-{index:04d}",
+            category="SECRET",
+            severity="CRITICAL",
+            rule_id="SECRET_ALLOWLIST_EXPIRED_DURING_SCAN",
+            path=entry.path,
+            line=entry.line,
+            message="A synthetic-secret allowlist entry expired during scanning.",
+            subject_sha=subject_sha,
+            evidence={
+                "approved_by": entry.approved_by,
+                "expires_at": entry.expires_at,
+                "fingerprint": entry.fingerprint,
+                "path": entry.path,
+                "line": entry.line,
+            },
+        )
+        for index, entry in enumerate(expired, start=1)
+    )
+
+
 def scan_repository_secrets(
     root: Path,
     *,
@@ -474,12 +506,24 @@ def scan_repository_secrets(
     now = trusted_clock()
     if now.tzinfo is None:
         raise ValueError("trusted secret scan clock must carry a timezone")
-    return _scan_secrets(
+    findings = _scan_secrets(
         root,
         subject_sha=candidate_sha,
         exclusions=exclusions,
         allowlist=allowlist,
         now=now,
+    )
+    final_time = trusted_clock()
+    if final_time.tzinfo is None:
+        raise ValueError("trusted secret scan clock must carry a timezone")
+    return (
+        *findings,
+        *_allowlist_expiry_findings(
+            allowlist,
+            subject_sha=candidate_sha,
+            initial_time=now,
+            final_time=final_time,
+        ),
     )
 
 
@@ -780,21 +824,24 @@ def _waiver_valid(
     subject: SecurityProfileInput,
     policy: SecurityGatePolicy,
     authenticator: WaiverAuthenticator | None,
-    now: datetime,
+    trusted_clock: TrustedClock,
 ) -> bool:
     authority = policy.trusted_waiver_authorities.get(waiver.approved_by, "")
     if finding.severity.upper() not in {"MEDIUM", "LOW"}:
         return False
     try:
-        return bool(
-            waiver.finding_digest == finding.digest
+        initial_time = trusted_clock()
+        expires_at = _time(waiver.expires_at)
+        initially_valid = bool(
+            initial_time.tzinfo is not None
+            and waiver.finding_digest == finding.digest
             and waiver.severity.upper() == finding.severity.upper()
             and waiver.candidate_sha == subject.candidate_sha
             and waiver.policy_digest == policy.policy_digest
             and _DIGEST.fullmatch(waiver.scope_digest)
             and authority
             and waiver.authority_digest == authority
-            and now <= _time(waiver.expires_at)
+            and initial_time <= expires_at
             and _DIGEST.fullmatch(waiver.authentication_evidence_digest)
             and authenticator is not None
             and authenticator(
@@ -804,6 +851,8 @@ def _waiver_valid(
                 waiver.authentication_evidence_digest,
             )
         )
+        final_time = trusted_clock()
+        return bool(initially_valid and final_time.tzinfo is not None and final_time <= expires_at)
     except Exception:
         return False
 
@@ -850,6 +899,17 @@ def evaluate_security_profile(
             now=decision_time,
         )
     )
+    post_secret_time = trusted_clock()
+    if post_secret_time.tzinfo is None:
+        raise ValueError("trusted security decision clock is unavailable")
+    findings.extend(
+        _allowlist_expiry_findings(
+            policy.secret_allowlist,
+            subject_sha=subject.candidate_sha,
+            initial_time=decision_time,
+            final_time=post_secret_time,
+        )
+    )
     findings.extend(_scan_sast(subject.repository_root, subject.candidate_sha))
     advisory_findings, admitted_advisories = _evaluate_advisories(
         subject,
@@ -875,7 +935,7 @@ def evaluate_security_profile(
                 subject=subject,
                 policy=policy,
                 authenticator=waiver_authenticator,
-                now=trusted_clock(),
+                trusted_clock=trusted_clock,
             )
         if not waived:
             blocking.append(finding.digest)

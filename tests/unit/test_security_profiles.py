@@ -280,6 +280,39 @@ def test_synthetic_secret_allowlist_is_exact_reviewed_and_mutation_safe(tmp_path
         validate_gate_policy(policy(secret_allowlist=(replace(allow, path="tests/fixtures"),)))
 
 
+def test_secret_allowlist_expiry_is_rechecked_after_scanning(tmp_path: Path) -> None:
+    value = "ghp_" + "E" * 36
+    target = tmp_path / "tests" / "synthetic.txt"
+    target.parent.mkdir()
+    target.write_text(value)
+    expires = NOW + timedelta(seconds=1)
+    allow = SecretAllowlistEntry(
+        path="tests/synthetic.txt",
+        line=1,
+        fingerprint=secret_fingerprint(value),
+        justification="Synthetic scanner fixture for expiry regression.",
+        approved_by="security-owner",
+        expires_at=expires.isoformat(),
+    )
+
+    class Clock:
+        calls = 0
+
+        @classmethod
+        def now(cls) -> datetime:
+            cls.calls += 1
+            return NOW if cls.calls == 1 else expires + timedelta(seconds=1)
+
+    findings = scan_repository_secrets(
+        tmp_path,
+        candidate_sha=SHA,
+        allowlist=(allow,),
+        trusted_clock=Clock.now,
+    )
+
+    assert any(item.rule_id == "SECRET_ALLOWLIST_EXPIRED_DURING_SCAN" for item in findings)
+
+
 @pytest.mark.parametrize(
     "change",
     (
@@ -409,6 +442,55 @@ def test_medium_waiver_requires_exact_scope_policy_expiry_and_authentication(
             advisory_snapshots=(advisory(findings=(finding,)),),
             waivers=(invalid,),
         ).blocked
+
+
+def test_waiver_expiry_is_rechecked_after_authentication(tmp_path: Path) -> None:
+    finding = security_finding("MEDIUM")
+    expires = NOW + timedelta(seconds=1)
+    candidate_waiver = waiver(finding)
+    shell = replace(
+        candidate_waiver,
+        expires_at=expires.isoformat(),
+        authentication_evidence_digest="",
+    )
+    candidate_waiver = replace(
+        shell,
+        authentication_evidence_digest=proof(
+            "waiver",
+            shell.approved_by,
+            shell.authority_digest,
+            waiver_authentication_payload(shell),
+        ),
+    )
+
+    class Clock:
+        current = NOW
+
+        @classmethod
+        def now(cls) -> datetime:
+            return cls.current
+
+    def expiring_authenticator(
+        identity: str, authority: str, payload: object, evidence: str
+    ) -> bool:
+        valid = authenticate("waiver")(identity, authority, payload, evidence)
+        Clock.current = expires + timedelta(seconds=1)
+        return valid
+
+    report = evaluate_security_profile(
+        profile_input(
+            tmp_path,
+            advisory_snapshots=(advisory(findings=(finding,)),),
+            waivers=(candidate_waiver,),
+        ),
+        policy(),
+        advisory_authenticator=authenticate("advisory"),
+        waiver_authenticator=expiring_authenticator,
+        trusted_clock=Clock.now,
+    )
+
+    assert report.blocked
+    assert finding.digest in report.blocking_finding_digests
 
 
 @pytest.mark.parametrize(
