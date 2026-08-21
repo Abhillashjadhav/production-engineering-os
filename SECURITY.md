@@ -20,9 +20,29 @@
   authenticated, digest-bound approval evidence admitted by Phase Zero. Historical
   V1 fixture approvals cannot authorize shipped execution.
 
-## CI scanning
+## CI scanning and candidate profiles
 
-CI runs `bandit -r src` and `pip-audit`. Accepted, reviewed findings:
+CI installs the root Python dependency/toolchain graph from the hash-locked
+`requirements.lock`. The core `pip-audit --strict --require-hashes` result is blocking;
+missing advisory intelligence or dependency collection is a failure, never a warning.
+GitHub Actions are pinned to immutable commit SHAs.
+
+Every exact PR head also runs the committed no-ignore secret gate over source, config,
+documentation, tests, evaluations, generated inputs, durable state, ignored run
+artifacts, and tracked lockfiles. Only the path/line/fingerprint entries in
+`security/secret-allowlist.json` may suppress synthetic fixtures; those entries are
+named and expiring. Its redacted, candidate-bound report is retained as a CI artifact.
+
+The security profile control plane in `pmpe.quality.security_profiles` composes secret,
+SAST, SCA, license/pinning, SBOM, privacy, and architecture-boundary evidence into one
+canonical exact-candidate report. Tool/ruleset identity and authenticated advisory
+freshness are mandatory. Critical/high findings are non-waivable; medium/low waivers
+must be named, scoped, authenticated, expiring, and bound to the exact candidate and
+policy. The report converts directly to the candidate-review `required_checks`
+EvidenceBundle item without inventing authentication evidence.
+
+CI runs `bandit -r src scripts/ci` and the complete deterministic security-profile
+contract suite. Accepted, reviewed Bandit findings:
 
 | Finding | Location | Why accepted |
 |---|---|---|
@@ -30,7 +50,7 @@ CI runs `bandit -r src` and `pip-audit`. Accepted, reviewed findings:
 | B310 (urlopen audit) | deployment/local.py | URL is always `http://127.0.0.1:<port>` built locally |
 | B608 (SQL string build) | stacks/stdlib_code.py | Flags the *template strings*; identifiers are validator-constrained at ingest, values are parameterized at runtime |
 
-CI fails on HIGH-severity bandit findings; the table above contains none.
+CI fails on HIGH-severity Bandit findings; the table above contains none.
 
 ## Reporting
 

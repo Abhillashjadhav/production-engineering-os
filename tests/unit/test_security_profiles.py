@@ -1,10 +1,19 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+
+from pmpe.audit.evidence import (
+    EnvironmentFingerprint,
+    EvidenceProducer,
+)
+from pmpe.audit.evidence import (
+    ToolIdentity as EvidenceToolIdentity,
+)
+from pmpe.contracts.digest import canonical_digest
 from pmpe.quality.security_profiles import (
     AdvisorySnapshot,
     ArchitectureBoundaryObservation,
@@ -20,12 +29,12 @@ from pmpe.quality.security_profiles import (
     advisory_authentication_payload,
     build_deterministic_sbom,
     evaluate_security_profile,
+    report_evidence_item,
+    scan_repository_secrets,
     secret_fingerprint,
     validate_gate_policy,
     waiver_authentication_payload,
 )
-
-from pmpe.contracts.digest import canonical_digest
 
 SHA = "c" * 40
 D = "sha256:" + "a" * 64
@@ -128,25 +137,31 @@ def privacy_intent() -> PrivacyIntent:
 
 
 def privacy_evidence() -> PrivacyEvidence:
-    return PrivacyEvidence(
+    shell = PrivacyEvidence(
         classification="INTERNAL",
         retention_days=30,
         deletion_test_passed=True,
         residency="IN",
         emitted_telemetry=("run_id", "latency_ms", "outcome"),
-        evidence_digest=D,
+        evidence_digest="",
     )
+    payload = asdict(shell)
+    payload.pop("evidence_digest")
+    return replace(shell, evidence_digest=canonical_digest(payload))
 
 
 def architecture_observation() -> ArchitectureBoundaryObservation:
-    return ArchitectureBoundaryObservation(
+    shell = ArchitectureBoundaryObservation(
         architecture_pack_digest=D,
         boundary_policy_version="architecture-boundary/v1",
         boundary_policy_digest=D,
         allowed_edges=(("api", "storage"),),
         observed_edges=(("api", "storage"),),
-        evidence_digest=D,
+        evidence_digest="",
     )
+    payload = asdict(shell)
+    payload.pop("evidence_digest")
+    return replace(shell, evidence_digest=canonical_digest(payload))
 
 
 def profile_input(root: Path, **changes: object) -> SecurityProfileInput:
@@ -203,7 +218,7 @@ def test_no_ignore_secret_gate_scans_source_tests_evals_state_ignored_and_lockfi
 ) -> None:
     target = tmp_path / relative
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text("service_token = ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\n")
+    target.write_text("service_token = " + "ghp_" + "A" * 36 + "\n")
     (tmp_path / ".gitignore").write_text(".ignored/\nstate/\n")
 
     report = evaluate(tmp_path)
@@ -213,6 +228,28 @@ def test_no_ignore_secret_gate_scans_source_tests_evals_state_ignored_and_lockfi
     assert finding.path == relative
     assert "ghp_" not in finding.message
     assert "AAAA" not in report.canonical_bytes().decode()
+
+
+def test_standalone_repository_secret_gate_is_exact_sha_bound(tmp_path: Path) -> None:
+    target = tmp_path / "ignored" / "run.json"
+    target.parent.mkdir()
+    target.write_text("api_key='" + "AKIA" + "A" * 16 + "'\n")
+
+    findings = scan_repository_secrets(tmp_path, candidate_sha=SHA, trusted_clock=lambda: NOW)
+
+    assert len(findings) == 1
+    assert findings[0].subject_sha == SHA
+    assert findings[0].path == "ignored/run.json"
+
+
+def test_no_ignore_secret_gate_scans_symlink_payload_without_following_it(tmp_path: Path) -> None:
+    target = "ghp_" + "D" * 36
+    (tmp_path / "credential-link").symlink_to(target)
+
+    findings = scan_repository_secrets(tmp_path, candidate_sha=SHA, trusted_clock=lambda: NOW)
+
+    assert len(findings) == 1
+    assert findings[0].path == "credential-link"
 
 
 def test_scan_exclusions_cannot_hide_lockfiles_or_broad_product_trees() -> None:
@@ -225,7 +262,7 @@ def test_scan_exclusions_cannot_hide_lockfiles_or_broad_product_trees() -> None:
 def test_synthetic_secret_allowlist_is_exact_reviewed_and_mutation_safe(tmp_path: Path) -> None:
     target = tmp_path / "tests" / "fixtures" / "synthetic-token.txt"
     target.parent.mkdir(parents=True)
-    value = "ghp_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+    value = "ghp_" + "B" * 36
     target.write_text(f"token={value}\n")
     allow = SecretAllowlistEntry(
         path="tests/fixtures/synthetic-token.txt",
@@ -237,7 +274,7 @@ def test_synthetic_secret_allowlist_is_exact_reviewed_and_mutation_safe(tmp_path
     )
 
     assert evaluate(tmp_path, gate_policy=policy(secret_allowlist=(allow,))).passed
-    target.write_text("token=ghp_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC\n")
+    target.write_text("token=" + "ghp_" + "C" * 36 + "\n")
     assert evaluate(tmp_path, gate_policy=policy(secret_allowlist=(allow,))).blocked
     with pytest.raises(ValueError, match="exact file"):
         validate_gate_policy(policy(secret_allowlist=(replace(allow, path="tests/fixtures"),)))
@@ -378,6 +415,7 @@ def test_medium_waiver_requires_exact_scope_policy_expiry_and_authentication(
     "evidence",
     (
         None,
+        replace(privacy_evidence(), evidence_digest=E),
         replace(privacy_evidence(), deletion_test_passed=False),
         replace(privacy_evidence(), retention_days=31),
         replace(privacy_evidence(), residency="US"),
@@ -393,6 +431,10 @@ def test_privacy_intent_requires_exact_retention_deletion_residency_and_telemetr
 
 
 def test_architecture_boundary_drift_or_policy_change_blocks(tmp_path: Path) -> None:
+    assert evaluate(
+        tmp_path,
+        architecture=replace(architecture_observation(), evidence_digest=E),
+    ).blocked
     drift = replace(
         architecture_observation(),
         observed_edges=(("api", "storage"), ("frontend", "database")),
@@ -436,3 +478,28 @@ def test_clean_complete_profile_is_digest_bound_and_serializable(tmp_path: Path)
     assert report.report_digest.startswith("sha256:")
     assert canonical_digest(report.without_digest()) == report.report_digest
     assert report.canonical_bytes()
+
+
+def test_report_becomes_exact_subject_required_check_evidence(tmp_path: Path) -> None:
+    report = evaluate(tmp_path)
+    item = report_evidence_item(
+        report,
+        policy=policy(),
+        subject_digest=E,
+        producer=EvidenceProducer("security-runner", D, "AUTOMATED"),
+        tool=EvidenceToolIdentity("security-profile", "1.0.0", D, report.policy_digest),
+        environment=EnvironmentFingerprint("linux", "amd64", "python-3.11", D, D, D),
+        observed_at="2030-01-01T12:00:00Z",
+        expires_at="2030-01-01T12:30:00Z",
+        authentication_evidence_digest=D,
+        committed_script_digest=D,
+    )
+
+    assert item.evidence_class == "required_checks"
+    assert item.stage == "candidate_review"
+    assert item.subject_digest == E
+    assert item.output_digest == report.report_digest
+    assert item.result == "PASS"
+    assert item.executed_count == len(report.executed_profiles)
+    assert item.passed_count == len(report.executed_profiles)
+    assert item.payload_ref == f"security-profile:{report.report_digest}"

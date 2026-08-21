@@ -77,5 +77,5 @@ user journey (create task → list → complete) passes over real HTTP.
 
 format (ruff format --check), lint (ruff check), types (mypy --strict on `src/pmpe`),
 unit+integration+e2e (pytest), security (bandit -r src + built-in scanner self-test),
-dependency audit (pip-audit, non-blocking warn in V1), build (`pip install -e .` +
+dependency audit (hash-locked `pip-audit --strict`, blocking), build (`pip install -e .` +
 `pmpe validate examples/taskflow_mvp_spec.yaml` smoke).
