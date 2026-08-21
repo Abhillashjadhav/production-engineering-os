@@ -18,7 +18,7 @@ import time
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field, replace
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
@@ -28,6 +28,7 @@ from pmpe.domain.serialize import atomic_write_json
 
 EvidenceVerifier = Callable[[str, str, Mapping[str, Any], str], bool]
 BundleVerifier = Callable[[str, Mapping[str, str]], bool]
+_MAX_MUTATION_AUTHORIZATION_LIFETIME = timedelta(minutes=5)
 
 
 class TransitionDeniedError(RuntimeError):
@@ -381,6 +382,7 @@ class MutationAuthorization:
     step_plan_digest: str
     steps: tuple[str, ...]
     observed_at: str
+    expires_at: str
     authentication_evidence_digest: str
 
 
@@ -3184,7 +3186,20 @@ class LifecycleControlPlane:
             "step_plan_digest": authorization.step_plan_digest,
             "steps": list(authorization.steps),
             "observed_at": authorization.observed_at,
+            "expires_at": authorization.expires_at,
         }
+        try:
+            observed_at = datetime.fromisoformat(authorization.observed_at.replace("Z", "+00:00"))
+            expires_at = datetime.fromisoformat(authorization.expires_at.replace("Z", "+00:00"))
+            if observed_at.tzinfo is None or expires_at.tzinfo is None:
+                raise ValueError("mutation authorization timestamps require a timezone")
+            release_time = datetime.now(UTC)
+            temporally_valid = bool(
+                observed_at <= release_time <= expires_at
+                and expires_at - observed_at <= _MAX_MUTATION_AUTHORIZATION_LIFETIME
+            )
+        except ValueError:
+            temporally_valid = False
         return bool(
             authorization.subject_digest == self.subject_digest == attempt.subject_digest
             and authorization.source_state is self.state
@@ -3193,6 +3208,7 @@ class LifecycleControlPlane:
             and authorization.idempotency_key == attempt.idempotency_key
             and authorization.step_plan_digest == attempt.step_plan_digest
             and authorization.steps == attempt.steps
+            and temporally_valid
             and self.trust_policy.mutation_authorizers.get(authorization.authorizer_id)
             == authorization.authority_digest
             and self._verify_external_evidence(
@@ -5457,7 +5473,8 @@ class LifecycleControlPlane:
                         )
                         or not self._merge_admission_readiness_binding_valid(evidence)
                         or not self._merge_admission_bundle_valid(
-                            evidence, as_of=authorization.observed_at
+                            evidence,
+                            as_of=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
                         )
                     )
                 )

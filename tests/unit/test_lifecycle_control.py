@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from dataclasses import asdict, fields, replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -350,6 +351,9 @@ def control_plane(
 def mutation_authorization(
     cp: LifecycleControlPlane, attempt: MutationAttempt
 ) -> MutationAuthorization:
+    observed = datetime.now(UTC).replace(microsecond=0)
+    observed_at = observed.isoformat().replace("+00:00", "Z")
+    expires_at = (observed + timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
     body = {
         "authorizer_id": "mutation-authorizer",
         "authority_digest": SHA,
@@ -360,7 +364,8 @@ def mutation_authorization(
         "idempotency_key": attempt.idempotency_key,
         "step_plan_digest": attempt.step_plan_digest,
         "steps": list(attempt.steps),
-        "observed_at": "2026-08-02T00:01:00Z",
+        "observed_at": observed_at,
+        "expires_at": expires_at,
     }
     return MutationAuthorization(
         authorizer_id="mutation-authorizer",
@@ -372,7 +377,8 @@ def mutation_authorization(
         idempotency_key=attempt.idempotency_key,
         step_plan_digest=attempt.step_plan_digest,
         steps=attempt.steps,
-        observed_at="2026-08-02T00:01:00Z",
+        observed_at=observed_at,
+        expires_at=expires_at,
         authentication_evidence_digest=external_proof("mutation-authorizer", SHA, body),
     )
 
@@ -4383,7 +4389,7 @@ def test_phase_four_merge_keeps_advisory_and_post_ready_formal_review_distinct(
         return (
             digest == merge_admission_bundle
             and bindings.get("profile") == "merge_admission"
-            and bindings.get("as_of") == "2026-08-02T00:01:00Z"
+            and bool(bindings.get("as_of"))
         )
 
     cp = control_plane(
@@ -4557,14 +4563,17 @@ def test_phase_four_merge_keeps_advisory_and_post_ready_formal_review_distinct(
 
 def test_phase_four_merge_revalidates_bundle_after_prejournal(tmp_path: Path) -> None:
     bundle_available = True
+    verification_calls = 0
     merge_admission_bundle = object_digest("expiring-merge-admission-profile")
 
     def verify_bundle(digest: str, bindings: Mapping[str, str]) -> bool:
+        nonlocal verification_calls
+        verification_calls += 1
         return bool(
             bundle_available
             and digest == merge_admission_bundle
             and bindings.get("profile") == "merge_admission"
-            and bindings.get("as_of") == "2026-08-02T00:01:00Z"
+            and bool(bindings.get("as_of"))
         )
 
     cp = control_plane(
@@ -4634,7 +4643,43 @@ def test_phase_four_merge_revalidates_bundle_after_prejournal(tmp_path: Path) ->
         step_plan_digest=mutation_subject_digest("enqueue_merge", evidence),
         status="PLANNED",
     )
+    stale_authorization = replace(
+        mutation_authorization(cp, attempt),
+        observed_at="2026-08-02T00:00:00Z",
+        expires_at="2026-08-02T00:05:00Z",
+        authentication_evidence_digest="",
+    )
+    stale_payload = {
+        "authorizer_id": stale_authorization.authorizer_id,
+        "authority_digest": stale_authorization.authority_digest,
+        "subject_digest": stale_authorization.subject_digest,
+        "source_state": stale_authorization.source_state.value,
+        "action": stale_authorization.action,
+        "attempt_id": stale_authorization.attempt_id,
+        "idempotency_key": stale_authorization.idempotency_key,
+        "step_plan_digest": stale_authorization.step_plan_digest,
+        "steps": list(stale_authorization.steps),
+        "observed_at": stale_authorization.observed_at,
+        "expires_at": stale_authorization.expires_at,
+    }
+    stale_authorization = replace(
+        stale_authorization,
+        authentication_evidence_digest=external_proof(
+            stale_authorization.authorizer_id,
+            stale_authorization.authority_digest,
+            stale_payload,
+        ),
+    )
+    with pytest.raises(TransitionDeniedError, match="current external lifecycle authority"):
+        cp.prejournal_mutation(
+            attempt,
+            authorization=stale_authorization,
+            evidence=evidence,
+        )
+    assert verification_calls == 0
+
     prejournal(cp, attempt, evidence=evidence)
+    assert verification_calls == 1
     bundle_available = False
 
     with pytest.raises(TransitionDeniedError, match="merge-admission EvidenceBundle"):
@@ -4645,6 +4690,7 @@ def test_phase_four_merge_revalidates_bundle_after_prejournal(tmp_path: Path) ->
         )
 
     assert cp.state is LifecycleState.PR_READY
+    assert verification_calls == 2
 
 
 def test_budget_extension_rejects_caller_computable_owner_proof(tmp_path: Path) -> None:
