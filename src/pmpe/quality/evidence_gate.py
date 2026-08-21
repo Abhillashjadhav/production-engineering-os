@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from pmpe.audit.evidence import (
     EnvironmentFingerprint,
     EvidenceAuthenticator,
+    EvidenceProducerPolicy,
     EvidenceSubject,
     EvidenceValidation,
     SealedEvidenceBundle,
@@ -61,7 +62,7 @@ def assess_readiness(
     policy_digest: str,
     environment: EnvironmentFingerprint,
     as_of: str,
-    trusted_producers: Mapping[str, str],
+    producer_policies: Mapping[str, EvidenceProducerPolicy],
     authenticator: EvidenceAuthenticator,
 ) -> EvidenceGateDecision:
     validation = verify_bundle(
@@ -69,7 +70,7 @@ def assess_readiness(
         expected_profile="candidate_review",
         expected_subject=subject,
         expected_policy_digest=policy_digest,
-        trusted_producers=trusted_producers,
+        producer_policies=producer_policies,
         authenticator=authenticator,
         expected_environment=environment,
         as_of=as_of,
@@ -84,7 +85,7 @@ def assess_merge_admission(
     policy_digest: str,
     environment: EnvironmentFingerprint,
     as_of: str,
-    trusted_producers: Mapping[str, str],
+    producer_policies: Mapping[str, EvidenceProducerPolicy],
     authenticator: EvidenceAuthenticator,
 ) -> EvidenceGateDecision:
     validation = verify_bundle(
@@ -92,7 +93,7 @@ def assess_merge_admission(
         expected_profile="merge_admission",
         expected_subject=subject,
         expected_policy_digest=policy_digest,
-        trusted_producers=trusted_producers,
+        producer_policies=producer_policies,
         authenticator=authenticator,
         expected_environment=environment,
         as_of=as_of,
@@ -107,7 +108,7 @@ def assess_completion(
     policy_digest: str,
     environment: EnvironmentFingerprint,
     as_of: str,
-    trusted_producers: Mapping[str, str],
+    producer_policies: Mapping[str, EvidenceProducerPolicy],
     authenticator: EvidenceAuthenticator,
 ) -> EvidenceGateDecision:
     validation = verify_bundle(
@@ -115,7 +116,7 @@ def assess_completion(
         expected_profile="completion",
         expected_subject=subject,
         expected_policy_digest=policy_digest,
-        trusted_producers=trusted_producers,
+        producer_policies=producer_policies,
         authenticator=authenticator,
         expected_environment=environment,
         as_of=as_of,

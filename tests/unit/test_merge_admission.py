@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 
@@ -24,6 +25,31 @@ BASE = "d" * 40
 NOW = "2026-08-20T12:00:00Z"
 AFTER = "2026-08-20T12:01:00Z"
 POLICY = GovernedMergePolicy(D, ("ci",))
+TOKEN_ISSUER = "merge-queue"
+TOKEN_ISSUERS = {TOKEN_ISSUER: D}
+
+
+def _token_proof(identity: str, authority: str, payload: Mapping[str, object]) -> str:
+    from pmpe.contracts.digest import canonical_digest
+
+    return canonical_digest(
+        {
+            "test_trust_root": "outside-the-enqueue-token",
+            "identity": identity,
+            "authority": authority,
+            "payload": payload,
+        }
+    )
+
+
+def _sign_token(identity: str, authority: str, payload: Mapping[str, object]) -> str:
+    return _token_proof(identity, authority, payload)
+
+
+def _authenticate_token(
+    identity: str, authority: str, payload: Mapping[str, object], proof: str
+) -> bool:
+    return proof == _token_proof(identity, authority, payload)
 
 
 def _snapshot() -> MergeSnapshot:
@@ -58,6 +84,9 @@ def test_native_cas_admits_only_unchanged_exact_candidate() -> None:
     token = enqueue(
         snapshot,
         governed_policy=POLICY,
+        token_issuer=TOKEN_ISSUER,
+        token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+        token_signer=_sign_token,
         enqueued_at=AFTER,
         invalidation_boundary=NOW,
     )
@@ -66,6 +95,8 @@ def test_native_cas_admits_only_unchanged_exact_candidate() -> None:
         token,
         snapshot,
         governed_policy=POLICY,
+        trusted_token_issuers=TOKEN_ISSUERS,
+        token_authenticator=_authenticate_token,
         observed_merge_sha="e" * 40,
         observed_merge_tree_digest=D,
         merged_at=AFTER,
@@ -95,6 +126,9 @@ def test_native_cas_rejects_ready_state_drift(change: str) -> None:
     token = enqueue(
         snapshot,
         governed_policy=POLICY,
+        token_issuer=TOKEN_ISSUER,
+        token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+        token_signer=_sign_token,
         enqueued_at=AFTER,
         invalidation_boundary=NOW,
     )
@@ -117,6 +151,8 @@ def test_native_cas_rejects_ready_state_drift(change: str) -> None:
         token,
         current,
         governed_policy=POLICY,
+        trusted_token_issuers=TOKEN_ISSUERS,
+        token_authenticator=_authenticate_token,
         observed_merge_sha="e" * 40,
         observed_merge_tree_digest=current.prospective_merge_tree_digest,
         merged_at=AFTER,
@@ -137,6 +173,9 @@ def test_ineligible_finding_source_can_block_but_cannot_approve() -> None:
         enqueue(
             snapshot,
             governed_policy=POLICY,
+            token_issuer=TOKEN_ISSUER,
+            token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+            token_signer=_sign_token,
             enqueued_at=AFTER,
             invalidation_boundary=NOW,
         )
@@ -155,6 +194,9 @@ def test_changes_requested_blocks_even_with_an_approval() -> None:
         enqueue(
             replace(snapshot, reviews=reviews),
             governed_policy=POLICY,
+            token_issuer=TOKEN_ISSUER,
+            token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+            token_signer=_sign_token,
             enqueued_at=AFTER,
             invalidation_boundary=NOW,
         )
@@ -174,6 +216,9 @@ def test_merge_group_must_be_exact_fresh_and_from_admitted_enqueue() -> None:
     token = enqueue(
         enqueued_snapshot,
         governed_policy=POLICY,
+        token_issuer=TOKEN_ISSUER,
+        token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+        token_signer=_sign_token,
         enqueued_at=AFTER,
         invalidation_boundary=NOW,
     )
@@ -191,6 +236,8 @@ def test_merge_group_must_be_exact_fresh_and_from_admitted_enqueue() -> None:
         token,
         current,
         governed_policy=POLICY,
+        trusted_token_issuers=TOKEN_ISSUERS,
+        token_authenticator=_authenticate_token,
         observed_merge_sha="e" * 40,
         observed_merge_tree_digest=D,
         merged_at=AFTER,
@@ -203,6 +250,8 @@ def test_merge_group_must_be_exact_fresh_and_from_admitted_enqueue() -> None:
         token,
         replace(current, checks=(succeeded,)),
         governed_policy=POLICY,
+        trusted_token_issuers=TOKEN_ISSUERS,
+        token_authenticator=_authenticate_token,
         observed_merge_sha="e" * 40,
         observed_merge_tree_digest=D,
         merged_at=AFTER,
@@ -213,6 +262,8 @@ def test_merge_group_must_be_exact_fresh_and_from_admitted_enqueue() -> None:
         token,
         replace(current, checks=(failed,)),
         governed_policy=POLICY,
+        trusted_token_issuers=TOKEN_ISSUERS,
+        token_authenticator=_authenticate_token,
         observed_merge_sha="e" * 40,
         observed_merge_tree_digest=D,
         merged_at=AFTER,
@@ -225,12 +276,28 @@ def test_merge_group_must_be_exact_fresh_and_from_admitted_enqueue() -> None:
         token,
         replace(current, checks=(downgraded,)),
         governed_policy=POLICY,
+        trusted_token_issuers=TOKEN_ISSUERS,
+        token_authenticator=_authenticate_token,
         observed_merge_sha="e" * 40,
         observed_merge_tree_digest=D,
         merged_at=AFTER,
     )
     assert not held.admitted
     assert any("identity changed" in reason for reason in held.reasons)
+
+    tampered_token = replace(token, merge_group_check_names=())
+    held = linearize_merge(
+        tampered_token,
+        replace(current, checks=(downgraded,)),
+        governed_policy=POLICY,
+        trusted_token_issuers=TOKEN_ISSUERS,
+        token_authenticator=_authenticate_token,
+        observed_merge_sha="e" * 40,
+        observed_merge_tree_digest=D,
+        merged_at=AFTER,
+    )
+    assert not held.admitted
+    assert any("token authentication" in reason for reason in held.reasons)
 
 
 @pytest.mark.parametrize("kind", ["AUTHORITY_REVOKED", "BLOCKING_FINDING"])
@@ -264,6 +331,9 @@ def test_bypass_blocks_rollout_even_when_tree_matches() -> None:
         enqueue(
             replace(snapshot, bypass_used=True),
             governed_policy=POLICY,
+            token_issuer=TOKEN_ISSUER,
+            token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+            token_signer=_sign_token,
             enqueued_at=AFTER,
             invalidation_boundary=NOW,
         )
@@ -275,6 +345,9 @@ def test_external_fences_are_rechecked_at_merge_linearization(field: str) -> Non
     token = enqueue(
         snapshot,
         governed_policy=POLICY,
+        token_issuer=TOKEN_ISSUER,
+        token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+        token_signer=_sign_token,
         enqueued_at=AFTER,
         invalidation_boundary=NOW,
     )
@@ -284,6 +357,8 @@ def test_external_fences_are_rechecked_at_merge_linearization(field: str) -> Non
         token,
         changed,
         governed_policy=POLICY,
+        trusted_token_issuers=TOKEN_ISSUERS,
+        token_authenticator=_authenticate_token,
         observed_merge_sha="e" * 40,
         observed_merge_tree_digest=D,
         merged_at=AFTER,
@@ -301,6 +376,9 @@ def test_required_checks_come_from_independent_governed_policy() -> None:
         enqueue(
             snapshot,
             governed_policy=POLICY,
+            token_issuer=TOKEN_ISSUER,
+            token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+            token_signer=_sign_token,
             enqueued_at=AFTER,
             invalidation_boundary=NOW,
         )

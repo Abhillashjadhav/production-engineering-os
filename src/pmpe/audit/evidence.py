@@ -21,6 +21,7 @@ from pmpe.domain.serialize import atomic_write_json, jsonable
 
 _SHA = re.compile(r"^[0-9a-f]{40,64}$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_SUPPORTED_SCHEMA_VERSIONS = frozenset({"evidence-bundle/v1"})
 _RESULTS = frozenset({"PASS", "FAIL", "HOLD"})
 _EXECUTION_MODES = frozenset(
     {"AUTOMATED", "HUMAN_TECHNICAL", "HUMAN_INTERPRETATION", "HUMAN_GOVERNANCE"}
@@ -44,6 +45,38 @@ class EvidenceViolation(ValueError):  # noqa: N818 — deliberate domain violati
 
 
 EvidenceAuthenticator = Callable[[str, str, Mapping[str, object], str], bool]
+
+
+@dataclass(frozen=True)
+class EvidenceProducerPolicy:
+    authority_digest: str
+    allowed_profiles: tuple[str, ...]
+    allowed_classes: tuple[str, ...]
+    allowed_execution_modes: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not _DIGEST.fullmatch(self.authority_digest):
+            raise EvidenceViolation("producer policy authority digest is malformed")
+        if (
+            not self.allowed_profiles
+            or not self.allowed_classes
+            or not self.allowed_execution_modes
+        ):
+            raise EvidenceViolation("producer policy permissions cannot be empty")
+        if any(profile not in STAGE_PROFILES for profile in self.allowed_profiles):
+            raise EvidenceViolation("producer policy names an unknown stage profile")
+        known_classes = {
+            evidence_class
+            for profile in STAGE_PROFILES.values()
+            for evidence_class in (
+                *profile.required_classes,
+                *(item for group in profile.required_any_groups for item in group),
+            )
+        }
+        if any(item not in known_classes for item in self.allowed_classes):
+            raise EvidenceViolation("producer policy names an unknown evidence class")
+        if any(mode not in _EXECUTION_MODES for mode in self.allowed_execution_modes):
+            raise EvidenceViolation("producer policy names an unsupported execution mode")
 
 
 @dataclass(frozen=True)
@@ -313,7 +346,7 @@ def _valid_subject_field(name: str, value: str) -> bool:
 def verify_manifest(
     manifest: EvidenceManifest,
     *,
-    trusted_producers: Mapping[str, str],
+    producer_policies: Mapping[str, EvidenceProducerPolicy],
     authenticator: EvidenceAuthenticator,
     expected_profile: str | None = None,
     expected_subject: EvidenceSubject | None = None,
@@ -322,6 +355,8 @@ def verify_manifest(
     as_of: str | None = None,
 ) -> EvidenceValidation:
     reasons: list[str] = []
+    if manifest.schema_version not in _SUPPORTED_SCHEMA_VERSIONS:
+        reasons.append(f"unsupported evidence schema version: {manifest.schema_version}")
     profile = STAGE_PROFILES.get(manifest.profile)
     if profile is None:
         return EvidenceValidation(False, 0.0, ("unknown stage profile",), (), ())
@@ -371,10 +406,19 @@ def verify_manifest(
             or not _DIGEST.fullmatch(item.authentication_evidence_digest)
         ):
             reasons.append(f"{item.evidence_id}: producer attestation is absent or malformed")
-        producer_authority = trusted_producers.get(item.producer.producer_id, "")
-        if not producer_authority or producer_authority != item.producer.authority_digest:
+        producer_policy = producer_policies.get(item.producer.producer_id)
+        producer_authority = producer_policy.authority_digest if producer_policy else ""
+        if producer_policy is None or producer_authority != item.producer.authority_digest:
             reasons.append(f"{item.evidence_id}: producer authority is not trusted")
         else:
+            if (
+                manifest.profile not in producer_policy.allowed_profiles
+                or item.evidence_class not in producer_policy.allowed_classes
+                or item.producer.execution_mode not in producer_policy.allowed_execution_modes
+            ):
+                reasons.append(
+                    f"{item.evidence_id}: producer is not authorized for profile, class, or mode"
+                )
             try:
                 authenticated = bool(
                     authenticator(
@@ -449,14 +493,14 @@ def verify_manifest(
 def seal_manifest(
     manifest: EvidenceManifest,
     *,
-    trusted_producers: Mapping[str, str],
+    producer_policies: Mapping[str, EvidenceProducerPolicy],
     authenticator: EvidenceAuthenticator,
     expected_environment: EnvironmentFingerprint | None = None,
     as_of: str | None = None,
 ) -> SealedEvidenceBundle:
     validation = verify_manifest(
         manifest,
-        trusted_producers=trusted_producers,
+        producer_policies=producer_policies,
         authenticator=authenticator,
         expected_profile=manifest.profile,
         expected_subject=manifest.subject,
@@ -475,14 +519,14 @@ def verify_bundle(
     expected_profile: str,
     expected_subject: EvidenceSubject,
     expected_policy_digest: str,
-    trusted_producers: Mapping[str, str],
+    producer_policies: Mapping[str, EvidenceProducerPolicy],
     authenticator: EvidenceAuthenticator,
     expected_environment: EnvironmentFingerprint | None = None,
     as_of: str | None = None,
 ) -> EvidenceValidation:
     validation = verify_manifest(
         bundle.manifest,
-        trusted_producers=trusted_producers,
+        producer_policies=producer_policies,
         authenticator=authenticator,
         expected_profile=expected_profile,
         expected_subject=expected_subject,

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import re
-from dataclasses import asdict, dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -12,6 +13,8 @@ from pmpe.contracts.digest import canonical_digest
 
 _GIT_SHA = re.compile(r"^[0-9a-f]{40,64}$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+EnqueueTokenSigner = Callable[[str, str, Mapping[str, object]], str]
+EnqueueTokenAuthenticator = Callable[[str, str, Mapping[str, object], str], bool]
 
 
 @dataclass(frozen=True)
@@ -132,9 +135,18 @@ class EnqueueToken:
     authority_digest: str
     finding_high_watermark_digest: str
     merge_group_check_names: tuple[str, ...]
+    issuer_id: str
+    issuer_authority_digest: str
+    authentication_evidence_digest: str
     enqueued_at: str
     invalidation_boundary: str
     enqueue_digest: str
+
+
+def enqueue_token_authentication_payload(token: EnqueueToken) -> dict[str, object]:
+    payload = asdict(token)
+    payload.pop("authentication_evidence_digest")
+    return payload
 
 
 @dataclass(frozen=True)
@@ -278,6 +290,9 @@ def enqueue(
     snapshot: MergeSnapshot,
     *,
     governed_policy: GovernedMergePolicy,
+    token_issuer: str,
+    token_authority_digest: str,
+    token_signer: EnqueueTokenSigner,
     enqueued_at: str,
     invalidation_boundary: str,
     queue_timeout_seconds: int = 1800,
@@ -305,16 +320,29 @@ def enqueue(
             "invalidation_boundary": invalidation_boundary,
         }
     )
-    return EnqueueToken(
-        snapshot_digest,
-        snapshot.exact_input_digest,
-        snapshot.authority_digest,
-        snapshot.finding_high_watermark_digest,
-        tuple(sorted(check.name for check in snapshot.checks if check.event == "merge_group")),
-        enqueued_at,
-        invalidation_boundary,
-        enqueue_digest,
+    if not token_issuer or not _DIGEST.fullmatch(token_authority_digest):
+        raise ValueError("enqueue-token issuer identity or authority is malformed")
+    token = EnqueueToken(
+        snapshot_digest=snapshot_digest,
+        exact_input_digest=snapshot.exact_input_digest,
+        authority_digest=snapshot.authority_digest,
+        finding_high_watermark_digest=snapshot.finding_high_watermark_digest,
+        merge_group_check_names=tuple(
+            sorted(check.name for check in snapshot.checks if check.event == "merge_group")
+        ),
+        issuer_id=token_issuer,
+        issuer_authority_digest=token_authority_digest,
+        authentication_evidence_digest="",
+        enqueued_at=enqueued_at,
+        invalidation_boundary=invalidation_boundary,
+        enqueue_digest=enqueue_digest,
     )
+    proof = token_signer(
+        token_issuer, token_authority_digest, enqueue_token_authentication_payload(token)
+    )
+    if not _DIGEST.fullmatch(proof):
+        raise ValueError("enqueue-token authentication evidence is malformed")
+    return replace(token, authentication_evidence_digest=proof)
 
 
 def linearize_merge(
@@ -322,12 +350,29 @@ def linearize_merge(
     current: MergeSnapshot,
     *,
     governed_policy: GovernedMergePolicy,
+    trusted_token_issuers: Mapping[str, str],
+    token_authenticator: EnqueueTokenAuthenticator,
     observed_merge_sha: str,
     observed_merge_tree_digest: str,
     merged_at: str,
     native_gate_authorized: bool = True,
     queue_timeout_seconds: int = 1800,
 ) -> MergeDecision:
+    trusted_token_authority = trusted_token_issuers.get(token.issuer_id, "")
+    try:
+        token_authenticated = bool(
+            trusted_token_authority
+            and trusted_token_authority == token.issuer_authority_digest
+            and _DIGEST.fullmatch(token.authentication_evidence_digest)
+            and token_authenticator(
+                token.issuer_id,
+                trusted_token_authority,
+                enqueue_token_authentication_payload(token),
+                token.authentication_evidence_digest,
+            )
+        )
+    except Exception:
+        token_authenticated = False
     try:
         reasons = list(
             _validate_snapshot(
@@ -342,6 +387,8 @@ def linearize_merge(
         )
     except ValueError:
         reasons = ["merge snapshot contains a malformed timestamp"]
+    if not token_authenticated:
+        reasons.append("enqueue token authentication or trusted state lookup failed")
     if current.exact_input_digest != token.exact_input_digest:
         reasons.append("reviewed head/base/tree or repository policy changed after enqueue")
     if current.authority_digest != token.authority_digest:

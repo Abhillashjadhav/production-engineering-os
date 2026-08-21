@@ -23,7 +23,9 @@ event identity and bytes is a no-op; reusing the identity for another bundle fai
 Superseding manifests point to their predecessor and never rewrite it.
 Before sealing or admitting a bundle, every producer is resolved against an
 independently supplied authority map and its proof is verified over the full canonical
-evidence-item payload. Digest-shaped self-assertions are not authentication.
+evidence-item payload. Each authority is limited to explicit stage profiles, evidence
+classes, and execution modes. Digest-shaped self-assertions are not authentication,
+and unknown bundle schema versions fail closed before profile interpretation.
 
 Mutable GitHub metadata and comments may carry a bundle pointer. They are explicitly
 rejected as a required evidence item. Rejected intake bytes are also excluded: the
@@ -68,6 +70,9 @@ successful native-gate attestation and binds it to the head, policy/finding/auth
 fences, required checks, formal review, and observed merge result. Missing,
 wrong-subject, stale, pending,
 cancelled, failed, or over-time queue checks revoke admission.
+The enqueue token is itself signed by a trusted native-gate issuer; its snapshot,
+external fences, merge-group identity, timestamps, and enqueue digest cannot be
+rewritten across a serialization boundary before linearization.
 
 A bypass, external merge, gate authorization failure, or observed merge-tree mismatch
 is an incident even if file content looks equivalent. External contract authority and

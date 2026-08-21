@@ -12,6 +12,7 @@ from pmpe.audit.evidence import (
     EvidenceItem,
     EvidenceManifest,
     EvidenceProducer,
+    EvidenceProducerPolicy,
     EvidenceSubject,
     EvidenceViolation,
     ImmutableEvidenceStore,
@@ -34,7 +35,65 @@ SHA = "c" * 40
 BASE = "d" * 40
 NOW = "2026-08-20T12:00:00Z"
 LATER = "2026-08-20T12:30:00Z"
-TRUSTED_PRODUCERS = {"ci/github": D}
+PRODUCER_POLICIES = {
+    "intake/system": EvidenceProducerPolicy(
+        D,
+        ("contract_admission",),
+        (
+            "intake_reservation",
+            "intake_disposition",
+            "intake_receipt",
+            "receipt_finalization_failure",
+        ),
+        ("AUTOMATED",),
+    ),
+    "ci/github": EvidenceProducerPolicy(
+        D,
+        ("pre_code", "candidate_review", "merge_admission", "staging", "completion"),
+        (
+            "repository_snapshot",
+            "architecture",
+            "test_plan",
+            "meaningful_red",
+            "candidate",
+            "required_checks",
+            "artifact",
+            "configuration",
+        ),
+        ("AUTOMATED",),
+    ),
+    "review/codex": EvidenceProducerPolicy(
+        D,
+        ("candidate_review", "merge_admission", "staging"),
+        ("advisory_review", "formal_review", "finding_inventory"),
+        ("AUTOMATED",),
+    ),
+    "merge/github": EvidenceProducerPolicy(
+        D,
+        ("merge_admission", "staging", "completion"),
+        ("merge_gate", "observed_merge"),
+        ("AUTOMATED",),
+    ),
+    "release/orchestrator": EvidenceProducerPolicy(
+        D,
+        ("completion", "rollback_incident"),
+        (
+            "deployment",
+            "rollback_readiness",
+            "final_head_attestation",
+            "rollback_execution",
+            "restored_state",
+            "rto_rpo",
+        ),
+        ("AUTOMATED",),
+    ),
+    "live/monitor": EvidenceProducerPolicy(
+        D,
+        ("completion",),
+        ("live_observation",),
+        ("AUTOMATED",),
+    ),
+}
 
 
 def _producer_proof(identity: str, authority_digest: str, payload: Mapping[str, object]) -> str:
@@ -89,13 +148,18 @@ def _item(
     expires_at: str = "2026-08-21T12:00:00Z",
 ) -> EvidenceItem:
     executed = 1 if evidence_class in {"required_checks", "meaningful_red"} else 0
+    producer_id, producer_policy = next(
+        (identity, policy)
+        for identity, policy in PRODUCER_POLICIES.items()
+        if profile in policy.allowed_profiles and evidence_class in policy.allowed_classes
+    )
     item = EvidenceItem(
         evidence_id=f"{profile}:{evidence_class}",
         evidence_class=evidence_class,
         stage=profile,
         subject_digest=subject.digest,
         result=result,
-        producer=EvidenceProducer("ci/github", D, "AUTOMATED"),
+        producer=EvidenceProducer(producer_id, producer_policy.authority_digest, "AUTOMATED"),
         tool=ToolIdentity("pytest", "8.4.1", D, E),
         environment=environment or _environment(),
         invocation=("python", "-m", "pytest", "-q"),
@@ -133,7 +197,7 @@ def _bundle(profile: str) -> tuple[SealedEvidenceBundle, EvidenceSubject]:
     return (
         seal_manifest(
             manifest,
-            trusted_producers=TRUSTED_PRODUCERS,
+            producer_policies=PRODUCER_POLICIES,
             authenticator=_authenticate_producer,
             expected_environment=_environment(),
             as_of=LATER,
@@ -150,7 +214,7 @@ def test_sealed_bundle_is_content_addressed_and_reconstructible() -> None:
         expected_profile="completion",
         expected_subject=subject,
         expected_policy_digest=D,
-        trusted_producers=TRUSTED_PRODUCERS,
+        producer_policies=PRODUCER_POLICIES,
         authenticator=_authenticate_producer,
         expected_environment=_environment(),
         as_of=LATER,
@@ -175,7 +239,55 @@ def test_shape_valid_but_fabricated_producer_proofs_cannot_be_sealed() -> None:
     with pytest.raises(EvidenceViolation, match="producer authentication failed"):
         seal_manifest(
             manifest,
-            trusted_producers=TRUSTED_PRODUCERS,
+            producer_policies=PRODUCER_POLICIES,
+            authenticator=_authenticate_producer,
+            expected_environment=_environment(),
+            as_of=LATER,
+        )
+
+
+def test_trusted_producer_cannot_sign_outside_its_profile_class_permissions() -> None:
+    subject = _subject("completion")
+    items = [
+        _item("completion", evidence_class, subject)
+        for evidence_class in STAGE_PROFILES["completion"].required_classes
+    ]
+    index = next(i for i, item in enumerate(items) if item.evidence_class == "deployment")
+    ci_policy = PRODUCER_POLICIES["ci/github"]
+    unauthorized = replace(
+        items[index],
+        producer=EvidenceProducer("ci/github", ci_policy.authority_digest, "AUTOMATED"),
+        authentication_evidence_digest="",
+    )
+    unauthorized = replace(
+        unauthorized,
+        authentication_evidence_digest=_producer_proof(
+            unauthorized.producer.producer_id,
+            unauthorized.producer.authority_digest,
+            evidence_authentication_payload(unauthorized),
+        ),
+    )
+    items[index] = unauthorized
+    manifest = EvidenceManifest("evidence-bundle/v1", "completion", subject, D, NOW, tuple(items))
+
+    with pytest.raises(EvidenceViolation, match="not authorized for profile, class, or mode"):
+        seal_manifest(
+            manifest,
+            producer_policies=PRODUCER_POLICIES,
+            authenticator=_authenticate_producer,
+            expected_environment=_environment(),
+            as_of=LATER,
+        )
+
+
+def test_unknown_evidence_schema_version_fails_closed() -> None:
+    bundle, _ = _bundle("candidate_review")
+    future = replace(bundle.manifest, schema_version="evidence-bundle/v999")
+
+    with pytest.raises(EvidenceViolation, match="unsupported evidence schema version"):
+        seal_manifest(
+            future,
+            producer_policies=PRODUCER_POLICIES,
             authenticator=_authenticate_producer,
             expected_environment=_environment(),
             as_of=LATER,
@@ -227,7 +339,7 @@ def test_planted_false_done_evidence_fails_closed(mutation: str, reason: str) ->
         policy_digest=D,
         environment=_environment(),
         as_of=LATER,
-        trusted_producers=TRUSTED_PRODUCERS,
+        producer_policies=PRODUCER_POLICIES,
         authenticator=_authenticate_producer,
     )
 
@@ -245,7 +357,7 @@ def test_tampering_after_seal_is_detected() -> None:
         expected_profile="completion",
         expected_subject=subject,
         expected_policy_digest=D,
-        trusted_producers=TRUSTED_PRODUCERS,
+        producer_policies=PRODUCER_POLICIES,
         authenticator=_authenticate_producer,
         expected_environment=_environment(),
         as_of=LATER,
@@ -263,7 +375,7 @@ def test_readiness_binds_frozen_base_head_and_prospective_tree() -> None:
         policy_digest=D,
         environment=_environment(),
         as_of=LATER,
-        trusted_producers=TRUSTED_PRODUCERS,
+        producer_policies=PRODUCER_POLICIES,
         authenticator=_authenticate_producer,
     ).admitted
 
@@ -274,7 +386,7 @@ def test_readiness_binds_frozen_base_head_and_prospective_tree() -> None:
         policy_digest=D,
         environment=_environment(),
         as_of=LATER,
-        trusted_producers=TRUSTED_PRODUCERS,
+        producer_policies=PRODUCER_POLICIES,
         authenticator=_authenticate_producer,
     )
 
@@ -323,7 +435,7 @@ def test_duplicate_evidence_identity_is_rejected() -> None:
     with pytest.raises(EvidenceViolation, match="duplicate evidence id"):
         seal_manifest(
             duplicate,
-            trusted_producers=TRUSTED_PRODUCERS,
+            producer_policies=PRODUCER_POLICIES,
             authenticator=_authenticate_producer,
             expected_environment=_environment(),
             as_of=LATER,
@@ -352,7 +464,7 @@ def test_green_summary_with_skipped_required_test_cannot_satisfy_readiness() -> 
         policy_digest=D,
         environment=_environment(),
         as_of=LATER,
-        trusted_producers=TRUSTED_PRODUCERS,
+        producer_policies=PRODUCER_POLICIES,
         authenticator=_authenticate_producer,
     )
 
