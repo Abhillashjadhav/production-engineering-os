@@ -97,7 +97,7 @@ def test_runtime_residency_comes_from_authenticated_aws_bucket_metadata(tmp_path
         {key: value for key, value in evidence.items() if key != "evidence_digest"}
     )
     assert not aws.objects
-    assert ("s3api", "get-bucket-location") == aws.calls[1][:2]
+    assert aws.calls[1][:2] == ("s3api", "get-bucket-location")
     assert any(command[:2] == ("s3api", "put-object") for command in aws.calls)
     assert any(command[:2] == ("s3api", "get-object") for command in aws.calls)
     assert any(command[:2] == ("s3api", "delete-object") for command in aws.calls)
@@ -129,9 +129,7 @@ def test_runtime_residency_deletes_probe_when_readback_fails(tmp_path: Path) -> 
     with pytest.raises(ValueError, match="storage probe readback failed"):
         _observe(
             candidate_sha=SHA,
-            runtime_config_path=_runtime_residency_config(
-                tmp_path / "runtime-residency.json"
-            ),
+            runtime_config_path=_runtime_residency_config(tmp_path / "runtime-residency.json"),
             bucket="peos-residency-proof",
             aws_command=aws,
         )
@@ -464,6 +462,31 @@ def test_ci_executes_privacy_verifier_before_composed_profile() -> None:
     assert residency < verifier < composed
     assert "--residency-evidence /tmp/security-profile/residency-evidence.json" in workflow
     assert "--privacy-evidence /tmp/security-profile/privacy-evidence.json" in workflow
+    assert "environment: india-residency" in workflow
+    assert "id-token: write" in workflow
+    assert (
+        "aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c" in workflow
+    )
+    assert "role-to-assume: ${{ vars.AWS_RESIDENCY_ROLE_ARN }}" in workflow
+    assert "AWS_RESIDENCY_BUCKET: ${{ vars.AWS_RESIDENCY_BUCKET }}" in workflow
+    assert '--bucket "$AWS_RESIDENCY_BUCKET"' in workflow
+    assert "--storage-root" not in workflow
+
+
+def test_aws_residency_stack_is_mumbai_only_and_least_privilege() -> None:
+    root = Path(__file__).resolve().parents[2]
+    template = (root / "infra/aws-residency-proof/cloudformation.yml").read_text()
+
+    assert "ap-south-1:" in template
+    assert "BucketEncryption:" in template
+    assert "BlockPublicAcls: true" in template
+    assert "ExpirationInDays: 1" in template
+    assert "repo:${Repository}:environment:${GitHubEnvironment}" in template
+    assert "s3:GetBucketLocation" in template
+    assert "s3:PutObject" in template
+    assert "s3:GetObject" in template
+    assert "s3:DeleteObject" in template
+    assert "residency-probes/*" in template
 
 
 def test_ci_keeps_editable_builds_inside_the_hash_lock() -> None:

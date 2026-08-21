@@ -53,6 +53,9 @@ pass.
   rechecked at the single final disposition time.
 - Privacy deletion, retention, and emitted-telemetry claims come from an executed
   exact-candidate verifier artifact, not from copied intent fields.
+- Storage residency comes from a synthetic read/write/delete probe against the approved
+  AWS S3 endpoint plus authenticated provider region metadata; repository declarations
+  and GitHub runner location are not evidence.
 - Architecture observation resolves relative and absolute imports before comparing
   the observed layer graph with trusted policy.
 - Telemetry evidence inventories real product emission call sites and fails closed on

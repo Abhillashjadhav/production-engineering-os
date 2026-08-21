@@ -70,9 +70,20 @@ def _load_residency_evidence(
         and value.get("observer_file_digest") == _file_digest(observer_path)
         and value.get("runtime_config_digest") == _file_digest(runtime_config_path)
         and value.get("storage_probe_passed") is True
-        and value.get("authority") == "runtime-storage-observer/v1"
-        and isinstance(value.get("observed_residency"), str)
-        and bool(str(value.get("observed_residency")).strip())
+        and value.get("authority") == "aws-s3-runtime-storage-observer/v1"
+        and value.get("provider") == "aws"
+        and value.get("storage_service") == "s3"
+        and value.get("observed_provider_region") == "ap-south-1"
+        and value.get("observed_residency") == "IN"
+        and all(
+            isinstance(value.get(key), str) and str(value[key]).startswith("sha256:")
+            for key in (
+                "authenticated_metadata_digest",
+                "provider_identity_digest",
+                "probe_object_digest",
+                "storage_endpoint_digest",
+            )
+        )
     )
     if not exact:
         raise ValueError("runtime residency evidence is not exact or authenticated")

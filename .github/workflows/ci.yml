@@ -60,6 +60,12 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
+    environment: india-residency
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_RESIDENCY_BUCKET: ${{ vars.AWS_RESIDENCY_BUCKET }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -89,14 +95,27 @@ jobs:
             --output /tmp/security-profile/secret-report.json
       - name: deterministic security profile contract (all required gates)
         run: pytest tests/unit/test_security_profiles.py -q
-      - name: observe runtime storage residency independently of policy
+      - name: require configured AWS Mumbai residency endpoint
+        env:
+          AWS_RESIDENCY_ROLE_ARN: ${{ vars.AWS_RESIDENCY_ROLE_ARN }}
+        run: |
+          test -n "$AWS_RESIDENCY_ROLE_ARN" || { echo "::error::AWS_RESIDENCY_ROLE_ARN is not configured in the india-residency environment"; exit 1; }
+          test -n "$AWS_RESIDENCY_BUCKET" || { echo "::error::AWS_RESIDENCY_BUCKET is not configured in the india-residency environment"; exit 1; }
+      - name: authenticate to AWS with GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          role-to-assume: ${{ vars.AWS_RESIDENCY_ROLE_ARN }}
+          aws-region: ap-south-1
+          role-session-name: peos-residency-${{ github.run_id }}
+          mask-aws-account-id: true
+      - name: observe authenticated AWS S3 residency independently of policy
         env:
           CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           python scripts/ci/observe_runtime_residency.py \
             --candidate-sha "$CANDIDATE_SHA" \
             --runtime-config security/runtime-residency.json \
-            --storage-root /tmp/security-profile/residency-probe \
+            --bucket "$AWS_RESIDENCY_BUCKET" \
             --output /tmp/security-profile/residency-evidence.json
       - name: execute privacy deletion, retention, and telemetry verifier
         env:
