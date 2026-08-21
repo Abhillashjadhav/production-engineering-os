@@ -4086,6 +4086,37 @@ class LifecycleControlPlane:
             "staging_authorization_digest": evidence.get("staging_authorization_digest", ""),
         }
 
+    def _readiness_bundle_bindings(
+        self, evidence: Mapping[str, str], *, as_of: str
+    ) -> dict[str, str]:
+        return {
+            "profile": "candidate_review",
+            "as_of": as_of,
+            **{
+                name: evidence.get(name, "")
+                for name in (
+                    "subject_digest",
+                    "protected_base_sha",
+                    "reviewed_commit_sha",
+                    "prospective_tree_digest",
+                    "review_digest",
+                    "repository_rules_digest",
+                    "architecture_policy_digest",
+                    "toolchain_policy_digest",
+                    "environment_profile_digest",
+                    "security_policy_digest",
+                    "verification_policy_digest",
+                    "evidence_policy_digest",
+                )
+            },
+        }
+
+    def _readiness_bundle_valid(self, evidence: Mapping[str, str], *, as_of: str) -> bool:
+        return self._sealed_bundle_valid(
+            evidence.get("verification_bundle_digest", ""),
+            self._readiness_bundle_bindings(evidence, as_of=as_of),
+        )
+
     def _merge_admission_bundle_bindings(
         self, evidence: Mapping[str, str], *, as_of: str
     ) -> dict[str, str]:
@@ -4666,28 +4697,11 @@ class LifecycleControlPlane:
                 }
             )
         if "review_clear" in guards:
-            review_bindings = {
-                name: context.evidence.get(name, "")
-                for name in (
-                    "subject_digest",
-                    "protected_base_sha",
-                    "reviewed_commit_sha",
-                    "prospective_tree_digest",
-                    "review_digest",
-                    "repository_rules_digest",
-                    "architecture_policy_digest",
-                    "toolchain_policy_digest",
-                    "environment_profile_digest",
-                    "security_policy_digest",
-                    "verification_policy_digest",
-                    "evidence_policy_digest",
-                )
-            }
             phase_four_advisory_clear = (
                 self._policy.version == PHASE_FOUR_POLICY.version
-                and self._sealed_bundle_valid(
-                    context.evidence.get("verification_bundle_digest", ""),
-                    review_bindings,
+                and self._readiness_bundle_valid(
+                    context.evidence,
+                    as_of=context.observed_at,
                 )
             )
             matching_review = None
@@ -5205,24 +5219,28 @@ class LifecycleControlPlane:
                 )
             if self._policy.version == PHASE_FOUR_POLICY.version:
                 bundle_bindings = {
-                    name: context.evidence.get(name, "")
-                    for name in (
-                        "subject_digest",
-                        "release_sha",
-                        "artifact_digest",
-                        "configuration_digest",
-                        "production_attempt_digest",
-                        "production_result_digest",
-                        "reviewed_commit_sha",
-                        "reviewed_candidate_digest",
-                        "review_evidence_digest",
-                        "live_verification_digest",
-                        "rollback_readiness_digest",
-                        "observation_window_digest",
-                        "finding_high_watermark_digest",
-                        "finding_source_set_digest",
-                        "finding_inventory_epochs_digest",
-                    )
+                    "profile": "completion",
+                    "as_of": context.observed_at,
+                    **{
+                        name: context.evidence.get(name, "")
+                        for name in (
+                            "subject_digest",
+                            "release_sha",
+                            "artifact_digest",
+                            "configuration_digest",
+                            "production_attempt_digest",
+                            "production_result_digest",
+                            "reviewed_commit_sha",
+                            "reviewed_candidate_digest",
+                            "review_evidence_digest",
+                            "live_verification_digest",
+                            "rollback_readiness_digest",
+                            "observation_window_digest",
+                            "finding_high_watermark_digest",
+                            "finding_source_set_digest",
+                            "finding_inventory_epochs_digest",
+                        )
+                    },
                 }
                 if not self._sealed_bundle_valid(
                     context.evidence.get("evidence_bundle_digest", ""),
@@ -5465,50 +5483,46 @@ class LifecycleControlPlane:
                 raise TransitionDeniedError(
                     "mutation attempt lacks current external lifecycle authority"
                 )
-            if self._policy.version == PHASE_FOUR_POLICY.version and (
-                (
-                    attempt.action == "enqueue_merge"
-                    and (
-                        evidence is None
-                        or attempt.step_plan_digest
-                        != mutation_subject_digest(
-                            attempt.action,
-                            evidence,
-                            schemas=self._policy.mutation_subject_fields,
-                        )
-                        or not self._merge_admission_readiness_binding_valid(evidence)
-                        or not self._merge_admission_bundle_valid(
-                            evidence,
-                            as_of=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                        )
+            if self._policy.version == PHASE_FOUR_POLICY.version:
+                release_as_of = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+                exact_plan = bool(
+                    evidence is not None
+                    and attempt.step_plan_digest
+                    == mutation_subject_digest(
+                        attempt.action,
+                        evidence,
+                        schemas=self._policy.mutation_subject_fields,
                     )
                 )
-                or (
-                    attempt.action == "deploy_staging"
-                    and (
-                        evidence is None
-                        or attempt.step_plan_digest
-                        != mutation_subject_digest(
-                            attempt.action,
-                            evidence,
-                            schemas=self._policy.mutation_subject_fields,
-                        )
-                        or not self._staging_merge_binding_valid(evidence)
-                        or not self._staging_bundle_valid(
-                            evidence,
-                            as_of=datetime.now(UTC).isoformat().replace("+00:00", "Z"),
-                        )
+                if attempt.action == "mark_pr_ready" and (
+                    not exact_plan
+                    or evidence is None
+                    or evidence.get("subject_digest") != self.subject_digest
+                    or not self._readiness_bundle_valid(evidence, as_of=release_as_of)
+                ):
+                    raise TransitionDeniedError(
+                        "ready mutation release requires a fresh sealed exact-candidate bundle"
                     )
-                )
-            ):
-                detail = (
-                    "merge mutation release requires the exact ready candidate and a fresh "
-                    "sealed merge-admission bundle"
-                    if attempt.action == "enqueue_merge"
-                    else "staging mutation release requires the exact integrated merge and a "
-                    "valid sealed exact-subject bundle"
-                )
-                raise TransitionDeniedError(detail)
+                if attempt.action == "enqueue_merge" and (
+                    not exact_plan
+                    or evidence is None
+                    or not self._merge_admission_readiness_binding_valid(evidence)
+                    or not self._merge_admission_bundle_valid(evidence, as_of=release_as_of)
+                ):
+                    raise TransitionDeniedError(
+                        "merge mutation release requires the exact ready candidate and a fresh "
+                        "sealed merge-admission bundle"
+                    )
+                if attempt.action == "deploy_staging" and (
+                    not exact_plan
+                    or evidence is None
+                    or not self._staging_merge_binding_valid(evidence)
+                    or not self._staging_bundle_valid(evidence, as_of=release_as_of)
+                ):
+                    raise TransitionDeniedError(
+                        "staging mutation release requires the exact integrated merge and a "
+                        "valid sealed exact-subject bundle"
+                    )
             self._register_mutation_locked(attempt)
         return attempt
 

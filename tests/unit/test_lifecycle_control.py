@@ -799,11 +799,21 @@ def test_phase_four_completion_accepts_a_distinct_completion_profile_bundle(
     assert completed.target is LifecycleState.COMPLETED
     assert completion_bundle != review_bundle
     assert observed[0][0] == completion_bundle
+    assert observed[0][1]["profile"] == "completion"
+    assert observed[0][1]["as_of"] == "2026-08-02T00:01:00Z"
 
 
 def test_phase_four_readiness_holds_when_bundle_verifier_raises(tmp_path: Path) -> None:
+    unavailable = False
+    observed: list[tuple[str, dict[str, str]]] = []
+
     def unavailable_verifier(digest: str, bindings: Mapping[str, str]) -> bool:
-        raise RuntimeError("immutable evidence store unavailable")
+        observed.append((digest, dict(bindings)))
+        if unavailable:
+            raise RuntimeError("immutable evidence store unavailable")
+        return bool(
+            digest and bindings.get("profile") == "candidate_review" and bindings.get("as_of")
+        )
 
     cp = control_plane(
         tmp_path,
@@ -827,13 +837,15 @@ def test_phase_four_readiness_holds_when_bundle_verifier_raises(tmp_path: Path) 
         for name in rule.required_evidence
     }
     attempt = ready_attempt(evidence)
-    prejournal(cp, attempt)
+    prejournal(cp, attempt, evidence=evidence)
+    assert observed[-1][1]["as_of"]
     record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
     evidence.update(
         ready_attempt_digest=object_digest(asdict(attempt)),
         ready_result_digest=SHA,
     )
 
+    unavailable = True
     with pytest.raises(TransitionDeniedError, match="sealed exact-candidate"):
         cp.transition(
             LifecycleState.PR_READY,
@@ -842,10 +854,14 @@ def test_phase_four_readiness_holds_when_bundle_verifier_raises(tmp_path: Path) 
         )
 
     assert cp.state is LifecycleState.REVIEW_REQUIRED
+    assert observed[-1][1]["as_of"] == "2026-08-02T00:01:00Z"
 
 
 def test_phase_four_completion_holds_when_bundle_verifier_raises(tmp_path: Path) -> None:
+    observed: list[dict[str, str]] = []
+
     def unavailable_verifier(digest: str, bindings: Mapping[str, str]) -> bool:
+        observed.append(dict(bindings))
         raise RuntimeError("immutable evidence store unavailable")
 
     cp = control_plane(
@@ -865,6 +881,8 @@ def test_phase_four_completion_holds_when_bundle_verifier_raises(tmp_path: Path)
 
     assert cp.state is LifecycleState.PRODUCTION_DEPLOYED
     assert not cp.completion_claim_active
+    assert observed[-1]["profile"] == "completion"
+    assert observed[-1]["as_of"] == "2026-08-02T00:01:00Z"
 
 
 def test_phase_four_staging_requires_a_sealed_exact_merge_bundle(tmp_path: Path) -> None:
