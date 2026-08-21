@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
+from hashlib import sha256
 
 import pytest
 
@@ -116,12 +117,15 @@ def test_rejected_intake_cannot_publish_a_raw_payload_reference() -> None:
 
 
 def test_admitted_intake_requires_content_addressed_payload_reference() -> None:
+    outcome = _outcome("ADMITTED")
+    assert outcome.admitted_payload is not None
+    expected_ref = f"objects/sha256-{sha256(outcome.admitted_payload).hexdigest()}.json"
     with pytest.raises(ValueError, match="immutable payload reference"):
-        project_intake_evidence(_outcome("ADMITTED"))
-    evidence = project_intake_evidence(
-        _outcome("ADMITTED"), admitted_payload_ref=f"objects/{D.replace(':', '-')}.json"
-    )
-    assert evidence.immutable_payload_ref.endswith(f"{D.replace(':', '-')}.json")
+        project_intake_evidence(outcome)
+    with pytest.raises(ValueError, match="does not match admitted bytes"):
+        project_intake_evidence(outcome, admitted_payload_ref=f"objects/{D.replace(':', '-')}.json")
+    evidence = project_intake_evidence(outcome, admitted_payload_ref=expected_ref)
+    assert evidence.immutable_payload_ref == expected_ref
 
 
 def test_rejected_intake_requires_true_deletion_or_authenticated_reconciliation() -> None:

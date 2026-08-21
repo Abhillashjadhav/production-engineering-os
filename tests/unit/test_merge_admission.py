@@ -116,6 +116,7 @@ def test_signed_enqueue_token_expires_even_without_merge_group_checks() -> None:
         token_signer=_sign_token,
         enqueued_at=AFTER,
         invalidation_boundary=NOW,
+        queue_timeout_seconds=1,
     )
 
     decision = linearize_merge(
@@ -127,11 +128,39 @@ def test_signed_enqueue_token_expires_even_without_merge_group_checks() -> None:
         observed_merge_sha="e" * 40,
         observed_merge_tree_digest=D,
         merged_at="2026-08-20T12:01:02Z",
-        queue_timeout_seconds=1,
+        queue_timeout_seconds=86_400,
     )
 
     assert not decision.admitted
     assert any("token exceeded its freshness window" in reason for reason in decision.reasons)
+
+
+def test_signed_enqueue_token_rejects_tampered_expiry() -> None:
+    snapshot = _snapshot()
+    token = enqueue(
+        snapshot,
+        governed_policy=POLICY,
+        token_issuer=TOKEN_ISSUER,
+        token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+        token_signer=_sign_token,
+        enqueued_at=AFTER,
+        invalidation_boundary=NOW,
+        queue_timeout_seconds=1,
+    )
+
+    decision = linearize_merge(
+        replace(token, expires_at="2026-08-21T12:01:00Z"),
+        snapshot,
+        governed_policy=POLICY,
+        trusted_token_issuers=TOKEN_ISSUERS,
+        token_authenticator=_authenticate_token,
+        observed_merge_sha="e" * 40,
+        observed_merge_tree_digest=D,
+        merged_at="2026-08-20T12:01:02Z",
+    )
+
+    assert not decision.admitted
+    assert any("token authentication" in reason for reason in decision.reasons)
 
 
 @pytest.mark.parametrize(

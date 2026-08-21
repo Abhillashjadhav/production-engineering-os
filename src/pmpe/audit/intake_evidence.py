@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
+from hashlib import sha256
 
 from pmpe.contracts.digest import canonical_digest
 from pmpe.contracts.intake import IntakeOutcome
@@ -69,6 +70,9 @@ def project_intake_evidence(
             or outcome.admitted_payload is None
         ):
             raise ValueError("admitted content requires an immutable payload reference")
+        expected_payload_ref = f"objects/sha256-{sha256(outcome.admitted_payload).hexdigest()}.json"
+        if admitted_payload_ref != expected_payload_ref:
+            raise ValueError("immutable payload reference does not match admitted bytes")
     elif admitted_payload_ref:
         raise ValueError("rejected raw content must never enter immutable evidence")
 

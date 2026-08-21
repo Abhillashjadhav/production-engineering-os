@@ -139,6 +139,7 @@ class EnqueueToken:
     issuer_authority_digest: str
     authentication_evidence_digest: str
     enqueued_at: str
+    expires_at: str
     invalidation_boundary: str
     enqueue_digest: str
 
@@ -309,6 +310,11 @@ def enqueue(
     if reasons:
         raise ValueError("; ".join(reasons))
     snapshot_digest = _snapshot_digest(snapshot)
+    expires_at = (
+        (_time(enqueued_at) + timedelta(seconds=queue_timeout_seconds))
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
     enqueue_digest = canonical_digest(
         {
             "snapshot_digest": snapshot_digest,
@@ -317,6 +323,7 @@ def enqueue(
                 sorted(check.name for check in snapshot.checks if check.event == "merge_group")
             ),
             "enqueued_at": enqueued_at,
+            "expires_at": expires_at,
             "invalidation_boundary": invalidation_boundary,
         }
     )
@@ -334,6 +341,7 @@ def enqueue(
         issuer_authority_digest=token_authority_digest,
         authentication_evidence_digest="",
         enqueued_at=enqueued_at,
+        expires_at=expires_at,
         invalidation_boundary=invalidation_boundary,
         enqueue_digest=enqueue_digest,
     )
@@ -374,13 +382,18 @@ def linearize_merge(
     except Exception:
         token_authenticated = False
     try:
+        authenticated_queue_timeout = int(
+            (_time(token.expires_at) - _time(token.enqueued_at)).total_seconds()
+        )
+        if authenticated_queue_timeout <= 0:
+            raise ValueError("enqueue-token expiry must follow enqueue time")
         reasons = list(
             _validate_snapshot(
                 current,
                 governed_policy=governed_policy,
                 invalidation_boundary=token.invalidation_boundary,
                 as_of=merged_at,
-                queue_timeout_seconds=queue_timeout_seconds,
+                queue_timeout_seconds=authenticated_queue_timeout,
                 enqueue_digest=token.enqueue_digest,
                 linearizing=True,
             )
@@ -390,10 +403,10 @@ def linearize_merge(
     if not token_authenticated:
         reasons.append("enqueue token authentication or trusted state lookup failed")
     try:
-        token_age = _time(merged_at) - _time(token.enqueued_at)
-        if token_age < timedelta(0):
+        merge_time = _time(merged_at)
+        if merge_time < _time(token.enqueued_at):
             reasons.append("merge linearization predates the authenticated enqueue token")
-        elif token_age > timedelta(seconds=queue_timeout_seconds):
+        elif merge_time > _time(token.expires_at):
             reasons.append("authenticated enqueue token exceeded its freshness window")
     except ValueError:
         reasons.append("enqueue token contains a malformed timestamp")
