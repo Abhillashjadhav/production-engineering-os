@@ -13,6 +13,8 @@ from scripts.ci.evaluate_security_profile import (
     _observed_architecture_edges,
     _privacy_evidence_from_artifact,
 )
+from scripts.ci.verify_privacy_controls import _inventory_telemetry_fields
+from pmpe.telemetry.events import EventLog
 
 SHA = "d" * 40
 
@@ -24,6 +26,38 @@ def test_architecture_observer_resolves_relative_imports(tmp_path: Path) -> None
     (source / "worker.py").write_text("from ..guided import api\n")
 
     assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
+
+
+def test_architecture_observer_checks_both_repository_planes(tmp_path: Path) -> None:
+    os_source = tmp_path / "src" / "pmpe" / "orchestration"
+    product_source = (
+        tmp_path / "products" / "pm-evals-web" / "backend" / "src" / "pm_evals_api"
+    )
+    os_source.mkdir(parents=True)
+    product_source.mkdir(parents=True)
+    (os_source / "worker.py").write_text("import pm_evals_api\n")
+    (product_source / "app.py").write_text("from pmpe.contracts import digest\n")
+
+    edges = _observed_architecture_edges(tmp_path)
+
+    assert ("orchestration", "product") in edges
+    assert ("product", "core") in edges
+
+
+def test_architecture_observer_accounts_for_dynamic_imports(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "literal.py").write_text(
+        'import importlib\nimportlib.import_module("pmpe.guided.api")\n'
+    )
+    (source / "unresolved.py").write_text(
+        "import importlib\nimportlib.import_module(module_name)\n"
+    )
+
+    edges = _observed_architecture_edges(tmp_path)
+
+    assert ("orchestration", "interfaces") in edges
+    assert ("orchestration", "unresolved_dynamic") in edges
 
 
 def test_retention_controller_deletes_expired_and_preserves_current_data(tmp_path: Path) -> None:
@@ -43,6 +77,38 @@ def test_retention_controller_deletes_expired_and_preserves_current_data(tmp_pat
     assert result.retained == ("current.json",)
     assert not expired.exists()
     assert current.exists()
+
+
+def test_event_log_enforces_retention_on_the_actual_runs_root(tmp_path: Path) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    expired = tmp_path / "expired-run" / "events.jsonl"
+    current_run = tmp_path / "current-run"
+    expired.parent.mkdir()
+    expired.write_text("{}\n")
+    old = (now - timedelta(days=31)).timestamp()
+    os.utime(expired, (old, old))
+
+    EventLog(
+        current_run,
+        retention_days=30,
+        trusted_clock=lambda: now,
+    )
+
+    assert not expired.exists()
+
+
+def test_privacy_verifier_inventories_real_product_telemetry(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "context.py").write_text(
+        'events.emit("escalation", escalation_id="E", step="build", reason="policy")\n'
+    )
+
+    assert _inventory_telemetry_fields(tmp_path) == (
+        "escalation_id",
+        "reason",
+        "step",
+    )
 
 
 def test_privacy_evidence_requires_executed_exact_candidate_artifact(tmp_path: Path) -> None:
