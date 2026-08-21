@@ -169,13 +169,16 @@ def _dependency_inventory(
             metadata = distribution(name).metadata
         except PackageNotFoundError as exc:
             raise ValueError(f"audited dependency {name} is not installed") from exc
-        metadata_fields = dict(metadata.items())
-        license_name = (
-            metadata_fields.get("License-Expression")
-            or metadata_fields.get("License")
+        metadata_fields = metadata.json
+        license_value = (
+            metadata_fields.get("license_expression")
+            or metadata_fields.get("license")
             or license_fallbacks.get(name.lower(), "")
         )
-        if not license_name:
+        license_name = (
+            " OR ".join(license_value) if isinstance(license_value, list) else license_value
+        )
+        if not isinstance(license_name, str) or not license_name:
             raise ValueError(f"audited dependency {name} has no governed license identity")
         inventory.append((name, package_version, license_name))
     return tuple(sorted(inventory, key=lambda item: item[0].lower()))

@@ -77,7 +77,7 @@ jobs:
       - name: dependency audit (core lockfile blocks on any known vulnerability)
         run: |
           mkdir -p /tmp/security-profile
-          pip-audit +            --cache-dir /tmp/pip-audit +            --require-hashes +            -r requirements.lock +            --strict +            --format json +            --output /tmp/security-profile/pip-audit.json
+          pip-audit --cache-dir /tmp/pip-audit --require-hashes -r requirements.lock --strict --format json --output /tmp/security-profile/pip-audit.json
       - name: no-ignore exact-SHA secret gate
         env:
           CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -93,7 +93,7 @@ jobs:
         env:
           CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          python scripts/ci/evaluate_security_profile.py +            --candidate-sha "$CANDIDATE_SHA" +            --audit-evidence /tmp/security-profile/pip-audit.json +            --output /tmp/security-profile/composed-security-profile.json
+          python scripts/ci/evaluate_security_profile.py --candidate-sha "$CANDIDATE_SHA" --audit-evidence /tmp/security-profile/pip-audit.json --output /tmp/security-profile/composed-security-profile.json
       - name: retain exact-SHA security evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
