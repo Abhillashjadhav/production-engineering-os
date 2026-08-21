@@ -38,8 +38,12 @@ SAST, SCA, license/pinning, SBOM, privacy, and architecture-boundary evidence in
 canonical exact-candidate report. Tool/ruleset identity and authenticated advisory
 freshness are mandatory. Critical/high findings are non-waivable; medium/low waivers
 must be named, scoped, authenticated, expiring, and bound to the exact candidate and
-policy. The report converts directly to the candidate-review `required_checks`
-EvidenceBundle item without inventing authentication evidence.
+policy. Dependency inventory, product privacy intent, privacy-verifier results, and
+architecture observations require trusted-authority attestations over their payload
+digest and exact candidate SHA; the license allowlist and allowed architecture graph
+come only from the digest-validated gate policy. The report converts directly to the
+candidate-review `required_checks` EvidenceBundle item without inventing authentication
+evidence.
 
 CI runs `bandit -r src scripts/ci` and the complete deterministic security-profile
 contract suite. Accepted, reviewed Bandit findings:

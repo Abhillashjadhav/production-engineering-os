@@ -21,6 +21,7 @@ from pmpe.quality.security_profiles import (
     NormalizedSecurityFinding,
     PrivacyEvidence,
     PrivacyIntent,
+    ProfileEvidenceAttestation,
     SecretAllowlistEntry,
     SecurityGatePolicy,
     SecurityProfileInput,
@@ -29,6 +30,7 @@ from pmpe.quality.security_profiles import (
     advisory_authentication_payload,
     build_deterministic_sbom,
     evaluate_security_profile,
+    profile_authentication_payload,
     report_evidence_item,
     scan_repository_secrets,
     secret_fingerprint,
@@ -95,6 +97,13 @@ def policy(**changes: object) -> SecurityGatePolicy:
         trusted_waiver_authorities={"security-owner": D},
         trusted_architecture_boundary_digest=D,
         trusted_architecture_allowed_edges=(("api", "storage"),),
+        trusted_profile_authorities={
+            "architecture_observation": D,
+            "dependency_inventory": D,
+            "privacy_evidence": D,
+            "privacy_intent": D,
+        },
+        allowed_licenses=("MIT", "Apache-2.0", "BSD-3-Clause"),
         scan_exclusions=(".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache"),
         secret_allowlist=(),
     )
@@ -182,14 +191,43 @@ def profile_input(root: Path, **changes: object) -> SecurityProfileInput:
             ("jsonschema", "4.25.1", "MIT"),
             ("rfc8785", "0.1.4", "Apache-2.0"),
         ),
-        allowed_licenses=("MIT", "Apache-2.0", "BSD-3-Clause"),
         advisory_snapshots=(advisory(),),
         privacy_intent=privacy_intent(),
         privacy_evidence=privacy_evidence(),
         architecture=architecture_observation(),
         waivers=(),
+        profile_attestations=(),
     )
-    return replace(base, **changes)
+    candidate = replace(base, **changes)
+    payloads = (
+        ("dependency_inventory", candidate.dependency_inventory),
+        ("privacy_intent", candidate.privacy_intent),
+        ("privacy_evidence", candidate.privacy_evidence),
+        ("architecture_observation", candidate.architecture),
+    )
+    attestations = []
+    for evidence_class, payload in payloads:
+        if payload is None:
+            continue
+        shell = ProfileEvidenceAttestation(
+            evidence_class=evidence_class,
+            candidate_sha=candidate.candidate_sha,
+            payload_digest=canonical_digest(payload),
+            authority_digest=D,
+            authentication_evidence_digest="",
+        )
+        attestations.append(
+            replace(
+                shell,
+                authentication_evidence_digest=proof(
+                    "profile",
+                    shell.evidence_class,
+                    shell.authority_digest,
+                    profile_authentication_payload(shell),
+                ),
+            )
+        )
+    return replace(candidate, profile_attestations=tuple(attestations))
 
 
 def evaluate(root: Path, *, gate_policy: SecurityGatePolicy | None = None, **changes: object):
@@ -198,6 +236,7 @@ def evaluate(root: Path, *, gate_policy: SecurityGatePolicy | None = None, **cha
         gate_policy or policy(),
         advisory_authenticator=authenticate("advisory"),
         waiver_authenticator=authenticate("waiver"),
+        profile_authenticator=authenticate("profile"),
         trusted_clock=lambda: NOW,
     )
 
@@ -260,6 +299,16 @@ def test_no_ignore_secret_gate_scans_symlink_payload_without_following_it(tmp_pa
 
     assert len(findings) == 1
     assert findings[0].path == "credential-link"
+
+
+def test_no_ignore_secret_gate_scans_non_utf8_files(tmp_path: Path) -> None:
+    target = tmp_path / "artifact.bin"
+    target.write_bytes(b"\xfftoken=" + b"ghp_" + b"G" * 36)
+
+    findings = scan_repository_secrets(tmp_path, candidate_sha=SHA, trusted_clock=lambda: NOW)
+
+    assert len(findings) == 1
+    assert findings[0].path == "artifact.bin"
 
 
 def test_scan_exclusions_cannot_hide_lockfiles_or_broad_product_trees() -> None:
@@ -357,6 +406,7 @@ def test_secret_allowlist_is_rechecked_at_final_profile_decision(tmp_path: Path)
         policy(secret_allowlist=(allow,)),
         advisory_authenticator=advancing_advisory_authenticator,
         waiver_authenticator=authenticate("waiver"),
+        profile_authenticator=authenticate("profile"),
         trusted_clock=Clock.now,
     )
 
@@ -417,6 +467,7 @@ def test_advisory_expiry_is_rechecked_after_authentication(tmp_path: Path) -> No
         policy(),
         advisory_authenticator=expiring_authenticator,
         waiver_authenticator=authenticate("waiver"),
+        profile_authenticator=authenticate("profile"),
         trusted_clock=Clock.now,
     )
     assert report.blocked
@@ -542,6 +593,7 @@ def test_waiver_expiry_is_rechecked_after_authentication(tmp_path: Path) -> None
         policy(),
         advisory_authenticator=authenticate("advisory"),
         waiver_authenticator=expiring_authenticator,
+        profile_authenticator=authenticate("profile"),
         trusted_clock=Clock.now,
     )
 
@@ -581,6 +633,7 @@ def test_all_waivers_are_rechecked_once_at_final_decision_time(tmp_path: Path) -
         policy(),
         advisory_authenticator=authenticate("advisory"),
         waiver_authenticator=advancing_waiver_authenticator,
+        profile_authenticator=authenticate("profile"),
         trusted_clock=Clock.now,
     )
 
@@ -631,6 +684,69 @@ def test_architecture_boundary_drift_or_policy_change_blocks(tmp_path: Path) -> 
         )
     )
     assert evaluate(tmp_path, architecture=caller_selected_policy).blocked
+
+
+def test_architecture_observation_cannot_change_after_trusted_attestation(tmp_path: Path) -> None:
+    subject = profile_input(tmp_path)
+    assert subject.architecture is not None
+    tampered = replace(subject, architecture=replace(subject.architecture, observed_edges=()))
+
+    report = evaluate_security_profile(
+        tampered,
+        policy(),
+        advisory_authenticator=authenticate("advisory"),
+        waiver_authenticator=authenticate("waiver"),
+        profile_authenticator=authenticate("profile"),
+        trusted_clock=lambda: NOW,
+    )
+
+    assert report.blocked
+
+
+def test_privacy_intent_cannot_be_relaxed_after_product_attestation(tmp_path: Path) -> None:
+    subject = profile_input(tmp_path)
+    assert subject.privacy_intent is not None
+    relaxed = replace(
+        subject,
+        privacy_intent=replace(
+            subject.privacy_intent,
+            deletion_required=False,
+            retention_days=36500,
+            telemetry_allowlist=("email",),
+        ),
+    )
+
+    report = evaluate_security_profile(
+        relaxed,
+        policy(),
+        advisory_authenticator=authenticate("advisory"),
+        waiver_authenticator=authenticate("waiver"),
+        profile_authenticator=authenticate("profile"),
+        trusted_clock=lambda: NOW,
+    )
+
+    assert report.blocked
+
+
+def test_dependency_inventory_and_license_policy_are_not_candidate_authority(
+    tmp_path: Path,
+) -> None:
+    assert evaluate(
+        tmp_path,
+        dependency_inventory=(("copyleft", "1.0.0", "GPL-3.0"),),
+    ).blocked
+
+    subject = profile_input(tmp_path)
+    tampered = replace(subject, dependency_inventory=())
+    report = evaluate_security_profile(
+        tampered,
+        policy(),
+        advisory_authenticator=authenticate("advisory"),
+        waiver_authenticator=authenticate("waiver"),
+        profile_authenticator=authenticate("profile"),
+        trusted_clock=lambda: NOW,
+    )
+    assert report.blocked
 
 
 def test_sbom_is_deterministic_and_bound_to_candidate_and_policy() -> None:

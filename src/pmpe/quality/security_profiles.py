@@ -49,6 +49,12 @@ _PROFILE_TO_TOOL = {
     "privacy": "privacy-verifier",
     "architecture_boundary": "boundary-verifier",
 }
+_REQUIRED_PROFILE_EVIDENCE = (
+    "architecture_observation",
+    "dependency_inventory",
+    "privacy_evidence",
+    "privacy_intent",
+)
 _PERMITTED_EXCLUSIONS = {".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache"}
 _LOCKFILE_NAMES = {
     "requirements.lock",
@@ -69,6 +75,7 @@ _SECRET_PATTERNS = (
 )
 AdvisoryAuthenticator = Callable[[str, str, object, str], bool]
 WaiverAuthenticator = Callable[[str, str, object, str], bool]
+ProfileAuthenticator = Callable[[str, str, object, str], bool]
 TrustedClock = Callable[[], datetime]
 
 
@@ -105,12 +112,15 @@ class SecurityGatePolicy:
     trusted_waiver_authorities: Mapping[str, str]
     trusted_architecture_boundary_digest: str
     trusted_architecture_allowed_edges: tuple[tuple[str, str], ...]
+    trusted_profile_authorities: Mapping[str, str]
+    allowed_licenses: tuple[str, ...]
     scan_exclusions: tuple[str, ...]
     secret_allowlist: tuple[SecretAllowlistEntry, ...]
 
     def as_dict(self) -> dict[str, Any]:
         return {
             "advisory_max_age_seconds": dict(sorted(self.advisory_max_age_seconds.items())),
+            "allowed_licenses": sorted(self.allowed_licenses),
             "policy_digest": self.policy_digest,
             "required_profiles": list(self.required_profiles),
             "scan_exclusions": list(self.scan_exclusions),
@@ -127,6 +137,7 @@ class SecurityGatePolicy:
             ],
             "trusted_architecture_boundary_digest": self.trusted_architecture_boundary_digest,
             "trusted_advisory_sources": dict(sorted(self.trusted_advisory_sources.items())),
+            "trusted_profile_authorities": dict(sorted(self.trusted_profile_authorities.items())),
             "trusted_waiver_authorities": dict(sorted(self.trusted_waiver_authorities.items())),
             "version": self.version,
         }
@@ -168,6 +179,25 @@ class AdvisorySnapshot:
 
 def advisory_authentication_payload(snapshot: AdvisorySnapshot) -> dict[str, Any]:
     payload = asdict(snapshot)
+    payload.pop("authentication_evidence_digest")
+    return payload
+
+
+@dataclass(frozen=True)
+class ProfileEvidenceAttestation:
+    evidence_class: str
+    candidate_sha: str
+    payload_digest: str
+    authority_digest: str
+    authentication_evidence_digest: str
+
+    @property
+    def digest(self) -> str:
+        return canonical_digest(asdict(self))
+
+
+def profile_authentication_payload(attestation: ProfileEvidenceAttestation) -> dict[str, Any]:
+    payload = asdict(attestation)
     payload.pop("authentication_evidence_digest")
     return payload
 
@@ -225,12 +255,12 @@ class SecurityProfileInput:
     candidate_sha: str
     repository_root: Path
     dependency_inventory: tuple[tuple[str, str, str], ...]
-    allowed_licenses: tuple[str, ...]
     advisory_snapshots: tuple[AdvisorySnapshot, ...]
     privacy_intent: PrivacyIntent | None
     privacy_evidence: PrivacyEvidence | None
     architecture: ArchitectureBoundaryObservation | None
     waivers: tuple[WaiverRecord, ...]
+    profile_attestations: tuple[ProfileEvidenceAttestation, ...]
 
 
 @dataclass(frozen=True)
@@ -244,6 +274,7 @@ class SecurityProfileReport:
     blocking_finding_digests: tuple[str, ...]
     tool_identities: tuple[ToolIdentity, ...]
     advisory_snapshot_digests: tuple[str, ...]
+    profile_attestation_digests: tuple[str, ...]
     sbom: Mapping[str, Any]
     report_digest: str
 
@@ -265,6 +296,7 @@ class SecurityProfileReport:
             "executed_profiles": list(self.executed_profiles),
             "findings": [item.as_dict() for item in self.findings],
             "policy_digest": self.policy_digest,
+            "profile_attestation_digests": list(self.profile_attestation_digests),
             "sbom": dict(self.sbom),
             "tool_identities": [asdict(item) for item in self.tool_identities],
         }
@@ -359,6 +391,15 @@ def validate_gate_policy(policy: SecurityGatePolicy) -> None:
         for source, destination in policy.trusted_architecture_allowed_edges
     ):
         raise ValueError("trusted architecture boundary graph is malformed")
+    if set(policy.trusted_profile_authorities) != set(_REQUIRED_PROFILE_EVIDENCE) or any(
+        not _DIGEST.fullmatch(authority)
+        for authority in policy.trusted_profile_authorities.values()
+    ):
+        raise ValueError("trusted profile evidence authorities are incomplete or malformed")
+    if len(policy.allowed_licenses) != len(set(policy.allowed_licenses)) or any(
+        not item.strip() for item in policy.allowed_licenses
+    ):
+        raise ValueError("trusted license allowlist is malformed")
     _validate_scan_controls(policy.scan_exclusions, policy.secret_allowlist)
     payload = policy.as_dict()
     claimed = payload.pop("policy_digest")
@@ -426,8 +467,8 @@ def _scan_secrets(
                 continue
         elif path.is_file():
             try:
-                text = path.read_text(errors="strict")
-            except (OSError, UnicodeError):
+                text = path.read_bytes().decode("utf-8", errors="replace")
+            except OSError:
                 continue
         else:
             continue
@@ -698,7 +739,102 @@ def _evaluate_advisories(
     return tuple(findings), tuple(sorted(admitted_digests))
 
 
-def _evaluate_dependencies(subject: SecurityProfileInput) -> tuple[NormalizedSecurityFinding, ...]:
+def _profile_evidence_payloads(subject: SecurityProfileInput) -> dict[str, object | None]:
+    return {
+        "architecture_observation": subject.architecture,
+        "dependency_inventory": subject.dependency_inventory,
+        "privacy_evidence": subject.privacy_evidence,
+        "privacy_intent": subject.privacy_intent,
+    }
+
+
+def _profile_authentication_failure(
+    subject_sha: str, evidence_class: str, message: str
+) -> NormalizedSecurityFinding:
+    category = {
+        "architecture_observation": "ARCHITECTURE_BOUNDARY",
+        "dependency_inventory": "SCA",
+        "privacy_evidence": "PRIVACY",
+        "privacy_intent": "PRIVACY",
+    }.get(evidence_class, "SCA")
+    return _finding(
+        finding_id=f"PROFILE-AUTH-{evidence_class or 'unknown'}",
+        category=category,
+        severity="HIGH",
+        rule_id="PROFILE_EVIDENCE_UNAUTHENTICATED",
+        path="",
+        line=0,
+        message=message,
+        subject_sha=subject_sha,
+        evidence={"evidence_class": evidence_class},
+    )
+
+
+def _evaluate_profile_attestations(
+    subject: SecurityProfileInput,
+    policy: SecurityGatePolicy,
+    *,
+    authenticator: ProfileAuthenticator | None,
+) -> tuple[tuple[NormalizedSecurityFinding, ...], tuple[str, ...]]:
+    findings: list[NormalizedSecurityFinding] = []
+    admitted: list[str] = []
+    payloads = _profile_evidence_payloads(subject)
+    by_class = {item.evidence_class: item for item in subject.profile_attestations}
+    if len(by_class) != len(subject.profile_attestations):
+        findings.append(
+            _profile_authentication_failure(
+                subject.candidate_sha,
+                "duplicate",
+                "Profile evidence attestation classes are duplicated.",
+            )
+        )
+    for evidence_class in _REQUIRED_PROFILE_EVIDENCE:
+        attestation = by_class.get(evidence_class)
+        payload = payloads[evidence_class]
+        authority = policy.trusted_profile_authorities[evidence_class]
+        valid = False
+        if attestation is not None and payload is not None:
+            try:
+                valid = bool(
+                    attestation.candidate_sha == subject.candidate_sha
+                    and attestation.payload_digest == canonical_digest(payload)
+                    and attestation.authority_digest == authority
+                    and _DIGEST.fullmatch(attestation.authentication_evidence_digest)
+                    and authenticator is not None
+                    and authenticator(
+                        evidence_class,
+                        authority,
+                        profile_authentication_payload(attestation),
+                        attestation.authentication_evidence_digest,
+                    )
+                )
+            except Exception:
+                valid = False
+        if valid:
+            assert attestation is not None
+            admitted.append(attestation.digest)
+        else:
+            findings.append(
+                _profile_authentication_failure(
+                    subject.candidate_sha,
+                    evidence_class,
+                    "Profile evidence is missing, wrong-subject, changed, or unauthenticated.",
+                )
+            )
+    for unknown in set(by_class) - set(_REQUIRED_PROFILE_EVIDENCE):
+        findings.append(
+            _profile_authentication_failure(
+                subject.candidate_sha,
+                unknown,
+                "Profile evidence class is not governed by the gate policy.",
+            )
+        )
+    return tuple(findings), tuple(sorted(admitted))
+
+
+def _evaluate_dependencies(
+    subject: SecurityProfileInput, policy: SecurityGatePolicy
+) -> tuple[NormalizedSecurityFinding, ...]:
     findings: list[NormalizedSecurityFinding] = []
     if not subject.dependency_inventory:
         return (
@@ -729,7 +865,7 @@ def _evaluate_dependencies(subject: SecurityProfileInput) -> tuple[NormalizedSec
                     evidence={"name": name, "version": version},
                 )
             )
-        if license_name not in subject.allowed_licenses:
+        if license_name not in policy.allowed_licenses:
             findings.append(
                 _finding(
                     finding_id=f"LICENSE-{name or 'unknown'}",
@@ -893,6 +1029,7 @@ def evaluate_security_profile(
     *,
     advisory_authenticator: AdvisoryAuthenticator | None,
     waiver_authenticator: WaiverAuthenticator | None,
+    profile_authenticator: ProfileAuthenticator | None,
     trusted_clock: TrustedClock = _utc_now,
 ) -> SecurityProfileReport:
     validate_gate_policy(policy)
@@ -925,7 +1062,13 @@ def evaluate_security_profile(
         trusted_clock=trusted_clock,
     )
     findings.extend(advisory_findings)
-    findings.extend(_evaluate_dependencies(subject))
+    profile_authentication_findings, admitted_profile_attestations = _evaluate_profile_attestations(
+        subject,
+        policy,
+        authenticator=profile_authenticator,
+    )
+    findings.extend(profile_authentication_findings)
+    findings.extend(_evaluate_dependencies(subject, policy))
     findings.extend(_evaluate_privacy(subject))
     findings.extend(_evaluate_architecture(subject, policy))
 
@@ -986,6 +1129,7 @@ def evaluate_security_profile(
         blocking_finding_digests=tuple(sorted(set(blocking))),
         tool_identities=tuple(sorted(policy.tools, key=lambda item: item.name)),
         advisory_snapshot_digests=admitted_advisories,
+        profile_attestation_digests=admitted_profile_attestations,
         sbom=sbom,
         report_digest="",
     )
