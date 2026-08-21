@@ -436,6 +436,45 @@ def test_merge_group_must_be_exact_fresh_and_from_admitted_enqueue() -> None:
     assert any("token authentication" in reason for reason in held.reasons)
 
 
+def test_merge_group_observation_cannot_predate_authenticated_enqueue() -> None:
+    snapshot = _snapshot()
+    enqueued_check = replace(
+        snapshot.checks[0],
+        status="PENDING",
+        event="merge_group",
+    )
+    enqueued_snapshot = replace(snapshot, checks=(enqueued_check,))
+    token = enqueue(
+        enqueued_snapshot,
+        governed_policy=POLICY,
+        token_issuer=TOKEN_ISSUER,
+        token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+        token_signer=_sign_token,
+        enqueued_at=AFTER,
+        invalidation_boundary=NOW,
+    )
+    pre_enqueue_success = replace(
+        enqueued_check,
+        status="SUCCESS",
+        observed_at="2026-08-20T12:00:59Z",
+        enqueue_digest=token.enqueue_digest,
+    )
+
+    decision = linearize_merge(
+        token,
+        replace(enqueued_snapshot, checks=(pre_enqueue_success,)),
+        governed_policy=POLICY,
+        trusted_token_issuers=TOKEN_ISSUERS,
+        token_authenticator=_authenticate_token,
+        observed_merge_sha="e" * 40,
+        observed_merge_tree_digest=D,
+        merged_at="2026-08-20T12:01:01Z",
+    )
+
+    assert not decision.admitted
+    assert any("predates its authenticated enqueue" in reason for reason in decision.reasons)
+
+
 @pytest.mark.parametrize("kind", ["AUTHORITY_REVOKED", "BLOCKING_FINDING"])
 def test_external_event_dequeue_first_prevents_merge(kind: str) -> None:
     result = resolve_external_race(

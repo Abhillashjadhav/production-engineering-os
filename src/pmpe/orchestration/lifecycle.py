@@ -4065,13 +4065,15 @@ class LifecycleControlPlane:
         }
 
     def _staging_bundle_valid(self, evidence: Mapping[str, str]) -> bool:
+        return self._sealed_bundle_valid(
+            evidence.get("evidence_bundle_digest", ""),
+            self._staging_bundle_bindings(evidence),
+        )
+
+    def _sealed_bundle_valid(self, digest: str, bindings: Mapping[str, str]) -> bool:
         try:
             return bool(
-                self._bundle_verifier is not None
-                and self._bundle_verifier(
-                    evidence.get("evidence_bundle_digest", ""),
-                    self._staging_bundle_bindings(evidence),
-                )
+                self._bundle_verifier is not None and self._bundle_verifier(digest, bindings)
             )
         except Exception:
             return False
@@ -4612,9 +4614,9 @@ class LifecycleControlPlane:
             }
             phase_four_advisory_clear = (
                 self._policy.version == PHASE_FOUR_POLICY.version
-                and self._bundle_verifier is not None
-                and self._bundle_verifier(
-                    context.evidence.get("verification_bundle_digest", ""), review_bindings
+                and self._sealed_bundle_valid(
+                    context.evidence.get("verification_bundle_digest", ""),
+                    review_bindings,
                 )
             )
             matching_review = None
@@ -5140,8 +5142,9 @@ class LifecycleControlPlane:
                         "finding_inventory_epochs_digest",
                     )
                 }
-                if self._bundle_verifier is None or not self._bundle_verifier(
-                    context.evidence.get("evidence_bundle_digest", ""), bundle_bindings
+                if not self._sealed_bundle_valid(
+                    context.evidence.get("evidence_bundle_digest", ""),
+                    bundle_bindings,
                 ):
                     self._deny(
                         target,

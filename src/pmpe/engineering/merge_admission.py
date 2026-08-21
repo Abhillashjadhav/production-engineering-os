@@ -199,6 +199,7 @@ def _validate_snapshot(
     as_of: str,
     queue_timeout_seconds: int,
     enqueue_digest: str = "",
+    enqueued_at: str = "",
     linearizing: bool = False,
 ) -> tuple[str, ...]:
     reasons: list[str] = []
@@ -286,6 +287,8 @@ def _validate_snapshot(
         if check.event == "merge_group":
             if linearizing and check.enqueue_digest != enqueue_digest:
                 reasons.append(f"merge-group check {name} is from another enqueue")
+            if linearizing and observed < _time(enqueued_at):
+                reasons.append(f"merge-group check {name} predates its authenticated enqueue")
             allowed_statuses = {"SUCCESS"} if linearizing else {"PENDING", "IN_PROGRESS", "SUCCESS"}
             if check.status not in allowed_statuses:
                 reasons.append(f"merge-group check {name} ended as {check.status}")
@@ -404,6 +407,7 @@ def linearize_merge(
                 as_of=merged_at,
                 queue_timeout_seconds=authenticated_queue_timeout,
                 enqueue_digest=token.enqueue_digest,
+                enqueued_at=token.enqueued_at,
                 linearizing=True,
             )
         )

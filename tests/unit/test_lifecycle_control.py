@@ -795,6 +795,72 @@ def test_phase_four_completion_accepts_a_distinct_completion_profile_bundle(
     assert observed[0][0] == completion_bundle
 
 
+def test_phase_four_readiness_holds_when_bundle_verifier_raises(tmp_path: Path) -> None:
+    def unavailable_verifier(digest: str, bindings: Mapping[str, str]) -> bool:
+        raise RuntimeError("immutable evidence store unavailable")
+
+    cp = control_plane(
+        tmp_path,
+        state=LifecycleState.REVIEW_REQUIRED,
+        lifecycle_policy=lifecycle.PHASE_FOUR_POLICY,
+        bundle_verifier=unavailable_verifier,
+    )
+    rule = lifecycle.PHASE_FOUR_POLICY.rule(
+        LifecycleState.REVIEW_REQUIRED,
+        LifecycleState.PR_READY,
+        reason="advisory_readiness_clear",
+    )
+    evidence = {
+        name: (
+            SHA
+            if name == "subject_digest"
+            else "a" * 40
+            if name.endswith("_sha")
+            else object_digest(name)
+        )
+        for name in rule.required_evidence
+    }
+    attempt = ready_attempt(evidence)
+    prejournal(cp, attempt)
+    record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
+    evidence.update(
+        ready_attempt_digest=object_digest(asdict(attempt)),
+        ready_result_digest=SHA,
+    )
+
+    with pytest.raises(TransitionDeniedError, match="sealed exact-candidate"):
+        cp.transition(
+            LifecycleState.PR_READY,
+            context(evidence=evidence, mutation=attempt),
+            reason="advisory_readiness_clear",
+        )
+
+    assert cp.state is LifecycleState.REVIEW_REQUIRED
+
+
+def test_phase_four_completion_holds_when_bundle_verifier_raises(tmp_path: Path) -> None:
+    def unavailable_verifier(digest: str, bindings: Mapping[str, str]) -> bool:
+        raise RuntimeError("immutable evidence store unavailable")
+
+    cp = control_plane(
+        tmp_path,
+        state=LifecycleState.PRODUCTION_DEPLOYED,
+        lifecycle_policy=lifecycle.PHASE_FOUR_POLICY,
+        bundle_verifier=unavailable_verifier,
+    )
+    evidence = completion_evidence_with_review_binding(cp)
+
+    with pytest.raises(TransitionDeniedError, match="valid sealed exact-subject"):
+        cp.transition(
+            LifecycleState.COMPLETED,
+            context(evidence=evidence),
+            reason="observation_window_passed",
+        )
+
+    assert cp.state is LifecycleState.PRODUCTION_DEPLOYED
+    assert not cp.completion_claim_active
+
+
 def test_phase_four_staging_requires_a_sealed_exact_merge_bundle(tmp_path: Path) -> None:
     staging_bundle = object_digest("sealed-staging-profile")
     observed: list[tuple[str, dict[str, str]]] = []
