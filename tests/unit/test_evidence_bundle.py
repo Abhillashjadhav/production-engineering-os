@@ -179,7 +179,7 @@ def _item(
         authentication_evidence_digest=_producer_proof(
             item.producer.producer_id,
             item.producer.authority_digest,
-            evidence_authentication_payload(item),
+            evidence_authentication_payload(item, D),
         ),
     )
 
@@ -264,7 +264,7 @@ def test_trusted_producer_cannot_sign_outside_its_profile_class_permissions() ->
         authentication_evidence_digest=_producer_proof(
             unauthorized.producer.producer_id,
             unauthorized.producer.authority_digest,
-            evidence_authentication_payload(unauthorized),
+            evidence_authentication_payload(unauthorized, D),
         ),
     )
     items[index] = unauthorized
@@ -292,6 +292,26 @@ def test_unknown_evidence_schema_version_fails_closed() -> None:
             expected_environment=_environment(),
             as_of=LATER,
         )
+
+
+def test_producer_proofs_cannot_be_reused_under_another_manifest_policy() -> None:
+    bundle, subject = _bundle("candidate_review")
+    changed_manifest = replace(bundle.manifest, policy_digest=E)
+    planted = SealedEvidenceBundle(changed_manifest, changed_manifest.digest)
+
+    result = verify_bundle(
+        planted,
+        expected_profile="candidate_review",
+        expected_subject=subject,
+        expected_policy_digest=E,
+        producer_policies=PRODUCER_POLICIES,
+        authenticator=_authenticate_producer,
+        expected_environment=_environment(),
+        as_of=LATER,
+    )
+
+    assert not result.valid
+    assert any("producer authentication failed" in reason for reason in result.reasons)
 
 
 @pytest.mark.parametrize(

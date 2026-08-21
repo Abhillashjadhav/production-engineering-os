@@ -192,11 +192,16 @@ class EvidenceItem:
         return canonical_digest(asdict(self))
 
 
-def evidence_authentication_payload(item: EvidenceItem) -> dict[str, object]:
-    """Canonical producer-signed payload; the proof itself is deliberately excluded."""
+def evidence_authentication_payload(
+    item: EvidenceItem, governing_policy_digest: str
+) -> dict[str, object]:
+    """Canonical producer-signed item and governing manifest-policy binding."""
     payload = asdict(item)
     payload.pop("authentication_evidence_digest")
-    return payload
+    return {
+        "governing_policy_digest": governing_policy_digest,
+        "item": payload,
+    }
 
 
 @dataclass(frozen=True)
@@ -425,7 +430,7 @@ def verify_manifest(
                     authenticator(
                         item.producer.producer_id,
                         producer_authority,
-                        evidence_authentication_payload(item),
+                        evidence_authentication_payload(item, manifest.policy_digest),
                         item.authentication_evidence_digest,
                     )
                 )

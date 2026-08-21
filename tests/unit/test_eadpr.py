@@ -2,12 +2,30 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+from pmpe.contracts.digest import canonical_digest
 from pmpe.evals.eadpr import EadprSubject, compute_eadpr, verify_eadpr
 
 D = "sha256:" + "a" * 64
 START = "2026-07-01T00:00:00Z"
 CUTOFF = "2026-08-01T00:00:00Z"
 SEALED = "2026-08-01T00:00:01Z"
+
+
+def _evidence_digest(slice_id: str, qualifying_at: str) -> str:
+    return canonical_digest(
+        {
+            "authenticated_admission": True,
+            "slice_id": slice_id,
+            "qualifying_draft_pr_at": qualifying_at,
+            "policy_version": "eadpr-v1",
+        }
+    )
+
+
+def _verify_evidence(subject: EadprSubject) -> bool:
+    return subject.evidence_bundle_digest == _evidence_digest(
+        subject.slice_id, subject.qualifying_draft_pr_at
+    )
 
 
 def _subject(
@@ -24,7 +42,7 @@ def _subject(
         due,
         "eadpr-v1",
         success,
-        D if success else "",
+        _evidence_digest(slice_id, success) if success else "",
         manual,
         excluded,
     )
@@ -50,6 +68,7 @@ def test_fixed_due_cohort_seals_success_failure_pending_exclusion_and_manual_com
         window_start=START,
         reporting_cutoff=CUTOFF,
         sealed_at=SEALED,
+        evidence_verifier=_verify_evidence,
     )
 
     assert report.denominator_subjects == ("late", "manual", "success")
@@ -61,7 +80,7 @@ def test_fixed_due_cohort_seals_success_failure_pending_exclusion_and_manual_com
     assert report.manual_intervention_subjects == ("manual",)
     assert report.rate == 0.3333
     assert report.manual_intervention_rate == 0.3333
-    assert verify_eadpr(report, subjects)
+    assert verify_eadpr(report, subjects, evidence_verifier=_verify_evidence)
 
 
 def test_early_success_remains_pending_until_fixed_due_cohort_matures() -> None:
@@ -72,6 +91,7 @@ def test_early_success_remains_pending_until_fixed_due_cohort_matures() -> None:
         window_start=START,
         reporting_cutoff=CUTOFF,
         sealed_at=SEALED,
+        evidence_verifier=_verify_evidence,
     )
     assert report.denominator_subjects == ()
     assert report.numerator_subjects == ()
@@ -87,6 +107,7 @@ def test_unapproved_target_suppresses_numeric_rates_but_preserves_counts() -> No
         window_start=START,
         reporting_cutoff=CUTOFF,
         sealed_at=SEALED,
+        evidence_verifier=_verify_evidence,
     )
     assert report.status == "TARGET_NOT_APPROVED"
     assert report.rate is None
@@ -103,11 +124,14 @@ def test_sealed_report_cannot_be_rewritten_by_later_recovery() -> None:
         window_start=START,
         reporting_cutoff=CUTOFF,
         sealed_at=SEALED,
+        evidence_verifier=_verify_evidence,
     )
     recovered = replace(
-        failed, qualifying_draft_pr_at="2026-08-02T00:00:00Z", evidence_bundle_digest=D
+        failed,
+        qualifying_draft_pr_at="2026-08-02T00:00:00Z",
+        evidence_bundle_digest=_evidence_digest("one", "2026-08-02T00:00:00Z"),
     )
-    assert verify_eadpr(report, (recovered,))
+    assert verify_eadpr(report, (recovered,), evidence_verifier=_verify_evidence)
     assert report.numerator_subjects == ()
     assert report.failure_subjects == ("one",)
 
@@ -125,8 +149,25 @@ def test_work_completed_before_prospective_eligibility_cannot_enter_numerator() 
         window_start=START,
         reporting_cutoff=CUTOFF,
         sealed_at=SEALED,
+        evidence_verifier=_verify_evidence,
     )
 
     assert report.denominator_subjects == ("one",)
+    assert report.numerator_subjects == ()
+    assert report.failure_subjects == ("one",)
+
+
+def test_digest_shaped_but_unverified_evidence_cannot_enter_numerator() -> None:
+    fabricated = replace(_subject("one", "2026-07-20T00:00:00Z"), evidence_bundle_digest=D)
+    report = compute_eadpr(
+        (fabricated,),
+        policy_version="eadpr-v1",
+        target_approved=True,
+        window_start=START,
+        reporting_cutoff=CUTOFF,
+        sealed_at=SEALED,
+        evidence_verifier=_verify_evidence,
+    )
+
     assert report.numerator_subjects == ()
     assert report.failure_subjects == ("one",)

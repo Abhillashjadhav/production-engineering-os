@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime
 
 from pmpe.contracts.digest import canonical_digest
 
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+EadprEvidenceVerifier = Callable[["EadprSubject"], bool]
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,7 @@ def compute_eadpr(
     window_start: str,
     reporting_cutoff: str,
     sealed_at: str,
+    evidence_verifier: EadprEvidenceVerifier,
 ) -> EadprReport:
     start = _time(window_start)
     cutoff = _time(reporting_cutoff)
@@ -110,6 +113,7 @@ def compute_eadpr(
         <= _time(item.qualifying_draft_pr_at)
         <= _time(item.metric_due_at)
         and _DIGEST.fullmatch(item.evidence_bundle_digest)
+        and _evidence_is_verified(item, evidence_verifier)
         and item.slice_id not in manual
     )
     failures = tuple(sorted(set(denominator) - set(numerator)))
@@ -137,7 +141,19 @@ def compute_eadpr(
     return report.with_digest()
 
 
-def verify_eadpr(report: EadprReport, subjects: tuple[EadprSubject, ...]) -> bool:
+def _evidence_is_verified(subject: EadprSubject, verifier: EadprEvidenceVerifier) -> bool:
+    try:
+        return bool(verifier(subject))
+    except Exception:
+        return False
+
+
+def verify_eadpr(
+    report: EadprReport,
+    subjects: tuple[EadprSubject, ...],
+    *,
+    evidence_verifier: EadprEvidenceVerifier,
+) -> bool:
     if report.report_digest != report.with_digest().report_digest:
         return False
     replayed = compute_eadpr(
@@ -147,5 +163,6 @@ def verify_eadpr(report: EadprReport, subjects: tuple[EadprSubject, ...]) -> boo
         window_start=report.window_start,
         reporting_cutoff=report.reporting_cutoff,
         sealed_at=report.sealed_at,
+        evidence_verifier=evidence_verifier,
     )
     return replayed == report
