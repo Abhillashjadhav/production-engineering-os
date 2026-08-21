@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import ast
 import hashlib
+import importlib.util
 import json
 import subprocess  # nosec B404 - fixed git argv authenticates the local checkout
 from dataclasses import asdict, replace
@@ -129,13 +130,26 @@ def _observed_architecture_edges(root: Path) -> tuple[tuple[str, str], ...]:
     for path in sorted(source_root.rglob("*.py")):
         relative_parts = path.relative_to(source_root).parts
         source_package = relative_parts[0] if len(relative_parts) > 1 else "root"
+        package_parts = ("pmpe", *relative_parts[:-1])
+        if path.name == "__init__.py":
+            package_parts = ("pmpe", *relative_parts[:-1])
+        current_package = ".".join(package_parts)
         tree = ast.parse(path.read_text(), filename=str(path))
         for node in ast.walk(tree):
             modules: list[str] = []
             if isinstance(node, ast.Import):
                 modules = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom) and node.module:
-                modules = [node.module]
+            elif isinstance(node, ast.ImportFrom):
+                if node.level:
+                    relative_name = "." * node.level + (node.module or "")
+                    resolved = importlib.util.resolve_name(relative_name, current_package)
+                else:
+                    resolved = node.module or ""
+                modules = (
+                    [resolved]
+                    if node.module
+                    else [f"{resolved}.{alias.name}" for alias in node.names]
+                )
             for module in modules:
                 if not module.startswith("pmpe."):
                     continue
@@ -241,12 +255,52 @@ def _profile_attestation(
     )
 
 
+def _privacy_evidence_from_artifact(
+    artifact_path: Path,
+    *,
+    candidate_sha: str,
+    policy_path: Path,
+    verifier_path: Path,
+) -> PrivacyEvidence:
+    value = _load_json(artifact_path)
+    if not isinstance(value, dict):
+        raise ValueError("privacy verifier artifact is malformed")
+    evidence_digest = value.pop("evidence_digest", None)
+    exact = bool(
+        isinstance(evidence_digest, str)
+        and evidence_digest == canonical_digest(value)
+        and value.get("candidate_sha") == candidate_sha
+        and value.get("policy_file_digest") == _file_digest(policy_path)
+        and value.get("verifier_file_digest") == _file_digest(verifier_path)
+        and value.get("retention_test_passed") is True
+        and value.get("telemetry_test_passed") is True
+        and isinstance(value.get("emitted_telemetry"), list)
+    )
+    if not exact:
+        raise ValueError("privacy verifier artifact is not exact or authenticated")
+    shell = PrivacyEvidence(
+        classification=str(value["classification"]),
+        retention_days=int(value["retention_days"]),
+        deletion_test_passed=value.get("deletion_test_passed") is True,
+        residency=str(value["residency"]),
+        emitted_telemetry=tuple(str(item) for item in value["emitted_telemetry"]),
+        evidence_digest="",
+    )
+    payload = asdict(shell)
+    payload.pop("evidence_digest")
+    return replace(shell, evidence_digest=canonical_digest(payload))
+
+
 def _tool(name: str, tool_version: str, ruleset: Path) -> ToolIdentity:
     return ToolIdentity(name=name, version=tool_version, ruleset_digest=_file_digest(ruleset))
 
 
 def _build_policy(
-    root: Path, config: dict[str, Any], profile_authority: str, advisory_authority: str
+    root: Path,
+    config: dict[str, Any],
+    profile_authority: str,
+    privacy_authority: str,
+    advisory_authority: str,
 ) -> SecurityGatePolicy:
     secret_allowlist = tuple(
         SecretAllowlistEntry(**item)
@@ -287,15 +341,17 @@ def _build_policy(
         trusted_waiver_authorities={},
         trusted_architecture_boundary_digest=boundary_digest,
         trusted_architecture_allowed_edges=allowed_edges,
-        trusted_profile_authorities=dict.fromkeys(
-            (
-                "architecture_observation",
-                "dependency_inventory",
-                "privacy_evidence",
-                "privacy_intent",
+        trusted_profile_authorities={
+            **dict.fromkeys(
+                (
+                    "architecture_observation",
+                    "dependency_inventory",
+                    "privacy_intent",
+                ),
+                profile_authority,
             ),
-            profile_authority,
-        ),
+            "privacy_evidence": privacy_authority,
+        },
         allowed_licenses=tuple(config["allowed_licenses"]),
         scan_exclusions=(".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache"),
         secret_allowlist=secret_allowlist,
@@ -306,8 +362,11 @@ def _build_policy(
     return replace(shell, policy_digest=canonical_digest(payload))
 
 
-def _evaluate(root: Path, candidate_sha: str, audit_path: Path) -> bytes:
+def _evaluate(
+    root: Path, candidate_sha: str, audit_path: Path, privacy_evidence_path: Path
+) -> bytes:
     config_path = root / "security" / "security-profile-policy.json"
+    privacy_verifier_path = root / "scripts" / "ci" / "verify_privacy_controls.py"
     config = _load_json(config_path)
     if not isinstance(config, dict) or config.get("version") != "repository-security-profile/v1":
         raise ValueError("repository security profile policy is malformed")
@@ -315,10 +374,22 @@ def _evaluate(root: Path, candidate_sha: str, audit_path: Path) -> bytes:
     profile_authority = canonical_digest(
         {"authority": "repository-profile-evidence", "policy_digest": _file_digest(config_path)}
     )
+    privacy_authority = canonical_digest(
+        {
+            "authority": "executed-privacy-verifier",
+            "verifier_digest": _file_digest(privacy_verifier_path),
+        }
+    )
     advisory_authority = canonical_digest(
         {"authority": "pip-audit", "ruleset_digest": _file_digest(root / "requirements.lock")}
     )
-    policy = _build_policy(root, config, profile_authority, advisory_authority)
+    policy = _build_policy(
+        root,
+        config,
+        profile_authority,
+        privacy_authority,
+        advisory_authority,
+    )
     dependency_inventory = _dependency_inventory(audit_payload, config["license_fallbacks"])
 
     privacy = config["privacy"]
@@ -329,17 +400,12 @@ def _evaluate(root: Path, candidate_sha: str, audit_path: Path) -> bytes:
         residency=privacy["residency"],
         telemetry_allowlist=tuple(privacy["telemetry_allowlist"]),
     )
-    evidence_shell = PrivacyEvidence(
-        classification=privacy["classification"],
-        retention_days=privacy["retention_days"],
-        deletion_test_passed=privacy["deletion_test_passed"],
-        residency=privacy["residency"],
-        emitted_telemetry=tuple(privacy["emitted_telemetry"]),
-        evidence_digest="",
+    privacy_evidence = _privacy_evidence_from_artifact(
+        privacy_evidence_path,
+        candidate_sha=candidate_sha,
+        policy_path=config_path,
+        verifier_path=privacy_verifier_path,
     )
-    evidence_payload = asdict(evidence_shell)
-    evidence_payload.pop("evidence_digest")
-    privacy_evidence = replace(evidence_shell, evidence_digest=canonical_digest(evidence_payload))
 
     allowed_edges = policy.trusted_architecture_allowed_edges
     architecture_shell = ArchitectureBoundaryObservation(
@@ -378,11 +444,11 @@ def _evaluate(root: Path, candidate_sha: str, audit_path: Path) -> bytes:
             advisory_authentication_payload(snapshot_shell),
         ),
     )
-    payloads: tuple[tuple[str, object], ...] = (
-        ("dependency_inventory", dependency_inventory),
-        ("privacy_intent", intent),
-        ("privacy_evidence", privacy_evidence),
-        ("architecture_observation", architecture),
+    payloads: tuple[tuple[str, object, str], ...] = (
+        ("dependency_inventory", dependency_inventory, profile_authority),
+        ("privacy_intent", intent, profile_authority),
+        ("privacy_evidence", privacy_evidence, privacy_authority),
+        ("architecture_observation", architecture, profile_authority),
     )
     subject = SecurityProfileInput(
         candidate_sha=candidate_sha,
@@ -394,8 +460,8 @@ def _evaluate(root: Path, candidate_sha: str, audit_path: Path) -> bytes:
         architecture=architecture,
         waivers=(),
         profile_attestations=tuple(
-            _profile_attestation(name, candidate_sha, payload, profile_authority)
-            for name, payload in payloads
+            _profile_attestation(name, candidate_sha, payload, authority)
+            for name, payload, authority in payloads
         ),
     )
     report = evaluate_security_profile(
@@ -416,10 +482,16 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--candidate-sha", required=True)
     parser.add_argument("--audit-evidence", type=Path, required=True)
+    parser.add_argument("--privacy-evidence", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     root = Path.cwd().resolve()
-    report = _evaluate(root, args.candidate_sha, args.audit_evidence)
+    report = _evaluate(
+        root,
+        args.candidate_sha,
+        args.audit_evidence,
+        args.privacy_evidence,
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(report + b"\n")
     return 0

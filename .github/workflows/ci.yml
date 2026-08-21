@@ -21,9 +21,9 @@ jobs:
           python-version: "3.11"
       - run: pip install --require-hashes -r requirements.lock
       - name: ruff format
-        run: ruff format --check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/verify_repository_secrets.py
+        run: ruff format --check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/verify_privacy_controls.py scripts/ci/verify_repository_secrets.py
       - name: ruff lint
-        run: ruff check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/verify_repository_secrets.py
+        run: ruff check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/verify_privacy_controls.py scripts/ci/verify_repository_secrets.py
 
   types:
     runs-on: ubuntu-latest
@@ -36,7 +36,7 @@ jobs:
           pip install --require-hashes -r requirements.lock
           pip install --no-deps -e .
       - name: mypy --strict
-        run: mypy --strict src/pmpe scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/verify_repository_secrets.py
+        run: mypy --strict src/pmpe scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/verify_privacy_controls.py scripts/ci/verify_repository_secrets.py
 
   tests:
     runs-on: ubuntu-latest
@@ -89,11 +89,16 @@ jobs:
             --output /tmp/security-profile/secret-report.json
       - name: deterministic security profile contract (all required gates)
         run: pytest tests/unit/test_security_profiles.py -q
+      - name: execute privacy deletion, retention, and telemetry verifier
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python scripts/ci/verify_privacy_controls.py --candidate-sha "$CANDIDATE_SHA" --policy security/security-profile-policy.json --output /tmp/security-profile/privacy-evidence.json
       - name: composed security profile against exact candidate
         env:
           CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          python scripts/ci/evaluate_security_profile.py --candidate-sha "$CANDIDATE_SHA" --audit-evidence /tmp/security-profile/pip-audit.json --output /tmp/security-profile/composed-security-profile.json
+          python scripts/ci/evaluate_security_profile.py --candidate-sha "$CANDIDATE_SHA" --audit-evidence /tmp/security-profile/pip-audit.json --privacy-evidence /tmp/security-profile/privacy-evidence.json --output /tmp/security-profile/composed-security-profile.json
       - name: retain exact-SHA security evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -102,6 +107,7 @@ jobs:
           path: |
             /tmp/security-profile/secret-report.json
             /tmp/security-profile/pip-audit.json
+            /tmp/security-profile/privacy-evidence.json
             /tmp/security-profile/composed-security-profile.json
           retention-days: 7
           if-no-files-found: error

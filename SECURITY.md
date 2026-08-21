@@ -47,6 +47,12 @@ come only from the digest-validated gate policy. The report converts directly to
 candidate-review `required_checks` EvidenceBundle item without inventing authentication
 evidence.
 
+Privacy evidence is not copied from policy intent. CI executes the repository's
+quarantine deletion path, bounded retention controller, and structured event observer,
+then binds that verifier artifact to the candidate SHA and the exact policy/verifier
+file digests before profile admission. Architecture observation resolves both absolute
+and relative Python imports before checking the policy-owned layer graph.
+
 CI runs `bandit -r src scripts/ci`, the complete deterministic security-profile
 contract suite, and `scripts/ci/evaluate_security_profile.py` against the checked-out
 candidate using the blocking pip-audit result. The composed report and its input

@@ -39,8 +39,6 @@
   "privacy": {
     "classification": "INTERNAL",
     "deletion_required": true,
-    "deletion_test_passed": true,
-    "emitted_telemetry": ["latency_ms", "outcome", "run_id"],
     "residency": "IN",
     "retention_days": 30,
     "telemetry_allowlist": ["latency_ms", "outcome", "run_id"]

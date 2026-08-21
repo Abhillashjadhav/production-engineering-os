@@ -51,6 +51,10 @@ pass.
   can claim the candidate SHA.
 - Advisory, secret-allowlist, SAST false-positive allowlist, and waiver authority is
   rechecked at the single final disposition time.
+- Privacy deletion, retention, and emitted-telemetry claims come from an executed
+  exact-candidate verifier artifact, not from copied intent fields.
+- Architecture observation resolves relative and absolute imports before comparing
+  the observed layer graph with trusted policy.
 
 ## Rollback
 
