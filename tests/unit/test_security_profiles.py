@@ -42,6 +42,7 @@ SHA = "c" * 40
 D = "sha256:" + "a" * 64
 E = "sha256:" + "b" * 64
 NOW = datetime(2030, 1, 1, 12, 0, tzinfo=UTC)
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 
 
 def proof(kind: str, identity: str, authority: str, payload: object) -> str:
@@ -59,6 +60,13 @@ def proof(kind: str, identity: str, authority: str, payload: object) -> str:
 def authenticate(kind: str):  # type: ignore[no-untyped-def]
     def verifier(identity: str, authority: str, payload: object, evidence: str) -> bool:
         return evidence == proof(kind, identity, authority, payload)
+
+    return verifier
+
+
+def authenticate_repository(expected_root: Path):  # type: ignore[no-untyped-def]
+    def verifier(repository_root: Path, candidate_sha: str) -> bool:
+        return repository_root.resolve() == expected_root.resolve() and candidate_sha == SHA
 
     return verifier
 
@@ -234,6 +242,7 @@ def evaluate(root: Path, *, gate_policy: SecurityGatePolicy | None = None, **cha
     return evaluate_security_profile(
         profile_input(root, **changes),
         gate_policy or policy(),
+        repository_authenticator=authenticate_repository(root),
         advisory_authenticator=authenticate("advisory"),
         waiver_authenticator=authenticate("waiver"),
         profile_authenticator=authenticate("profile"),
@@ -404,6 +413,7 @@ def test_secret_allowlist_is_rechecked_at_final_profile_decision(tmp_path: Path)
     report = evaluate_security_profile(
         profile_input(tmp_path),
         policy(secret_allowlist=(allow,)),
+        repository_authenticator=authenticate_repository(tmp_path),
         advisory_authenticator=advancing_advisory_authenticator,
         waiver_authenticator=authenticate("waiver"),
         profile_authenticator=authenticate("profile"),
@@ -465,6 +475,7 @@ def test_advisory_expiry_is_rechecked_after_authentication(tmp_path: Path) -> No
     report = evaluate_security_profile(
         profile_input(tmp_path, advisory_snapshots=(snapshot,)),
         policy(),
+        repository_authenticator=authenticate_repository(tmp_path),
         advisory_authenticator=expiring_authenticator,
         waiver_authenticator=authenticate("waiver"),
         profile_authenticator=authenticate("profile"),
@@ -472,6 +483,74 @@ def test_advisory_expiry_is_rechecked_after_authentication(tmp_path: Path) -> No
     )
     assert report.blocked
     assert any("stale" in item.rule_id.lower() for item in report.findings)
+
+
+def test_advisory_freshness_is_rechecked_at_final_profile_decision(tmp_path: Path) -> None:
+    expires = NOW + timedelta(seconds=1)
+    shell = replace(
+        advisory(),
+        expires_at=expires.isoformat().replace("+00:00", "Z"),
+        authentication_evidence_digest="",
+    )
+    snapshot = replace(
+        shell,
+        authentication_evidence_digest=proof(
+            "advisory", shell.source, shell.authority_digest, advisory_authentication_payload(shell)
+        ),
+    )
+
+    class Clock:
+        current = NOW
+
+        @classmethod
+        def now(cls) -> datetime:
+            return cls.current
+
+    def advancing_profile_authenticator(
+        identity: str, authority: str, payload: object, evidence: str
+    ) -> bool:
+        valid = authenticate("profile")(identity, authority, payload, evidence)
+        Clock.current = expires + timedelta(seconds=1)
+        return valid
+
+    report = evaluate_security_profile(
+        profile_input(tmp_path, advisory_snapshots=(snapshot,)),
+        policy(),
+        repository_authenticator=authenticate_repository(tmp_path),
+        advisory_authenticator=authenticate("advisory"),
+        waiver_authenticator=authenticate("waiver"),
+        profile_authenticator=advancing_profile_authenticator,
+        trusted_clock=Clock.now,
+    )
+
+    assert report.blocked
+    assert any(item.rule_id == "ADVISORY_STALE_AT_FINAL_DECISION" for item in report.findings)
+
+
+def test_repository_root_requires_exact_candidate_authentication(tmp_path: Path) -> None:
+    candidate_root = tmp_path / "candidate"
+    clean_but_wrong_root = tmp_path / "clean-copy"
+    candidate_root.mkdir()
+    clean_but_wrong_root.mkdir()
+
+    with pytest.raises(ValueError, match="exact candidate"):
+        evaluate_security_profile(
+            profile_input(clean_but_wrong_root),
+            policy(),
+            repository_authenticator=authenticate_repository(candidate_root),
+            advisory_authenticator=authenticate("advisory"),
+            waiver_authenticator=authenticate("waiver"),
+            profile_authenticator=authenticate("profile"),
+            trusted_clock=lambda: NOW,
+        )
+
+
+def test_ci_runs_composed_profile_against_exact_candidate() -> None:
+    workflow = (REPOSITORY_ROOT / ".github/workflows/ci.yml").read_text()
+
+    assert "python scripts/ci/evaluate_security_profile.py" in workflow
+    assert "--candidate-sha \"$CANDIDATE_SHA\"" in workflow
+    assert "composed-security-profile.json" in workflow
 
 
 def security_finding(severity: str) -> NormalizedSecurityFinding:
@@ -591,6 +670,7 @@ def test_waiver_expiry_is_rechecked_after_authentication(tmp_path: Path) -> None
             waivers=(candidate_waiver,),
         ),
         policy(),
+        repository_authenticator=authenticate_repository(tmp_path),
         advisory_authenticator=authenticate("advisory"),
         waiver_authenticator=expiring_authenticator,
         profile_authenticator=authenticate("profile"),
@@ -631,6 +711,7 @@ def test_all_waivers_are_rechecked_once_at_final_decision_time(tmp_path: Path) -
             waivers=(first_waiver, second_waiver),
         ),
         policy(),
+        repository_authenticator=authenticate_repository(tmp_path),
         advisory_authenticator=authenticate("advisory"),
         waiver_authenticator=advancing_waiver_authenticator,
         profile_authenticator=authenticate("profile"),
@@ -694,6 +775,7 @@ def test_architecture_observation_cannot_change_after_trusted_attestation(tmp_pa
     report = evaluate_security_profile(
         tampered,
         policy(),
+        repository_authenticator=authenticate_repository(tmp_path),
         advisory_authenticator=authenticate("advisory"),
         waiver_authenticator=authenticate("waiver"),
         profile_authenticator=authenticate("profile"),
@@ -719,6 +801,7 @@ def test_privacy_intent_cannot_be_relaxed_after_product_attestation(tmp_path: Pa
     report = evaluate_security_profile(
         relaxed,
         policy(),
+        repository_authenticator=authenticate_repository(tmp_path),
         advisory_authenticator=authenticate("advisory"),
         waiver_authenticator=authenticate("waiver"),
         profile_authenticator=authenticate("profile"),
@@ -741,6 +824,7 @@ def test_dependency_inventory_and_license_policy_are_not_candidate_authority(
     report = evaluate_security_profile(
         tampered,
         policy(),
+        repository_authenticator=authenticate_repository(tmp_path),
         advisory_authenticator=authenticate("advisory"),
         waiver_authenticator=authenticate("waiver"),
         profile_authenticator=authenticate("profile"),
