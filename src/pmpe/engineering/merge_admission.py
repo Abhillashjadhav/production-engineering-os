@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass, replace
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
@@ -19,6 +19,11 @@ EnqueueTokenAuthenticator = Callable[[str, str, Mapping[str, object], str], bool
 FindingAuthenticator = Callable[[str, str, Mapping[str, object], str], bool]
 FindingInventoryAuthenticator = Callable[[str, str, Mapping[str, object], str], bool]
 FindingResolutionAuthenticator = Callable[[str, str, Mapping[str, object], str], bool]
+TrustedClock = Callable[[], datetime]
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
 
 
 @dataclass(frozen=True)
@@ -295,6 +300,7 @@ def _validate_snapshot(
     finding_authenticator: FindingAuthenticator | None,
     finding_inventory_authenticator: FindingInventoryAuthenticator | None,
     resolution_authenticator: FindingResolutionAuthenticator | None,
+    trusted_clock: TrustedClock,
     enqueue_digest: str = "",
     enqueued_at: str = "",
     linearizing: bool = False,
@@ -337,6 +343,7 @@ def _validate_snapshot(
         or set(inventory_by_source) != set(trusted_finding_sources)
     ):
         reasons.append("finding inventory source coverage is incomplete")
+    inventory_freshness_windows: list[tuple[str, datetime, datetime]] = []
     for source, trusted_authority in trusted_finding_sources.items():
         inventory = inventory_by_source.get(source)
         expected_finding_digests = tuple(
@@ -373,6 +380,23 @@ def _validate_snapshot(
             reasons.append(
                 f"finding inventory for {source} is incomplete, stale, or unauthenticated"
             )
+        elif inventory is not None:
+            inventory_freshness_windows.append(
+                (source, _time(inventory.observed_at), _time(inventory.expires_at))
+            )
+    try:
+        live_decision_time = trusted_clock()
+        if live_decision_time.tzinfo is None:
+            raise ValueError("trusted decision time must carry a timezone")
+    except Exception:
+        live_decision_time = None
+        reasons.append("trusted decision clock is unavailable")
+    if live_decision_time is not None:
+        for source, observed, expires in inventory_freshness_windows:
+            if not observed <= live_decision_time <= expires:
+                reasons.append(
+                    f"finding inventory for {source} is incomplete, stale, or unauthenticated"
+                )
     authenticated_findings = tuple(
         (
             finding,
@@ -475,6 +499,7 @@ def enqueue(
     finding_authenticator: FindingAuthenticator | None = None,
     finding_inventory_authenticator: FindingInventoryAuthenticator | None = None,
     resolution_authenticator: FindingResolutionAuthenticator | None = None,
+    trusted_clock: TrustedClock = _utc_now,
 ) -> EnqueueToken:
     if queue_timeout_seconds <= 0:
         raise ValueError("merge queue timeout must be positive")
@@ -489,6 +514,7 @@ def enqueue(
         finding_authenticator=finding_authenticator,
         finding_inventory_authenticator=finding_inventory_authenticator,
         resolution_authenticator=resolution_authenticator,
+        trusted_clock=trusted_clock,
     )
     if reasons:
         raise ValueError("; ".join(reasons))
@@ -553,6 +579,7 @@ def linearize_merge(
     finding_authenticator: FindingAuthenticator | None = None,
     finding_inventory_authenticator: FindingInventoryAuthenticator | None = None,
     resolution_authenticator: FindingResolutionAuthenticator | None = None,
+    trusted_clock: TrustedClock = _utc_now,
 ) -> MergeDecision:
     trusted_token_authority = trusted_token_issuers.get(token.issuer_id, "")
     try:
@@ -587,6 +614,7 @@ def linearize_merge(
                 finding_authenticator=finding_authenticator,
                 finding_inventory_authenticator=finding_inventory_authenticator,
                 resolution_authenticator=resolution_authenticator,
+                trusted_clock=trusted_clock,
                 enqueue_digest=token.enqueue_digest,
                 enqueued_at=token.enqueued_at,
                 linearizing=True,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -121,12 +122,20 @@ def _authenticate_inventory(
 def enqueue(snapshot: MergeSnapshot, **kwargs: Any) -> Any:
     kwargs.setdefault("trusted_finding_sources", FINDING_SOURCES)
     kwargs.setdefault("finding_inventory_authenticator", _authenticate_inventory)
+    kwargs.setdefault(
+        "trusted_clock",
+        lambda: datetime.fromisoformat(kwargs["enqueued_at"].replace("Z", "+00:00")),
+    )
     return _enqueue(snapshot, **kwargs)
 
 
 def linearize_merge(*args: Any, **kwargs: Any) -> Any:
     kwargs.setdefault("trusted_finding_sources", FINDING_SOURCES)
     kwargs.setdefault("finding_inventory_authenticator", _authenticate_inventory)
+    kwargs.setdefault(
+        "trusted_clock",
+        lambda: datetime.fromisoformat(kwargs["merged_at"].replace("Z", "+00:00")),
+    )
     return _linearize_merge(*args, **kwargs)
 
 
@@ -642,6 +651,100 @@ def test_finding_inventory_authenticates_complete_exact_subject_boundary() -> No
         observed_merge_tree_digest=D,
         merged_at=AFTER,
     )
+    assert not decision.admitted
+    assert any("incomplete, stale, or unauthenticated" in reason for reason in decision.reasons)
+
+
+@pytest.mark.parametrize("operation", ["enqueue", "linearize"])
+def test_finding_inventory_expiry_is_rechecked_after_all_source_authenticators(
+    operation: str,
+) -> None:
+    decision_time = datetime(2030, 1, 1, tzinfo=UTC)
+    expires = decision_time + timedelta(seconds=1)
+    inventory = replace(
+        _inventory(),
+        observed_at=(decision_time - timedelta(minutes=1)).isoformat().replace("+00:00", "Z"),
+        expires_at=expires.isoformat().replace("+00:00", "Z"),
+        authentication_evidence_digest="",
+    )
+    inventory = replace(
+        inventory,
+        authentication_evidence_digest=_inventory_proof(
+            inventory.source,
+            inventory.source_authority_digest,
+            finding_inventory_authentication_payload(inventory),
+        ),
+    )
+    candidate = _snapshot()
+    decision_timestamp = decision_time.isoformat().replace("+00:00", "Z")
+    snapshot = replace(
+        candidate,
+        finding_inventories=(inventory,),
+        reviews=(replace(candidate.reviews[0], submitted_at=decision_timestamp),),
+        checks=(replace(candidate.checks[0], observed_at=decision_timestamp),),
+    )
+
+    class TrustedClock:
+        current = decision_time
+
+        @classmethod
+        def now(cls) -> datetime:
+            return cls.current
+
+    def expiring_authenticator(
+        identity: str,
+        authority: str,
+        payload: Mapping[str, object],
+        proof: str,
+    ) -> bool:
+        authenticated = _authenticate_inventory(identity, authority, payload, proof)
+        TrustedClock.current = expires + timedelta(seconds=1)
+        return authenticated
+
+    common = {
+        "governed_policy": POLICY,
+        "trusted_finding_sources": FINDING_SOURCES,
+        "finding_inventory_authenticator": expiring_authenticator,
+        "trusted_clock": TrustedClock.now,
+    }
+    if operation == "enqueue":
+        with pytest.raises(ValueError, match="incomplete, stale, or unauthenticated"):
+            _enqueue(
+                snapshot,
+                token_issuer=TOKEN_ISSUER,
+                token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+                token_signer=_sign_token,
+                enqueued_at=decision_timestamp,
+                invalidation_boundary=(decision_time - timedelta(minutes=2))
+                .isoformat()
+                .replace("+00:00", "Z"),
+                **common,
+            )
+        return
+
+    token = enqueue(
+        snapshot,
+        governed_policy=POLICY,
+        token_issuer=TOKEN_ISSUER,
+        token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+        token_signer=_sign_token,
+        enqueued_at=decision_timestamp,
+        invalidation_boundary=(decision_time - timedelta(minutes=2))
+        .isoformat()
+        .replace("+00:00", "Z"),
+        trusted_clock=lambda: decision_time,
+    )
+    decision = _linearize_merge(
+        token,
+        snapshot,
+        trusted_token_issuers=TOKEN_ISSUERS,
+        token_authenticator=_authenticate_token,
+        observed_merge_sha="e" * 40,
+        observed_merge_tree_digest=D,
+        merged_at=decision_timestamp,
+        **common,
+    )
+
     assert not decision.admitted
     assert any("incomplete, stale, or unauthenticated" in reason for reason in decision.reasons)
 
