@@ -93,6 +93,7 @@ def policy(**changes: object) -> SecurityGatePolicy:
         trusted_advisory_sources={"pypi-advisory-db": D},
         advisory_max_age_seconds={"pypi-advisory-db": 3600},
         trusted_waiver_authorities={"security-owner": D},
+        trusted_architecture_boundary_digest=D,
         scan_exclusions=(".git", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache"),
         secret_allowlist=(),
     )
@@ -162,6 +163,14 @@ def architecture_observation() -> ArchitectureBoundaryObservation:
     payload = asdict(shell)
     payload.pop("evidence_digest")
     return replace(shell, evidence_digest=canonical_digest(payload))
+
+
+def seal_architecture(
+    observation: ArchitectureBoundaryObservation,
+) -> ArchitectureBoundaryObservation:
+    payload = asdict(observation)
+    payload.pop("evidence_digest")
+    return replace(observation, evidence_digest=canonical_digest(payload))
 
 
 def profile_input(root: Path, **changes: object) -> SecurityProfileInput:
@@ -313,6 +322,47 @@ def test_secret_allowlist_expiry_is_rechecked_after_scanning(tmp_path: Path) -> 
     assert any(item.rule_id == "SECRET_ALLOWLIST_EXPIRED_DURING_SCAN" for item in findings)
 
 
+def test_secret_allowlist_is_rechecked_at_final_profile_decision(tmp_path: Path) -> None:
+    value = "ghp_" + "F" * 36
+    target = tmp_path / "tests" / "synthetic.txt"
+    target.parent.mkdir()
+    target.write_text(value)
+    expires = NOW + timedelta(seconds=1)
+    allow = SecretAllowlistEntry(
+        path="tests/synthetic.txt",
+        line=1,
+        fingerprint=secret_fingerprint(value),
+        justification="Synthetic final-decision expiry regression.",
+        approved_by="security-owner",
+        expires_at=expires.isoformat(),
+    )
+
+    class Clock:
+        current = NOW
+
+        @classmethod
+        def now(cls) -> datetime:
+            return cls.current
+
+    def advancing_advisory_authenticator(
+        identity: str, authority: str, payload: object, evidence: str
+    ) -> bool:
+        valid = authenticate("advisory")(identity, authority, payload, evidence)
+        Clock.current = expires + timedelta(seconds=1)
+        return valid
+
+    report = evaluate_security_profile(
+        profile_input(tmp_path),
+        policy(secret_allowlist=(allow,)),
+        advisory_authenticator=advancing_advisory_authenticator,
+        waiver_authenticator=authenticate("waiver"),
+        trusted_clock=Clock.now,
+    )
+
+    assert report.blocked
+    assert any(item.rule_id == "SECRET_ALLOWLIST_EXPIRED_DURING_SCAN" for item in report.findings)
+
+
 @pytest.mark.parametrize(
     "change",
     (
@@ -398,6 +448,11 @@ def waiver(finding: NormalizedSecurityFinding, severity: str = "MEDIUM") -> Waiv
         authority_digest=D,
         authentication_evidence_digest="",
     )
+    return reseal_waiver(shell)
+
+
+def reseal_waiver(candidate: WaiverRecord) -> WaiverRecord:
+    shell = replace(candidate, authentication_evidence_digest="")
     return replace(
         shell,
         authentication_evidence_digest=proof(
@@ -493,6 +548,45 @@ def test_waiver_expiry_is_rechecked_after_authentication(tmp_path: Path) -> None
     assert finding.digest in report.blocking_finding_digests
 
 
+def test_all_waivers_are_rechecked_once_at_final_decision_time(tmp_path: Path) -> None:
+    first = security_finding("MEDIUM")
+    second = replace(first, finding_id="SCA-MEDIUM-2", rule_id="PYSEC-0002")
+    first_expiry = NOW + timedelta(milliseconds=1500)
+    first_waiver = reseal_waiver(replace(waiver(first), expires_at=first_expiry.isoformat()))
+    second_waiver = reseal_waiver(
+        replace(waiver(second), expires_at=(NOW + timedelta(seconds=10)).isoformat())
+    )
+
+    class Clock:
+        current = NOW
+
+        @classmethod
+        def now(cls) -> datetime:
+            return cls.current
+
+    def advancing_waiver_authenticator(
+        identity: str, authority: str, payload: object, evidence: str
+    ) -> bool:
+        valid = authenticate("waiver")(identity, authority, payload, evidence)
+        Clock.current += timedelta(seconds=1)
+        return valid
+
+    report = evaluate_security_profile(
+        profile_input(
+            tmp_path,
+            advisory_snapshots=(advisory(findings=(first, second)),),
+            waivers=(first_waiver, second_waiver),
+        ),
+        policy(),
+        advisory_authenticator=authenticate("advisory"),
+        waiver_authenticator=advancing_waiver_authenticator,
+        trusted_clock=Clock.now,
+    )
+
+    assert report.blocked
+    assert first.digest in report.blocking_finding_digests
+
+
 @pytest.mark.parametrize(
     "evidence",
     (
@@ -528,6 +622,15 @@ def test_architecture_boundary_drift_or_policy_change_blocks(tmp_path: Path) -> 
         boundary_policy_digest=E,
     )
     assert evaluate(tmp_path, architecture=changed_policy).blocked
+    caller_selected_policy = seal_architecture(
+        replace(
+            architecture_observation(),
+            boundary_policy_digest=E,
+            allowed_edges=(("frontend", "database"),),
+            observed_edges=(("frontend", "database"),),
+        )
+    )
+    assert evaluate(tmp_path, architecture=caller_selected_policy).blocked
 
 
 def test_sbom_is_deterministic_and_bound_to_candidate_and_policy() -> None:

@@ -103,6 +103,7 @@ class SecurityGatePolicy:
     trusted_advisory_sources: Mapping[str, str]
     advisory_max_age_seconds: Mapping[str, int]
     trusted_waiver_authorities: Mapping[str, str]
+    trusted_architecture_boundary_digest: str
     scan_exclusions: tuple[str, ...]
     secret_allowlist: tuple[SecretAllowlistEntry, ...]
 
@@ -120,6 +121,7 @@ class SecurityGatePolicy:
                 )
             ],
             "tools": [asdict(item) for item in sorted(self.tools, key=lambda value: value.name)],
+            "trusted_architecture_boundary_digest": self.trusted_architecture_boundary_digest,
             "trusted_advisory_sources": dict(sorted(self.trusted_advisory_sources.items())),
             "trusted_waiver_authorities": dict(sorted(self.trusted_waiver_authorities.items())),
             "version": self.version,
@@ -344,6 +346,8 @@ def validate_gate_policy(policy: SecurityGatePolicy) -> None:
         for actor, digest in policy.trusted_waiver_authorities.items()
     ):
         raise ValueError("waiver authority is malformed")
+    if not _DIGEST.fullmatch(policy.trusted_architecture_boundary_digest):
+        raise ValueError("trusted architecture boundary digest is malformed")
     _validate_scan_controls(policy.scan_exclusions, policy.secret_allowlist)
     payload = policy.as_dict()
     claimed = payload.pop("policy_digest")
@@ -788,7 +792,9 @@ def _evaluate_privacy(subject: SecurityProfileInput) -> tuple[NormalizedSecurity
     )
 
 
-def _evaluate_architecture(subject: SecurityProfileInput) -> tuple[NormalizedSecurityFinding, ...]:
+def _evaluate_architecture(
+    subject: SecurityProfileInput, policy: SecurityGatePolicy
+) -> tuple[NormalizedSecurityFinding, ...]:
     observation = subject.architecture
     evidence_payload = asdict(observation) if observation is not None else {}
     claimed_evidence_digest = str(evidence_payload.pop("evidence_digest", ""))
@@ -796,7 +802,7 @@ def _evaluate_architecture(subject: SecurityProfileInput) -> tuple[NormalizedSec
         observation is not None
         and _DIGEST.fullmatch(observation.architecture_pack_digest)
         and observation.boundary_policy_version == "architecture-boundary/v1"
-        and _DIGEST.fullmatch(observation.boundary_policy_digest)
+        and observation.boundary_policy_digest == policy.trusted_architecture_boundary_digest
         and claimed_evidence_digest == canonical_digest(evidence_payload)
         and set(observation.observed_edges) <= set(observation.allowed_edges)
     )
@@ -899,17 +905,6 @@ def evaluate_security_profile(
             now=decision_time,
         )
     )
-    post_secret_time = trusted_clock()
-    if post_secret_time.tzinfo is None:
-        raise ValueError("trusted security decision clock is unavailable")
-    findings.extend(
-        _allowlist_expiry_findings(
-            policy.secret_allowlist,
-            subject_sha=subject.candidate_sha,
-            initial_time=decision_time,
-            final_time=post_secret_time,
-        )
-    )
     findings.extend(_scan_sast(subject.repository_root, subject.candidate_sha))
     advisory_findings, admitted_advisories = _evaluate_advisories(
         subject,
@@ -920,10 +915,11 @@ def evaluate_security_profile(
     findings.extend(advisory_findings)
     findings.extend(_evaluate_dependencies(subject))
     findings.extend(_evaluate_privacy(subject))
-    findings.extend(_evaluate_architecture(subject))
+    findings.extend(_evaluate_architecture(subject, policy))
 
     blocking: list[str] = []
     blocked_profiles: set[str] = set()
+    admitted_waivers: list[tuple[NormalizedSecurityFinding, datetime]] = []
     waivers_by_finding = {item.finding_digest: item for item in subject.waivers}
     for finding in findings:
         waived = False
@@ -937,7 +933,27 @@ def evaluate_security_profile(
                 authenticator=waiver_authenticator,
                 trusted_clock=trusted_clock,
             )
+            if waived:
+                admitted_waivers.append((finding, _time(candidate_waiver.expires_at)))
         if not waived:
+            blocking.append(finding.digest)
+            blocked_profiles.add(_profile_for_finding(finding))
+
+    final_decision_time = trusted_clock()
+    if final_decision_time.tzinfo is None:
+        raise ValueError("trusted security decision clock is unavailable")
+    final_allowlist_findings = _allowlist_expiry_findings(
+        policy.secret_allowlist,
+        subject_sha=subject.candidate_sha,
+        initial_time=decision_time,
+        final_time=final_decision_time,
+    )
+    findings.extend(final_allowlist_findings)
+    for finding in final_allowlist_findings:
+        blocking.append(finding.digest)
+        blocked_profiles.add(_profile_for_finding(finding))
+    for finding, expires_at in admitted_waivers:
+        if final_decision_time > expires_at:
             blocking.append(finding.digest)
             blocked_profiles.add(_profile_for_finding(finding))
 
