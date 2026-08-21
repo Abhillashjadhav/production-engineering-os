@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from pmpe.contracts.digest import canonical_digest
+from pmpe.orchestration.lifecycle import BudgetPolicy, LifecycleControlPlane, LifecycleState
 from pmpe.privacy.retention import RetentionController
 from pmpe.telemetry.events import EventLog
 from scripts.ci.evaluate_security_profile import (
@@ -30,10 +31,11 @@ def test_architecture_observer_resolves_relative_imports(tmp_path: Path) -> None
 
 def test_architecture_observer_checks_both_repository_planes(tmp_path: Path) -> None:
     os_source = tmp_path / "src" / "pmpe" / "orchestration"
-    product_source = tmp_path / "products" / "pm-evals-web" / "backend" / "src" / "pm_evals_api"
+    product_source = tmp_path / "products" / "pm-evals-web" / "backend" / "src" / "pm_evals_reports"
     os_source.mkdir(parents=True)
     product_source.mkdir(parents=True)
-    (os_source / "worker.py").write_text("import pm_evals_api\n")
+    (product_source / "__init__.py").write_text("")
+    (os_source / "worker.py").write_text("import pm_evals_reports\n")
     (product_source / "app.py").write_text("from pmpe.contracts import digest\n")
 
     edges = _observed_architecture_edges(tmp_path)
@@ -56,6 +58,16 @@ def test_architecture_observer_accounts_for_dynamic_imports(tmp_path: Path) -> N
 
     assert ("orchestration", "interfaces") in edges
     assert ("orchestration", "unresolved_dynamic") in edges
+
+
+def test_architecture_observer_resolves_relative_dynamic_imports(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "relative.py").write_text(
+        'import importlib\nimportlib.import_module("..guided.api", __package__)\n'
+    )
+
+    assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
 
 
 def test_retention_controller_deletes_expired_and_preserves_current_data(tmp_path: Path) -> None:
@@ -95,6 +107,41 @@ def test_event_log_enforces_retention_on_the_actual_runs_root(tmp_path: Path) ->
     assert not expired.exists()
 
 
+def test_phase_zero_create_enforces_retention_on_shipped_lifecycle_root(tmp_path: Path) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    expired = tmp_path / "expired-run" / "lifecycle-events.jsonl"
+    expired.parent.mkdir()
+    expired.write_text("{}\n")
+    old = (now - timedelta(days=31)).timestamp()
+    os.utime(expired, (old, old))
+    budget = BudgetPolicy(
+        version="budget-v1",
+        limits={
+            "tokens": 100,
+            "credits": 10,
+            "elapsed_seconds": 3600,
+            "external_compute_seconds": 600,
+            "spend_microunits": 1000,
+        },
+        repair_attempts_per_finding=2,
+        repair_attempts_per_stage=3,
+        reserved_safety_units=10,
+        approved_by="delivery-owner",
+    )
+
+    LifecycleControlPlane.create(
+        tmp_path / "current-run",
+        run_id="privacy-retention-run",
+        subject_digest="sha256:" + "1" * 64,
+        initial_state=LifecycleState.CONTRACT_RECEIVED,
+        budget_policy=budget,
+        retention_days=30,
+        trusted_clock=lambda: now,
+    )
+
+    assert not expired.exists()
+
+
 def test_privacy_verifier_inventories_real_product_telemetry(tmp_path: Path) -> None:
     source = tmp_path / "src" / "pmpe" / "orchestration"
     source.mkdir(parents=True)
@@ -107,6 +154,16 @@ def test_privacy_verifier_inventories_real_product_telemetry(tmp_path: Path) -> 
         "reason",
         "step",
     )
+
+
+def test_privacy_verifier_tracks_aliased_event_emitters(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "context.py").write_text(
+        'emit = ctx.events.emit\nemit("result", email="synthetic@example.invalid")\n'
+    )
+
+    assert _inventory_telemetry_fields(tmp_path) == ("email",)
 
 
 def test_privacy_evidence_requires_executed_exact_candidate_artifact(tmp_path: Path) -> None:
