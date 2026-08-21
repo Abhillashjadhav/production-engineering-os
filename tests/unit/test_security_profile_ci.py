@@ -87,6 +87,8 @@ def test_architecture_observer_accounts_for_dynamic_imports(tmp_path: Path) -> N
     [
         'import importlib as il\nil.import_module("pmpe.guided.api")\n',
         'from importlib import import_module as load\nload("pmpe.guided.api")\n',
+        'import importlib\nloader = importlib.import_module\nloader("pmpe.guided.api")\n',
+        'from importlib import import_module\nloader = import_module\nloader("pmpe.guided.api")\n',
     ],
 )
 def test_architecture_observer_resolves_dynamic_import_function_aliases(
