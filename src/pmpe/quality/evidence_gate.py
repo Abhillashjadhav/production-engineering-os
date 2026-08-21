@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 from pmpe.audit.evidence import (
     EnvironmentFingerprint,
+    EvidenceAuthenticator,
     EvidenceSubject,
     EvidenceValidation,
     SealedEvidenceBundle,
@@ -59,12 +61,16 @@ def assess_readiness(
     policy_digest: str,
     environment: EnvironmentFingerprint,
     as_of: str,
+    trusted_producers: Mapping[str, str],
+    authenticator: EvidenceAuthenticator,
 ) -> EvidenceGateDecision:
     validation = verify_bundle(
         bundle,
         expected_profile="candidate_review",
         expected_subject=subject,
         expected_policy_digest=policy_digest,
+        trusted_producers=trusted_producers,
+        authenticator=authenticator,
         expected_environment=environment,
         as_of=as_of,
     )
@@ -78,12 +84,16 @@ def assess_merge_admission(
     policy_digest: str,
     environment: EnvironmentFingerprint,
     as_of: str,
+    trusted_producers: Mapping[str, str],
+    authenticator: EvidenceAuthenticator,
 ) -> EvidenceGateDecision:
     validation = verify_bundle(
         bundle,
         expected_profile="merge_admission",
         expected_subject=subject,
         expected_policy_digest=policy_digest,
+        trusted_producers=trusted_producers,
+        authenticator=authenticator,
         expected_environment=environment,
         as_of=as_of,
     )
@@ -97,12 +107,16 @@ def assess_completion(
     policy_digest: str,
     environment: EnvironmentFingerprint,
     as_of: str,
+    trusted_producers: Mapping[str, str],
+    authenticator: EvidenceAuthenticator,
 ) -> EvidenceGateDecision:
     validation = verify_bundle(
         bundle,
         expected_profile="completion",
         expected_subject=subject,
         expected_policy_digest=policy_digest,
+        trusted_producers=trusted_producers,
+        authenticator=authenticator,
         expected_environment=environment,
         as_of=as_of,
     )

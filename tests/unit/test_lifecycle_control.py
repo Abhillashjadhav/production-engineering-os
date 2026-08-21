@@ -4165,6 +4165,10 @@ def test_phase_four_merge_keeps_advisory_and_post_ready_formal_review_distinct(
     reviewed_tree = object_digest("reviewed-tree")
     advisory_bundle = object_digest("advisory-bundle")
     advisory_digest = object_digest("advisory-analysis")
+    review_policy_evidence = {
+        name: "a" * 40 if name.endswith("_sha") else object_digest(name)
+        for name in lifecycle._PHASE_FOUR_REVIEW_FIELDS
+    }
     cp._append(
         kind="REVIEW_BINDING_ADMITTED",
         outcome="RECORDED",
@@ -4178,6 +4182,7 @@ def test_phase_four_merge_keeps_advisory_and_post_ready_formal_review_distinct(
             "prospective_tree_digest": reviewed_tree,
             "verification_bundle_digest": advisory_bundle,
             "review_digest": advisory_digest,
+            **review_policy_evidence,
         },
         observed_at="2026-08-01T23:59:00Z",
     )
@@ -4218,6 +4223,7 @@ def test_phase_four_merge_keeps_advisory_and_post_ready_formal_review_distinct(
         for name in rule.required_evidence
     }
     planned_evidence.update(
+        review_policy_evidence,
         queue_subject_digest=SHA,
         head_commit_sha=reviewed_commit,
         head_digest=object_digest(reviewed_commit),
@@ -4275,6 +4281,29 @@ def test_phase_four_merge_keeps_advisory_and_post_ready_formal_review_distinct(
             native_gate_payload,
         ),
     )
+
+    drifted_evidence = dict(planned_evidence)
+    drifted_evidence["security_policy_digest"] = object_digest("changed-security-policy")
+    drifted_native_gate_payload = lifecycle._native_merge_gate_payload(drifted_evidence)
+    drifted_evidence.update(
+        native_merge_gate_digest=object_digest(drifted_native_gate_payload),
+        native_merge_gate_authentication_evidence_digest=external_proof(
+            native_gate_actor,
+            native_gate_authority,
+            drifted_native_gate_payload,
+        ),
+    )
+    with pytest.raises(TransitionDeniedError, match="review binding"):
+        cp.transition(
+            LifecycleState.PR_MERGED,
+            context(
+                evidence=drifted_evidence,
+                approvals=(approval,),
+                mutation=attempt,
+                usage=cp.budget_usage,
+            ),
+            reason="native_merge_linearized",
+        )
 
     merged = cp.transition(
         LifecycleState.PR_MERGED,

@@ -162,23 +162,28 @@ def test_changes_requested_blocks_even_with_an_approval() -> None:
 
 def test_merge_group_must_be_exact_fresh_and_from_admitted_enqueue() -> None:
     snapshot = _snapshot()
+    enqueued_check = RequiredCheck(
+        "ci",
+        HEAD,
+        snapshot.exact_input_digest,
+        "PENDING",
+        AFTER,
+        event="merge_group",
+    )
+    enqueued_snapshot = replace(snapshot, checks=(enqueued_check,))
     token = enqueue(
-        snapshot,
+        enqueued_snapshot,
         governed_policy=POLICY,
         enqueued_at=AFTER,
         invalidation_boundary=NOW,
     )
-    queue_check = RequiredCheck(
-        "ci",
-        HEAD,
-        snapshot.exact_input_digest,
-        "IN_PROGRESS",
-        AFTER,
-        event="merge_group",
+    queue_check = replace(
+        enqueued_check,
+        status="IN_PROGRESS",
         enqueue_digest=token.enqueue_digest,
     )
     current = replace(
-        snapshot,
+        enqueued_snapshot,
         checks=(queue_check,),
     )
 
@@ -214,6 +219,18 @@ def test_merge_group_must_be_exact_fresh_and_from_admitted_enqueue() -> None:
     )
     assert not held.admitted
     assert any("CANCELLED" in reason for reason in held.reasons)
+
+    downgraded = replace(queue_check, event="pull_request", status="SUCCESS", enqueue_digest="")
+    held = linearize_merge(
+        token,
+        replace(current, checks=(downgraded,)),
+        governed_policy=POLICY,
+        observed_merge_sha="e" * 40,
+        observed_merge_tree_digest=D,
+        merged_at=AFTER,
+    )
+    assert not held.admitted
+    assert any("identity changed" in reason for reason in held.reasons)
 
 
 @pytest.mark.parametrize("kind", ["AUTHORITY_REVOKED", "BLOCKING_FINDING"])

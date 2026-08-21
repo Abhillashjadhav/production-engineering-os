@@ -4690,6 +4690,13 @@ class LifecycleControlPlane:
                 or context.evidence.get("verification_bundle_digest")
                 != review_binding.evidence_refs.get("verification_bundle_digest")
                 or (
+                    self._policy.version == PHASE_FOUR_POLICY.version
+                    and any(
+                        context.evidence.get(name) != review_binding.evidence_refs.get(name)
+                        for name in _PHASE_FOUR_REVIEW_FIELDS
+                    )
+                )
+                or (
                     self._policy.version != PHASE_FOUR_POLICY.version
                     and context.evidence.get("formal_review_digest")
                     != review_binding.evidence_refs.get("review_digest")

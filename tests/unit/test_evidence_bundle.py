@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import replace
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from pmpe.audit.evidence import (
     ImmutableEvidenceStore,
     SealedEvidenceBundle,
     ToolIdentity,
+    evidence_authentication_payload,
     seal_manifest,
     verify_bundle,
 )
@@ -32,6 +34,27 @@ SHA = "c" * 40
 BASE = "d" * 40
 NOW = "2026-08-20T12:00:00Z"
 LATER = "2026-08-20T12:30:00Z"
+TRUSTED_PRODUCERS = {"ci/github": D}
+
+
+def _producer_proof(identity: str, authority_digest: str, payload: Mapping[str, object]) -> str:
+    return canonical_digest(
+        {
+            "test_trust_root": "outside-the-evidence-bundle",
+            "identity": identity,
+            "authority_digest": authority_digest,
+            "payload": payload,
+        }
+    )
+
+
+def _authenticate_producer(
+    identity: str,
+    authority_digest: str,
+    payload: Mapping[str, object],
+    proof: str,
+) -> bool:
+    return proof == _producer_proof(identity, authority_digest, payload)
 
 
 def _environment(**changes: str) -> EnvironmentFingerprint:
@@ -66,7 +89,7 @@ def _item(
     expires_at: str = "2026-08-21T12:00:00Z",
 ) -> EvidenceItem:
     executed = 1 if evidence_class in {"required_checks", "meaningful_red"} else 0
-    return EvidenceItem(
+    item = EvidenceItem(
         evidence_id=f"{profile}:{evidence_class}",
         evidence_class=evidence_class,
         stage=profile,
@@ -79,13 +102,21 @@ def _item(
         output_digest=E,
         observed_at=NOW,
         retention_class="release+incident",
-        authentication_evidence_digest=D,
+        authentication_evidence_digest="",
         attestation_format="DSSE-v1",
         medium=medium,
         expires_at=expires_at,
         executed_count=executed,
         passed_count=1 if evidence_class == "required_checks" else 0,
         failed_count=1 if evidence_class == "meaningful_red" else 0,
+    )
+    return replace(
+        item,
+        authentication_evidence_digest=_producer_proof(
+            item.producer.producer_id,
+            item.producer.authority_digest,
+            evidence_authentication_payload(item),
+        ),
     )
 
 
@@ -99,7 +130,16 @@ def _bundle(profile: str) -> tuple[SealedEvidenceBundle, EvidenceSubject]:
         )
     )
     manifest = EvidenceManifest("evidence-bundle/v1", profile, subject, D, NOW, items)
-    return seal_manifest(manifest, expected_environment=_environment(), as_of=LATER), subject
+    return (
+        seal_manifest(
+            manifest,
+            trusted_producers=TRUSTED_PRODUCERS,
+            authenticator=_authenticate_producer,
+            expected_environment=_environment(),
+            as_of=LATER,
+        ),
+        subject,
+    )
 
 
 def test_sealed_bundle_is_content_addressed_and_reconstructible() -> None:
@@ -110,6 +150,8 @@ def test_sealed_bundle_is_content_addressed_and_reconstructible() -> None:
         expected_profile="completion",
         expected_subject=subject,
         expected_policy_digest=D,
+        trusted_producers=TRUSTED_PRODUCERS,
+        authenticator=_authenticate_producer,
         expected_environment=_environment(),
         as_of=LATER,
     )
@@ -117,6 +159,27 @@ def test_sealed_bundle_is_content_addressed_and_reconstructible() -> None:
     assert report.valid
     assert report.completeness == 1.0
     assert bundle.bundle_digest == canonical_digest(bundle.manifest)
+
+
+def test_shape_valid_but_fabricated_producer_proofs_cannot_be_sealed() -> None:
+    subject = _subject("candidate_review")
+    items = tuple(
+        replace(
+            _item("candidate_review", evidence_class, subject),
+            authentication_evidence_digest=E,
+        )
+        for evidence_class in STAGE_PROFILES["candidate_review"].required_classes
+    )
+    manifest = EvidenceManifest("evidence-bundle/v1", "candidate_review", subject, D, NOW, items)
+
+    with pytest.raises(EvidenceViolation, match="producer authentication failed"):
+        seal_manifest(
+            manifest,
+            trusted_producers=TRUSTED_PRODUCERS,
+            authenticator=_authenticate_producer,
+            expected_environment=_environment(),
+            as_of=LATER,
+        )
 
 
 @pytest.mark.parametrize(
@@ -164,6 +227,8 @@ def test_planted_false_done_evidence_fails_closed(mutation: str, reason: str) ->
         policy_digest=D,
         environment=_environment(),
         as_of=LATER,
+        trusted_producers=TRUSTED_PRODUCERS,
+        authenticator=_authenticate_producer,
     )
 
     assert not decision.admitted
@@ -180,6 +245,8 @@ def test_tampering_after_seal_is_detected() -> None:
         expected_profile="completion",
         expected_subject=subject,
         expected_policy_digest=D,
+        trusted_producers=TRUSTED_PRODUCERS,
+        authenticator=_authenticate_producer,
         expected_environment=_environment(),
         as_of=LATER,
     )
@@ -196,6 +263,8 @@ def test_readiness_binds_frozen_base_head_and_prospective_tree() -> None:
         policy_digest=D,
         environment=_environment(),
         as_of=LATER,
+        trusted_producers=TRUSTED_PRODUCERS,
+        authenticator=_authenticate_producer,
     ).admitted
 
     changed_base = replace(subject, protected_base_sha=BASE)
@@ -205,6 +274,8 @@ def test_readiness_binds_frozen_base_head_and_prospective_tree() -> None:
         policy_digest=D,
         environment=_environment(),
         as_of=LATER,
+        trusted_producers=TRUSTED_PRODUCERS,
+        authenticator=_authenticate_producer,
     )
 
     assert not held.admitted
@@ -250,7 +321,13 @@ def test_duplicate_evidence_identity_is_rejected() -> None:
     duplicate = replace(bundle.manifest, items=(*bundle.manifest.items, bundle.manifest.items[0]))
 
     with pytest.raises(EvidenceViolation, match="duplicate evidence id"):
-        seal_manifest(duplicate, expected_environment=_environment(), as_of=LATER)
+        seal_manifest(
+            duplicate,
+            trusted_producers=TRUSTED_PRODUCERS,
+            authenticator=_authenticate_producer,
+            expected_environment=_environment(),
+            as_of=LATER,
+        )
 
 
 def test_green_summary_with_skipped_required_test_cannot_satisfy_readiness() -> None:
@@ -275,6 +352,8 @@ def test_green_summary_with_skipped_required_test_cannot_satisfy_readiness() -> 
         policy_digest=D,
         environment=_environment(),
         as_of=LATER,
+        trusted_producers=TRUSTED_PRODUCERS,
+        authenticator=_authenticate_producer,
     )
 
     assert not held.admitted

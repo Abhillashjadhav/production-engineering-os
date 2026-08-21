@@ -21,6 +21,9 @@ The canonical manifest digest is the seal. `ImmutableEvidenceStore` persists the
 manifest under that address and appends an idempotent event. A retry with the same
 event identity and bytes is a no-op; reusing the identity for another bundle fails.
 Superseding manifests point to their predecessor and never rewrite it.
+Before sealing or admitting a bundle, every producer is resolved against an
+independently supplied authority map and its proof is verified over the full canonical
+evidence-item payload. Digest-shaped self-assertions are not authentication.
 
 Mutable GitHub metadata and comments may carry a bundle pointer. They are explicitly
 rejected as a required evidence item. Rejected intake bytes are also excluded: the

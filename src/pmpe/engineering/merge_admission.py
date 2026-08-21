@@ -131,6 +131,7 @@ class EnqueueToken:
     exact_input_digest: str
     authority_digest: str
     finding_high_watermark_digest: str
+    merge_group_check_names: tuple[str, ...]
     enqueued_at: str
     invalidation_boundary: str
     enqueue_digest: str
@@ -297,6 +298,9 @@ def enqueue(
         {
             "snapshot_digest": snapshot_digest,
             "exact_input_digest": snapshot.exact_input_digest,
+            "merge_group_check_names": tuple(
+                sorted(check.name for check in snapshot.checks if check.event == "merge_group")
+            ),
             "enqueued_at": enqueued_at,
             "invalidation_boundary": invalidation_boundary,
         }
@@ -306,6 +310,7 @@ def enqueue(
         snapshot.exact_input_digest,
         snapshot.authority_digest,
         snapshot.finding_high_watermark_digest,
+        tuple(sorted(check.name for check in snapshot.checks if check.event == "merge_group")),
         enqueued_at,
         invalidation_boundary,
         enqueue_digest,
@@ -343,6 +348,11 @@ def linearize_merge(
         reasons.append("external contract or publisher authority changed after enqueue")
     if current.finding_high_watermark_digest != token.finding_high_watermark_digest:
         reasons.append("finding high-watermark changed after enqueue")
+    current_merge_group_checks = tuple(
+        sorted(check.name for check in current.checks if check.event == "merge_group")
+    )
+    if current_merge_group_checks != token.merge_group_check_names:
+        reasons.append("merge-group check identity changed after enqueue")
     if not native_gate_authorized:
         reasons.append("native gate integrity or authorization failed")
     if not _GIT_SHA.fullmatch(observed_merge_sha):

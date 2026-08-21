@@ -10,7 +10,7 @@ import fcntl
 import json
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -41,6 +41,9 @@ _MUTABLE_POINTER_MEDIA = frozenset({"PR_COMMENT", "PR_METADATA", "MODEL_TEXT"})
 
 class EvidenceViolation(ValueError):  # noqa: N818 — deliberate domain violation
     """Evidence is absent, mutable, stale, tampered, or bound to another subject."""
+
+
+EvidenceAuthenticator = Callable[[str, str, Mapping[str, object], str], bool]
 
 
 @dataclass(frozen=True)
@@ -154,6 +157,13 @@ class EvidenceItem:
     @property
     def digest(self) -> str:
         return canonical_digest(asdict(self))
+
+
+def evidence_authentication_payload(item: EvidenceItem) -> dict[str, object]:
+    """Canonical producer-signed payload; the proof itself is deliberately excluded."""
+    payload = asdict(item)
+    payload.pop("authentication_evidence_digest")
+    return payload
 
 
 @dataclass(frozen=True)
@@ -303,6 +313,8 @@ def _valid_subject_field(name: str, value: str) -> bool:
 def verify_manifest(
     manifest: EvidenceManifest,
     *,
+    trusted_producers: Mapping[str, str],
+    authenticator: EvidenceAuthenticator,
     expected_profile: str | None = None,
     expected_subject: EvidenceSubject | None = None,
     expected_policy_digest: str | None = None,
@@ -355,10 +367,27 @@ def verify_manifest(
         if (
             not item.producer.producer_id
             or not _DIGEST.fullmatch(item.producer.authority_digest)
-            or not _DIGEST.fullmatch(item.authentication_evidence_digest)
             or not item.attestation_format
+            or not _DIGEST.fullmatch(item.authentication_evidence_digest)
         ):
             reasons.append(f"{item.evidence_id}: producer attestation is absent or malformed")
+        producer_authority = trusted_producers.get(item.producer.producer_id, "")
+        if not producer_authority or producer_authority != item.producer.authority_digest:
+            reasons.append(f"{item.evidence_id}: producer authority is not trusted")
+        else:
+            try:
+                authenticated = bool(
+                    authenticator(
+                        item.producer.producer_id,
+                        producer_authority,
+                        evidence_authentication_payload(item),
+                        item.authentication_evidence_digest,
+                    )
+                )
+            except Exception:
+                authenticated = False
+            if not authenticated:
+                reasons.append(f"{item.evidence_id}: producer authentication failed")
         if not item.invocation and not _DIGEST.fullmatch(item.committed_script_digest):
             reasons.append(f"{item.evidence_id}: executable invocation or script digest is absent")
         if not item.tool.name or not item.tool.version:
@@ -420,11 +449,15 @@ def verify_manifest(
 def seal_manifest(
     manifest: EvidenceManifest,
     *,
+    trusted_producers: Mapping[str, str],
+    authenticator: EvidenceAuthenticator,
     expected_environment: EnvironmentFingerprint | None = None,
     as_of: str | None = None,
 ) -> SealedEvidenceBundle:
     validation = verify_manifest(
         manifest,
+        trusted_producers=trusted_producers,
+        authenticator=authenticator,
         expected_profile=manifest.profile,
         expected_subject=manifest.subject,
         expected_policy_digest=manifest.policy_digest,
@@ -442,11 +475,15 @@ def verify_bundle(
     expected_profile: str,
     expected_subject: EvidenceSubject,
     expected_policy_digest: str,
+    trusted_producers: Mapping[str, str],
+    authenticator: EvidenceAuthenticator,
     expected_environment: EnvironmentFingerprint | None = None,
     as_of: str | None = None,
 ) -> EvidenceValidation:
     validation = verify_manifest(
         bundle.manifest,
+        trusted_producers=trusted_producers,
+        authenticator=authenticator,
         expected_profile=expected_profile,
         expected_subject=expected_subject,
         expected_policy_digest=expected_policy_digest,
