@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
+import multiprocessing
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+import pmpe.engineering.candidate as candidate_module
 from pmpe.engineering.candidate import (
     CandidateViolation,
     ReviewSubject,
@@ -21,6 +25,17 @@ from pmpe.quality.runtime_matrix import verify_runtime_matrix
 
 D = "sha256:" + "a" * 64
 E = "sha256:" + "b" * 64
+
+
+def _freeze_worker(
+    run_dir: str,
+    subject: ReviewSubject,
+    results: Any,
+) -> None:
+    try:
+        results.put(("success", freeze_review_subject(Path(run_dir), subject)))
+    except CandidateViolation as exc:
+        results.put(("violation", str(exc)))
 
 
 def _review(**changes: str) -> ReviewSubject:
@@ -50,6 +65,51 @@ def test_review_subject_freeze_invalidates_head_base_tree_or_policy_change(tmp_p
         verify_review_subject(tmp_path, _review(protected_base_sha="e" * 40))
     with pytest.raises(CandidateViolation, match="changed"):
         freeze_review_subject(tmp_path, _review(evidence_policy_digest=E))
+
+
+def test_review_subject_first_write_is_serialized_across_processes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ctx = multiprocessing.get_context("fork")
+    first_write_entered = ctx.Event()
+    release_first_write = ctx.Event()
+    results = ctx.Queue()
+    original_atomic_write = candidate_module.atomic_write_json
+
+    def delayed_first_write(path: Path, payload: object) -> None:
+        if Path(path).name == "review-subject.json" and not first_write_entered.is_set():
+            first_write_entered.set()
+            assert release_first_write.wait(timeout=5)
+        original_atomic_write(path, payload)
+
+    monkeypatch.setattr(candidate_module, "atomic_write_json", delayed_first_write)
+    first = _review(pr_head_sha="d" * 40)
+    second = _review(pr_head_sha="e" * 40)
+    first_process = ctx.Process(
+        target=_freeze_worker,
+        args=(str(tmp_path), first, results),
+    )
+    second_process = ctx.Process(
+        target=_freeze_worker,
+        args=(str(tmp_path), second, results),
+    )
+
+    first_process.start()
+    assert first_write_entered.wait(timeout=5)
+    second_process.start()
+    second_process.join(timeout=0.25)
+    assert second_process.is_alive(), "second freezer bypassed the inter-process lock"
+
+    release_first_write.set()
+    first_process.join(timeout=5)
+    second_process.join(timeout=5)
+    assert first_process.exitcode == 0
+    assert second_process.exitcode == 0
+
+    outcomes = sorted(results.get(timeout=1) for _ in range(2))
+    assert [kind for kind, _ in outcomes] == ["success", "violation"]
+    persisted = json.loads((tmp_path / "review-subject.json").read_text())
+    assert persisted == candidate_module.jsonable(first)
 
 
 def test_ledger_idempotency_does_not_double_count_and_rejects_conflict(tmp_path: Path) -> None:

@@ -7,6 +7,7 @@ this digest; any change to the tree invalidates them all (fail closed).
 
 from __future__ import annotations
 
+import fcntl
 import json
 import re
 from dataclasses import dataclass
@@ -143,14 +144,19 @@ def freeze_review_subject(run_dir: Path, subject: ReviewSubject) -> str:
     )
     if any(not _CONTENT_DIGEST.fullmatch(value) for value in digest_fields):
         raise CandidateViolation("review subject policy/tree digests are malformed")
-    path = Path(run_dir) / "review-subject.json"
+    run_path = Path(run_dir)
+    run_path.mkdir(parents=True, exist_ok=True)
+    path = run_path / "review-subject.json"
+    lock_path = run_path / "review-subject.lock"
     payload = jsonable(subject)
-    if path.exists():
-        if json.loads(path.read_text()) != payload:
-            raise CandidateViolation("review subject changed after freeze")
+    with lock_path.open("a") as lock_stream:
+        fcntl.flock(lock_stream.fileno(), fcntl.LOCK_EX)
+        if path.exists():
+            if json.loads(path.read_text()) != payload:
+                raise CandidateViolation("review subject changed after freeze")
+            return subject.digest
+        atomic_write_json(path, payload)
         return subject.digest
-    atomic_write_json(path, payload)
-    return subject.digest
 
 
 def verify_review_subject(run_dir: Path, observed: ReviewSubject) -> str:
