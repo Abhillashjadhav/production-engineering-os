@@ -221,6 +221,28 @@ def _collect_architecture_edges(
             for alias in node.names:
                 if alias.name == "import_module":
                     import_module_aliases.add(alias.asname or alias.name)
+    changed = True
+    while changed:
+        changed = False
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                continue
+            value = node.value
+            is_loader = bool(
+                isinstance(value, ast.Name)
+                and value.id in import_module_aliases
+                or isinstance(value, ast.Attribute)
+                and isinstance(value.value, ast.Name)
+                and value.value.id in importlib_aliases
+                and value.attr == "import_module"
+            )
+            if not is_loader:
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id not in import_module_aliases:
+                    import_module_aliases.add(target.id)
+                    changed = True
     for node in ast.walk(tree):
         modules: list[str] = []
         if isinstance(node, ast.Import):
