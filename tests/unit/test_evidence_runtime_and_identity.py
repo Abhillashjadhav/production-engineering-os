@@ -67,6 +67,14 @@ def test_review_subject_freeze_invalidates_head_base_tree_or_policy_change(tmp_p
         freeze_review_subject(tmp_path, _review(evidence_policy_digest=E))
 
 
+@pytest.mark.parametrize("length", [41, 63])
+def test_review_subject_rejects_unsupported_git_object_id_lengths(
+    tmp_path: Path, length: int
+) -> None:
+    with pytest.raises(CandidateViolation, match="exact base and head SHAs"):
+        freeze_review_subject(tmp_path, _review(pr_head_sha="d" * length))
+
+
 def test_review_subject_first_write_is_serialized_across_processes(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

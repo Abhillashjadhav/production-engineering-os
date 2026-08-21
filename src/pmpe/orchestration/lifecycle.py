@@ -29,6 +29,7 @@ from pmpe.domain.serialize import atomic_write_json
 EvidenceVerifier = Callable[[str, str, Mapping[str, Any], str], bool]
 BundleVerifier = Callable[[str, Mapping[str, str]], bool]
 _MAX_MUTATION_AUTHORIZATION_LIFETIME = timedelta(minutes=5)
+_MAX_FINDING_INVENTORY_LIFETIME = timedelta(minutes=5)
 
 
 class TransitionDeniedError(RuntimeError):
@@ -1130,7 +1131,7 @@ def mutation_subject_digest(
 
 
 _SHA256 = re.compile(r"^sha256:[0-9a-f]{64}$")
-_GIT_SHA = re.compile(r"^[0-9a-f]{40,64}$")
+_GIT_SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _FINDING_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 _FINDING_SOURCE = re.compile(r"^[a-z0-9][a-z0-9._:-]*$")
 
@@ -2888,19 +2889,34 @@ class LifecycleControlPlane:
         evidence = context.evidence
         sources = dict(self.trust_policy.finding_sources)
         inventories: dict[str, str] = {}
+        decision_time = datetime.now(UTC)
         if not sources or evidence.get("finding_source_set_digest") != _digest(sources):
             return False
         for source, authority_digest in sources.items():
             inventory_digest = evidence.get(f"finding_inventory_{source}_digest", "")
+            observed_at = evidence.get(f"finding_inventory_{source}_observed_at", "")
+            expires_at = evidence.get(f"finding_inventory_{source}_expires_at", "")
             payload = {
                 "source_id": source,
                 "authority_digest": authority_digest,
                 "subject_digest": self.subject_digest,
                 "inventory_digest": inventory_digest,
                 "status": "NO_BLOCKING",
-                "observed_at": context.observed_at,
+                "observed_at": observed_at,
+                "expires_at": expires_at,
             }
-            if not (
+            try:
+                observed = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
+                expires = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+                valid_window = (
+                    observed.tzinfo is not None
+                    and expires.tzinfo is not None
+                    and observed <= decision_time <= expires
+                    and expires - observed <= _MAX_FINDING_INVENTORY_LIFETIME
+                )
+            except ValueError:
+                valid_window = False
+            if not valid_window or not (
                 _SHA256.fullmatch(inventory_digest)
                 and self._verify_external_evidence(
                     source,

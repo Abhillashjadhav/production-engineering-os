@@ -35,7 +35,7 @@ class Candidate:
     frozen_at: str
 
 
-_GIT_SHA = re.compile(r"^[0-9a-f]{40,64}$")
+_GIT_SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _CONTENT_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 

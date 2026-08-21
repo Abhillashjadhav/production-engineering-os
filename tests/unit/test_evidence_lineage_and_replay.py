@@ -158,6 +158,25 @@ def test_rejected_intake_requires_true_deletion_or_authenticated_reconciliation(
     assert evidence.deletion_or_reconciliation_digest == D
 
 
+@pytest.mark.parametrize(
+    ("field", "foreign_value"),
+    [
+        ("lineage_id", "LINEAGE-FOREIGN"),
+        ("attempt_id", "ATTEMPT-FOREIGN"),
+        ("quarantine_handle", "QUARANTINE-FOREIGN"),
+    ],
+)
+def test_deletion_attestation_must_match_current_intake_reservation(
+    field: str, foreign_value: str
+) -> None:
+    outcome = _outcome("REJECTED")
+    assert outcome.deletion_attestation is not None
+    foreign_deletion = replace(outcome.deletion_attestation, **{field: foreign_value})
+
+    with pytest.raises(ValueError, match="does not match current intake reservation"):
+        project_intake_evidence(replace(outcome, deletion_attestation=foreign_deletion))
+
+
 def test_exact_proposal_replay_is_deterministic_and_regeneration_is_new_subject() -> None:
     proposal = {"change": "bounded"}
     inputs = {"contract": D}

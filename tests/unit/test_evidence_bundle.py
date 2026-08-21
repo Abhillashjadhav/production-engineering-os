@@ -155,6 +155,21 @@ def _subject(profile: str) -> EvidenceSubject:
     return EvidenceSubject(**values)
 
 
+@pytest.mark.parametrize("length", [41, 63])
+def test_evidence_subject_rejects_unsupported_git_object_id_lengths(length: int) -> None:
+    bundle, subject = _bundle("candidate_review")
+    malformed_subject = replace(subject, pr_head_sha="c" * length)
+    malformed = replace(bundle.manifest, subject=malformed_subject)
+
+    with pytest.raises(EvidenceViolation, match="pr_head_sha is missing or malformed"):
+        seal_manifest(
+            malformed,
+            producer_policies=PRODUCER_POLICIES,
+            authenticator=_authenticate_producer,
+            expected_environment=_environment(),
+        )
+
+
 def _item(
     profile: str,
     evidence_class: str,

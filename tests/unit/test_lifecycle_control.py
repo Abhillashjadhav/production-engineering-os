@@ -264,9 +264,20 @@ def context(
         }
     )
     inventories: dict[str, str] = {}
+    inventory_observed = datetime.now(UTC).replace(microsecond=0)
+    default_inventory_observed_at = inventory_observed.isoformat().replace("+00:00", "Z")
+    default_inventory_expires_at = (
+        (inventory_observed + timedelta(minutes=5)).isoformat().replace("+00:00", "Z")
+    )
     for source, authority_digest in TRUST_POLICY.finding_sources.items():
         inventory_digest = effective_evidence.setdefault(
             f"finding_inventory_{source}_digest", OTHER_SHA
+        )
+        inventory_observed_at = effective_evidence.setdefault(
+            f"finding_inventory_{source}_observed_at", default_inventory_observed_at
+        )
+        inventory_expires_at = effective_evidence.setdefault(
+            f"finding_inventory_{source}_expires_at", default_inventory_expires_at
         )
         inventories[source] = inventory_digest
         effective_evidence.setdefault(
@@ -280,7 +291,8 @@ def context(
                     "subject_digest": SHA,
                     "inventory_digest": inventory_digest,
                     "status": "NO_BLOCKING",
-                    "observed_at": "2026-08-02T00:01:00Z",
+                    "observed_at": inventory_observed_at,
+                    "expires_at": inventory_expires_at,
                 },
             ),
         )
@@ -346,6 +358,40 @@ def control_plane(
         )
         cp._state = state
     return cp
+
+
+def test_no_blocker_inventory_requires_a_live_authenticated_freshness_window(
+    tmp_path: Path,
+) -> None:
+    cp = control_plane(tmp_path)
+    valid = context()
+    assert cp._trusted_finding_inventory_valid(valid)
+
+    source = "finding-source"
+    authority_digest = TRUST_POLICY.finding_sources[source]
+    stale_observed = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=10)
+    stale_expires = stale_observed + timedelta(minutes=5)
+    stale_evidence = dict(valid.evidence)
+    stale_evidence[f"finding_inventory_{source}_observed_at"] = stale_observed.isoformat().replace(
+        "+00:00", "Z"
+    )
+    stale_evidence[f"finding_inventory_{source}_expires_at"] = stale_expires.isoformat().replace(
+        "+00:00", "Z"
+    )
+    payload = {
+        "source_id": source,
+        "authority_digest": authority_digest,
+        "subject_digest": SHA,
+        "inventory_digest": stale_evidence[f"finding_inventory_{source}_digest"],
+        "status": "NO_BLOCKING",
+        "observed_at": stale_evidence[f"finding_inventory_{source}_observed_at"],
+        "expires_at": stale_evidence[f"finding_inventory_{source}_expires_at"],
+    }
+    stale_evidence[f"finding_inventory_{source}_authentication_evidence_digest"] = external_proof(
+        source, authority_digest, payload
+    )
+
+    assert not cp._trusted_finding_inventory_valid(replace(valid, evidence=stale_evidence))
 
 
 def mutation_authorization(

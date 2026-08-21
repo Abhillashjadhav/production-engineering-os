@@ -35,7 +35,7 @@
     "pack_id": {"$ref": "#/$defs/id"},
     "contract_digest": {"$ref": "#/$defs/digest"},
     "repository_snapshot_digest": {"$ref": "#/$defs/digest"},
-    "repository_commit": {"type": "string", "pattern": "^[0-9a-f]{40,64}$"},
+    "repository_commit": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
     "governance_observation_digest": {"$ref": "#/$defs/digest"},
     "disposition": {"enum": ["ADMITTED", "PRODUCT_INPUT_REQUIRED"]},
     "repository_boundary_evidence": {

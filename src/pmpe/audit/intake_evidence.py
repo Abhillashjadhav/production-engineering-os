@@ -77,6 +77,16 @@ def project_intake_evidence(
         raise ValueError("rejected raw content must never enter immutable evidence")
 
     deletion = outcome.deletion_attestation
+    if (
+        deletion is not None
+        and deletion.deleted
+        and (
+            deletion.lineage_id != reservation.lineage_id
+            or deletion.attempt_id != reservation.attempt_id
+            or deletion.quarantine_handle != reservation.quarantine_handle
+        )
+    ):
+        raise ValueError("deletion attestation does not match current intake reservation")
     deletion_digest = (
         canonical_digest(asdict(deletion)) if deletion is not None and deletion.deleted else ""
     )

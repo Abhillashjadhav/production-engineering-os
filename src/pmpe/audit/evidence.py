@@ -19,7 +19,7 @@ from types import MappingProxyType
 from pmpe.contracts.digest import canonical_digest
 from pmpe.domain.serialize import atomic_write_json, jsonable
 
-_SHA = re.compile(r"^[0-9a-f]{40,64}$")
+_SHA = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _SUPPORTED_SCHEMA_VERSIONS = frozenset({"evidence-bundle/v1"})
 _RESULTS = frozenset({"PASS", "FAIL", "HOLD"})

@@ -13,6 +13,7 @@ from pmpe.engineering.merge_admission import (
     MergeSnapshot,
     RequiredCheck,
     enqueue,
+    finding_authentication_payload,
     finding_resolution_authentication_payload,
     linearize_merge,
     load_governed_merge_policy,
@@ -28,7 +29,7 @@ AFTER = "2026-08-20T12:01:00Z"
 POLICY = GovernedMergePolicy(D, ("ci",))
 TOKEN_ISSUER = "merge-queue"
 TOKEN_ISSUERS = {TOKEN_ISSUER: D}
-FINDING_AUTHORITIES = {"finding-owner": D}
+FINDING_AUTHORITIES = {"scanner": D, "finding-owner": D}
 
 
 def _token_proof(identity: str, authority: str, payload: Mapping[str, object]) -> str:
@@ -71,6 +72,37 @@ def _authenticate_resolution(
     identity: str, authority: str, payload: Mapping[str, object], proof: str
 ) -> bool:
     return proof == _resolution_proof(identity, authority, payload)
+
+
+def _finding_proof(identity: str, authority: str, payload: Mapping[str, object]) -> str:
+    from pmpe.contracts.digest import canonical_digest
+
+    return canonical_digest(
+        {
+            "test_trust_root": "outside-the-finding-snapshot",
+            "identity": identity,
+            "authority": authority,
+            "payload": payload,
+        }
+    )
+
+
+def _authenticate_finding(
+    identity: str, authority: str, payload: Mapping[str, object], proof: str
+) -> bool:
+    return proof == _finding_proof(identity, authority, payload)
+
+
+def _authenticated_finding() -> BlockingFinding:
+    finding = BlockingFinding("F1", "scanner", HEAD, "HIGH", True, True, AFTER, D, "")
+    return replace(
+        finding,
+        authentication_evidence_digest=_finding_proof(
+            finding.source,
+            finding.source_authority_digest,
+            finding_authentication_payload(finding),
+        ),
+    )
 
 
 def _snapshot() -> MergeSnapshot:
@@ -323,7 +355,7 @@ def test_ineligible_finding_source_can_block_but_cannot_approve() -> None:
     snapshot = replace(
         _snapshot(),
         reviews=(FormalReview("bot-review", "scanner", HEAD, "APPROVED", AFTER, False),),
-        findings=(BlockingFinding("F1", "scanner", HEAD, "HIGH", True, True, AFTER, D, E),),
+        findings=(_authenticated_finding(),),
     )
 
     with pytest.raises(ValueError) as exc:
@@ -335,6 +367,8 @@ def test_ineligible_finding_source_can_block_but_cannot_approve() -> None:
             token_signer=_sign_token,
             enqueued_at=AFTER,
             invalidation_boundary=NOW,
+            trusted_finding_authorities=FINDING_AUTHORITIES,
+            finding_authenticator=_authenticate_finding,
         )
 
     assert "blocking finding" in str(exc.value)
@@ -361,7 +395,7 @@ def test_changes_requested_blocks_even_with_an_approval() -> None:
 
 def test_blocker_resolution_requires_independent_trusted_authentication() -> None:
     snapshot = _snapshot()
-    blocker = BlockingFinding("F1", "scanner", HEAD, "HIGH", True, True, AFTER, D, E)
+    blocker = _authenticated_finding()
     self_asserted = replace(
         blocker,
         disposition="RESOLVED",
@@ -376,6 +410,8 @@ def test_blocker_resolution_requires_independent_trusted_authentication() -> Non
             token_signer=_sign_token,
             enqueued_at=AFTER,
             invalidation_boundary=NOW,
+            trusted_finding_authorities=FINDING_AUTHORITIES,
+            finding_authenticator=_authenticate_finding,
         )
 
     authenticated = replace(
@@ -400,6 +436,7 @@ def test_blocker_resolution_requires_independent_trusted_authentication() -> Non
         enqueued_at=AFTER,
         invalidation_boundary=NOW,
         trusted_finding_authorities=FINDING_AUTHORITIES,
+        finding_authenticator=_authenticate_finding,
         resolution_authenticator=_authenticate_resolution,
     )
 
@@ -413,6 +450,8 @@ def test_blocker_resolution_requires_independent_trusted_authentication() -> Non
         observed_merge_sha="e" * 40,
         observed_merge_tree_digest=D,
         merged_at=AFTER,
+        trusted_finding_authorities=FINDING_AUTHORITIES,
+        finding_authenticator=_authenticate_finding,
     )
     assert not without_resolution_authority.admitted
     assert any("blocking finding" in reason for reason in without_resolution_authority.reasons)
@@ -427,9 +466,80 @@ def test_blocker_resolution_requires_independent_trusted_authentication() -> Non
         observed_merge_tree_digest=D,
         merged_at=AFTER,
         trusted_finding_authorities=FINDING_AUTHORITIES,
+        finding_authenticator=_authenticate_finding,
         resolution_authenticator=_authenticate_resolution,
     )
     assert admitted.admitted
+
+
+def test_finding_classification_requires_exact_source_authentication() -> None:
+    snapshot = _snapshot()
+    authenticated = _authenticated_finding()
+    with pytest.raises(ValueError, match="blocking finding"):
+        enqueue(
+            replace(snapshot, findings=(authenticated,)),
+            governed_policy=POLICY,
+            token_issuer=TOKEN_ISSUER,
+            token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+            token_signer=_sign_token,
+            enqueued_at=AFTER,
+            invalidation_boundary=NOW,
+            trusted_finding_authorities=FINDING_AUTHORITIES,
+            finding_authenticator=_authenticate_finding,
+        )
+
+    tampered = replace(authenticated, blocking=False)
+    with pytest.raises(ValueError, match="source attestation"):
+        enqueue(
+            replace(snapshot, findings=(tampered,)),
+            governed_policy=POLICY,
+            token_issuer=TOKEN_ISSUER,
+            token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+            token_signer=_sign_token,
+            enqueued_at=AFTER,
+            invalidation_boundary=NOW,
+            trusted_finding_authorities=FINDING_AUTHORITIES,
+            finding_authenticator=_authenticate_finding,
+        )
+
+    token = enqueue(
+        snapshot,
+        governed_policy=POLICY,
+        token_issuer=TOKEN_ISSUER,
+        token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+        token_signer=_sign_token,
+        enqueued_at=AFTER,
+        invalidation_boundary=NOW,
+    )
+    decision = linearize_merge(
+        token,
+        replace(snapshot, findings=(tampered,)),
+        governed_policy=POLICY,
+        trusted_token_issuers=TOKEN_ISSUERS,
+        token_authenticator=_authenticate_token,
+        observed_merge_sha="e" * 40,
+        observed_merge_tree_digest=D,
+        merged_at=AFTER,
+        trusted_finding_authorities=FINDING_AUTHORITIES,
+        finding_authenticator=_authenticate_finding,
+    )
+    assert not decision.admitted
+    assert any("source attestation" in reason for reason in decision.reasons)
+
+
+@pytest.mark.parametrize("length", [41, 63])
+def test_merge_snapshot_rejects_unsupported_git_object_id_lengths(length: int) -> None:
+    snapshot = replace(_snapshot(), pr_head_sha="c" * length)
+    with pytest.raises(ValueError, match="malformed head"):
+        enqueue(
+            snapshot,
+            governed_policy=POLICY,
+            token_issuer=TOKEN_ISSUER,
+            token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+            token_signer=_sign_token,
+            enqueued_at=AFTER,
+            invalidation_boundary=NOW,
+        )
 
 
 def test_merge_group_must_be_exact_fresh_and_from_admitted_enqueue() -> None:
