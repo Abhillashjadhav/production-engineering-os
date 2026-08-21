@@ -377,8 +377,17 @@ def mutation_authorization(
     )
 
 
-def prejournal(cp: LifecycleControlPlane, attempt: MutationAttempt) -> MutationAttempt:
-    return cp.prejournal_mutation(attempt, authorization=mutation_authorization(cp, attempt))
+def prejournal(
+    cp: LifecycleControlPlane,
+    attempt: MutationAttempt,
+    *,
+    evidence: Mapping[str, str] | None = None,
+) -> MutationAttempt:
+    return cp.prejournal_mutation(
+        attempt,
+        authorization=mutation_authorization(cp, attempt),
+        evidence=evidence,
+    )
 
 
 def test_transition_actor_rejects_a_self_computed_credential(tmp_path: Path) -> None:
@@ -843,6 +852,17 @@ def test_phase_four_staging_requires_a_sealed_exact_merge_bundle(tmp_path: Path)
             reason="staging_admitted",
         )
 
+    invalid_attempt = MutationAttempt(
+        attempt_id="phase-four-staging-invalid",
+        idempotency_key="stage:run-65:phase-four-invalid",
+        subject_digest=SHA,
+        action="deploy_staging",
+        step_plan_digest=mutation_subject_digest("deploy_staging", evidence),
+        status="PLANNED",
+    )
+    with pytest.raises(TransitionDeniedError, match="valid sealed exact-subject bundle"):
+        prejournal(cp, invalid_attempt, evidence=evidence)
+
     evidence["evidence_bundle_digest"] = staging_bundle
     attempt = MutationAttempt(
         attempt_id="phase-four-staging",
@@ -852,7 +872,7 @@ def test_phase_four_staging_requires_a_sealed_exact_merge_bundle(tmp_path: Path)
         step_plan_digest=mutation_subject_digest("deploy_staging", evidence),
         status="PLANNED",
     )
-    prejournal(cp, attempt)
+    prejournal(cp, attempt, evidence=evidence)
     record_result(cp, attempt, status="SUCCEEDED", result_digest=SHA)
     evidence["staging_attempt_digest"] = object_digest(asdict(attempt))
     evidence["staging_result_digest"] = SHA

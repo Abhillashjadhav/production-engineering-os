@@ -4041,6 +4041,41 @@ class LifecycleControlPlane:
             None,
         )
 
+    def _staging_bundle_bindings(self, evidence: Mapping[str, str]) -> dict[str, str]:
+        merge_binding = self._latest_merge_binding()
+        return {
+            "profile": "staging",
+            "subject_digest": evidence.get("subject_digest", ""),
+            "observed_merge_sha": (
+                merge_binding.evidence_refs.get("merge_commit_sha", "")
+                if merge_binding is not None
+                else ""
+            ),
+            "observed_merge_tree_digest": (
+                merge_binding.evidence_refs.get("merge_tree_digest", "")
+                if merge_binding is not None
+                else ""
+            ),
+            "artifact_digest": evidence.get("artifact_digest", ""),
+            "configuration_digest": evidence.get("configuration_digest", ""),
+            "finding_source_set_digest": evidence.get("finding_source_set_digest", ""),
+            "finding_inventory_epochs_digest": evidence.get("finding_inventory_epochs_digest", ""),
+            "authority_fence_digest": evidence.get("authority_fence_digest", ""),
+            "staging_authorization_digest": evidence.get("staging_authorization_digest", ""),
+        }
+
+    def _staging_bundle_valid(self, evidence: Mapping[str, str]) -> bool:
+        try:
+            return bool(
+                self._bundle_verifier is not None
+                and self._bundle_verifier(
+                    evidence.get("evidence_bundle_digest", ""),
+                    self._staging_bundle_bindings(evidence),
+                )
+            )
+        except Exception:
+            return False
+
     def transition(
         self, target: LifecycleState, context: TransitionContext, *, reason: str
     ) -> LifecycleEvent:
@@ -4763,41 +4798,13 @@ class LifecycleControlPlane:
                     reason,
                     "staging is not bound to the adapter-attested integrated merge result",
                 )
-        if "staging_bundle" in guards:
-            merge_binding = self._latest_merge_binding()
-            bundle_bindings = {
-                "profile": "staging",
-                "subject_digest": context.evidence.get("subject_digest", ""),
-                "observed_merge_sha": (
-                    merge_binding.evidence_refs.get("merge_commit_sha", "")
-                    if merge_binding is not None
-                    else ""
-                ),
-                "observed_merge_tree_digest": (
-                    merge_binding.evidence_refs.get("merge_tree_digest", "")
-                    if merge_binding is not None
-                    else ""
-                ),
-                "artifact_digest": context.evidence.get("artifact_digest", ""),
-                "configuration_digest": context.evidence.get("configuration_digest", ""),
-                "finding_source_set_digest": context.evidence.get("finding_source_set_digest", ""),
-                "finding_inventory_epochs_digest": context.evidence.get(
-                    "finding_inventory_epochs_digest", ""
-                ),
-                "authority_fence_digest": context.evidence.get("authority_fence_digest", ""),
-                "staging_authorization_digest": context.evidence.get(
-                    "staging_authorization_digest", ""
-                ),
-            }
-            if self._bundle_verifier is None or not self._bundle_verifier(
-                context.evidence.get("evidence_bundle_digest", ""), bundle_bindings
-            ):
-                self._deny(
-                    target,
-                    context,
-                    reason,
-                    "a valid sealed exact-subject staging EvidenceBundle is required",
-                )
+        if "staging_bundle" in guards and not self._staging_bundle_valid(context.evidence):
+            self._deny(
+                target,
+                context,
+                reason,
+                "a valid sealed exact-subject staging EvidenceBundle is required",
+            )
         if "canary_binding" in guards:
             attempt = context.mutation
             attempt_digest = _digest(asdict(attempt)) if attempt is not None else ""
@@ -5316,7 +5323,11 @@ class LifecycleControlPlane:
         return event
 
     def prejournal_mutation(
-        self, attempt: MutationAttempt, *, authorization: MutationAuthorization
+        self,
+        attempt: MutationAttempt,
+        *,
+        authorization: MutationAuthorization,
+        evidence: Mapping[str, str] | None = None,
     ) -> MutationAttempt:
         """Durably bind a complete mutation plan before any adapter may run."""
 
@@ -5360,6 +5371,23 @@ class LifecycleControlPlane:
             if not self._mutation_authorization_valid(attempt, authorization):
                 raise TransitionDeniedError(
                     "mutation attempt lacks current external lifecycle authority"
+                )
+            if (
+                self._policy.version == PHASE_FOUR_POLICY.version
+                and attempt.action == "deploy_staging"
+                and (
+                    evidence is None
+                    or attempt.step_plan_digest
+                    != mutation_subject_digest(
+                        attempt.action,
+                        evidence,
+                        schemas=self._policy.mutation_subject_fields,
+                    )
+                    or not self._staging_bundle_valid(evidence)
+                )
+            ):
+                raise TransitionDeniedError(
+                    "staging mutation release requires a valid sealed exact-subject bundle"
                 )
             self._register_mutation_locked(attempt)
         return attempt
