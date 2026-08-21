@@ -1,16 +1,19 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from pathlib import Path
 
 import pytest
 
 from pmpe.engineering.merge_admission import (
     BlockingFinding,
     FormalReview,
+    GovernedMergePolicy,
     MergeSnapshot,
     RequiredCheck,
     enqueue,
     linearize_merge,
+    load_governed_merge_policy,
     resolve_external_race,
 )
 
@@ -20,6 +23,7 @@ HEAD = "c" * 40
 BASE = "d" * 40
 NOW = "2026-08-20T12:00:00Z"
 AFTER = "2026-08-20T12:01:00Z"
+POLICY = GovernedMergePolicy(D, ("ci",))
 
 
 def _snapshot() -> MergeSnapshot:
@@ -51,11 +55,17 @@ def _snapshot() -> MergeSnapshot:
 
 def test_native_cas_admits_only_unchanged_exact_candidate() -> None:
     snapshot = _snapshot()
-    token = enqueue(snapshot, enqueued_at=AFTER, invalidation_boundary=NOW)
+    token = enqueue(
+        snapshot,
+        governed_policy=POLICY,
+        enqueued_at=AFTER,
+        invalidation_boundary=NOW,
+    )
 
     decision = linearize_merge(
         token,
         snapshot,
+        governed_policy=POLICY,
         observed_merge_sha="e" * 40,
         observed_merge_tree_digest=D,
         merged_at=AFTER,
@@ -82,7 +92,12 @@ def test_native_cas_admits_only_unchanged_exact_candidate() -> None:
 )
 def test_native_cas_rejects_ready_state_drift(change: str) -> None:
     snapshot = _snapshot()
-    token = enqueue(snapshot, enqueued_at=AFTER, invalidation_boundary=NOW)
+    token = enqueue(
+        snapshot,
+        governed_policy=POLICY,
+        enqueued_at=AFTER,
+        invalidation_boundary=NOW,
+    )
     field = {
         "head": "pr_head_sha",
         "base": "protected_base_sha",
@@ -101,6 +116,7 @@ def test_native_cas_rejects_ready_state_drift(change: str) -> None:
     decision = linearize_merge(
         token,
         current,
+        governed_policy=POLICY,
         observed_merge_sha="e" * 40,
         observed_merge_tree_digest=current.prospective_merge_tree_digest,
         merged_at=AFTER,
@@ -118,7 +134,12 @@ def test_ineligible_finding_source_can_block_but_cannot_approve() -> None:
     )
 
     with pytest.raises(ValueError) as exc:
-        enqueue(snapshot, enqueued_at=AFTER, invalidation_boundary=NOW)
+        enqueue(
+            snapshot,
+            governed_policy=POLICY,
+            enqueued_at=AFTER,
+            invalidation_boundary=NOW,
+        )
 
     assert "blocking finding" in str(exc.value)
     assert "no fresh eligible formal approval" in str(exc.value)
@@ -131,14 +152,24 @@ def test_changes_requested_blocks_even_with_an_approval() -> None:
         FormalReview("r2", "other", HEAD, "CHANGES_REQUESTED", AFTER, True),
     )
     with pytest.raises(ValueError, match="changes are requested"):
-        enqueue(replace(snapshot, reviews=reviews), enqueued_at=AFTER, invalidation_boundary=NOW)
+        enqueue(
+            replace(snapshot, reviews=reviews),
+            governed_policy=POLICY,
+            enqueued_at=AFTER,
+            invalidation_boundary=NOW,
+        )
 
 
 def test_merge_group_must_be_exact_fresh_and_from_admitted_enqueue() -> None:
     snapshot = _snapshot()
-    token = enqueue(snapshot, enqueued_at=AFTER, invalidation_boundary=NOW)
+    token = enqueue(
+        snapshot,
+        governed_policy=POLICY,
+        enqueued_at=AFTER,
+        invalidation_boundary=NOW,
+    )
     queue_check = RequiredCheck(
-        "merge-group",
+        "ci",
         HEAD,
         snapshot.exact_input_digest,
         "IN_PROGRESS",
@@ -148,13 +179,25 @@ def test_merge_group_must_be_exact_fresh_and_from_admitted_enqueue() -> None:
     )
     current = replace(
         snapshot,
-        required_check_names=("ci", "merge-group"),
-        checks=(*snapshot.checks, queue_check),
+        checks=(queue_check,),
     )
 
-    assert linearize_merge(
+    pending = linearize_merge(
         token,
         current,
+        governed_policy=POLICY,
+        observed_merge_sha="e" * 40,
+        observed_merge_tree_digest=D,
+        merged_at=AFTER,
+    )
+    assert not pending.admitted
+    assert any("IN_PROGRESS" in reason for reason in pending.reasons)
+
+    succeeded = replace(queue_check, status="SUCCESS")
+    assert linearize_merge(
+        token,
+        replace(current, checks=(succeeded,)),
+        governed_policy=POLICY,
         observed_merge_sha="e" * 40,
         observed_merge_tree_digest=D,
         merged_at=AFTER,
@@ -163,7 +206,8 @@ def test_merge_group_must_be_exact_fresh_and_from_admitted_enqueue() -> None:
     failed = replace(queue_check, status="CANCELLED")
     held = linearize_merge(
         token,
-        replace(current, checks=(*snapshot.checks, failed)),
+        replace(current, checks=(failed,)),
+        governed_policy=POLICY,
         observed_merge_sha="e" * 40,
         observed_merge_tree_digest=D,
         merged_at=AFTER,
@@ -202,6 +246,7 @@ def test_bypass_blocks_rollout_even_when_tree_matches() -> None:
     with pytest.raises(ValueError, match="bypass"):
         enqueue(
             replace(snapshot, bypass_used=True),
+            governed_policy=POLICY,
             enqueued_at=AFTER,
             invalidation_boundary=NOW,
         )
@@ -210,12 +255,18 @@ def test_bypass_blocks_rollout_even_when_tree_matches() -> None:
 @pytest.mark.parametrize("field", ["authority_digest", "finding_high_watermark_digest"])
 def test_external_fences_are_rechecked_at_merge_linearization(field: str) -> None:
     snapshot = _snapshot()
-    token = enqueue(snapshot, enqueued_at=AFTER, invalidation_boundary=NOW)
+    token = enqueue(
+        snapshot,
+        governed_policy=POLICY,
+        enqueued_at=AFTER,
+        invalidation_boundary=NOW,
+    )
     changed = replace(snapshot, **{field: E})
 
     decision = linearize_merge(
         token,
         changed,
+        governed_policy=POLICY,
         observed_merge_sha="e" * 40,
         observed_merge_tree_digest=D,
         merged_at=AFTER,
@@ -224,6 +275,36 @@ def test_external_fences_are_rechecked_at_merge_linearization(field: str) -> Non
     assert not decision.admitted
     assert not decision.rollout_allowed
     assert any("authority" in reason or "high-watermark" in reason for reason in decision.reasons)
+
+
+def test_required_checks_come_from_independent_governed_policy() -> None:
+    snapshot = replace(_snapshot(), required_check_names=())
+
+    with pytest.raises(ValueError, match="governed merge policy"):
+        enqueue(
+            snapshot,
+            governed_policy=POLICY,
+            enqueued_at=AFTER,
+            invalidation_boundary=NOW,
+        )
+
+
+def test_committed_policy_loader_derives_the_full_required_check_set() -> None:
+    root = Path(__file__).resolve().parents[2]
+    policy = load_governed_merge_policy(root / ".github/merge-admission-policy.yml")
+
+    assert policy.required_check_names == (
+        "format-lint",
+        "types",
+        "tests (3.11)",
+        "tests (3.12)",
+        "security",
+        "product-backend (3.11)",
+        "product-backend (3.12)",
+        "product-frontend",
+        "product-e2e",
+        "product-preview",
+    )
 
 
 @pytest.mark.parametrize("kind", ["AUTHORITY_REVOKED", "BLOCKING_FINDING"])

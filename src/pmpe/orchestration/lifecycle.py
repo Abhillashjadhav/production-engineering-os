@@ -167,6 +167,7 @@ class EvidenceTrustPolicy:
     production_approvers: Mapping[str, str] = field(default_factory=dict)
     budget_meters: Mapping[str, str] = field(default_factory=dict)
     formal_reviewers: Mapping[str, str] = field(default_factory=dict)
+    native_merge_gates: Mapping[str, str] = field(default_factory=dict)
     finding_sources: Mapping[str, str] = field(default_factory=dict)
     mutation_authorizers: Mapping[str, str] = field(default_factory=dict)
     live_observers: Mapping[str, str] = field(default_factory=dict)
@@ -182,6 +183,7 @@ class EvidenceTrustPolicy:
             "production_approvers",
             "budget_meters",
             "formal_reviewers",
+            "native_merge_gates",
             "finding_sources",
             "mutation_authorizers",
             "live_observers",
@@ -479,11 +481,52 @@ def _trust_policy_payload(policy: EvidenceTrustPolicy) -> dict[str, Any]:
         "production_approvers": dict(policy.production_approvers),
         "budget_meters": dict(policy.budget_meters),
         "formal_reviewers": dict(policy.formal_reviewers),
+        "native_merge_gates": dict(policy.native_merge_gates),
         "finding_sources": dict(policy.finding_sources),
         "mutation_authorizers": dict(policy.mutation_authorizers),
         "live_observers": dict(policy.live_observers),
         "authority_observers": dict(policy.authority_observers),
         "integrity_monitors": dict(policy.integrity_monitors),
+    }
+
+
+_NATIVE_MERGE_GATE_BINDING_FIELDS = (
+    "subject_digest",
+    "queue_subject_digest",
+    "head_commit_sha",
+    "protected_base_sha",
+    "base_digest",
+    "prospective_tree_digest",
+    "required_checks_digest",
+    "formal_review_digest",
+    "verification_bundle_digest",
+    "repository_rules_digest",
+    "architecture_policy_digest",
+    "toolchain_policy_digest",
+    "environment_profile_digest",
+    "security_policy_digest",
+    "verification_policy_digest",
+    "evidence_policy_digest",
+    "authority_revalidation_digest",
+    "finding_high_watermark_digest",
+    "finding_source_set_digest",
+    "finding_inventory_epochs_digest",
+    "merge_result_digest",
+    "merge_commit_sha",
+    "merge_tree_digest",
+    "merge_method_digest",
+    "merge_actor_digest",
+)
+
+
+def _native_merge_gate_payload(evidence: Mapping[str, str]) -> dict[str, Any]:
+    return {
+        "decision": {
+            "admitted": True,
+            "outcome": "PR_MERGED",
+            "rollout_allowed": True,
+        },
+        "bindings": {name: evidence.get(name, "") for name in _NATIVE_MERGE_GATE_BINDING_FIELDS},
     }
 
 
@@ -2404,11 +2447,15 @@ _PHASE_FOUR_REVIEW_FIELDS = (
     "evidence_policy_digest",
 )
 _PHASE_FOUR_MERGE_FIELDS = (
+    *_PHASE_FOUR_REVIEW_FIELDS,
     "finding_high_watermark_digest",
     "finding_source_set_digest",
     "finding_inventory_epochs_digest",
     "authority_revalidation_digest",
     "native_merge_gate_digest",
+    "native_merge_gate_actor",
+    "native_merge_gate_authority_digest",
+    "native_merge_gate_authentication_evidence_digest",
 )
 PHASE_FOUR_POLICY = LifecyclePolicy(
     "phase-four-v1",
@@ -3345,6 +3392,7 @@ class LifecycleControlPlane:
             production_approvers=dict(raw_trust.get("production_approvers", {})),
             budget_meters=dict(raw_trust.get("budget_meters", {})),
             formal_reviewers=dict(raw_trust.get("formal_reviewers", {})),
+            native_merge_gates=dict(raw_trust.get("native_merge_gates", {})),
             finding_sources=dict(raw_trust.get("finding_sources", {})),
             mutation_authorizers=dict(raw_trust.get("mutation_authorizers", {})),
             live_observers=dict(raw_trust.get("live_observers", {})),
@@ -4586,6 +4634,33 @@ class LifecycleControlPlane:
                         context,
                         reason,
                         "a fresh eligible formal review after readiness is required for merge",
+                    )
+                native_gate_actor = context.evidence.get("native_merge_gate_actor", "")
+                native_gate_authority = self.trust_policy.native_merge_gates.get(
+                    native_gate_actor, ""
+                )
+                native_gate_payload = _native_merge_gate_payload(context.evidence)
+                if (
+                    not native_gate_actor
+                    or not native_gate_authority
+                    or context.evidence.get("native_merge_gate_authority_digest")
+                    != native_gate_authority
+                    or context.evidence.get("native_merge_gate_digest")
+                    != _digest(native_gate_payload)
+                    or not self._verify_external_evidence(
+                        native_gate_actor,
+                        native_gate_authority,
+                        native_gate_payload,
+                        context.evidence.get(
+                            "native_merge_gate_authentication_evidence_digest", ""
+                        ),
+                    )
+                ):
+                    self._deny(
+                        target,
+                        context,
+                        reason,
+                        "an authenticated successful native merge-gate decision is required",
                     )
             merge_attempt = context.mutation
             merge_result = (

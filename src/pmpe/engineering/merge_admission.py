@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Literal
 
 from pmpe.contracts.digest import canonical_digest
@@ -47,6 +48,41 @@ class BlockingFinding:
     authentication_evidence_digest: str
     disposition: str = "OPEN"
     resolution_digest: str = ""
+
+
+@dataclass(frozen=True)
+class GovernedMergePolicy:
+    """Trusted repository-policy input, independent of a candidate snapshot."""
+
+    repository_rules_digest: str
+    required_check_names: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not _DIGEST.fullmatch(self.repository_rules_digest):
+            raise ValueError("governed repository-rules digest is malformed")
+        if not self.required_check_names:
+            raise ValueError("governed merge policy must name required checks")
+        if any(not name.strip() for name in self.required_check_names):
+            raise ValueError("governed required-check names cannot be empty")
+        if len(set(self.required_check_names)) != len(self.required_check_names):
+            raise ValueError("governed required-check names are duplicated")
+
+
+def load_governed_merge_policy(path: Path) -> GovernedMergePolicy:
+    """Load required checks and a content digest from the committed policy file."""
+    text = Path(path).read_text()
+    names: list[str] = []
+    in_required_checks = False
+    for line in text.splitlines():
+        if line == "required_checks:":
+            in_required_checks = True
+            continue
+        if in_required_checks and line.startswith("  - "):
+            names.append(line.removeprefix("  - ").strip())
+            continue
+        if in_required_checks and line and not line.startswith((" ", "#")):
+            break
+    return GovernedMergePolicy(canonical_digest({"content": text}), tuple(names))
 
 
 @dataclass(frozen=True)
@@ -143,10 +179,12 @@ def _blocking_finding(finding: BlockingFinding) -> bool:
 def _validate_snapshot(
     snapshot: MergeSnapshot,
     *,
+    governed_policy: GovernedMergePolicy,
     invalidation_boundary: str,
     as_of: str,
     queue_timeout_seconds: int,
     enqueue_digest: str = "",
+    linearizing: bool = False,
 ) -> tuple[str, ...]:
     reasons: list[str] = []
     digest_fields = (
@@ -167,6 +205,10 @@ def _validate_snapshot(
         reasons.append("merge snapshot has a malformed head or protected-base SHA")
     if any(not _DIGEST.fullmatch(value) for value in digest_fields):
         reasons.append("merge snapshot has a malformed content or policy digest")
+    if snapshot.repository_rules_digest != governed_policy.repository_rules_digest:
+        reasons.append("snapshot repository rules differ from the governed merge policy")
+    if snapshot.required_check_names != governed_policy.required_check_names:
+        reasons.append("snapshot required checks differ from the governed merge policy")
     if not snapshot.merge_queue_enforced:
         reasons.append("native merge queue or equivalent CAS gate is unavailable")
     if snapshot.bypass_used:
@@ -206,10 +248,8 @@ def _validate_snapshot(
     by_name = {check.name: check for check in snapshot.checks}
     if len(by_name) != len(snapshot.checks):
         reasons.append("required check names are duplicated")
-    if len(set(snapshot.required_check_names)) != len(snapshot.required_check_names):
-        reasons.append("required check policy names are duplicated")
     now = _time(as_of)
-    for name in snapshot.required_check_names:
+    for name in governed_policy.required_check_names:
         check = by_name.get(name)
         if check is None:
             reasons.append(f"required check {name} is missing")
@@ -219,9 +259,10 @@ def _validate_snapshot(
         if check.input_digest != snapshot.exact_input_digest:
             reasons.append(f"required check {name} has stale policy/toolchain inputs")
         if check.event == "merge_group":
-            if check.enqueue_digest != enqueue_digest:
+            if linearizing and check.enqueue_digest != enqueue_digest:
                 reasons.append(f"merge-group check {name} is from another enqueue")
-            if check.status not in {"PENDING", "IN_PROGRESS", "SUCCESS"}:
+            allowed_statuses = {"SUCCESS"} if linearizing else {"PENDING", "IN_PROGRESS", "SUCCESS"}
+            if check.status not in allowed_statuses:
                 reasons.append(f"merge-group check {name} ended as {check.status}")
             if now - _time(check.observed_at) > timedelta(seconds=queue_timeout_seconds):
                 reasons.append(f"merge-group check {name} exceeded its freshness window")
@@ -235,6 +276,7 @@ def _validate_snapshot(
 def enqueue(
     snapshot: MergeSnapshot,
     *,
+    governed_policy: GovernedMergePolicy,
     enqueued_at: str,
     invalidation_boundary: str,
     queue_timeout_seconds: int = 1800,
@@ -243,6 +285,7 @@ def enqueue(
         raise ValueError("merge queue timeout must be positive")
     reasons = _validate_snapshot(
         snapshot,
+        governed_policy=governed_policy,
         invalidation_boundary=invalidation_boundary,
         as_of=enqueued_at,
         queue_timeout_seconds=queue_timeout_seconds,
@@ -273,6 +316,7 @@ def linearize_merge(
     token: EnqueueToken,
     current: MergeSnapshot,
     *,
+    governed_policy: GovernedMergePolicy,
     observed_merge_sha: str,
     observed_merge_tree_digest: str,
     merged_at: str,
@@ -283,10 +327,12 @@ def linearize_merge(
         reasons = list(
             _validate_snapshot(
                 current,
+                governed_policy=governed_policy,
                 invalidation_boundary=token.invalidation_boundary,
                 as_of=merged_at,
                 queue_timeout_seconds=queue_timeout_seconds,
                 enqueue_digest=token.enqueue_digest,
+                linearizing=True,
             )
         )
     except ValueError:

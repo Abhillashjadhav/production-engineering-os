@@ -491,7 +491,7 @@ class ImmutableEvidenceStore:
         self.lock.parent.mkdir(parents=True, exist_ok=True)
         with self.lock.open("a+") as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-            prior_events = self.read_events()
+            prior_events = self._read_events(repair_truncated_tail=True)
             prior = next((item for item in prior_events if item["event_id"] == event_id), None)
             if prior is not None:
                 if prior != event:
@@ -509,10 +509,38 @@ class ImmutableEvidenceStore:
             return bundle.bundle_digest
 
     def read_events(self) -> list[dict[str, str]]:
+        self.lock.parent.mkdir(parents=True, exist_ok=True)
+        with self.lock.open("a+") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_SH)
+            return self._read_events(repair_truncated_tail=False)
+
+    def _read_events(self, *, repair_truncated_tail: bool) -> list[dict[str, str]]:
         if not self.events.exists():
             return []
-        return [
-            {str(key): str(value) for key, value in json.loads(line).items()}
-            for line in self.events.read_text().splitlines()
-            if line.strip()
-        ]
+        raw = self.events.read_bytes()
+        lines = raw.splitlines(keepends=True)
+        events: list[dict[str, str]] = []
+        valid_bytes = 0
+        for index, encoded in enumerate(lines):
+            complete = encoded.endswith((b"\n", b"\r"))
+            if not encoded.strip():
+                valid_bytes += len(encoded)
+                continue
+            try:
+                decoded = json.loads(encoded)
+            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                if repair_truncated_tail and index == len(lines) - 1 and not complete:
+                    with self.events.open("r+b") as stream:
+                        stream.truncate(valid_bytes)
+                        stream.flush()
+                        os.fsync(stream.fileno())
+                    break
+                raise EvidenceViolation("evidence store contains an invalid JSON event") from exc
+            events.append({str(key): str(value) for key, value in decoded.items()})
+            valid_bytes += len(encoded)
+            if repair_truncated_tail and index == len(lines) - 1 and not complete:
+                with self.events.open("ab") as stream:
+                    stream.write(b"\n")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+        return events

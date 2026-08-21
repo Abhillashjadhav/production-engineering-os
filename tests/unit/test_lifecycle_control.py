@@ -51,6 +51,7 @@ TRUST_POLICY = EvidenceTrustPolicy(
     production_approvers={"release-owner": OWNER_CREDENTIAL_DIGEST},
     budget_meters={"budget-meter": SHA},
     formal_reviewers={"codex": SHA},
+    native_merge_gates={"github-merge-queue": SHA},
     finding_sources={"finding-source": SHA},
     mutation_authorizers={"mutation-authorizer": SHA},
     live_observers={"live-observer": SHA},
@@ -4248,6 +4249,32 @@ def test_phase_four_merge_keeps_advisory_and_post_ready_formal_review_distinct(
     prejournal(cp, attempt)
     record_result(cp, attempt, status="SUCCEEDED", result_digest=merge_result_digest)
     planned_evidence["merge_attempt_digest"] = object_digest(asdict(attempt))
+
+    with pytest.raises(TransitionDeniedError, match="native merge-gate"):
+        cp.transition(
+            LifecycleState.PR_MERGED,
+            context(
+                evidence=planned_evidence,
+                approvals=(approval,),
+                mutation=attempt,
+                usage=cp.budget_usage,
+            ),
+            reason="native_merge_linearized",
+        )
+
+    native_gate_actor = "github-merge-queue"
+    native_gate_authority = TRUST_POLICY.native_merge_gates[native_gate_actor]
+    native_gate_payload = lifecycle._native_merge_gate_payload(planned_evidence)
+    planned_evidence.update(
+        native_merge_gate_actor=native_gate_actor,
+        native_merge_gate_authority_digest=native_gate_authority,
+        native_merge_gate_digest=object_digest(native_gate_payload),
+        native_merge_gate_authentication_evidence_digest=external_proof(
+            native_gate_actor,
+            native_gate_authority,
+            native_gate_payload,
+        ),
+    )
 
     merged = cp.transition(
         LifecycleState.PR_MERGED,

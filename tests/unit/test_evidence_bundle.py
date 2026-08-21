@@ -224,6 +224,27 @@ def test_immutable_store_retries_are_idempotent_and_conflicts_fail(tmp_path: Pat
         store.append(other, event_id="complete:1")
 
 
+def test_immutable_store_keyed_retry_repairs_only_an_incomplete_final_tail(
+    tmp_path: Path,
+) -> None:
+    bundle, _ = _bundle("completion")
+    store = ImmutableEvidenceStore(tmp_path)
+    store.append(bundle, event_id="complete:1")
+    with store.events.open("ab") as stream:
+        stream.write(b'{"event_id":"complete:2"')
+
+    with pytest.raises(EvidenceViolation, match="invalid JSON event"):
+        store.read_events()
+
+    assert store.append(bundle, event_id="complete:2") == bundle.bundle_digest
+    assert [event["event_id"] for event in store.read_events()] == ["complete:1", "complete:2"]
+
+    with store.events.open("ab") as stream:
+        stream.write(b"not-json\n")
+    with pytest.raises(EvidenceViolation, match="invalid JSON event"):
+        store.append(bundle, event_id="complete:3")
+
+
 def test_duplicate_evidence_identity_is_rejected() -> None:
     bundle, _ = _bundle("candidate_review")
     duplicate = replace(bundle.manifest, items=(*bundle.manifest.items, bundle.manifest.items[0]))

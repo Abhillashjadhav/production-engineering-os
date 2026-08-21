@@ -55,12 +55,16 @@ critical/high/credible-medium blocker from any authenticated source, revokes rea
 Approval eligibility never controls whether a source can report a blocker.
 
 The repository policy in `.github/merge-admission-policy.yml` is versioned input to the
-native gate. Enqueue validates exact head, protected base, prospective tree, current
-rules and policy profiles, successful exact-input PR checks, a fresh approval, and a
-classified blocker-free finding high-watermark. Merge-group checks created by that
-enqueue may be pending or running, but must remain exact, fresh, and successful before
-linearization. Missing, wrong-subject, stale, cancelled, failed, or over-time queue
-checks revoke admission.
+native gate; required checks are loaded from that independently digested policy rather
+than trusted from a candidate snapshot. Enqueue validates exact head, protected base,
+prospective tree, current rules and policy profiles, successful exact-input PR checks,
+a fresh approval, and a classified blocker-free finding high-watermark. Merge-group
+checks created by that enqueue may be pending or running, but must remain exact, fresh,
+and successful before linearization. The lifecycle transition authenticates the
+successful native-gate attestation and binds it to the head, policy/finding/authority
+fences, required checks, formal review, and observed merge result. Missing,
+wrong-subject, stale, pending,
+cancelled, failed, or over-time queue checks revoke admission.
 
 A bypass, external merge, gate authorization failure, or observed merge-tree mismatch
 is an incident even if file content looks equivalent. External contract authority and
@@ -89,3 +93,5 @@ Expired but obtainable security/advisory evidence moves `REVIEW_REQUIRED` or `PR
 to exact-candidate `VERIFICATION_FAILED`; a fresh passing snapshot returns to
 `REVIEW_REQUIRED`. `BLOCKED` is reserved for unavailable or unverifiable verification
 infrastructure. No refreshed evidence silently restores an old readiness or approval.
+Content-store retries repair only an incomplete final JSONL event under the exclusive
+store lock; complete or interior corruption remains a fail-closed integrity error.
