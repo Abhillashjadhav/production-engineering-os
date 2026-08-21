@@ -830,6 +830,11 @@ def test_phase_four_staging_requires_a_sealed_exact_merge_bundle(tmp_path: Path)
         evidence_bundle_digest=OTHER_SHA,
         merge_digest=merge_result,
     )
+    alternate_bundle = dict(evidence)
+    alternate_bundle["evidence_bundle_digest"] = staging_bundle
+    assert mutation_subject_digest("deploy_staging", evidence) != mutation_subject_digest(
+        "deploy_staging", alternate_bundle
+    )
 
     with pytest.raises(TransitionDeniedError, match="staging EvidenceBundle"):
         cp.transition(

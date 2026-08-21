@@ -675,6 +675,7 @@ _MUTATION_SUBJECT_FIELDS: dict[str, tuple[str, ...]] = {
     "deploy_staging": (
         "subject_digest",
         "merge_digest",
+        "evidence_bundle_digest",
         "artifact_digest",
         "configuration_digest",
         "deployment_target_digest",
