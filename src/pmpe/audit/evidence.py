@@ -267,6 +267,7 @@ STAGE_PROFILES: Mapping[str, StageProfile] = MappingProxyType(
                 "live_observation",
                 "rollback_readiness",
                 "final_head_attestation",
+                "finding_inventory",
             ),
             (
                 "pr_head_sha",

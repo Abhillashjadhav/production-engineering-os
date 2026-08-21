@@ -389,6 +389,14 @@ def linearize_merge(
         reasons = ["merge snapshot contains a malformed timestamp"]
     if not token_authenticated:
         reasons.append("enqueue token authentication or trusted state lookup failed")
+    try:
+        token_age = _time(merged_at) - _time(token.enqueued_at)
+        if token_age < timedelta(0):
+            reasons.append("merge linearization predates the authenticated enqueue token")
+        elif token_age > timedelta(seconds=queue_timeout_seconds):
+            reasons.append("authenticated enqueue token exceeded its freshness window")
+    except ValueError:
+        reasons.append("enqueue token contains a malformed timestamp")
     if current.exact_input_digest != token.exact_input_digest:
         reasons.append("reviewed head/base/tree or repository policy changed after enqueue")
     if current.authority_digest != token.authority_digest:

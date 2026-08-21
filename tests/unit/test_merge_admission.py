@@ -106,6 +106,34 @@ def test_native_cas_admits_only_unchanged_exact_candidate() -> None:
     assert decision.rollout_allowed
 
 
+def test_signed_enqueue_token_expires_even_without_merge_group_checks() -> None:
+    snapshot = _snapshot()
+    token = enqueue(
+        snapshot,
+        governed_policy=POLICY,
+        token_issuer=TOKEN_ISSUER,
+        token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+        token_signer=_sign_token,
+        enqueued_at=AFTER,
+        invalidation_boundary=NOW,
+    )
+
+    decision = linearize_merge(
+        token,
+        snapshot,
+        governed_policy=POLICY,
+        trusted_token_issuers=TOKEN_ISSUERS,
+        token_authenticator=_authenticate_token,
+        observed_merge_sha="e" * 40,
+        observed_merge_tree_digest=D,
+        merged_at="2026-08-20T12:01:02Z",
+        queue_timeout_seconds=1,
+    )
+
+    assert not decision.admitted
+    assert any("token exceeded its freshness window" in reason for reason in decision.reasons)
+
+
 @pytest.mark.parametrize(
     "change",
     [

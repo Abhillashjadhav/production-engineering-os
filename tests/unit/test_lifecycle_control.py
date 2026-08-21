@@ -749,6 +749,7 @@ def completion_evidence_with_review_binding(cp: LifecycleControlPlane) -> dict[s
             "reviewed_candidate_digest": reviewed_candidate,
             "review_evidence_digest": review_evidence,
             "evidence_bundle_digest": review_evidence,
+            "finding_high_watermark_digest": object_digest("completion-findings"),
         }
     )
     return evidence
@@ -1803,6 +1804,44 @@ def test_completed_requires_exact_release_live_rollback_and_observation_evidence
     )
     assert event.subject_digest == SHA
     assert cp.completion_claim_active
+
+
+def test_phase_four_completion_rechecks_current_authenticated_blocking_findings(
+    tmp_path: Path,
+) -> None:
+    def verify_completion_bundle(digest: str, bindings: Mapping[str, str]) -> bool:
+        return bool(digest and all(bindings.values()))
+
+    cp = control_plane(
+        tmp_path,
+        state=LifecycleState.PRODUCTION_DEPLOYED,
+        lifecycle_policy=lifecycle.PHASE_FOUR_POLICY,
+        bundle_verifier=verify_completion_bundle,
+    )
+    required = completion_evidence_with_review_binding(cp)
+    required["finding_high_watermark_digest"] = object_digest("completion-findings")
+    finding = FindingSignal(
+        finding_id="late-production-blocker",
+        source="finding-source",
+        exact_subject_digest=SHA,
+        severity="HIGH",
+        credible=True,
+        blocking=True,
+        reviewer_eligible=False,
+        category="ENGINEERING",
+        disposition="OPEN",
+        affected_scope_digest=OTHER_SHA,
+    )
+
+    with pytest.raises(TransitionDeniedError, match="pending blocking finding"):
+        cp.transition(
+            LifecycleState.COMPLETED,
+            context(evidence=required, finding=finding),
+            reason="observation_window_passed",
+        )
+
+    assert cp.state is LifecycleState.PRODUCTION_DEPLOYED
+    assert not cp.completion_claim_active
 
 
 def test_completion_rejects_live_attestation_replayed_for_a_different_release(

@@ -2457,6 +2457,11 @@ _PHASE_FOUR_MERGE_FIELDS = (
     "native_merge_gate_authority_digest",
     "native_merge_gate_authentication_evidence_digest",
 )
+_PHASE_FOUR_COMPLETION_FINDING_FIELDS = (
+    "finding_high_watermark_digest",
+    "finding_source_set_digest",
+    "finding_inventory_epochs_digest",
+)
 PHASE_FOUR_POLICY = LifecyclePolicy(
     "phase-four-v1",
     tuple(
@@ -2487,14 +2492,28 @@ PHASE_FOUR_POLICY = LifecyclePolicy(
                             and rule.reason == "native_merge_linearized"
                             else ()
                         ),
+                        *(
+                            _PHASE_FOUR_COMPLETION_FINDING_FIELDS
+                            if rule.source is S.PRODUCTION_DEPLOYED
+                            and rule.target is S.COMPLETED
+                            and rule.reason == "observation_window_passed"
+                            else ()
+                        ),
                     )
                 )
             ),
             guards=(
                 rule.guards | {"no_blocking_finding"}
-                if rule.source is S.PR_READY
-                and rule.target is S.PR_MERGED
-                and rule.reason == "native_merge_linearized"
+                if (
+                    rule.source is S.PR_READY
+                    and rule.target is S.PR_MERGED
+                    and rule.reason == "native_merge_linearized"
+                )
+                or (
+                    rule.source is S.PRODUCTION_DEPLOYED
+                    and rule.target is S.COMPLETED
+                    and rule.reason == "observation_window_passed"
+                )
                 else rule.guards
             ),
         )
@@ -5049,6 +5068,9 @@ class LifecycleControlPlane:
                         "live_verification_digest",
                         "rollback_readiness_digest",
                         "observation_window_digest",
+                        "finding_high_watermark_digest",
+                        "finding_source_set_digest",
+                        "finding_inventory_epochs_digest",
                     )
                 }
                 if self._bundle_verifier is None or not self._bundle_verifier(

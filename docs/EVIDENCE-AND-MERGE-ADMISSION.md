@@ -31,7 +31,9 @@ Mutable GitHub metadata and comments may carry a bundle pointer. They are explic
 rejected as a required evidence item. Rejected intake bytes are also excluded: the
 contract-admission projection retains reservation, safe receipt or failed-finalization
 status, lineage/correction identifiers, safe diagnostic codes, and deletion or
-reconciliation proof. Only admitted content may receive an immutable payload reference.
+reconciliation proof. Deletion is terminal only when `deleted=true`; reconciliation
+must carry an independently authenticated attestation. Only admitted content may
+receive an immutable payload reference.
 
 ## Stage profiles
 
@@ -42,7 +44,7 @@ reconciliation proof. Only admitted content may receive an immutable payload ref
 | Candidate review | Exact base/head/prospective tree, checks, advisory analysis, finding inventory |
 | Merge admission | Candidate evidence plus fresh eligible formal review and native gate proof |
 | Staging | Observed merge/tree, immutable artifact/config, current finding high-watermark |
-| Completion | Exact final head, merge/tree, artifact/config, deployment, live observation, rollback readiness |
+| Completion | Exact final head, merge/tree, artifact/config, deployment, live observation, rollback readiness, current finding inventory |
 | Rollback/incident | Executed rollback, restored service/data/traffic/config, RTO/RPO |
 
 An absent class, non-pass result, stale expiry, wrong subject, environment mismatch,
@@ -72,7 +74,9 @@ wrong-subject, stale, pending,
 cancelled, failed, or over-time queue checks revoke admission.
 The enqueue token is itself signed by a trusted native-gate issuer; its snapshot,
 external fences, merge-group identity, timestamps, and enqueue digest cannot be
-rewritten across a serialization boundary before linearization.
+rewritten across a serialization boundary before linearization. Its signed freshness
+window also expires admission when an installation uses expected-head CAS without
+merge-group checks.
 
 A bypass, external merge, gate authorization failure, or observed merge-tree mismatch
 is an incident even if file content looks equivalent. External contract authority and

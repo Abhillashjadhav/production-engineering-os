@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 
 from pmpe.contracts.digest import canonical_digest
 from pmpe.contracts.intake import IntakeOutcome
 
 _IMMUTABLE_OBJECT_REF = re.compile(r"^objects/sha256-[0-9a-f]{64}\.json$")
+_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+ReconciliationAuthenticator = Callable[[str, str, Mapping[str, object], str], bool]
 
 
 @dataclass(frozen=True)
@@ -33,11 +36,29 @@ class IntakeLineageEvidence:
         return canonical_digest(asdict(self))
 
 
+def reconciliation_authentication_payload(
+    outcome: IntakeOutcome, reconciliation_attestation_digest: str
+) -> dict[str, object]:
+    return {
+        "lineage_id": outcome.reservation.lineage_id,
+        "attempt_id": outcome.reservation.attempt_id,
+        "quarantine_handle": outcome.reservation.quarantine_handle,
+        "admission_status": outcome.status,
+        "disposition_digest": canonical_digest(outcome.disposition.as_dict()),
+        "reconciliation_attestation_digest": reconciliation_attestation_digest,
+    }
+
+
 def project_intake_evidence(
     outcome: IntakeOutcome,
     *,
     admitted_payload_ref: str = "",
     reconciliation_attestation_digest: str = "",
+    reconciliation_authority_id: str = "",
+    reconciliation_authority_digest: str = "",
+    reconciliation_authentication_evidence_digest: str = "",
+    trusted_reconciliation_authorities: Mapping[str, str] | None = None,
+    reconciliation_authenticator: ReconciliationAuthenticator | None = None,
 ) -> IntakeLineageEvidence:
     reservation = outcome.reservation
     receipt = outcome.receipt
@@ -52,8 +73,35 @@ def project_intake_evidence(
         raise ValueError("rejected raw content must never enter immutable evidence")
 
     deletion = outcome.deletion_attestation
-    deletion_digest = canonical_digest(asdict(deletion)) if deletion is not None else ""
-    terminal_proof = deletion_digest or reconciliation_attestation_digest
+    deletion_digest = (
+        canonical_digest(asdict(deletion)) if deletion is not None and deletion.deleted else ""
+    )
+    authenticated_reconciliation = False
+    if reconciliation_attestation_digest:
+        trusted_authority = (trusted_reconciliation_authorities or {}).get(
+            reconciliation_authority_id, ""
+        )
+        payload = reconciliation_authentication_payload(outcome, reconciliation_attestation_digest)
+        try:
+            authenticated_reconciliation = bool(
+                _DIGEST.fullmatch(reconciliation_attestation_digest)
+                and trusted_authority
+                and trusted_authority == reconciliation_authority_digest
+                and reconciliation_authenticator is not None
+                and reconciliation_authenticator(
+                    reconciliation_authority_id,
+                    trusted_authority,
+                    payload,
+                    reconciliation_authentication_evidence_digest,
+                )
+            )
+        except Exception:
+            authenticated_reconciliation = False
+        if not authenticated_reconciliation and not deletion_digest:
+            raise ValueError("reconciliation evidence is not independently authenticated")
+    terminal_proof = deletion_digest or (
+        reconciliation_attestation_digest if authenticated_reconciliation else ""
+    )
     if outcome.status != "ADMITTED" and not terminal_proof:
         raise ValueError("rejected intake requires deletion or reconciliation evidence")
     return IntakeLineageEvidence(

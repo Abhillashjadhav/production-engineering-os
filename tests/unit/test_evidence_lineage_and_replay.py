@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import replace
+
 import pytest
 
-from pmpe.audit.intake_evidence import project_intake_evidence
+from pmpe.audit.intake_evidence import (
+    project_intake_evidence,
+    reconciliation_authentication_payload,
+)
 from pmpe.audit.replay import ProposalAdmission, proposal_subject, replay_admission
 from pmpe.contracts.digest import canonical_digest
 from pmpe.contracts.intake import (
@@ -16,6 +22,27 @@ from pmpe.contracts.intake import (
 )
 
 D = "sha256:" + "a" * 64
+RECONCILIATION_AUTHORITIES = {"quarantine-reconciler": D}
+
+
+def _reconciliation_proof(identity: str, authority: str, payload: Mapping[str, object]) -> str:
+    return canonical_digest(
+        {
+            "test_trust_root": "outside-intake-lineage",
+            "identity": identity,
+            "authority": authority,
+            "payload": payload,
+        }
+    )
+
+
+def _authenticate_reconciliation(
+    identity: str,
+    authority: str,
+    payload: Mapping[str, object],
+    proof: str,
+) -> bool:
+    return proof == _reconciliation_proof(identity, authority, payload)
 
 
 def _outcome(status: str) -> IntakeOutcome:
@@ -95,6 +122,36 @@ def test_admitted_intake_requires_content_addressed_payload_reference() -> None:
         _outcome("ADMITTED"), admitted_payload_ref=f"objects/{D.replace(':', '-')}.json"
     )
     assert evidence.immutable_payload_ref.endswith(f"{D.replace(':', '-')}.json")
+
+
+def test_rejected_intake_requires_true_deletion_or_authenticated_reconciliation() -> None:
+    outcome = _outcome("SECURITY_BLOCKED")
+    assert outcome.deletion_attestation is not None
+    unresolved = replace(
+        outcome,
+        deletion_attestation=replace(outcome.deletion_attestation, deleted=False),
+    )
+
+    with pytest.raises(ValueError, match="deletion or reconciliation"):
+        project_intake_evidence(unresolved)
+    with pytest.raises(ValueError, match="independently authenticated"):
+        project_intake_evidence(unresolved, reconciliation_attestation_digest=D)
+
+    identity = "quarantine-reconciler"
+    authority = RECONCILIATION_AUTHORITIES[identity]
+    payload = reconciliation_authentication_payload(unresolved, D)
+    evidence = project_intake_evidence(
+        unresolved,
+        reconciliation_attestation_digest=D,
+        reconciliation_authority_id=identity,
+        reconciliation_authority_digest=authority,
+        reconciliation_authentication_evidence_digest=_reconciliation_proof(
+            identity, authority, payload
+        ),
+        trusted_reconciliation_authorities=RECONCILIATION_AUTHORITIES,
+        reconciliation_authenticator=_authenticate_reconciliation,
+    )
+    assert evidence.deletion_or_reconciliation_digest == D
 
 
 def test_exact_proposal_replay_is_deterministic_and_regeneration_is_new_subject() -> None:

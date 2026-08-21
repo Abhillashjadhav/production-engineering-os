@@ -64,7 +64,7 @@ PRODUCER_POLICIES = {
     ),
     "review/codex": EvidenceProducerPolicy(
         D,
-        ("candidate_review", "merge_admission", "staging"),
+        ("candidate_review", "merge_admission", "staging", "completion"),
         ("advisory_review", "formal_review", "finding_inventory"),
         ("AUTOMATED",),
     ),
