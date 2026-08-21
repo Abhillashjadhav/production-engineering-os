@@ -13,6 +13,7 @@ from pmpe.engineering.merge_admission import (
     MergeSnapshot,
     RequiredCheck,
     enqueue,
+    finding_resolution_authentication_payload,
     linearize_merge,
     load_governed_merge_policy,
     resolve_external_race,
@@ -27,6 +28,7 @@ AFTER = "2026-08-20T12:01:00Z"
 POLICY = GovernedMergePolicy(D, ("ci",))
 TOKEN_ISSUER = "merge-queue"
 TOKEN_ISSUERS = {TOKEN_ISSUER: D}
+FINDING_AUTHORITIES = {"finding-owner": D}
 
 
 def _token_proof(identity: str, authority: str, payload: Mapping[str, object]) -> str:
@@ -50,6 +52,25 @@ def _authenticate_token(
     identity: str, authority: str, payload: Mapping[str, object], proof: str
 ) -> bool:
     return proof == _token_proof(identity, authority, payload)
+
+
+def _resolution_proof(identity: str, authority: str, payload: Mapping[str, object]) -> str:
+    from pmpe.contracts.digest import canonical_digest
+
+    return canonical_digest(
+        {
+            "test_trust_root": "outside-the-finding-snapshot",
+            "identity": identity,
+            "authority": authority,
+            "payload": payload,
+        }
+    )
+
+
+def _authenticate_resolution(
+    identity: str, authority: str, payload: Mapping[str, object], proof: str
+) -> bool:
+    return proof == _resolution_proof(identity, authority, payload)
 
 
 def _snapshot() -> MergeSnapshot:
@@ -336,6 +357,79 @@ def test_changes_requested_blocks_even_with_an_approval() -> None:
             enqueued_at=AFTER,
             invalidation_boundary=NOW,
         )
+
+
+def test_blocker_resolution_requires_independent_trusted_authentication() -> None:
+    snapshot = _snapshot()
+    blocker = BlockingFinding("F1", "scanner", HEAD, "HIGH", True, True, AFTER, D, E)
+    self_asserted = replace(
+        blocker,
+        disposition="RESOLVED",
+        resolution_digest=D,
+    )
+    with pytest.raises(ValueError, match="blocking finding"):
+        enqueue(
+            replace(snapshot, findings=(self_asserted,)),
+            governed_policy=POLICY,
+            token_issuer=TOKEN_ISSUER,
+            token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+            token_signer=_sign_token,
+            enqueued_at=AFTER,
+            invalidation_boundary=NOW,
+        )
+
+    authenticated = replace(
+        self_asserted,
+        resolution_actor="finding-owner",
+        resolution_authority_digest=FINDING_AUTHORITIES["finding-owner"],
+    )
+    authenticated = replace(
+        authenticated,
+        resolution_authentication_evidence_digest=_resolution_proof(
+            authenticated.resolution_actor,
+            authenticated.resolution_authority_digest,
+            finding_resolution_authentication_payload(authenticated),
+        ),
+    )
+    token = enqueue(
+        replace(snapshot, findings=(authenticated,)),
+        governed_policy=POLICY,
+        token_issuer=TOKEN_ISSUER,
+        token_authority_digest=TOKEN_ISSUERS[TOKEN_ISSUER],
+        token_signer=_sign_token,
+        enqueued_at=AFTER,
+        invalidation_boundary=NOW,
+        trusted_finding_authorities=FINDING_AUTHORITIES,
+        resolution_authenticator=_authenticate_resolution,
+    )
+
+    assert token.snapshot_digest
+    without_resolution_authority = linearize_merge(
+        token,
+        replace(snapshot, findings=(authenticated,)),
+        governed_policy=POLICY,
+        trusted_token_issuers=TOKEN_ISSUERS,
+        token_authenticator=_authenticate_token,
+        observed_merge_sha="e" * 40,
+        observed_merge_tree_digest=D,
+        merged_at=AFTER,
+    )
+    assert not without_resolution_authority.admitted
+    assert any("blocking finding" in reason for reason in without_resolution_authority.reasons)
+
+    admitted = linearize_merge(
+        token,
+        replace(snapshot, findings=(authenticated,)),
+        governed_policy=POLICY,
+        trusted_token_issuers=TOKEN_ISSUERS,
+        token_authenticator=_authenticate_token,
+        observed_merge_sha="e" * 40,
+        observed_merge_tree_digest=D,
+        merged_at=AFTER,
+        trusted_finding_authorities=FINDING_AUTHORITIES,
+        resolution_authenticator=_authenticate_resolution,
+    )
+    assert admitted.admitted
 
 
 def test_merge_group_must_be_exact_fresh_and_from_admitted_enqueue() -> None:

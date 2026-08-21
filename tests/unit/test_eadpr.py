@@ -171,3 +171,21 @@ def test_digest_shaped_but_unverified_evidence_cannot_enter_numerator() -> None:
 
     assert report.numerator_subjects == ()
     assert report.failure_subjects == ("one",)
+
+
+def test_replay_rejects_malformed_report_or_subject_timestamps() -> None:
+    subject = _subject("one", "2026-07-20T00:00:00Z")
+    report = compute_eadpr(
+        (subject,),
+        policy_version="eadpr-v1",
+        target_approved=True,
+        window_start=START,
+        reporting_cutoff=CUTOFF,
+        sealed_at=SEALED,
+        evidence_verifier=_verify_evidence,
+    )
+    malformed_report = replace(report, window_start="not-a-time", report_digest="").with_digest()
+    malformed_subject = replace(subject, eligibility_at="not-a-time")
+
+    assert not verify_eadpr(malformed_report, (subject,), evidence_verifier=_verify_evidence)
+    assert not verify_eadpr(report, (malformed_subject,), evidence_verifier=_verify_evidence)

@@ -156,13 +156,16 @@ def verify_eadpr(
 ) -> bool:
     if report.report_digest != report.with_digest().report_digest:
         return False
-    replayed = compute_eadpr(
-        subjects,
-        policy_version=report.policy_version,
-        target_approved=report.status != "TARGET_NOT_APPROVED",
-        window_start=report.window_start,
-        reporting_cutoff=report.reporting_cutoff,
-        sealed_at=report.sealed_at,
-        evidence_verifier=evidence_verifier,
-    )
+    try:
+        replayed = compute_eadpr(
+            subjects,
+            policy_version=report.policy_version,
+            target_approved=report.status != "TARGET_NOT_APPROVED",
+            window_start=report.window_start,
+            reporting_cutoff=report.reporting_cutoff,
+            sealed_at=report.sealed_at,
+            evidence_verifier=evidence_verifier,
+        )
+    except (TypeError, ValueError):
+        return False
     return replayed == report

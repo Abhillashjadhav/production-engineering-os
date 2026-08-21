@@ -16,6 +16,7 @@ _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _SUPPORTED_CHECK_EVENTS = {"pull_request", "merge_group"}
 EnqueueTokenSigner = Callable[[str, str, Mapping[str, object]], str]
 EnqueueTokenAuthenticator = Callable[[str, str, Mapping[str, object], str], bool]
+FindingResolutionAuthenticator = Callable[[str, str, Mapping[str, object], str], bool]
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,9 @@ class BlockingFinding:
     authentication_evidence_digest: str
     disposition: str = "OPEN"
     resolution_digest: str = ""
+    resolution_actor: str = ""
+    resolution_authority_digest: str = ""
+    resolution_authentication_evidence_digest: str = ""
 
 
 @dataclass(frozen=True)
@@ -171,7 +175,18 @@ def _snapshot_digest(snapshot: MergeSnapshot) -> str:
     return canonical_digest(asdict(snapshot))
 
 
-def _blocking_finding(finding: BlockingFinding) -> bool:
+def finding_resolution_authentication_payload(finding: BlockingFinding) -> dict[str, object]:
+    payload = asdict(finding)
+    payload.pop("resolution_authentication_evidence_digest")
+    return payload
+
+
+def _blocking_finding(
+    finding: BlockingFinding,
+    *,
+    trusted_finding_authorities: Mapping[str, str],
+    resolution_authenticator: FindingResolutionAuthenticator | None,
+) -> bool:
     severity = finding.severity.upper()
     normalized_blocker = (
         finding.credible
@@ -185,9 +200,25 @@ def _blocking_finding(finding: BlockingFinding) -> bool:
             "MEDIUM",
         }
     )
-    resolved = finding.disposition in {"RESOLVED", "REJECTED_WITH_EVIDENCE"} and bool(
-        _DIGEST.fullmatch(finding.resolution_digest)
-    )
+    trusted_resolution_authority = trusted_finding_authorities.get(finding.resolution_actor, "")
+    try:
+        resolved = bool(
+            finding.disposition in {"RESOLVED", "REJECTED_WITH_EVIDENCE"}
+            and _DIGEST.fullmatch(finding.resolution_digest)
+            and finding.resolution_actor
+            and trusted_resolution_authority
+            and finding.resolution_authority_digest == trusted_resolution_authority
+            and _DIGEST.fullmatch(finding.resolution_authentication_evidence_digest)
+            and resolution_authenticator is not None
+            and resolution_authenticator(
+                finding.resolution_actor,
+                trusted_resolution_authority,
+                finding_resolution_authentication_payload(finding),
+                finding.resolution_authentication_evidence_digest,
+            )
+        )
+    except Exception:
+        resolved = False
     return normalized_blocker and not resolved
 
 
@@ -198,6 +229,8 @@ def _validate_snapshot(
     invalidation_boundary: str,
     as_of: str,
     queue_timeout_seconds: int,
+    trusted_finding_authorities: Mapping[str, str],
+    resolution_authenticator: FindingResolutionAuthenticator | None,
     enqueue_digest: str = "",
     enqueued_at: str = "",
     linearizing: bool = False,
@@ -232,7 +265,12 @@ def _validate_snapshot(
     if snapshot.pending_unclassified_findings != 0:
         reasons.append("finding normalization is incomplete")
     if any(
-        finding.subject_sha == snapshot.pr_head_sha and _blocking_finding(finding)
+        finding.subject_sha == snapshot.pr_head_sha
+        and _blocking_finding(
+            finding,
+            trusted_finding_authorities=trusted_finding_authorities,
+            resolution_authenticator=resolution_authenticator,
+        )
         for finding in snapshot.findings
     ):
         reasons.append("an exact-subject blocking finding is unresolved")
@@ -309,6 +347,8 @@ def enqueue(
     enqueued_at: str,
     invalidation_boundary: str,
     queue_timeout_seconds: int = 1800,
+    trusted_finding_authorities: Mapping[str, str] | None = None,
+    resolution_authenticator: FindingResolutionAuthenticator | None = None,
 ) -> EnqueueToken:
     if queue_timeout_seconds <= 0:
         raise ValueError("merge queue timeout must be positive")
@@ -318,6 +358,8 @@ def enqueue(
         invalidation_boundary=invalidation_boundary,
         as_of=enqueued_at,
         queue_timeout_seconds=queue_timeout_seconds,
+        trusted_finding_authorities=trusted_finding_authorities or {},
+        resolution_authenticator=resolution_authenticator,
     )
     if reasons:
         raise ValueError("; ".join(reasons))
@@ -377,6 +419,8 @@ def linearize_merge(
     merged_at: str,
     native_gate_authorized: bool = True,
     queue_timeout_seconds: int = 1800,
+    trusted_finding_authorities: Mapping[str, str] | None = None,
+    resolution_authenticator: FindingResolutionAuthenticator | None = None,
 ) -> MergeDecision:
     trusted_token_authority = trusted_token_issuers.get(token.issuer_id, "")
     try:
@@ -406,6 +450,8 @@ def linearize_merge(
                 invalidation_boundary=token.invalidation_boundary,
                 as_of=merged_at,
                 queue_timeout_seconds=authenticated_queue_timeout,
+                trusted_finding_authorities=trusted_finding_authorities or {},
+                resolution_authenticator=resolution_authenticator,
                 enqueue_digest=token.enqueue_digest,
                 enqueued_at=token.enqueued_at,
                 linearizing=True,
