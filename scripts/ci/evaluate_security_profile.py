@@ -231,9 +231,10 @@ def _collect_architecture_edges(
                 resolved = importlib.util.resolve_name(relative_name, current_package)
             else:
                 resolved = node.module or ""
-            modules = (
-                [resolved] if node.module else [f"{resolved}.{alias.name}" for alias in node.names]
-            )
+            imported_names = [
+                f"{resolved}.{alias.name}" for alias in node.names if alias.name != "*"
+            ]
+            modules = [resolved, *imported_names] if node.module else imported_names
         elif isinstance(node, ast.Call) and _dynamic_import_call(
             node,
             importlib_aliases=importlib_aliases,

@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -32,13 +33,23 @@ class RetentionController:
         if now.tzinfo is None:
             raise ValueError("retention clock must carry a timezone")
         cutoff = now.astimezone(UTC) - timedelta(days=self.retention_days)
+        root_lock_path = root / ".retention.lock"
+        with root_lock_path.open("a+") as root_lock:
+            fcntl.flock(root_lock.fileno(), fcntl.LOCK_EX)
+            try:
+                return self._purge_locked(root, cutoff=cutoff)
+            finally:
+                fcntl.flock(root_lock.fileno(), fcntl.LOCK_UN)
+
+    def _purge_locked(self, root: Path, *, cutoff: datetime) -> RetentionResult:
         deleted: list[str] = []
         retained: list[str] = []
         for run_dir in sorted(root.iterdir()):
             if run_dir.is_symlink() or not run_dir.is_dir():
                 continue
             if run_dir.name.startswith(".retention-delete-"):
-                shutil.rmtree(run_dir)
+                with suppress(FileNotFoundError):
+                    shutil.rmtree(run_dir)
                 continue
             marker = self._completion_marker(run_dir)
             if marker is None:
@@ -67,7 +78,8 @@ class RetentionController:
                 finally:
                     fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
             assert tombstone is not None
-            shutil.rmtree(tombstone)
+            with suppress(FileNotFoundError):
+                shutil.rmtree(tombstone)
             deleted.append(run_dir.name)
         return RetentionResult(deleted=tuple(deleted), retained=tuple(retained))
 
