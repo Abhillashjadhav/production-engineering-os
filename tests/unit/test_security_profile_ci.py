@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
 from pmpe.contracts.digest import canonical_digest
+from pmpe.privacy.retention import RetentionController
 from scripts.ci.evaluate_security_profile import (
     _observed_architecture_edges,
     _privacy_evidence_from_artifact,
@@ -21,6 +24,25 @@ def test_architecture_observer_resolves_relative_imports(tmp_path: Path) -> None
     (source / "worker.py").write_text("from ..guided import api\n")
 
     assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
+
+
+def test_retention_controller_deletes_expired_and_preserves_current_data(tmp_path: Path) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    expired = tmp_path / "expired.json"
+    current = tmp_path / "current.json"
+    expired.write_text("expired")
+    current.write_text("current")
+    old = (now - timedelta(days=31)).timestamp()
+    recent = (now - timedelta(days=29)).timestamp()
+    os.utime(expired, (old, old))
+    os.utime(current, (recent, recent))
+
+    result = RetentionController(retention_days=30).purge(tmp_path, now=now)
+
+    assert result.deleted == ("expired.json",)
+    assert result.retained == ("current.json",)
+    assert not expired.exists()
+    assert current.exists()
 
 
 def test_privacy_evidence_requires_executed_exact_candidate_artifact(tmp_path: Path) -> None:
