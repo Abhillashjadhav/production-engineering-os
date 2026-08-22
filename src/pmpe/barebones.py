@@ -211,16 +211,28 @@ def _run_action(workspace: Path, target: str, arguments: Mapping[str, Any]) -> A
         raise ContractInvalidError(f"invalid template action target: {target}")
     module, function = match.groups()
     module_path = workspace / (module.replace(".", "/") + ".py")
+    if not module_path.is_file():
+        raise ContractInvalidError(f"template action module is missing: {module}")
     runner = (
-        "import importlib.util,json,sys;"
-        "s=importlib.util.spec_from_file_location('candidate',sys.argv[1]);"
-        "m=importlib.util.module_from_spec(s);s.loader.exec_module(m);"
-        f"v=getattr(m,{function!r})(**json.loads(sys.argv[2]));"
+        "import importlib,json,sys;"
+        "sys.path.insert(0,sys.argv[1]);"
+        "m=importlib.import_module(sys.argv[2]);"
+        "v=getattr(m,sys.argv[3])(**json.loads(sys.argv[4]));"
         "print(json.dumps(v,sort_keys=True,separators=(',',':')))"
     )
     try:
         completed = subprocess.run(
-            [sys.executable, "-I", "-B", "-c", runner, str(module_path), json.dumps(arguments)],
+            [
+                sys.executable,
+                "-I",
+                "-B",
+                "-c",
+                runner,
+                str(workspace),
+                module,
+                function,
+                json.dumps(arguments),
+            ],
             cwd=workspace,
             text=True,
             capture_output=True,
