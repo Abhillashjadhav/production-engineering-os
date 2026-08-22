@@ -11,6 +11,7 @@ import argparse
 import sys
 
 from pmpe.cli import (
+    barebones_cmd,
     contracts_cmd,
     core,
     demo_cmd,
@@ -33,6 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
     core.register(sub)
+    barebones_cmd.register(sub)
     contracts_cmd.register(sub)
     demo_cmd.register(sub)
     eng_cmd.register(sub)

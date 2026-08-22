@@ -11,6 +11,40 @@ The seam between them is a single immutable artifact: the digest-locked contract
 
 ## Production Engineering OS (`pmpe`)
 
+### Bare-bones core (current target)
+
+The current target is deliberately smaller than the historical workflows below:
+
+`PMOS contract → deterministic compile → meaningful RED → Coder → verify → RELEASE_READY`
+
+- It has six states: `VALIDATED`, `BUILDING`, `VERIFYING`, `RELEASE_READY`, `HALTED`, and
+  `STOPPED`.
+- The Coder is the only mandatory LLM worker. A command implementing the `ModelProvider`
+  JSON protocol is the only external adapter.
+- It does not deploy, require AWS, mutate GitHub, or make the release decision.
+- Evidence is plain files under `.pmpe/runs/<id>/events.jsonl` and
+  `.pmpe/blobs/<sha256>`.
+
+Run the deterministic E1 fixture locally:
+
+```bash
+pmpe barebones examples/barebones/e1-contract.json \
+  --workspace /tmp/pmpe-e1-candidate \
+  --run-id e1 \
+  --repository-root /tmp/pmpe-e1-evidence \
+  --provider-command "python examples/barebones/e1-provider.py"
+```
+
+The fixture provider only proves the engine path; replace it with a real command-backed
+`ModelProvider` for product work. The provider receives
+`{"purpose": "code|advisory_review", "request": {...}}` on standard input and must return
+one JSON object containing the same `request_digest`. See
+[the acceptance grammar](docs/acceptance-criteria-grammar.md) and
+[the deletion inventory](docs/barebones-deletion-inventory.md).
+
+The larger workflows documented below are the legacy surface being classified for deletion;
+they are not dependencies of the bare-bones core.
+
 ### Try the verified demo
 
 Prerequisite: Python 3.11 or newer (`python3.12` is used below).
