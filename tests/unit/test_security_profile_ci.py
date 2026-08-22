@@ -18,123 +18,9 @@ from scripts.ci.evaluate_security_profile import (
     _observed_architecture_edges,
     _privacy_evidence_from_artifact,
 )
-from scripts.ci.observe_runtime_residency import _observe
 from scripts.ci.verify_privacy_controls import _inventory_telemetry_fields
 
 SHA = "d" * 40
-
-
-class _FakeAws:
-    def __init__(self, *, region: str = "ap-south-1", corrupt_download: bool = False) -> None:
-        self.region = region
-        self.corrupt_download = corrupt_download
-        self.calls: list[tuple[str, ...]] = []
-        self.objects: dict[str, bytes] = {}
-
-    def __call__(self, command: tuple[str, ...]) -> str:
-        self.calls.append(command)
-        operation = command[:2]
-        if operation == ("sts", "get-caller-identity"):
-            return json.dumps(
-                {
-                    "Account": "123456789012",
-                    "Arn": "arn:aws:sts::123456789012:assumed-role/peos-residency/github",
-                }
-            )
-        if operation == ("s3api", "get-bucket-location"):
-            return self.region
-        if operation == ("s3api", "put-object"):
-            key = command[command.index("--key") + 1]
-            source = Path(command[command.index("--body") + 1])
-            self.objects[key] = source.read_bytes()
-            return "{}"
-        if operation == ("s3api", "get-object"):
-            key = command[command.index("--key") + 1]
-            target = Path(command[-1])
-            payload = self.objects[key]
-            target.write_bytes(b"corrupt" if self.corrupt_download else payload)
-            return "{}"
-        if operation == ("s3api", "delete-object"):
-            key = command[command.index("--key") + 1]
-            self.objects.pop(key, None)
-            return "{}"
-        raise AssertionError(f"unexpected AWS command: {command}")
-
-
-def _runtime_residency_config(path: Path) -> Path:
-    path.write_text(
-        json.dumps(
-            {
-                "authority": "aws-s3-runtime-storage-observer/v1",
-                "environment_id": "production-engineering-os-residency-proof",
-                "provider": "aws",
-                "service": "s3",
-                "expected_provider_region": "ap-south-1",
-            }
-        )
-    )
-    return path
-
-
-def test_runtime_residency_comes_from_authenticated_aws_bucket_metadata(tmp_path: Path) -> None:
-    aws = _FakeAws()
-
-    evidence = _observe(
-        candidate_sha=SHA,
-        runtime_config_path=_runtime_residency_config(tmp_path / "runtime-residency.json"),
-        bucket="peos-residency-proof",
-        aws_command=aws,
-    )
-
-    assert evidence["authority"] == "aws-s3-runtime-storage-observer/v1"
-    assert evidence["observed_provider_region"] == "ap-south-1"
-    assert evidence["observed_residency"] == "IN"
-    assert evidence["storage_probe_passed"] is True
-    assert evidence["provider_identity_digest"].startswith("sha256:")
-    assert evidence["authenticated_metadata_digest"].startswith("sha256:")
-    assert evidence["storage_endpoint_digest"].startswith("sha256:")
-    assert evidence["evidence_digest"] == canonical_digest(
-        {key: value for key, value in evidence.items() if key != "evidence_digest"}
-    )
-    assert not aws.objects
-    assert aws.calls[1][:2] == ("s3api", "get-bucket-location")
-    assert any(command[:2] == ("s3api", "put-object") for command in aws.calls)
-    assert any(command[:2] == ("s3api", "get-object") for command in aws.calls)
-    assert any(command[:2] == ("s3api", "delete-object") for command in aws.calls)
-
-
-def test_runtime_residency_rejects_a_non_mumbai_bucket_even_if_config_claims_india(
-    tmp_path: Path,
-) -> None:
-    config = _runtime_residency_config(tmp_path / "runtime-residency.json")
-    value = json.loads(config.read_text())
-    value["storage_region"] = "IN"
-    config.write_text(json.dumps(value))
-    aws = _FakeAws(region="eu-west-1")
-
-    with pytest.raises(ValueError, match="authenticated AWS bucket region"):
-        _observe(
-            candidate_sha=SHA,
-            runtime_config_path=config,
-            bucket="peos-residency-proof",
-            aws_command=aws,
-        )
-
-    assert not any(command[:2] == ("s3api", "put-object") for command in aws.calls)
-
-
-def test_runtime_residency_deletes_probe_when_readback_fails(tmp_path: Path) -> None:
-    aws = _FakeAws(corrupt_download=True)
-
-    with pytest.raises(ValueError, match="storage probe readback failed"):
-        _observe(
-            candidate_sha=SHA,
-            runtime_config_path=_runtime_residency_config(tmp_path / "runtime-residency.json"),
-            bucket="peos-residency-proof",
-            aws_command=aws,
-        )
-
-    assert not aws.objects
 
 
 def test_architecture_observer_resolves_relative_imports(tmp_path: Path) -> None:
@@ -422,71 +308,17 @@ def test_privacy_evidence_requires_executed_exact_candidate_artifact(tmp_path: P
         )
 
 
-def test_privacy_evidence_rejects_policy_copied_residency(tmp_path: Path) -> None:
-    policy_path = tmp_path / "security-profile-policy.json"
-    verifier_path = tmp_path / "verify_privacy_controls.py"
-    policy_path.write_text("{}")
-    verifier_path.write_text("# verifier\n")
-    artifact_path = tmp_path / "privacy-evidence.json"
-    artifact = {
-        "candidate_sha": SHA,
-        "classification": "INTERNAL",
-        "deletion_test_passed": True,
-        "emitted_telemetry": ["run_id"],
-        "policy_file_digest": "sha256:" + hashlib.sha256(policy_path.read_bytes()).hexdigest(),
-        "residency": "IN",
-        "retention_days": 30,
-        "retention_test_passed": True,
-        "telemetry_test_passed": True,
-        "verifier_file_digest": "sha256:" + hashlib.sha256(verifier_path.read_bytes()).hexdigest(),
-    }
-    artifact["evidence_digest"] = canonical_digest(artifact)
-    artifact_path.write_text(json.dumps(artifact))
-
-    with pytest.raises(ValueError, match="privacy verifier artifact"):
-        _privacy_evidence_from_artifact(
-            artifact_path,
-            candidate_sha=SHA,
-            policy_path=policy_path,
-            verifier_path=verifier_path,
-        )
-
-
-def test_ci_executes_privacy_verifier_before_composed_profile() -> None:
+def test_ci_executes_provider_neutral_privacy_before_composed_profile() -> None:
     root = Path(__file__).resolve().parents[2]
     workflow = (root / ".github/workflows/ci.yml").read_text()
 
-    residency = workflow.index("python scripts/ci/observe_runtime_residency.py")
     verifier = workflow.index("python scripts/ci/verify_privacy_controls.py")
     composed = workflow.index("python scripts/ci/evaluate_security_profile.py")
-    assert residency < verifier < composed
-    assert "--residency-evidence /tmp/security-profile/residency-evidence.json" in workflow
+    assert verifier < composed
     assert "--privacy-evidence /tmp/security-profile/privacy-evidence.json" in workflow
-    assert "environment: india-residency" in workflow
-    assert "id-token: write" in workflow
-    assert (
-        "aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c" in workflow
-    )
-    assert "role-to-assume: ${{ vars.AWS_RESIDENCY_ROLE_ARN }}" in workflow
-    assert "AWS_RESIDENCY_BUCKET: ${{ vars.AWS_RESIDENCY_BUCKET }}" in workflow
-    assert '--bucket "$AWS_RESIDENCY_BUCKET"' in workflow
-    assert "--storage-root" not in workflow
-
-
-def test_aws_residency_stack_is_mumbai_only_and_least_privilege() -> None:
-    root = Path(__file__).resolve().parents[2]
-    template = (root / "infra/aws-residency-proof/cloudformation.yml").read_text()
-
-    assert "ap-south-1:" in template
-    assert "BucketEncryption:" in template
-    assert "BlockPublicAcls: true" in template
-    assert "ExpirationInDays: 1" in template
-    assert "repo:${Repository}:environment:${GitHubEnvironment}" in template
-    assert "s3:GetBucketLocation" in template
-    assert "s3:PutObject" in template
-    assert "s3:GetObject" in template
-    assert "s3:DeleteObject" in template
-    assert "residency-probes/*" in template
+    assert "AWS_RESIDENCY" not in workflow
+    assert "configure-aws-credentials" not in workflow
+    assert "observe_runtime_residency.py" not in workflow
 
 
 def test_ci_keeps_editable_builds_inside_the_hash_lock() -> None:
