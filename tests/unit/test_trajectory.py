@@ -103,13 +103,13 @@ def test_unapproved_external_destination_is_caught_even_with_ready_final_verdict
     assert events[-1]["verdict"] == "READY_FOR_PRODUCTION_APPROVAL"
     violations = [v for v in evaluate_trajectory(events) if v.check_id == "TRAJ-15"]
     assert violations
-    assert "huggingface.co" in violations[0].evidence
+    assert "external-provider.example" in violations[0].evidence
 
 
 def test_allowed_external_destination_does_not_trigger_traj_15() -> None:
     events = _load("planted_unapproved_external_destination.jsonl")
-    allowed_digest = "sha256:9a20f5753eb2613ebca5d2b6d7c8a2ff03ada237b0e7db2639c82e39bee9f2be"
-    events[0]["detail"] = "allowed=api.openai.com,huggingface.co"
+    allowed_digest = "sha256:b5e0b7ed5c2909c58c1da7e79478bb2741bc1b20213625bbe43b9812f07278f5"
+    events[0]["detail"] = "allowed=api.openai.com,external-provider.example"
     events[0]["output_digests"]["egress_policy"] = allowed_digest
     events[1]["input_digests"]["egress_policy"] = allowed_digest
     assert "TRAJ-15" not in {v.check_id for v in evaluate_trajectory(events)}
