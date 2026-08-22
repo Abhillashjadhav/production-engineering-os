@@ -17,7 +17,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from pmpe.contracts.acceptance import (
     AcceptanceBuildPlan,
@@ -94,6 +94,10 @@ _CREDENTIAL = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|AKI
 _HIGH_RISK_CODE = re.compile(r"\b(?:eval|exec)\s*\(")
 _ACTION_TIMEOUT_SECONDS = 10.0
 _PYTEST_TIMEOUT_SECONDS = 30.0
+
+
+def _reject_non_json_constant(token: str) -> NoReturn:
+    raise ValueError(f"non-JSON numeric constant: {token}")
 
 
 def default_template() -> Template:
@@ -217,8 +221,13 @@ def _run_action(workspace: Path, target: str, arguments: Mapping[str, Any]) -> A
     if completed.returncode != 0:
         raise ContractInvalidError("action failed before an assertion: " + completed.stderr.strip())
     try:
-        return json.loads(completed.stdout)
-    except json.JSONDecodeError as exc:
+        value = json.loads(
+            completed.stdout,
+            parse_constant=_reject_non_json_constant,
+        )
+        canonical_digest(value)
+        return value
+    except (json.JSONDecodeError, ValueError) as exc:
         raise ContractInvalidError("action did not return one JSON value") from exc
 
 
@@ -597,6 +606,13 @@ def run_to_release_ready(
             raise ContractInvalidError("human test changed after compilation")
         _write_files(workspace, {relative: source.read_text()})
         protected_tests.add(_safe_path(workspace, relative))
+    protected_package_initializers: set[Path] = set()
+    for protected_test in protected_tests:
+        parent = protected_test.parent
+        while parent != workspace:
+            protected_package_initializers.add(parent / "__init__.py")
+            parent = parent.parent
+    protected_tests.update(protected_package_initializers)
     baseline = _verify_snapshot(
         plan,
         _workspace_snapshot(workspace),
@@ -604,7 +620,7 @@ def run_to_release_ready(
     )
     non_template = tuple(item for item in plan.criteria if item.form != "satisfied_by_template")
     failed_ids = {item.subject_id for item in baseline}
-    if not non_template or failed_ids != {item.criterion_id for item in non_template}:
+    if failed_ids != {item.criterion_id for item in non_template}:
         raise ContractInvalidError("baseline must fail every non-template criterion by assertion")
     baseline_blob = ledger.put_blob(
         json.dumps(
