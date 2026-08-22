@@ -85,12 +85,9 @@ class BoundaryPolicy(tuple[object, ...]):
                 "boundary policy is outside the canonical JSON domain"
             ) from exc
 
-        return cast(
-            BoundaryPolicy,
-            tuple.__new__(
-                cls,
-                (frozenset(parsed_outbound), frozenset(parsed_capabilities), digest),
-            ),
+        return tuple.__new__(
+            cls,
+            (frozenset(parsed_outbound), frozenset(parsed_capabilities), digest),
         )
 
     @property
