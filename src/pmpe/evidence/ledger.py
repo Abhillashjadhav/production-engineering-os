@@ -28,6 +28,7 @@ class EvidenceLedger:
     def __init__(self, repository_root: Path, run_id: str) -> None:
         if not _RUN_ID.fullmatch(run_id):
             raise ValueError("run_id must be a bounded filesystem-safe identifier")
+        self.run_id = run_id
         self.root = repository_root / ".pmpe"
         self.run_directory = self.root / "runs" / run_id
         self.events_path = self.run_directory / "events.jsonl"
@@ -72,6 +73,8 @@ class EvidenceLedger:
             raise ValueError("blob references must be SHA-256 digests")
         events = tuple(self.verify())
         body: dict[str, Any] = {
+            "schema_version": "1.0.0",
+            "run_id": self.run_id,
             "sequence": len(events) + 1,
             "previous_digest": events[-1]["event_digest"] if events else GENESIS_DIGEST,
             "event_type": event_type,
