@@ -194,6 +194,8 @@ def _contradictory(left: PropertyAssertion, right: PropertyAssertion) -> bool:
         return canonical_digest(left.value) != canonical_digest(right.value)
     if {left.operator, right.operator} == {Operator.EQ, Operator.NE}:
         return canonical_digest(left.value) == canonical_digest(right.value)
+    if {left.operator, right.operator} == {Operator.CONTAINS, Operator.NOT_CONTAINS}:
+        return canonical_digest(left.value) == canonical_digest(right.value)
     opposite_unary = {
         (Operator.IS_TRUE, Operator.IS_FALSE),
         (Operator.IS_FALSE, Operator.IS_TRUE),
