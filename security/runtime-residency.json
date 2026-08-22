@@ -1,7 +1,0 @@
-{
-  "authority": "aws-s3-runtime-storage-observer/v1",
-  "environment_id": "production-engineering-os-residency-proof",
-  "expected_provider_region": "ap-south-1",
-  "provider": "aws",
-  "service": "s3"
-}
