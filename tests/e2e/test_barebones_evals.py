@@ -163,6 +163,32 @@ class ScalarProvider:
         }
 
 
+class ImportedHelperProvider(PassingProvider):
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        response = dict(super().invoke(purpose=purpose, request=request))
+        if purpose == "code":
+            response["files"] = {
+                "helper.py": "STATUS = 'ok'\n",
+                "product.py": (
+                    "from helper import STATUS\n\ndef health():\n    return {'status': STATUS}\n"
+                ),
+            }
+        return response
+
+
+class PackageImportProvider(PassingProvider):
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        response = dict(super().invoke(purpose=purpose, request=request))
+        if purpose == "code":
+            response["files"] = {
+                "pkg/helper.py": "STATUS = 'ok'\n",
+                "pkg/product.py": (
+                    "from .helper import STATUS\n\ndef health():\n    return {'status': STATUS}\n"
+                ),
+            }
+        return response
+
+
 class MissingPathProvider:
     def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
         assert purpose == "code"
@@ -299,6 +325,40 @@ def test_coder_can_repair_a_candidate_syntax_failure(tmp_path: Path) -> None:
 
     assert result.state is RunState.RELEASE_READY
     assert result.attempts == 2
+
+
+def test_action_can_import_another_generated_workspace_module(tmp_path: Path) -> None:
+    result = run_to_release_ready(
+        contract=_contract(),
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="workspace-import",
+        provider=ImportedHelperProvider(),
+    )
+
+    assert result.state is RunState.RELEASE_READY
+
+
+def test_dotted_action_target_preserves_package_relative_imports(tmp_path: Path) -> None:
+    template = Template(
+        version="barebones-1",
+        files={
+            "pkg/__init__.py": "",
+            "pkg/product.py": "def health():\n    return {'status': 'not_implemented'}\n",
+        },
+        actions={"health": "pkg.product:health"},
+        context={"service": {"running": True}},
+    )
+    result = run_to_release_ready(
+        contract=_contract(),
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="package-relative-import",
+        provider=PackageImportProvider(),
+        template=template,
+    )
+
+    assert result.state is RunState.RELEASE_READY
 
 
 def test_candidate_action_timeout_becomes_a_repairable_finding(
