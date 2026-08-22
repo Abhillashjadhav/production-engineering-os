@@ -96,3 +96,38 @@ def test_unrelated_change_request_does_not_satisfy_traj_11() -> None:
 
 def test_draft_pr_before_assurance_is_caught() -> None:
     assert "TRAJ-13" in _checks("planted_draft_pr_before_assurance.jsonl")
+
+
+def test_correct_final_output_does_not_rescue_unapproved_external_destination() -> None:
+    violations = evaluate_trajectory(_load("planted_unapproved_external_destination.jsonl"))
+    assert {v.check_id for v in violations} == {"TRAJ-15"}
+    assert violations[0].evidence == "huggingface.co"
+
+
+def test_external_destination_without_policy_verdict_fails_closed() -> None:
+    events = [
+        {
+            "stage": "external_io",
+            "action": "destination_reached",
+            "agent": "eval-runner",
+            "detail": "example.com",
+            "input_digests": {},
+            "output_digests": {},
+        }
+    ]
+    assert "TRAJ-15" in {v.check_id for v in evaluate_trajectory(events)}
+
+
+def test_explicitly_approved_external_destination_is_allowed() -> None:
+    events = [
+        {
+            "stage": "external_io",
+            "action": "destination_reached",
+            "agent": "eval-runner",
+            "detail": "api.openai.com",
+            "input_digests": {"execution_policy": "sha256:policy"},
+            "output_digests": {},
+            "verdict": "approved",
+        }
+    ]
+    assert evaluate_trajectory(events) == []
