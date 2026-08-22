@@ -191,6 +191,20 @@ def _contradictory(left: PropertyAssertion, right: PropertyAssertion) -> bool:
     }
     if (left.operator, right.operator) in opposite_unary:
         return True
+    equality = {Operator.EQ, Operator.NE}
+    unary = {Operator.IS_TRUE, Operator.IS_FALSE, Operator.IS_NULL, Operator.NOT_NULL}
+    equality_assertion = left if left.operator in equality else right
+    unary_assertion = left if left.operator in unary else right
+    if equality_assertion.operator in equality and unary_assertion.operator in unary:
+        unary_matches = {
+            Operator.IS_TRUE: equality_assertion.value is True,
+            Operator.IS_FALSE: equality_assertion.value is False,
+            Operator.IS_NULL: equality_assertion.value is None,
+            Operator.NOT_NULL: equality_assertion.value is not None,
+        }[unary_assertion.operator]
+        if equality_assertion.operator is Operator.EQ:
+            return not unary_matches
+        return unary_assertion.operator is not Operator.NOT_NULL and unary_matches
     ordered = {Operator.LT, Operator.LTE, Operator.GT, Operator.GTE}
     if left.operator is Operator.EQ and right.operator in ordered:
         result = _ordered_comparison(left.value, right.operator, right.value)
