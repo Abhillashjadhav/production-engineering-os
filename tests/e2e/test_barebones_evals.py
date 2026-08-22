@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -82,6 +83,47 @@ class SyntaxRepairProvider:
             "request_digest": request["request_digest"],
             "files": {"product.py": content},
         }
+
+
+class DependencyRepairProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        if purpose == "advisory_review":
+            return {"request_digest": request["request_digest"], "summary": "advisory"}
+        self.calls += 1
+        files = (
+            {
+                "product.py": (
+                    "from helper import STATUS\n\ndef health():\n    return {'status': STATUS}\n"
+                ),
+                "helper.py": "raise RuntimeError('broken dependency')\n",
+            }
+            if self.calls == 1
+            else {"helper.py": "STATUS = 'ok'\n"}
+        )
+        return {"request_digest": request["request_digest"], "files": files}
+
+
+class StableDependencySandbox:
+    def run(
+        self,
+        workspace: Path,
+        argv: object,
+        *,
+        timeout_seconds: float,
+        environment: Mapping[str, str],
+    ) -> subprocess.CompletedProcess[str]:
+        product = (workspace / "product.py").read_text()
+        helper = workspace / "helper.py"
+        if "not_implemented" in product:
+            stdout, stderr, returncode = '{"status":"not_implemented"}', "", 0
+        elif helper.exists() and "broken dependency" in helper.read_text():
+            stdout, stderr, returncode = "", "stable dependency import failure", 1
+        else:
+            stdout, stderr, returncode = '{"status":"ok"}', "", 0
+        return subprocess.CompletedProcess(argv, returncode, stdout, stderr)  # type: ignore[arg-type]
 
 
 class RepeatAfterChangedFindingProvider:
@@ -417,6 +459,20 @@ def test_candidate_action_timeout_becomes_a_repairable_finding(
         workspace=tmp_path / "candidate",
         run_id="timeout-repair",
         provider=TimeoutRepairProvider(),
+    )
+
+    assert result.state is RunState.RELEASE_READY
+    assert result.attempts == 2
+
+
+def test_execution_failure_allows_a_python_dependency_repair(tmp_path: Path) -> None:
+    result = run_to_release_ready(
+        contract=_contract(),
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="dependency-repair",
+        provider=DependencyRepairProvider(),
+        candidate_sandbox=StableDependencySandbox(),
     )
 
     assert result.state is RunState.RELEASE_READY

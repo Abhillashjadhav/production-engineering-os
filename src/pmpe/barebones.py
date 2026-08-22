@@ -1001,10 +1001,14 @@ def run_to_release_ready(
         human_test_repair = bool(changed) and any(
             item.subject_id in human_test_ids for item in findings
         )
+        dependency_repair = any(
+            item.code == "CANDIDATE_EXECUTION_FAILED" for item in findings
+        ) and any(path.endswith(".py") for path in changed)
         if (
             previous_finding_digest == finding_digest
             and not implicated.intersection(changed)
             and not human_test_repair
+            and not dependency_repair
         ):
             subjects = ",".join(sorted({item.subject_id for item in findings}))
             cause = f"REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:{subjects}"

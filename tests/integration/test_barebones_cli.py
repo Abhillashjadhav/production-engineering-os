@@ -39,14 +39,10 @@ def test_barebones_cli_runs_a_contract_without_cloud_services(
 def test_provider_timeout_is_a_classified_halt(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    original_run = barebones_cmd.subprocess.run
+    def timeout(*args: object, **kwargs: object) -> object:
+        raise RuntimeError("MODEL_PROVIDER_TIMEOUT")
 
-    def timeout(args: object, **kwargs: object) -> object:
-        if args == ("provider",):
-            raise barebones_cmd.subprocess.TimeoutExpired("provider", 1)
-        return original_run(args, **kwargs)  # type: ignore[call-overload]
-
-    monkeypatch.setattr(barebones_cmd.subprocess, "run", timeout)
+    monkeypatch.setattr(barebones_cmd, "_run_provider_command", timeout)
     repository = Path(__file__).parents[2]
     contract = json.loads((repository / "examples/barebones/e1-contract.json").read_text())
     result = run_to_release_ready(
@@ -158,9 +154,19 @@ def test_command_provider_rejects_non_json_numeric_constants(
         stdout = '{"request_digest":"bound","score":NaN}'
         stderr = ""
 
-    monkeypatch.setattr(barebones_cmd.subprocess, "run", lambda *args, **kwargs: Completed())
+    monkeypatch.setattr(barebones_cmd, "_run_provider_command", lambda *args, **kwargs: Completed())
 
     with pytest.raises(RuntimeError, match="malformed JSON"):
         CommandModelProvider("provider", 1).invoke(
             purpose="advisory_review", request={"request_digest": "bound"}
+        )
+
+
+def test_command_provider_output_is_bounded_before_capture() -> None:
+    with pytest.raises(RuntimeError, match="MODEL_PROVIDER_OUTPUT_LIMIT"):
+        barebones_cmd._run_provider_command(
+            (sys.executable, "-c", "import sys; sys.stdout.write('x' * 1000)"),
+            b"{}",
+            2,
+            output_limit_bytes=32,
         )

@@ -198,6 +198,18 @@ def _assertions(
                 )
             )
             return tuple(compiled)
+    for ancestor in compiled:
+        if "mapping" in _assertion_domains(ancestor):
+            continue
+        if any(item.path.startswith(ancestor.path + ".") for item in compiled):
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "CONTRADICTORY_ASSERTIONS",
+                    criterion_id,
+                    f"{field} constrains {ancestor.path} to a non-object with descendants",
+                )
+            )
+            return tuple(compiled)
     return tuple(compiled)
 
 
@@ -280,16 +292,48 @@ def _assertion_set_contradictory(assertions: tuple[PropertyAssertion, ...]) -> b
     )
 
 
+_JSON_DOMAINS = frozenset({"null", "boolean", "number", "string", "list", "mapping"})
+
+
+def _value_domain(value: Any) -> str:
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, (int, float)):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "list"
+    return "mapping" if isinstance(value, Mapping) else "other"
+
+
+def _assertion_domains(assertion: PropertyAssertion) -> frozenset[str]:
+    if assertion.operator is Operator.EQ:
+        return frozenset({_value_domain(assertion.value)})
+    if assertion.operator is Operator.NE:
+        return _JSON_DOMAINS
+    if assertion.operator in {Operator.LT, Operator.LTE, Operator.GT, Operator.GTE}:
+        return frozenset({_value_domain(assertion.value)})
+    if assertion.operator is Operator.MATCHES:
+        return frozenset({"string"})
+    if assertion.operator in {Operator.CONTAINS, Operator.NOT_CONTAINS}:
+        return (
+            frozenset({"string", "list", "mapping"})
+            if isinstance(assertion.value, str)
+            else frozenset({"list"})
+        )
+    return {
+        Operator.IS_TRUE: frozenset({"boolean"}),
+        Operator.IS_FALSE: frozenset({"boolean"}),
+        Operator.IS_NULL: frozenset({"null"}),
+        Operator.NOT_NULL: _JSON_DOMAINS - {"null"},
+    }[assertion.operator]
+
+
 def _contradictory(left: PropertyAssertion, right: PropertyAssertion) -> bool:
-    containment = {Operator.CONTAINS, Operator.NOT_CONTAINS}
-    if (
-        left.operator is Operator.MATCHES
-        and right.operator in containment
-        and not isinstance(right.value, str)
-        or right.operator is Operator.MATCHES
-        and left.operator in containment
-        and not isinstance(left.value, str)
-    ):
+    if not _assertion_domains(left).intersection(_assertion_domains(right)):
         return True
     if left.operator is Operator.EQ and right.operator is Operator.EQ:
         return canonical_digest(left.value) != canonical_digest(right.value)

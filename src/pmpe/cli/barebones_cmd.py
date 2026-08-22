@@ -4,9 +4,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import selectors
 import shlex
+import signal
 import subprocess
+import tempfile
+import time
 from collections.abc import Mapping
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +20,72 @@ from pmpe.barebones import ContractInvalidError, run_to_release_ready
 from pmpe.contracts.acceptance import AcceptanceCompileError
 from pmpe.contracts.canonical import CanonicalInputError, strict_loads
 from pmpe.evidence.ledger import EvidenceIntegrityError
+
+_PROVIDER_OUTPUT_LIMIT_BYTES = 1_000_000
+
+
+def _terminate_provider(process: subprocess.Popen[bytes]) -> None:
+    with suppress(ProcessLookupError):
+        os.killpg(process.pid, signal.SIGKILL)
+    process.wait()
+
+
+def _run_provider_command(
+    argv: tuple[str, ...],
+    payload: bytes,
+    timeout_seconds: int,
+    output_limit_bytes: int = _PROVIDER_OUTPUT_LIMIT_BYTES,
+) -> subprocess.CompletedProcess[str]:
+    with tempfile.TemporaryFile() as stdin_file:
+        stdin_file.write(payload)
+        stdin_file.seek(0)
+        process = subprocess.Popen(
+            argv,
+            stdin=stdin_file,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=True,
+        )
+        if process.stdout is None or process.stderr is None:
+            _terminate_provider(process)
+            raise RuntimeError("MODEL_PROVIDER_IO_UNAVAILABLE")
+        streams = {"stdout": bytearray(), "stderr": bytearray()}
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+        selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+        deadline = time.monotonic() + timeout_seconds
+        try:
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError("MODEL_PROVIDER_TIMEOUT")
+                for key, _ in selector.select(min(remaining, 0.1)):
+                    chunk = os.read(key.fd, 64 * 1024)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    output = streams[key.data]
+                    output.extend(chunk)
+                    if len(output) > output_limit_bytes:
+                        raise RuntimeError("MODEL_PROVIDER_OUTPUT_LIMIT")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError("MODEL_PROVIDER_TIMEOUT")
+            returncode = process.wait(timeout=remaining)
+        except subprocess.TimeoutExpired as exc:
+            _terminate_provider(process)
+            raise RuntimeError("MODEL_PROVIDER_TIMEOUT") from exc
+        except RuntimeError:
+            _terminate_provider(process)
+            raise
+        finally:
+            selector.close()
+        return subprocess.CompletedProcess(
+            argv,
+            returncode,
+            streams["stdout"].decode("utf-8", errors="replace"),
+            streams["stderr"].decode("utf-8", errors="replace"),
+        )
 
 
 class CommandModelProvider:
@@ -26,17 +98,11 @@ class CommandModelProvider:
         self.timeout_seconds = timeout_seconds
 
     def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
-        try:
-            completed = subprocess.run(
-                self.argv,
-                input=json.dumps({"purpose": purpose, "request": request}),
-                text=True,
-                capture_output=True,
-                timeout=self.timeout_seconds,
-                check=False,
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise RuntimeError("MODEL_PROVIDER_TIMEOUT") from exc
+        completed = _run_provider_command(
+            self.argv,
+            json.dumps({"purpose": purpose, "request": request}).encode(),
+            self.timeout_seconds,
+        )
         if completed.returncode != 0:
             raise RuntimeError("model provider failed: " + completed.stderr.strip())
         try:
