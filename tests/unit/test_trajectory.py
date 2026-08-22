@@ -126,3 +126,40 @@ def test_external_destination_with_mismatched_policy_digest_fails_closed() -> No
         "sha256:2222222222222222222222222222222222222222222222222222222222222222"
     )
     assert "TRAJ-15" in {v.check_id for v in evaluate_trajectory(events)}
+
+
+def test_external_input_cannot_become_capability_authority_even_with_ready_final_verdict() -> None:
+    events = _load("planted_inbound_authority_inheritance.jsonl")
+    assert events[-1]["verdict"] == "READY_FOR_PRODUCTION_APPROVAL"
+    violations = [v for v in evaluate_trajectory(events) if v.check_id == "TRAJ-16"]
+    assert violations
+    assert "external_input" in violations[0].evidence
+
+
+def test_policy_derived_capability_grant_is_allowed() -> None:
+    events = _load("planted_inbound_authority_inheritance.jsonl")
+    events[1]["detail"] = (
+        "capability=write_support_draft;authority_origin=boundary_policy;source=webhook:ticket-481"
+    )
+    assert "TRAJ-16" not in {v.check_id for v in evaluate_trajectory(events)}
+
+
+def test_capability_grant_without_bound_policy_fails_closed() -> None:
+    events = _load("planted_inbound_authority_inheritance.jsonl")[1:]
+    assert "TRAJ-16" in {v.check_id for v in evaluate_trajectory(events)}
+
+
+def test_capability_grant_with_mismatched_policy_digest_fails_closed() -> None:
+    events = _load("planted_inbound_authority_inheritance.jsonl")
+    events[1]["input_digests"]["capability_policy"] = (
+        "sha256:3333333333333333333333333333333333333333333333333333333333333333"
+    )
+    assert "TRAJ-16" in {v.check_id for v in evaluate_trajectory(events)}
+
+
+def test_capability_outside_frozen_policy_fails_closed() -> None:
+    events = _load("planted_inbound_authority_inheritance.jsonl")
+    events[1]["detail"] = (
+        "capability=deploy_production;authority_origin=boundary_policy;source=webhook:ticket-481"
+    )
+    assert "TRAJ-16" in {v.check_id for v in evaluate_trajectory(events)}
