@@ -168,14 +168,17 @@ def _assertion_passes(assertion: PropertyAssertion, value: Any) -> bool:
             return operation(left, right)
         return False
 
-    def contains(left: Any, right: Any) -> bool:
+    def contains(left: Any, right: Any, *, negate: bool = False) -> bool:
         if isinstance(left, list):
-            return any(canonical_digest(item) == canonical_digest(right) for item in left)
-        if isinstance(left, str) and isinstance(right, str):
-            return right in left
-        if isinstance(left, Mapping) and isinstance(right, str):
-            return right in left
-        return False
+            present = any(canonical_digest(item) == canonical_digest(right) for item in left)
+        elif isinstance(right, str) and isinstance(left, (str, Mapping)):
+            present = right in left
+        else:
+            return False
+        return not present if negate else present
+
+    def matches(left: Any, right: Any) -> bool:
+        return isinstance(left, str) and isinstance(right, str) and bool(re.search(right, left))
 
     binary: dict[Operator, Callable[[Any, Any], bool]] = {
         Operator.EQ: lambda left, right: canonical_digest(left) == canonical_digest(right),
@@ -185,8 +188,8 @@ def _assertion_passes(assertion: PropertyAssertion, value: Any) -> bool:
         Operator.GT: lambda left, right: ordered(left, right, comparison.gt),
         Operator.GTE: lambda left, right: ordered(left, right, comparison.ge),
         Operator.CONTAINS: contains,
-        Operator.NOT_CONTAINS: lambda left, right: not contains(left, right),
-        Operator.MATCHES: lambda left, right: bool(re.search(str(right), str(left))),
+        Operator.NOT_CONTAINS: lambda left, right: contains(left, right, negate=True),
+        Operator.MATCHES: matches,
     }
     if assertion.operator in binary:
         try:
