@@ -154,6 +154,29 @@ def test_boundary_integrity_oracle_is_not_exposed_to_adapters() -> None:
         assert not callable(getattr(boundary_module, name, None))
 
 
+def test_boundary_registry_writer_is_not_retained_in_method_defaults() -> None:
+    defaults = BoundaryPolicy.from_payload.__func__.__kwdefaults__ or {}
+    assert not callable(defaults.get("_register_state"))
+
+
+def test_boundary_policy_rejects_attacker_defined_string_subclasses() -> None:
+    class AttackerString(str):
+        pass
+
+    with pytest.raises(BoundaryPolicyError):
+        BoundaryPolicy.from_payload(
+            {
+                "allowed_outbound": [
+                    {
+                        "destination": AttackerString("api.openai.com"),
+                        "capability": "read",
+                    }
+                ],
+                "allowed_capabilities": [],
+            }
+        )
+
+
 def test_malformed_or_ambiguous_policy_is_rejected() -> None:
     with pytest.raises(BoundaryPolicyError):
         BoundaryPolicy.from_payload(
