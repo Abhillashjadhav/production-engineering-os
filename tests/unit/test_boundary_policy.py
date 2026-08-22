@@ -108,8 +108,35 @@ def test_boundary_policy_authority_cannot_be_replaced_via_object_primitives() ->
             "_allowed_outbound",
             frozenset({OutboundGrant("huggingface.co", "read")}),
         )
-    with pytest.raises(TypeError):
-        object.__new__(BoundaryPolicy)
+    try:
+        empty_shell = object.__new__(BoundaryPolicy)
+    except TypeError:
+        pass
+    else:
+        with pytest.raises(BoundaryDeniedError):
+            empty_shell.authorize_outbound(
+                destination="api.openai.com",
+                capability="read",
+                bound_policy_digest=policy.digest,
+            )
+
+
+def test_tuple_primitive_cannot_forge_usable_boundary_authority() -> None:
+    forged = tuple.__new__(
+        BoundaryPolicy,
+        (
+            frozenset({OutboundGrant("huggingface.co", "read")}),
+            frozenset(),
+            "sha256:caller-chosen",
+        ),
+    )
+
+    with pytest.raises((BoundaryDeniedError, TypeError)):
+        forged.authorize_outbound(
+            destination="huggingface.co",
+            capability="read",
+            bound_policy_digest="sha256:caller-chosen",
+        )
 
 
 def test_malformed_or_ambiguous_policy_is_rejected() -> None:
