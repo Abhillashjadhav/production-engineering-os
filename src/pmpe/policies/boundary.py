@@ -19,7 +19,7 @@ class BoundaryPolicyError(ValueError):
     """The frozen boundary policy is malformed or ambiguous."""
 
 
-class BoundaryDenied(PermissionError):
+class BoundaryDeniedError(PermissionError):
     """The requested boundary crossing is outside frozen authority."""
 
 
@@ -104,7 +104,7 @@ class BoundaryPolicy:
 
     def _require_binding(self, bound_policy_digest: str | None) -> None:
         if bound_policy_digest != self.digest:
-            raise BoundaryDenied("boundary event is not bound to the frozen policy")
+            raise BoundaryDeniedError("boundary event is not bound to the frozen policy")
 
     def authorize_outbound(
         self,
@@ -115,7 +115,7 @@ class BoundaryPolicy:
     ) -> None:
         self._require_binding(bound_policy_digest)
         if OutboundGrant(destination, capability) not in self.allowed_outbound:
-            raise BoundaryDenied("outbound destination/capability is not authorized")
+            raise BoundaryDeniedError("outbound destination/capability is not authorized")
 
     def authorize_capability_grant(
         self,
@@ -126,6 +126,6 @@ class BoundaryPolicy:
     ) -> None:
         self._require_binding(bound_policy_digest)
         if authority_origin != "boundary_policy":
-            raise BoundaryDenied("external input cannot become the source of authority")
+            raise BoundaryDeniedError("external input cannot become the source of authority")
         if capability not in self.allowed_capabilities:
-            raise BoundaryDenied("capability is not authorized by the frozen policy")
+            raise BoundaryDeniedError("capability is not authorized by the frozen policy")

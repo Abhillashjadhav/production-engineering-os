@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from pmpe.policies.boundary import BoundaryDenied, BoundaryPolicy, BoundaryPolicyError
+from pmpe.policies.boundary import BoundaryDeniedError, BoundaryPolicy, BoundaryPolicyError
 
 
 def _policy() -> BoundaryPolicy:
@@ -24,21 +24,21 @@ def test_outbound_authorization_requires_exact_destination_capability_and_digest
         bound_policy_digest=policy.digest,
     )
 
-    with pytest.raises(BoundaryDenied):
+    with pytest.raises(BoundaryDeniedError):
         policy.authorize_outbound(
             destination="huggingface.co",
             capability="read",
             bound_policy_digest=policy.digest,
         )
 
-    with pytest.raises(BoundaryDenied):
+    with pytest.raises(BoundaryDeniedError):
         policy.authorize_outbound(
             destination="api.openai.com",
             capability="write",
             bound_policy_digest=policy.digest,
         )
 
-    with pytest.raises(BoundaryDenied):
+    with pytest.raises(BoundaryDeniedError):
         policy.authorize_outbound(
             destination="api.openai.com",
             capability="read",
@@ -49,7 +49,7 @@ def test_outbound_authorization_requires_exact_destination_capability_and_digest
 def test_external_input_cannot_grant_capability_even_when_capability_is_listed() -> None:
     policy = _policy()
 
-    with pytest.raises(BoundaryDenied, match="source of authority"):
+    with pytest.raises(BoundaryDeniedError, match="source of authority"):
         policy.authorize_capability_grant(
             capability="write_support_draft",
             authority_origin="external_input",
@@ -65,7 +65,7 @@ def test_policy_can_grant_only_a_capability_it_already_contains() -> None:
         bound_policy_digest=policy.digest,
     )
 
-    with pytest.raises(BoundaryDenied):
+    with pytest.raises(BoundaryDeniedError):
         policy.authorize_capability_grant(
             capability="deploy_production",
             authority_origin="boundary_policy",

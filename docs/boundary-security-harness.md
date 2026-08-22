@@ -52,7 +52,7 @@ policy.authorize_capability_grant(
 
 before granting a protected capability.
 
-An unauthorized destination, stale policy digest, capability outside the frozen policy, or `authority_origin="external_input"` raises `BoundaryDenied` before the governed adapter proceeds.
+An unauthorized destination, stale policy digest, capability outside the frozen policy, or `authority_origin="external_input"` raises `BoundaryDeniedError` before the governed adapter proceeds.
 
 ## TRAJ-15: outbound authority
 
