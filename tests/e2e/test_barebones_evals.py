@@ -154,6 +154,15 @@ class ArrayBooleanProvider:
         }
 
 
+class ScalarProvider:
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert purpose == "code"
+        return {
+            "request_digest": request["request_digest"],
+            "files": {"product.py": "def health():\n    return {'status': 1}\n"},
+        }
+
+
 class MissingPathProvider:
     def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
         assert purpose == "code"
@@ -936,6 +945,34 @@ def test_array_containment_uses_json_type_aware_equality(tmp_path: Path, operato
 
     expected = RunState.HALTED if operator == "contains" else RunState.RELEASE_READY
     assert result.state is expected
+
+
+@pytest.mark.parametrize("operator,value", [("not_contains", True), ("matches", "1")])
+def test_container_and_regex_operators_reject_wrong_actual_types(
+    tmp_path: Path, operator: str, value: object
+) -> None:
+    template = Template(
+        version="barebones-1",
+        files={"product.py": "def health():\n    return {'status': [True]}\n"},
+        actions={"health": "product:health"},
+        context={"service": {"running": True}},
+    )
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"]["then"][0] = {
+        "path": "result.status",
+        "operator": operator,
+        "value": value,
+    }
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id=f"wrong-actual-type-{operator}",
+        provider=ScalarProvider(),
+        template=template,
+    )
+
+    assert result.state is RunState.HALTED
 
 
 def test_non_assertion_mutation_cannot_satisfy_meaningful_red(tmp_path: Path) -> None:
