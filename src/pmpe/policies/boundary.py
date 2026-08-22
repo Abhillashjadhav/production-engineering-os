@@ -10,7 +10,7 @@ from __future__ import annotations
 import weakref
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, cast
 
 import rfc8785
 
@@ -185,15 +185,18 @@ def _bind_policy_constructor(
     method.__kwdefaults__ = {"_register_state": None}
 
     def bound(cls: type[BoundaryPolicy], payload: dict[str, Any]) -> BoundaryPolicy:
-        return method(cls, payload, _register_state=register)
+        return cast(BoundaryPolicy, method(cls, payload, _register_state=register))
 
     return classmethod(bound)
 
 
-setattr(
+type.__setattr__(
     BoundaryPolicy,
     "from_payload",
-    _bind_policy_constructor(BoundaryPolicy.from_payload.__func__, _register_policy_state),
+    _bind_policy_constructor(
+        cast(Any, BoundaryPolicy.from_payload).__func__,
+        _register_policy_state,
+    ),
 )
 
 del _bind_policy_constructor, _build_state_registry, _read_policy_state, _register_policy_state
