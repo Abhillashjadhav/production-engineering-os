@@ -1052,7 +1052,8 @@ def _evaluate_privacy(subject: SecurityProfileInput) -> tuple[NormalizedSecurity
             path="",
             line=0,
             message=(
-                "Privacy classification, retention, deletion, required residency, or telemetry is unproven."
+                "Privacy classification, retention, deletion, required residency, "
+                "or telemetry is unproven."
             ),
             subject_sha=subject.candidate_sha,
             evidence={
