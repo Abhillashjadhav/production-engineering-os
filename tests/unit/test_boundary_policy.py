@@ -150,7 +150,8 @@ def test_tuple_primitive_cannot_forge_usable_boundary_authority() -> None:
 
 
 def test_boundary_integrity_oracle_is_not_exposed_to_adapters() -> None:
-    assert not callable(getattr(boundary_module, "_state_tag", None))
+    for name in ("_state_tag", "_register_policy_state", "_read_policy_state"):
+        assert not callable(getattr(boundary_module, name, None))
 
 
 def test_malformed_or_ambiguous_policy_is_rejected() -> None:

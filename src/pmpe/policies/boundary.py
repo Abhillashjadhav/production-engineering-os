@@ -7,15 +7,14 @@ respected in the evidence ledger.
 
 from __future__ import annotations
 
-import hmac
-import secrets
+import weakref
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, TypeAlias
 
 import rfc8785
 
-from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
+from pmpe.contracts.canonical import canonical_digest
 
 
 class BoundaryPolicyError(ValueError):
@@ -32,25 +31,24 @@ class OutboundGrant:
     capability: str
 
 
-def _build_state_tagger() -> Callable[[frozenset[OutboundGrant], frozenset[str], str], bytes]:
-    key = secrets.token_bytes(32)
-
-    def tag(outbound: frozenset[OutboundGrant], capabilities: frozenset[str], digest: str) -> bytes:
-        payload = {
-            "allowed_outbound": [
-                {"destination": grant.destination, "capability": grant.capability}
-                for grant in sorted(outbound)
-            ],
-            "allowed_capabilities": sorted(capabilities),
-            "digest": digest,
-        }
-        return hmac.digest(key, canonical_json_bytes(payload), "sha256")
-
-    return tag
+PolicyState: TypeAlias = tuple[frozenset[OutboundGrant], frozenset[str], str]
 
 
-_state_tag = _build_state_tagger()
-del _build_state_tagger
+def _build_state_registry() -> tuple[
+    Callable[[object, PolicyState], None], Callable[[object], PolicyState | None]
+]:
+    states: weakref.WeakKeyDictionary[object, PolicyState] = weakref.WeakKeyDictionary()
+
+    def register(subject: object, state: PolicyState) -> None:
+        states[subject] = state
+
+    def read(subject: object) -> PolicyState | None:
+        return states.get(subject)
+
+    return register, read
+
+
+_register_policy_state, _read_policy_state = _build_state_registry()
 
 
 class BoundaryPolicy:
@@ -60,7 +58,7 @@ class BoundaryPolicy:
     with an unrelated trusted digest. Use ``from_payload``.
     """
 
-    __slots__ = ("_allowed_outbound", "_allowed_capabilities", "_digest", "_integrity_tag")
+    __slots__ = ("__weakref__",)
 
     def __new__(cls) -> BoundaryPolicy:
         raise TypeError("BoundaryPolicy must be created with from_payload()")
@@ -69,7 +67,12 @@ class BoundaryPolicy:
         raise AttributeError("BoundaryPolicy is immutable")
 
     @classmethod
-    def from_payload(cls, payload: dict[str, Any]) -> BoundaryPolicy:
+    def from_payload(
+        cls,
+        payload: dict[str, Any],
+        *,
+        _register_state: Callable[[object, PolicyState], None] = _register_policy_state,
+    ) -> BoundaryPolicy:
         if set(payload) != {"allowed_outbound", "allowed_capabilities"}:
             raise BoundaryPolicyError("boundary policy has unknown or missing fields")
 
@@ -111,39 +114,17 @@ class BoundaryPolicy:
         frozen_outbound = frozenset(parsed_outbound)
         frozen_capabilities = frozenset(parsed_capabilities)
         instance = object.__new__(cls)
-        object.__setattr__(instance, "_allowed_outbound", frozen_outbound)
-        object.__setattr__(instance, "_allowed_capabilities", frozen_capabilities)
-        object.__setattr__(instance, "_digest", digest)
-        object.__setattr__(
-            instance,
-            "_integrity_tag",
-            _state_tag(frozen_outbound, frozen_capabilities, digest),
-        )
+        _register_state(instance, (frozen_outbound, frozen_capabilities, digest))
         return instance
 
-    def _validated_state(self) -> tuple[frozenset[OutboundGrant], frozenset[str], str]:
-        try:
-            outbound = object.__getattribute__(self, "_allowed_outbound")
-            capabilities = object.__getattribute__(self, "_allowed_capabilities")
-            digest = object.__getattribute__(self, "_digest")
-            integrity_tag = object.__getattribute__(self, "_integrity_tag")
-        except AttributeError as exc:
-            raise BoundaryDeniedError("boundary policy authority is invalid") from exc
-        if (
-            not isinstance(outbound, frozenset)
-            or not all(isinstance(grant, OutboundGrant) for grant in outbound)
-            or not isinstance(capabilities, frozenset)
-            or not all(isinstance(capability, str) for capability in capabilities)
-            or not isinstance(digest, str)
-            or not isinstance(integrity_tag, bytes)
-        ):
+    def _validated_state(
+        self,
+        _read_state: Callable[[object], PolicyState | None] = _read_policy_state,
+    ) -> PolicyState:
+        state = _read_state(self)
+        if state is None:
             raise BoundaryDeniedError("boundary policy authority is invalid")
-        typed_outbound = cast(frozenset[OutboundGrant], outbound)
-        typed_capabilities = cast(frozenset[str], capabilities)
-        expected_tag = _state_tag(typed_outbound, typed_capabilities, digest)
-        if not hmac.compare_digest(integrity_tag, expected_tag):
-            raise BoundaryDeniedError("boundary policy authority is invalid")
-        return typed_outbound, typed_capabilities, digest
+        return state
 
     @property
     def allowed_outbound(self) -> frozenset[OutboundGrant]:
@@ -187,3 +168,6 @@ class BoundaryPolicy:
             raise BoundaryDeniedError("external input cannot become the source of authority")
         if capability not in capabilities:
             raise BoundaryDeniedError("capability is not authorized by the frozen policy")
+
+
+del _build_state_registry, _read_policy_state, _register_policy_state
