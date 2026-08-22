@@ -98,8 +98,7 @@ def test_product_decision_without_change_request_is_caught() -> None:
 
 
 def test_unrelated_change_request_does_not_satisfy_traj_11() -> None:
-    """A single stray change_request_created event must not excuse every
-    product-decision finding — the binding is by finding id."""
+    """A stray change request must not excuse every product-decision finding."""
     events = _load("planted_product_decision_no_pcr.jsonl")
     events.append(
         {
@@ -126,8 +125,6 @@ def test_correct_final_output_does_not_rescue_unapproved_external_destination() 
 
 
 def test_self_declared_approval_does_not_override_outbound_policy() -> None:
-    # The planted fixture deliberately says verdict=approved on the outbound
-    # event. The evaluator must ignore that self-declaration and use policy.
     assert _checks("planted_unapproved_external_destination.jsonl") == {"TRAJ-15"}
 
 
@@ -181,7 +178,6 @@ def test_policy_authorized_outbound_destination_is_allowed() -> None:
             "verdict": "denied",
         },
     ]
-    # Even a misleading event verdict cannot override the deterministic policy.
     assert evaluate_trajectory(events) == []
 
 
@@ -239,3 +235,49 @@ def test_external_input_cannot_grant_even_a_policy_listed_capability() -> None:
         },
     ]
     assert "TRAJ-16" in {v.check_id for v in evaluate_trajectory(events)}
+
+
+def test_trajectory_rejects_policy_shape_runtime_authorizer_rejects() -> None:
+    policy, digest = _boundary_policy()
+    policy["caller_says_approved"] = True
+    events = [
+        _policy_lock(policy, digest),
+        {
+            "stage": "external_io",
+            "action": "destination_reached",
+            "agent": "eval-runner",
+            "detail": json.dumps({"destination": "api.openai.com", "capability": "read"}),
+            "input_digests": {"boundary_policy": digest},
+            "output_digests": {},
+            "verdict": "approved",
+        },
+    ]
+    assert "TRAJ-15" in {v.check_id for v in evaluate_trajectory(events)}
+
+
+def test_noncanonical_boundary_policy_fails_closed_instead_of_crashing() -> None:
+    malformed_detail = (
+        '{"allowed_capabilities":[NaN],'
+        '"allowed_outbound":[{"capability":"read","destination":"api.openai.com"}]}'
+    )
+    events = [
+        {
+            "stage": "boundary_policy",
+            "action": "lock",
+            "agent": "pmpe-core",
+            "detail": malformed_detail,
+            "input_digests": {},
+            "output_digests": {"boundary_policy": "sha256:claimed"},
+            "verdict": "locked",
+        },
+        {
+            "stage": "external_io",
+            "action": "destination_reached",
+            "agent": "eval-runner",
+            "detail": json.dumps({"destination": "api.openai.com", "capability": "read"}),
+            "input_digests": {"boundary_policy": "sha256:claimed"},
+            "output_digests": {},
+            "verdict": "approved",
+        },
+    ]
+    assert "TRAJ-15" in {v.check_id for v in evaluate_trajectory(events)}
