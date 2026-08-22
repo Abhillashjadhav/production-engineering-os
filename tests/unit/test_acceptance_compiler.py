@@ -31,7 +31,7 @@ def test_compiles_structured_given_when_then_without_model_interpretation(
         repository_root=tmp_path,
         registered_actions=frozenset({"health"}),
         template_version="barebones-1",
-        template_test_ids=frozenset(),
+        template_test_digests={},
     )
 
     assert plan.requirements == ("FR-001",)
@@ -55,7 +55,7 @@ def test_free_text_criterion_fails_before_build(tmp_path: Path) -> None:
             repository_root=tmp_path,
             registered_actions=frozenset({"health"}),
             template_version="barebones-1",
-            template_test_ids=frozenset(),
+            template_test_digests={},
         )
 
     assert failure.value.diagnostics[0].code == "CRITERION_FORM_INVALID"
@@ -85,7 +85,7 @@ def test_human_test_is_path_and_digest_bound(tmp_path: Path) -> None:
         repository_root=tmp_path,
         registered_actions=frozenset(),
         template_version="barebones-1",
-        template_test_ids=frozenset(),
+        template_test_digests={},
     )
 
     assert plan.criteria[0].human_test is not None
@@ -114,10 +114,40 @@ def test_human_test_missing_fails_before_build(tmp_path: Path) -> None:
             repository_root=tmp_path,
             registered_actions=frozenset(),
             template_version="barebones-1",
-            template_test_ids=frozenset(),
+            template_test_digests={},
         )
 
     assert failure.value.diagnostics[0].code == "HUMAN_TEST_MISSING"
+
+
+def test_human_test_rejects_dot_segments_and_requires_exact_node(tmp_path: Path) -> None:
+    test_path = tmp_path / "tests/acceptance/test_security.py"
+    test_path.parent.mkdir(parents=True)
+    test_path.write_text("def test_safe():\n    assert True\n")
+    for human_test in (
+        {
+            "path": "tests/acceptance/./test_security.py",
+            "node_id": "test_safe",
+            "command": ["pytest", "tests/acceptance/./test_security.py::test_safe"],
+        },
+        {
+            "path": "tests/acceptance/test_security.py",
+            "node_id": "test_safe",
+            "command": ["pytest", "tests/acceptance/test_security.py"],
+        },
+    ):
+        with pytest.raises(AcceptanceCompileError) as failure:
+            compile_acceptance_plan(
+                _contract({"requirement_refs": ["FR-001"], "human_test": human_test}),
+                repository_root=tmp_path,
+                registered_actions=frozenset(),
+                template_version="barebones-1",
+                template_test_digests={},
+            )
+        assert failure.value.diagnostics[0].code in {
+            "INVALID_HUMAN_TEST_REFERENCE",
+            "HUMAN_TEST_COMMAND_MISMATCH",
+        }
 
 
 def test_every_requirement_must_have_a_criterion(tmp_path: Path) -> None:
@@ -143,7 +173,7 @@ def test_every_requirement_must_have_a_criterion(tmp_path: Path) -> None:
             repository_root=tmp_path,
             registered_actions=frozenset(),
             template_version="barebones-1",
-            template_test_ids=frozenset({"template::health"}),
+            template_test_digests={"template::health": "sha256:" + "0" * 64},
         )
 
     assert any(
@@ -169,7 +199,7 @@ def test_template_pass_requires_exact_pinned_proof(tmp_path: Path) -> None:
             repository_root=tmp_path,
             registered_actions=frozenset(),
             template_version="barebones-1",
-            template_test_ids=frozenset({"template::health"}),
+            template_test_digests={"template::health": "sha256:" + "0" * 64},
         )
 
     assert failure.value.diagnostics[0].code == "TEMPLATE_PROOF_INVALID"
@@ -194,7 +224,44 @@ def test_contradictory_assertions_fail_at_compile_time(tmp_path: Path) -> None:
             repository_root=tmp_path,
             registered_actions=frozenset({"health"}),
             template_version="barebones-1",
-            template_test_ids=frozenset(),
+            template_test_digests={},
+        )
+
+    assert any(item.code == "CONTRADICTORY_ASSERTIONS" for item in failure.value.diagnostics)
+
+
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [
+        (("gt", 5), ("lte", 5)),
+        (("gte", 6), ("lt", 6)),
+        (("eq", 5), ("gt", 5)),
+    ],
+)
+def test_ordered_contradictions_fail_at_compile_time(
+    tmp_path: Path,
+    left: tuple[str, int],
+    right: tuple[str, int],
+) -> None:
+    contract = _contract(
+        {
+            "requirement_refs": ["FR-001"],
+            "given": [
+                {"path": "service.count", "operator": left[0], "value": left[1]},
+                {"path": "service.count", "operator": right[0], "value": right[1]},
+            ],
+            "when": {"action": "health", "arguments": {}},
+            "then": [{"path": "result.status", "operator": "eq", "value": "ok"}],
+        }
+    )
+
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_acceptance_plan(
+            contract,
+            repository_root=tmp_path,
+            registered_actions=frozenset({"health"}),
+            template_version="barebones-1",
+            template_test_digests={},
         )
 
     assert any(item.code == "CONTRADICTORY_ASSERTIONS" for item in failure.value.diagnostics)
@@ -217,7 +284,7 @@ def test_measure_requires_a_registered_observation_source(tmp_path: Path) -> Non
             repository_root=tmp_path,
             registered_actions=frozenset(),
             template_version="barebones-1",
-            template_test_ids=frozenset(),
+            template_test_digests={},
         )
 
     assert failure.value.diagnostics[0].code == "MEASURE_INVALID"
