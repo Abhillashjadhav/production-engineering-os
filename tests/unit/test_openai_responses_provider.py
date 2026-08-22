@@ -35,6 +35,7 @@ def _api_response(generated: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": "resp_test",
         "model": "gpt-test-2026-01-01",
+        "status": "completed",
         "output": [
             {
                 "type": "message",
@@ -118,3 +119,13 @@ def test_duplicate_generated_paths_fail_closed() -> None:
             ),
             "gpt-test",
         )
+
+
+def test_incomplete_api_response_fails_closed() -> None:
+    provider = _provider_module()
+    response = _api_response({"files": []})
+    response["status"] = "incomplete"
+    response["incomplete_details"] = {"reason": "max_output_tokens"}
+
+    with pytest.raises(SystemExit):
+        provider._provider_response(_message(), response, "gpt-test")
