@@ -89,7 +89,7 @@
   "privacy": {
     "classification": "INTERNAL",
     "deletion_required": true,
-    "residency": "IN",
+    "residency": null,
     "retention_days": 30,
     "telemetry_allowlist": [
       "artifacts",
