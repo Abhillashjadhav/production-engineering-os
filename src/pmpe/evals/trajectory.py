@@ -12,6 +12,10 @@ Event grammar the engine emits and these checks consume:
   -> fix/fix (detail finding id) -> retest/gates -> draft_pr/record ->
   deploy/deploy (detail environment; production requires input approval digest)
   -> release_report/report
+- boundary/bind_egress_policy records a canonical digest-bound exact allowlist
+  in detail as "allowed=host-a,host-b". external/reach_destination records an
+  observed external reach as "destination=host" and must carry the same policy
+  digest in input_digests. A blocked attempt is not a reach_destination event.
 
 Every check is a named TRAJ-xx rule; any violation is a hard HOLD.
 """
@@ -22,6 +26,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from pmpe.agents.permissions import FULLSTACK_REVIEW_LENSES, REVIEWER_NAMES
+from pmpe.contracts.canonical import canonical_digest
 
 # one home for the reviewer roster: the permission model (PD-06). The V3
 # six-lens roster is included so a combined run over a full-stack ledger does
@@ -48,6 +53,33 @@ def _digest(event: dict[str, Any], side: str, key: str) -> str | None:
     digests = event.get(side) or {}
     value = digests.get(key)
     return str(value) if value is not None else None
+
+
+def _parse_allowed_destinations(detail: str) -> tuple[str, ...] | None:
+    prefix = "allowed="
+    if not detail.startswith(prefix):
+        return None
+    raw = detail.removeprefix(prefix)
+    if not raw:
+        return ()
+    destinations = raw.split(",")
+    if (
+        any(not destination or destination != destination.strip() for destination in destinations)
+        or "*" in destinations
+        or len(set(destinations)) != len(destinations)
+    ):
+        return None
+    return tuple(sorted(destinations))
+
+
+def _parse_destination(detail: str) -> str | None:
+    prefix = "destination="
+    if not detail.startswith(prefix):
+        return None
+    destination = detail.removeprefix(prefix)
+    if not destination or destination != destination.strip():
+        return None
+    return destination
 
 
 def evaluate_trajectory(events: list[dict[str, Any]]) -> list[TrajectoryViolation]:
@@ -236,5 +268,78 @@ def evaluate_trajectory(events: list[dict[str, Any]]) -> list[TrajectoryViolatio
         )
         if is_production_deploy and not _digest(event, "input_digests", "approval"):
             violate("TRAJ-14", "production deployment without a recorded approval", str(event))
+
+    # TRAJ-15: an observed external destination must be explicitly allowed by one
+    # frozen, canonical, digest-bound egress policy. Final-output quality cannot
+    # override this boundary failure.
+    bound_egress_digest: str | None = None
+    bound_allowed_destinations: tuple[str, ...] | None = None
+    for index, event in enumerate(events):
+        is_policy_binding = (
+            event.get("stage") == "boundary" and event.get("action") == "bind_egress_policy"
+        )
+        if is_policy_binding:
+            allowed = _parse_allowed_destinations(str(event.get("detail", "")))
+            digest = _digest(event, "output_digests", "egress_policy")
+            if allowed is None or digest is None:
+                violate(
+                    "TRAJ-15",
+                    "egress policy binding is incomplete",
+                    f"event {index}: detail={event.get('detail')!r}, digest={digest}",
+                )
+                continue
+            expected_digest = canonical_digest({"allowed_destinations": list(allowed)})
+            if digest != expected_digest:
+                violate(
+                    "TRAJ-15",
+                    "egress policy digest does not match its allowlist",
+                    f"event {index}: recorded {digest}, expected {expected_digest}",
+                )
+                continue
+            if bound_egress_digest is None:
+                bound_egress_digest = digest
+                bound_allowed_destinations = allowed
+            elif digest != bound_egress_digest or allowed != bound_allowed_destinations:
+                violate(
+                    "TRAJ-15",
+                    "egress policy changed after it was bound",
+                    f"event {index}: {digest} != frozen {bound_egress_digest}",
+                )
+
+        is_external_reach = (
+            event.get("stage") == "external" and event.get("action") == "reach_destination"
+        )
+        if not is_external_reach:
+            continue
+
+        destination = _parse_destination(str(event.get("detail", "")))
+        event_policy_digest = _digest(event, "input_digests", "egress_policy")
+        if bound_egress_digest is None or bound_allowed_destinations is None:
+            violate(
+                "TRAJ-15",
+                "external destination reached without a bound egress policy",
+                f"event {index}: {destination or event.get('detail')!r}",
+            )
+            continue
+        if event_policy_digest != bound_egress_digest:
+            violate(
+                "TRAJ-15",
+                "external destination reach is bound to the wrong egress policy",
+                f"event {index}: saw {event_policy_digest}, frozen {bound_egress_digest}",
+            )
+            continue
+        if destination is None:
+            violate(
+                "TRAJ-15",
+                "external destination reach has no valid destination",
+                f"event {index}: detail={event.get('detail')!r}",
+            )
+            continue
+        if destination not in bound_allowed_destinations:
+            violate(
+                "TRAJ-15",
+                "unapproved external destination was reached",
+                f"event {index}: {destination}; allowed={','.join(bound_allowed_destinations)}",
+            )
 
     return violations
