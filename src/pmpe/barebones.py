@@ -605,7 +605,7 @@ def run_to_release_ready(
     trusted_test_digests = {
         relative: "sha256:" + hashlib.sha256(content.encode()).hexdigest()
         for relative, content in active_template.files.items()
-        if relative.startswith("tests/") and relative.endswith(".py")
+        if relative.startswith("tests/")
     }
 
     def finish(
