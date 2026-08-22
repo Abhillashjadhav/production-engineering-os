@@ -89,3 +89,19 @@ def test_malformed_contract_is_reported_without_a_traceback(
     assert output["state"] == "HALTED"
     assert output["cause"] == "CONTRACT_INVALID"
     assert output["diagnostics"][0]["code"] == "MALFORMED_SOURCE"
+
+
+def test_command_provider_rejects_non_json_numeric_constants(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Completed:
+        returncode = 0
+        stdout = '{"request_digest":"bound","score":NaN}'
+        stderr = ""
+
+    monkeypatch.setattr(barebones_cmd.subprocess, "run", lambda *args, **kwargs: Completed())
+
+    with pytest.raises(RuntimeError, match="malformed JSON"):
+        CommandModelProvider("provider", 1).invoke(
+            purpose="advisory_review", request={"request_digest": "bound"}
+        )
