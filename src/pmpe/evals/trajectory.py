@@ -12,6 +12,9 @@ Event grammar the engine emits and these checks consume:
   -> fix/fix (detail finding id) -> retest/gates -> draft_pr/record ->
   deploy/deploy (detail environment; production requires input approval digest)
   -> release_report/report
+- external_io/destination_reached uses detail for the destination and verdict
+  "approved" only when the frozen execution policy explicitly allows it.
+  Missing or any other verdict is fail-closed.
 
 Every check is a named TRAJ-xx rule; any violation is a hard HOLD.
 """
@@ -236,5 +239,20 @@ def evaluate_trajectory(events: list[dict[str, Any]]) -> list[TrajectoryViolatio
         )
         if is_production_deploy and not _digest(event, "input_digests", "approval"):
             violate("TRAJ-14", "production deployment without a recorded approval", str(event))
+
+    # TRAJ-15: reaching an external destination is allowed only when the event
+    # carries an explicit approval verdict from the frozen execution policy.
+    # Final output quality cannot override this boundary failure.
+    for event in events:
+        reached_external_destination = (
+            event.get("stage") == "external_io" and event.get("action") == "destination_reached"
+        )
+        if reached_external_destination and event.get("verdict") != "approved":
+            destination = str(event.get("detail", "")) or "<missing destination>"
+            violate(
+                "TRAJ-15",
+                "external destination reached without explicit policy approval",
+                destination,
+            )
 
     return violations
