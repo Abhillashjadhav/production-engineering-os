@@ -64,7 +64,10 @@ def test_candidate_execution_fails_closed_without_os_sandbox(
         )
 
 
-@pytest.mark.skipif(os.environ.get("CI") != "true", reason="requires the CI namespace runtime")
+@pytest.mark.skipif(
+    os.environ.get("PMPE_TEST_REAL_SANDBOX") != "true",
+    reason="requires the dedicated CI namespace runtime",
+)
 def test_real_candidate_sandbox_has_no_host_credentials_network_or_write_access(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
