@@ -7,6 +7,7 @@ import json
 import operator as comparison
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -219,10 +220,30 @@ def _run_pytest_node(workspace: Path, test: TemplateTest) -> bool:
         config.write("[pytest]\n")
     config_path = Path(config_name)
     try:
+        if len(test.command) >= 3 and test.command[1:3] == ("-m", "pytest"):
+            trusted_runner = (
+                "import sys,pytest;"
+                "sys.path.insert(0,sys.argv[1]);"
+                "raise SystemExit(pytest.main(sys.argv[2:]))"
+            )
+            pytest_command = (
+                test.command[0],
+                "-I",
+                "-B",
+                "-c",
+                trusted_runner,
+                str(workspace),
+                *test.command[3:],
+            )
+        else:
+            executable = shutil.which(test.command[0])
+            if executable is None:
+                raise ContractInvalidError("bound pytest executable is unavailable")
+            pytest_command = (executable, *test.command[1:])
         try:
             completed = subprocess.run(
                 [
-                    *test.command,
+                    *pytest_command,
                     "--noconftest",
                     "-c",
                     str(config_path),
