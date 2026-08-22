@@ -7,7 +7,6 @@ import json
 import operator as comparison
 import os
 import re
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -255,7 +254,7 @@ def _run_action(workspace: Path, target: str, arguments: Mapping[str, Any]) -> A
         raise ContractInvalidError("action did not return one JSON value") from exc
 
 
-def _run_pytest_node(workspace: Path, test: TemplateTest) -> bool:
+def _run_pytest_node(workspace: Path, test: TemplateTest, protected_paths: frozenset[str]) -> bool:
     descriptor, report_name = tempfile.mkstemp(suffix=".xml")
     os.close(descriptor)
     report = Path(report_name)
@@ -264,26 +263,52 @@ def _run_pytest_node(workspace: Path, test: TemplateTest) -> bool:
         config.write("[pytest]\n")
     config_path = Path(config_name)
     try:
-        if len(test.command) >= 3 and test.command[1:3] == ("-m", "pytest"):
-            trusted_runner = (
-                "import sys,pytest;"
-                "sys.path.insert(0,sys.argv[1]);"
-                "raise SystemExit(pytest.main(sys.argv[2:]))"
-            )
-            pytest_command = (
-                test.command[0],
-                "-I",
-                "-B",
-                "-c",
-                trusted_runner,
-                str(workspace),
-                *test.command[3:],
-            )
-        else:
-            executable = shutil.which(test.command[0])
-            if executable is None:
-                raise ContractInvalidError("bound pytest executable is unavailable")
-            pytest_command = (executable, *test.command[1:])
+        pytest_arguments = (
+            test.command[3:]
+            if len(test.command) >= 3 and test.command[1:3] == ("-m", "pytest")
+            else test.command[1:]
+        )
+        trusted_runner = (
+            "import json, os, sys, pytest\n"
+            "root = os.path.realpath(sys.argv[1])\n"
+            "protected = {os.path.realpath(os.path.join(root, p)) "
+            "for p in json.loads(sys.argv[2])}\n"
+            "writes = []\n"
+            "write_flags = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND\n"
+            "def resolve(path):\n"
+            " try:\n"
+            "  return os.path.realpath(os.fspath(path))\n"
+            " except (OSError, TypeError, ValueError):\n"
+            "  return ''\n"
+            "def audit(event,args):\n"
+            " path = resolve(args[0]) if args else ''\n"
+            " targets = {path}\n"
+            " if event in {'os.rename', 'os.replace'} and len(args) > 1:\n"
+            "  targets.add(resolve(args[1]))\n"
+            " if not protected.intersection(targets):\n"
+            "  return\n"
+            " if event == 'open':\n"
+            "  mode = args[1] or ''\n"
+            "  flags = args[2] or 0\n"
+            "  if any(character in mode for character in 'wax+') or flags & write_flags:\n"
+            "   writes.append((event, path))\n"
+            " elif event.startswith('os.') and event not in {'os.stat', 'os.listdir'}:\n"
+            "  writes.append((event, path))\n"
+            "sys.addaudithook(audit)\n"
+            "sys.path.insert(0, root)\n"
+            "code = pytest.main(sys.argv[3:])\n"
+            "raise SystemExit(5 if writes else code)\n"
+        )
+        pytest_command = (
+            sys.executable,
+            "-I",
+            "-B",
+            "-c",
+            trusted_runner,
+            str(workspace),
+            json.dumps(sorted(protected_paths)),
+            *pytest_arguments,
+        )
         try:
             completed = subprocess.run(
                 [
@@ -315,7 +340,11 @@ def _run_pytest_node(workspace: Path, test: TemplateTest) -> bool:
         try:
             root = ET.parse(report).getroot()
         except (ET.ParseError, OSError) as exc:
-            raise ContractInvalidError("human test produced no structured pytest result") from exc
+            detail = completed.stderr.strip()
+            raise ContractInvalidError(
+                "human test produced no structured pytest result"
+                + (f": {detail}" if detail else "")
+            ) from exc
         node_parts = test.node_id.split("::")
         expected_name = node_parts[-1]
         expected_classes = node_parts[:-1]
@@ -351,6 +380,12 @@ def _criterion_findings(
     workspace: Path,
     template: Template,
 ) -> tuple[Finding, ...]:
+    protected_paths = frozenset(
+        {
+            *(relative for relative in template.files if relative.startswith("tests/")),
+            *((criterion.human_test.path,) if criterion.human_test is not None else ()),
+        }
+    )
     if criterion.form == "satisfied_by_template":
         assert criterion.template_proof is not None
         proof = template.proofs[criterion.template_proof.test_id]
@@ -358,7 +393,7 @@ def _criterion_findings(
         digest = "sha256:" + hashlib.sha256(proof_path.read_bytes()).hexdigest()
         if digest != criterion.template_proof.file_digest:
             raise ContractInvalidError("template proof file does not match its compiled digest")
-        if not _run_pytest_node(workspace, proof):
+        if not _run_pytest_node(workspace, proof, protected_paths):
             return (
                 Finding(
                     "ASSERTION_FAILED",
@@ -375,7 +410,7 @@ def _criterion_findings(
             criterion.human_test.node_id,
             criterion.human_test.command,
         )
-        if _run_pytest_node(workspace, human_test):
+        if _run_pytest_node(workspace, human_test, protected_paths):
             return ()
         return (
             Finding(
