@@ -15,6 +15,8 @@ to the ledger, so an interrupted run continues exactly where it stopped.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +57,7 @@ from pmpe.engineering.candidate import (
 from pmpe.engineering.ledger import EvidenceLedger
 from pmpe.engineering.submissions import VALIDATORS, validate_routing_submission
 from pmpe.evals.registry import stage_of
+from pmpe.privacy.retention import RetentionController
 from pmpe.telemetry.events import utc_now
 
 STAGES = (
@@ -111,8 +114,15 @@ class EngineeringRun:
         approval_receipt_path: Path | None = None,
         expected_approver: str | None = None,
         fixture_mode: bool = False,
+        retention_days: int = 30,
+        trusted_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> EngineeringRun:
         run_dir = Path(run_dir)
+        run_dir.parent.mkdir(parents=True, exist_ok=True)
+        RetentionController(retention_days=retention_days).purge(
+            run_dir.parent,
+            now=trusted_clock(),
+        )
         if (run_dir / _STATE_FILE).exists():
             raise PmpeError(
                 f"a run already exists at {run_dir} — resume it instead of starting over"
@@ -153,6 +163,7 @@ class EngineeringRun:
                 "expected_approver": "" if fixture_mode else str(expected_approver),
                 "receipt_digest": receipt_digest,
             },
+            "retention_days": retention_days,
             "requirement_ids": contract.requirement_ids(),
             "components": [],
             "tasks": [],

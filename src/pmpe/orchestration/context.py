@@ -51,7 +51,10 @@ class RunContext:
         self.config = config
         self.state = state
         self.store = ArtifactStore(state.run_dir)
-        self.events = EventLog(state.run_dir)
+        self.events = EventLog(
+            state.run_dir,
+            retention_days=config.data_retention_days,
+        )
         self.workspace = state.run_dir / "workspace"
         self.branch = f"build/{state.run_id}"
         self._spec: MvpSpec | None = None

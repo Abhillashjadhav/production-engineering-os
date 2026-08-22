@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from pmpe.domain.serialize import jsonable
+from pmpe.privacy.retention import RetentionController
 
 
 def utc_now() -> str:
@@ -21,7 +23,20 @@ class EventLog:
     so any outcome can be explained after the fact.
     """
 
-    def __init__(self, run_dir: Path) -> None:
+    def __init__(
+        self,
+        run_dir: Path,
+        *,
+        retention_days: int | None = None,
+        trusted_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+    ) -> None:
+        run_dir = Path(run_dir)
+        if retention_days is not None:
+            run_dir.parent.mkdir(parents=True, exist_ok=True)
+            RetentionController(retention_days=retention_days).purge(
+                run_dir.parent,
+                now=trusted_clock(),
+            )
         self.path = run_dir / "events.jsonl"
         self.path.parent.mkdir(parents=True, exist_ok=True)
 

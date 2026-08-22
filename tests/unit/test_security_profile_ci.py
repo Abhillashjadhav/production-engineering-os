@@ -1,0 +1,331 @@
+from __future__ import annotations
+
+import fcntl
+import json
+import os
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
+import pytest
+
+import pmpe.privacy.retention as retention_module
+from pmpe.contracts.digest import canonical_digest
+from pmpe.orchestration.lifecycle import BudgetPolicy, LifecycleControlPlane, LifecycleState
+from pmpe.privacy.retention import RetentionController
+from pmpe.telemetry.events import EventLog
+from scripts.ci.evaluate_security_profile import (
+    _observed_architecture_edges,
+    _privacy_evidence_from_artifact,
+)
+from scripts.ci.verify_privacy_controls import _inventory_telemetry_fields
+
+SHA = "d" * 40
+
+
+def test_architecture_observer_resolves_relative_imports(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "__init__.py").write_text("")
+    (source / "worker.py").write_text("from ..guided import api\n")
+
+    assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
+
+
+def test_architecture_observer_resolves_names_imported_from_a_package(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "worker.py").write_text("from pmpe import guided\n")
+
+    assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
+
+
+def test_architecture_observer_checks_both_repository_planes(tmp_path: Path) -> None:
+    os_source = tmp_path / "src" / "pmpe" / "orchestration"
+    product_source = tmp_path / "products" / "pm-evals-web" / "backend" / "src" / "pm_evals_reports"
+    os_source.mkdir(parents=True)
+    product_source.mkdir(parents=True)
+    (product_source / "__init__.py").write_text("")
+    (os_source / "worker.py").write_text("import pm_evals_reports\n")
+    (product_source / "app.py").write_text("from pmpe.contracts import digest\n")
+
+    edges = _observed_architecture_edges(tmp_path)
+
+    assert ("orchestration", "product") in edges
+    assert ("product", "core") in edges
+
+
+def test_architecture_observer_discovers_product_namespace_packages(tmp_path: Path) -> None:
+    os_source = tmp_path / "src" / "pmpe" / "orchestration"
+    product_source = tmp_path / "products" / "pm-evals-web" / "backend" / "src" / "pm_evals_reports"
+    os_source.mkdir(parents=True)
+    product_source.mkdir(parents=True)
+    (os_source / "worker.py").write_text("import pm_evals_reports.summary\n")
+    (product_source / "summary.py").write_text("REPORT = {}\n")
+
+    assert ("orchestration", "product") in _observed_architecture_edges(tmp_path)
+
+
+def test_architecture_observer_accounts_for_dynamic_imports(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "literal.py").write_text(
+        'import importlib\nimportlib.import_module("pmpe.guided.api")\n'
+    )
+    (source / "unresolved.py").write_text(
+        "import importlib\nimportlib.import_module(module_name)\n"
+    )
+
+    edges = _observed_architecture_edges(tmp_path)
+
+    assert ("orchestration", "interfaces") in edges
+    assert ("orchestration", "unresolved_dynamic") in edges
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    [
+        'import importlib as il\nil.import_module("pmpe.guided.api")\n',
+        'from importlib import import_module as load\nload("pmpe.guided.api")\n',
+        'import importlib\nloader = importlib.import_module\nloader("pmpe.guided.api")\n',
+        'from importlib import import_module\nloader = import_module\nloader("pmpe.guided.api")\n',
+    ],
+)
+def test_architecture_observer_resolves_dynamic_import_function_aliases(
+    tmp_path: Path,
+    source_text: str,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "dynamic_alias.py").write_text(source_text)
+
+    assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
+
+
+def test_architecture_observer_resolves_relative_dynamic_imports(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "relative.py").write_text(
+        'import importlib\nimportlib.import_module("..guided.api", __package__)\n'
+    )
+
+    assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
+
+
+def test_retention_controller_atomically_deletes_only_expired_completed_runs(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    completed = tmp_path / "completed-run"
+    active = tmp_path / "active-run"
+    completed.mkdir()
+    active.mkdir()
+    completed_ledger = completed / "lifecycle-events.jsonl"
+    completed_artifact = completed / "recent-artifact.json"
+    active_ledger = active / "lifecycle-events.jsonl"
+    active_artifact = active / "old-artifact.json"
+    completed_ledger.write_text('{"target":"COMPLETED"}\n')
+    completed_artifact.write_text("recent but owned by an expired completed run")
+    active_ledger.write_text('{"target":"IMPLEMENTATION_IN_PROGRESS"}\n')
+    active_artifact.write_text("old but owned by an active run")
+    old = (now - timedelta(days=31)).timestamp()
+    recent = (now - timedelta(days=29)).timestamp()
+    os.utime(completed_ledger, (old, old))
+    os.utime(completed_artifact, (recent, recent))
+    os.utime(active_ledger, (old, old))
+    os.utime(active_artifact, (old, old))
+
+    result = RetentionController(retention_days=30).purge(tmp_path, now=now)
+
+    assert result.deleted == ("completed-run",)
+    assert result.retained == ("active-run",)
+    assert not completed.exists()
+    assert active_ledger.exists()
+    assert active_artifact.exists()
+
+
+def test_retention_controller_preserves_a_locked_completed_run(tmp_path: Path) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    completed = tmp_path / "completed-run"
+    completed.mkdir()
+    ledger = completed / "lifecycle-events.jsonl"
+    ledger.write_text('{"target":"COMPLETED"}\n')
+    old = (now - timedelta(days=31)).timestamp()
+    os.utime(ledger, (old, old))
+
+    with (completed / "lifecycle.lock").open("a+") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        result = RetentionController(retention_days=30).purge(tmp_path, now=now)
+
+    assert result.deleted == ()
+    assert result.retained == ("completed-run",)
+    assert ledger.exists()
+
+
+def test_retention_controller_deletes_expired_completed_engineering_runs(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    completed = tmp_path / "completed-engineering-run"
+    completed.mkdir()
+    state = completed / "run-state.json"
+    state.write_text('{"stage":"complete"}\n')
+    (completed / "artifact.json").write_text("belongs to the completed run")
+    old = (now - timedelta(days=31)).timestamp()
+    os.utime(state, (old, old))
+
+    result = RetentionController(retention_days=30).purge(tmp_path, now=now)
+
+    assert result.deleted == ("completed-engineering-run",)
+    assert not completed.exists()
+
+
+def test_retention_controller_tolerates_a_concurrently_removed_tombstone(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    tombstone = tmp_path / ".retention-delete-expired-raced"
+    tombstone.mkdir()
+    real_rmtree = retention_module.shutil.rmtree
+
+    def raced_rmtree(path: Path) -> None:
+        real_rmtree(path)
+        raise FileNotFoundError(path)
+
+    monkeypatch.setattr(retention_module.shutil, "rmtree", raced_rmtree)
+
+    result = RetentionController(retention_days=30).purge(
+        tmp_path,
+        now=datetime(2030, 1, 31, tzinfo=UTC),
+    )
+
+    assert result.deleted == ()
+    assert result.retained == ()
+
+
+def test_event_log_enforces_retention_on_the_actual_runs_root(tmp_path: Path) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    expired = tmp_path / "expired-run" / "lifecycle-events.jsonl"
+    current_run = tmp_path / "current-run"
+    expired.parent.mkdir()
+    expired.write_text('{"target":"COMPLETED"}\n')
+    old = (now - timedelta(days=31)).timestamp()
+    os.utime(expired, (old, old))
+
+    EventLog(
+        current_run,
+        retention_days=30,
+        trusted_clock=lambda: now,
+    )
+
+    assert not expired.exists()
+
+
+def test_phase_zero_create_enforces_retention_on_shipped_lifecycle_root(tmp_path: Path) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    expired = tmp_path / "expired-run" / "lifecycle-events.jsonl"
+    expired.parent.mkdir()
+    expired.write_text('{"target":"COMPLETED"}\n')
+    old = (now - timedelta(days=31)).timestamp()
+    os.utime(expired, (old, old))
+    budget = BudgetPolicy(
+        version="budget-v1",
+        limits={
+            "tokens": 100,
+            "credits": 10,
+            "elapsed_seconds": 3600,
+            "external_compute_seconds": 600,
+            "spend_microunits": 1000,
+        },
+        repair_attempts_per_finding=2,
+        repair_attempts_per_stage=3,
+        reserved_safety_units=10,
+        approved_by="delivery-owner",
+    )
+
+    LifecycleControlPlane.create(
+        tmp_path / "current-run",
+        run_id="privacy-retention-run",
+        subject_digest="sha256:" + "1" * 64,
+        initial_state=LifecycleState.CONTRACT_RECEIVED,
+        budget_policy=budget,
+        retention_days=30,
+        trusted_clock=lambda: now,
+    )
+
+    assert not expired.exists()
+
+
+def test_privacy_verifier_inventories_real_product_telemetry(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "context.py").write_text(
+        'events.emit("escalation", escalation_id="E", step="build", reason="policy")\n'
+    )
+
+    assert _inventory_telemetry_fields(tmp_path) == (
+        "escalation_id",
+        "reason",
+        "step",
+    )
+
+
+def test_privacy_verifier_tracks_aliased_event_emitters(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "context.py").write_text(
+        'emit = ctx.events.emit\nemit("result", email="synthetic@example.invalid")\n'
+    )
+
+    assert _inventory_telemetry_fields(tmp_path) == ("email",)
+
+
+def test_privacy_evidence_requires_executed_exact_candidate_artifact(tmp_path: Path) -> None:
+    policy_path = tmp_path / "security-profile-policy.json"
+    verifier_path = tmp_path / "verify_privacy_controls.py"
+    policy_path.write_text("{}")
+    verifier_path.write_text("# verifier\n")
+    artifact_path = tmp_path / "privacy-evidence.json"
+    artifact = {
+        "candidate_sha": SHA,
+        "classification": "INTERNAL",
+        "deletion_test_passed": True,
+        "emitted_telemetry": ["latency_ms", "outcome", "run_id"],
+        "policy_file_digest": "sha256:" + "0" * 64,
+        "residency": "IN",
+        "retention_days": 30,
+        "verifier_file_digest": "sha256:" + "0" * 64,
+    }
+    artifact["evidence_digest"] = canonical_digest(artifact)
+    artifact_path.write_text(json.dumps(artifact))
+
+    with pytest.raises(ValueError, match="privacy verifier artifact"):
+        _privacy_evidence_from_artifact(
+            artifact_path,
+            candidate_sha=SHA,
+            policy_path=policy_path,
+            verifier_path=verifier_path,
+        )
+
+
+def test_ci_executes_provider_neutral_privacy_before_composed_profile() -> None:
+    root = Path(__file__).resolve().parents[2]
+    workflow = (root / ".github/workflows/ci.yml").read_text()
+
+    verifier = workflow.index("python scripts/ci/verify_privacy_controls.py")
+    composed = workflow.index("python scripts/ci/evaluate_security_profile.py")
+    assert verifier < composed
+    assert "--privacy-evidence /tmp/security-profile/privacy-evidence.json" in workflow
+    assert "AWS_RESIDENCY" not in workflow
+    assert "configure-aws-credentials" not in workflow
+    assert "observe_runtime_residency.py" not in workflow
+
+
+def test_ci_keeps_editable_builds_inside_the_hash_lock() -> None:
+    root = Path(__file__).resolve().parents[2]
+    workflow = (root / ".github/workflows/ci.yml").read_text()
+    pyproject = (root / "pyproject.toml").read_text()
+    lockfile = (root / "requirements.lock").read_text()
+
+    assert 'requires = ["setuptools==' in pyproject
+    assert "setuptools==" in lockfile
+    assert workflow.count("pip install --no-deps --no-build-isolation -e .") == 3
