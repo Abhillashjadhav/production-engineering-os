@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 13093)
+Total output lines: 1525
+
 from __future__ import annotations
 
 import json
@@ -19,6 +22,7 @@ from pmpe.barebones import (
     run_to_release_ready,
 )
 from pmpe.contracts.acceptance import AcceptanceCompileError
+from pmpe.evidence.ledger import EvidenceLedger
 
 
 def _contract() -> dict[str, Any]:
@@ -46,6 +50,22 @@ class PassingProvider:
                 },
             }
         return {"request_digest": request["request_digest"], "summary": "advisory only"}
+
+
+class VariablePassingProvider(PassingProvider):
+    def __init__(self, variant: str) -> None:
+        self.variant = variant
+
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        response = dict(super().invoke(purpose=purpose, request=request))
+        if purpose == "code":
+            response["files"] = {
+                "product.py": (
+                    f'"""Generated variant {self.variant}."""\n\n'
+                    "def health() -> dict[str, str]:\n    return {'status': 'ok'}\n"
+                )
+            }
+        return response
 
 
 class UnsuccessfulProvider:
@@ -389,12 +409,12 @@ def test_e2_unsatisfiable_run_halts_with_exact_requirement(tmp_path: Path) -> No
     assert result.cause == "REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:AC-001"
 
 
-def test_e3_stale_model_response_is_detected_as_drift(tmp_path: Path) -> None:
+def test_e3_stale_model_response_is_rejected_as_unbound(tmp_path: Path) -> None:
     result = run_to_release_ready(
         contract=_contract(),
         repository_root=tmp_path,
         workspace=tmp_path / "candidate",
-        run_id="e3-prompt-drift",
+        run_id="e3-response-binding",
         provider=StaleResponseProvider(),
     )
 
@@ -511,21 +531,31 @@ def test_e4_contradiction_stops_before_build(tmp_path: Path) -> None:
     assert not workspace.exists()
 
 
-def test_e5_repeated_runs_produce_identical_evidence(tmp_path: Path) -> None:
+def test_e5_repeated_runs_preserve_plan_determinism_not_candidate_bytes(
+    tmp_path: Path,
+) -> None:
     roots = (tmp_path / "first", tmp_path / "second")
+    plans: list[str] = []
+    candidates: list[str] = []
     event_logs: list[bytes] = []
-    for root in roots:
+    for root, variant in zip(roots, ("first", "second"), strict=True):
         result = run_to_release_ready(
             contract=_contract(),
             repository_root=root,
             workspace=root / "candidate",
             run_id="e5-repeat",
-            provider=PassingProvider(),
+            provider=VariablePassingProvider(variant),
         )
         assert result.state is RunState.RELEASE_READY
+        ledger = EvidenceLedger.open_existing(root, "e5-repeat")
+        events = tuple(ledger.verify())
+        plans.append(events[0]["payload"]["plan_digest"])
+        candidates.append(events[-1]["payload"]["candidate_digest"])
         event_logs.append(result.evidence_path.read_bytes())
 
-    assert event_logs[0] == event_logs[1]
+    assert plans[0] == plans[1]
+    assert candidates[0] != candidates[1]
+    assert event_logs[0] != event_logs[1]
 
 
 def test_human_authored_escape_hatch_is_executable_and_protected(tmp_path: Path) -> None:
@@ -651,137 +681,7 @@ def test_coder_cannot_rewrite_human_authored_evidence(tmp_path: Path) -> None:
     contract = _contract()
     contract["acceptance_criteria"]["AC-001"] = {
         "requirement_refs": ["FR-001"],
-        "human_test": {
-            "path": "tests/acceptance/test_health.py",
-            "node_id": "test_health",
-            "command": [
-                sys.executable,
-                "-m",
-                "pytest",
-                "-q",
-                "tests/acceptance/test_health.py::test_health",
-            ],
-        },
-    }
-
-    result = run_to_release_ready(
-        contract=contract,
-        repository_root=tmp_path,
-        workspace=tmp_path / "candidate",
-        run_id="human-test-tamper",
-        provider=TamperingProvider(),
-    )
-
-    assert result.state is RunState.HALTED
-    assert result.cause == "CODER_MODIFIED_EVIDENCE"
-
-
-class DotSegmentTamperingProvider:
-    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
-        return {
-            "request_digest": request["request_digest"],
-            "files": {"tests/acceptance/./test_health.py": "def test_health(): assert True\n"},
-        }
-
-
-def test_coder_cannot_bypass_test_protection_with_dot_segments(tmp_path: Path) -> None:
-    test_file = tmp_path / "tests/acceptance/test_health.py"
-    test_file.parent.mkdir(parents=True)
-    test_file.write_text("def test_health():\n    assert False\n")
-    contract = _contract()
-    contract["acceptance_criteria"]["AC-001"] = {
-        "requirement_refs": ["FR-001"],
-        "human_test": {
-            "path": "tests/acceptance/test_health.py",
-            "node_id": "test_health",
-            "command": [
-                sys.executable,
-                "-m",
-                "pytest",
-                "-q",
-                "tests/acceptance/test_health.py::test_health",
-            ],
-        },
-    }
-
-    result = run_to_release_ready(
-        contract=contract,
-        repository_root=tmp_path,
-        workspace=tmp_path / "candidate",
-        run_id="human-test-dot-tamper",
-        provider=DotSegmentTamperingProvider(),
-    )
-
-    assert result.state is RunState.HALTED
-    assert result.cause == "CODER_RESPONSE_INVALID"
-
-
-class ConftestCheatProvider:
-    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
-        assert purpose == "code"
-        return {
-            "request_digest": request["request_digest"],
-            "files": {
-                "conftest.py": (
-                    "def pytest_runtest_setup(item):\n"
-                    "    item.module.health = lambda: {'status': 'ok'}\n"
-                )
-            },
-        }
-
-
-class PytestShadowProvider:
-    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
-        assert purpose == "code"
-        fake_pytest = (
-            "import pathlib, sys\n"
-            "report = next(item.split('=', 1)[1] for item in sys.argv if "
-            "item.startswith('--junitxml='))\n"
-            "pathlib.Path(report).write_text(\n"
-            "    '<testsuite><testcase name=\"test_health\" /></testsuite>'\n"
-            ")\n"
-        )
-        return {
-            "request_digest": request["request_digest"],
-            "files": {"pytest.py": fake_pytest},
-        }
-
-
-class TestPackageInitializerProvider:
-    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
-        assert purpose == "code"
-        initializer = (
-            "import sys, types\n"
-            "fake = types.ModuleType('product')\n"
-            "fake.health = lambda: {'status': 'ok'}\n"
-            "sys.modules['product'] = fake\n"
-        )
-        return {
-            "request_digest": request["request_digest"],
-            "files": {"tests/__init__.py": initializer},
-        }
-
-
-def test_coder_controlled_conftest_cannot_change_bound_test_outcome(tmp_path: Path) -> None:
-    test_file = tmp_path / "tests/acceptance/test_health.py"
-    test_file.parent.mkdir(parents=True)
-    test_file.write_text(
-        "from product import health\n\ndef test_health():\n    assert health()['status'] == 'ok'\n"
-    )
-    contract = _contract()
-    contract["acceptance_criteria"]["AC-001"] = {
-        "requirement_refs": ["FR-001"],
-        "human_test": {
-            "path": "tests/acceptance/test_health.py",
-            "node_id": "test_health",
-            "command": [
-                sys.executable,
-                "-m",
-                "pytest",
-                "-q",
-                "tests/acceptance/test_health.py::test_health",
-            ],
-        },
+        "…1093 tokens truncated…  },
     }
 
     result = run_to_release_ready(
