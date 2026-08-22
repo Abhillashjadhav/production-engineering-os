@@ -25,14 +25,17 @@ class CommandModelProvider:
         self.timeout_seconds = timeout_seconds
 
     def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
-        completed = subprocess.run(
-            self.argv,
-            input=json.dumps({"purpose": purpose, "request": request}),
-            text=True,
-            capture_output=True,
-            timeout=self.timeout_seconds,
-            check=False,
-        )
+        try:
+            completed = subprocess.run(
+                self.argv,
+                input=json.dumps({"purpose": purpose, "request": request}),
+                text=True,
+                capture_output=True,
+                timeout=self.timeout_seconds,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("MODEL_PROVIDER_TIMEOUT") from exc
         if completed.returncode != 0:
             raise RuntimeError("model provider failed: " + completed.stderr.strip())
         try:
