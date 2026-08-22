@@ -101,13 +101,23 @@ def test_boundary_policy_cannot_be_mutated_after_construction() -> None:
 
 def test_boundary_policy_authority_cannot_be_replaced_via_object_primitives() -> None:
     policy = _policy()
+    trusted_digest = policy.digest
 
-    with pytest.raises((AttributeError, TypeError)):
+    try:
         object.__setattr__(
             policy,
             "_allowed_outbound",
             frozenset({OutboundGrant("huggingface.co", "read")}),
         )
+    except (AttributeError, TypeError):
+        pass
+    else:
+        with pytest.raises(BoundaryDeniedError):
+            policy.authorize_outbound(
+                destination="huggingface.co",
+                capability="read",
+                bound_policy_digest=trusted_digest,
+            )
     try:
         empty_shell = object.__new__(BoundaryPolicy)
     except TypeError:
@@ -122,16 +132,15 @@ def test_boundary_policy_authority_cannot_be_replaced_via_object_primitives() ->
 
 
 def test_tuple_primitive_cannot_forge_usable_boundary_authority() -> None:
-    forged = tuple.__new__(
-        BoundaryPolicy,
-        (
-            frozenset({OutboundGrant("huggingface.co", "read")}),
-            frozenset(),
-            "sha256:caller-chosen",
-        ),
-    )
-
     with pytest.raises((BoundaryDeniedError, TypeError)):
+        forged = tuple.__new__(
+            BoundaryPolicy,
+            (
+                frozenset({OutboundGrant("huggingface.co", "read")}),
+                frozenset(),
+                "sha256:caller-chosen",
+            ),
+        )
         forged.authorize_outbound(
             destination="huggingface.co",
             capability="read",

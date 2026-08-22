@@ -7,13 +7,15 @@ respected in the evidence ledger.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import hmac
+import secrets
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, cast
 
 import rfc8785
 
-from pmpe.contracts.canonical import canonical_digest
+from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 
 
 class BoundaryPolicyError(ValueError):
@@ -30,16 +32,37 @@ class OutboundGrant:
     capability: str
 
 
-class BoundaryPolicy(tuple[object, ...]):
+def _build_state_tagger() -> Callable[[frozenset[OutboundGrant], frozenset[str], str], bytes]:
+    key = secrets.token_bytes(32)
+
+    def tag(outbound: frozenset[OutboundGrant], capabilities: frozenset[str], digest: str) -> bytes:
+        payload = {
+            "allowed_outbound": [
+                {"destination": grant.destination, "capability": grant.capability}
+                for grant in sorted(outbound)
+            ],
+            "allowed_capabilities": sorted(capabilities),
+            "digest": digest,
+        }
+        return hmac.digest(key, canonical_json_bytes(payload), "sha256")
+
+    return tag
+
+
+_state_tag = _build_state_tagger()
+del _build_state_tagger
+
+
+class BoundaryPolicy:
     """Validated immutable authority derived only from its canonical payload.
 
     Direct construction is deliberately blocked so grants can never be paired
     with an unrelated trusted digest. Use ``from_payload``.
     """
 
-    __slots__ = ()
+    __slots__ = ("_allowed_outbound", "_allowed_capabilities", "_digest", "_integrity_tag")
 
-    def __new__(cls, _iterable: Iterable[object] = (), /) -> BoundaryPolicy:
+    def __new__(cls) -> BoundaryPolicy:
         raise TypeError("BoundaryPolicy must be created with from_payload()")
 
     def __setattr__(self, _name: str, _value: object) -> None:
@@ -85,26 +108,57 @@ class BoundaryPolicy(tuple[object, ...]):
                 "boundary policy is outside the canonical JSON domain"
             ) from exc
 
-        return tuple.__new__(
-            cls,
-            (frozenset(parsed_outbound), frozenset(parsed_capabilities), digest),
+        frozen_outbound = frozenset(parsed_outbound)
+        frozen_capabilities = frozenset(parsed_capabilities)
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "_allowed_outbound", frozen_outbound)
+        object.__setattr__(instance, "_allowed_capabilities", frozen_capabilities)
+        object.__setattr__(instance, "_digest", digest)
+        object.__setattr__(
+            instance,
+            "_integrity_tag",
+            _state_tag(frozen_outbound, frozen_capabilities, digest),
         )
+        return instance
+
+    def _validated_state(self) -> tuple[frozenset[OutboundGrant], frozenset[str], str]:
+        try:
+            outbound = object.__getattribute__(self, "_allowed_outbound")
+            capabilities = object.__getattribute__(self, "_allowed_capabilities")
+            digest = object.__getattribute__(self, "_digest")
+            integrity_tag = object.__getattribute__(self, "_integrity_tag")
+        except AttributeError as exc:
+            raise BoundaryDeniedError("boundary policy authority is invalid") from exc
+        if (
+            not isinstance(outbound, frozenset)
+            or not all(isinstance(grant, OutboundGrant) for grant in outbound)
+            or not isinstance(capabilities, frozenset)
+            or not all(isinstance(capability, str) for capability in capabilities)
+            or not isinstance(digest, str)
+            or not isinstance(integrity_tag, bytes)
+        ):
+            raise BoundaryDeniedError("boundary policy authority is invalid")
+        typed_outbound = cast(frozenset[OutboundGrant], outbound)
+        typed_capabilities = cast(frozenset[str], capabilities)
+        expected_tag = _state_tag(typed_outbound, typed_capabilities, digest)
+        if not hmac.compare_digest(integrity_tag, expected_tag):
+            raise BoundaryDeniedError("boundary policy authority is invalid")
+        return typed_outbound, typed_capabilities, digest
 
     @property
     def allowed_outbound(self) -> frozenset[OutboundGrant]:
-        return cast(frozenset[OutboundGrant], self[0])
+        outbound, _, _ = self._validated_state()
+        return outbound
 
     @property
     def allowed_capabilities(self) -> frozenset[str]:
-        return cast(frozenset[str], self[1])
+        _, capabilities, _ = self._validated_state()
+        return capabilities
 
     @property
     def digest(self) -> str:
-        return cast(str, self[2])
-
-    def _require_binding(self, bound_policy_digest: str | None) -> None:
-        if bound_policy_digest != self.digest:
-            raise BoundaryDeniedError("boundary event is not bound to the frozen policy")
+        _, _, digest = self._validated_state()
+        return digest
 
     def authorize_outbound(
         self,
@@ -113,8 +167,10 @@ class BoundaryPolicy(tuple[object, ...]):
         capability: str,
         bound_policy_digest: str | None,
     ) -> None:
-        self._require_binding(bound_policy_digest)
-        if OutboundGrant(destination, capability) not in self.allowed_outbound:
+        outbound, _, digest = self._validated_state()
+        if bound_policy_digest != digest:
+            raise BoundaryDeniedError("boundary event is not bound to the frozen policy")
+        if OutboundGrant(destination, capability) not in outbound:
             raise BoundaryDeniedError("outbound destination/capability is not authorized")
 
     def authorize_capability_grant(
@@ -124,8 +180,10 @@ class BoundaryPolicy(tuple[object, ...]):
         authority_origin: str,
         bound_policy_digest: str | None,
     ) -> None:
-        self._require_binding(bound_policy_digest)
+        _, capabilities, digest = self._validated_state()
+        if bound_policy_digest != digest:
+            raise BoundaryDeniedError("boundary event is not bound to the frozen policy")
         if authority_origin != "boundary_policy":
             raise BoundaryDeniedError("external input cannot become the source of authority")
-        if capability not in self.allowed_capabilities:
+        if capability not in capabilities:
             raise BoundaryDeniedError("capability is not authorized by the frozen policy")
