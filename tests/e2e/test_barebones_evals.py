@@ -144,6 +144,37 @@ class BooleanProvider:
         }
 
 
+class MissingPathProvider:
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert purpose == "code"
+        return {
+            "request_digest": request["request_digest"],
+            "files": {"product.py": "def health():\n    return {}\n"},
+        }
+
+
+class TransientCrossCriterionMutationProvider:
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert purpose == "code"
+        second_original = "def second():\n    return {'status': 'broken'}\n"
+        restoring_second = (
+            "from pathlib import Path\n\n"
+            "def second():\n"
+            f"    Path(__file__).write_text({second_original!r})\n"
+            "    return {'status': 'ok'}\n"
+        )
+        first = (
+            "from pathlib import Path\n\n"
+            "def first():\n"
+            f"    Path(__file__).with_name('second.py').write_text({restoring_second!r})\n"
+            "    return {'status': 'ok'}\n"
+        )
+        return {
+            "request_digest": request["request_digest"],
+            "files": {"first.py": first, "second.py": second_original},
+        }
+
+
 class MeasureSyntaxRepairProvider:
     def __init__(self) -> None:
         self.calls = 0
@@ -660,6 +691,89 @@ def test_json_equality_does_not_treat_boolean_as_number(tmp_path: Path) -> None:
 
     assert result.state is RunState.HALTED
     assert result.cause == "REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:AC-001"
+
+
+def test_missing_path_never_satisfies_a_null_assertion(tmp_path: Path) -> None:
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"]["then"][0] = {
+        "path": "result.status",
+        "operator": "is_null",
+    }
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="missing-path",
+        provider=MissingPathProvider(),
+    )
+
+    assert result.state is RunState.HALTED
+    assert result.cause == "REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:AC-001"
+
+
+@pytest.mark.parametrize("operator,value", [("lte", 2), ("gt", 0)])
+def test_ordered_assertions_reject_boolean_results(
+    tmp_path: Path, operator: str, value: int
+) -> None:
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"]["then"][0] = {
+        "path": "result.status",
+        "operator": operator,
+        "value": value,
+    }
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id=f"ordered-boolean-{operator}",
+        provider=BooleanProvider(),
+    )
+
+    assert result.state is RunState.HALTED
+    assert result.cause == "REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:AC-001"
+
+
+def test_each_criterion_verifies_a_fresh_exact_snapshot(tmp_path: Path) -> None:
+    template = Template(
+        version="barebones-1",
+        files={
+            "first.py": "def first():\n    return {'status': 'broken'}\n",
+            "second.py": "def second():\n    return {'status': 'broken'}\n",
+        },
+        actions={"first": "first:first", "second": "second:second"},
+        context={"ready": None},
+    )
+    contract = {
+        "functional_requirements": {
+            "FR-001": {"statement": "first works"},
+            "FR-002": {"statement": "second works"},
+        },
+        "acceptance_criteria": {
+            "AC-001": {
+                "requirement_refs": ["FR-001"],
+                "given": [{"path": "ready", "operator": "is_null"}],
+                "when": {"action": "first", "arguments": {}},
+                "then": [{"path": "result.status", "operator": "eq", "value": "ok"}],
+            },
+            "AC-002": {
+                "requirement_refs": ["FR-002"],
+                "given": [{"path": "ready", "operator": "is_null"}],
+                "when": {"action": "second", "arguments": {}},
+                "then": [{"path": "result.status", "operator": "eq", "value": "ok"}],
+            },
+        },
+    }
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="transient-cross-criterion-mutation",
+        provider=TransientCrossCriterionMutationProvider(),
+        template=template,
+    )
+
+    assert result.state is RunState.HALTED
+    assert result.cause == "REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:AC-001,AC-002"
 
 
 def test_release_manifest_digests_every_candidate_file(tmp_path: Path) -> None:
