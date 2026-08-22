@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import operator as comparison
+import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
+import xml.etree.ElementTree as ET
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
@@ -36,12 +40,20 @@ class RunState(StrEnum):
 
 
 @dataclass(frozen=True)
+class TemplateTest:
+    path: str
+    node_id: str
+    command: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Template:
     version: str
     files: Mapping[str, str]
     actions: Mapping[str, str]
     context: Mapping[str, Any]
-    test_ids: frozenset[str] = frozenset()
+    proofs: Mapping[str, TemplateTest] = field(default_factory=dict)
+    measures: Mapping[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -99,7 +111,9 @@ def default_template() -> Template:
 
 
 def _safe_path(root: Path, relative: str) -> Path:
-    if not _SAFE_RELATIVE.fullmatch(relative) or ".." in Path(relative).parts:
+    if not _SAFE_RELATIVE.fullmatch(relative) or any(
+        part in {".", ".."} for part in relative.split("/")
+    ):
         raise ValueError(f"unsafe candidate path: {relative}")
     target = (root / relative).resolve()
     if not target.is_relative_to(root.resolve()):
@@ -175,13 +189,13 @@ def _run_action(workspace: Path, target: str, arguments: Mapping[str, Any]) -> A
         "print(json.dumps(v,sort_keys=True,separators=(',',':')))"
     )
     completed = subprocess.run(
-        [sys.executable, "-I", "-c", runner, str(module_path), json.dumps(arguments)],
+        [sys.executable, "-I", "-B", "-c", runner, str(module_path), json.dumps(arguments)],
         cwd=workspace,
         text=True,
         capture_output=True,
         timeout=10,
         check=False,
-        env={"PYTHONPATH": str(workspace)},
+        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
     )
     if completed.returncode != 0:
         raise ContractInvalidError("action failed before an assertion: " + completed.stderr.strip())
@@ -191,6 +205,47 @@ def _run_action(workspace: Path, target: str, arguments: Mapping[str, Any]) -> A
         raise ContractInvalidError("action did not return one JSON value") from exc
 
 
+def _run_pytest_node(workspace: Path, test: TemplateTest) -> bool:
+    descriptor, report_name = tempfile.mkstemp(suffix=".xml")
+    os.close(descriptor)
+    report = Path(report_name)
+    try:
+        completed = subprocess.run(
+            [
+                *test.command,
+                f"--junitxml={report}",
+                "-o",
+                "junit_family=xunit2",
+                "-p",
+                "no:cacheprovider",
+            ],
+            cwd=workspace,
+            text=True,
+            capture_output=True,
+            timeout=30,
+            check=False,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+        try:
+            root = ET.parse(report).getroot()
+        except (ET.ParseError, OSError) as exc:
+            raise ContractInvalidError("human test produced no structured pytest result") from exc
+        cases = [item for item in root.iter("testcase") if item.get("name") == test.node_id]
+        if len(cases) != 1:
+            raise ContractInvalidError("bound human test node did not execute exactly once")
+        case = cases[0]
+        if case.find("skipped") is not None or case.find("error") is not None:
+            raise ContractInvalidError("bound human test was skipped or errored")
+        failure = case.find("failure")
+        if failure is not None and completed.returncode == 1:
+            return False
+        if failure is None and completed.returncode == 0:
+            return True
+        raise ContractInvalidError("human test failed outside its bound assertion")
+    finally:
+        report.unlink(missing_ok=True)
+
+
 def _criterion_findings(
     criterion: CompiledCriterion,
     *,
@@ -198,22 +253,31 @@ def _criterion_findings(
     template: Template,
 ) -> tuple[Finding, ...]:
     if criterion.form == "satisfied_by_template":
+        assert criterion.template_proof is not None
+        proof = template.proofs[criterion.template_proof.test_id]
+        proof_path = _safe_path(workspace, proof.path)
+        digest = "sha256:" + hashlib.sha256(proof_path.read_bytes()).hexdigest()
+        if digest != criterion.template_proof.file_digest:
+            raise ContractInvalidError("template proof file does not match its compiled digest")
+        if not _run_pytest_node(workspace, proof):
+            return (
+                Finding(
+                    "ASSERTION_FAILED",
+                    criterion.criterion_id,
+                    "template acceptance proof failed",
+                    (proof.path,),
+                ),
+            )
         return ()
     if criterion.form == "human_test":
         assert criterion.human_test is not None
-        completed = subprocess.run(
+        human_test = TemplateTest(
+            criterion.human_test.path,
+            criterion.human_test.node_id,
             criterion.human_test.command,
-            cwd=workspace,
-            text=True,
-            capture_output=True,
-            timeout=30,
-            check=False,
         )
-        if completed.returncode == 0:
+        if _run_pytest_node(workspace, human_test):
             return ()
-        output = completed.stdout + completed.stderr
-        if "AssertionError" not in output and "assert " not in output:
-            raise ContractInvalidError("human test failed before an assertion")
         return (
             Finding(
                 "ASSERTION_FAILED",
@@ -223,7 +287,27 @@ def _criterion_findings(
             ),
         )
     if criterion.form == "measure":
-        raise ContractInvalidError("measure has no registered deterministic observation source")
+        assert criterion.operator is not None
+        assert criterion.minimum_sample is not None
+        target = template.measures[criterion.measure]
+        observation = _run_action(workspace, target, {})
+        if not isinstance(observation, Mapping):
+            raise ContractInvalidError("measure did not return a JSON object")
+        sample_size = observation.get("sample_size")
+        if isinstance(sample_size, bool) or not isinstance(sample_size, int):
+            raise ContractInvalidError("measure did not return an integer sample_size")
+        assertion = PropertyAssertion("value", criterion.operator, criterion.value)
+        if sample_size >= criterion.minimum_sample and _assertion_passes(assertion, observation):
+            return ()
+        module = target.split(":", maxsplit=1)[0].replace(".", "/") + ".py"
+        return (
+            Finding(
+                "ASSERTION_FAILED",
+                criterion.criterion_id,
+                "compiled measure assertion failed",
+                (module,),
+            ),
+        )
     assert criterion.when is not None
     if any(not _assertion_passes(item, template.context) for item in criterion.given):
         raise ContractInvalidError(f"{criterion.criterion_id}: Given precondition is false")
@@ -266,6 +350,21 @@ def _security_findings(workspace: Path) -> tuple[Finding, ...]:
         if "TODO" in content:
             findings.append(Finding("LOW_TODO", relative, "TODO remains", (relative,)))
     return tuple(findings)
+
+
+def _candidate_manifest(workspace: Path, ledger: EvidenceLedger) -> tuple[str, tuple[str, ...]]:
+    manifest: dict[str, str] = {}
+    blobs: list[str] = []
+    for path in sorted(workspace.rglob("*")):
+        if not path.is_file():
+            continue
+        digest = ledger.put_blob(path.read_bytes())
+        manifest[str(path.relative_to(workspace))] = digest
+        blobs.append(digest)
+    manifest_blob = ledger.put_blob(
+        json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    )
+    return manifest_blob, tuple(sorted(set(blobs)))
 
 
 def _model_request(
@@ -331,6 +430,16 @@ def run_to_release_ready(
     counters = {"calls": 0, "bytes": 0}
     subject_digest = canonical_digest(contract)
 
+    template_test_digests: dict[str, str] = {}
+    for test_id, proof in active_template.proofs.items():
+        _safe_path(workspace, proof.path)
+        target = f"{proof.path}::{proof.node_id}"
+        if proof.path not in active_template.files or target not in proof.command:
+            raise ContractInvalidError(f"invalid template proof binding: {test_id}")
+        template_test_digests[test_id] = (
+            "sha256:" + hashlib.sha256(active_template.files[proof.path].encode()).hexdigest()
+        )
+
     def finish(
         state: RunState, cause: str, attempts: int, annotation: Mapping[str, Any] | None = None
     ) -> RunResult:
@@ -350,7 +459,8 @@ def run_to_release_ready(
         repository_root=repository_root,
         registered_actions=frozenset(active_template.actions),
         template_version=active_template.version,
-        template_test_ids=active_template.test_ids,
+        template_test_digests=template_test_digests,
+        registered_measures=frozenset(active_template.measures),
     )
     plan_blob = ledger.put_blob(
         json.dumps(plan.as_dict(), sort_keys=True, separators=(",", ":")).encode()
@@ -373,14 +483,19 @@ def run_to_release_ready(
     if any(workspace.iterdir()):
         raise ValueError("candidate workspace must be empty")
     _write_files(workspace, active_template.files)
-    protected_tests: set[str] = set()
+    protected_tests = {
+        _safe_path(workspace, proof.path) for proof in active_template.proofs.values()
+    }
     for criterion in plan.criteria:
         if criterion.human_test is None:
             continue
         relative = criterion.human_test.path
         source = repository_root / relative
+        digest = "sha256:" + hashlib.sha256(source.read_bytes()).hexdigest()
+        if digest != criterion.human_test.file_digest:
+            raise ContractInvalidError("human test changed after compilation")
         _write_files(workspace, {relative: source.read_text()})
-        protected_tests.add(relative)
+        protected_tests.add(_safe_path(workspace, relative))
     baseline = _verify(plan, workspace, active_template)
     non_template = tuple(item for item in plan.criteria if item.form != "satisfied_by_template")
     failed_ids = {item.subject_id for item in baseline}
@@ -438,7 +553,21 @@ def run_to_release_ready(
                 payload={"cause": "CODER_RESPONSE_INVALID"},
             )
             return finish(RunState.HALTED, "CODER_RESPONSE_INVALID", attempt)
-        if protected_tests.intersection(files):
+        try:
+            response_paths = {
+                _safe_path(workspace, relative) for relative in files if isinstance(relative, str)
+            }
+            if len(response_paths) != len(files):
+                raise ValueError("candidate paths must be strings")
+        except ValueError:
+            ledger.append(
+                event_type="halted",
+                state=RunState.HALTED,
+                subject_digest=subject_digest,
+                payload={"cause": "CODER_RESPONSE_INVALID"},
+            )
+            return finish(RunState.HALTED, "CODER_RESPONSE_INVALID", attempt)
+        if protected_tests.intersection(response_paths):
             ledger.append(
                 event_type="halted",
                 state=RunState.HALTED,
@@ -533,16 +662,7 @@ def run_to_release_ready(
                     "attempt": attempt,
                 }
                 blob = ledger.put_blob(json.dumps(evidence, sort_keys=True).encode())
-                candidate = {
-                    str(path.relative_to(workspace)): path.read_text()
-                    for path in sorted(workspace.rglob("*"))
-                    if path.is_file()
-                    and "__pycache__" not in path.parts
-                    and path.suffix in {".json", ".md", ".py", ".toml", ".txt", ".yaml", ".yml"}
-                }
-                candidate_blob = ledger.put_blob(
-                    json.dumps(candidate, sort_keys=True, separators=(",", ":")).encode()
-                )
+                candidate_blob, candidate_file_blobs = _candidate_manifest(workspace, ledger)
                 review_body = {
                     "contract_digest": subject_digest,
                     "plan_digest": plan.plan_digest,
@@ -567,7 +687,7 @@ def run_to_release_ready(
                     event_type="release_ready",
                     state=RunState.RELEASE_READY,
                     subject_digest=subject_digest,
-                    blob_digests=(blob, candidate_blob),
+                    blob_digests=(blob, candidate_blob, *candidate_file_blobs),
                     payload={
                         "annotation": dict(annotation),
                         "candidate_digest": candidate_blob,
@@ -589,7 +709,7 @@ def run_to_release_ready(
                 blob_digests=(finding_blob,),
                 payload={"attempt": attempt, "findings": [asdict(item) for item in findings]},
             )
-        previous_finding_digest = finding_digest
+        previous_finding_digest = canonical_digest([asdict(item) for item in findings])
 
     ledger.append(
         event_type="halted",
