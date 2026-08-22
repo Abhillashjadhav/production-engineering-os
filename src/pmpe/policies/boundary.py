@@ -37,6 +37,9 @@ class BoundaryPolicy:
     """
 
     __slots__ = ("_allowed_outbound", "_allowed_capabilities", "_digest")
+    _allowed_outbound: frozenset[OutboundGrant]
+    _allowed_capabilities: frozenset[str]
+    _digest: str
 
     def __new__(cls) -> BoundaryPolicy:
         raise TypeError("BoundaryPolicy must be created with from_payload()")
