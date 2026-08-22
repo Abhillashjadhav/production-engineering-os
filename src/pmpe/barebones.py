@@ -445,7 +445,21 @@ def _verify_snapshot(
         with tempfile.TemporaryDirectory(prefix="pmpe-verification-") as temporary:
             isolated = Path(temporary)
             _materialize_snapshot(isolated, snapshot)
-            findings.extend(_criterion_findings(criterion, workspace=isolated, template=template))
+            try:
+                findings.extend(
+                    _criterion_findings(criterion, workspace=isolated, template=template)
+                )
+            except ContractInvalidError as exc:
+                if criterion.human_test is None:
+                    raise
+                findings.append(
+                    Finding(
+                        "CANDIDATE_EXECUTION_FAILED",
+                        criterion.criterion_id,
+                        str(exc),
+                        (criterion.human_test.path,),
+                    )
+                )
             observed = _workspace_snapshot(isolated)
             if observed != snapshot:
                 changed = tuple(
@@ -588,6 +602,11 @@ def run_to_release_ready(
         template_test_digests[test_id] = (
             "sha256:" + hashlib.sha256(active_template.files[proof.path].encode()).hexdigest()
         )
+    trusted_test_digests = {
+        relative: "sha256:" + hashlib.sha256(content.encode()).hexdigest()
+        for relative, content in active_template.files.items()
+        if relative.startswith("tests/") and relative.endswith(".py")
+    }
 
     def finish(
         state: RunState, cause: str, attempts: int, annotation: Mapping[str, Any] | None = None
@@ -610,6 +629,7 @@ def run_to_release_ready(
         template_version=active_template.version,
         template_test_digests=template_test_digests,
         registered_measures=frozenset(active_template.measures),
+        trusted_test_digests=trusted_test_digests,
     )
     plan_blob = ledger.put_blob(
         json.dumps(plan.as_dict(), sort_keys=True, separators=(",", ":")).encode()
@@ -635,6 +655,12 @@ def run_to_release_ready(
     protected_tests = {
         _safe_path(workspace, proof.path) for proof in active_template.proofs.values()
     }
+    for relative, digest in plan.trusted_test_digests:
+        trusted_path = _safe_path(workspace, relative)
+        observed = "sha256:" + hashlib.sha256(trusted_path.read_bytes()).hexdigest()
+        if observed != digest:
+            raise ContractInvalidError("trusted test support does not match its compiled digest")
+        protected_tests.add(trusted_path)
     for criterion in plan.criteria:
         if criterion.human_test is None:
             continue
