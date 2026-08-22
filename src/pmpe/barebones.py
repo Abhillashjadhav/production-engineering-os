@@ -152,14 +152,25 @@ def _assertion_passes(assertion: PropertyAssertion, value: Any) -> bool:
     try:
         actual = _path(value, assertion.path)
     except KeyError:
-        actual = None
+        return False
+
+    def ordered(left: Any, right: Any, operation: Callable[[Any, Any], bool]) -> bool:
+        if isinstance(left, bool) or isinstance(right, bool):
+            return False
+        numeric = (int, float)
+        if isinstance(left, numeric) and isinstance(right, numeric):
+            return operation(left, right)
+        if isinstance(left, str) and isinstance(right, str):
+            return operation(left, right)
+        return False
+
     binary: dict[Operator, Callable[[Any, Any], bool]] = {
         Operator.EQ: lambda left, right: canonical_digest(left) == canonical_digest(right),
         Operator.NE: lambda left, right: canonical_digest(left) != canonical_digest(right),
-        Operator.LT: comparison.lt,
-        Operator.LTE: comparison.le,
-        Operator.GT: comparison.gt,
-        Operator.GTE: comparison.ge,
+        Operator.LT: lambda left, right: ordered(left, right, comparison.lt),
+        Operator.LTE: lambda left, right: ordered(left, right, comparison.le),
+        Operator.GT: lambda left, right: ordered(left, right, comparison.gt),
+        Operator.GTE: lambda left, right: ordered(left, right, comparison.ge),
         Operator.CONTAINS: lambda left, right: right in left,
         Operator.NOT_CONTAINS: lambda left, right: right not in left,
         Operator.MATCHES: lambda left, right: bool(re.search(str(right), str(left))),
@@ -370,10 +381,49 @@ def _criterion_findings(
     )
 
 
-def _verify(plan: AcceptanceBuildPlan, workspace: Path, template: Template) -> tuple[Finding, ...]:
+def _materialize_snapshot(workspace: Path, snapshot: Mapping[str, bytes]) -> None:
+    for relative, payload in sorted(snapshot.items()):
+        target = _safe_path(workspace, relative)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(payload)
+
+
+def _verify_snapshot(
+    plan: AcceptanceBuildPlan,
+    snapshot: Mapping[str, bytes],
+    template: Template,
+) -> tuple[Finding, ...]:
+    """Verify each criterion against a fresh disposable copy of the exact snapshot."""
+
     findings: list[Finding] = []
     for criterion in plan.criteria:
-        findings.extend(_criterion_findings(criterion, workspace=workspace, template=template))
+        with tempfile.TemporaryDirectory(prefix="pmpe-verification-") as temporary:
+            isolated = Path(temporary)
+            _materialize_snapshot(isolated, snapshot)
+            findings.extend(_criterion_findings(criterion, workspace=isolated, template=template))
+            observed = _workspace_snapshot(isolated)
+            if observed != snapshot:
+                changed = tuple(
+                    sorted(
+                        {
+                            *snapshot.keys(),
+                            *observed.keys(),
+                        }
+                        - {
+                            path
+                            for path in set(snapshot).intersection(observed)
+                            if snapshot[path] == observed[path]
+                        }
+                    )
+                )
+                findings.append(
+                    Finding(
+                        "CANDIDATE_MUTATED_DURING_VERIFICATION",
+                        criterion.criterion_id,
+                        "candidate changed its isolated verification snapshot",
+                        changed,
+                    )
+                )
     return tuple(findings)
 
 
@@ -547,7 +597,11 @@ def run_to_release_ready(
             raise ContractInvalidError("human test changed after compilation")
         _write_files(workspace, {relative: source.read_text()})
         protected_tests.add(_safe_path(workspace, relative))
-    baseline = _verify(plan, workspace, active_template)
+    baseline = _verify_snapshot(
+        plan,
+        _workspace_snapshot(workspace),
+        active_template,
+    )
     non_template = tuple(item for item in plan.criteria if item.form != "satisfied_by_template")
     failed_ids = {item.subject_id for item in baseline}
     if not non_template or failed_ids != {item.criterion_id for item in non_template}:
@@ -688,7 +742,7 @@ def run_to_release_ready(
                 payload={"attempt": attempt, "changed": list(changed)},
             )
             try:
-                findings = _verify(plan, workspace, active_template)
+                findings = _verify_snapshot(plan, verification_snapshot, active_template)
             except ContractInvalidError as exc:
                 implicated_files = tuple(
                     sorted(
@@ -707,29 +761,6 @@ def run_to_release_ready(
                         "candidate",
                         str(exc),
                         implicated_files,
-                    ),
-                )
-            observed_snapshot = _workspace_snapshot(workspace)
-            if observed_snapshot != verification_snapshot:
-                changed_during_verification = tuple(
-                    sorted(
-                        {
-                            *verification_snapshot.keys(),
-                            *observed_snapshot.keys(),
-                        }
-                        - {
-                            path
-                            for path in set(verification_snapshot).intersection(observed_snapshot)
-                            if verification_snapshot[path] == observed_snapshot[path]
-                        }
-                    )
-                )
-                findings = (
-                    Finding(
-                        "CANDIDATE_MUTATED_DURING_VERIFICATION",
-                        "candidate",
-                        "candidate changed while its exact snapshot was being verified",
-                        changed_during_verification,
                     ),
                 )
             if not findings:
