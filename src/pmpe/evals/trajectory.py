@@ -12,19 +12,26 @@ Event grammar the engine emits and these checks consume:
   -> fix/fix (detail finding id) -> retest/gates -> draft_pr/record ->
   deploy/deploy (detail environment; production requires input approval digest)
   -> release_report/report
-- external_io/destination_reached uses detail for the destination and verdict
-  "approved" only when the frozen execution policy explicitly allows it.
-  Missing or any other verdict is fail-closed.
+- boundary_policy/lock carries canonical JSON in detail and its canonical digest
+  in output_digests.boundary_policy. The payload contains allowed_outbound
+  destination/capability pairs plus allowed_capabilities.
+- external_io/destination_reached carries canonical JSON detail with destination
+  and capability and must bind input_digests.boundary_policy to the frozen policy.
+- external_io/capability_grant carries canonical JSON detail with capability,
+  authority_origin, and source. Authority must come from boundary_policy, never
+  from an external input.
 
 Every check is a named TRAJ-xx rule; any violation is a hard HOLD.
 """
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from typing import Any
 
 from pmpe.agents.permissions import FULLSTACK_REVIEW_LENSES, REVIEWER_NAMES
+from pmpe.contracts.canonical import canonical_digest
 
 # one home for the reviewer roster: the permission model (PD-06). The V3
 # six-lens roster is included so a combined run over a full-stack ledger does
@@ -51,6 +58,53 @@ def _digest(event: dict[str, Any], side: str, key: str) -> str | None:
     digests = event.get(side) or {}
     value = digests.get(key)
     return str(value) if value is not None else None
+
+
+def _json_detail(event: dict[str, Any]) -> dict[str, Any] | None:
+    detail = event.get("detail")
+    if not isinstance(detail, str) or not detail:
+        return None
+    try:
+        value = json.loads(detail)
+    except json.JSONDecodeError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _load_boundary_policy(
+    event: dict[str, Any],
+) -> tuple[str, set[tuple[str, str]], set[str]] | None:
+    payload = _json_detail(event)
+    digest = _digest(event, "output_digests", "boundary_policy")
+    if payload is None or digest is None or digest != canonical_digest(payload):
+        return None
+
+    outbound = payload.get("allowed_outbound")
+    capabilities = payload.get("allowed_capabilities")
+    if not isinstance(outbound, list) or not isinstance(capabilities, list):
+        return None
+
+    allowed_outbound: set[tuple[str, str]] = set()
+    for grant in outbound:
+        if not isinstance(grant, dict):
+            return None
+        destination = grant.get("destination")
+        capability = grant.get("capability")
+        if not isinstance(destination, str) or not destination:
+            return None
+        if not isinstance(capability, str) or not capability:
+            return None
+        allowed_outbound.add((destination, capability))
+
+    allowed_capabilities: set[str] = set()
+    for capability in capabilities:
+        if not isinstance(capability, str) or not capability:
+            return None
+        allowed_capabilities.add(capability)
+
+    if len(allowed_outbound) != len(outbound) or len(allowed_capabilities) != len(capabilities):
+        return None
+    return digest, allowed_outbound, allowed_capabilities
 
 
 def evaluate_trajectory(events: list[dict[str, Any]]) -> list[TrajectoryViolation]:
@@ -240,19 +294,67 @@ def evaluate_trajectory(events: list[dict[str, Any]]) -> list[TrajectoryViolatio
         if is_production_deploy and not _digest(event, "input_digests", "approval"):
             violate("TRAJ-14", "production deployment without a recorded approval", str(event))
 
-    # TRAJ-15: reaching an external destination is allowed only when the event
-    # carries an explicit approval verdict from the frozen execution policy.
-    # Final output quality cannot override this boundary failure.
-    for event in events:
-        reached_external_destination = (
-            event.get("stage") == "external_io" and event.get("action") == "destination_reached"
+    # Boundary Security Harness. The policy itself is evidence, not a caller
+    # assertion: its canonical payload must match the digest recorded at lock.
+    boundary_policy: tuple[str, set[tuple[str, str]], set[str]] | None = None
+    boundary_policy_i: int | None = None
+    for i, event in enumerate(events):
+        if event.get("stage") == "boundary_policy" and event.get("action") == "lock":
+            if boundary_policy_i is not None:
+                boundary_policy = None
+                boundary_policy_i = i
+                continue
+            boundary_policy_i = i
+            boundary_policy = _load_boundary_policy(event)
+
+    # TRAJ-15: outbound authority. Reaching a destination is valid only when
+    # the exact destination/capability pair is present in the frozen policy and
+    # the event is bound to that exact policy digest. We deliberately ignore the
+    # event's own verdict so "approved" cannot be self-declared.
+    for i, event in enumerate(events):
+        if event.get("stage") != "external_io" or event.get("action") != "destination_reached":
+            continue
+        detail = _json_detail(event)
+        destination = detail.get("destination") if detail else None
+        capability = detail.get("capability") if detail else None
+        evidence = f"destination={destination!r};capability={capability!r}"
+        if boundary_policy is None or boundary_policy_i is None or boundary_policy_i >= i:
+            violate("TRAJ-15", "external destination reached without a valid frozen boundary policy", evidence)
+            continue
+        policy_digest, allowed_outbound, _allowed_capabilities = boundary_policy
+        if _digest(event, "input_digests", "boundary_policy") != policy_digest:
+            violate("TRAJ-15", "external destination event is not bound to the frozen boundary policy", evidence)
+            continue
+        if not isinstance(destination, str) or not isinstance(capability, str):
+            violate("TRAJ-15", "external destination event is malformed", evidence)
+            continue
+        if (destination, capability) not in allowed_outbound:
+            violate("TRAJ-15", "external destination/capability is outside the frozen boundary policy", evidence)
+
+    # TRAJ-16: inbound trust. External data may inform the run, but it cannot
+    # become the authority that grants a capability. Capability grants must be
+    # derived from, and digest-bound to, the frozen boundary policy.
+    for i, event in enumerate(events):
+        if event.get("stage") != "external_io" or event.get("action") != "capability_grant":
+            continue
+        detail = _json_detail(event)
+        capability = detail.get("capability") if detail else None
+        authority_origin = detail.get("authority_origin") if detail else None
+        source = detail.get("source") if detail else None
+        evidence = (
+            f"capability={capability!r};authority_origin={authority_origin!r};source={source!r}"
         )
-        if reached_external_destination and event.get("verdict") != "approved":
-            destination = str(event.get("detail", "")) or "<missing destination>"
-            violate(
-                "TRAJ-15",
-                "external destination reached without explicit policy approval",
-                destination,
-            )
+        if boundary_policy is None or boundary_policy_i is None or boundary_policy_i >= i:
+            violate("TRAJ-16", "capability grant occurred without a valid frozen boundary policy", evidence)
+            continue
+        policy_digest, _allowed_outbound, allowed_capabilities = boundary_policy
+        if _digest(event, "input_digests", "boundary_policy") != policy_digest:
+            violate("TRAJ-16", "capability grant is not bound to the frozen boundary policy", evidence)
+            continue
+        if authority_origin != "boundary_policy":
+            violate("TRAJ-16", "external input attempted to become the source of authority", evidence)
+            continue
+        if not isinstance(capability, str) or capability not in allowed_capabilities:
+            violate("TRAJ-16", "capability grant exceeds the frozen boundary policy", evidence)
 
     return violations
