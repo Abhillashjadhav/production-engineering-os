@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from enum import StrEnum
@@ -148,7 +149,44 @@ def _assertions(
                 )
             )
             continue
-        compiled.append(PropertyAssertion(str(item["path"]), operator, item.get("value")))
+        unary = {Operator.IS_TRUE, Operator.IS_FALSE, Operator.IS_NULL, Operator.NOT_NULL}
+        if operator not in unary and "value" not in item:
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "MISSING_ASSERTION_VALUE",
+                    criterion_id,
+                    f"{field}[{index}] requires an explicit value",
+                )
+            )
+            continue
+        assertion_value = item.get("value")
+        if operator is Operator.MATCHES:
+            try:
+                if not isinstance(assertion_value, str):
+                    raise re.error("pattern must be a string")
+                re.compile(assertion_value)
+            except re.error:
+                diagnostics.append(
+                    AcceptanceDiagnostic(
+                        "INVALID_REGEX_ASSERTION",
+                        criterion_id,
+                        f"{field}[{index}] requires a valid string regex",
+                    )
+                )
+                continue
+        ordered = {Operator.LT, Operator.LTE, Operator.GT, Operator.GTE}
+        if operator in ordered and (
+            isinstance(assertion_value, bool) or not isinstance(assertion_value, (int, float, str))
+        ):
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "INVALID_ORDERED_ASSERTION_VALUE",
+                    criterion_id,
+                    f"{field}[{index}] requires a number or string value",
+                )
+            )
+            continue
+        compiled.append(PropertyAssertion(str(item["path"]), operator, assertion_value))
     for index, left in enumerate(compiled):
         for right in compiled[index + 1 :]:
             if left.path != right.path:
