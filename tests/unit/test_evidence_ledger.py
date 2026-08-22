@@ -63,6 +63,9 @@ def test_event_tampering_is_detected(tmp_path: Path) -> None:
     with pytest.raises(EvidenceIntegrityError):
         tuple(ledger.verify())
 
+    with pytest.raises(EvidenceIntegrityError):
+        EvidenceLedger.open_existing(tmp_path, "run-001")
+
 
 def test_blob_tampering_is_detected(tmp_path: Path) -> None:
     ledger = EvidenceLedger(tmp_path, "run-001")
