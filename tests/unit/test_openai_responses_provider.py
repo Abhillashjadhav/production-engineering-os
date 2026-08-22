@@ -52,11 +52,28 @@ def test_request_uses_stateless_strict_structured_output() -> None:
     body = provider._request_body(_message(), "gpt-test")
 
     assert body["store"] is False
+    assert body["max_output_tokens"] == 16_384
     assert body["model"] == "gpt-test"
     assert body["text"]["format"]["type"] == "json_schema"
     assert body["text"]["format"]["strict"] is True
     assert body["text"]["format"]["schema"]["additionalProperties"] is False
     assert "Do not propose commands or dependencies" in body["instructions"]
+
+
+def test_redirects_are_rejected_before_authorization_can_be_forwarded() -> None:
+    provider = _provider_module()
+
+    assert (
+        provider._RejectRedirects().redirect_request(
+            req=object(),
+            fp=None,
+            code=302,
+            msg="Found",
+            headers={},
+            newurl="https://example.invalid/capture",
+        )
+        is None
+    )
 
 
 def test_code_output_is_adapted_to_digest_bound_file_mapping() -> None:
