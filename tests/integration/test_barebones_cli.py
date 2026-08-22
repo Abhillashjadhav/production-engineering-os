@@ -62,3 +62,30 @@ def test_provider_timeout_is_a_classified_halt(
     event = json.loads(result.evidence_path.read_text().splitlines()[-1])
     assert event["event_type"] == "halted"
     assert event["payload"]["cause"] == "MODEL_PROVIDER_TIMEOUT"
+
+
+def test_malformed_contract_is_reported_without_a_traceback(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    contract = tmp_path / "malformed.json"
+    contract.write_text("{not-json")
+    args = build_parser().parse_args(
+        [
+            "barebones",
+            str(contract),
+            "--workspace",
+            str(tmp_path / "candidate"),
+            "--run-id",
+            "malformed-contract",
+            "--repository-root",
+            str(tmp_path),
+            "--provider-command",
+            "provider",
+        ]
+    )
+
+    assert args.fn(args) == 3
+    output = json.loads(capsys.readouterr().out)
+    assert output["state"] == "HALTED"
+    assert output["cause"] == "CONTRACT_INVALID"
+    assert output["diagnostics"][0]["code"] == "MALFORMED_SOURCE"
