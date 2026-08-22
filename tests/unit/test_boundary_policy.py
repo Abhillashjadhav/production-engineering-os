@@ -73,6 +73,11 @@ def test_policy_can_grant_only_a_capability_it_already_contains() -> None:
         )
 
 
+def test_boundary_policy_cannot_be_directly_constructed_with_forged_authority() -> None:
+    with pytest.raises(TypeError, match="from_payload"):
+        BoundaryPolicy()
+
+
 def test_malformed_or_ambiguous_policy_is_rejected() -> None:
     with pytest.raises(BoundaryPolicyError):
         BoundaryPolicy.from_payload(
@@ -91,5 +96,29 @@ def test_malformed_or_ambiguous_policy_is_rejected() -> None:
                 "allowed_outbound": [],
                 "allowed_capabilities": [],
                 "caller_says_approved": True,
+            }
+        )
+
+    with pytest.raises(BoundaryPolicyError):
+        BoundaryPolicy.from_payload(
+            {
+                "allowed_outbound": [
+                    {
+                        "destination": "api.openai.com",
+                        "capability": "read",
+                        "caller_says_approved": True,
+                    }
+                ],
+                "allowed_capabilities": [],
+            }
+        )
+
+
+def test_noncanonical_policy_value_is_rejected() -> None:
+    with pytest.raises(BoundaryPolicyError):
+        BoundaryPolicy.from_payload(
+            {
+                "allowed_outbound": [],
+                "allowed_capabilities": [float("nan")],
             }
         )
