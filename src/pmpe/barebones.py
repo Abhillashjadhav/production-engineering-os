@@ -91,6 +91,8 @@ _SAFE_RELATIVE = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\Z")
 _MODULE_TARGET = re.compile(r"([A-Za-z_][A-Za-z0-9_.]*):([A-Za-z_][A-Za-z0-9_]*)\Z")
 _CREDENTIAL = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|AKIA[0-9A-Z]{16}")
 _HIGH_RISK_CODE = re.compile(r"\b(?:eval|exec)\s*\(")
+_ACTION_TIMEOUT_SECONDS = 10.0
+_PYTEST_TIMEOUT_SECONDS = 30.0
 
 
 def default_template() -> Template:
@@ -151,8 +153,8 @@ def _assertion_passes(assertion: PropertyAssertion, value: Any) -> bool:
     except KeyError:
         actual = None
     binary: dict[Operator, Callable[[Any, Any], bool]] = {
-        Operator.EQ: comparison.eq,
-        Operator.NE: comparison.ne,
+        Operator.EQ: lambda left, right: canonical_digest(left) == canonical_digest(right),
+        Operator.NE: lambda left, right: canonical_digest(left) != canonical_digest(right),
         Operator.LT: comparison.lt,
         Operator.LTE: comparison.le,
         Operator.GT: comparison.gt,
@@ -188,15 +190,18 @@ def _run_action(workspace: Path, target: str, arguments: Mapping[str, Any]) -> A
         f"v=getattr(m,{function!r})(**json.loads(sys.argv[2]));"
         "print(json.dumps(v,sort_keys=True,separators=(',',':')))"
     )
-    completed = subprocess.run(
-        [sys.executable, "-I", "-B", "-c", runner, str(module_path), json.dumps(arguments)],
-        cwd=workspace,
-        text=True,
-        capture_output=True,
-        timeout=10,
-        check=False,
-        env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
-    )
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-I", "-B", "-c", runner, str(module_path), json.dumps(arguments)],
+            cwd=workspace,
+            text=True,
+            capture_output=True,
+            timeout=_ACTION_TIMEOUT_SECONDS,
+            check=False,
+            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ContractInvalidError("action timed out before an assertion") from exc
     if completed.returncode != 0:
         raise ContractInvalidError("action failed before an assertion: " + completed.stderr.strip())
     try:
@@ -209,23 +214,39 @@ def _run_pytest_node(workspace: Path, test: TemplateTest) -> bool:
     descriptor, report_name = tempfile.mkstemp(suffix=".xml")
     os.close(descriptor)
     report = Path(report_name)
+    config_descriptor, config_name = tempfile.mkstemp(suffix=".ini")
+    with os.fdopen(config_descriptor, "w") as config:
+        config.write("[pytest]\n")
+    config_path = Path(config_name)
     try:
-        completed = subprocess.run(
-            [
-                *test.command,
-                f"--junitxml={report}",
-                "-o",
-                "junit_family=xunit2",
-                "-p",
-                "no:cacheprovider",
-            ],
-            cwd=workspace,
-            text=True,
-            capture_output=True,
-            timeout=30,
-            check=False,
-            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
-        )
+        try:
+            completed = subprocess.run(
+                [
+                    *test.command,
+                    "--noconftest",
+                    "-c",
+                    str(config_path),
+                    f"--junitxml={report}",
+                    "-o",
+                    "junit_family=xunit2",
+                    "-p",
+                    "no:cacheprovider",
+                ],
+                cwd=workspace,
+                text=True,
+                capture_output=True,
+                timeout=_PYTEST_TIMEOUT_SECONDS,
+                check=False,
+                env={
+                    **os.environ,
+                    "PYTHONDONTWRITEBYTECODE": "1",
+                    "PYTEST_ADDOPTS": "",
+                    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+                    "PYTEST_PLUGINS": "",
+                },
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ContractInvalidError("bound human test timed out") from exc
         try:
             root = ET.parse(report).getroot()
         except (ET.ParseError, OSError) as exc:
@@ -244,6 +265,7 @@ def _run_pytest_node(workspace: Path, test: TemplateTest) -> bool:
         raise ContractInvalidError("human test failed outside its bound assertion")
     finally:
         report.unlink(missing_ok=True)
+        config_path.unlink(missing_ok=True)
 
 
 def _criterion_findings(
@@ -352,14 +374,22 @@ def _security_findings(workspace: Path) -> tuple[Finding, ...]:
     return tuple(findings)
 
 
-def _candidate_manifest(workspace: Path, ledger: EvidenceLedger) -> tuple[str, tuple[str, ...]]:
+def _workspace_snapshot(workspace: Path) -> dict[str, bytes]:
+    return {
+        str(path.relative_to(workspace)): path.read_bytes()
+        for path in sorted(workspace.rglob("*"))
+        if path.is_file()
+    }
+
+
+def _candidate_manifest(
+    snapshot: Mapping[str, bytes], ledger: EvidenceLedger
+) -> tuple[str, tuple[str, ...]]:
     manifest: dict[str, str] = {}
     blobs: list[str] = []
-    for path in sorted(workspace.rglob("*")):
-        if not path.is_file():
-            continue
-        digest = ledger.put_blob(path.read_bytes())
-        manifest[str(path.relative_to(workspace))] = digest
+    for relative, payload in sorted(snapshot.items()):
+        digest = ledger.put_blob(payload)
+        manifest[relative] = digest
         blobs.append(digest)
     manifest_blob = ledger.put_blob(
         json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
@@ -608,6 +638,7 @@ def run_to_release_ready(
             )
             return finish(RunState.HALTED, cause, attempt)
 
+        verification_snapshot = _workspace_snapshot(workspace)
         security = _security_findings(workspace)
         blocking_security = tuple(
             item for item in security if item.code.startswith(("CRITICAL_", "HIGH_"))
@@ -642,7 +673,10 @@ def run_to_release_ready(
                     sorted(
                         {
                             target.split(":", maxsplit=1)[0].replace(".", "/") + ".py"
-                            for target in active_template.actions.values()
+                            for target in (
+                                *active_template.actions.values(),
+                                *active_template.measures.values(),
+                            )
                         }
                     )
                 )
@@ -654,6 +688,29 @@ def run_to_release_ready(
                         implicated_files,
                     ),
                 )
+            observed_snapshot = _workspace_snapshot(workspace)
+            if observed_snapshot != verification_snapshot:
+                changed_during_verification = tuple(
+                    sorted(
+                        {
+                            *verification_snapshot.keys(),
+                            *observed_snapshot.keys(),
+                        }
+                        - {
+                            path
+                            for path in set(verification_snapshot).intersection(observed_snapshot)
+                            if verification_snapshot[path] == observed_snapshot[path]
+                        }
+                    )
+                )
+                findings = (
+                    Finding(
+                        "CANDIDATE_MUTATED_DURING_VERIFICATION",
+                        "candidate",
+                        "candidate changed while its exact snapshot was being verified",
+                        changed_during_verification,
+                    ),
+                )
             if not findings:
                 evidence = {
                     "assertions": "passed",
@@ -662,7 +719,9 @@ def run_to_release_ready(
                     "attempt": attempt,
                 }
                 blob = ledger.put_blob(json.dumps(evidence, sort_keys=True).encode())
-                candidate_blob, candidate_file_blobs = _candidate_manifest(workspace, ledger)
+                candidate_blob, candidate_file_blobs = _candidate_manifest(
+                    verification_snapshot, ledger
+                )
                 review_body = {
                     "contract_digest": subject_digest,
                     "plan_digest": plan.plan_digest,
