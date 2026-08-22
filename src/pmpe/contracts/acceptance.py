@@ -188,19 +188,16 @@ def _assertions(
             )
             continue
         compiled.append(PropertyAssertion(str(item["path"]), operator, assertion_value))
-    for index, left in enumerate(compiled):
-        for right in compiled[index + 1 :]:
-            if left.path != right.path:
-                continue
-            if _contradictory(left, right):
-                diagnostics.append(
-                    AcceptanceDiagnostic(
-                        "CONTRADICTORY_ASSERTIONS",
-                        criterion_id,
-                        f"{field} contains incompatible assertions for {left.path}",
-                    )
+    for path in sorted({item.path for item in compiled}):
+        if _assertion_set_contradictory(tuple(item for item in compiled if item.path == path)):
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "CONTRADICTORY_ASSERTIONS",
+                    criterion_id,
+                    f"{field} contains incompatible assertions for {path}",
                 )
-                return tuple(compiled)
+            )
+            return tuple(compiled)
     return tuple(compiled)
 
 
@@ -228,6 +225,61 @@ def _ordered_comparison(left: Any, operator: Operator, right: Any) -> bool | Non
         return None
 
 
+def _literal_satisfies(assertion: PropertyAssertion, value: Any) -> bool:
+    if assertion.operator is Operator.EQ:
+        return canonical_digest(value) == canonical_digest(assertion.value)
+    if assertion.operator is Operator.NE:
+        return canonical_digest(value) != canonical_digest(assertion.value)
+    if assertion.operator in {Operator.LT, Operator.LTE, Operator.GT, Operator.GTE}:
+        return _ordered_comparison(value, assertion.operator, assertion.value) is True
+    if assertion.operator is Operator.MATCHES:
+        return isinstance(value, str) and bool(re.search(assertion.value, value))
+    if assertion.operator in {Operator.CONTAINS, Operator.NOT_CONTAINS}:
+        if isinstance(value, list):
+            present = any(
+                canonical_digest(item) == canonical_digest(assertion.value) for item in value
+            )
+        elif isinstance(assertion.value, str) and isinstance(value, (str, Mapping)):
+            present = assertion.value in value
+        else:
+            return False
+        return present if assertion.operator is Operator.CONTAINS else not present
+    unary = {
+        Operator.IS_TRUE: value is True,
+        Operator.IS_FALSE: value is False,
+        Operator.IS_NULL: value is None,
+        Operator.NOT_NULL: value is not None,
+    }
+    return unary[assertion.operator]
+
+
+def _assertion_set_contradictory(assertions: tuple[PropertyAssertion, ...]) -> bool:
+    for index, left in enumerate(assertions):
+        if any(_contradictory(left, right) for right in assertions[index + 1 :]):
+            return True
+
+    exact_values = [item.value for item in assertions if item.operator is Operator.EQ]
+    exact_values.extend(
+        {
+            Operator.IS_TRUE: True,
+            Operator.IS_FALSE: False,
+            Operator.IS_NULL: None,
+        }[item.operator]
+        for item in assertions
+        if item.operator in {Operator.IS_TRUE, Operator.IS_FALSE, Operator.IS_NULL}
+    )
+    lower = [item for item in assertions if item.operator is Operator.GTE]
+    upper = [item for item in assertions if item.operator is Operator.LTE]
+    for floor in lower:
+        for ceiling in upper:
+            if canonical_digest(floor.value) == canonical_digest(ceiling.value):
+                exact_values.append(floor.value)
+    return any(
+        any(not _literal_satisfies(assertion, value) for assertion in assertions)
+        for value in exact_values
+    )
+
+
 def _contradictory(left: PropertyAssertion, right: PropertyAssertion) -> bool:
     if left.operator is Operator.EQ and right.operator is Operator.EQ:
         return canonical_digest(left.value) != canonical_digest(right.value)
@@ -243,6 +295,15 @@ def _contradictory(left: PropertyAssertion, right: PropertyAssertion) -> bool:
     }
     if (left.operator, right.operator) in opposite_unary:
         return True
+    exact_unary = {
+        Operator.IS_TRUE: True,
+        Operator.IS_FALSE: False,
+        Operator.IS_NULL: None,
+    }
+    if left.operator in exact_unary:
+        return not _literal_satisfies(right, exact_unary[left.operator])
+    if right.operator in exact_unary:
+        return not _literal_satisfies(left, exact_unary[right.operator])
     equality = {Operator.EQ, Operator.NE}
     unary = {Operator.IS_TRUE, Operator.IS_FALSE, Operator.IS_NULL, Operator.NOT_NULL}
     equality_assertion = left if left.operator in equality else right
