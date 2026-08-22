@@ -1,6 +1,6 @@
 # Boundary Security Harness
 
-The Boundary Security Harness adds two hard trajectory checks to the evidence ledger.
+The Boundary Security Harness has two layers: a deterministic pre-execution authorizer and independent hard trajectory checks over the evidence ledger.
 
 Its invariant is simple:
 
@@ -27,6 +27,32 @@ A governed run can record one `boundary_policy/lock` event before boundary-sensi
 The event must write the RFC 8785 canonical digest of that exact payload to `output_digests.boundary_policy`. Boundary events must later cite that same digest in `input_digests.boundary_policy`.
 
 A caller-supplied `verdict: approved` is not authority. The evaluator recomputes the policy digest and checks the event against the frozen policy.
+
+## Pre-execution authorizer
+
+`pmpe.policies.boundary.BoundaryPolicy` is the runtime-facing half of the harness. A governed adapter can construct the frozen policy once, then call:
+
+```python
+policy.authorize_outbound(
+    destination="api.openai.com",
+    capability="read",
+    bound_policy_digest=policy.digest,
+)
+```
+
+before an external action, or:
+
+```python
+policy.authorize_capability_grant(
+    capability="write_support_draft",
+    authority_origin="boundary_policy",
+    bound_policy_digest=policy.digest,
+)
+```
+
+before granting a protected capability.
+
+An unauthorized destination, stale policy digest, capability outside the frozen policy, or `authority_origin="external_input"` raises `BoundaryDenied` before the governed adapter proceeds.
 
 ## TRAJ-15: outbound authority
 
@@ -71,16 +97,16 @@ If a webhook, retrieved document, webpage, tool response, prompt, or other exter
 
 ## What this proves
 
-The harness makes boundary violations first-class release failures in the governed evidence path. It prevents a successful final string from masking an unauthorized outbound crossing or an inbound authority escalation recorded by the runtime.
+The authorizer gives governed adapters a deterministic deny-before-action check. The trajectory layer independently makes any recorded boundary violation a first-class release failure. A successful final string cannot mask an unauthorized outbound crossing or an inbound authority escalation.
 
 ## What this does not prove
 
-This is not a general network firewall, WAF, authentication system, sandbox replacement, secret manager, or proof that arbitrary host traffic outside the governed runtime was intercepted. Those controls remain separate layers. The harness fails closed on the boundary evidence that the runtime records and binds into the release decision.
+This is not a general network firewall, WAF, authentication system, sandbox replacement, secret manager, or proof that arbitrary host traffic outside the governed runtime was intercepted. Those controls remain separate layers. Existing bounded command execution continues to use its own sandbox. Any future external adapter must call the boundary authorizer and record the resulting policy-bound event for the trajectory backstop to cover it.
 
 ## Focused tests
 
 ```bash
-pytest -q tests/unit/test_trajectory.py
+pytest -q tests/unit/test_boundary_policy.py tests/unit/test_trajectory.py
 ```
 
 The two planted cases are:
