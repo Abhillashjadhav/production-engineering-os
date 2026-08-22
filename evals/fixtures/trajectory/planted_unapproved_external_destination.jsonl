@@ -1,0 +1,2 @@
+{"stage":"external_io","action":"destination_reached","agent":"eval-runner","detail":"huggingface.co","input_digests":{"execution_policy":"sha256:policy-allowed-openai-only"},"output_digests":{},"verdict":"denied"}
+{"stage":"release_report","action":"report","agent":"eval-runner","detail":"final_answer=correct","input_digests":{},"output_digests":{"final_output":"sha256:correct-final-output"},"verdict":"pass"}
