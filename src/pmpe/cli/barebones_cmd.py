@@ -35,7 +35,7 @@ def _run_provider_command(
     payload: bytes,
     timeout_seconds: int,
     output_limit_bytes: int = _PROVIDER_OUTPUT_LIMIT_BYTES,
-) -> subprocess.CompletedProcess[str]:
+) -> subprocess.CompletedProcess[bytes]:
     with tempfile.TemporaryFile() as stdin_file:
         stdin_file.write(payload)
         stdin_file.seek(0)
@@ -83,8 +83,8 @@ def _run_provider_command(
         return subprocess.CompletedProcess(
             argv,
             returncode,
-            streams["stdout"].decode("utf-8", errors="replace"),
-            streams["stderr"].decode("utf-8", errors="replace"),
+            bytes(streams["stdout"]),
+            bytes(streams["stderr"]),
         )
 
 
@@ -104,9 +104,10 @@ class CommandModelProvider:
             self.timeout_seconds,
         )
         if completed.returncode != 0:
-            raise RuntimeError("model provider failed: " + completed.stderr.strip())
+            detail = completed.stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError("model provider failed: " + detail)
         try:
-            response = strict_loads(completed.stdout.encode(), "application/json")
+            response = strict_loads(completed.stdout, "application/json")
         except CanonicalInputError as exc:
             raise RuntimeError("model provider returned malformed JSON") from exc
         return response

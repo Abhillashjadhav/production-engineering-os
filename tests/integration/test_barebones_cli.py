@@ -151,14 +151,31 @@ def test_command_provider_rejects_non_json_numeric_constants(
 ) -> None:
     class Completed:
         returncode = 0
-        stdout = '{"request_digest":"bound","score":NaN}'
-        stderr = ""
+        stdout = b'{"request_digest":"bound","score":NaN}'
+        stderr = b""
 
     monkeypatch.setattr(barebones_cmd, "_run_provider_command", lambda *args, **kwargs: Completed())
 
     with pytest.raises(RuntimeError, match="malformed JSON"):
         CommandModelProvider("provider", 1).invoke(
             purpose="advisory_review", request={"request_digest": "bound"}
+        )
+
+
+def test_command_provider_rejects_malformed_utf8(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    completed = barebones_cmd.subprocess.CompletedProcess(
+        ("provider",),
+        0,
+        b'{"request_digest":"bound","file":"\xff"}',
+        b"",
+    )
+    monkeypatch.setattr(barebones_cmd, "_run_provider_command", lambda *args, **kwargs: completed)
+
+    with pytest.raises(RuntimeError, match="malformed JSON"):
+        CommandModelProvider("provider", 1).invoke(
+            purpose="code", request={"request_digest": "bound"}
         )
 
 

@@ -407,6 +407,14 @@ def test_equal_contains_and_not_contains_are_contradictory(tmp_path: Path) -> No
             {"path": "service", "operator": "is_null"},
             {"path": "service.value", "operator": "eq", "value": "ok"},
         ],
+        [
+            {"path": "service", "operator": "not_contains", "value": "value"},
+            {"path": "service.value", "operator": "eq", "value": "ok"},
+        ],
+        [
+            {"path": "service", "operator": "eq", "value": {}},
+            {"path": "service.value", "operator": "eq", "value": "ok"},
+        ],
     ],
 )
 def test_multi_assertion_and_unary_type_contradictions_fail_before_build(

@@ -199,9 +199,8 @@ def _assertions(
             )
             return tuple(compiled)
     for ancestor in compiled:
-        if "mapping" in _assertion_domains(ancestor):
-            continue
-        if any(item.path.startswith(ancestor.path + ".") for item in compiled):
+        descendants = tuple(item for item in compiled if item.path.startswith(ancestor.path + "."))
+        if any(_ancestor_contradicts_descendant(ancestor, item) for item in descendants):
             diagnostics.append(
                 AcceptanceDiagnostic(
                     "CONTRADICTORY_ASSERTIONS",
@@ -330,6 +329,29 @@ def _assertion_domains(assertion: PropertyAssertion) -> frozenset[str]:
         Operator.IS_NULL: frozenset({"null"}),
         Operator.NOT_NULL: _JSON_DOMAINS - {"null"},
     }[assertion.operator]
+
+
+def _ancestor_contradicts_descendant(
+    ancestor: PropertyAssertion, descendant: PropertyAssertion
+) -> bool:
+    if "mapping" not in _assertion_domains(ancestor):
+        return True
+    suffix = descendant.path.removeprefix(ancestor.path + ".")
+    first = suffix.split(".", maxsplit=1)[0]
+    if (
+        ancestor.operator is Operator.NOT_CONTAINS
+        and isinstance(ancestor.value, str)
+        and ancestor.value == first
+    ):
+        return True
+    if ancestor.operator is not Operator.EQ or not isinstance(ancestor.value, Mapping):
+        return False
+    current: Any = ancestor.value
+    for part in suffix.split("."):
+        if not isinstance(current, Mapping) or part not in current:
+            return True
+        current = current[part]
+    return not _literal_satisfies(descendant, current)
 
 
 def _contradictory(left: PropertyAssertion, right: PropertyAssertion) -> bool:
