@@ -39,11 +39,9 @@ class CommandModelProvider:
         if completed.returncode != 0:
             raise RuntimeError("model provider failed: " + completed.stderr.strip())
         try:
-            response = json.loads(completed.stdout)
-        except json.JSONDecodeError as exc:
+            response = strict_loads(completed.stdout.encode(), "application/json")
+        except CanonicalInputError as exc:
             raise RuntimeError("model provider returned malformed JSON") from exc
-        if not isinstance(response, dict):
-            raise RuntimeError("model provider response must be an object")
         return response
 
 
