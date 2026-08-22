@@ -144,6 +144,16 @@ class BooleanProvider:
         }
 
 
+class ArrayBooleanProvider:
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        if purpose == "advisory_review":
+            return {"request_digest": request["request_digest"], "summary": "advisory"}
+        return {
+            "request_digest": request["request_digest"],
+            "files": {"product.py": "def health():\n    return {'status': [1]}\n"},
+        }
+
+
 class MissingPathProvider:
     def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
         assert purpose == "code"
@@ -390,6 +400,42 @@ def test_human_test_must_execute_once_and_report_a_structured_assertion(
             run_id="human-test-structured",
             provider=PassingProvider(),
         )
+
+
+def test_class_scoped_human_test_node_is_matched_exactly(tmp_path: Path) -> None:
+    test_file = tmp_path / "tests/acceptance/test_health.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text(
+        "from product import health\n\n"
+        "class TestHealth:\n"
+        "    def test_ok(self):\n"
+        "        assert health()['status'] == 'ok'\n"
+    )
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"] = {
+        "requirement_refs": ["FR-001"],
+        "human_test": {
+            "path": "tests/acceptance/test_health.py",
+            "node_id": "TestHealth::test_ok",
+            "command": [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/acceptance/test_health.py::TestHealth::test_ok",
+            ],
+        },
+    }
+
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="class-scoped-human-test",
+        provider=PassingProvider(),
+    )
+
+    assert result.state is RunState.RELEASE_READY
 
 
 class TamperingProvider:
@@ -801,6 +847,60 @@ def test_json_equality_does_not_treat_boolean_as_number(tmp_path: Path) -> None:
 
     assert result.state is RunState.HALTED
     assert result.cause == "REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:AC-001"
+
+
+@pytest.mark.parametrize("operator", ["contains", "not_contains"])
+def test_array_containment_uses_json_type_aware_equality(tmp_path: Path, operator: str) -> None:
+    baseline = "[0]" if operator == "contains" else "[True]"
+    template = Template(
+        version="barebones-1",
+        files={"product.py": f"def health():\n    return {{'status': {baseline}}}\n"},
+        actions={"health": "product:health"},
+        context={"service": {"running": True}},
+    )
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"]["then"][0] = {
+        "path": "result.status",
+        "operator": operator,
+        "value": True,
+    }
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id=f"json-type-{operator}",
+        provider=ArrayBooleanProvider(),
+        template=template,
+    )
+
+    expected = RunState.HALTED if operator == "contains" else RunState.RELEASE_READY
+    assert result.state is expected
+
+
+def test_non_assertion_mutation_cannot_satisfy_meaningful_red(tmp_path: Path) -> None:
+    template = Template(
+        version="barebones-1",
+        files={
+            "product.py": (
+                "from pathlib import Path\n\n"
+                "def health():\n"
+                "    Path(__file__).with_name('marker').write_text('changed')\n"
+                "    return {'status': 'ok'}\n"
+            )
+        },
+        actions={"health": "product:health"},
+        context={"service": {"running": True}},
+    )
+
+    with pytest.raises(ContractInvalidError, match="baseline must fail"):
+        run_to_release_ready(
+            contract=_contract(),
+            repository_root=tmp_path,
+            workspace=tmp_path / "candidate",
+            run_id="mutation-is-not-red",
+            provider=PassingProvider(),
+            template=template,
+        )
 
 
 def test_missing_path_never_satisfies_a_null_assertion(tmp_path: Path) -> None:
