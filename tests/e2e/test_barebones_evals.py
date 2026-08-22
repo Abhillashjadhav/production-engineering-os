@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 13093)
-Total output lines: 1525
-
 from __future__ import annotations
 
 import json
@@ -681,7 +678,137 @@ def test_coder_cannot_rewrite_human_authored_evidence(tmp_path: Path) -> None:
     contract = _contract()
     contract["acceptance_criteria"]["AC-001"] = {
         "requirement_refs": ["FR-001"],
-        "…1093 tokens truncated…  },
+        "human_test": {
+            "path": "tests/acceptance/test_health.py",
+            "node_id": "test_health",
+            "command": [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/acceptance/test_health.py::test_health",
+            ],
+        },
+    }
+
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="human-test-tamper",
+        provider=TamperingProvider(),
+    )
+
+    assert result.state is RunState.HALTED
+    assert result.cause == "CODER_MODIFIED_EVIDENCE"
+
+
+class DotSegmentTamperingProvider:
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        return {
+            "request_digest": request["request_digest"],
+            "files": {"tests/acceptance/./test_health.py": "def test_health(): assert True\n"},
+        }
+
+
+def test_coder_cannot_bypass_test_protection_with_dot_segments(tmp_path: Path) -> None:
+    test_file = tmp_path / "tests/acceptance/test_health.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text("def test_health():\n    assert False\n")
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"] = {
+        "requirement_refs": ["FR-001"],
+        "human_test": {
+            "path": "tests/acceptance/test_health.py",
+            "node_id": "test_health",
+            "command": [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/acceptance/test_health.py::test_health",
+            ],
+        },
+    }
+
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="human-test-dot-tamper",
+        provider=DotSegmentTamperingProvider(),
+    )
+
+    assert result.state is RunState.HALTED
+    assert result.cause == "CODER_RESPONSE_INVALID"
+
+
+class ConftestCheatProvider:
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert purpose == "code"
+        return {
+            "request_digest": request["request_digest"],
+            "files": {
+                "conftest.py": (
+                    "def pytest_runtest_setup(item):\n"
+                    "    item.module.health = lambda: {'status': 'ok'}\n"
+                )
+            },
+        }
+
+
+class PytestShadowProvider:
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert purpose == "code"
+        fake_pytest = (
+            "import pathlib, sys\n"
+            "report = next(item.split('=', 1)[1] for item in sys.argv if "
+            "item.startswith('--junitxml='))\n"
+            "pathlib.Path(report).write_text(\n"
+            "    '<testsuite><testcase name=\"test_health\" /></testsuite>'\n"
+            ")\n"
+        )
+        return {
+            "request_digest": request["request_digest"],
+            "files": {"pytest.py": fake_pytest},
+        }
+
+
+class TestPackageInitializerProvider:
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert purpose == "code"
+        initializer = (
+            "import sys, types\n"
+            "fake = types.ModuleType('product')\n"
+            "fake.health = lambda: {'status': 'ok'}\n"
+            "sys.modules['product'] = fake\n"
+        )
+        return {
+            "request_digest": request["request_digest"],
+            "files": {"tests/__init__.py": initializer},
+        }
+
+
+def test_coder_controlled_conftest_cannot_change_bound_test_outcome(tmp_path: Path) -> None:
+    test_file = tmp_path / "tests/acceptance/test_health.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text(
+        "from product import health\n\ndef test_health():\n    assert health()['status'] == 'ok'\n"
+    )
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"] = {
+        "requirement_refs": ["FR-001"],
+        "human_test": {
+            "path": "tests/acceptance/test_health.py",
+            "node_id": "test_health",
+            "command": [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/acceptance/test_health.py::test_health",
+            ],
+        },
     }
 
     result = run_to_release_ready(
