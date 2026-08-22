@@ -22,6 +22,8 @@ def test_ledger_writes_only_the_frozen_two_path_shapes(tmp_path: Path) -> None:
 
     assert ledger.events_path == tmp_path / ".pmpe/runs/run-001/events.jsonl"
     assert (tmp_path / ".pmpe/blobs" / blob.removeprefix("sha256:")).is_file()
+    assert event["schema_version"] == "1.0.0"
+    assert event["run_id"] == "run-001"
     assert tuple(ledger.verify()) == (event,)
 
 
