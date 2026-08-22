@@ -68,6 +68,7 @@ class HumanTest:
 class TemplateProof:
     template_version: str
     test_id: str
+    file_digest: str
 
 
 @dataclass(frozen=True)
@@ -152,25 +153,7 @@ def _assertions(
         for right in compiled[index + 1 :]:
             if left.path != right.path:
                 continue
-            opposite_unary = {
-                (Operator.IS_TRUE, Operator.IS_FALSE),
-                (Operator.IS_FALSE, Operator.IS_TRUE),
-                (Operator.IS_NULL, Operator.NOT_NULL),
-                (Operator.NOT_NULL, Operator.IS_NULL),
-            }
-            contradictory = (
-                (
-                    left.operator is Operator.EQ
-                    and right.operator is Operator.EQ
-                    and canonical_digest(left.value) != canonical_digest(right.value)
-                )
-                or (
-                    {left.operator, right.operator} == {Operator.EQ, Operator.NE}
-                    and canonical_digest(left.value) == canonical_digest(right.value)
-                )
-                or ((left.operator, right.operator) in opposite_unary)
-            )
-            if contradictory:
+            if _contradictory(left, right):
                 diagnostics.append(
                     AcceptanceDiagnostic(
                         "CONTRADICTORY_ASSERTIONS",
@@ -180,6 +163,56 @@ def _assertions(
                 )
                 return tuple(compiled)
     return tuple(compiled)
+
+
+def _ordered_comparison(left: Any, operator: Operator, right: Any) -> bool | None:
+    operations = {
+        Operator.LT: lambda: left < right,
+        Operator.LTE: lambda: left <= right,
+        Operator.GT: lambda: left > right,
+        Operator.GTE: lambda: left >= right,
+    }
+    try:
+        return bool(operations[operator]())
+    except (KeyError, TypeError):
+        return None
+
+
+def _contradictory(left: PropertyAssertion, right: PropertyAssertion) -> bool:
+    if left.operator is Operator.EQ and right.operator is Operator.EQ:
+        return canonical_digest(left.value) != canonical_digest(right.value)
+    if {left.operator, right.operator} == {Operator.EQ, Operator.NE}:
+        return canonical_digest(left.value) == canonical_digest(right.value)
+    opposite_unary = {
+        (Operator.IS_TRUE, Operator.IS_FALSE),
+        (Operator.IS_FALSE, Operator.IS_TRUE),
+        (Operator.IS_NULL, Operator.NOT_NULL),
+        (Operator.NOT_NULL, Operator.IS_NULL),
+    }
+    if (left.operator, right.operator) in opposite_unary:
+        return True
+    ordered = {Operator.LT, Operator.LTE, Operator.GT, Operator.GTE}
+    if left.operator is Operator.EQ and right.operator in ordered:
+        result = _ordered_comparison(left.value, right.operator, right.value)
+        return result is False
+    if right.operator is Operator.EQ and left.operator in ordered:
+        result = _ordered_comparison(right.value, left.operator, left.value)
+        return result is False
+    lower = left if left.operator in {Operator.GT, Operator.GTE} else right
+    upper = right if right.operator in {Operator.LT, Operator.LTE} else left
+    if lower.operator not in {Operator.GT, Operator.GTE} or upper.operator not in {
+        Operator.LT,
+        Operator.LTE,
+    }:
+        return False
+    try:
+        if lower.value > upper.value:
+            return True
+        return lower.value == upper.value and (
+            lower.operator is Operator.GT or upper.operator is Operator.LT
+        )
+    except TypeError:
+        return False
 
 
 def _human_test(
@@ -196,7 +229,7 @@ def _human_test(
         not isinstance(path_value, str)
         or not path_value.startswith("tests/")
         or Path(path_value).is_absolute()
-        or ".." in Path(path_value).parts
+        or any(part in {".", ".."} for part in path_value.split("/"))
         or not isinstance(node_id, str)
         or not node_id
         or not isinstance(command, list)
@@ -222,12 +255,15 @@ def _human_test(
         )
         return None
     target = f"{path_value}::{node_id}"
-    if path_value not in command and target not in command:
+    is_pytest = Path(command[0]).name.startswith("pytest") or (
+        len(command) >= 3 and command[1:3] == ["-m", "pytest"]
+    )
+    if not is_pytest or target not in command:
         diagnostics.append(
             AcceptanceDiagnostic(
                 "HUMAN_TEST_COMMAND_MISMATCH",
                 criterion_id,
-                "human test command does not target its bound file or node",
+                "human test command must run pytest against its exact bound node",
             )
         )
         return None
@@ -241,7 +277,7 @@ def compile_acceptance_plan(
     repository_root: Path,
     registered_actions: frozenset[str],
     template_version: str,
-    template_test_ids: frozenset[str],
+    template_test_digests: Mapping[str, str],
     registered_measures: frozenset[str] = frozenset(),
 ) -> AcceptanceBuildPlan:
     """Compile typed criteria and prove task/test coverage before any build."""
@@ -399,7 +435,8 @@ def compile_acceptance_plan(
             proof_raw = _mapping(item.get("satisfied_by_template"))
             version = "" if proof_raw is None else str(proof_raw.get("template_version", ""))
             test_id = "" if proof_raw is None else str(proof_raw.get("test_id", ""))
-            if version != template_version or test_id not in template_test_ids:
+            proof_digest = template_test_digests.get(test_id)
+            if version != template_version or proof_digest is None:
                 diagnostics.append(
                     AcceptanceDiagnostic(
                         "TEMPLATE_PROOF_INVALID",
@@ -413,7 +450,7 @@ def compile_acceptance_plan(
                     cid,
                     refs,
                     form,
-                    template_proof=TemplateProof(version, test_id),
+                    template_proof=TemplateProof(version, test_id, proof_digest),
                 )
             )
 
