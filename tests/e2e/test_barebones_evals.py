@@ -446,6 +446,23 @@ class ConftestCheatProvider:
         }
 
 
+class PytestShadowProvider:
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert purpose == "code"
+        fake_pytest = (
+            "import pathlib, sys\n"
+            "report = next(item.split('=', 1)[1] for item in sys.argv if "
+            "item.startswith('--junitxml='))\n"
+            "pathlib.Path(report).write_text(\n"
+            "    '<testsuite><testcase name=\"test_health\" /></testsuite>'\n"
+            ")\n"
+        )
+        return {
+            "request_digest": request["request_digest"],
+            "files": {"pytest.py": fake_pytest},
+        }
+
+
 def test_coder_controlled_conftest_cannot_change_bound_test_outcome(tmp_path: Path) -> None:
     test_file = tmp_path / "tests/acceptance/test_health.py"
     test_file.parent.mkdir(parents=True)
@@ -474,6 +491,40 @@ def test_coder_controlled_conftest_cannot_change_bound_test_outcome(tmp_path: Pa
         workspace=tmp_path / "candidate",
         run_id="conftest-isolation",
         provider=ConftestCheatProvider(),
+    )
+
+    assert result.state is RunState.HALTED
+    assert result.cause == "REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:AC-001"
+
+
+def test_coder_cannot_shadow_the_bound_pytest_runner(tmp_path: Path) -> None:
+    test_file = tmp_path / "tests/acceptance/test_health.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text(
+        "from product import health\n\ndef test_health():\n    assert health()['status'] == 'ok'\n"
+    )
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"] = {
+        "requirement_refs": ["FR-001"],
+        "human_test": {
+            "path": "tests/acceptance/test_health.py",
+            "node_id": "test_health",
+            "command": [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/acceptance/test_health.py::test_health",
+            ],
+        },
+    }
+
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="pytest-shadow-isolation",
+        provider=PytestShadowProvider(),
     )
 
     assert result.state is RunState.HALTED
