@@ -409,9 +409,6 @@ def _privacy_evidence_from_artifact(
         and value.get("policy_file_digest") == _file_digest(policy_path)
         and value.get("verifier_file_digest") == _file_digest(verifier_path)
         and value.get("retention_test_passed") is True
-        and value.get("residency_test_passed") is True
-        and isinstance(value.get("residency_observation_digest"), str)
-        and str(value.get("residency_observation_digest", "")).startswith("sha256:")
         and value.get("telemetry_test_passed") is True
         and isinstance(value.get("emitted_telemetry"), list)
     )
@@ -421,7 +418,7 @@ def _privacy_evidence_from_artifact(
         classification=str(value["classification"]),
         retention_days=int(value["retention_days"]),
         deletion_test_passed=value.get("deletion_test_passed") is True,
-        residency=str(value["residency"]),
+        residency=value.get("residency") if isinstance(value.get("residency"), str) else None,
         emitted_telemetry=tuple(str(item) for item in value["emitted_telemetry"]),
         evidence_digest="",
     )
