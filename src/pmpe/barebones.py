@@ -459,18 +459,21 @@ def _verify_snapshot(
 
 def _security_findings(workspace: Path) -> tuple[Finding, ...]:
     findings: list[Finding] = []
-    for path in sorted(workspace.rglob("*.py")):
-        content = path.read_text()
+    for path in sorted(item for item in workspace.rglob("*") if item.is_file()):
+        try:
+            content = path.read_text()
+        except UnicodeDecodeError:
+            continue
         relative = str(path.relative_to(workspace))
         if _CREDENTIAL.search(content):
             findings.append(
                 Finding("CRITICAL_CREDENTIAL", relative, "credential material", (relative,))
             )
-        if _HIGH_RISK_CODE.search(content):
+        if path.suffix == ".py" and _HIGH_RISK_CODE.search(content):
             findings.append(
                 Finding("HIGH_DYNAMIC_EXECUTION", relative, "dynamic execution", (relative,))
             )
-        if "TODO" in content:
+        if path.suffix == ".py" and "TODO" in content:
             findings.append(Finding("LOW_TODO", relative, "TODO remains", (relative,)))
     return tuple(findings)
 
@@ -741,7 +744,15 @@ def run_to_release_ready(
         )
         finding_digest = canonical_digest([asdict(item) for item in findings])
         implicated = {path for item in findings for path in item.files}
-        if previous_finding_digest == finding_digest and not implicated.intersection(changed):
+        human_test_ids = {item.criterion_id for item in plan.criteria if item.form == "human_test"}
+        human_test_repair = bool(changed) and any(
+            item.subject_id in human_test_ids for item in findings
+        )
+        if (
+            previous_finding_digest == finding_digest
+            and not implicated.intersection(changed)
+            and not human_test_repair
+        ):
             subjects = ",".join(sorted({item.subject_id for item in findings}))
             cause = f"REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:{subjects}"
             ledger.append(
