@@ -168,6 +168,15 @@ def _assertion_passes(assertion: PropertyAssertion, value: Any) -> bool:
             return operation(left, right)
         return False
 
+    def contains(left: Any, right: Any) -> bool:
+        if isinstance(left, list):
+            return any(canonical_digest(item) == canonical_digest(right) for item in left)
+        if isinstance(left, str) and isinstance(right, str):
+            return right in left
+        if isinstance(left, Mapping) and isinstance(right, str):
+            return right in left
+        return False
+
     binary: dict[Operator, Callable[[Any, Any], bool]] = {
         Operator.EQ: lambda left, right: canonical_digest(left) == canonical_digest(right),
         Operator.NE: lambda left, right: canonical_digest(left) != canonical_digest(right),
@@ -175,8 +184,8 @@ def _assertion_passes(assertion: PropertyAssertion, value: Any) -> bool:
         Operator.LTE: lambda left, right: ordered(left, right, comparison.le),
         Operator.GT: lambda left, right: ordered(left, right, comparison.gt),
         Operator.GTE: lambda left, right: ordered(left, right, comparison.ge),
-        Operator.CONTAINS: lambda left, right: right in left,
-        Operator.NOT_CONTAINS: lambda left, right: right not in left,
+        Operator.CONTAINS: contains,
+        Operator.NOT_CONTAINS: lambda left, right: not contains(left, right),
         Operator.MATCHES: lambda left, right: bool(re.search(str(right), str(left))),
     }
     if assertion.operator in binary:
@@ -292,7 +301,19 @@ def _run_pytest_node(workspace: Path, test: TemplateTest) -> bool:
             root = ET.parse(report).getroot()
         except (ET.ParseError, OSError) as exc:
             raise ContractInvalidError("human test produced no structured pytest result") from exc
-        cases = [item for item in root.iter("testcase") if item.get("name") == test.node_id]
+        node_parts = test.node_id.split("::")
+        expected_name = node_parts[-1]
+        expected_classes = node_parts[:-1]
+        cases = [
+            item
+            for item in root.iter("testcase")
+            if item.get("name") == expected_name
+            and (
+                not expected_classes
+                or (item.get("classname") or "").split(".")[-len(expected_classes) :]
+                == expected_classes
+            )
+        ]
         if len(cases) != 1:
             raise ContractInvalidError("bound human test node did not execute exactly once")
         case = cases[0]
@@ -620,7 +641,9 @@ def run_to_release_ready(
     )
     non_template = tuple(item for item in plan.criteria if item.form != "satisfied_by_template")
     failed_ids = {item.subject_id for item in baseline}
-    if failed_ids != {item.criterion_id for item in non_template}:
+    if any(item.code != "ASSERTION_FAILED" for item in baseline) or failed_ids != {
+        item.criterion_id for item in non_template
+    }:
         raise ContractInvalidError("baseline must fail every non-template criterion by assertion")
     baseline_blob = ledger.put_blob(
         json.dumps(
