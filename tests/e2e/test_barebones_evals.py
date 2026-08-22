@@ -56,6 +56,25 @@ class StaleResponseProvider:
         return {"request_digest": "sha256:" + "0" * 64, "files": {}}
 
 
+class SyntaxRepairProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        if purpose == "advisory_review":
+            return {"request_digest": request["request_digest"], "summary": "advisory"}
+        self.calls += 1
+        content = (
+            "def health(:\n"
+            if self.calls == 1
+            else "def health() -> dict[str, str]:\n    return {'status': 'ok'}\n"
+        )
+        return {
+            "request_digest": request["request_digest"],
+            "files": {"product.py": content},
+        }
+
+
 def test_e2_unsatisfiable_run_halts_with_exact_requirement(tmp_path: Path) -> None:
     result = run_to_release_ready(
         contract=_contract(),
@@ -80,6 +99,19 @@ def test_e3_stale_model_response_is_detected_as_drift(tmp_path: Path) -> None:
 
     assert result.state is RunState.HALTED
     assert result.cause == "MODEL_RESPONSE_UNBOUND"
+
+
+def test_coder_can_repair_a_candidate_syntax_failure(tmp_path: Path) -> None:
+    result = run_to_release_ready(
+        contract=_contract(),
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="syntax-repair",
+        provider=SyntaxRepairProvider(),
+    )
+
+    assert result.state is RunState.RELEASE_READY
+    assert result.attempts == 2
 
 
 def test_e4_contradiction_stops_before_build(tmp_path: Path) -> None:
