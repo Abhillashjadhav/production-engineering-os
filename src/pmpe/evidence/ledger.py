@@ -56,6 +56,23 @@ class EvidenceLedger:
                 ) from exc
             os.close(descriptor)
 
+    @classmethod
+    def open_existing(cls, repository_root: Path, run_id: str) -> EvidenceLedger:
+        """Open and verify an existing ledger without attempting to resume its run."""
+
+        if not _RUN_ID.fullmatch(run_id):
+            raise ValueError("run_id must be a bounded filesystem-safe identifier")
+        ledger = cls.__new__(cls)
+        ledger.run_id = run_id
+        ledger.root = repository_root / ".pmpe"
+        ledger.run_directory = ledger.root / "runs" / run_id
+        ledger.events_path = ledger.run_directory / "events.jsonl"
+        ledger.blobs_directory = ledger.root / "blobs"
+        if not ledger.events_path.is_file():
+            raise EvidenceIntegrityError("evidence ledger does not exist")
+        tuple(ledger.verify())
+        return ledger
+
     def put_blob(self, payload: bytes) -> str:
         digest = "sha256:" + hashlib.sha256(payload).hexdigest()
         destination = self.blobs_directory / digest.removeprefix("sha256:")
