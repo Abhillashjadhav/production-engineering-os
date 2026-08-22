@@ -426,3 +426,38 @@ def test_measure_requires_a_registered_observation_source(tmp_path: Path) -> Non
         )
 
     assert failure.value.diagnostics[0].code == "MEASURE_INVALID"
+
+
+@pytest.mark.parametrize(
+    ("operator", "value", "code"),
+    [
+        ("matches", "[", "INVALID_REGEX_ASSERTION"),
+        ("matches", 42, "INVALID_REGEX_ASSERTION"),
+        ("lte", None, "INVALID_ORDERED_ASSERTION_VALUE"),
+        ("gt", True, "INVALID_ORDERED_ASSERTION_VALUE"),
+    ],
+)
+def test_measure_assertion_operands_are_validated_before_build(
+    tmp_path: Path, operator: str, value: object, code: str
+) -> None:
+    contract = _contract(
+        {
+            "requirement_refs": ["FR-001"],
+            "measure": "latency.p95_ms",
+            "operator": operator,
+            "value": value,
+            "sample": {"minimum": 20},
+        }
+    )
+
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_acceptance_plan(
+            contract,
+            repository_root=tmp_path,
+            registered_actions=frozenset(),
+            template_version="barebones-1",
+            template_test_digests={},
+            registered_measures=frozenset({"latency.p95_ms"}),
+        )
+
+    assert any(item.code == code for item in failure.value.diagnostics)
