@@ -194,6 +194,33 @@ class NonFiniteProvider:
         }
 
 
+class CredentialFileProvider(PassingProvider):
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        response = dict(super().invoke(purpose=purpose, request=request))
+        if purpose == "code":
+            response["files"] = {
+                **response["files"],
+                ".env": "AWS_ACCESS_KEY_ID=AKIAABCDEFGHIJKLMNOP\n",
+            }
+        return response
+
+
+class HumanTestRepairProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        if purpose == "advisory_review":
+            return {"request_digest": request["request_digest"], "summary": "advisory"}
+        self.calls += 1
+        files = (
+            {"notes.txt": "first attempt\n"}
+            if self.calls == 1
+            else {"product.py": "def health():\n    return {'status': 'ok'}\n"}
+        )
+        return {"request_digest": request["request_digest"], "files": files}
+
+
 class MeasureSyntaxRepairProvider:
     def __init__(self) -> None:
         self.calls = 0
@@ -666,6 +693,40 @@ def test_coder_cannot_add_initializers_above_a_protected_test(tmp_path: Path) ->
     assert result.cause == "CODER_MODIFIED_EVIDENCE"
 
 
+def test_human_test_failure_allows_a_changed_product_repair(tmp_path: Path) -> None:
+    test_file = tmp_path / "tests/acceptance/test_health.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text(
+        "from product import health\n\ndef test_health():\n    assert health()['status'] == 'ok'\n"
+    )
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"] = {
+        "requirement_refs": ["FR-001"],
+        "human_test": {
+            "path": "tests/acceptance/test_health.py",
+            "node_id": "test_health",
+            "command": [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/acceptance/test_health.py::test_health",
+            ],
+        },
+    }
+
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="human-test-repair",
+        provider=HumanTestRepairProvider(),
+    )
+
+    assert result.state is RunState.RELEASE_READY
+    assert result.attempts == 2
+
+
 def test_template_proof_is_digest_bound_and_executed(tmp_path: Path) -> None:
     template = Template(
         version="barebones-1",
@@ -932,6 +993,19 @@ def test_non_finite_action_output_becomes_a_repair_finding(tmp_path: Path) -> No
 
     assert result.state is RunState.HALTED
     assert result.cause == "REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:candidate"
+
+
+def test_credential_material_is_blocked_in_non_python_files(tmp_path: Path) -> None:
+    result = run_to_release_ready(
+        contract=_contract(),
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="credential-in-env",
+        provider=CredentialFileProvider(),
+    )
+
+    assert result.state is RunState.HALTED
+    assert result.cause == "REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:.env"
 
 
 @pytest.mark.parametrize("operator,value", [("lte", 2), ("gt", 0)])
