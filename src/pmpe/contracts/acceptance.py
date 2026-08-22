@@ -166,6 +166,17 @@ def _assertions(
 
 
 def _ordered_comparison(left: Any, operator: Operator, right: Any) -> bool | None:
+    if isinstance(left, bool) or isinstance(right, bool):
+        return None
+    numeric = (int, float)
+    compatible = (
+        isinstance(left, numeric)
+        and isinstance(right, numeric)
+        or isinstance(left, str)
+        and isinstance(right, str)
+    )
+    if not compatible:
+        return None
     operations = {
         Operator.LT: lambda: left < right,
         Operator.LTE: lambda: left <= right,
@@ -208,10 +219,10 @@ def _contradictory(left: PropertyAssertion, right: PropertyAssertion) -> bool:
     ordered = {Operator.LT, Operator.LTE, Operator.GT, Operator.GTE}
     if left.operator is Operator.EQ and right.operator in ordered:
         result = _ordered_comparison(left.value, right.operator, right.value)
-        return result is False
+        return result is not True
     if right.operator is Operator.EQ and left.operator in ordered:
         result = _ordered_comparison(right.value, left.operator, left.value)
-        return result is False
+        return result is not True
     lower = left if left.operator in {Operator.GT, Operator.GTE} else right
     upper = right if right.operator in {Operator.LT, Operator.LTE} else left
     if lower.operator not in {Operator.GT, Operator.GTE} or upper.operator not in {
@@ -219,14 +230,12 @@ def _contradictory(left: PropertyAssertion, right: PropertyAssertion) -> bool:
         Operator.LTE,
     }:
         return False
-    try:
-        if lower.value > upper.value:
-            return True
-        return lower.value == upper.value and (
-            lower.operator is Operator.GT or upper.operator is Operator.LT
-        )
-    except TypeError:
-        return False
+    greater = _ordered_comparison(lower.value, Operator.GT, upper.value)
+    if greater is None or greater:
+        return True
+    return lower.value == upper.value and (
+        lower.operator is Operator.GT or upper.operator is Operator.LT
+    )
 
 
 def _human_test(
