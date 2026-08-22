@@ -43,6 +43,7 @@ def test_default_candidate_sandbox_removes_host_authority(
     assert isinstance(argv, list)
     assert "--unshare-all" in argv
     assert "--clearenv" in argv
+    assert f"--fsize={64 * 1024 * 1024}" in argv
     assert ["--ro-bind", str(workspace), "/workspace"] == argv[
         argv.index(str(workspace)) - 1 : argv.index(str(workspace)) + 2
     ]

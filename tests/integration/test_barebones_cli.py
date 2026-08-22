@@ -121,6 +121,35 @@ def test_non_empty_workspace_is_rejected_before_evidence_is_created(
     assert not (tmp_path / ".pmpe" / "runs" / "occupied-workspace").exists()
 
 
+def test_workspace_cannot_overlap_evidence_storage(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repository = Path(__file__).parents[2]
+    workspace = tmp_path / "candidate"
+    workspace.mkdir()
+    args = build_parser().parse_args(
+        [
+            "barebones",
+            str(repository / "examples/barebones/e1-contract.json"),
+            "--workspace",
+            str(workspace),
+            "--run-id",
+            "overlapping-roots",
+            "--repository-root",
+            str(workspace),
+            "--provider-command",
+            "provider",
+        ]
+    )
+
+    assert args.fn(args) == 3
+    output = json.loads(capsys.readouterr().out)
+    assert output["state"] == "HALTED"
+    assert output["cause"] == "CONTRACT_INVALID"
+    assert output["detail"] == "candidate workspace must not overlap evidence storage"
+    assert not (workspace / ".pmpe").exists()
+
+
 def test_command_provider_rejects_non_json_numeric_constants(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

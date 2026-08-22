@@ -216,7 +216,7 @@ class BubblewrapCandidateSandbox:
             limiter,
             f"--as={1024 * 1024 * 1024}",
             f"--cpu={int(timeout_seconds) + 1}",
-            f"--fsize={_CANDIDATE_OUTPUT_LIMIT_BYTES + 1}",
+            f"--fsize={64 * 1024 * 1024}",
             "--nofile=256",
             "--nproc=128",
             "--",
@@ -822,6 +822,10 @@ def run_to_release_ready(
         registered_measures=frozenset(active_template.measures),
         trusted_test_digests=trusted_test_digests,
     )
+    workspace_root = workspace.resolve()
+    evidence_root = (repository_root / ".pmpe").resolve()
+    if workspace_root.is_relative_to(evidence_root) or evidence_root.is_relative_to(workspace_root):
+        raise ContractInvalidError("candidate workspace must not overlap evidence storage")
     if workspace.exists() and (not workspace.is_dir() or any(workspace.iterdir())):
         raise ContractInvalidError("candidate workspace must be empty")
     workspace.mkdir(parents=True, exist_ok=True)
