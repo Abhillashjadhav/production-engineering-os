@@ -267,6 +267,44 @@ def test_ordered_contradictions_fail_at_compile_time(
     assert any(item.code == "CONTRADICTORY_ASSERTIONS" for item in failure.value.diagnostics)
 
 
+@pytest.mark.parametrize(
+    ("left", "right"),
+    [
+        (("eq", True), ("is_false", None)),
+        (("eq", None), ("not_null", None)),
+        (("ne", True), ("is_true", None)),
+        (("is_null", None), ("ne", None)),
+    ],
+)
+def test_equality_and_unary_contradictions_fail_at_compile_time(
+    tmp_path: Path,
+    left: tuple[str, object],
+    right: tuple[str, object],
+) -> None:
+    contract = _contract(
+        {
+            "requirement_refs": ["FR-001"],
+            "given": [
+                {"path": "service.value", "operator": left[0], "value": left[1]},
+                {"path": "service.value", "operator": right[0], "value": right[1]},
+            ],
+            "when": {"action": "health", "arguments": {}},
+            "then": [{"path": "result.status", "operator": "eq", "value": "ok"}],
+        }
+    )
+
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_acceptance_plan(
+            contract,
+            repository_root=tmp_path,
+            registered_actions=frozenset({"health"}),
+            template_version="barebones-1",
+            template_test_digests={},
+        )
+
+    assert any(item.code == "CONTRADICTORY_ASSERTIONS" for item in failure.value.diagnostics)
+
+
 def test_measure_requires_a_registered_observation_source(tmp_path: Path) -> None:
     contract = _contract(
         {
