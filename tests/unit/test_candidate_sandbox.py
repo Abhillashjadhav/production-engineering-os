@@ -64,6 +64,30 @@ def test_candidate_execution_fails_closed_without_os_sandbox(
         )
 
 
+def test_candidate_output_is_bounded_outside_the_parent_process(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        barebones.shutil,
+        "which",
+        lambda name, path=None: f"/usr/bin/{name}",
+    )
+
+    def oversized(argv: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        kwargs["stdout"].write(b"x" * (barebones._CANDIDATE_OUTPUT_LIMIT_BYTES + 1))  # type: ignore[union-attr]
+        return subprocess.CompletedProcess(argv, 0, b"", b"")  # type: ignore[arg-type]
+
+    monkeypatch.setattr(barebones.subprocess, "run", oversized)
+
+    with pytest.raises(ContractInvalidError, match="output exceeded limit"):
+        BubblewrapCandidateSandbox().run(
+            tmp_path,
+            ("/usr/bin/python3", "-V"),
+            timeout_seconds=2,
+            environment={},
+        )
+
+
 @pytest.mark.skipif(
     os.environ.get("PMPE_TEST_REAL_SANDBOX") != "true",
     reason="requires the dedicated CI namespace runtime",

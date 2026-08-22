@@ -92,6 +92,7 @@ _CREDENTIAL = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|AKI
 _HIGH_RISK_CODE = re.compile(r"\b(?:eval|exec)\s*\(")
 _ACTION_TIMEOUT_SECONDS = 10.0
 _PYTEST_TIMEOUT_SECONDS = 30.0
+_CANDIDATE_OUTPUT_LIMIT_BYTES = 1_000_000
 _SANDBOX_PATH = "/usr/local/bin:/usr/bin:/bin"
 _PYTEST_RESULT_PREFIX = "__PMPE_PYTEST_RESULT__:"
 
@@ -215,27 +216,43 @@ class BubblewrapCandidateSandbox:
             limiter,
             f"--as={1024 * 1024 * 1024}",
             f"--cpu={int(timeout_seconds) + 1}",
-            f"--fsize={64 * 1024 * 1024}",
+            f"--fsize={_CANDIDATE_OUTPUT_LIMIT_BYTES + 1}",
             "--nofile=256",
             "--nproc=128",
             "--",
             *sandbox_argv,
         ]
-        try:
-            completed = subprocess.run(
-                command,
-                cwd=workspace,
-                text=True,
-                capture_output=True,
-                timeout=timeout_seconds,
-                check=False,
-                env={"LC_ALL": "C", "PATH": _SANDBOX_PATH},
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise ContractInvalidError("candidate execution timed out") from exc
-        if completed.returncode != 0 and completed.stderr.lstrip().startswith("bwrap:"):
+        with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+            try:
+                completed = subprocess.run(
+                    command,
+                    cwd=workspace,
+                    stdout=stdout_file,
+                    stderr=stderr_file,
+                    timeout=timeout_seconds,
+                    check=False,
+                    env={"LC_ALL": "C", "PATH": _SANDBOX_PATH},
+                )
+            except subprocess.TimeoutExpired as exc:
+                raise ContractInvalidError("candidate execution timed out") from exc
+            stdout_file.seek(0)
+            stderr_file.seek(0)
+            stdout = stdout_file.read(_CANDIDATE_OUTPUT_LIMIT_BYTES + 1)
+            stderr = stderr_file.read(_CANDIDATE_OUTPUT_LIMIT_BYTES + 1)
+        if (
+            len(stdout) > _CANDIDATE_OUTPUT_LIMIT_BYTES
+            or len(stderr) > _CANDIDATE_OUTPUT_LIMIT_BYTES
+        ):
+            raise ContractInvalidError("candidate output exceeded limit")
+        decoded = subprocess.CompletedProcess[str](
+            completed.args,
+            completed.returncode,
+            stdout.decode("utf-8", errors="replace"),
+            stderr.decode("utf-8", errors="replace"),
+        )
+        if decoded.returncode != 0 and decoded.stderr.lstrip().startswith("bwrap:"):
             raise ContractInvalidError("candidate OS sandbox could not establish isolation")
-        return completed
+        return decoded
 
 
 def _reject_non_json_constant(token: str) -> NoReturn:
@@ -805,6 +822,9 @@ def run_to_release_ready(
         registered_measures=frozenset(active_template.measures),
         trusted_test_digests=trusted_test_digests,
     )
+    if workspace.exists() and (not workspace.is_dir() or any(workspace.iterdir())):
+        raise ContractInvalidError("candidate workspace must be empty")
+    workspace.mkdir(parents=True, exist_ok=True)
     ledger = EvidenceLedger(repository_root, run_id)
 
     def finish(
@@ -838,9 +858,6 @@ def run_to_release_ready(
         ledger.append(event_type="stopped", state=RunState.STOPPED, subject_digest=subject_digest)
         return finish(RunState.STOPPED, "STOP_REQUESTED", 0)
 
-    workspace.mkdir(parents=True, exist_ok=True)
-    if any(workspace.iterdir()):
-        raise ValueError("candidate workspace must be empty")
     _write_files(workspace, active_template.files)
     protected_tests = {
         _safe_path(workspace, proof.path) for proof in active_template.proofs.values()

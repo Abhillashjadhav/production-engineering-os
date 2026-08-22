@@ -91,6 +91,36 @@ def test_malformed_contract_is_reported_without_a_traceback(
     assert output["diagnostics"][0]["code"] == "MALFORMED_SOURCE"
 
 
+def test_non_empty_workspace_is_rejected_before_evidence_is_created(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repository = Path(__file__).parents[2]
+    workspace = tmp_path / "candidate"
+    workspace.mkdir()
+    (workspace / "previous.txt").write_text("occupied")
+    args = build_parser().parse_args(
+        [
+            "barebones",
+            str(repository / "examples/barebones/e1-contract.json"),
+            "--workspace",
+            str(workspace),
+            "--run-id",
+            "occupied-workspace",
+            "--repository-root",
+            str(tmp_path),
+            "--provider-command",
+            "provider",
+        ]
+    )
+
+    assert args.fn(args) == 3
+    output = json.loads(capsys.readouterr().out)
+    assert output["state"] == "HALTED"
+    assert output["cause"] == "CONTRACT_INVALID"
+    assert output["detail"] == "candidate workspace must be empty"
+    assert not (tmp_path / ".pmpe" / "runs" / "occupied-workspace").exists()
+
+
 def test_command_provider_rejects_non_json_numeric_constants(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

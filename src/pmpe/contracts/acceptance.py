@@ -281,6 +281,16 @@ def _assertion_set_contradictory(assertions: tuple[PropertyAssertion, ...]) -> b
 
 
 def _contradictory(left: PropertyAssertion, right: PropertyAssertion) -> bool:
+    containment = {Operator.CONTAINS, Operator.NOT_CONTAINS}
+    if (
+        left.operator is Operator.MATCHES
+        and right.operator in containment
+        and not isinstance(right.value, str)
+        or right.operator is Operator.MATCHES
+        and left.operator in containment
+        and not isinstance(left.value, str)
+    ):
+        return True
     if left.operator is Operator.EQ and right.operator is Operator.EQ:
         return canonical_digest(left.value) != canonical_digest(right.value)
     if {left.operator, right.operator} == {Operator.EQ, Operator.NE}:
