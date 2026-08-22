@@ -80,7 +80,9 @@ class BoundaryPolicy:
         try:
             digest = canonical_digest(payload)
         except (rfc8785.CanonicalizationError, OverflowError, ValueError) as exc:
-            raise BoundaryPolicyError("boundary policy is outside the canonical JSON domain") from exc
+            raise BoundaryPolicyError(
+                "boundary policy is outside the canonical JSON domain"
+            ) from exc
 
         instance = object.__new__(cls)
         object.__setattr__(instance, "_allowed_outbound", frozenset(parsed_outbound))

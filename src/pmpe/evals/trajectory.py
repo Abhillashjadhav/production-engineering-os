@@ -347,7 +347,10 @@ def evaluate_trajectory(events: list[dict[str, Any]]) -> list[TrajectoryViolatio
                 "TRAJ-16", "external input attempted to become the source of authority", evidence
             )
             continue
-        if not isinstance(capability, str) or capability not in boundary_policy.allowed_capabilities:
+        if (
+            not isinstance(capability, str)
+            or capability not in boundary_policy.allowed_capabilities
+        ):
             violate("TRAJ-16", "capability grant exceeds the frozen boundary policy", evidence)
 
     return violations
