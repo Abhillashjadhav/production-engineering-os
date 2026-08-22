@@ -24,6 +24,8 @@ It selects exactly one form.
 
 `given` and `then` contain data assertions. `when.action` names a template action
 registered by the one composable product template; it is not arbitrary source code.
+The compiler rejects incompatible equality and ordered bounds (for example,
+`gt 5` together with `lte 5`) before building.
 
 ### Measurable outcome
 
@@ -37,6 +39,10 @@ registered by the one composable product template; it is not arbitrary source co
   "sample": {"minimum": 100}
 }
 ```
+
+The template registers each measure name to a deterministic zero-argument action.
+That action must return `{"value": ..., "sample_size": ...}`; verification checks
+both the operator and the minimum sample without an LLM interpretation.
 
 ### Human-authored executable test
 
@@ -54,7 +60,10 @@ registered by the one composable product template; it is not arbitrary source co
 
 The path is repository-relative, must remain under `tests/`, and the command must
 target that exact path and node. The compiler records the file digest. Missing or
-changed files invalidate the plan.
+changed files invalidate the plan. Verification consumes pytest's structured XML
+result and requires that exact node to execute once. A skip, collection error, syntax
+error, fixture error, or runner error is never accepted as a passing or meaningful
+failing assertion.
 
 ### Explicitly satisfied by the template
 
@@ -70,7 +79,8 @@ changed files invalidate the plan.
 ```
 
 This is the only allowed baseline-PASS exception. The referenced test must exist in
-the pinned template and its digest is recorded before scaffolding.
+the pinned template, its digest is recorded before scaffolding, and that exact test
+must execute and pass during both baseline and final verification.
 
 ## Operators
 
@@ -92,7 +102,8 @@ Before entering `BUILDING`, the compiler proves:
 4. every criterion selects exactly one accepted form;
 5. every structured action and operator is registered;
 6. every human test exists and is digest-bound;
-7. every template-satisfied test exists in the pinned template;
+7. every template-satisfied test exists, is digest-bound, and is executable in the
+   pinned template;
 8. no compiler decision requires an LLM interpretation.
 
 Any failure returns `CONTRACT_INVALID` with the exact requirement or criterion ID.
@@ -106,6 +117,8 @@ The untouched template runs every compiled or human-authored test.
 - A passing test is invalid unless it is explicitly and correctly
   `satisfied_by_template`.
 - The compiler stores the baseline result and test digest in the evidence chain.
+- `RELEASE_READY` references a manifest that hashes every regular candidate file,
+  regardless of extension, plus each file's content-addressed blob.
 
 ## Hand-validation result
 
