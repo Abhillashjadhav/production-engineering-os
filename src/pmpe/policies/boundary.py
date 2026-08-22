@@ -71,7 +71,7 @@ class BoundaryPolicy:
         cls,
         payload: dict[str, Any],
         *,
-        _register_state: Callable[[object, PolicyState], None] = _register_policy_state,
+        _register_state: Callable[[object, PolicyState], None] | None = _register_policy_state,
     ) -> BoundaryPolicy:
         if set(payload) != {"allowed_outbound", "allowed_capabilities"}:
             raise BoundaryPolicyError("boundary policy has unknown or missing fields")
@@ -87,15 +87,21 @@ class BoundaryPolicy:
                 raise BoundaryPolicyError("outbound grant must name destination and capability")
             destination = item["destination"]
             capability = item["capability"]
-            if not isinstance(destination, str) or not destination.strip():
+            if type(destination) is not str:  # noqa: E721
                 raise BoundaryPolicyError("outbound destination must be a non-empty string")
-            if not isinstance(capability, str) or not capability.strip():
+            if not destination.strip():
+                raise BoundaryPolicyError("outbound destination must be a non-empty string")
+            if type(capability) is not str:  # noqa: E721
+                raise BoundaryPolicyError("outbound capability must be a non-empty string")
+            if not capability.strip():
                 raise BoundaryPolicyError("outbound capability must be a non-empty string")
             parsed_outbound.append(OutboundGrant(destination, capability))
 
         parsed_capabilities: list[str] = []
         for capability in capabilities:
-            if not isinstance(capability, str) or not capability.strip():
+            if type(capability) is not str:  # noqa: E721
+                raise BoundaryPolicyError("allowed capability must be a non-empty string")
+            if not capability.strip():
                 raise BoundaryPolicyError("allowed capability must be a non-empty string")
             parsed_capabilities.append(capability)
 
@@ -114,6 +120,8 @@ class BoundaryPolicy:
         frozen_outbound = frozenset(parsed_outbound)
         frozen_capabilities = frozenset(parsed_capabilities)
         instance = object.__new__(cls)
+        if _register_state is None:
+            raise BoundaryPolicyError("boundary policy authority is unavailable")
         _register_state(instance, (frozen_outbound, frozen_capabilities, digest))
         return instance
 
@@ -170,4 +178,22 @@ class BoundaryPolicy:
             raise BoundaryDeniedError("capability is not authorized by the frozen policy")
 
 
-del _build_state_registry, _read_policy_state, _register_policy_state
+def _bind_policy_constructor(
+    method: Any,
+    register: Callable[[object, PolicyState], None],
+) -> Any:
+    method.__kwdefaults__ = {"_register_state": None}
+
+    def bound(cls: type[BoundaryPolicy], payload: dict[str, Any]) -> BoundaryPolicy:
+        return method(cls, payload, _register_state=register)
+
+    return classmethod(bound)
+
+
+setattr(
+    BoundaryPolicy,
+    "from_payload",
+    _bind_policy_constructor(BoundaryPolicy.from_payload.__func__, _register_policy_state),
+)
+
+del _bind_policy_constructor, _build_state_registry, _read_policy_state, _register_policy_state
