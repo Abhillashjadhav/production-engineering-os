@@ -108,8 +108,8 @@ def test_unapproved_external_destination_is_caught_even_with_ready_final_verdict
 
 def test_allowed_external_destination_does_not_trigger_traj_15() -> None:
     events = _load("planted_unapproved_external_destination.jsonl")
-    allowed_digest = "sha256:b5e0b7ed5c2909c58c1da7e79478bb2741bc1b20213625bbe43b9812f07278f5"
-    events[0]["detail"] = "allowed=api.openai.com,external-provider.example"
+    allowed_digest = "sha256:9c3a1c9eebddce686d1015b2bb26bfea00119ce16f5e4a0787fc1b98887d04de"
+    events[0]["detail"] = "allowed=approved.example,external-provider.example"
     events[0]["output_digests"]["egress_policy"] = allowed_digest
     events[1]["input_digests"]["egress_policy"] = allowed_digest
     assert "TRAJ-15" not in {v.check_id for v in evaluate_trajectory(events)}
