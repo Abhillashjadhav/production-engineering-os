@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 
+from pmpe import barebones as barebones_module
 from pmpe.barebones import (
     ContractInvalidError,
     RunState,
@@ -113,6 +114,68 @@ class ManifestProvider(PassingProvider):
         return response
 
 
+class MutatingActionProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        if purpose == "advisory_review":
+            return {"request_digest": request["request_digest"], "summary": "advisory"}
+        self.calls += 1
+        content = (
+            "from pathlib import Path\n\n"
+            "def health():\n"
+            "    Path(__file__).write_text(\n"
+            "        \"def health():\\n    return {'status': 'broken'}\\n\"\n"
+            "    )\n"
+            "    return {'status': 'ok'}\n"
+            if self.calls == 1
+            else "def health():\n    return {'status': 'ok'}\n"
+        )
+        return {"request_digest": request["request_digest"], "files": {"product.py": content}}
+
+
+class BooleanProvider:
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert purpose == "code"
+        return {
+            "request_digest": request["request_digest"],
+            "files": {"product.py": "def health():\n    return {'status': True}\n"},
+        }
+
+
+class MeasureSyntaxRepairProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        if purpose == "advisory_review":
+            return {"request_digest": request["request_digest"], "summary": "advisory"}
+        self.calls += 1
+        content = (
+            "def latency(:\n"
+            if self.calls == 1
+            else "def latency():\n    return {'value': 100, 'sample_size': 20}\n"
+        )
+        return {"request_digest": request["request_digest"], "files": {"product.py": content}}
+
+
+class TimeoutRepairProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        if purpose == "advisory_review":
+            return {"request_digest": request["request_digest"], "summary": "advisory"}
+        self.calls += 1
+        content = (
+            "import time\n\ndef health():\n    time.sleep(1)\n    return {'status': 'ok'}\n"
+            if self.calls == 1
+            else "def health():\n    return {'status': 'ok'}\n"
+        )
+        return {"request_digest": request["request_digest"], "files": {"product.py": content}}
+
+
 def test_e2_unsatisfiable_run_halts_with_exact_requirement(tmp_path: Path) -> None:
     result = run_to_release_ready(
         contract=_contract(),
@@ -146,6 +209,22 @@ def test_coder_can_repair_a_candidate_syntax_failure(tmp_path: Path) -> None:
         workspace=tmp_path / "candidate",
         run_id="syntax-repair",
         provider=SyntaxRepairProvider(),
+    )
+
+    assert result.state is RunState.RELEASE_READY
+    assert result.attempts == 2
+
+
+def test_candidate_action_timeout_becomes_a_repairable_finding(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(barebones_module, "_ACTION_TIMEOUT_SECONDS", 0.2)
+    result = run_to_release_ready(
+        contract=_contract(),
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="timeout-repair",
+        provider=TimeoutRepairProvider(),
     )
 
     assert result.state is RunState.RELEASE_READY
@@ -353,6 +432,54 @@ def test_coder_cannot_bypass_test_protection_with_dot_segments(tmp_path: Path) -
     assert result.cause == "CODER_RESPONSE_INVALID"
 
 
+class ConftestCheatProvider:
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert purpose == "code"
+        return {
+            "request_digest": request["request_digest"],
+            "files": {
+                "conftest.py": (
+                    "def pytest_runtest_setup(item):\n"
+                    "    item.module.health = lambda: {'status': 'ok'}\n"
+                )
+            },
+        }
+
+
+def test_coder_controlled_conftest_cannot_change_bound_test_outcome(tmp_path: Path) -> None:
+    test_file = tmp_path / "tests/acceptance/test_health.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text(
+        "from product import health\n\ndef test_health():\n    assert health()['status'] == 'ok'\n"
+    )
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"] = {
+        "requirement_refs": ["FR-001"],
+        "human_test": {
+            "path": "tests/acceptance/test_health.py",
+            "node_id": "test_health",
+            "command": [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/acceptance/test_health.py::test_health",
+            ],
+        },
+    }
+
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="conftest-isolation",
+        provider=ConftestCheatProvider(),
+    )
+
+    assert result.state is RunState.HALTED
+    assert result.cause == "REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:AC-001"
+
+
 def test_template_proof_is_digest_bound_and_executed(tmp_path: Path) -> None:
     template = Template(
         version="barebones-1",
@@ -435,6 +562,55 @@ def test_registered_measure_runs_deterministically(tmp_path: Path) -> None:
     assert result.state is RunState.RELEASE_READY
 
 
+def test_measure_execution_failure_can_be_repaired(tmp_path: Path) -> None:
+    template = Template(
+        version="barebones-1",
+        files={"product.py": "def latency():\n    return {'value': 500, 'sample_size': 20}\n"},
+        actions={},
+        context={},
+        measures={"latency.p95_ms": "product:latency"},
+    )
+    contract = {
+        "functional_requirements": {"FR-001": {"statement": "latency is bounded"}},
+        "acceptance_criteria": {
+            "AC-001": {
+                "requirement_refs": ["FR-001"],
+                "measure": "latency.p95_ms",
+                "operator": "lte",
+                "value": 200,
+                "sample": {"minimum": 20},
+            }
+        },
+    }
+
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="measure-repair",
+        provider=MeasureSyntaxRepairProvider(),
+        template=template,
+    )
+
+    assert result.state is RunState.RELEASE_READY
+    assert result.attempts == 2
+
+
+def test_json_equality_does_not_treat_boolean_as_number(tmp_path: Path) -> None:
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"]["then"][0]["value"] = 1
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="json-type-equality",
+        provider=BooleanProvider(),
+    )
+
+    assert result.state is RunState.HALTED
+    assert result.cause == "REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:AC-001"
+
+
 def test_release_manifest_digests_every_candidate_file(tmp_path: Path) -> None:
     result = run_to_release_ready(
         contract=_contract(),
@@ -452,3 +628,23 @@ def test_release_manifest_digests_every_candidate_file(tmp_path: Path) -> None:
     file_blob = tmp_path / ".pmpe/blobs" / manifest["fixtures/data.csv"].removeprefix("sha256:")
     assert file_blob.read_bytes() == b"id,value\n1,ok\n"
     assert set(manifest.values()).issubset(set(event["blob_digests"]))
+
+
+def test_release_manifest_is_the_exact_snapshot_that_was_verified(tmp_path: Path) -> None:
+    result = run_to_release_ready(
+        contract=_contract(),
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="mutation-detection",
+        provider=MutatingActionProvider(),
+    )
+
+    assert result.state is RunState.RELEASE_READY
+    assert result.attempts == 2
+    event = json.loads(result.evidence_path.read_text().splitlines()[-1])
+    manifest_path = (
+        tmp_path / ".pmpe/blobs" / event["payload"]["candidate_digest"].removeprefix("sha256:")
+    )
+    manifest = json.loads(manifest_path.read_text())
+    product_blob = tmp_path / ".pmpe/blobs" / manifest["product.py"].removeprefix("sha256:")
+    assert product_blob.read_text() == "def health():\n    return {'status': 'ok'}\n"
