@@ -368,6 +368,52 @@ def test_equal_contains_and_not_contains_are_contradictory(tmp_path: Path) -> No
 
 
 @pytest.mark.parametrize(
+    "assertions",
+    [
+        [
+            {"path": "service.value", "operator": "gte", "value": 5},
+            {"path": "service.value", "operator": "lte", "value": 5},
+            {"path": "service.value", "operator": "ne", "value": 5},
+        ],
+        [
+            {"path": "service.value", "operator": "is_true"},
+            {"path": "service.value", "operator": "gt", "value": 0},
+        ],
+        [
+            {"path": "service.value", "operator": "is_null"},
+            {"path": "service.value", "operator": "matches", "value": ".*"},
+        ],
+        [
+            {"path": "service.value", "operator": "is_false"},
+            {"path": "service.value", "operator": "contains", "value": False},
+        ],
+    ],
+)
+def test_multi_assertion_and_unary_type_contradictions_fail_before_build(
+    tmp_path: Path, assertions: list[dict[str, object]]
+) -> None:
+    contract = _contract(
+        {
+            "requirement_refs": ["FR-001"],
+            "given": assertions,
+            "when": {"action": "health", "arguments": {}},
+            "then": [{"path": "result.status", "operator": "eq", "value": "ok"}],
+        }
+    )
+
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_acceptance_plan(
+            contract,
+            repository_root=tmp_path,
+            registered_actions=frozenset({"health"}),
+            template_version="barebones-1",
+            template_test_digests={},
+        )
+
+    assert any(item.code == "CONTRADICTORY_ASSERTIONS" for item in failure.value.diagnostics)
+
+
+@pytest.mark.parametrize(
     ("assertion", "code"),
     [
         ({"path": "service.value", "operator": "eq"}, "MISSING_ASSERTION_VALUE"),
