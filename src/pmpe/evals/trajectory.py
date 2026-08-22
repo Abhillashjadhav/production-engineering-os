@@ -382,8 +382,7 @@ def evaluate_trajectory(events: list[dict[str, Any]]) -> list[TrajectoryViolatio
     bound_allowed_capabilities: tuple[str, ...] | None = None
     for index, event in enumerate(events):
         is_capability_policy_binding = (
-            event.get("stage") == "boundary"
-            and event.get("action") == "bind_capability_policy"
+            event.get("stage") == "boundary" and event.get("action") == "bind_capability_policy"
         )
         if is_capability_policy_binding:
             allowed = _parse_allowed_capabilities(str(event.get("detail", "")))
