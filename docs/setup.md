@@ -4,6 +4,8 @@
 
 - Python ≥ 3.11
 - git (used for the per-run build workspaces)
+- Linux `bubblewrap` and `prlimit` for the bare-bones contract runner. Generated
+  code is never executed without this local OS isolation boundary.
 - Optional but recommended: `ruff` (format/lint gates on generated code run when it
   is present and are recorded as skipped when it is not)
 
@@ -14,6 +16,12 @@ git clone https://github.com/Abhillashjadhav/production-engineering-os
 cd production-engineering-os
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e ".[dev]"     # runtime-only: pip install -e .
+```
+
+On Debian/Ubuntu, install the isolation runtime with:
+
+```bash
+sudo apt-get install bubblewrap util-linux
 ```
 
 Verify the install:

@@ -5,18 +5,17 @@ from __future__ import annotations
 import hashlib
 import json
 import operator as comparison
-import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 import time
-import xml.etree.ElementTree as ET
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, NoReturn, Protocol
 
 from pmpe.contracts.acceptance import (
     AcceptanceBuildPlan,
@@ -93,6 +92,150 @@ _CREDENTIAL = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|AKI
 _HIGH_RISK_CODE = re.compile(r"\b(?:eval|exec)\s*\(")
 _ACTION_TIMEOUT_SECONDS = 10.0
 _PYTEST_TIMEOUT_SECONDS = 30.0
+_SANDBOX_PATH = "/usr/local/bin:/usr/bin:/bin"
+_PYTEST_RESULT_PREFIX = "__PMPE_PYTEST_RESULT__:"
+
+
+class CandidateSandbox(Protocol):
+    """Trusted OS boundary used for every execution of generated code."""
+
+    def run(
+        self,
+        workspace: Path,
+        argv: Sequence[str],
+        *,
+        timeout_seconds: float,
+        environment: Mapping[str, str],
+    ) -> subprocess.CompletedProcess[str]: ...
+
+
+class BubblewrapCandidateSandbox:
+    """Run generated code with no network, host environment, or host filesystem view."""
+
+    def __init__(self, executable: str = "bwrap", limiter: str = "prlimit") -> None:
+        self.executable = executable
+        self.limiter = limiter
+
+    @staticmethod
+    def _runtime_roots() -> tuple[Path, ...]:
+        executable_root = Path(sys.executable).resolve().parent.parent
+        candidates = {
+            Path("/usr"),
+            Path("/bin"),
+            Path("/sbin"),
+            Path("/lib"),
+            Path("/lib64"),
+            Path(sys.base_prefix).resolve(),
+            Path(sys.prefix).resolve(),
+            executable_root,
+        }
+        return tuple(sorted((item for item in candidates if item.exists()), key=str))
+
+    @staticmethod
+    def _parent_directories(path: Path) -> tuple[str, ...]:
+        parents: list[str] = []
+        current = path.parent
+        while current != Path("/"):
+            parents.append(str(current))
+            current = current.parent
+        return tuple(reversed(parents))
+
+    def run(
+        self,
+        workspace: Path,
+        argv: Sequence[str],
+        *,
+        timeout_seconds: float,
+        environment: Mapping[str, str],
+    ) -> subprocess.CompletedProcess[str]:
+        sandbox = shutil.which(self.executable, path=_SANDBOX_PATH)
+        limiter = shutil.which(self.limiter, path=_SANDBOX_PATH)
+        if sandbox is None or limiter is None:
+            raise ContractInvalidError("candidate OS sandbox is unavailable")
+        sandbox_argv = [
+            sandbox,
+            "--die-with-parent",
+            "--new-session",
+            "--unshare-all",
+            "--clearenv",
+            "--tmpfs",
+            "/",
+            "--dir",
+            "/workspace",
+            "--dir",
+            "/etc",
+        ]
+        created_directories: set[str] = {"/etc", "/workspace"}
+        bound_roots: list[Path] = []
+        for runtime_root in self._runtime_roots():
+            if any(runtime_root.is_relative_to(bound) for bound in bound_roots):
+                continue
+            for parent in self._parent_directories(runtime_root):
+                if any(Path(parent).is_relative_to(bound) for bound in bound_roots):
+                    continue
+                if parent not in created_directories:
+                    sandbox_argv.extend(("--dir", parent))
+                    created_directories.add(parent)
+            sandbox_argv.extend(("--ro-bind", str(runtime_root), str(runtime_root)))
+            bound_roots.append(runtime_root)
+        for host_path in (
+            "/etc/alternatives",
+            "/etc/group",
+            "/etc/ld.so.cache",
+            "/etc/ld.so.conf",
+            "/etc/ld.so.conf.d",
+            "/etc/localtime",
+            "/etc/nsswitch.conf",
+            "/etc/passwd",
+        ):
+            sandbox_argv.extend(("--ro-bind-try", host_path, host_path))
+        sandbox_argv.extend(
+            (
+                "--ro-bind",
+                str(workspace.resolve()),
+                "/workspace",
+                "--dev",
+                "/dev",
+                "--remount-ro",
+                "/dev",
+                "--proc",
+                "/proc",
+                "--size",
+                str(64 * 1024 * 1024),
+                "--tmpfs",
+                "/tmp",
+                "--dir",
+                "/tmp/home",
+            )
+        )
+        for name, value in sorted(environment.items()):
+            sandbox_argv.extend(("--setenv", name, value))
+        sandbox_argv.extend(("--chdir", "/workspace", "--", *argv))
+        command = [
+            limiter,
+            f"--as={1024 * 1024 * 1024}",
+            f"--cpu={int(timeout_seconds) + 1}",
+            f"--fsize={64 * 1024 * 1024}",
+            "--nofile=256",
+            "--nproc=128",
+            "--",
+            *sandbox_argv,
+        ]
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=workspace,
+                text=True,
+                capture_output=True,
+                timeout=timeout_seconds,
+                check=False,
+                env={"LC_ALL": "C", "PATH": _SANDBOX_PATH},
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ContractInvalidError("candidate execution timed out") from exc
+        if completed.returncode != 0 and completed.stderr.lstrip().startswith("bwrap:"):
+            raise ContractInvalidError("candidate OS sandbox could not establish isolation")
+        return completed
 
 
 def _reject_non_json_constant(token: str) -> NoReturn:
@@ -204,7 +347,12 @@ def _assertion_passes(assertion: PropertyAssertion, value: Any) -> bool:
     return unary[assertion.operator]
 
 
-def _run_action(workspace: Path, target: str, arguments: Mapping[str, Any]) -> Any:
+def _run_action(
+    workspace: Path,
+    target: str,
+    arguments: Mapping[str, Any],
+    sandbox: CandidateSandbox,
+) -> Any:
     match = _MODULE_TARGET.fullmatch(target)
     if match is None:
         raise ContractInvalidError(f"invalid template action target: {target}")
@@ -214,33 +362,34 @@ def _run_action(workspace: Path, target: str, arguments: Mapping[str, Any]) -> A
         raise ContractInvalidError(f"template action module is missing: {module}")
     runner = (
         "import importlib,json,sys;"
-        "sys.path.insert(0,sys.argv[1]);"
+        "sys.path.insert(0,'/workspace');"
         "m=importlib.import_module(sys.argv[2]);"
         "v=getattr(m,sys.argv[3])(**json.loads(sys.argv[4]));"
         "print(json.dumps(v,sort_keys=True,separators=(',',':')))"
     )
-    try:
-        completed = subprocess.run(
-            [
-                sys.executable,
-                "-I",
-                "-B",
-                "-c",
-                runner,
-                str(workspace),
-                module,
-                function,
-                json.dumps(arguments),
-            ],
-            cwd=workspace,
-            text=True,
-            capture_output=True,
-            timeout=_ACTION_TIMEOUT_SECONDS,
-            check=False,
-            env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1"},
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise ContractInvalidError("action timed out before an assertion") from exc
+    completed = sandbox.run(
+        workspace,
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            "-c",
+            runner,
+            "unused-workspace-argument",
+            module,
+            function,
+            json.dumps(arguments),
+        ],
+        timeout_seconds=_ACTION_TIMEOUT_SECONDS,
+        environment={
+            "HOME": "/tmp/home",
+            "LC_ALL": "C",
+            "PATH": _SANDBOX_PATH,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONNOUSERSITE": "1",
+            "TMPDIR": "/tmp",
+        },
+    )
     if completed.returncode != 0:
         raise ContractInvalidError("action failed before an assertion: " + completed.stderr.strip())
     try:
@@ -254,124 +403,120 @@ def _run_action(workspace: Path, target: str, arguments: Mapping[str, Any]) -> A
         raise ContractInvalidError("action did not return one JSON value") from exc
 
 
-def _run_pytest_node(workspace: Path, test: TemplateTest, protected_paths: frozenset[str]) -> bool:
-    descriptor, report_name = tempfile.mkstemp(suffix=".xml")
-    os.close(descriptor)
-    report = Path(report_name)
-    config_descriptor, config_name = tempfile.mkstemp(suffix=".ini")
-    with os.fdopen(config_descriptor, "w") as config:
-        config.write("[pytest]\n")
-    config_path = Path(config_name)
+def _run_pytest_node(
+    workspace: Path,
+    test: TemplateTest,
+    protected_paths: frozenset[str],
+    sandbox: CandidateSandbox,
+) -> bool:
+    pytest_arguments = (
+        test.command[3:]
+        if len(test.command) >= 3 and test.command[1:3] == ("-m", "pytest")
+        else test.command[1:]
+    )
+    trusted_runner = (
+        "import json, os, sys, pytest\n"
+        "root = '/workspace'\n"
+        "protected = {os.path.realpath(os.path.join(root, p)) "
+        "for p in json.loads(sys.argv[1])}\n"
+        "writes = []\n"
+        "write_flags = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND\n"
+        "def resolve(path):\n"
+        " try:\n"
+        "  value = os.fspath(path)\n"
+        "  return os.path.realpath(value) if isinstance(value, str) else ''\n"
+        " except (OSError, TypeError, ValueError):\n"
+        "  return ''\n"
+        "def audit(event,args):\n"
+        " path = resolve(args[0]) if args else ''\n"
+        " targets = {path}\n"
+        " if event in {'os.rename', 'os.replace'} and len(args) > 1:\n"
+        "  targets.add(resolve(args[1]))\n"
+        " def touches(target):\n"
+        "  return any(item == target or item.startswith(target + os.sep) for item in protected)\n"
+        " if event == 'open':\n"
+        "  if path not in protected:\n"
+        "   return\n"
+        "  mode = args[1] or ''\n"
+        "  flags = args[2] or 0\n"
+        "  if any(character in mode for character in 'wax+') or flags & write_flags:\n"
+        "   writes.append((event, path, str(mode), flags))\n"
+        "  return\n"
+        " if not any(touches(target) for target in targets if target):\n"
+        "  return\n"
+        " if event.startswith('os.') and event not in "
+        "{'os.chdir', 'os.listdir', 'os.scandir', 'os.stat'}:\n"
+        "  writes.append((event, path))\n"
+        "sys.addaudithook(audit)\n"
+        "class Recorder:\n"
+        " def __init__(self): self.reports = {}\n"
+        " def pytest_runtest_logreport(self, report):\n"
+        "  if report.when == 'call' or report.outcome != 'passed':\n"
+        "   self.reports[report.nodeid] = {'outcome': report.outcome, 'when': report.when}\n"
+        "recorder = Recorder()\n"
+        "sys.path.insert(0, root)\n"
+        "code = pytest.main(sys.argv[2:], plugins=[recorder])\n"
+        f"print({_PYTEST_RESULT_PREFIX!r} + json.dumps("
+        "{'code': int(code), 'reports': recorder.reports, 'writes': writes}, sort_keys=True))\n"
+        "raise SystemExit(5 if writes else code)\n"
+    )
+    pytest_command = (
+        sys.executable,
+        "-I",
+        "-B",
+        "-c",
+        trusted_runner,
+        json.dumps(sorted(protected_paths)),
+        *pytest_arguments,
+        "--noconftest",
+        "--rootdir=/workspace",
+        "-c",
+        "/dev/null",
+        "-p",
+        "no:cacheprovider",
+    )
+    completed = sandbox.run(
+        workspace,
+        pytest_command,
+        timeout_seconds=_PYTEST_TIMEOUT_SECONDS,
+        environment={
+            "HOME": "/tmp/home",
+            "LC_ALL": "C",
+            "PATH": _SANDBOX_PATH,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONNOUSERSITE": "1",
+            "PYTEST_ADDOPTS": "",
+            "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+            "PYTEST_PLUGINS": "",
+            "TMPDIR": "/tmp",
+        },
+    )
+    result_lines = [
+        line.removeprefix(_PYTEST_RESULT_PREFIX)
+        for line in completed.stdout.splitlines()
+        if line.startswith(_PYTEST_RESULT_PREFIX)
+    ]
+    if len(result_lines) != 1:
+        detail = completed.stderr.strip()
+        raise ContractInvalidError(
+            "human test produced no structured pytest result" + (f": {detail}" if detail else "")
+        )
     try:
-        pytest_arguments = (
-            test.command[3:]
-            if len(test.command) >= 3 and test.command[1:3] == ("-m", "pytest")
-            else test.command[1:]
-        )
-        trusted_runner = (
-            "import json, os, sys, pytest\n"
-            "root = os.path.realpath(sys.argv[1])\n"
-            "protected = {os.path.realpath(os.path.join(root, p)) "
-            "for p in json.loads(sys.argv[2])}\n"
-            "writes = []\n"
-            "write_flags = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND\n"
-            "def resolve(path):\n"
-            " try:\n"
-            "  return os.path.realpath(os.fspath(path))\n"
-            " except (OSError, TypeError, ValueError):\n"
-            "  return ''\n"
-            "def audit(event,args):\n"
-            " path = resolve(args[0]) if args else ''\n"
-            " targets = {path}\n"
-            " if event in {'os.rename', 'os.replace'} and len(args) > 1:\n"
-            "  targets.add(resolve(args[1]))\n"
-            " if not protected.intersection(targets):\n"
-            "  return\n"
-            " if event == 'open':\n"
-            "  mode = args[1] or ''\n"
-            "  flags = args[2] or 0\n"
-            "  if any(character in mode for character in 'wax+') or flags & write_flags:\n"
-            "   writes.append((event, path))\n"
-            " elif event.startswith('os.') and event not in {'os.stat', 'os.listdir'}:\n"
-            "  writes.append((event, path))\n"
-            "sys.addaudithook(audit)\n"
-            "sys.path.insert(0, root)\n"
-            "code = pytest.main(sys.argv[3:])\n"
-            "raise SystemExit(5 if writes else code)\n"
-        )
-        pytest_command = (
-            sys.executable,
-            "-I",
-            "-B",
-            "-c",
-            trusted_runner,
-            str(workspace),
-            json.dumps(sorted(protected_paths)),
-            *pytest_arguments,
-        )
-        try:
-            completed = subprocess.run(
-                [
-                    *pytest_command,
-                    "--noconftest",
-                    "-c",
-                    str(config_path),
-                    f"--junitxml={report}",
-                    "-o",
-                    "junit_family=xunit2",
-                    "-p",
-                    "no:cacheprovider",
-                ],
-                cwd=workspace,
-                text=True,
-                capture_output=True,
-                timeout=_PYTEST_TIMEOUT_SECONDS,
-                check=False,
-                env={
-                    **os.environ,
-                    "PYTHONDONTWRITEBYTECODE": "1",
-                    "PYTEST_ADDOPTS": "",
-                    "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
-                    "PYTEST_PLUGINS": "",
-                },
-            )
-        except subprocess.TimeoutExpired as exc:
-            raise ContractInvalidError("bound human test timed out") from exc
-        try:
-            root = ET.parse(report).getroot()
-        except (ET.ParseError, OSError) as exc:
-            detail = completed.stderr.strip()
-            raise ContractInvalidError(
-                "human test produced no structured pytest result"
-                + (f": {detail}" if detail else "")
-            ) from exc
-        node_parts = test.node_id.split("::")
-        expected_name = node_parts[-1]
-        expected_classes = node_parts[:-1]
-        cases = [
-            item
-            for item in root.iter("testcase")
-            if item.get("name") == expected_name
-            and (
-                not expected_classes
-                or (item.get("classname") or "").split(".")[-len(expected_classes) :]
-                == expected_classes
-            )
-        ]
-        if len(cases) != 1:
-            raise ContractInvalidError("bound human test node did not execute exactly once")
-        case = cases[0]
-        if case.find("skipped") is not None or case.find("error") is not None:
-            raise ContractInvalidError("bound human test was skipped or errored")
-        failure = case.find("failure")
-        if failure is not None and completed.returncode == 1:
-            return False
-        if failure is None and completed.returncode == 0:
-            return True
-        raise ContractInvalidError("human test failed outside its bound assertion")
-    finally:
-        report.unlink(missing_ok=True)
-        config_path.unlink(missing_ok=True)
+        structured = json.loads(result_lines[0], parse_constant=_reject_non_json_constant)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ContractInvalidError("human test produced malformed structured evidence") from exc
+    expected_node = f"{test.path}::{test.node_id}"
+    report = structured.get("reports", {}).get(expected_node)
+    if not isinstance(report, Mapping):
+        raise ContractInvalidError("bound human test node did not execute exactly once")
+    if report.get("outcome") == "failed" and completed.returncode == 1:
+        return False
+    if report.get("outcome") == "passed" and completed.returncode == 0:
+        return True
+    raise ContractInvalidError(
+        "bound human test was skipped, errored, or mutated evidence: "
+        + json.dumps(structured.get("writes", []), sort_keys=True)
+    )
 
 
 def _criterion_findings(
@@ -379,6 +524,7 @@ def _criterion_findings(
     *,
     workspace: Path,
     template: Template,
+    sandbox: CandidateSandbox,
 ) -> tuple[Finding, ...]:
     protected_paths = frozenset(
         {
@@ -393,7 +539,7 @@ def _criterion_findings(
         digest = "sha256:" + hashlib.sha256(proof_path.read_bytes()).hexdigest()
         if digest != criterion.template_proof.file_digest:
             raise ContractInvalidError("template proof file does not match its compiled digest")
-        if not _run_pytest_node(workspace, proof, protected_paths):
+        if not _run_pytest_node(workspace, proof, protected_paths, sandbox):
             return (
                 Finding(
                     "ASSERTION_FAILED",
@@ -410,7 +556,7 @@ def _criterion_findings(
             criterion.human_test.node_id,
             criterion.human_test.command,
         )
-        if _run_pytest_node(workspace, human_test, protected_paths):
+        if _run_pytest_node(workspace, human_test, protected_paths, sandbox):
             return ()
         return (
             Finding(
@@ -424,7 +570,7 @@ def _criterion_findings(
         assert criterion.operator is not None
         assert criterion.minimum_sample is not None
         target = template.measures[criterion.measure]
-        observation = _run_action(workspace, target, {})
+        observation = _run_action(workspace, target, {}, sandbox)
         if not isinstance(observation, Mapping):
             raise ContractInvalidError("measure did not return a JSON object")
         sample_size = observation.get("sample_size")
@@ -446,7 +592,7 @@ def _criterion_findings(
     if any(not _assertion_passes(item, template.context) for item in criterion.given):
         raise ContractInvalidError(f"{criterion.criterion_id}: Given precondition is false")
     target = template.actions[criterion.when.action]
-    result = _run_action(workspace, target, criterion.when.arguments)
+    result = _run_action(workspace, target, criterion.when.arguments, sandbox)
     wrapped = {"result": result}
     if all(_assertion_passes(item, wrapped) for item in criterion.then):
         return ()
@@ -472,6 +618,7 @@ def _verify_snapshot(
     plan: AcceptanceBuildPlan,
     snapshot: Mapping[str, bytes],
     template: Template,
+    sandbox: CandidateSandbox,
 ) -> tuple[Finding, ...]:
     """Verify each criterion against a fresh disposable copy of the exact snapshot."""
 
@@ -482,7 +629,12 @@ def _verify_snapshot(
             _materialize_snapshot(isolated, snapshot)
             try:
                 findings.extend(
-                    _criterion_findings(criterion, workspace=isolated, template=template)
+                    _criterion_findings(
+                        criterion,
+                        workspace=isolated,
+                        template=template,
+                        sandbox=sandbox,
+                    )
                 )
             except ContractInvalidError as exc:
                 if criterion.human_test is None:
@@ -618,13 +770,14 @@ def run_to_release_ready(
     template: Template | None = None,
     budget: BudgetCaps | None = None,
     stop_requested: Callable[[], bool] = lambda: False,
+    candidate_sandbox: CandidateSandbox | None = None,
 ) -> RunResult:
     """Run the frozen core. It never deploys and stops at RELEASE_READY."""
 
     started = time.monotonic()
     active_template = template or default_template()
     active_budget = budget or BudgetCaps()
-    ledger = EvidenceLedger(repository_root, run_id)
+    active_sandbox = candidate_sandbox or BubblewrapCandidateSandbox()
     counters = {"calls": 0, "bytes": 0}
     subject_digest = canonical_digest(contract)
 
@@ -643,6 +796,17 @@ def run_to_release_ready(
         if relative.startswith("tests/")
     }
 
+    plan = compile_acceptance_plan(
+        contract,
+        repository_root=repository_root,
+        registered_actions=frozenset(active_template.actions),
+        template_version=active_template.version,
+        template_test_digests=template_test_digests,
+        registered_measures=frozenset(active_template.measures),
+        trusted_test_digests=trusted_test_digests,
+    )
+    ledger = EvidenceLedger(repository_root, run_id)
+
     def finish(
         state: RunState, cause: str, attempts: int, annotation: Mapping[str, Any] | None = None
     ) -> RunResult:
@@ -657,15 +821,6 @@ def run_to_release_ready(
             dict(annotation or {}),
         )
 
-    plan = compile_acceptance_plan(
-        contract,
-        repository_root=repository_root,
-        registered_actions=frozenset(active_template.actions),
-        template_version=active_template.version,
-        template_test_digests=template_test_digests,
-        registered_measures=frozenset(active_template.measures),
-        trusted_test_digests=trusted_test_digests,
-    )
     plan_blob = ledger.put_blob(
         json.dumps(plan.as_dict(), sort_keys=True, separators=(",", ":")).encode()
     )
@@ -717,6 +872,7 @@ def run_to_release_ready(
         plan,
         _workspace_snapshot(workspace),
         active_template,
+        active_sandbox,
     )
     non_template = tuple(item for item in plan.criteria if item.form != "satisfied_by_template")
     failed_ids = {item.subject_id for item in baseline}
@@ -868,7 +1024,12 @@ def run_to_release_ready(
                 payload={"attempt": attempt, "changed": list(changed)},
             )
             try:
-                findings = _verify_snapshot(plan, verification_snapshot, active_template)
+                findings = _verify_snapshot(
+                    plan,
+                    verification_snapshot,
+                    active_template,
+                    active_sandbox,
+                )
             except ContractInvalidError as exc:
                 implicated_files = tuple(
                     sorted(

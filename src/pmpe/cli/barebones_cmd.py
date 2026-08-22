@@ -13,6 +13,7 @@ from typing import Any
 from pmpe.barebones import ContractInvalidError, run_to_release_ready
 from pmpe.contracts.acceptance import AcceptanceCompileError
 from pmpe.contracts.canonical import CanonicalInputError, strict_loads
+from pmpe.evidence.ledger import EvidenceIntegrityError
 
 
 class CommandModelProvider:
@@ -87,6 +88,9 @@ def _run(args: argparse.Namespace) -> int:
         return 3
     except ContractInvalidError as exc:
         print(json.dumps({"state": "HALTED", "cause": "CONTRACT_INVALID", "detail": str(exc)}))
+        return 3
+    except EvidenceIntegrityError as exc:
+        print(json.dumps({"state": "HALTED", "cause": "EVIDENCE_INVALID", "detail": str(exc)}))
         return 3
     print(
         json.dumps(

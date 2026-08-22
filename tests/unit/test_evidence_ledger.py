@@ -31,11 +31,22 @@ def test_resume_continues_the_existing_hash_chain(tmp_path: Path) -> None:
     subject = canonical_digest({"candidate": 1})
     first = EvidenceLedger(tmp_path, "run-001")
     first_event = first.append(event_type="validated", state="VALIDATED", subject_digest=subject)
-    resumed = EvidenceLedger(tmp_path, "run-001")
+    resumed = EvidenceLedger(tmp_path, "run-001", resume=True)
     second_event = resumed.append(event_type="building", state="BUILDING", subject_digest=subject)
 
     assert second_event["sequence"] == 2
     assert second_event["previous_digest"] == first_event["event_digest"]
+
+
+def test_completed_run_id_cannot_be_reused_or_resumed(tmp_path: Path) -> None:
+    subject = canonical_digest({"candidate": 1})
+    ledger = EvidenceLedger(tmp_path, "run-001")
+    ledger.append(event_type="released", state="RELEASE_READY", subject_digest=subject)
+
+    with pytest.raises(EvidenceIntegrityError, match="already has"):
+        EvidenceLedger(tmp_path, "run-001")
+    with pytest.raises(EvidenceIntegrityError, match="terminal"):
+        EvidenceLedger(tmp_path, "run-001", resume=True)
 
 
 def test_event_tampering_is_detected(tmp_path: Path) -> None:

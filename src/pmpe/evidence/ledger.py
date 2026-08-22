@@ -25,7 +25,7 @@ class EvidenceIntegrityError(ValueError):
 class EvidenceLedger:
     """Append-only JSONL events and SHA-256 blobs under one `.pmpe` directory."""
 
-    def __init__(self, repository_root: Path, run_id: str) -> None:
+    def __init__(self, repository_root: Path, run_id: str, *, resume: bool = False) -> None:
         if not _RUN_ID.fullmatch(run_id):
             raise ValueError("run_id must be a bounded filesystem-safe identifier")
         self.run_id = run_id
@@ -35,6 +35,26 @@ class EvidenceLedger:
         self.blobs_directory = self.root / "blobs"
         self.run_directory.mkdir(parents=True, exist_ok=True)
         self.blobs_directory.mkdir(parents=True, exist_ok=True)
+        if resume:
+            if not self.events_path.is_file():
+                raise EvidenceIntegrityError("cannot resume a run without an evidence ledger")
+            events = tuple(self.verify())
+            if not events:
+                raise EvidenceIntegrityError("cannot resume an empty evidence ledger")
+            if events[-1].get("state") in {"RELEASE_READY", "HALTED", "STOPPED"}:
+                raise EvidenceIntegrityError("a terminal run cannot be resumed")
+        else:
+            try:
+                descriptor = os.open(
+                    self.events_path,
+                    os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                    0o600,
+                )
+            except FileExistsError as exc:
+                raise EvidenceIntegrityError(
+                    "run_id already has an evidence ledger; use a new run_id"
+                ) from exc
+            os.close(descriptor)
 
     def put_blob(self, payload: bytes) -> str:
         digest = "sha256:" + hashlib.sha256(payload).hexdigest()
