@@ -100,6 +100,7 @@ class AcceptanceBuildPlan:
     requirements: tuple[str, ...]
     tasks: tuple[BuildTask, ...]
     criteria: tuple[CompiledCriterion, ...]
+    trusted_test_digests: tuple[tuple[str, str], ...]
     plan_digest: str
 
     def as_dict(self) -> dict[str, Any]:
@@ -342,6 +343,7 @@ def compile_acceptance_plan(
     template_version: str,
     template_test_digests: Mapping[str, str],
     registered_measures: frozenset[str] = frozenset(),
+    trusted_test_digests: Mapping[str, str] | None = None,
 ) -> AcceptanceBuildPlan:
     """Compile typed criteria and prove task/test coverage before any build."""
 
@@ -469,6 +471,33 @@ def compile_acceptance_plan(
                     )
                 )
                 continue
+            assertion_value = item.get("value")
+            if operator is Operator.MATCHES:
+                try:
+                    if not isinstance(assertion_value, str):
+                        raise re.error("pattern must be a string")
+                    re.compile(assertion_value)
+                except re.error:
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "INVALID_REGEX_ASSERTION",
+                            cid,
+                            "measure requires a valid string regex",
+                        )
+                    )
+                    continue
+            if operator in {Operator.LT, Operator.LTE, Operator.GT, Operator.GTE} and (
+                isinstance(assertion_value, bool)
+                or not isinstance(assertion_value, (int, float, str))
+            ):
+                diagnostics.append(
+                    AcceptanceDiagnostic(
+                        "INVALID_ORDERED_ASSERTION_VALUE",
+                        cid,
+                        "measure requires a number or string value",
+                    )
+                )
+                continue
             compiled.append(
                 CompiledCriterion(
                     cid,
@@ -476,7 +505,7 @@ def compile_acceptance_plan(
                     form,
                     measure=measure,
                     operator=operator,
-                    value=item.get("value"),
+                    value=assertion_value,
                     minimum_sample=minimum,
                 )
             )
@@ -531,16 +560,19 @@ def compile_acceptance_plan(
     tasks = tuple(
         BuildTask(f"TASK-{index:03d}", item) for index, item in enumerate(requirements, 1)
     )
+    trusted_digests = trusted_test_digests or {}
     shell = {
         "contract_digest": canonical_digest(contract),
         "requirements": requirements,
         "tasks": [asdict(item) for item in tasks],
         "criteria": [asdict(item) for item in compiled],
+        "trusted_test_digests": sorted(trusted_digests.items()),
     }
     return AcceptanceBuildPlan(
         contract_digest=str(shell["contract_digest"]),
         requirements=requirements,
         tasks=tasks,
         criteria=tuple(compiled),
+        trusted_test_digests=tuple(sorted(trusted_digests.items())),
         plan_digest=canonical_digest(shell),
     )
