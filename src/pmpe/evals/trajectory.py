@@ -443,10 +443,14 @@ def evaluate_trajectory(events: list[dict[str, Any]]) -> list[TrajectoryViolatio
             continue
         capability, authority_origin, source = parsed_grant
         if authority_origin != "boundary_policy":
+            authority_evidence = (
+                f"event {index}: capability={capability}; "
+                f"authority_origin={authority_origin}; source={source}"
+            )
             violate(
                 "TRAJ-16",
                 "external input attempted to become the source of capability authority",
-                f"event {index}: capability={capability}; authority_origin={authority_origin}; source={source}",
+                authority_evidence,
             )
             continue
         if capability not in bound_allowed_capabilities:
