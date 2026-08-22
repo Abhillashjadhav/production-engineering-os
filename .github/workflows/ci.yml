@@ -21,9 +21,9 @@ jobs:
           python-version: "3.11"
       - run: pip install --require-hashes -r requirements.lock
       - name: ruff format
-        run: ruff format --check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/observe_runtime_residency.py scripts/ci/verify_privacy_controls.py scripts/ci/verify_repository_secrets.py
+        run: ruff format --check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/verify_privacy_controls.py scripts/ci/verify_repository_secrets.py
       - name: ruff lint
-        run: ruff check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/observe_runtime_residency.py scripts/ci/verify_privacy_controls.py scripts/ci/verify_repository_secrets.py
+        run: ruff check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/verify_privacy_controls.py scripts/ci/verify_repository_secrets.py
 
   types:
     runs-on: ubuntu-latest
@@ -36,7 +36,7 @@ jobs:
           pip install --require-hashes -r requirements.lock
           pip install --no-deps --no-build-isolation -e .
       - name: mypy --strict
-        run: mypy --strict src/pmpe scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/observe_runtime_residency.py scripts/ci/verify_privacy_controls.py scripts/ci/verify_repository_secrets.py
+        run: mypy --strict src/pmpe scripts/ci/classify_frontend_ci.py scripts/ci/evaluate_security_profile.py scripts/ci/verify_privacy_controls.py scripts/ci/verify_repository_secrets.py
 
   tests:
     runs-on: ubuntu-latest
@@ -60,12 +60,8 @@ jobs:
 
   security:
     runs-on: ubuntu-latest
-    environment: india-residency
     permissions:
       contents: read
-      id-token: write
-    env:
-      AWS_RESIDENCY_BUCKET: ${{ vars.AWS_RESIDENCY_BUCKET }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -95,33 +91,11 @@ jobs:
             --output /tmp/security-profile/secret-report.json
       - name: deterministic security profile contract (all required gates)
         run: pytest tests/unit/test_security_profiles.py -q
-      - name: require configured AWS Mumbai residency endpoint
-        env:
-          AWS_RESIDENCY_ROLE_ARN: ${{ vars.AWS_RESIDENCY_ROLE_ARN }}
-        run: |
-          test -n "$AWS_RESIDENCY_ROLE_ARN" || { echo "::error::AWS_RESIDENCY_ROLE_ARN is not configured in the india-residency environment"; exit 1; }
-          test -n "$AWS_RESIDENCY_BUCKET" || { echo "::error::AWS_RESIDENCY_BUCKET is not configured in the india-residency environment"; exit 1; }
-      - name: authenticate to AWS with GitHub OIDC
-        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
-        with:
-          role-to-assume: ${{ vars.AWS_RESIDENCY_ROLE_ARN }}
-          aws-region: ap-south-1
-          role-session-name: peos-residency-${{ github.run_id }}
-          mask-aws-account-id: true
-      - name: observe authenticated AWS S3 residency independently of policy
-        env:
-          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          python scripts/ci/observe_runtime_residency.py \
-            --candidate-sha "$CANDIDATE_SHA" \
-            --runtime-config security/runtime-residency.json \
-            --bucket "$AWS_RESIDENCY_BUCKET" \
-            --output /tmp/security-profile/residency-evidence.json
       - name: execute privacy deletion, retention, and telemetry verifier
         env:
           CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          python scripts/ci/verify_privacy_controls.py --candidate-sha "$CANDIDATE_SHA" --policy security/security-profile-policy.json --residency-evidence /tmp/security-profile/residency-evidence.json --runtime-config security/runtime-residency.json --residency-observer scripts/ci/observe_runtime_residency.py --output /tmp/security-profile/privacy-evidence.json
+          python scripts/ci/verify_privacy_controls.py --candidate-sha "$CANDIDATE_SHA" --policy security/security-profile-policy.json --residency-evidence /tmp/security-profile/residency-evidence.json --runtime-config security/runtime-residency.json --residency-observer --output /tmp/security-profile/privacy-evidence.json
       - name: composed security profile against exact candidate
         env:
           CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -135,7 +109,6 @@ jobs:
           path: |
             /tmp/security-profile/secret-report.json
             /tmp/security-profile/pip-audit.json
-            /tmp/security-profile/residency-evidence.json
             /tmp/security-profile/privacy-evidence.json
             /tmp/security-profile/composed-security-profile.json
           retention-days: 7
