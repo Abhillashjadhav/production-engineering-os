@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+import pmpe.policies.boundary as boundary_module
 from pmpe.policies.boundary import (
     BoundaryDeniedError,
     BoundaryPolicy,
@@ -146,6 +147,10 @@ def test_tuple_primitive_cannot_forge_usable_boundary_authority() -> None:
             capability="read",
             bound_policy_digest="sha256:caller-chosen",
         )
+
+
+def test_boundary_integrity_oracle_is_not_exposed_to_adapters() -> None:
+    assert not callable(getattr(boundary_module, "_state_tag", None))
 
 
 def test_malformed_or_ambiguous_policy_is_rejected() -> None:
