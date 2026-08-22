@@ -12,7 +12,7 @@ from typing import Any
 
 from pmpe.barebones import ContractInvalidError, run_to_release_ready
 from pmpe.contracts.acceptance import AcceptanceCompileError
-from pmpe.contracts.canonical import strict_loads
+from pmpe.contracts.canonical import CanonicalInputError, strict_loads
 
 
 class CommandModelProvider:
@@ -49,13 +49,13 @@ class CommandModelProvider:
 
 def _run(args: argparse.Namespace) -> int:
     contract_path = Path(args.contract)
-    content_type = (
-        "application/yaml"
-        if contract_path.suffix.lower() in {".yaml", ".yml"}
-        else "application/json"
-    )
-    contract = strict_loads(contract_path.read_bytes(), content_type)
     try:
+        content_type = (
+            "application/yaml"
+            if contract_path.suffix.lower() in {".yaml", ".yml"}
+            else "application/json"
+        )
+        contract = strict_loads(contract_path.read_bytes(), content_type)
         result = run_to_release_ready(
             contract=contract,
             repository_root=Path(args.repository_root).resolve(),
@@ -63,6 +63,18 @@ def _run(args: argparse.Namespace) -> int:
             run_id=args.run_id,
             provider=CommandModelProvider(args.provider_command, args.provider_timeout),
         )
+    except CanonicalInputError as exc:
+        print(
+            json.dumps(
+                {
+                    "state": "HALTED",
+                    "cause": "CONTRACT_INVALID",
+                    "diagnostics": [{"code": exc.code, "message": str(exc)}],
+                },
+                sort_keys=True,
+            )
+        )
+        return 3
     except AcceptanceCompileError as exc:
         print(
             json.dumps(
