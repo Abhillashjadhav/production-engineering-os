@@ -175,6 +175,15 @@ class TransientCrossCriterionMutationProvider:
         }
 
 
+class NonFiniteProvider:
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert purpose == "code"
+        return {
+            "request_digest": request["request_digest"],
+            "files": {"product.py": "def health():\n    return {'status': float('nan')}\n"},
+        }
+
+
 class MeasureSyntaxRepairProvider:
     def __init__(self) -> None:
         self.calls = 0
@@ -494,6 +503,21 @@ class PytestShadowProvider:
         }
 
 
+class TestPackageInitializerProvider:
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert purpose == "code"
+        initializer = (
+            "import sys, types\n"
+            "fake = types.ModuleType('product')\n"
+            "fake.health = lambda: {'status': 'ok'}\n"
+            "sys.modules['product'] = fake\n"
+        )
+        return {
+            "request_digest": request["request_digest"],
+            "files": {"tests/__init__.py": initializer},
+        }
+
+
 def test_coder_controlled_conftest_cannot_change_bound_test_outcome(tmp_path: Path) -> None:
     test_file = tmp_path / "tests/acceptance/test_health.py"
     test_file.parent.mkdir(parents=True)
@@ -562,6 +586,40 @@ def test_coder_cannot_shadow_the_bound_pytest_runner(tmp_path: Path) -> None:
     assert result.cause == "REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:AC-001"
 
 
+def test_coder_cannot_add_initializers_above_a_protected_test(tmp_path: Path) -> None:
+    test_file = tmp_path / "tests/acceptance/test_health.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text(
+        "from product import health\n\ndef test_health():\n    assert health()['status'] == 'ok'\n"
+    )
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"] = {
+        "requirement_refs": ["FR-001"],
+        "human_test": {
+            "path": "tests/acceptance/test_health.py",
+            "node_id": "test_health",
+            "command": [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/acceptance/test_health.py::test_health",
+            ],
+        },
+    }
+
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="test-package-initializer",
+        provider=TestPackageInitializerProvider(),
+    )
+
+    assert result.state is RunState.HALTED
+    assert result.cause == "CODER_MODIFIED_EVIDENCE"
+
+
 def test_template_proof_is_digest_bound_and_executed(tmp_path: Path) -> None:
     template = Template(
         version="barebones-1",
@@ -604,6 +662,58 @@ def test_template_proof_is_digest_bound_and_executed(tmp_path: Path) -> None:
         repository_root=tmp_path,
         workspace=tmp_path / "candidate",
         run_id="template-proof",
+        provider=PassingProvider(),
+        template=template,
+    )
+
+    assert result.state is RunState.RELEASE_READY
+
+
+def test_contract_fully_satisfied_by_template_proofs_is_valid(tmp_path: Path) -> None:
+    template = Template(
+        version="barebones-1",
+        files={
+            "product.py": "def health():\n    return {'status': 'ok'}\n",
+            "tests/template/test_health.py": (
+                "from product import health\n\n"
+                "def test_health():\n"
+                "    assert health()['status'] == 'ok'\n"
+            ),
+        },
+        actions={},
+        context={},
+        proofs={
+            "template::health": TemplateTest(
+                "tests/template/test_health.py",
+                "test_health",
+                (
+                    sys.executable,
+                    "-m",
+                    "pytest",
+                    "-q",
+                    "tests/template/test_health.py::test_health",
+                ),
+            )
+        },
+    )
+    contract = {
+        "functional_requirements": {"FR-001": {"statement": "health is ready"}},
+        "acceptance_criteria": {
+            "AC-001": {
+                "requirement_refs": ["FR-001"],
+                "satisfied_by_template": {
+                    "template_version": "barebones-1",
+                    "test_id": "template::health",
+                },
+            }
+        },
+    }
+
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="template-only-contract",
         provider=PassingProvider(),
         template=template,
     )
@@ -709,6 +819,19 @@ def test_missing_path_never_satisfies_a_null_assertion(tmp_path: Path) -> None:
 
     assert result.state is RunState.HALTED
     assert result.cause == "REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:AC-001"
+
+
+def test_non_finite_action_output_becomes_a_repair_finding(tmp_path: Path) -> None:
+    result = run_to_release_ready(
+        contract=_contract(),
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="non-finite-action-output",
+        provider=NonFiniteProvider(),
+    )
+
+    assert result.state is RunState.HALTED
+    assert result.cause == "REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:candidate"
 
 
 @pytest.mark.parametrize("operator,value", [("lte", 2), ("gt", 0)])
