@@ -256,6 +256,27 @@ class HumanTestRepairProvider:
         return {"request_digest": request["request_digest"], "files": files}
 
 
+class HumanTestSyntaxRepairProvider:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        if purpose == "advisory_review":
+            return {"request_digest": request["request_digest"], "summary": "advisory"}
+        self.calls += 1
+        content = "VALUE =\n" if self.calls == 1 else "VALUE = 'ok'\n"
+        return {"request_digest": request["request_digest"], "files": {"config.py": content}}
+
+
+class TrustedHelperTamperingProvider:
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert purpose == "code"
+        return {
+            "request_digest": request["request_digest"],
+            "files": {"tests/acceptance/helper.py": "def check():\n    return None\n"},
+        }
+
+
 class MeasureSyntaxRepairProvider:
     def __init__(self) -> None:
         self.calls = 0
@@ -794,6 +815,94 @@ def test_human_test_failure_allows_a_changed_product_repair(tmp_path: Path) -> N
 
     assert result.state is RunState.RELEASE_READY
     assert result.attempts == 2
+
+
+def test_human_test_execution_failure_preserves_repair_identity(tmp_path: Path) -> None:
+    test_file = tmp_path / "tests/acceptance/test_config.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text(
+        "from config import VALUE\n\ndef test_config():\n    assert VALUE == 'ok'\n"
+    )
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"] = {
+        "requirement_refs": ["FR-001"],
+        "human_test": {
+            "path": "tests/acceptance/test_config.py",
+            "node_id": "test_config",
+            "command": [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/acceptance/test_config.py::test_config",
+            ],
+        },
+    }
+    template = Template(
+        version="barebones-1",
+        files={"config.py": "VALUE = 'not_implemented'\n"},
+        actions={},
+        context={},
+    )
+
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="human-test-syntax-repair",
+        provider=HumanTestSyntaxRepairProvider(),
+        template=template,
+    )
+
+    assert result.state is RunState.RELEASE_READY
+    assert result.attempts == 2
+
+
+def test_coder_cannot_rewrite_template_test_support_module(tmp_path: Path) -> None:
+    test_file = tmp_path / "tests/acceptance/test_health.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text(
+        "from tests.acceptance.helper import check\n\ndef test_health():\n    check()\n"
+    )
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"] = {
+        "requirement_refs": ["FR-001"],
+        "human_test": {
+            "path": "tests/acceptance/test_health.py",
+            "node_id": "test_health",
+            "command": [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/acceptance/test_health.py::test_health",
+            ],
+        },
+    }
+    template = Template(
+        version="barebones-1",
+        files={
+            "product.py": "def health():\n    return {'status': 'not_implemented'}\n",
+            "tests/acceptance/helper.py": (
+                "from product import health\n\n"
+                "def check():\n    assert health()['status'] == 'ok'\n"
+            ),
+        },
+        actions={"health": "product:health"},
+        context={"service": {"running": True}},
+    )
+
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="trusted-helper-tamper",
+        provider=TrustedHelperTamperingProvider(),
+        template=template,
+    )
+
+    assert result.state is RunState.HALTED
+    assert result.cause == "CODER_MODIFIED_EVIDENCE"
 
 
 def test_template_proof_is_digest_bound_and_executed(tmp_path: Path) -> None:
