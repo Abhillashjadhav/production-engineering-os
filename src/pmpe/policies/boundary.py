@@ -1,14 +1,16 @@
 """Deterministic two-sided authority checks for governed agent boundaries.
 
-This module is deliberately small. Runtime adapters can call it *before* an
-external action or capability grant; trajectory evaluation independently checks
-that the same authority was respected in the evidence ledger.
+Runtime adapters call this authorizer before an external action or capability
+grant. Trajectory evaluation independently checks that the same authority was
+respected in the evidence ledger.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
+
+import rfc8785
 
 from pmpe.contracts.canonical import canonical_digest
 
@@ -27,11 +29,17 @@ class OutboundGrant:
     capability: str
 
 
-@dataclass(frozen=True)
 class BoundaryPolicy:
-    allowed_outbound: frozenset[OutboundGrant]
-    allowed_capabilities: frozenset[str]
-    digest: str
+    """Validated immutable authority derived only from its canonical payload.
+
+    Direct construction is deliberately blocked so grants can never be paired
+    with an unrelated trusted digest. Use ``from_payload``.
+    """
+
+    __slots__ = ("_allowed_outbound", "_allowed_capabilities", "_digest")
+
+    def __new__(cls) -> BoundaryPolicy:
+        raise TypeError("BoundaryPolicy must be created with from_payload()")
 
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> BoundaryPolicy:
@@ -66,11 +74,28 @@ class BoundaryPolicy:
         if len(set(parsed_capabilities)) != len(parsed_capabilities):
             raise BoundaryPolicyError("boundary policy contains duplicate capabilities")
 
-        return cls(
-            allowed_outbound=frozenset(parsed_outbound),
-            allowed_capabilities=frozenset(parsed_capabilities),
-            digest=canonical_digest(payload),
-        )
+        try:
+            digest = canonical_digest(payload)
+        except (rfc8785.CanonicalizationError, OverflowError, ValueError) as exc:
+            raise BoundaryPolicyError("boundary policy is outside the canonical JSON domain") from exc
+
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "_allowed_outbound", frozenset(parsed_outbound))
+        object.__setattr__(instance, "_allowed_capabilities", frozenset(parsed_capabilities))
+        object.__setattr__(instance, "_digest", digest)
+        return instance
+
+    @property
+    def allowed_outbound(self) -> frozenset[OutboundGrant]:
+        return self._allowed_outbound
+
+    @property
+    def allowed_capabilities(self) -> frozenset[str]:
+        return self._allowed_capabilities
+
+    @property
+    def digest(self) -> str:
+        return self._digest
 
     def _require_binding(self, bound_policy_digest: str | None) -> None:
         if bound_policy_digest != self.digest:
