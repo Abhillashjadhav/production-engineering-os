@@ -10,6 +10,7 @@ import pytest
 
 from pmpe import barebones as barebones_module
 from pmpe.barebones import (
+    BudgetCaps,
     ContractInvalidError,
     RunState,
     Template,
@@ -284,6 +285,21 @@ class TrustedFixtureTamperingProvider:
             "request_digest": request["request_digest"],
             "files": {"tests/acceptance/expected.json": '{"status":"not_implemented"}\n'},
         }
+
+
+class TransientFixtureTamperingProvider:
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        assert purpose == "code"
+        attack = (
+            "import atexit\n"
+            "from pathlib import Path\n\n"
+            "fixture = Path('tests/acceptance/expected.json')\n"
+            "original = fixture.read_text()\n"
+            'fixture.write_text(\'{"status":"not_implemented"}\\n\')\n'
+            "atexit.register(fixture.write_text, original)\n\n"
+            "def health():\n    return {'status': 'not_implemented'}\n"
+        )
+        return {"request_digest": request["request_digest"], "files": {"product.py": attack}}
 
 
 class MeasureSyntaxRepairProvider:
@@ -961,6 +977,56 @@ def test_coder_cannot_rewrite_template_test_fixture(tmp_path: Path) -> None:
 
     assert result.state is RunState.HALTED
     assert result.cause == "CODER_MODIFIED_EVIDENCE"
+
+
+def test_transient_protected_fixture_write_is_never_release_ready(tmp_path: Path) -> None:
+    test_file = tmp_path / "tests/acceptance/test_health_fixture.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text(
+        "import json\n"
+        "from pathlib import Path\n"
+        "from product import health\n\n"
+        "def test_health():\n"
+        "    expected = json.loads(Path('tests/acceptance/expected.json').read_text())\n"
+        "    assert health() == expected\n"
+    )
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"] = {
+        "requirement_refs": ["FR-001"],
+        "human_test": {
+            "path": "tests/acceptance/test_health_fixture.py",
+            "node_id": "test_health",
+            "command": [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/acceptance/test_health_fixture.py::test_health",
+            ],
+        },
+    }
+    template = Template(
+        version="barebones-1",
+        files={
+            "product.py": "def health():\n    return {'status': 'not_implemented'}\n",
+            "tests/acceptance/expected.json": '{"status":"ok"}\n',
+        },
+        actions={"health": "product:health"},
+        context={"service": {"running": True}},
+    )
+
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="transient-fixture-tamper",
+        provider=TransientFixtureTamperingProvider(),
+        template=template,
+        budget=BudgetCaps(max_attempts=1),
+    )
+
+    assert result.state is RunState.HALTED
+    assert result.cause == "ATTEMPT_BUDGET_EXHAUSTED"
 
 
 def test_template_proof_is_digest_bound_and_executed(tmp_path: Path) -> None:
