@@ -7,8 +7,9 @@ respected in the evidence ledger.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import rfc8785
 
@@ -29,19 +30,16 @@ class OutboundGrant:
     capability: str
 
 
-class BoundaryPolicy:
+class BoundaryPolicy(tuple[object, ...]):
     """Validated immutable authority derived only from its canonical payload.
 
     Direct construction is deliberately blocked so grants can never be paired
     with an unrelated trusted digest. Use ``from_payload``.
     """
 
-    __slots__ = ("_allowed_outbound", "_allowed_capabilities", "_digest")
-    _allowed_outbound: frozenset[OutboundGrant]
-    _allowed_capabilities: frozenset[str]
-    _digest: str
+    __slots__ = ()
 
-    def __new__(cls) -> BoundaryPolicy:
+    def __new__(cls, _iterable: Iterable[object] = (), /) -> BoundaryPolicy:
         raise TypeError("BoundaryPolicy must be created with from_payload()")
 
     def __setattr__(self, _name: str, _value: object) -> None:
@@ -87,23 +85,25 @@ class BoundaryPolicy:
                 "boundary policy is outside the canonical JSON domain"
             ) from exc
 
-        instance = object.__new__(cls)
-        object.__setattr__(instance, "_allowed_outbound", frozenset(parsed_outbound))
-        object.__setattr__(instance, "_allowed_capabilities", frozenset(parsed_capabilities))
-        object.__setattr__(instance, "_digest", digest)
-        return instance
+        return cast(
+            BoundaryPolicy,
+            tuple.__new__(
+                cls,
+                (frozenset(parsed_outbound), frozenset(parsed_capabilities), digest),
+            ),
+        )
 
     @property
     def allowed_outbound(self) -> frozenset[OutboundGrant]:
-        return self._allowed_outbound
+        return cast(frozenset[OutboundGrant], self[0])
 
     @property
     def allowed_capabilities(self) -> frozenset[str]:
-        return self._allowed_capabilities
+        return cast(frozenset[str], self[1])
 
     @property
     def digest(self) -> str:
-        return self._digest
+        return cast(str, self[2])
 
     def _require_binding(self, bound_policy_digest: str | None) -> None:
         if bound_policy_digest != self.digest:

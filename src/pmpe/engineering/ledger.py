@@ -13,6 +13,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from pmpe.contracts.canonical import CanonicalInputError, strict_loads
 from pmpe.contracts.digest import canonical_digest
 from pmpe.domain.serialize import jsonable
 from pmpe.telemetry.events import utc_now
@@ -103,8 +104,8 @@ class EvidenceLedger:
                 valid_bytes += len(encoded)
                 continue
             try:
-                events.append(json.loads(encoded))
-            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+                events.append(strict_loads(encoded))
+            except CanonicalInputError as exc:
                 if repair_truncated_tail and index == len(lines) - 1 and not complete:
                     with self.path.open("r+b") as stream:
                         stream.truncate(valid_bytes)

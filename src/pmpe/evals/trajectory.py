@@ -26,11 +26,11 @@ Every check is a named TRAJ-xx rule; any violation is a hard HOLD.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any
 
 from pmpe.agents.permissions import FULLSTACK_REVIEW_LENSES, REVIEWER_NAMES
+from pmpe.contracts.canonical import CanonicalInputError, strict_loads
 from pmpe.policies.boundary import BoundaryPolicy, BoundaryPolicyError, OutboundGrant
 
 # one home for the reviewer roster: the permission model (PD-06). The V3
@@ -60,13 +60,18 @@ def _digest(event: dict[str, Any], side: str, key: str) -> str | None:
     return str(value) if value is not None else None
 
 
-def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-    value: dict[str, Any] = {}
-    for key, item in pairs:
-        if key in value:
-            raise ValueError(f"duplicate JSON member: {key}")
-        value[key] = item
-    return value
+def load_trajectory_jsonl(payload: bytes) -> list[dict[str, Any]]:
+    """Admit outer ledger events without collapsing duplicate JSON members."""
+
+    events: list[dict[str, Any]] = []
+    for line in payload.splitlines():
+        if not line.strip():
+            continue
+        try:
+            events.append(strict_loads(line))
+        except CanonicalInputError as exc:
+            raise ValueError("trajectory ledger contains an invalid JSON event") from exc
+    return events
 
 
 def _json_detail(event: dict[str, Any]) -> dict[str, Any] | None:
@@ -74,10 +79,10 @@ def _json_detail(event: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(detail, str) or not detail:
         return None
     try:
-        value = json.loads(detail, object_pairs_hook=_unique_object)
-    except ValueError:
+        value = strict_loads(detail.encode("utf-8"))
+    except (CanonicalInputError, UnicodeEncodeError):
         return None
-    return value if isinstance(value, dict) else None
+    return value
 
 
 def _load_boundary_policy(event: dict[str, Any]) -> BoundaryPolicy | None:

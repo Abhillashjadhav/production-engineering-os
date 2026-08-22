@@ -13,7 +13,7 @@ from pmpe.agents.registry import AgentRegistry
 from pmpe.domain.serialize import atomic_write_json
 from pmpe.evals.drift import compare
 from pmpe.evals.registry import load_eval_suite, run_agent_evals
-from pmpe.evals.trajectory import evaluate_trajectory
+from pmpe.evals.trajectory import evaluate_trajectory, load_trajectory_jsonl
 
 
 def _cmd_evals_run(args: argparse.Namespace) -> int:
@@ -37,9 +37,11 @@ def _cmd_evals_run(args: argparse.Namespace) -> int:
         if not args.ledger:
             print("trajectory suite requires --ledger <ledger.jsonl>")
             return 2
-        events = [
-            json.loads(line) for line in Path(args.ledger).read_text().splitlines() if line.strip()
-        ]
+        try:
+            events = load_trajectory_jsonl(Path(args.ledger).read_bytes())
+        except ValueError as exc:
+            print(f"trajectory ledger rejected: {exc}")
+            return 2
         violations = evaluate_trajectory(events)
         for violation in violations:
             print(

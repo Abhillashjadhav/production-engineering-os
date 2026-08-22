@@ -11,13 +11,13 @@ import pytest
 
 from pmpe.contracts.canonical import canonical_digest
 from pmpe.engineering.ledger import EvidenceLedger
-from pmpe.evals.trajectory import evaluate_trajectory
+from pmpe.evals.trajectory import evaluate_trajectory, load_trajectory_jsonl
 
 FIXTURES = Path(__file__).resolve().parents[2] / "evals" / "fixtures" / "trajectory"
 
 
 def _load(name: str) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in (FIXTURES / name).read_text().splitlines() if line.strip()]
+    return load_trajectory_jsonl((FIXTURES / name).read_bytes())
 
 
 def _checks(name: str) -> set[str]:

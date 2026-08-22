@@ -30,7 +30,7 @@ from pmpe.deployment.policy import production_readiness
 from pmpe.domain.serialize import atomic_write_json
 from pmpe.engineering.engine import DeploymentBlocked, EngineeringRun
 from pmpe.evals.drift import compare
-from pmpe.evals.trajectory import evaluate_trajectory
+from pmpe.evals.trajectory import evaluate_trajectory, load_trajectory_jsonl
 from pmpe.gitops.local import LocalGitAdapter
 from pmpe.quality.security_scan import scan_tree
 from pmpe.quality.test_evidence import TestEvidence, run_tests_with_evidence
@@ -458,9 +458,7 @@ def run_demo(
     planted_ledger = (
         evals_dir / "fixtures" / "trajectory" / "planted_implement_before_architecture.jsonl"
     )
-    planted_events = [
-        json.loads(line) for line in planted_ledger.read_text().splitlines() if line.strip()
-    ]
+    planted_events = load_trajectory_jsonl(planted_ledger.read_bytes())
     planted_violations = evaluate_trajectory(planted_events)
     drift = compare(
         json.loads((evals_dir / "baselines" / "synthetic-baseline.json").read_text()),

@@ -26,7 +26,7 @@ A governed run can record one `boundary_policy/lock` event before boundary-sensi
 
 The event must write the RFC 8785 canonical digest of that exact payload to `output_digests.boundary_policy`. Boundary events must later cite that same digest in `input_digests.boundary_policy`.
 
-A caller-supplied `verdict: approved` is not authority. The evaluator recomputes the policy digest, rejects duplicate JSON members, and checks the event against the frozen policy. The runtime policy rejects attribute reassignment after construction, so retained adapters cannot widen its grants or replace its digest.
+A caller-supplied `verdict: approved` is not authority. Ledger admission and the evaluator reject duplicate JSON members before interpretation, then the evaluator recomputes the policy digest and checks the event against the frozen policy. The runtime policy stores its grants and digest in immutable tuple state, so retained adapters cannot widen its grants, replace its digest, or construct an empty shell through `object` primitives.
 
 ## Pre-execution authorizer
 

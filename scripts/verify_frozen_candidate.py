@@ -49,7 +49,7 @@ from pmpe.agents.permissions import (  # noqa: E402
 )
 from pmpe.agents.registry import AgentRegistry  # noqa: E402
 from pmpe.assurance.readonly_guard import readonly_snapshot, verify_unmodified  # noqa: E402
-from pmpe.evals.trajectory import evaluate_trajectory  # noqa: E402
+from pmpe.evals.trajectory import evaluate_trajectory, load_trajectory_jsonl  # noqa: E402
 from pmpe.evals.trajectory_fullstack import evaluate_fullstack_trajectory  # noqa: E402
 from pmpe.fullstack.contract import load_fullstack_contract  # noqa: E402
 from pmpe.fullstack.orchestration import FullStackRun  # noqa: E402
@@ -124,11 +124,7 @@ def main() -> int:
         raise SystemExit(f"worktree is at {head}, not the frozen candidate {CANDIDATE_COMMIT}")
 
     manifest = json.loads((frozen / "candidate-manifest.json").read_text())
-    phase1 = [
-        json.loads(line)
-        for line in (frozen / "ledger.jsonl").read_text().splitlines()
-        if line.strip()
-    ]
+    phase1 = load_trajectory_jsonl((frozen / "ledger.jsonl").read_bytes())
     browser = next(e for e in phase1 if e["stage"] == "browser_verification")
     suites = [s.split("=")[1] for s in [browser["detail"].split(";")[0]]][0].split(",")
     assert any(e["stage"] == "preview" for e in phase1), "reused evidence lacks a preview record"
@@ -175,11 +171,7 @@ def main() -> int:
     # (re-stamped to this verification run) + the six re-established reviews +
     # the release report. The reused phase-1 events keep their original digests
     # (freeze candidate, browser suites, preview) — only the run_id is aligned.
-    review_events = [
-        json.loads(line)
-        for line in (run_dir / "ledger.jsonl").read_text().splitlines()
-        if line.strip()
-    ]
+    review_events = load_trajectory_jsonl((run_dir / "ledger.jsonl").read_bytes())
     phase1_reused = [
         {**e, "run_id": state["run_id"]}
         for e in phase1
