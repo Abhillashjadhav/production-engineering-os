@@ -355,12 +355,15 @@ def run_to_release_ready(
     plan_blob = ledger.put_blob(
         json.dumps(plan.as_dict(), sort_keys=True, separators=(",", ":")).encode()
     )
+    contract_blob = ledger.put_blob(
+        json.dumps(contract, sort_keys=True, separators=(",", ":")).encode()
+    )
     ledger.append(
         event_type="contract_validated",
         state=RunState.VALIDATED,
         subject_digest=subject_digest,
-        blob_digests=(plan_blob,),
-        payload={"plan_digest": plan.plan_digest},
+        blob_digests=(contract_blob, plan_blob),
+        payload={"contract_digest": contract_blob, "plan_digest": plan.plan_digest},
     )
     if stop_requested():
         ledger.append(event_type="stopped", state=RunState.STOPPED, subject_digest=subject_digest)
@@ -503,7 +506,25 @@ def run_to_release_ready(
                 subject_digest=subject_digest,
                 payload={"attempt": attempt, "changed": list(changed)},
             )
-            findings = _verify(plan, workspace, active_template)
+            try:
+                findings = _verify(plan, workspace, active_template)
+            except ContractInvalidError as exc:
+                implicated_files = tuple(
+                    sorted(
+                        {
+                            target.split(":", maxsplit=1)[0].replace(".", "/") + ".py"
+                            for target in active_template.actions.values()
+                        }
+                    )
+                )
+                findings = (
+                    Finding(
+                        "CANDIDATE_EXECUTION_FAILED",
+                        "candidate",
+                        str(exc),
+                        implicated_files,
+                    ),
+                )
             if not findings:
                 evidence = {
                     "assertions": "passed",
