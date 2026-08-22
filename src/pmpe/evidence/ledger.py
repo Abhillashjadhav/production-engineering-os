@@ -33,6 +33,7 @@ class EvidenceLedger:
         self.run_directory = self.root / "runs" / run_id
         self.events_path = self.run_directory / "events.jsonl"
         self.blobs_directory = self.root / "blobs"
+        self._read_only = False
         self.run_directory.mkdir(parents=True, exist_ok=True)
         self.blobs_directory.mkdir(parents=True, exist_ok=True)
         if resume:
@@ -68,12 +69,15 @@ class EvidenceLedger:
         ledger.run_directory = ledger.root / "runs" / run_id
         ledger.events_path = ledger.run_directory / "events.jsonl"
         ledger.blobs_directory = ledger.root / "blobs"
+        ledger._read_only = True
         if not ledger.events_path.is_file():
             raise EvidenceIntegrityError("evidence ledger does not exist")
         tuple(ledger.verify())
         return ledger
 
     def put_blob(self, payload: bytes) -> str:
+        if self._read_only:
+            raise EvidenceIntegrityError("an inspection ledger is read-only")
         digest = "sha256:" + hashlib.sha256(payload).hexdigest()
         destination = self.blobs_directory / digest.removeprefix("sha256:")
         if destination.exists():
@@ -104,6 +108,8 @@ class EvidenceLedger:
         blob_digests: Sequence[str] = (),
         payload: Mapping[str, Any] | None = None,
     ) -> Mapping[str, Any]:
+        if self._read_only:
+            raise EvidenceIntegrityError("an inspection ledger is read-only")
         if not event_type or not state or _DIGEST.fullmatch(subject_digest) is None:
             raise ValueError("event type, state, and subject digest are required")
         if any(_DIGEST.fullmatch(item) is None for item in blob_digests):
