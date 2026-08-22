@@ -1,0 +1,223 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from pmpe.contracts.acceptance import AcceptanceCompileError, compile_acceptance_plan
+
+
+def _contract(criterion: dict[str, object]) -> dict[str, object]:
+    return {
+        "functional_requirements": {"FR-001": {"statement": "health reports ok"}},
+        "acceptance_criteria": {"AC-001": criterion},
+    }
+
+
+def test_compiles_structured_given_when_then_without_model_interpretation(
+    tmp_path: Path,
+) -> None:
+    contract = _contract(
+        {
+            "requirement_refs": ["FR-001"],
+            "given": [{"path": "service.running", "operator": "eq", "value": True}],
+            "when": {"action": "health", "arguments": {}},
+            "then": [{"path": "result.status", "operator": "eq", "value": "ok"}],
+        }
+    )
+
+    plan = compile_acceptance_plan(
+        contract,
+        repository_root=tmp_path,
+        registered_actions=frozenset({"health"}),
+        template_version="barebones-1",
+        template_test_ids=frozenset(),
+    )
+
+    assert plan.requirements == ("FR-001",)
+    assert plan.tasks[0].requirement_id == "FR-001"
+    assert plan.criteria[0].when is not None
+    assert plan.criteria[0].when.action == "health"
+    assert plan.plan_digest.startswith("sha256:")
+
+
+def test_free_text_criterion_fails_before_build(tmp_path: Path) -> None:
+    contract = _contract(
+        {
+            "requirement_refs": ["FR-001"],
+            "criterion": "Given a service, when health runs, then status is ok.",
+        }
+    )
+
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_acceptance_plan(
+            contract,
+            repository_root=tmp_path,
+            registered_actions=frozenset({"health"}),
+            template_version="barebones-1",
+            template_test_ids=frozenset(),
+        )
+
+    assert failure.value.diagnostics[0].code == "CRITERION_FORM_INVALID"
+
+
+def test_human_test_is_path_and_digest_bound(tmp_path: Path) -> None:
+    test_path = tmp_path / "tests" / "acceptance" / "test_security.py"
+    test_path.parent.mkdir(parents=True)
+    test_path.write_text("def test_safe():\n    assert True\n")
+    contract = _contract(
+        {
+            "requirement_refs": ["FR-001"],
+            "human_test": {
+                "path": "tests/acceptance/test_security.py",
+                "node_id": "test_safe",
+                "command": [
+                    "pytest",
+                    "-q",
+                    "tests/acceptance/test_security.py::test_safe",
+                ],
+            },
+        }
+    )
+
+    plan = compile_acceptance_plan(
+        contract,
+        repository_root=tmp_path,
+        registered_actions=frozenset(),
+        template_version="barebones-1",
+        template_test_ids=frozenset(),
+    )
+
+    assert plan.criteria[0].human_test is not None
+    assert plan.criteria[0].human_test.file_digest.startswith("sha256:")
+
+
+def test_human_test_missing_fails_before_build(tmp_path: Path) -> None:
+    contract = _contract(
+        {
+            "requirement_refs": ["FR-001"],
+            "human_test": {
+                "path": "tests/acceptance/test_missing.py",
+                "node_id": "test_missing",
+                "command": [
+                    "pytest",
+                    "-q",
+                    "tests/acceptance/test_missing.py::test_missing",
+                ],
+            },
+        }
+    )
+
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_acceptance_plan(
+            contract,
+            repository_root=tmp_path,
+            registered_actions=frozenset(),
+            template_version="barebones-1",
+            template_test_ids=frozenset(),
+        )
+
+    assert failure.value.diagnostics[0].code == "HUMAN_TEST_MISSING"
+
+
+def test_every_requirement_must_have_a_criterion(tmp_path: Path) -> None:
+    contract = {
+        "functional_requirements": {
+            "FR-001": {"statement": "health reports ok"},
+            "FR-002": {"statement": "config is safe"},
+        },
+        "acceptance_criteria": {
+            "AC-001": {
+                "requirement_refs": ["FR-001"],
+                "satisfied_by_template": {
+                    "template_version": "barebones-1",
+                    "test_id": "template::health",
+                },
+            }
+        },
+    }
+
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_acceptance_plan(
+            contract,
+            repository_root=tmp_path,
+            registered_actions=frozenset(),
+            template_version="barebones-1",
+            template_test_ids=frozenset({"template::health"}),
+        )
+
+    assert any(
+        item.code == "REQUIREMENT_UNCOVERED" and item.subject_id == "FR-002"
+        for item in failure.value.diagnostics
+    )
+
+
+def test_template_pass_requires_exact_pinned_proof(tmp_path: Path) -> None:
+    contract = _contract(
+        {
+            "requirement_refs": ["FR-001"],
+            "satisfied_by_template": {
+                "template_version": "old-template",
+                "test_id": "template::health",
+            },
+        }
+    )
+
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_acceptance_plan(
+            contract,
+            repository_root=tmp_path,
+            registered_actions=frozenset(),
+            template_version="barebones-1",
+            template_test_ids=frozenset({"template::health"}),
+        )
+
+    assert failure.value.diagnostics[0].code == "TEMPLATE_PROOF_INVALID"
+
+
+def test_contradictory_assertions_fail_at_compile_time(tmp_path: Path) -> None:
+    contract = _contract(
+        {
+            "requirement_refs": ["FR-001"],
+            "given": [
+                {"path": "service.running", "operator": "eq", "value": True},
+                {"path": "service.running", "operator": "eq", "value": False},
+            ],
+            "when": {"action": "health", "arguments": {}},
+            "then": [{"path": "result.status", "operator": "eq", "value": "ok"}],
+        }
+    )
+
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_acceptance_plan(
+            contract,
+            repository_root=tmp_path,
+            registered_actions=frozenset({"health"}),
+            template_version="barebones-1",
+            template_test_ids=frozenset(),
+        )
+
+    assert any(item.code == "CONTRADICTORY_ASSERTIONS" for item in failure.value.diagnostics)
+
+
+def test_measure_requires_a_registered_observation_source(tmp_path: Path) -> None:
+    contract = _contract(
+        {
+            "requirement_refs": ["FR-001"],
+            "measure": "latency.p95_ms",
+            "operator": "lte",
+            "value": 200,
+            "sample": {"minimum": 20},
+        }
+    )
+
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_acceptance_plan(
+            contract,
+            repository_root=tmp_path,
+            registered_actions=frozenset(),
+            template_version="barebones-1",
+            template_test_ids=frozenset(),
+        )
+
+    assert failure.value.diagnostics[0].code == "MEASURE_INVALID"
