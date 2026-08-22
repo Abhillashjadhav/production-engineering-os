@@ -60,13 +60,22 @@ def _digest(event: dict[str, Any], side: str, key: str) -> str | None:
     return str(value) if value is not None else None
 
 
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    value: dict[str, Any] = {}
+    for key, item in pairs:
+        if key in value:
+            raise ValueError(f"duplicate JSON member: {key}")
+        value[key] = item
+    return value
+
+
 def _json_detail(event: dict[str, Any]) -> dict[str, Any] | None:
     detail = event.get("detail")
     if not isinstance(detail, str) or not detail:
         return None
     try:
-        value = json.loads(detail)
-    except json.JSONDecodeError:
+        value = json.loads(detail, object_pairs_hook=_unique_object)
+    except ValueError:
         return None
     return value if isinstance(value, dict) else None
 

@@ -44,6 +44,9 @@ class BoundaryPolicy:
     def __new__(cls) -> BoundaryPolicy:
         raise TypeError("BoundaryPolicy must be created with from_payload()")
 
+    def __setattr__(self, _name: str, _value: object) -> None:
+        raise AttributeError("BoundaryPolicy is immutable")
+
     @classmethod
     def from_payload(cls, payload: dict[str, Any]) -> BoundaryPolicy:
         if set(payload) != {"allowed_outbound", "allowed_capabilities"}:
