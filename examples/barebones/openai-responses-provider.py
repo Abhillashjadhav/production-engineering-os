@@ -16,7 +16,7 @@ import urllib.request
 from collections.abc import Mapping
 from typing import Any, NoReturn
 
-_DEFAULT_BASE_URL = "https://api.openai.com/v1"
+_RESPONSES_URL = "https://api.openai.com/v1/responses"
 _PROMPT_VERSION = "pmpe-barebones-openai-v1"
 _OUTPUT_LIMIT_BYTES = 1_000_000
 
@@ -105,10 +105,10 @@ def _request_body(message: Mapping[str, Any], model: str) -> dict[str, Any]:
     }
 
 
-def _post(body: Mapping[str, Any], *, api_key: str, base_url: str) -> Mapping[str, Any]:
+def _post(body: Mapping[str, Any], *, api_key: str) -> Mapping[str, Any]:
     payload = json.dumps(body, sort_keys=True, separators=(",", ":")).encode()
     request = urllib.request.Request(
-        base_url.rstrip("/") + "/responses",
+        _RESPONSES_URL,
         data=payload,
         method="POST",
         headers={
@@ -168,6 +168,9 @@ def _provider_response(
     request_digest = request.get("request_digest")
     if not isinstance(request_digest, str):
         _fail("provider request is missing request_digest")
+    if api_response.get("status") != "completed":
+        detail = api_response.get("incomplete_details")
+        _fail("OpenAI response did not complete" + (f": {detail}" if detail else ""))
     try:
         generated = json.loads(_output_text(api_response))
     except json.JSONDecodeError:
@@ -215,9 +218,8 @@ def main() -> int:
         _fail("stdin must be one JSON object")
     model = _required_environment("PMPE_OPENAI_MODEL")
     api_key = _required_environment("OPENAI_API_KEY")
-    base_url = os.environ.get("PMPE_OPENAI_BASE_URL", _DEFAULT_BASE_URL)
     body = _request_body(message, model)
-    api_response = _post(body, api_key=api_key, base_url=base_url)
+    api_response = _post(body, api_key=api_key)
     json.dump(_provider_response(message, api_response, model), sys.stdout)
     return 0
 
