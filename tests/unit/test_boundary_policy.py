@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from pmpe.policies.boundary import BoundaryDeniedError, BoundaryPolicy, BoundaryPolicyError
+from pmpe.policies.boundary import (
+    BoundaryDeniedError,
+    BoundaryPolicy,
+    BoundaryPolicyError,
+    OutboundGrant,
+)
 
 
 def _policy() -> BoundaryPolicy:
@@ -76,6 +81,22 @@ def test_policy_can_grant_only_a_capability_it_already_contains() -> None:
 def test_boundary_policy_cannot_be_directly_constructed_with_forged_authority() -> None:
     with pytest.raises(TypeError, match="from_payload"):
         BoundaryPolicy()
+
+
+def test_boundary_policy_cannot_be_mutated_after_construction() -> None:
+    policy = _policy()
+
+    with pytest.raises(AttributeError, match="immutable"):
+        policy._allowed_outbound = frozenset({OutboundGrant("huggingface.co", "read")})
+    with pytest.raises(AttributeError, match="immutable"):
+        policy._digest = "sha256:forged"
+
+    with pytest.raises(BoundaryDeniedError):
+        policy.authorize_outbound(
+            destination="huggingface.co",
+            capability="read",
+            bound_policy_digest=policy.digest,
+        )
 
 
 def test_malformed_or_ambiguous_policy_is_rejected() -> None:

@@ -181,6 +181,27 @@ def test_policy_authorized_outbound_destination_is_allowed() -> None:
     assert evaluate_trajectory(events) == []
 
 
+def test_duplicate_boundary_event_members_fail_closed() -> None:
+    policy, digest = _boundary_policy()
+    events = [
+        _policy_lock(policy, digest),
+        {
+            "stage": "external_io",
+            "action": "destination_reached",
+            "agent": "eval-runner",
+            "detail": (
+                '{"destination":"huggingface.co",'
+                '"destination":"api.openai.com","capability":"read"}'
+            ),
+            "input_digests": {"boundary_policy": digest},
+            "output_digests": {},
+            "verdict": "approved",
+        },
+    ]
+
+    assert "TRAJ-15" in {v.check_id for v in evaluate_trajectory(events)}
+
+
 def test_external_input_cannot_become_capability_authority() -> None:
     violations = evaluate_trajectory(_load("planted_inbound_authority_inheritance.jsonl"))
     assert {v.check_id for v in violations} == {"TRAJ-16"}
