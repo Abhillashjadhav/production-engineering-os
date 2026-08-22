@@ -367,6 +367,44 @@ def test_equal_contains_and_not_contains_are_contradictory(tmp_path: Path) -> No
     assert any(item.code == "CONTRADICTORY_ASSERTIONS" for item in failure.value.diagnostics)
 
 
+@pytest.mark.parametrize(
+    ("assertion", "code"),
+    [
+        ({"path": "service.value", "operator": "eq"}, "MISSING_ASSERTION_VALUE"),
+        (
+            {"path": "service.value", "operator": "matches", "value": "["},
+            "INVALID_REGEX_ASSERTION",
+        ),
+        (
+            {"path": "service.value", "operator": "matches", "value": 1},
+            "INVALID_REGEX_ASSERTION",
+        ),
+    ],
+)
+def test_binary_assertion_operands_are_validated_before_build(
+    tmp_path: Path, assertion: dict[str, object], code: str
+) -> None:
+    contract = _contract(
+        {
+            "requirement_refs": ["FR-001"],
+            "given": [assertion],
+            "when": {"action": "health", "arguments": {}},
+            "then": [{"path": "result.status", "operator": "eq", "value": "ok"}],
+        }
+    )
+
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_acceptance_plan(
+            contract,
+            repository_root=tmp_path,
+            registered_actions=frozenset({"health"}),
+            template_version="barebones-1",
+            template_test_digests={},
+        )
+
+    assert any(item.code == code for item in failure.value.diagnostics)
+
+
 def test_measure_requires_a_registered_observation_source(tmp_path: Path) -> None:
     contract = _contract(
         {
