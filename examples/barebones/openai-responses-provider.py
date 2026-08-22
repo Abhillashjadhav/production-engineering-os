@@ -19,6 +19,22 @@ from typing import Any, NoReturn
 _RESPONSES_URL = "https://api.openai.com/v1/responses"
 _PROMPT_VERSION = "pmpe-barebones-openai-v1"
 _OUTPUT_LIMIT_BYTES = 1_000_000
+_MAX_OUTPUT_TOKENS = 16_384
+
+
+class _RejectRedirects(urllib.request.HTTPRedirectHandler):
+    """Reject every redirect so the bearer token never reaches another URL."""
+
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: Any,
+        code: int,
+        msg: str,
+        headers: Any,
+        newurl: str,
+    ) -> None:
+        del req, fp, code, msg, headers, newurl
 
 
 def _fail(message: str) -> NoReturn:
@@ -92,6 +108,7 @@ def _request_body(message: Mapping[str, Any], model: str) -> dict[str, Any]:
     return {
         "model": model,
         "store": False,
+        "max_output_tokens": _MAX_OUTPUT_TOKENS,
         "instructions": _instructions(purpose),
         "input": json.dumps(request, sort_keys=True, separators=(",", ":")),
         "text": {
@@ -117,7 +134,8 @@ def _post(body: Mapping[str, Any], *, api_key: str) -> Mapping[str, Any]:
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=120) as response:  # noqa: S310
+        opener = urllib.request.build_opener(_RejectRedirects)
+        with opener.open(request, timeout=120) as response:  # noqa: S310
             raw = response.read(_OUTPUT_LIMIT_BYTES + 1)
     except urllib.error.HTTPError as exc:
         detail = exc.read(8192).decode("utf-8", errors="replace")
