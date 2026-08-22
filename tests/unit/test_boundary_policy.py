@@ -99,6 +99,19 @@ def test_boundary_policy_cannot_be_mutated_after_construction() -> None:
         )
 
 
+def test_boundary_policy_authority_cannot_be_replaced_via_object_primitives() -> None:
+    policy = _policy()
+
+    with pytest.raises((AttributeError, TypeError)):
+        object.__setattr__(
+            policy,
+            "_allowed_outbound",
+            frozenset({OutboundGrant("huggingface.co", "read")}),
+        )
+    with pytest.raises(TypeError):
+        object.__new__(BoundaryPolicy)
+
+
 def test_malformed_or_ambiguous_policy_is_rejected() -> None:
     with pytest.raises(BoundaryPolicyError):
         BoundaryPolicy.from_payload(

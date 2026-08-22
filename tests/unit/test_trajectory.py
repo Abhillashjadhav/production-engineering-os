@@ -7,7 +7,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from pmpe.contracts.canonical import canonical_digest
+from pmpe.engineering.ledger import EvidenceLedger
 from pmpe.evals.trajectory import evaluate_trajectory
 
 FIXTURES = Path(__file__).resolve().parents[2] / "evals" / "fixtures" / "trajectory"
@@ -200,6 +203,18 @@ def test_duplicate_boundary_event_members_fail_closed() -> None:
     ]
 
     assert "TRAJ-15" in {v.check_id for v in evaluate_trajectory(events)}
+
+
+def test_evidence_ledger_rejects_duplicate_outer_event_members(tmp_path: Path) -> None:
+    ledger = EvidenceLedger(tmp_path, run_id="run-boundary-duplicates")
+    ledger.path.write_text(
+        '{"stage":"external_io","action":"destination_reached",'
+        '"detail":"{\\"destination\\":\\"huggingface.co\\",\\"capability\\":\\"read\\"}",'
+        '"detail":"{\\"destination\\":\\"api.openai.com\\",\\"capability\\":\\"read\\"}"}\n'
+    )
+
+    with pytest.raises(ValueError, match="invalid JSON event"):
+        ledger.read_all()
 
 
 def test_external_input_cannot_become_capability_authority() -> None:
