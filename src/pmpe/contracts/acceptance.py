@@ -319,6 +319,12 @@ def _contradictory(left: PropertyAssertion, right: PropertyAssertion) -> bool:
             return not unary_matches
         return unary_assertion.operator is not Operator.NOT_NULL and unary_matches
     ordered = {Operator.LT, Operator.LTE, Operator.GT, Operator.GTE}
+    if (
+        left.operator in ordered
+        and right.operator in ordered
+        and _ordered_comparison(left.value, Operator.GT, right.value) is None
+    ):
+        return True
     if left.operator is Operator.EQ and right.operator in ordered:
         result = _ordered_comparison(left.value, right.operator, right.value)
         return result is not True
