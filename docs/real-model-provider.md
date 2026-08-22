@@ -21,7 +21,8 @@ export OPENAI_API_KEY='<set outside the repository>'
 export PMPE_OPENAI_MODEL='<an available structured-output-capable model>'
 ```
 
-`PMPE_OPENAI_BASE_URL` is optional and defaults to `https://api.openai.com/v1`.
+The reference adapter sends credentials only to
+`https://api.openai.com/v1/responses`; the endpoint is intentionally not configurable.
 Do not put credentials in a contract, provider command, candidate workspace, shell
 history, evidence directory, or committed file.
 
