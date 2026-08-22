@@ -24,6 +24,20 @@ On Debian/Ubuntu, install the isolation runtime with:
 sudo apt-get install bubblewrap util-linux
 ```
 
+Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor. Give only
+Bubblewrap permission to create the namespace used by the runner:
+
+```bash
+sudo tee /etc/apparmor.d/pmpe-bwrap >/dev/null <<'EOF'
+abi <abi/4.0>,
+include <tunables/global>
+/usr/bin/bwrap flags=(unconfined) {
+  userns,
+}
+EOF
+sudo apparmor_parser -r /etc/apparmor.d/pmpe-bwrap
+```
+
 Verify the install:
 
 ```bash

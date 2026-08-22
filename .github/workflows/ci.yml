@@ -47,7 +47,17 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - name: install candidate isolation runtime
-        run: sudo apt-get update && sudo apt-get install -y bubblewrap
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          sudo tee /etc/apparmor.d/pmpe-bwrap >/dev/null <<'EOF'
+          abi <abi/4.0>,
+          include <tunables/global>
+          /usr/bin/bwrap flags=(unconfined) {
+            userns,
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/pmpe-bwrap
       - run: pip install -e ".[dev]"
       - name: unit tests
         run: pytest tests/unit -q
