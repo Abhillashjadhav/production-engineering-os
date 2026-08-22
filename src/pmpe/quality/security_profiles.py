@@ -227,7 +227,7 @@ class PrivacyIntent:
     classification: str
     retention_days: int
     deletion_required: bool
-    residency: str
+    residency: str | None
     telemetry_allowlist: tuple[str, ...]
 
 
@@ -236,7 +236,7 @@ class PrivacyEvidence:
     classification: str
     retention_days: int
     deletion_test_passed: bool
-    residency: str
+    residency: str | None
     emitted_telemetry: tuple[str, ...]
     evidence_digest: str
 
@@ -1037,7 +1037,7 @@ def _evaluate_privacy(subject: SecurityProfileInput) -> tuple[NormalizedSecurity
         and intent.classification == evidence.classification
         and intent.retention_days == evidence.retention_days
         and (not intent.deletion_required or evidence.deletion_test_passed)
-        and intent.residency == evidence.residency
+        and (intent.residency is None or intent.residency == evidence.residency)
         and set(evidence.emitted_telemetry) <= set(intent.telemetry_allowlist)
         and claimed_evidence_digest == canonical_digest(evidence_payload)
     )
@@ -1052,7 +1052,7 @@ def _evaluate_privacy(subject: SecurityProfileInput) -> tuple[NormalizedSecurity
             path="",
             line=0,
             message=(
-                "Privacy classification, retention, deletion, residency, or telemetry is unproven."
+                "Privacy classification, retention, deletion, required residency, or telemetry is unproven."
             ),
             subject_sha=subject.candidate_sha,
             evidence={
