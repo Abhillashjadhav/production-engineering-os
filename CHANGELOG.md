@@ -9,6 +9,8 @@ versions: SemVer.
 - Frozen six-state contract-to-`RELEASE_READY` alpha core with deterministic acceptance compilation, meaningful-RED baseline, one bounded Coder, Bubblewrap verification, and hash-chained evidence (#141).
 - Standard-library OpenAI Responses API reference provider with strict structured output, fixed endpoint handling, redirect rejection, bounded output, and non-secret usage metadata (#148).
 - Response-binding, plan-determinism, read-only ledger inspection, and behavioural-drift comparison evidence separated into distinct claims (#149).
+
+### Added (legacy compatibility; not part of the default alpha surface)
 - Governed personal runtime adapters for exact-payload calendar approval, budgeted and
   allowlisted product workers, digest-bound append-only event/eval evidence, bounded retry
   with verified rollback, and proposal-only outcome learning (#121).
