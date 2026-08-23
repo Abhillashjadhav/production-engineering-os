@@ -13,6 +13,8 @@ from pmpe.barebones import BudgetCaps, RunState, run_to_release_ready
 from pmpe.cli import barebones_cmd, build_parser
 from pmpe.cli.barebones_cmd import CommandModelProvider
 
+_REPOSITORY = Path(__file__).parents[2]
+
 
 def test_barebones_cli_runs_a_contract_without_cloud_services(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
@@ -29,7 +31,7 @@ def test_barebones_cli_runs_a_contract_without_cloud_services(
             "--repository-root",
             str(tmp_path),
             "--approval-receipt",
-            str(repository / "examples/barebones/e1-approval-receipt.json"),
+            str(_REPOSITORY / "examples/barebones/e1-approval-receipt.json"),
             "--expected-approver",
             "fixture-human",
             "--provider-command",
@@ -67,7 +69,7 @@ def test_unapproved_contract_is_rejected_before_provider(
             "--repository-root",
             str(tmp_path),
             "--approval-receipt",
-            str(repository / "examples/barebones/e1-approval-receipt.json"),
+            str(_REPOSITORY / "examples/barebones/e1-approval-receipt.json"),
             "--expected-approver",
             "fixture-human",
             "--provider-command",
@@ -99,7 +101,7 @@ def test_contract_changed_after_approval_is_rejected(
             "--repository-root",
             str(tmp_path),
             "--approval-receipt",
-            str(repository / "examples/barebones/e1-approval-receipt.json"),
+            str(_REPOSITORY / "examples/barebones/e1-approval-receipt.json"),
             "--expected-approver",
             "fixture-human",
             "--provider-command",
@@ -125,7 +127,7 @@ def test_approver_mismatch_is_rejected(tmp_path: Path, capsys: pytest.CaptureFix
             "--repository-root",
             str(tmp_path),
             "--approval-receipt",
-            str(repository / "examples/barebones/e1-approval-receipt.json"),
+            str(_REPOSITORY / "examples/barebones/e1-approval-receipt.json"),
             "--expected-approver",
             "different-human",
             "--provider-command",
@@ -215,7 +217,7 @@ def test_malformed_contract_is_reported_without_a_traceback(
             "--repository-root",
             str(tmp_path),
             "--approval-receipt",
-            str(repository / "examples/barebones/e1-approval-receipt.json"),
+            str(_REPOSITORY / "examples/barebones/e1-approval-receipt.json"),
             "--expected-approver",
             "fixture-human",
             "--provider-command",
@@ -248,7 +250,7 @@ def test_non_empty_workspace_is_rejected_before_evidence_is_created(
             "--repository-root",
             str(tmp_path),
             "--approval-receipt",
-            str(repository / "examples/barebones/e1-approval-receipt.json"),
+            str(_REPOSITORY / "examples/barebones/e1-approval-receipt.json"),
             "--expected-approver",
             "fixture-human",
             "--provider-command",
@@ -281,7 +283,7 @@ def test_workspace_cannot_overlap_evidence_storage(
             "--repository-root",
             str(workspace),
             "--approval-receipt",
-            str(repository / "examples/barebones/e1-approval-receipt.json"),
+            str(_REPOSITORY / "examples/barebones/e1-approval-receipt.json"),
             "--expected-approver",
             "fixture-human",
             "--provider-command",
