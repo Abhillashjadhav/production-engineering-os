@@ -878,6 +878,10 @@ def run_to_release_ready(
     workspace.mkdir(parents=True, exist_ok=True)
     ledger = EvidenceLedger(repository_root, run_id)
 
+    def _terminal_telemetry() -> dict[str, Any]:
+        counters["elapsed_ms"] = int((time.monotonic() - started) * 1000)
+        return dict(counters)
+
     def finish(
         state: RunState, cause: str, attempts: int, annotation: Mapping[str, Any] | None = None
     ) -> RunResult:
@@ -887,10 +891,10 @@ def run_to_release_ready(
             cause=cause,
             attempts=attempts,
             model_calls=int(counters["calls"]),
-            elapsed_ms=int((time.monotonic() - started) * 1000),
+            elapsed_ms=int(counters.get("elapsed_ms", (time.monotonic() - started) * 1000)),
             evidence_path=ledger.events_path,
             annotation=dict(annotation or {}),
-            telemetry=dict(counters),
+            telemetry=_terminal_telemetry(),
         )
 
     plan_blob = ledger.put_blob(
@@ -911,7 +915,7 @@ def run_to_release_ready(
             event_type="stopped",
             state=RunState.STOPPED,
             subject_digest=subject_digest,
-            payload={"cause": "STOP_REQUESTED", "telemetry": dict(counters)},
+            payload={"cause": "STOP_REQUESTED", "telemetry": _terminal_telemetry()},
         )
         return finish(RunState.STOPPED, "STOP_REQUESTED", 0)
 
@@ -975,7 +979,7 @@ def run_to_release_ready(
                 event_type="stopped",
                 state=RunState.STOPPED,
                 subject_digest=subject_digest,
-                payload={"cause": "STOP_REQUESTED", "telemetry": dict(counters)},
+                payload={"cause": "STOP_REQUESTED", "telemetry": _terminal_telemetry()},
             )
             return finish(RunState.STOPPED, "STOP_REQUESTED", attempt - 1)
         request = _model_request(
@@ -998,7 +1002,7 @@ def run_to_release_ready(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
-                payload={"cause": cause, "telemetry": dict(counters)},
+                payload={"cause": cause, "telemetry": _terminal_telemetry()},
             )
             return finish(RunState.HALTED, cause, attempt - 1)
         files = response.get("files")
@@ -1007,7 +1011,7 @@ def run_to_release_ready(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
-                payload={"cause": "CODER_RESPONSE_INVALID", "telemetry": dict(counters)},
+                payload={"cause": "CODER_RESPONSE_INVALID", "telemetry": _terminal_telemetry()},
             )
             return finish(RunState.HALTED, "CODER_RESPONSE_INVALID", attempt)
         try:
@@ -1021,7 +1025,7 @@ def run_to_release_ready(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
-                payload={"cause": "CODER_RESPONSE_INVALID", "telemetry": dict(counters)},
+                payload={"cause": "CODER_RESPONSE_INVALID", "telemetry": _terminal_telemetry()},
             )
             return finish(RunState.HALTED, "CODER_RESPONSE_INVALID", attempt)
         if protected_tests.intersection(response_paths):
@@ -1029,7 +1033,7 @@ def run_to_release_ready(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
-                payload={"cause": "CODER_MODIFIED_EVIDENCE", "telemetry": dict(counters)},
+                payload={"cause": "CODER_MODIFIED_EVIDENCE", "telemetry": _terminal_telemetry()},
             )
             return finish(RunState.HALTED, "CODER_MODIFIED_EVIDENCE", attempt)
         try:
@@ -1039,7 +1043,7 @@ def run_to_release_ready(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
-                payload={"cause": "CODER_RESPONSE_INVALID", "telemetry": dict(counters)},
+                payload={"cause": "CODER_RESPONSE_INVALID", "telemetry": _terminal_telemetry()},
             )
             return finish(RunState.HALTED, "CODER_RESPONSE_INVALID", attempt)
         coder_blob = ledger.put_blob(
@@ -1076,7 +1080,7 @@ def run_to_release_ready(
                 payload={
                     "cause": cause,
                     "findings": [asdict(item) for item in findings],
-                    "telemetry": dict(counters),
+                    "telemetry": _terminal_telemetry(),
                 },
             )
             return finish(RunState.HALTED, cause, attempt)
@@ -1175,7 +1179,7 @@ def run_to_release_ready(
                     payload={
                         "annotation": dict(annotation),
                         "candidate_digest": candidate_blob,
-                        "telemetry": dict(counters),
+                        "telemetry": _terminal_telemetry(),
                     },
                 )
                 return finish(RunState.RELEASE_READY, "PASS", attempt, annotation)
@@ -1202,7 +1206,7 @@ def run_to_release_ready(
         payload={
             "cause": "ATTEMPT_BUDGET_EXHAUSTED",
             "findings": [asdict(item) for item in findings],
-            "telemetry": dict(counters),
+            "telemetry": _terminal_telemetry(),
         },
     )
     return finish(RunState.HALTED, "ATTEMPT_BUDGET_EXHAUSTED", active_budget.max_attempts)
