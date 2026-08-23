@@ -867,9 +867,7 @@ def run_to_release_ready(
         registered_measures=frozenset(active_template.measures),
         trusted_test_digests=trusted_test_digests,
     )
-    counters["structured_criteria_count"] = sum(
-        item.form != "human_test" for item in plan.criteria
-    )
+    counters["structured_criteria_count"] = sum(item.form != "human_test" for item in plan.criteria)
     counters["human_test_count"] = sum(item.form == "human_test" for item in plan.criteria)
     workspace_root = workspace.resolve()
     evidence_root = (repository_root / ".pmpe").resolve()
