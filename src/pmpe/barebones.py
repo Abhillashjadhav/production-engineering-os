@@ -817,6 +817,8 @@ def _invoke_bound(
         if estimated is not None:
             if not isinstance(estimated, (int, float)) or isinstance(estimated, bool):
                 raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
+            if isinstance(estimated, int) and abs(estimated) > _MAX_SAFE_JSON_INTEGER:
+                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
             try:
                 estimated_value = float(estimated)
             except (OverflowError, ValueError) as exc:
