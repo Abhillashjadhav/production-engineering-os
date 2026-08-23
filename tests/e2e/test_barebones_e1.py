@@ -7,7 +7,6 @@ from typing import Any
 
 from pmpe.barebones import RunState, run_to_release_ready
 
-
 _METADATA = {
     "provider": "scripted-fixture",
     "model": "deterministic-e1",
