@@ -24,8 +24,10 @@ from pmpe.contracts.acceptance import (
     PropertyAssertion,
     compile_acceptance_plan,
 )
+from pmpe.contracts.authoring import verify_contract_approval
 from pmpe.contracts.canonical import canonical_digest
 from pmpe.evals.barebones_drift import observe_provider_behavior
+from pmpe.domain.errors import ContractViolation
 from pmpe.evidence.ledger import EvidenceLedger
 from pmpe.model_provider import ModelProvider
 
@@ -834,6 +836,8 @@ def run_to_release_ready(
     budget: BudgetCaps | None = None,
     stop_requested: Callable[[], bool] = lambda: False,
     candidate_sandbox: CandidateSandbox | None = None,
+    approval_receipt: Mapping[str, Any] | None = None,
+    approval_authority: str | None = None,
 ) -> RunResult:
     """Run the frozen core. It never deploys and stops at RELEASE_READY."""
 
@@ -852,6 +856,23 @@ def run_to_release_ready(
         "human_test_count": 0,
     }
     subject_digest = canonical_digest(contract)
+    if (approval_receipt is None) != (approval_authority is None):
+        raise ContractInvalidError("approval receipt and authority must be supplied together")
+    approval_payload: dict[str, Any] = {"status": "UNVERIFIED_DIRECT_CALL"}
+    if approval_receipt is not None and approval_authority is not None:
+        try:
+            receipt_digest = verify_contract_approval(
+                dict(contract),
+                dict(approval_receipt),
+                expected_approver=approval_authority,
+            )
+        except ContractViolation as exc:
+            raise ContractInvalidError(str(exc)) from exc
+        approval_payload = {
+            "status": "VERIFIED",
+            "authority": approval_authority,
+            "receipt_digest": receipt_digest,
+        }
 
     template_test_digests: dict[str, str] = {}
     for test_id, proof in active_template.proofs.items():
@@ -913,12 +934,23 @@ def run_to_release_ready(
     contract_blob = ledger.put_blob(
         json.dumps(contract, sort_keys=True, separators=(",", ":")).encode()
     )
+    validation_blobs = [contract_blob, plan_blob]
+    if approval_receipt is not None:
+        receipt_blob = ledger.put_blob(
+            json.dumps(approval_receipt, sort_keys=True, separators=(",", ":")).encode()
+        )
+        validation_blobs.append(receipt_blob)
+        approval_payload["receipt_blob_digest"] = receipt_blob
     ledger.append(
         event_type="contract_validated",
         state=RunState.VALIDATED,
         subject_digest=subject_digest,
-        blob_digests=(contract_blob, plan_blob),
-        payload={"contract_digest": contract_blob, "plan_digest": plan.plan_digest},
+        blob_digests=tuple(validation_blobs),
+        payload={
+            "approval": approval_payload,
+            "contract_digest": contract_blob,
+            "plan_digest": plan.plan_digest,
+        },
     )
     if stop_requested():
         ledger.append(
