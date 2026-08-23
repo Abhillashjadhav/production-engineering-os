@@ -26,8 +26,8 @@ from pmpe.contracts.acceptance import (
 )
 from pmpe.contracts.authoring import verify_contract_approval
 from pmpe.contracts.canonical import CanonicalInputError, canonical_digest, strict_loads
-from pmpe.evals.barebones_drift import observe_provider_behavior
 from pmpe.domain.errors import ContractViolation
+from pmpe.evals.barebones_drift import observe_provider_behavior
 from pmpe.evidence.ledger import EvidenceLedger
 from pmpe.model_provider import ModelProvider
 
