@@ -48,6 +48,12 @@ def test_completed_run_id_cannot_be_reused_or_resumed(tmp_path: Path) -> None:
     with pytest.raises(EvidenceIntegrityError, match="terminal"):
         EvidenceLedger(tmp_path, "run-001", resume=True)
 
+    inspection = EvidenceLedger.open_existing(tmp_path, "run-001")
+    with pytest.raises(EvidenceIntegrityError, match="read-only"):
+        inspection.append(event_type="changed", state="BUILDING", subject_digest=subject)
+    with pytest.raises(EvidenceIntegrityError, match="read-only"):
+        inspection.put_blob(b"changed")
+
 
 def test_event_tampering_is_detected(tmp_path: Path) -> None:
     ledger = EvidenceLedger(tmp_path, "run-001")
@@ -62,6 +68,9 @@ def test_event_tampering_is_detected(tmp_path: Path) -> None:
 
     with pytest.raises(EvidenceIntegrityError):
         tuple(ledger.verify())
+
+    with pytest.raises(EvidenceIntegrityError):
+        EvidenceLedger.open_existing(tmp_path, "run-001")
 
 
 def test_blob_tampering_is_detected(tmp_path: Path) -> None:
