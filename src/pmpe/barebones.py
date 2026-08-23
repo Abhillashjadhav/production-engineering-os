@@ -778,8 +778,8 @@ def _invoke_bound(
 ) -> Mapping[str, Any]:
     if counters["calls"] >= budget.max_model_calls:
         raise RuntimeError("MODEL_CALL_BUDGET_EXHAUSTED")
-    response = provider.invoke(purpose=purpose, request=request)
     counters["calls"] += 1
+    response = provider.invoke(purpose=purpose, request=request)
     serialized = json.dumps(response, sort_keys=True, separators=(",", ":"))
     if _CREDENTIAL.search(serialized):
         raise RuntimeError("MODEL_RESPONSE_CONTAINS_CREDENTIAL")
