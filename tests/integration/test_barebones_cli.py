@@ -230,6 +230,45 @@ def test_non_finite_provider_cost_is_classified_before_evidence(tmp_path: Path) 
     assert event["payload"]["telemetry"]["estimated_cost_usd"] == 0.0
 
 
+def test_accumulated_provider_cost_overflow_is_rejected_before_assignment() -> None:
+    class HugeFiniteCostProvider:
+        def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+            return {
+                "request_digest": request["request_digest"],
+                "files": {},
+                "usage": {"estimated_cost_usd": 1e308},
+            }
+
+    counters: dict[str, Any] = {
+        "calls": 0,
+        "bytes": 0,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "estimated_cost_usd": 0.0,
+        "provider_model_id": "",
+    }
+    provider = HugeFiniteCostProvider()
+    request = {"request_digest": "bound"}
+    barebones_runtime._invoke_bound(
+        provider,
+        purpose="code",
+        request=request,
+        budget=BudgetCaps(),
+        counters=counters,
+    )
+
+    with pytest.raises(RuntimeError, match="MODEL_PROVIDER_USAGE_INVALID"):
+        barebones_runtime._invoke_bound(
+            provider,
+            purpose="advisory_review",
+            request=request,
+            budget=BudgetCaps(),
+            counters=counters,
+        )
+
+    assert counters["estimated_cost_usd"] == 1e308
+
+
 def test_provider_error_credentials_are_classified_without_persisting_secret() -> None:
     secret = "sk-" + "a" * 24
 
