@@ -45,7 +45,11 @@ resolved model name, prompt version, response id, usage, and estimated cost when
 current per-million-token prices are configured. Prices are never hard-coded because
 they change; the operator must supply the rates used for the evidence bundle. The core
 still owns the request digest, output limits, candidate-path validation, deterministic verification,
-and evidence chain.
+and evidence chain. Successful provider calls with complete non-secret provider metadata
+also emit normalized `provider_behavior` observations (request, output, provider, model,
+and prompt-version digests) into the hash-chained events. Those observations enable
+cross-run drift comparison; repeated real-provider drift remains unproven until P1 runs
+publish comparable observations.
 
 ## Evidence rule
 
