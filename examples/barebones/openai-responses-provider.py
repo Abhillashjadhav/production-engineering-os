@@ -223,7 +223,19 @@ def _provider_response(
         result = {"request_digest": request_digest, "summary": summary}
     result["provider_metadata"] = metadata
     if isinstance(usage, Mapping):
-        result["usage"] = dict(usage)
+        recorded_usage = dict(usage)
+        input_rate = os.environ.get("PMPE_OPENAI_INPUT_USD_PER_MILLION", "").strip()
+        output_rate = os.environ.get("PMPE_OPENAI_OUTPUT_USD_PER_MILLION", "").strip()
+        if input_rate and output_rate:
+            try:
+                input_cost = float(input_rate) * int(usage.get("input_tokens", 0)) / 1_000_000
+                output_cost = float(output_rate) * int(usage.get("output_tokens", 0)) / 1_000_000
+            except (TypeError, ValueError):
+                _fail("configured OpenAI token prices must be non-negative numbers")
+            if input_cost < 0 or output_cost < 0:
+                _fail("configured OpenAI token prices must be non-negative numbers")
+            recorded_usage["estimated_cost_usd"] = round(input_cost + output_cost, 12)
+        result["usage"] = recorded_usage
     return result
 
 
