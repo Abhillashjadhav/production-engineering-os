@@ -4,9 +4,9 @@
 
 | Command | Purpose | Exit codes |
 |---|---|---|
-| `pmpe validate <spec>` | structure + semantic validation only | 0 ok · 2 malformed · 3 errors/questions |
-| `pmpe status <run_id>` | read historical V1 step status and escalations | 0 |
-| `pmpe report <run_id>` | read a historical V1 final report | 0 · 1 if absent |
+| `pmpe legacy validate <spec>` | structure + semantic validation only | 0 ok · 2 malformed · 3 errors/questions |
+| `pmpe legacy status <run_id>` | read historical V1 step status and escalations | 0 |
+| `pmpe legacy report <run_id>` | read a historical V1 final report | 0 · 1 if absent |
 
 Common read-only flags: `--runs-dir DIR`, `--config FILE`.
 
