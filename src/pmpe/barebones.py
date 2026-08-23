@@ -815,7 +815,10 @@ def _invoke_bound(
                 or estimated < 0
             ):
                 raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
-            counters["estimated_cost_usd"] += float(estimated)
+            accumulated_cost = counters["estimated_cost_usd"] + float(estimated)
+            if not math.isfinite(accumulated_cost):
+                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
+            counters["estimated_cost_usd"] = accumulated_cost
     metadata = response.get("provider_metadata")
     if isinstance(metadata, Mapping):
         model = metadata.get("model")
