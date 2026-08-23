@@ -203,13 +203,16 @@ def test_model_response_credentials_are_rejected_before_evidence() -> None:
         )
 
 
-def test_non_finite_provider_cost_is_classified_before_evidence(tmp_path: Path) -> None:
-    class NonFiniteCostProvider:
+@pytest.mark.parametrize("invalid_cost", [float("inf"), 10**400])
+def test_invalid_provider_cost_is_classified_before_evidence(
+    tmp_path: Path, invalid_cost: int | float
+) -> None:
+    class InvalidCostProvider:
         def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
             return {
                 "request_digest": request["request_digest"],
                 "files": {},
-                "usage": {"estimated_cost_usd": float("inf")},
+                "usage": {"estimated_cost_usd": invalid_cost},
             }
 
     contract = json.loads((_REPOSITORY / "examples/barebones/e1-contract.json").read_text())
@@ -217,8 +220,8 @@ def test_non_finite_provider_cost_is_classified_before_evidence(tmp_path: Path) 
         contract=contract,
         repository_root=tmp_path,
         workspace=tmp_path / "candidate",
-        run_id="non-finite-provider-cost",
-        provider=NonFiniteCostProvider(),
+        run_id="invalid-provider-cost",
+        provider=InvalidCostProvider(),
     )
 
     assert result.state is RunState.HALTED
@@ -267,6 +270,45 @@ def test_accumulated_provider_cost_overflow_is_rejected_before_assignment() -> N
         )
 
     assert counters["estimated_cost_usd"] == 1e308
+
+
+def test_accumulated_provider_tokens_outside_json_range_are_rejected() -> None:
+    class HugeTokenProvider:
+        def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+            return {
+                "request_digest": request["request_digest"],
+                "files": {},
+                "usage": {"input_tokens": (1 << 53) - 1},
+            }
+
+    counters: dict[str, Any] = {
+        "calls": 0,
+        "bytes": 0,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "estimated_cost_usd": 0.0,
+        "provider_model_id": "",
+    }
+    provider = HugeTokenProvider()
+    request = {"request_digest": "bound"}
+    barebones_runtime._invoke_bound(
+        provider,
+        purpose="code",
+        request=request,
+        budget=BudgetCaps(),
+        counters=counters,
+    )
+
+    with pytest.raises(RuntimeError, match="MODEL_PROVIDER_USAGE_INVALID"):
+        barebones_runtime._invoke_bound(
+            provider,
+            purpose="advisory_review",
+            request=request,
+            budget=BudgetCaps(),
+            counters=counters,
+        )
+
+    assert counters["tokens_in"] == (1 << 53) - 1
 
 
 def test_provider_error_credentials_are_classified_without_persisting_secret() -> None:
