@@ -6,11 +6,24 @@ versions: SemVer.
 ## [Unreleased]
 
 ### Added
+- Frozen six-state contract-to-`RELEASE_READY` alpha core with deterministic acceptance compilation, meaningful-RED baseline, one bounded Coder, Bubblewrap verification, and hash-chained evidence (#141).
+- Standard-library OpenAI Responses API reference provider with strict structured output, fixed endpoint handling, redirect rejection, bounded output, and non-secret usage metadata (#148).
+- Response-binding, plan-determinism, read-only ledger inspection, and behavioural-drift comparison evidence separated into distinct claims (#149).
+
+### Added (legacy compatibility; not part of the default alpha surface)
 - Governed personal runtime adapters for exact-payload calendar approval, budgeted and
   allowlisted product workers, digest-bound append-only event/eval evidence, bounded retry
   with verified rollback, and proposal-only outcome learning (#121).
 - `pmpe personal-runtime quickstart` deterministic local demo, synthetic fixture, runtime
   documentation, and unit/integration assurance tests. No real connectors or external writes.
+
+### Changed
+- Public claims now use an evidence-first alpha boundary and an explicit local defective-code threat model; arbitrary generation, production readiness, deployment, and platform validation are not claimed (#147).
+- The default CLI exposes only the frozen barebones journey and an explicit `legacy` compatibility boundary (#150).
+- The 0.2.0 deployment ladder and larger multi-agent lifecycle below are historical legacy behavior, superseded as the default product surface by the frozen alpha core. They are not evidence for current alpha deployment or production-readiness claims.
+
+### Security
+- Candidate execution fails closed without Bubblewrap and `prlimit`, clears the environment, removes network and host filesystem authority, mounts the candidate read-only, and bounds process resources and output. This shares the host kernel and is not a hosted or multi-tenant adversarial boundary (#141, #147).
 
 ## [0.2.0] — 2026-07-16
 
