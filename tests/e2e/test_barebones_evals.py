@@ -1418,7 +1418,8 @@ def test_credential_material_is_blocked_in_non_python_files(tmp_path: Path) -> N
     )
 
     assert result.state is RunState.HALTED
-    assert result.cause == "REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:.env"
+    assert result.cause == "MODEL_RESPONSE_CONTAINS_CREDENTIAL"
+    assert "AKIAABCDEFGHIJKLMNOP" not in result.evidence_path.read_text()
 
 
 @pytest.mark.parametrize("operator,value", [("lte", 2), ("gt", 0)])
