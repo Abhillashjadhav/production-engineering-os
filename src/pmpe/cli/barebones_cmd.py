@@ -139,8 +139,16 @@ def _run(args: argparse.Namespace) -> int:
             if contract_path.suffix.lower() in {".yaml", ".yml"}
             else "application/json"
         )
-        contract = strict_loads(contract_path.read_bytes(), content_type)
-        receipt = strict_loads(Path(args.approval_receipt).read_bytes(), "application/json")
+        try:
+            contract_source = contract_path.read_bytes()
+        except OSError as exc:
+            raise ContractInvalidError("cannot read contract") from exc
+        try:
+            receipt_source = Path(args.approval_receipt).read_bytes()
+        except OSError as exc:
+            raise ContractInvalidError("cannot read approval receipt") from exc
+        contract = strict_loads(contract_source, content_type)
+        receipt = strict_loads(receipt_source, "application/json")
         _require_approved_contract(contract, receipt, args.expected_approver)
         result = run_to_release_ready(
             contract=contract,
@@ -148,6 +156,8 @@ def _run(args: argparse.Namespace) -> int:
             workspace=Path(args.workspace).resolve(),
             run_id=args.run_id,
             provider=CommandModelProvider(args.provider_command, args.provider_timeout),
+            approval_receipt=receipt,
+            approval_authority=args.expected_approver,
         )
     except CanonicalInputError as exc:
         print(
