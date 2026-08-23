@@ -89,12 +89,24 @@ class ContractInvalidError(ValueError):
 
 _SAFE_RELATIVE = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\Z")
 _MODULE_TARGET = re.compile(r"([A-Za-z_][A-Za-z0-9_.]*):([A-Za-z_][A-Za-z0-9_]*)\Z")
-_CREDENTIAL = re.compile(\n    r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}"\n)\n_HIGH_RISK_CODE = re.compile(r"\b(?:eval|exec)\s*\(")
+_CREDENTIAL = re.compile(
+    r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}"
+)
+_HIGH_RISK_CODE = re.compile(r"\b(?:eval|exec)\s*\(")
 _ACTION_TIMEOUT_SECONDS = 10.0
 _PYTEST_TIMEOUT_SECONDS = 30.0
 _CANDIDATE_OUTPUT_LIMIT_BYTES = 1_000_000
 _SANDBOX_PATH = "/usr/local/bin:/usr/bin:/bin"
 _PYTEST_RESULT_PREFIX = "__PMPE_PYTEST_RESULT__:"
+
+_PROVIDER_ERROR_CODE = re.compile(r"[A-Z][A-Z0-9_]*\Z")
+
+
+def _classify_provider_error(error: RuntimeError) -> str:
+    message = str(error)
+    if _CREDENTIAL.search(message) or not _PROVIDER_ERROR_CODE.fullmatch(message):
+        return "MODEL_PROVIDER_FAILED"
+    return message
 
 
 class CandidateSandbox(Protocol):
@@ -897,7 +909,12 @@ def run_to_release_ready(
         payload={"contract_digest": contract_blob, "plan_digest": plan.plan_digest},
     )
     if stop_requested():
-        ledger.append(event_type="stopped", state=RunState.STOPPED, subject_digest=subject_digest)
+        ledger.append(
+            event_type="stopped",
+            state=RunState.STOPPED,
+            subject_digest=subject_digest,
+            payload={"cause": "STOP_REQUESTED", "telemetry": dict(counters)},
+        )
         return finish(RunState.STOPPED, "STOP_REQUESTED", 0)
 
     _write_files(workspace, active_template.files)
@@ -957,7 +974,10 @@ def run_to_release_ready(
     for attempt in range(1, active_budget.max_attempts + 1):
         if stop_requested():
             ledger.append(
-                event_type="stopped", state=RunState.STOPPED, subject_digest=subject_digest
+                event_type="stopped",
+                state=RunState.STOPPED,
+                subject_digest=subject_digest,
+                payload={"cause": "STOP_REQUESTED", "telemetry": dict(counters)},
             )
             return finish(RunState.STOPPED, "STOP_REQUESTED", attempt - 1)
         request = _model_request(
@@ -975,20 +995,21 @@ def run_to_release_ready(
                 counters=counters,
             )
         except RuntimeError as exc:
+            cause = _classify_provider_error(exc)
             ledger.append(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
-                payload={"cause": str(exc)},
+                payload={"cause": cause, "telemetry": dict(counters)},
             )
-            return finish(RunState.HALTED, str(exc), attempt - 1)
+            return finish(RunState.HALTED, cause, attempt - 1)
         files = response.get("files")
         if not isinstance(files, Mapping):
             ledger.append(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
-                payload={"cause": "CODER_RESPONSE_INVALID"},
+                payload={"cause": "CODER_RESPONSE_INVALID", "telemetry": dict(counters)},
             )
             return finish(RunState.HALTED, "CODER_RESPONSE_INVALID", attempt)
         try:
@@ -1002,7 +1023,7 @@ def run_to_release_ready(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
-                payload={"cause": "CODER_RESPONSE_INVALID"},
+                payload={"cause": "CODER_RESPONSE_INVALID", "telemetry": dict(counters)},
             )
             return finish(RunState.HALTED, "CODER_RESPONSE_INVALID", attempt)
         if protected_tests.intersection(response_paths):
@@ -1010,7 +1031,7 @@ def run_to_release_ready(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
-                payload={"cause": "CODER_MODIFIED_EVIDENCE"},
+                payload={"cause": "CODER_MODIFIED_EVIDENCE", "telemetry": dict(counters)},
             )
             return finish(RunState.HALTED, "CODER_MODIFIED_EVIDENCE", attempt)
         try:
@@ -1020,7 +1041,7 @@ def run_to_release_ready(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
-                payload={"cause": "CODER_RESPONSE_INVALID"},
+                payload={"cause": "CODER_RESPONSE_INVALID", "telemetry": dict(counters)},
             )
             return finish(RunState.HALTED, "CODER_RESPONSE_INVALID", attempt)
         coder_blob = ledger.put_blob(
@@ -1054,7 +1075,11 @@ def run_to_release_ready(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
-                payload={"cause": cause, "findings": [asdict(item) for item in findings]},
+                payload={
+                    "cause": cause,
+                    "findings": [asdict(item) for item in findings],
+                    "telemetry": dict(counters),
+                },
             )
             return finish(RunState.HALTED, cause, attempt)
 
@@ -1143,7 +1168,7 @@ def run_to_release_ready(
                         counters=counters,
                     )
                 except RuntimeError as exc:
-                    annotation = {"status": "unavailable", "cause": str(exc)}
+                    annotation = {"status": "unavailable", "cause": _classify_provider_error(exc)}
                 ledger.append(
                     event_type="release_ready",
                     state=RunState.RELEASE_READY,
@@ -1179,6 +1204,7 @@ def run_to_release_ready(
         payload={
             "cause": "ATTEMPT_BUDGET_EXHAUSTED",
             "findings": [asdict(item) for item in findings],
+            "telemetry": dict(counters),
         },
     )
     return finish(RunState.HALTED, "ATTEMPT_BUDGET_EXHAUSTED", active_budget.max_attempts)
