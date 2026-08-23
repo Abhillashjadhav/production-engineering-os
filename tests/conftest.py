@@ -104,6 +104,11 @@ def local_candidate_sandbox_for_barebones_tests(
         "test_barebones_evals.py",
     }:
         return
+    if (
+        request.path.name == "test_barebones_e1.py"
+        and os.environ.get("PMPE_TEST_REAL_SANDBOX") == "true"
+    ):
+        return
     from pmpe import barebones
 
     monkeypatch.setattr(barebones, "BubblewrapCandidateSandbox", _LocalCandidateTestSandbox)
