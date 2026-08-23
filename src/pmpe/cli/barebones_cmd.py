@@ -113,6 +113,19 @@ class CommandModelProvider:
         return response
 
 
+def _require_approved_contract(
+    contract: Mapping[str, Any], expected_approver: str
+) -> None:
+    status = contract.get("contract_status")
+    approved_by = contract.get("approved_by")
+    if status != "APPROVED":
+        raise ContractInvalidError("contract_status must be APPROVED")
+    if not isinstance(approved_by, str) or not approved_by.strip():
+        raise ContractInvalidError("approved_by is required")
+    if approved_by != expected_approver:
+        raise ContractInvalidError("approved_by does not match --expected-approver")
+
+
 def _run(args: argparse.Namespace) -> int:
     contract_path = Path(args.contract)
     try:
@@ -122,6 +135,7 @@ def _run(args: argparse.Namespace) -> int:
             else "application/json"
         )
         contract = strict_loads(contract_path.read_bytes(), content_type)
+        _require_approved_contract(contract, args.expected_approver)
         result = run_to_release_ready(
             contract=contract,
             repository_root=Path(args.repository_root).resolve(),
@@ -170,6 +184,7 @@ def _run(args: argparse.Namespace) -> int:
                 "elapsed_ms": result.elapsed_ms,
                 "evidence": str(result.evidence_path),
                 "annotation": result.annotation,
+                "telemetry": result.telemetry,
             },
             sort_keys=True,
         )
@@ -186,6 +201,11 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     parser.add_argument("--workspace", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--repository-root", default=".")
+    parser.add_argument(
+        "--expected-approver",
+        required=True,
+        help="human identity that must exactly match contract approved_by",
+    )
     parser.add_argument(
         "--provider-command",
         required=True,
