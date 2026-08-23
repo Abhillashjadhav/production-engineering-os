@@ -9,6 +9,7 @@ Credentials are read from the environment and are never copied into the response
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import urllib.error
@@ -236,10 +237,17 @@ def _provider_response(
                 output_cost = (
                     output_rate_value * int(usage.get("output_tokens", 0)) / 1_000_000
                 )
-            except (TypeError, ValueError):
-                _fail("configured OpenAI token prices must be non-negative numbers")
-            if input_cost < 0 or output_cost < 0:
-                _fail("configured OpenAI token prices must be non-negative numbers")
+            except (OverflowError, TypeError, ValueError):
+                _fail("configured OpenAI token prices must be finite non-negative numbers")
+            if (
+                not math.isfinite(input_rate_value)
+                or not math.isfinite(output_rate_value)
+                or not math.isfinite(input_cost)
+                or not math.isfinite(output_cost)
+                or input_cost < 0
+                or output_cost < 0
+            ):
+                _fail("configured OpenAI token prices must be finite non-negative numbers")
             recorded_usage["pricing"] = {
                 "input_usd_per_million_tokens": input_rate_value,
                 "output_usd_per_million_tokens": output_rate_value,
