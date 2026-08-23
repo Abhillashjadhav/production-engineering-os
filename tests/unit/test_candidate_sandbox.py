@@ -41,6 +41,8 @@ def test_default_candidate_sandbox_removes_host_authority(
 
     argv = observed["argv"]
     assert isinstance(argv, list)
+    assert "--die-with-parent" in argv
+    assert "--new-session" in argv
     assert "--unshare-all" in argv
     assert "--clearenv" in argv
     assert f"--fsize={64 * 1024 * 1024}" in argv
@@ -49,6 +51,17 @@ def test_default_candidate_sandbox_removes_host_authority(
     ]
     assert not {"/root", "/home"}.intersection(argv)
     assert observed["environment"] == {"LC_ALL": "C", "PATH": "/usr/local/bin:/usr/bin:/bin"}
+
+
+def test_model_file_path_cannot_escape_candidate_root(tmp_path: Path) -> None:
+    workspace = tmp_path / "candidate"
+    workspace.mkdir()
+    escaped = tmp_path / "escaped.py"
+
+    with pytest.raises(ValueError, match="unsafe candidate path"):
+        barebones._write_files(workspace, {"../escaped.py": "HOST_WRITE = True\n"})
+
+    assert not escaped.exists()
 
 
 def test_candidate_execution_fails_closed_without_os_sandbox(
