@@ -4,12 +4,18 @@ import json
 import os
 import subprocess
 import sys
+from collections.abc import Mapping
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from pmpe import barebones
-from pmpe.barebones import BubblewrapCandidateSandbox, ContractInvalidError
+from pmpe.barebones import (
+    BubblewrapCandidateSandbox,
+    ContractInvalidError,
+    run_to_release_ready,
+)
 
 
 def test_default_candidate_sandbox_removes_host_authority(
@@ -64,6 +70,19 @@ def test_model_file_path_cannot_escape_candidate_root(tmp_path: Path) -> None:
     assert not escaped.exists()
 
 
+def test_model_file_path_cannot_escape_through_symlink(tmp_path: Path) -> None:
+    workspace = tmp_path / "candidate"
+    workspace.mkdir()
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (workspace / "linked").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="escapes workspace"):
+        barebones._write_files(workspace, {"linked/escaped.py": "HOST_WRITE = True\n"})
+
+    assert not (outside / "escaped.py").exists()
+
+
 def test_candidate_execution_fails_closed_without_os_sandbox(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -75,6 +94,37 @@ def test_candidate_execution_fails_closed_without_os_sandbox(
             ("/usr/bin/python3", "-V"),
             timeout_seconds=2,
             environment={},
+        )
+
+
+def test_engine_fails_closed_when_candidate_sandbox_is_unavailable(tmp_path: Path) -> None:
+    class ProviderMustNotRun:
+        def invoke(
+            self, *, purpose: str, request: Mapping[str, Any]
+        ) -> Mapping[str, Any]:
+            raise AssertionError("provider must not run before sandbox verification")
+
+    contract = {
+        "contract_id": "PMOS-FAIL-CLOSED",
+        "functional_requirements": {"FR-001": {"statement": "health reports ok"}},
+        "acceptance_criteria": {
+            "AC-001": {
+                "requirement_refs": ["FR-001"],
+                "given": [{"path": "service.running", "operator": "eq", "value": True}],
+                "when": {"action": "health", "arguments": {}},
+                "then": [{"path": "result.status", "operator": "eq", "value": "ok"}],
+            }
+        },
+    }
+
+    with pytest.raises(ContractInvalidError, match="sandbox is unavailable"):
+        run_to_release_ready(
+            contract=contract,
+            repository_root=tmp_path,
+            workspace=tmp_path / "candidate",
+            run_id="sandbox-unavailable",
+            provider=ProviderMustNotRun(),
+            candidate_sandbox=BubblewrapCandidateSandbox(executable="pmpe-missing-bwrap"),
         )
 
 
