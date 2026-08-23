@@ -19,6 +19,8 @@ mandatory OpenAI dependency in `pmpe`.
 ```bash
 export OPENAI_API_KEY='<set outside the repository>'
 export PMPE_OPENAI_MODEL='<an available structured-output-capable model>'
+export PMPE_OPENAI_INPUT_USD_PER_MILLION='<current input-token price>'
+export PMPE_OPENAI_OUTPUT_USD_PER_MILLION='<current output-token price>'
 ```
 
 The reference adapter sends credentials only to
@@ -37,7 +39,9 @@ pmpe barebones examples/barebones/e1-contract.json \
 ```
 
 The provider records non-secret metadata returned through the protocol: provider,
-resolved model name, prompt version, response id, and usage. The core still owns the
+resolved model name, prompt version, response id, usage, and estimated cost when both
+current per-million-token prices are configured. Prices are never hard-coded because
+they change; the operator must supply the rates used for the evidence bundle. The core still owns the
 request digest, output limits, candidate-path validation, deterministic verification,
 and evidence chain.
 
