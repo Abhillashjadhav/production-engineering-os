@@ -99,9 +99,7 @@ def test_candidate_execution_fails_closed_without_os_sandbox(
 
 def test_engine_fails_closed_when_candidate_sandbox_is_unavailable(tmp_path: Path) -> None:
     class ProviderMustNotRun:
-        def invoke(
-            self, *, purpose: str, request: Mapping[str, Any]
-        ) -> Mapping[str, Any]:
+        def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
             raise AssertionError("provider must not run before sandbox verification")
 
     contract = {
