@@ -92,6 +92,7 @@ pmpe barebones examples/barebones/e1-contract.json \
   --workspace /tmp/pmpe-e1-candidate \
   --run-id e1 \
   --repository-root /tmp/pmpe-e1-evidence \
+  --approval-receipt examples/barebones/e1-approval-receipt.json \
   --expected-approver fixture-human \
   --provider-command "python examples/barebones/e1-provider.py"
 ```
@@ -106,6 +107,7 @@ A provider receives one JSON object on standard input:
 {"purpose": "code|advisory_review", "request": {}}
 ```
 
+  --approval-receipt examples/barebones/e1-approval-receipt.json \
 The contract must contain `contract_status: APPROVED` and `approved_by`; the CLI requires an exact `--expected-approver` match before invoking the provider. The provider must return one UTF-8 JSON object containing the same `request_digest`. Do not record provider credentials in contracts, commands, candidate workspaces, or evidence.
 
 ## Current evidence gap
