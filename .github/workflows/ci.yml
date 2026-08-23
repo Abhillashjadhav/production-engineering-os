@@ -312,15 +312,15 @@ jobs:
           python -m pytest -q tests/e2e/test_full_pipeline.py
       - name: eval suites (agents + planted trajectory fixture)
         run: |
-          pmpe evals run --suite all --ledger evals/fixtures/trajectory/good_run.jsonl
+          pmpe legacy evals run --suite all --ledger evals/fixtures/trajectory/good_run.jsonl
       - name: drift gate holds on a planted regression
         run: |
           set +e
-          pmpe drift compare --baseline evals/baselines/synthetic-baseline.json \
+          pmpe legacy drift compare --baseline evals/baselines/synthetic-baseline.json \
               --current evals/fixtures/drift/current_hard_gate_failure.json
           status=$?
           set -e
           test "$status" -eq 3 || { echo "expected HOLD (exit 3), got $status"; exit 1; }
       - name: synthetic end-to-end demo
         run: |
-          pmpe demo --base-dir /tmp/ci-demo
+          pmpe legacy demo --base-dir /tmp/ci-demo
