@@ -35,6 +35,7 @@ pmpe barebones examples/barebones/e1-contract.json \
   --workspace /tmp/pmpe-real-e1-candidate \
   --run-id real-e1 \
   --repository-root /tmp/pmpe-real-e1-evidence \
+  --expected-approver fixture-human \\
   --provider-command "python examples/barebones/openai-responses-provider.py"
 ```
 
