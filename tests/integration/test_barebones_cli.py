@@ -155,6 +155,7 @@ def test_provider_timeout_is_a_classified_halt(
     event = json.loads(result.evidence_path.read_text().splitlines()[-1])
     assert event["event_type"] == "halted"
     assert event["payload"]["cause"] == "MODEL_PROVIDER_TIMEOUT"
+    assert event["payload"]["telemetry"] == result.telemetry
 
 
 def test_malformed_contract_is_reported_without_a_traceback(
