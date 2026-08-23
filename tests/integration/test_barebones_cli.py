@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from collections.abc import Mapping
@@ -48,8 +49,10 @@ def test_barebones_cli_runs_a_contract_without_cloud_services(
     assert approval["status"] == "VERIFIED"
     assert approval["authority"] == "fixture-human"
     receipt = json.loads((_REPOSITORY / "examples/barebones/e1-approval-receipt.json").read_text())
+    receipt_path = _REPOSITORY / "examples/barebones/e1-approval-receipt.json"
+    submitted_digest = "sha256:" + hashlib.sha256(receipt_path.read_bytes()).hexdigest()
     assert approval["receipt_digest"] == receipt["receipt_digest"]
-    assert approval["receipt_blob_digest"].startswith("sha256:")
+    assert approval["receipt_blob_digest"] == submitted_digest
 
 
 def test_unapproved_contract_is_rejected_before_provider(
