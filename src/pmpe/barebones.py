@@ -104,6 +104,7 @@ _SANDBOX_PATH = "/usr/local/bin:/usr/bin:/bin"
 _PYTEST_RESULT_PREFIX = "__PMPE_PYTEST_RESULT__:"
 
 _PROVIDER_ERROR_CODE = re.compile(r"[A-Z][A-Z0-9_]*\Z")
+_MAX_SAFE_JSON_INTEGER = (1 << 53) - 1
 
 
 def _classify_provider_error(error: RuntimeError) -> str:
@@ -804,18 +805,25 @@ def _invoke_bound(
     if isinstance(usage, Mapping):
         for source, target in (("input_tokens", "tokens_in"), ("output_tokens", "tokens_out")):
             value = usage.get(source)
-            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
-                counters[target] += value
+            if value is None:
+                continue
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
+            accumulated_tokens = counters[target] + value
+            if accumulated_tokens > _MAX_SAFE_JSON_INTEGER:
+                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
+            counters[target] = accumulated_tokens
         estimated = usage.get("estimated_cost_usd")
         if estimated is not None:
-            if (
-                not isinstance(estimated, (int, float))
-                or isinstance(estimated, bool)
-                or not math.isfinite(float(estimated))
-                or estimated < 0
-            ):
+            if not isinstance(estimated, (int, float)) or isinstance(estimated, bool):
                 raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
-            accumulated_cost = counters["estimated_cost_usd"] + float(estimated)
+            try:
+                estimated_value = float(estimated)
+            except (OverflowError, ValueError) as exc:
+                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID") from exc
+            if not math.isfinite(estimated_value) or estimated_value < 0:
+                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
+            accumulated_cost = counters["estimated_cost_usd"] + estimated_value
             if not math.isfinite(accumulated_cost):
                 raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
             counters["estimated_cost_usd"] = accumulated_cost
