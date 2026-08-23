@@ -41,7 +41,7 @@ sudo apparmor_parser -r /etc/apparmor.d/pmpe-bwrap
 Verify the install:
 
 ```bash
-pmpe validate examples/taskflow_mvp_spec.yaml
+pmpe legacy validate examples/taskflow_mvp_spec.yaml
 # -> specification OK: TaskFlow (7 requirements)
 pytest tests/unit           # fast sanity (~10s); full suite: pytest (~2 min)
 ```
@@ -54,11 +54,11 @@ pytest tests/e2e/test_full_pipeline.py
 
 This invokes the explicit `tests.legacy_v1` harness. The harness is not included
 in the wheel and has no installed CLI or production entry point. Historical run
-directories remain readable with `pmpe status` and `pmpe report`.
+directories remain readable with `pmpe legacy status` and `pmpe legacy report`.
 
 ## Historical run inspection configuration
 
-Read-only `pmpe status` and `pmpe report` accept a YAML config containing:
+Read-only `pmpe legacy status` and `pmpe legacy report` accept a YAML config containing:
 
 ```yaml
 runs_dir: runs              # where run directories are created
