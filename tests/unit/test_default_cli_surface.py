@@ -20,3 +20,12 @@ def test_legacy_commands_require_the_legacy_prefix() -> None:
 
     assert args.command == "legacy"
     assert args.legacy_command == "status"
+
+
+def test_historical_top_level_invocation_is_a_compatibility_alias() -> None:
+    parser = build_parser()
+
+    args = parser.parse_args(["status", "example", "--runs-dir", "/tmp/runs"])
+
+    assert args.command == "legacy"
+    assert args.legacy_command == "status"
