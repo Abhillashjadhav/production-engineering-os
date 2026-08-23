@@ -43,6 +43,13 @@ def test_barebones_cli_runs_a_contract_without_cloud_services(
     output = json.loads(capsys.readouterr().out)
     assert output["state"] == "RELEASE_READY"
     assert output["model_calls"] == 2
+    events = [json.loads(line) for line in Path(output["evidence"]).read_text().splitlines()]
+    approval = events[0]["payload"]["approval"]
+    assert approval["status"] == "VERIFIED"
+    assert approval["authority"] == "fixture-human"
+    assert approval["receipt_digest"] == approval["receipt_blob_digest"] or approval[
+        "receipt_blob_digest"
+    ].startswith("sha256:")
 
 
 def test_unapproved_contract_is_rejected_before_provider(
@@ -80,6 +87,33 @@ def test_unapproved_contract_is_rejected_before_provider(
     assert args.fn(args) == 3
     output = json.loads(capsys.readouterr().out)
     assert output["detail"] == "contract_status must be APPROVED"
+
+
+def test_missing_approval_receipt_is_structured_contract_error(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    args = build_parser().parse_args(
+        [
+            "barebones",
+            str(_REPOSITORY / "examples/barebones/e1-contract.json"),
+            "--workspace",
+            str(tmp_path / "candidate"),
+            "--run-id",
+            "missing-receipt",
+            "--repository-root",
+            str(tmp_path),
+            "--approval-receipt",
+            str(tmp_path / "missing.json"),
+            "--expected-approver",
+            "fixture-human",
+            "--provider-command",
+            "must-not-run",
+        ]
+    )
+
+    assert args.fn(args) == 3
+    output = json.loads(capsys.readouterr().out)
+    assert output["detail"] == "cannot read approval receipt"
 
 
 def test_contract_changed_after_approval_is_rejected(
