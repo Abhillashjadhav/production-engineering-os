@@ -165,7 +165,7 @@ def test_malformed_contract_is_reported_without_a_traceback(
             "malformed-contract",
             "--repository-root",
             str(tmp_path),
-            "--provider-command",
+            "--expected-approver",\n            "fixture-human",\n            "--provider-command",
             "provider",
         ]
     )
@@ -194,7 +194,7 @@ def test_non_empty_workspace_is_rejected_before_evidence_is_created(
             "occupied-workspace",
             "--repository-root",
             str(tmp_path),
-            "--provider-command",
+            "--expected-approver",\n            "fixture-human",\n            "--provider-command",
             "provider",
         ]
     )
@@ -223,7 +223,7 @@ def test_workspace_cannot_overlap_evidence_storage(
             "overlapping-roots",
             "--repository-root",
             str(workspace),
-            "--provider-command",
+            "--expected-approver",\n            "fixture-human",\n            "--provider-command",
             "provider",
         ]
     )
