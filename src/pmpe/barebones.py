@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import operator as comparison
 import re
 import shutil
@@ -806,11 +807,14 @@ def _invoke_bound(
             if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
                 counters[target] += value
         estimated = usage.get("estimated_cost_usd")
-        if (
-            isinstance(estimated, (int, float))
-            and not isinstance(estimated, bool)
-            and estimated >= 0
-        ):
+        if estimated is not None:
+            if (
+                not isinstance(estimated, (int, float))
+                or isinstance(estimated, bool)
+                or not math.isfinite(float(estimated))
+                or estimated < 0
+            ):
+                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
             counters["estimated_cost_usd"] += float(estimated)
     metadata = response.get("provider_metadata")
     if isinstance(metadata, Mapping):
