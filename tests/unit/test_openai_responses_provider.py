@@ -127,6 +127,25 @@ def test_configured_token_prices_record_estimated_cost(
     }
 
 
+@pytest.mark.parametrize(
+    ("input_rate", "output_rate"),
+    [("nan", "1"), ("1", "inf"), ("-inf", "1")],
+)
+def test_non_finite_token_prices_fail_closed(
+    monkeypatch: pytest.MonkeyPatch, input_rate: str, output_rate: str
+) -> None:
+    provider = _provider_module()
+    monkeypatch.setenv("PMPE_OPENAI_INPUT_USD_PER_MILLION", input_rate)
+    monkeypatch.setenv("PMPE_OPENAI_OUTPUT_USD_PER_MILLION", output_rate)
+
+    with pytest.raises(SystemExit):
+        provider._provider_response(
+            _message(),
+            _api_response({"files": []}),
+            "gpt-test",
+        )
+
+
 def test_advisory_output_remains_non_blocking_and_bound() -> None:
     provider = _provider_module()
     message = _message("advisory_review")
