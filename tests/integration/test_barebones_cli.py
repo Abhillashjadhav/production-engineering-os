@@ -28,6 +28,8 @@ def test_barebones_cli_runs_a_contract_without_cloud_services(
             "cli-e1",
             "--repository-root",
             str(tmp_path),
+            "--approval-receipt",
+            str(repository / "examples/barebones/e1-approval-receipt.json"),
             "--expected-approver",
             "fixture-human",
             "--provider-command",
@@ -64,6 +66,8 @@ def test_unapproved_contract_is_rejected_before_provider(
             "unapproved",
             "--repository-root",
             str(tmp_path),
+            "--approval-receipt",
+            str(repository / "examples/barebones/e1-approval-receipt.json"),
             "--expected-approver",
             "fixture-human",
             "--provider-command",
@@ -74,6 +78,38 @@ def test_unapproved_contract_is_rejected_before_provider(
     assert args.fn(args) == 3
     output = json.loads(capsys.readouterr().out)
     assert output["detail"] == "contract_status must be APPROVED"
+
+
+def test_contract_changed_after_approval_is_rejected(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repository = Path(__file__).parents[2]
+    contract = json.loads((repository / "examples/barebones/e1-contract.json").read_text())
+    contract["functional_requirements"]["FR-001"]["statement"] = "Unapproved change"
+    changed = tmp_path / "changed.json"
+    changed.write_text(json.dumps(contract))
+    args = build_parser().parse_args(
+        [
+            "barebones",
+            str(changed),
+            "--workspace",
+            str(tmp_path / "candidate"),
+            "--run-id",
+            "changed-after-approval",
+            "--repository-root",
+            str(tmp_path),
+            "--approval-receipt",
+            str(repository / "examples/barebones/e1-approval-receipt.json"),
+            "--expected-approver",
+            "fixture-human",
+            "--provider-command",
+            "must-not-run",
+        ]
+    )
+
+    assert args.fn(args) == 3
+    output = json.loads(capsys.readouterr().out)
+    assert output["detail"] == "approval receipt is not bound to the approved contract"
 
 
 def test_approver_mismatch_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -88,6 +124,8 @@ def test_approver_mismatch_is_rejected(tmp_path: Path, capsys: pytest.CaptureFix
             "wrong-approver",
             "--repository-root",
             str(tmp_path),
+            "--approval-receipt",
+            str(repository / "examples/barebones/e1-approval-receipt.json"),
             "--expected-approver",
             "different-human",
             "--provider-command",
@@ -154,6 +192,7 @@ def test_provider_timeout_is_a_classified_halt(
 
     assert result.state is RunState.HALTED
     assert result.cause == "MODEL_PROVIDER_TIMEOUT"
+    assert result.model_calls == 1
     event = json.loads(result.evidence_path.read_text().splitlines()[-1])
     assert event["event_type"] == "halted"
     assert event["payload"]["cause"] == "MODEL_PROVIDER_TIMEOUT"
@@ -175,6 +214,8 @@ def test_malformed_contract_is_reported_without_a_traceback(
             "malformed-contract",
             "--repository-root",
             str(tmp_path),
+            "--approval-receipt",
+            str(repository / "examples/barebones/e1-approval-receipt.json"),
             "--expected-approver",
             "fixture-human",
             "--provider-command",
@@ -206,6 +247,8 @@ def test_non_empty_workspace_is_rejected_before_evidence_is_created(
             "occupied-workspace",
             "--repository-root",
             str(tmp_path),
+            "--approval-receipt",
+            str(repository / "examples/barebones/e1-approval-receipt.json"),
             "--expected-approver",
             "fixture-human",
             "--provider-command",
@@ -237,6 +280,8 @@ def test_workspace_cannot_overlap_evidence_storage(
             "overlapping-roots",
             "--repository-root",
             str(workspace),
+            "--approval-receipt",
+            str(repository / "examples/barebones/e1-approval-receipt.json"),
             "--expected-approver",
             "fixture-human",
             "--provider-command",
