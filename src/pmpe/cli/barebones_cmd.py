@@ -104,8 +104,7 @@ class CommandModelProvider:
             self.timeout_seconds,
         )
         if completed.returncode != 0:
-            detail = completed.stderr.decode("utf-8", errors="replace").strip()
-            raise RuntimeError("model provider failed: " + detail)
+            raise RuntimeError("MODEL_PROVIDER_FAILED")
         try:
             response = strict_loads(completed.stdout, "application/json")
         except CanonicalInputError as exc:
@@ -113,9 +112,7 @@ class CommandModelProvider:
         return response
 
 
-def _require_approved_contract(
-    contract: Mapping[str, Any], expected_approver: str
-) -> None:
+def _require_approved_contract(contract: Mapping[str, Any], expected_approver: str) -> None:
     status = contract.get("contract_status")
     approved_by = contract.get("approved_by")
     if status != "APPROVED":
