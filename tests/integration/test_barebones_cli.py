@@ -203,7 +203,7 @@ def test_model_response_credentials_are_rejected_before_evidence() -> None:
         )
 
 
-@pytest.mark.parametrize("invalid_cost", [float("inf"), 10**400])
+@pytest.mark.parametrize("invalid_cost", [float("inf"), 10**400, (1 << 53) + 1])
 def test_invalid_provider_cost_is_classified_before_evidence(
     tmp_path: Path, invalid_cost: int | float
 ) -> None:
