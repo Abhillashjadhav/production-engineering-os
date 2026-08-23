@@ -47,9 +47,11 @@ def test_barebones_cli_runs_a_contract_without_cloud_services(
     approval = events[0]["payload"]["approval"]
     assert approval["status"] == "VERIFIED"
     assert approval["authority"] == "fixture-human"
-    assert approval["receipt_digest"] == approval["receipt_blob_digest"] or approval[
-        "receipt_blob_digest"
-    ].startswith("sha256:")
+    receipt = json.loads(
+        (_REPOSITORY / "examples/barebones/e1-approval-receipt.json").read_text()
+    )
+    assert approval["receipt_digest"] == receipt["receipt_digest"]
+    assert approval["receipt_blob_digest"].startswith("sha256:")
 
 
 def test_unapproved_contract_is_rejected_before_provider(
