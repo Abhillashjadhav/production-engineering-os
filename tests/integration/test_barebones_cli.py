@@ -74,9 +74,7 @@ def test_unapproved_contract_is_rejected_before_provider(
     assert output["detail"] == "contract_status must be APPROVED"
 
 
-def test_approver_mismatch_is_rejected(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
+def test_approver_mismatch_is_rejected(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     repository = Path(__file__).parents[2]
     args = build_parser().parse_args(
         [
@@ -129,7 +127,9 @@ def test_model_response_credentials_are_rejected_before_evidence() -> None:
 def test_provider_error_credentials_are_classified_without_persisting_secret() -> None:
     secret = "sk-" + "a" * 24
 
-    assert barebones_runtime._classify_provider_error(RuntimeError(secret)) == "MODEL_PROVIDER_FAILED"
+    assert (
+        barebones_runtime._classify_provider_error(RuntimeError(secret)) == "MODEL_PROVIDER_FAILED"
+    )
     assert secret not in barebones_runtime._classify_provider_error(RuntimeError(secret))
 
 
