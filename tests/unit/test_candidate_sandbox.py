@@ -187,3 +187,40 @@ def test_real_candidate_sandbox_has_no_host_credentials_network_or_write_access(
     assert completed.returncode == 0
     assert json.loads(completed.stdout) == {"network": False, "secret": None, "write": False}
     assert (workspace / "product.py").read_text() == "VALUE = 1\n"
+
+
+@pytest.mark.skipif(
+    os.environ.get("PMPE_TEST_REAL_SANDBOX") != "true",
+    reason="requires the dedicated CI namespace runtime",
+)
+def test_real_candidate_sandbox_applies_resource_limits(tmp_path: Path) -> None:
+    workspace = tmp_path / "candidate"
+    workspace.mkdir()
+    program = (
+        "import json, resource\n"
+        "limits = {\n"
+        " 'address_space': resource.RLIMIT_AS,\n"
+        " 'cpu': resource.RLIMIT_CPU,\n"
+        " 'file_size': resource.RLIMIT_FSIZE,\n"
+        " 'open_files': resource.RLIMIT_NOFILE,\n"
+        " 'processes': resource.RLIMIT_NPROC,\n"
+        "}\n"
+        "print(json.dumps({name: list(resource.getrlimit(kind)) "
+        "for name, kind in limits.items()}, sort_keys=True))\n"
+    )
+
+    completed = BubblewrapCandidateSandbox().run(
+        workspace,
+        (sys.executable, "-I", "-B", "-c", program),
+        timeout_seconds=5,
+        environment={"HOME": "/tmp/home", "PATH": "/usr/local/bin:/usr/bin:/bin"},
+    )
+
+    assert completed.returncode == 0
+    assert json.loads(completed.stdout) == {
+        "address_space": [1024 * 1024 * 1024, 1024 * 1024 * 1024],
+        "cpu": [6, 6],
+        "file_size": [64 * 1024 * 1024, 64 * 1024 * 1024],
+        "open_files": [256, 256],
+        "processes": [128, 128],
+    }
