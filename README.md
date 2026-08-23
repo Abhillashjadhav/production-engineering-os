@@ -105,7 +105,7 @@ A provider receives one JSON object on standard input:
 {"purpose": "code|advisory_review", "request": {}}
 ```
 
-It must return one UTF-8 JSON object containing the same `request_digest`. Do not record provider credentials in contracts, commands, candidate workspaces, or evidence.
+The contract must contain `contract_status: APPROVED` and `approved_by`; the CLI requires an exact `--expected-approver` match before invoking the provider. The provider must return one UTF-8 JSON object containing the same `request_digest`. Do not record provider credentials in contracts, commands, candidate workspaces, or evidence.
 
 ## Current evidence gap
 
