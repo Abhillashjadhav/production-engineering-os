@@ -67,6 +67,7 @@ def test_e1_real_contract_reaches_release_ready(tmp_path: Path) -> None:
     events = [json.loads(line) for line in result.evidence_path.read_text().splitlines()]
     coder = next(event for event in events if event["event_type"] == "coder_completed")
     release = next(event for event in events if event["event_type"] == "release_ready")
+    assert events[0]["payload"]["approval"]["status"] == "UNVERIFIED_DIRECT_CALL"
     assert coder["payload"]["provider_behavior"]["purpose"] == "code"
     assert release["payload"]["provider_behavior"]["purpose"] == "advisory_review"
     assert coder["payload"]["provider_behavior"]["request_digest"].startswith("sha256:")
