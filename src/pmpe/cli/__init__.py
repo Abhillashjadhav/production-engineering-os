@@ -30,7 +30,7 @@ _LEGACY_COMMANDS = frozenset(
         "personal-workflows",
         "personal-runtime",
         "repository",
-        "support",
+        "support-demo",
     }
 )
 
