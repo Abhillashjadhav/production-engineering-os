@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import operator as comparison
 import re
 import shutil
@@ -24,7 +25,10 @@ from pmpe.contracts.acceptance import (
     PropertyAssertion,
     compile_acceptance_plan,
 )
-from pmpe.contracts.canonical import canonical_digest
+from pmpe.contracts.authoring import verify_contract_approval
+from pmpe.contracts.canonical import CanonicalInputError, canonical_digest, strict_loads
+from pmpe.domain.errors import ContractViolation
+from pmpe.evals.barebones_drift import observe_provider_behavior
 from pmpe.evidence.ledger import EvidenceLedger
 from pmpe.model_provider import ModelProvider
 
@@ -80,6 +84,7 @@ class RunResult:
     elapsed_ms: int
     evidence_path: Path
     annotation: Mapping[str, Any] = field(default_factory=dict)
+    telemetry: Mapping[str, Any] = field(default_factory=dict)
 
 
 class ContractInvalidError(ValueError):
@@ -88,13 +93,32 @@ class ContractInvalidError(ValueError):
 
 _SAFE_RELATIVE = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\Z")
 _MODULE_TARGET = re.compile(r"([A-Za-z_][A-Za-z0-9_.]*):([A-Za-z_][A-Za-z0-9_]*)\Z")
-_CREDENTIAL = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|AKIA[0-9A-Z]{16}")
+_CREDENTIAL = re.compile(
+    r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}"
+)
 _HIGH_RISK_CODE = re.compile(r"\b(?:eval|exec)\s*\(")
 _ACTION_TIMEOUT_SECONDS = 10.0
 _PYTEST_TIMEOUT_SECONDS = 30.0
 _CANDIDATE_OUTPUT_LIMIT_BYTES = 1_000_000
 _SANDBOX_PATH = "/usr/local/bin:/usr/bin:/bin"
 _PYTEST_RESULT_PREFIX = "__PMPE_PYTEST_RESULT__:"
+
+_PROVIDER_ERROR_CODE = re.compile(r"[A-Z][A-Z0-9_]*\Z")
+_MAX_SAFE_JSON_INTEGER = (1 << 53) - 1
+
+
+def _classify_provider_error(error: RuntimeError) -> str:
+    message = str(error)
+    if _CREDENTIAL.search(message) or not _PROVIDER_ERROR_CODE.fullmatch(message):
+        return "MODEL_PROVIDER_FAILED"
+    return message
+
+
+def _provider_behavior_payload(purpose: str, response: Mapping[str, Any]) -> dict[str, Any] | None:
+    try:
+        return asdict(observe_provider_behavior(purpose=purpose, response=response))
+    except ValueError:
+        return None
 
 
 class CandidateSandbox(Protocol):
@@ -762,18 +786,57 @@ def _invoke_bound(
     purpose: str,
     request: Mapping[str, Any],
     budget: BudgetCaps,
-    counters: dict[str, int],
+    counters: dict[str, Any],
 ) -> Mapping[str, Any]:
     if counters["calls"] >= budget.max_model_calls:
         raise RuntimeError("MODEL_CALL_BUDGET_EXHAUSTED")
-    response = provider.invoke(purpose=purpose, request=request)
     counters["calls"] += 1
-    size = len(json.dumps(response, sort_keys=True, separators=(",", ":")).encode())
+    response = provider.invoke(purpose=purpose, request=request)
+    serialized = json.dumps(response, sort_keys=True, separators=(",", ":"))
+    if _CREDENTIAL.search(serialized):
+        raise RuntimeError("MODEL_RESPONSE_CONTAINS_CREDENTIAL")
+    size = len(serialized.encode())
     counters["bytes"] += size
     if counters["bytes"] > budget.max_model_output_bytes:
         raise RuntimeError("MODEL_OUTPUT_BUDGET_EXHAUSTED")
     if response.get("request_digest") != request.get("request_digest"):
         raise RuntimeError("MODEL_RESPONSE_UNBOUND")
+    usage = response.get("usage")
+    if isinstance(usage, Mapping):
+        for source, target in (("input_tokens", "tokens_in"), ("output_tokens", "tokens_out")):
+            value = usage.get(source)
+            if value is None:
+                continue
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
+            accumulated_tokens = counters[target] + value
+            if accumulated_tokens > _MAX_SAFE_JSON_INTEGER:
+                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
+            counters[target] = accumulated_tokens
+        estimated = usage.get("estimated_cost_usd")
+        if estimated is not None:
+            if not isinstance(estimated, (int, float)) or isinstance(estimated, bool):
+                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
+            if isinstance(estimated, int) and abs(estimated) > _MAX_SAFE_JSON_INTEGER:
+                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
+            try:
+                estimated_value = float(estimated)
+            except (OverflowError, ValueError) as exc:
+                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID") from exc
+            if not math.isfinite(estimated_value) or estimated_value < 0:
+                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
+            accumulated_cost = counters["estimated_cost_usd"] + estimated_value
+            if not math.isfinite(accumulated_cost):
+                raise RuntimeError("MODEL_PROVIDER_USAGE_INVALID")
+            counters["estimated_cost_usd"] = accumulated_cost
+    metadata = response.get("provider_metadata")
+    if isinstance(metadata, Mapping):
+        model = metadata.get("model")
+        if isinstance(model, str) and model:
+            observed = counters.get("provider_model_id")
+            counters["provider_model_id"] = (
+                model if not observed or observed == model else "multiple"
+            )
     return response
 
 
@@ -788,6 +851,9 @@ def run_to_release_ready(
     budget: BudgetCaps | None = None,
     stop_requested: Callable[[], bool] = lambda: False,
     candidate_sandbox: CandidateSandbox | None = None,
+    approval_receipt: Mapping[str, Any] | None = None,
+    approval_authority: str | None = None,
+    approval_receipt_bytes: bytes | None = None,
 ) -> RunResult:
     """Run the frozen core. It never deploys and stops at RELEASE_READY."""
 
@@ -795,8 +861,49 @@ def run_to_release_ready(
     active_template = template or default_template()
     active_budget = budget or BudgetCaps()
     active_sandbox = candidate_sandbox or BubblewrapCandidateSandbox()
-    counters = {"calls": 0, "bytes": 0}
+    counters: dict[str, Any] = {
+        "calls": 0,
+        "bytes": 0,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "estimated_cost_usd": 0.0,
+        "provider_model_id": "",
+        "structured_criteria_count": 0,
+        "human_test_count": 0,
+    }
     subject_digest = canonical_digest(contract)
+    approval_inputs = (approval_receipt, approval_authority, approval_receipt_bytes)
+    if any(item is None for item in approval_inputs) and not all(
+        item is None for item in approval_inputs
+    ):
+        raise ContractInvalidError(
+            "approval receipt, authority, and submitted bytes must be supplied together"
+        )
+    approval_payload: dict[str, Any] = {"status": "UNVERIFIED_DIRECT_CALL"}
+    if (
+        approval_receipt is not None
+        and approval_authority is not None
+        and approval_receipt_bytes is not None
+    ):
+        try:
+            submitted_receipt = strict_loads(approval_receipt_bytes, "application/json")
+        except CanonicalInputError as exc:
+            raise ContractInvalidError("submitted approval receipt is malformed") from exc
+        if canonical_digest(submitted_receipt) != canonical_digest(approval_receipt):
+            raise ContractInvalidError("submitted approval receipt bytes do not match receipt")
+        try:
+            receipt_digest = verify_contract_approval(
+                dict(contract),
+                dict(approval_receipt),
+                expected_approver=approval_authority,
+            )
+        except ContractViolation as exc:
+            raise ContractInvalidError(str(exc)) from exc
+        approval_payload = {
+            "status": "VERIFIED",
+            "authority": approval_authority,
+            "receipt_digest": receipt_digest,
+        }
 
     template_test_digests: dict[str, str] = {}
     for test_id, proof in active_template.proofs.items():
@@ -822,6 +929,8 @@ def run_to_release_ready(
         registered_measures=frozenset(active_template.measures),
         trusted_test_digests=trusted_test_digests,
     )
+    counters["structured_criteria_count"] = sum(item.form != "human_test" for item in plan.criteria)
+    counters["human_test_count"] = sum(item.form == "human_test" for item in plan.criteria)
     workspace_root = workspace.resolve()
     evidence_root = (repository_root / ".pmpe").resolve()
     if workspace_root.is_relative_to(evidence_root) or evidence_root.is_relative_to(workspace_root):
@@ -831,18 +940,23 @@ def run_to_release_ready(
     workspace.mkdir(parents=True, exist_ok=True)
     ledger = EvidenceLedger(repository_root, run_id)
 
+    def _terminal_telemetry() -> dict[str, Any]:
+        counters["elapsed_ms"] = int((time.monotonic() - started) * 1000)
+        return dict(counters)
+
     def finish(
         state: RunState, cause: str, attempts: int, annotation: Mapping[str, Any] | None = None
     ) -> RunResult:
         return RunResult(
-            run_id,
-            state,
-            cause,
-            attempts,
-            counters["calls"],
-            int((time.monotonic() - started) * 1000),
-            ledger.events_path,
-            dict(annotation or {}),
+            run_id=run_id,
+            state=state,
+            cause=cause,
+            attempts=attempts,
+            model_calls=int(counters["calls"]),
+            elapsed_ms=int(counters.get("elapsed_ms", (time.monotonic() - started) * 1000)),
+            evidence_path=ledger.events_path,
+            annotation=dict(annotation or {}),
+            telemetry=dict(counters),
         )
 
     plan_blob = ledger.put_blob(
@@ -851,15 +965,29 @@ def run_to_release_ready(
     contract_blob = ledger.put_blob(
         json.dumps(contract, sort_keys=True, separators=(",", ":")).encode()
     )
+    validation_blobs = [contract_blob, plan_blob]
+    if approval_receipt_bytes is not None:
+        receipt_blob = ledger.put_blob(approval_receipt_bytes)
+        validation_blobs.append(receipt_blob)
+        approval_payload["receipt_blob_digest"] = receipt_blob
     ledger.append(
         event_type="contract_validated",
         state=RunState.VALIDATED,
         subject_digest=subject_digest,
-        blob_digests=(contract_blob, plan_blob),
-        payload={"contract_digest": contract_blob, "plan_digest": plan.plan_digest},
+        blob_digests=tuple(validation_blobs),
+        payload={
+            "approval": approval_payload,
+            "contract_digest": contract_blob,
+            "plan_digest": plan.plan_digest,
+        },
     )
     if stop_requested():
-        ledger.append(event_type="stopped", state=RunState.STOPPED, subject_digest=subject_digest)
+        ledger.append(
+            event_type="stopped",
+            state=RunState.STOPPED,
+            subject_digest=subject_digest,
+            payload={"cause": "STOP_REQUESTED", "telemetry": _terminal_telemetry()},
+        )
         return finish(RunState.STOPPED, "STOP_REQUESTED", 0)
 
     _write_files(workspace, active_template.files)
@@ -919,7 +1047,10 @@ def run_to_release_ready(
     for attempt in range(1, active_budget.max_attempts + 1):
         if stop_requested():
             ledger.append(
-                event_type="stopped", state=RunState.STOPPED, subject_digest=subject_digest
+                event_type="stopped",
+                state=RunState.STOPPED,
+                subject_digest=subject_digest,
+                payload={"cause": "STOP_REQUESTED", "telemetry": _terminal_telemetry()},
             )
             return finish(RunState.STOPPED, "STOP_REQUESTED", attempt - 1)
         request = _model_request(
@@ -937,20 +1068,21 @@ def run_to_release_ready(
                 counters=counters,
             )
         except RuntimeError as exc:
+            cause = _classify_provider_error(exc)
             ledger.append(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
-                payload={"cause": str(exc)},
+                payload={"cause": cause, "telemetry": _terminal_telemetry()},
             )
-            return finish(RunState.HALTED, str(exc), attempt - 1)
+            return finish(RunState.HALTED, cause, attempt - 1)
         files = response.get("files")
         if not isinstance(files, Mapping):
             ledger.append(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
-                payload={"cause": "CODER_RESPONSE_INVALID"},
+                payload={"cause": "CODER_RESPONSE_INVALID", "telemetry": _terminal_telemetry()},
             )
             return finish(RunState.HALTED, "CODER_RESPONSE_INVALID", attempt)
         try:
@@ -964,7 +1096,7 @@ def run_to_release_ready(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
-                payload={"cause": "CODER_RESPONSE_INVALID"},
+                payload={"cause": "CODER_RESPONSE_INVALID", "telemetry": _terminal_telemetry()},
             )
             return finish(RunState.HALTED, "CODER_RESPONSE_INVALID", attempt)
         if protected_tests.intersection(response_paths):
@@ -972,7 +1104,7 @@ def run_to_release_ready(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
-                payload={"cause": "CODER_MODIFIED_EVIDENCE"},
+                payload={"cause": "CODER_MODIFIED_EVIDENCE", "telemetry": _terminal_telemetry()},
             )
             return finish(RunState.HALTED, "CODER_MODIFIED_EVIDENCE", attempt)
         try:
@@ -982,18 +1114,22 @@ def run_to_release_ready(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
-                payload={"cause": "CODER_RESPONSE_INVALID"},
+                payload={"cause": "CODER_RESPONSE_INVALID", "telemetry": _terminal_telemetry()},
             )
             return finish(RunState.HALTED, "CODER_RESPONSE_INVALID", attempt)
         coder_blob = ledger.put_blob(
             json.dumps(response, sort_keys=True, separators=(",", ":")).encode()
         )
+        coder_payload: dict[str, Any] = {"attempt": attempt, "changed": list(changed)}
+        coder_behavior = _provider_behavior_payload("code", response)
+        if coder_behavior is not None:
+            coder_payload["provider_behavior"] = coder_behavior
         ledger.append(
             event_type="coder_completed",
             state=RunState.BUILDING,
             subject_digest=subject_digest,
             blob_digests=(coder_blob,),
-            payload={"attempt": attempt, "changed": list(changed)},
+            payload=coder_payload,
         )
         finding_digest = canonical_digest([asdict(item) for item in findings])
         implicated = {path for item in findings for path in item.files}
@@ -1016,7 +1152,11 @@ def run_to_release_ready(
                 event_type="halted",
                 state=RunState.HALTED,
                 subject_digest=subject_digest,
-                payload={"cause": cause, "findings": [asdict(item) for item in findings]},
+                payload={
+                    "cause": cause,
+                    "findings": [asdict(item) for item in findings],
+                    "telemetry": _terminal_telemetry(),
+                },
             )
             return finish(RunState.HALTED, cause, attempt)
 
@@ -1105,17 +1245,21 @@ def run_to_release_ready(
                         counters=counters,
                     )
                 except RuntimeError as exc:
-                    annotation = {"status": "unavailable", "cause": str(exc)}
+                    annotation = {"status": "unavailable", "cause": _classify_provider_error(exc)}
+                release_payload: dict[str, Any] = {
+                    "annotation": dict(annotation),
+                    "candidate_digest": candidate_blob,
+                    "telemetry": _terminal_telemetry(),
+                }
+                advisory_behavior = _provider_behavior_payload("advisory_review", annotation)
+                if advisory_behavior is not None:
+                    release_payload["provider_behavior"] = advisory_behavior
                 ledger.append(
                     event_type="release_ready",
                     state=RunState.RELEASE_READY,
                     subject_digest=subject_digest,
                     blob_digests=(blob, candidate_blob, *candidate_file_blobs),
-                    payload={
-                        "annotation": dict(annotation),
-                        "candidate_digest": candidate_blob,
-                        "telemetry": dict(counters),
-                    },
+                    payload=release_payload,
                 )
                 return finish(RunState.RELEASE_READY, "PASS", attempt, annotation)
             finding_blob = ledger.put_blob(
@@ -1141,6 +1285,7 @@ def run_to_release_ready(
         payload={
             "cause": "ATTEMPT_BUDGET_EXHAUSTED",
             "findings": [asdict(item) for item in findings],
+            "telemetry": _terminal_telemetry(),
         },
     )
     return finish(RunState.HALTED, "ATTEMPT_BUDGET_EXHAUSTED", active_budget.max_attempts)

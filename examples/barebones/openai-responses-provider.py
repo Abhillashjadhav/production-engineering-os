@@ -9,6 +9,7 @@ Credentials are read from the environment and are never copied into the response
 from __future__ import annotations
 
 import json
+import math
 import os
 import sys
 import urllib.error
@@ -223,7 +224,37 @@ def _provider_response(
         result = {"request_digest": request_digest, "summary": summary}
     result["provider_metadata"] = metadata
     if isinstance(usage, Mapping):
-        result["usage"] = dict(usage)
+        recorded_usage = dict(usage)
+        input_rate = os.environ.get("PMPE_OPENAI_INPUT_USD_PER_MILLION", "").strip()
+        output_rate = os.environ.get("PMPE_OPENAI_OUTPUT_USD_PER_MILLION", "").strip()
+        if input_rate and output_rate:
+            try:
+                input_rate_value = float(input_rate)
+                output_rate_value = float(output_rate)
+                input_cost = (
+                    input_rate_value * int(usage.get("input_tokens", 0)) / 1_000_000
+                )
+                output_cost = (
+                    output_rate_value * int(usage.get("output_tokens", 0)) / 1_000_000
+                )
+            except (OverflowError, TypeError, ValueError):
+                _fail("configured OpenAI token prices must be finite non-negative numbers")
+            if (
+                not math.isfinite(input_rate_value)
+                or not math.isfinite(output_rate_value)
+                or not math.isfinite(input_cost)
+                or not math.isfinite(output_cost)
+                or input_cost < 0
+                or output_cost < 0
+            ):
+                _fail("configured OpenAI token prices must be finite non-negative numbers")
+            recorded_usage["pricing"] = {
+                "input_usd_per_million_tokens": input_rate_value,
+                "output_usd_per_million_tokens": output_rate_value,
+                "source": "operator_environment",
+            }
+            recorded_usage["estimated_cost_usd"] = round(input_cost + output_cost, 12)
+        result["usage"] = recorded_usage
     return result
 
 

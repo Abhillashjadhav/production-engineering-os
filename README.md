@@ -13,7 +13,7 @@ An open-source, local-first reference implementation that compiles a machine-che
 | Hash-chained events and content-addressed evidence blobs | Proven by [exact-head ledger tests](https://github.com/Abhillashjadhav/production-engineering-os/blob/e25c605fb043a64d019938ee8e67c1518337e0a6/tests/unit/test_evidence_ledger.py) and [CI #842](https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/32619855405) |
 | Candidate execution with Bubblewrap, no network, and bounded resources | Proven by [planted isolation tests](https://github.com/Abhillashjadhav/production-engineering-os/blob/e25c605fb043a64d019938ee8e67c1518337e0a6/tests/unit/test_candidate_sandbox.py) in [Linux CI #842](https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/32619855405) |
 | End-to-end `RELEASE_READY` engine path | Proven by the [scripted exact-head E1 fixture](https://github.com/Abhillashjadhav/production-engineering-os/blob/e25c605fb043a64d019938ee8e67c1518337e0a6/tests/e2e/test_barebones_e1.py) in [CI #842](https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/32619855405) |
-| Canonical PMOS contract accepted by the grammar | **Not yet proven** |
+| Canonical PMOS contract and digest-bound approval receipt accepted by the boundary | Proven by the [PMOS executable compatibility gate](https://github.com/Abhillashjadhav/PM-agent-OS/blob/5fa7af8207143194eb242f2edd9f7edfca8bb969/tests/decision-to-contract/validate_contract.py), including a planted post-approval tampering rejection |
 | Product built with a real model provider | **Not yet proven** |
 | Repeated real-provider behavioural drift evidence | **Not yet proven** |
 | Reuse across multiple distinct product contracts | **Not yet proven** |
@@ -92,6 +92,8 @@ pmpe barebones examples/barebones/e1-contract.json \
   --workspace /tmp/pmpe-e1-candidate \
   --run-id e1 \
   --repository-root /tmp/pmpe-e1-evidence \
+  --approval-receipt examples/barebones/e1-approval-receipt.json \
+  --expected-approver fixture-human \
   --provider-command "python examples/barebones/e1-provider.py"
 ```
 
@@ -105,11 +107,11 @@ A provider receives one JSON object on standard input:
 {"purpose": "code|advisory_review", "request": {}}
 ```
 
-It must return one UTF-8 JSON object containing the same `request_digest`. Do not record provider credentials in contracts, commands, candidate workspaces, or evidence.
+The contract must contain `contract_status: APPROVED` and `approved_by`; the CLI requires an exact `--expected-approver` match before invoking the provider. The provider must return one UTF-8 JSON object containing the same `request_digest`. Do not record provider credentials in contracts, commands, candidate workspaces, or evidence.
 
 ## Current evidence gap
 
-The canonical PMOS fixture contains prose that resembles Given/When/Then but does not identify a registered action or typed output paths. The compiler correctly refuses to guess. A real E1 begins only when PMOS emits the structured grammar or binds a requirement to an admitted human-authored test.
+PMOS now publishes a compiler-shaped health contract plus an approval receipt bound to the exact contract digest; its pinned compatibility gate verifies the receipt, accepts the valid contract, rejects a post-approval edit, and rejects prose-only criteria. This proves the PMOS-to-PEOS handoff shape. It does not prove live-model contract-authoring reliability or a real provider build. A real E1 begins when that approved boundary is exercised with a configured provider and its complete evidence bundle is published.
 
 The next promotion gate is one real PMOS-authored contract reaching `RELEASE_READY` through a real provider with:
 

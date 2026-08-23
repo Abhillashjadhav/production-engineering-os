@@ -18,7 +18,9 @@ from typing import Any
 
 from pmpe.barebones import ContractInvalidError, run_to_release_ready
 from pmpe.contracts.acceptance import AcceptanceCompileError
+from pmpe.contracts.authoring import verify_contract_approval
 from pmpe.contracts.canonical import CanonicalInputError, strict_loads
+from pmpe.domain.errors import ContractViolation
 from pmpe.evidence.ledger import EvidenceIntegrityError
 
 _PROVIDER_OUTPUT_LIMIT_BYTES = 1_000_000
@@ -104,13 +106,29 @@ class CommandModelProvider:
             self.timeout_seconds,
         )
         if completed.returncode != 0:
-            detail = completed.stderr.decode("utf-8", errors="replace").strip()
-            raise RuntimeError("model provider failed: " + detail)
+            raise RuntimeError("MODEL_PROVIDER_FAILED")
         try:
             response = strict_loads(completed.stdout, "application/json")
         except CanonicalInputError as exc:
             raise RuntimeError("model provider returned malformed JSON") from exc
         return response
+
+
+def _require_approved_contract(
+    contract: Mapping[str, Any], receipt: Mapping[str, Any], expected_approver: str
+) -> None:
+    status = contract.get("contract_status")
+    approved_by = contract.get("approved_by")
+    if status != "APPROVED":
+        raise ContractInvalidError("contract_status must be APPROVED")
+    if not isinstance(approved_by, str) or not approved_by.strip():
+        raise ContractInvalidError("approved_by is required")
+    if approved_by != expected_approver:
+        raise ContractInvalidError("approved_by does not match --expected-approver")
+    try:
+        verify_contract_approval(dict(contract), dict(receipt), expected_approver=expected_approver)
+    except ContractViolation as exc:
+        raise ContractInvalidError(str(exc)) from exc
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -121,13 +139,26 @@ def _run(args: argparse.Namespace) -> int:
             if contract_path.suffix.lower() in {".yaml", ".yml"}
             else "application/json"
         )
-        contract = strict_loads(contract_path.read_bytes(), content_type)
+        try:
+            contract_source = contract_path.read_bytes()
+        except OSError as exc:
+            raise ContractInvalidError("cannot read contract") from exc
+        try:
+            receipt_source = Path(args.approval_receipt).read_bytes()
+        except OSError as exc:
+            raise ContractInvalidError("cannot read approval receipt") from exc
+        contract = strict_loads(contract_source, content_type)
+        receipt = strict_loads(receipt_source, "application/json")
+        _require_approved_contract(contract, receipt, args.expected_approver)
         result = run_to_release_ready(
             contract=contract,
             repository_root=Path(args.repository_root).resolve(),
             workspace=Path(args.workspace).resolve(),
             run_id=args.run_id,
             provider=CommandModelProvider(args.provider_command, args.provider_timeout),
+            approval_receipt=receipt,
+            approval_authority=args.expected_approver,
+            approval_receipt_bytes=receipt_source,
         )
     except CanonicalInputError as exc:
         print(
@@ -170,6 +201,7 @@ def _run(args: argparse.Namespace) -> int:
                 "elapsed_ms": result.elapsed_ms,
                 "evidence": str(result.evidence_path),
                 "annotation": result.annotation,
+                "telemetry": result.telemetry,
             },
             sort_keys=True,
         )
@@ -186,6 +218,12 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     parser.add_argument("--workspace", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--repository-root", default=".")
+    parser.add_argument("--approval-receipt", required=True)
+    parser.add_argument(
+        "--expected-approver",
+        required=True,
+        help="human identity that must exactly match contract approved_by",
+    )
     parser.add_argument(
         "--provider-command",
         required=True,
