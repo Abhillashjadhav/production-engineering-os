@@ -32,5 +32,6 @@
     }
   },
   "contract_status": "APPROVED",
-  "approved_by": "fixture-human"
+  "approved_by": "fixture-human",
+  "approved_at": "2026-08-23T00:00:00Z"
 }
