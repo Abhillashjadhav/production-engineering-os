@@ -26,7 +26,7 @@ def _answers():  # type: ignore[no-untyped-def]
 
 def test_personal_quickstart_runs_all_workflows(tmp_path, capsys) -> None:  # type: ignore[no-untyped-def]
     output = tmp_path / "personal-demo"
-    assert main(["personal-demo", "quickstart", "--output", str(output)]) == 0
+    assert main(["legacy", "personal-demo", "quickstart", "--output", str(output)]) == 0
     stdout = capsys.readouterr().out
     assert "21 workflow packs completed in parallel" in stdout
     assert "unauthorized external actions: 0" in stdout
@@ -38,9 +38,9 @@ def test_personal_quickstart_runs_all_workflows(tmp_path, capsys) -> None:  # ty
 
 def test_personal_workflows_validate_real_input(tmp_path, capsys) -> None:  # type: ignore[no-untyped-def]
     output = tmp_path / "starter"
-    assert main(["personal-workflows", "generate", "--output", str(output)]) == 0
+    assert main(["legacy", "personal-workflows", "generate", "--output", str(output)]) == 0
     request = output / "synthetic-workflow-request.json"
-    assert main(["personal-workflows", "validate", "--input", str(request)]) == 0
+    assert main(["legacy", "personal-workflows", "validate", "--input", str(request)]) == 0
     assert "(21 packs)" in capsys.readouterr().out
 
 
@@ -49,7 +49,7 @@ def test_personal_workflows_validate_reports_malformed_input_without_traceback(
 ) -> None:  # type: ignore[no-untyped-def]
     request = tmp_path / "malformed.json"
     request.write_text("{not-json")
-    assert main(["personal-workflows", "validate", "--input", str(request)]) == 2
+    assert main(["legacy", "personal-workflows", "validate", "--input", str(request)]) == 2
     captured = capsys.readouterr()
     assert "unreadable or malformed" in captured.err
     assert "Traceback" not in captured.err
@@ -60,6 +60,7 @@ def test_pack_specific_starter_is_cli_runnable(tmp_path, capsys) -> None:  # typ
     assert (
         main(
             [
+                "legacy",
                 "personal-workflows",
                 "starter",
                 "--pack",
@@ -75,6 +76,7 @@ def test_pack_specific_starter_is_cli_runnable(tmp_path, capsys) -> None:  # typ
     assert (
         main(
             [
+                "legacy",
                 "personal-workflows",
                 "run",
                 "--context",
@@ -92,14 +94,14 @@ def test_contract_draft_cli_reports_missing_product_truth(tmp_path, capsys) -> N
     answers = tmp_path / "answers.json"
     answers.write_text(json.dumps({"product_name": "Incomplete"}))
     output = tmp_path / "authoring"
-    assert main(["contract", "draft", "--answers", str(answers), "--output", str(output)]) == 3
+    assert main(["legacy", "contract", "draft", "--answers", str(answers), "--output", str(output)]) == 3
     assert "product input required" in capsys.readouterr().out
     questions = json.loads((output / "blocking-questions.json").read_text())
     assert questions["questions"]
 
 
 def test_guided_cli_rejects_malformed_host_without_traceback(capsys) -> None:  # type: ignore[no-untyped-def]
-    assert main(["guided", "serve", "--host", "not-a-host"]) == 2
+    assert main(["legacy", "guided", "serve", "--host", "not-a-host"]) == 2
     stderr = capsys.readouterr().err
     assert "input rejected" in stderr
     assert "Traceback" not in stderr
@@ -123,6 +125,7 @@ def test_contract_handoff_requires_verified_approval_receipt(tmp_path) -> None: 
     assert (
         main(
             [
+                "legacy",
                 "contract",
                 "handoff",
                 "--contract",
