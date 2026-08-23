@@ -25,6 +25,7 @@ from pmpe.contracts.acceptance import (
     compile_acceptance_plan,
 )
 from pmpe.contracts.canonical import canonical_digest
+from pmpe.evals.barebones_drift import observe_provider_behavior
 from pmpe.evidence.ledger import EvidenceLedger
 from pmpe.model_provider import ModelProvider
 
@@ -107,6 +108,15 @@ def _classify_provider_error(error: RuntimeError) -> str:
     if _CREDENTIAL.search(message) or not _PROVIDER_ERROR_CODE.fullmatch(message):
         return "MODEL_PROVIDER_FAILED"
     return message
+
+
+def _provider_behavior_payload(
+    purpose: str, response: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    try:
+        return asdict(observe_provider_behavior(purpose=purpose, response=response))
+    except ValueError:
+        return None
 
 
 class CandidateSandbox(Protocol):
@@ -1049,12 +1059,16 @@ def run_to_release_ready(
         coder_blob = ledger.put_blob(
             json.dumps(response, sort_keys=True, separators=(",", ":")).encode()
         )
+        coder_payload: dict[str, Any] = {"attempt": attempt, "changed": list(changed)}
+        coder_behavior = _provider_behavior_payload("code", response)
+        if coder_behavior is not None:
+            coder_payload["provider_behavior"] = coder_behavior
         ledger.append(
             event_type="coder_completed",
             state=RunState.BUILDING,
             subject_digest=subject_digest,
             blob_digests=(coder_blob,),
-            payload={"attempt": attempt, "changed": list(changed)},
+            payload=coder_payload,
         )
         finding_digest = canonical_digest([asdict(item) for item in findings])
         implicated = {path for item in findings for path in item.files}
@@ -1171,16 +1185,20 @@ def run_to_release_ready(
                     )
                 except RuntimeError as exc:
                     annotation = {"status": "unavailable", "cause": _classify_provider_error(exc)}
+                release_payload: dict[str, Any] = {
+                    "annotation": dict(annotation),
+                    "candidate_digest": candidate_blob,
+                    "telemetry": _terminal_telemetry(),
+                }
+                advisory_behavior = _provider_behavior_payload("advisory_review", annotation)
+                if advisory_behavior is not None:
+                    release_payload["provider_behavior"] = advisory_behavior
                 ledger.append(
                     event_type="release_ready",
                     state=RunState.RELEASE_READY,
                     subject_digest=subject_digest,
                     blob_digests=(blob, candidate_blob, *candidate_file_blobs),
-                    payload={
-                        "annotation": dict(annotation),
-                        "candidate_digest": candidate_blob,
-                        "telemetry": _terminal_telemetry(),
-                    },
+                    payload=release_payload,
                 )
                 return finish(RunState.RELEASE_READY, "PASS", attempt, annotation)
             finding_blob = ledger.put_blob(
