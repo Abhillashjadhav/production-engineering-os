@@ -203,6 +203,33 @@ def test_model_response_credentials_are_rejected_before_evidence() -> None:
         )
 
 
+def test_non_finite_provider_cost_is_classified_before_evidence(tmp_path: Path) -> None:
+    class NonFiniteCostProvider:
+        def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+            return {
+                "request_digest": request["request_digest"],
+                "files": {},
+                "usage": {"estimated_cost_usd": float("inf")},
+            }
+
+    contract = json.loads((_REPOSITORY / "examples/barebones/e1-contract.json").read_text())
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="non-finite-provider-cost",
+        provider=NonFiniteCostProvider(),
+    )
+
+    assert result.state is RunState.HALTED
+    assert result.cause == "MODEL_PROVIDER_USAGE_INVALID"
+    assert result.model_calls == 1
+    assert result.telemetry["estimated_cost_usd"] == 0.0
+    event = json.loads(result.evidence_path.read_text().splitlines()[-1])
+    assert event["payload"]["cause"] == "MODEL_PROVIDER_USAGE_INVALID"
+    assert event["payload"]["telemetry"]["estimated_cost_usd"] == 0.0
+
+
 def test_provider_error_credentials_are_classified_without_persisting_secret() -> None:
     secret = "sk-" + "a" * 24
 
