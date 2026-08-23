@@ -89,8 +89,7 @@ class ContractInvalidError(ValueError):
 
 _SAFE_RELATIVE = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\Z")
 _MODULE_TARGET = re.compile(r"([A-Za-z_][A-Za-z0-9_.]*):([A-Za-z_][A-Za-z0-9_]*)\Z")
-_CREDENTIAL = re.compile(\n    r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}"\n)
-_HIGH_RISK_CODE = re.compile(r"\b(?:eval|exec)\s*\(")
+_CREDENTIAL = re.compile(\n    r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}"\n)\n_HIGH_RISK_CODE = re.compile(r"\b(?:eval|exec)\s*\(")
 _ACTION_TIMEOUT_SECONDS = 10.0
 _PYTEST_TIMEOUT_SECONDS = 30.0
 _CANDIDATE_OUTPUT_LIMIT_BYTES = 1_000_000
