@@ -94,7 +94,10 @@ def test_contract_draft_cli_reports_missing_product_truth(tmp_path, capsys) -> N
     answers = tmp_path / "answers.json"
     answers.write_text(json.dumps({"product_name": "Incomplete"}))
     output = tmp_path / "authoring"
-    assert main(["legacy", "contract", "draft", "--answers", str(answers), "--output", str(output)]) == 3
+    assert (
+        main(["legacy", "contract", "draft", "--answers", str(answers), "--output", str(output)])
+        == 3
+    )
     assert "product input required" in capsys.readouterr().out
     questions = json.loads((output / "blocking-questions.json").read_text())
     assert questions["questions"]
