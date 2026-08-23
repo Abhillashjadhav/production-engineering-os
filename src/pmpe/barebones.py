@@ -80,6 +80,7 @@ class RunResult:
     elapsed_ms: int
     evidence_path: Path
     annotation: Mapping[str, Any] = field(default_factory=dict)
+    telemetry: Mapping[str, Any] = field(default_factory=dict)
 
 
 class ContractInvalidError(ValueError):
@@ -88,7 +89,7 @@ class ContractInvalidError(ValueError):
 
 _SAFE_RELATIVE = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\Z")
 _MODULE_TARGET = re.compile(r"([A-Za-z_][A-Za-z0-9_.]*):([A-Za-z_][A-Za-z0-9_]*)\Z")
-_CREDENTIAL = re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|AKIA[0-9A-Z]{16}")
+_CREDENTIAL = re.compile(\n    r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}"\n)
 _HIGH_RISK_CODE = re.compile(r"\b(?:eval|exec)\s*\(")
 _ACTION_TIMEOUT_SECONDS = 10.0
 _PYTEST_TIMEOUT_SECONDS = 30.0
@@ -762,18 +763,42 @@ def _invoke_bound(
     purpose: str,
     request: Mapping[str, Any],
     budget: BudgetCaps,
-    counters: dict[str, int],
+    counters: dict[str, Any],
 ) -> Mapping[str, Any]:
     if counters["calls"] >= budget.max_model_calls:
         raise RuntimeError("MODEL_CALL_BUDGET_EXHAUSTED")
     response = provider.invoke(purpose=purpose, request=request)
     counters["calls"] += 1
-    size = len(json.dumps(response, sort_keys=True, separators=(",", ":")).encode())
+    serialized = json.dumps(response, sort_keys=True, separators=(",", ":"))
+    if _CREDENTIAL.search(serialized):
+        raise RuntimeError("MODEL_RESPONSE_CONTAINS_CREDENTIAL")
+    size = len(serialized.encode())
     counters["bytes"] += size
     if counters["bytes"] > budget.max_model_output_bytes:
         raise RuntimeError("MODEL_OUTPUT_BUDGET_EXHAUSTED")
     if response.get("request_digest") != request.get("request_digest"):
         raise RuntimeError("MODEL_RESPONSE_UNBOUND")
+    usage = response.get("usage")
+    if isinstance(usage, Mapping):
+        for source, target in (("input_tokens", "tokens_in"), ("output_tokens", "tokens_out")):
+            value = usage.get(source)
+            if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+                counters[target] += value
+        estimated = usage.get("estimated_cost_usd")
+        if (
+            isinstance(estimated, (int, float))
+            and not isinstance(estimated, bool)
+            and estimated >= 0
+        ):
+            counters["estimated_cost_usd"] += float(estimated)
+    metadata = response.get("provider_metadata")
+    if isinstance(metadata, Mapping):
+        model = metadata.get("model")
+        if isinstance(model, str) and model:
+            observed = counters.get("provider_model_id")
+            counters["provider_model_id"] = (
+                model if not observed or observed == model else "multiple"
+            )
     return response
 
 
@@ -795,7 +820,16 @@ def run_to_release_ready(
     active_template = template or default_template()
     active_budget = budget or BudgetCaps()
     active_sandbox = candidate_sandbox or BubblewrapCandidateSandbox()
-    counters = {"calls": 0, "bytes": 0}
+    counters: dict[str, Any] = {
+        "calls": 0,
+        "bytes": 0,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "estimated_cost_usd": 0.0,
+        "provider_model_id": "",
+        "structured_criteria_count": 0,
+        "human_test_count": 0,
+    }
     subject_digest = canonical_digest(contract)
 
     template_test_digests: dict[str, str] = {}
@@ -822,6 +856,10 @@ def run_to_release_ready(
         registered_measures=frozenset(active_template.measures),
         trusted_test_digests=trusted_test_digests,
     )
+    counters["structured_criteria_count"] = sum(
+        item.form != "human_test" for item in plan.criteria
+    )
+    counters["human_test_count"] = sum(item.form == "human_test" for item in plan.criteria)
     workspace_root = workspace.resolve()
     evidence_root = (repository_root / ".pmpe").resolve()
     if workspace_root.is_relative_to(evidence_root) or evidence_root.is_relative_to(workspace_root):
@@ -835,14 +873,15 @@ def run_to_release_ready(
         state: RunState, cause: str, attempts: int, annotation: Mapping[str, Any] | None = None
     ) -> RunResult:
         return RunResult(
-            run_id,
-            state,
-            cause,
-            attempts,
-            counters["calls"],
-            int((time.monotonic() - started) * 1000),
-            ledger.events_path,
-            dict(annotation or {}),
+            run_id=run_id,
+            state=state,
+            cause=cause,
+            attempts=attempts,
+            model_calls=int(counters["calls"]),
+            elapsed_ms=int((time.monotonic() - started) * 1000),
+            evidence_path=ledger.events_path,
+            annotation=dict(annotation or {}),
+            telemetry=dict(counters),
         )
 
     plan_blob = ledger.put_blob(
