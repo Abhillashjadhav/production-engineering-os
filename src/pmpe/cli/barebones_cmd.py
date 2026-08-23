@@ -126,9 +126,7 @@ def _require_approved_contract(
     if approved_by != expected_approver:
         raise ContractInvalidError("approved_by does not match --expected-approver")
     try:
-        verify_contract_approval(
-            dict(contract), dict(receipt), expected_approver=expected_approver
-        )
+        verify_contract_approval(dict(contract), dict(receipt), expected_approver=expected_approver)
     except ContractViolation as exc:
         raise ContractInvalidError(str(exc)) from exc
 
