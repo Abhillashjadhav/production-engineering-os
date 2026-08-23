@@ -302,8 +302,8 @@ jobs:
       - name: install wheel and smoke the CLI
         run: |
           pip install dist/*.whl ruff pytest
-          pmpe validate examples/taskflow_mvp_spec.yaml
-          pmpe contract validate examples/v2-demo/contract.json
+          pmpe legacy validate examples/taskflow_mvp_spec.yaml
+          pmpe legacy contract validate examples/v2-demo/contract.json
           python -c 'import importlib.util; assert importlib.util.find_spec("pmpe.orchestration.workflow") is None'
       - name: explicit legacy fixture smoke (not shipped)
         run: |
