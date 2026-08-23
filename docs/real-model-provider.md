@@ -35,15 +35,15 @@ pmpe barebones examples/barebones/e1-contract.json \
   --workspace /tmp/pmpe-real-e1-candidate \
   --run-id real-e1 \
   --repository-root /tmp/pmpe-real-e1-evidence \
-  --expected-approver fixture-human \\
+  --expected-approver fixture-human \
   --provider-command "python examples/barebones/openai-responses-provider.py"
 ```
 
 The provider records non-secret metadata returned through the protocol: provider,
 resolved model name, prompt version, response id, usage, and estimated cost when both
 current per-million-token prices are configured. Prices are never hard-coded because
-they change; the operator must supply the rates used for the evidence bundle. The core still owns the
-request digest, output limits, candidate-path validation, deterministic verification,
+they change; the operator must supply the rates used for the evidence bundle. The core
+still owns the request digest, output limits, candidate-path validation, deterministic verification,
 and evidence chain.
 
 ## Evidence rule
