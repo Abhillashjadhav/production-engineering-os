@@ -120,6 +120,11 @@ def test_configured_token_prices_record_estimated_cost(
     )
 
     assert result["usage"]["estimated_cost_usd"] == pytest.approx(0.00036)
+    assert result["usage"]["pricing"] == {
+        "input_usd_per_million_tokens": 2.0,
+        "output_usd_per_million_tokens": 8.0,
+        "source": "operator_environment",
+    }
 
 
 def test_advisory_output_remains_non_blocking_and_bound() -> None:
