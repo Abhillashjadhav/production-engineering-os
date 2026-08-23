@@ -13,6 +13,41 @@ import sys
 from pmpe.cli import barebones_cmd
 from pmpe.domain.errors import PmpeError, SpecError
 
+_LEGACY_COMMANDS = frozenset(
+    {
+        "validate",
+        "status",
+        "report",
+        "contract",
+        "change-request",
+        "demo",
+        "eng",
+        "evals",
+        "drift",
+        "full-product",
+        "guided",
+        "personal-demo",
+        "personal-workflows",
+        "personal-runtime",
+        "repository",
+        "support",
+    }
+)
+
+
+class PlatformArgumentParser(argparse.ArgumentParser):
+    """Keep old invocations working without advertising them as platform paths."""
+
+    def parse_known_args(  # type: ignore[override]
+        self,
+        args: list[str] | None = None,
+        namespace: argparse.Namespace | None = None,
+    ) -> tuple[argparse.Namespace, list[str]]:
+        values = list(sys.argv[1:] if args is None else args)
+        if self.prog == "pmpe" and values and values[0] in _LEGACY_COMMANDS:
+            values.insert(0, "legacy")
+        return super().parse_known_args(values, namespace)
+
 
 def _register_legacy(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     """Register historical commands behind one visibly non-default boundary."""
@@ -48,7 +83,7 @@ def _register_legacy(sub: argparse._SubParsersAction) -> None:  # type: ignore[t
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
+    parser = PlatformArgumentParser(
         prog="pmpe",
         description=(
             "Compile a machine-checkable product contract, drive one bounded Coder, "
