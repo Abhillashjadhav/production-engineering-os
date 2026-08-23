@@ -92,6 +92,7 @@ pmpe barebones examples/barebones/e1-contract.json \
   --workspace /tmp/pmpe-e1-candidate \
   --run-id e1 \
   --repository-root /tmp/pmpe-e1-evidence \
+  --expected-approver fixture-human \\
   --provider-command "python examples/barebones/e1-provider.py"
 ```
 
