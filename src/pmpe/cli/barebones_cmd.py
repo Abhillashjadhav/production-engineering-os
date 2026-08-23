@@ -158,6 +158,7 @@ def _run(args: argparse.Namespace) -> int:
             provider=CommandModelProvider(args.provider_command, args.provider_timeout),
             approval_receipt=receipt,
             approval_authority=args.expected_approver,
+            approval_receipt_bytes=receipt_source,
         )
     except CanonicalInputError as exc:
         print(
