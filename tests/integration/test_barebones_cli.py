@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from pmpe.barebones import RunState, run_to_release_ready
+from pmpe import barebones as barebones_runtime
+from pmpe.barebones import BudgetCaps, RunState, run_to_release_ready
 from pmpe.cli import barebones_cmd, build_parser
 from pmpe.cli.barebones_cmd import CommandModelProvider
 
@@ -25,6 +26,8 @@ def test_barebones_cli_runs_a_contract_without_cloud_services(
             "cli-e1",
             "--repository-root",
             str(tmp_path),
+            "--expected-approver",
+            "fixture-human",
             "--provider-command",
             f"{sys.executable} {repository / 'examples/barebones/e1-provider.py'}",
         ]
@@ -34,6 +37,93 @@ def test_barebones_cli_runs_a_contract_without_cloud_services(
     output = json.loads(capsys.readouterr().out)
     assert output["state"] == "RELEASE_READY"
     assert output["model_calls"] == 2
+
+
+def test_unapproved_contract_is_rejected_before_provider(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    contract = tmp_path / "unapproved.json"
+    contract.write_text(
+        json.dumps(
+            {
+                "contract_id": "PMOS-UNAPPROVED",
+                "contract_status": "DRAFT",
+                "approved_by": "fixture-human",
+            }
+        )
+    )
+    args = build_parser().parse_args(
+        [
+            "barebones",
+            str(contract),
+            "--workspace",
+            str(tmp_path / "candidate"),
+            "--run-id",
+            "unapproved",
+            "--repository-root",
+            str(tmp_path),
+            "--expected-approver",
+            "fixture-human",
+            "--provider-command",
+            "must-not-run",
+        ]
+    )
+
+    assert args.fn(args) == 3
+    output = json.loads(capsys.readouterr().out)
+    assert output["detail"] == "contract_status must be APPROVED"
+
+
+def test_approver_mismatch_is_rejected(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    repository = Path(__file__).parents[2]
+    args = build_parser().parse_args(
+        [
+            "barebones",
+            str(repository / "examples/barebones/e1-contract.json"),
+            "--workspace",
+            str(tmp_path / "candidate"),
+            "--run-id",
+            "wrong-approver",
+            "--repository-root",
+            str(tmp_path),
+            "--expected-approver",
+            "different-human",
+            "--provider-command",
+            "must-not-run",
+        ]
+    )
+
+    assert args.fn(args) == 3
+    output = json.loads(capsys.readouterr().out)
+    assert output["detail"] == "approved_by does not match --expected-approver"
+
+
+def test_model_response_credentials_are_rejected_before_evidence() -> None:
+    class CredentialProvider:
+        def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+            return {
+                "request_digest": request["request_digest"],
+                "summary": "sk-" + "a" * 24,
+            }
+
+    counters: dict[str, Any] = {
+        "calls": 0,
+        "bytes": 0,
+        "tokens_in": 0,
+        "tokens_out": 0,
+        "estimated_cost_usd": 0.0,
+        "provider_model_id": "",
+    }
+    with pytest.raises(RuntimeError, match="MODEL_RESPONSE_CONTAINS_CREDENTIAL"):
+        barebones_runtime._invoke_bound(
+            CredentialProvider(),
+            purpose="advisory_review",
+            request={"request_digest": "bound"},
+            budget=BudgetCaps(),
+            counters=counters,
+        )
 
 
 def test_provider_timeout_is_a_classified_halt(
