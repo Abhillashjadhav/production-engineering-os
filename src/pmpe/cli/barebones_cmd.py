@@ -18,7 +18,9 @@ from typing import Any
 
 from pmpe.barebones import ContractInvalidError, run_to_release_ready
 from pmpe.contracts.acceptance import AcceptanceCompileError
+from pmpe.contracts.authoring import verify_contract_approval
 from pmpe.contracts.canonical import CanonicalInputError, strict_loads
+from pmpe.domain.errors import ContractViolation
 from pmpe.evidence.ledger import EvidenceIntegrityError
 
 _PROVIDER_OUTPUT_LIMIT_BYTES = 1_000_000
@@ -112,7 +114,9 @@ class CommandModelProvider:
         return response
 
 
-def _require_approved_contract(contract: Mapping[str, Any], expected_approver: str) -> None:
+def _require_approved_contract(
+    contract: Mapping[str, Any], receipt: Mapping[str, Any], expected_approver: str
+) -> None:
     status = contract.get("contract_status")
     approved_by = contract.get("approved_by")
     if status != "APPROVED":
@@ -121,6 +125,12 @@ def _require_approved_contract(contract: Mapping[str, Any], expected_approver: s
         raise ContractInvalidError("approved_by is required")
     if approved_by != expected_approver:
         raise ContractInvalidError("approved_by does not match --expected-approver")
+    try:
+        verify_contract_approval(
+            dict(contract), dict(receipt), expected_approver=expected_approver
+        )
+    except ContractViolation as exc:
+        raise ContractInvalidError(str(exc)) from exc
 
 
 def _run(args: argparse.Namespace) -> int:
@@ -132,7 +142,8 @@ def _run(args: argparse.Namespace) -> int:
             else "application/json"
         )
         contract = strict_loads(contract_path.read_bytes(), content_type)
-        _require_approved_contract(contract, args.expected_approver)
+        receipt = strict_loads(Path(args.approval_receipt).read_bytes(), "application/json")
+        _require_approved_contract(contract, receipt, args.expected_approver)
         result = run_to_release_ready(
             contract=contract,
             repository_root=Path(args.repository_root).resolve(),
@@ -198,6 +209,7 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     parser.add_argument("--workspace", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--repository-root", default=".")
+    parser.add_argument("--approval-receipt", required=True)
     parser.add_argument(
         "--expected-approver",
         required=True,
