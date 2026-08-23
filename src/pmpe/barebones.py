@@ -112,9 +112,7 @@ def _classify_provider_error(error: RuntimeError) -> str:
     return message
 
 
-def _provider_behavior_payload(
-    purpose: str, response: Mapping[str, Any]
-) -> dict[str, Any] | None:
+def _provider_behavior_payload(purpose: str, response: Mapping[str, Any]) -> dict[str, Any] | None:
     try:
         return asdict(observe_provider_behavior(purpose=purpose, response=response))
     except ValueError:
