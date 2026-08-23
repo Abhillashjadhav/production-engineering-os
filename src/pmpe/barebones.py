@@ -25,7 +25,7 @@ from pmpe.contracts.acceptance import (
     compile_acceptance_plan,
 )
 from pmpe.contracts.authoring import verify_contract_approval
-from pmpe.contracts.canonical import canonical_digest
+from pmpe.contracts.canonical import CanonicalInputError, canonical_digest, strict_loads
 from pmpe.evals.barebones_drift import observe_provider_behavior
 from pmpe.domain.errors import ContractViolation
 from pmpe.evidence.ledger import EvidenceLedger
@@ -836,6 +836,7 @@ def run_to_release_ready(
     candidate_sandbox: CandidateSandbox | None = None,
     approval_receipt: Mapping[str, Any] | None = None,
     approval_authority: str | None = None,
+    approval_receipt_bytes: bytes | None = None,
 ) -> RunResult:
     """Run the frozen core. It never deploys and stops at RELEASE_READY."""
 
@@ -854,10 +855,25 @@ def run_to_release_ready(
         "human_test_count": 0,
     }
     subject_digest = canonical_digest(contract)
-    if (approval_receipt is None) != (approval_authority is None):
-        raise ContractInvalidError("approval receipt and authority must be supplied together")
+    approval_inputs = (approval_receipt, approval_authority, approval_receipt_bytes)
+    if any(item is None for item in approval_inputs) and not all(
+        item is None for item in approval_inputs
+    ):
+        raise ContractInvalidError(
+            "approval receipt, authority, and submitted bytes must be supplied together"
+        )
     approval_payload: dict[str, Any] = {"status": "UNVERIFIED_DIRECT_CALL"}
-    if approval_receipt is not None and approval_authority is not None:
+    if (
+        approval_receipt is not None
+        and approval_authority is not None
+        and approval_receipt_bytes is not None
+    ):
+        try:
+            submitted_receipt = strict_loads(approval_receipt_bytes, "application/json")
+        except CanonicalInputError as exc:
+            raise ContractInvalidError("submitted approval receipt is malformed") from exc
+        if canonical_digest(submitted_receipt) != canonical_digest(approval_receipt):
+            raise ContractInvalidError("submitted approval receipt bytes do not match receipt")
         try:
             receipt_digest = verify_contract_approval(
                 dict(contract),
@@ -933,10 +949,8 @@ def run_to_release_ready(
         json.dumps(contract, sort_keys=True, separators=(",", ":")).encode()
     )
     validation_blobs = [contract_blob, plan_blob]
-    if approval_receipt is not None:
-        receipt_blob = ledger.put_blob(
-            json.dumps(approval_receipt, sort_keys=True, separators=(",", ":")).encode()
-        )
+    if approval_receipt_bytes is not None:
+        receipt_blob = ledger.put_blob(approval_receipt_bytes)
         validation_blobs.append(receipt_blob)
         approval_payload["receipt_blob_digest"] = receipt_blob
     ledger.append(
