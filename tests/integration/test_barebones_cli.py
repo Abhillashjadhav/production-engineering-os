@@ -126,6 +126,13 @@ def test_model_response_credentials_are_rejected_before_evidence() -> None:
         )
 
 
+def test_provider_error_credentials_are_classified_without_persisting_secret() -> None:
+    secret = "sk-" + "a" * 24
+
+    assert barebones_runtime._classify_provider_error(RuntimeError(secret)) == "MODEL_PROVIDER_FAILED"
+    assert secret not in barebones_runtime._classify_provider_error(RuntimeError(secret))
+
+
 def test_provider_timeout_is_a_classified_halt(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -165,7 +172,9 @@ def test_malformed_contract_is_reported_without_a_traceback(
             "malformed-contract",
             "--repository-root",
             str(tmp_path),
-            "--expected-approver",\n            "fixture-human",\n            "--provider-command",
+            "--expected-approver",
+            "fixture-human",
+            "--provider-command",
             "provider",
         ]
     )
@@ -194,7 +203,9 @@ def test_non_empty_workspace_is_rejected_before_evidence_is_created(
             "occupied-workspace",
             "--repository-root",
             str(tmp_path),
-            "--expected-approver",\n            "fixture-human",\n            "--provider-command",
+            "--expected-approver",
+            "fixture-human",
+            "--provider-command",
             "provider",
         ]
     )
@@ -223,7 +234,9 @@ def test_workspace_cannot_overlap_evidence_storage(
             "overlapping-roots",
             "--repository-root",
             str(workspace),
-            "--expected-approver",\n            "fixture-human",\n            "--provider-command",
+            "--expected-approver",
+            "fixture-human",
+            "--provider-command",
             "provider",
         ]
     )
