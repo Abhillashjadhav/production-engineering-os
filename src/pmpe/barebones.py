@@ -894,7 +894,7 @@ def run_to_release_ready(
             elapsed_ms=int(counters.get("elapsed_ms", (time.monotonic() - started) * 1000)),
             evidence_path=ledger.events_path,
             annotation=dict(annotation or {}),
-            telemetry=_terminal_telemetry(),
+            telemetry=dict(counters),
         )
 
     plan_blob = ledger.put_blob(
