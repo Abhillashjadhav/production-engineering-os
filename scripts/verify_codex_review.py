@@ -216,10 +216,11 @@ def main() -> int:
             raise SystemExit("current PR head changed during Codex evidence verification")
         comments = _all_issue_comments(repository, number)
         reviews = _all_reviews(repository, number)
+        clean = _has_clean_evidence(repository, expected, comments, reviews)
         observed_at = time.monotonic()
         if observed_at >= deadline and not (first_observation and wait_seconds == 0):
             raise SystemExit("missing clean exact-head Codex advisory evidence")
-        if _has_clean_evidence(repository, expected, comments, reviews):
+        if clean:
             break
         if observed_at >= deadline:
             raise SystemExit("missing clean exact-head Codex advisory evidence")
@@ -261,6 +262,8 @@ def main() -> int:
     final_pr = _gh("api", f"repos/{repository}/pulls/{number}")
     if final_pr["head"]["sha"] != expected:
         raise SystemExit("current PR head changed during Codex evidence verification")
+    if time.monotonic() >= stability_deadline:
+        raise SystemExit("Codex review surfaces did not stabilize before timeout")
     print(f"CODEX ADVISORY REVIEW — CLEAN — EXACT HEAD {expected}")
     return 0
 
