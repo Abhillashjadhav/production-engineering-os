@@ -55,7 +55,7 @@ def _all_thread_comments(thread: dict[str, Any]) -> list[dict[str, Any]]:
     while page_info["hasNextPage"]:
         query = (
             "query($id:ID!,$after:String){node(id:$id){... on PullRequestReviewThread"
-            "{comments(first:100,after:$after){nodes{author{login} body}"
+            "{comments(first:100,after:$after){nodes{id author{login} body updatedAt}"
             "pageInfo{hasNextPage endCursor}}}}}"
         )
         result = _gh(
@@ -81,7 +81,8 @@ def _all_review_threads(repository: str, number: str) -> list[dict[str, Any]]:
     query = (
         "query($owner:String!,$name:String!,$number:Int!,$after:String){repository("
         "owner:$owner,name:$name){pullRequest(number:$number){reviewThreads(first:100,"
-        "after:$after){nodes{id isOutdated isResolved comments(first:100){nodes{author{login} body}"
+        "after:$after){nodes{id isOutdated isResolved comments(first:100){"
+        "nodes{id author{login} body updatedAt}"
         "pageInfo{hasNextPage endCursor}}}pageInfo{hasNextPage endCursor}}}}}"
     )
     while True:
@@ -132,7 +133,8 @@ def _comment_matches_exact_head(repository: str, expected: str, body: str) -> bo
     if f"**Reviewed commit:** `{short}`" not in body:
         return False
     resolved = _gh("api", f"repos/{repository}/commits/{short}")
-    return resolved["sha"] == expected
+    resolved_sha = resolved.get("sha")
+    return isinstance(resolved_sha, str) and resolved_sha == expected
 
 
 def _has_exact_bot_review(reviews: list[dict[str, Any]], expected: str) -> bool:
@@ -163,15 +165,41 @@ def _has_exact_bot_review_blocker(reviews: list[dict[str, Any]], expected: str) 
 
 
 def _review_snapshot_ids(reviews: list[dict[str, Any]]) -> tuple[str, ...]:
-    """Give a deterministic identity to every REST review in an observation."""
+    """Bind review identity and mutable admission-relevant content."""
     return tuple(
-        sorted(
-            str(
-                review.get("id")
-                or f"{review.get('commit_id')}:{review.get('submitted_at')}:{review.get('body')}"
-            )
-            for review in reviews
+        sorted(json.dumps(review, sort_keys=True, separators=(",", ":")) for review in reviews)
+    )
+
+
+def _surface_snapshot(
+    comments: list[dict[str, Any]],
+    reviews: list[dict[str, Any]],
+    threads: list[dict[str, Any]],
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """Give all three GitHub review surfaces one deterministic observation identity."""
+
+    def identities(records: list[dict[str, Any]]) -> tuple[str, ...]:
+        return tuple(
+            sorted(json.dumps(record, sort_keys=True, separators=(",", ":")) for record in records)
         )
+
+    return identities(comments), _review_snapshot_ids(reviews), identities(threads)
+
+
+def _has_clean_evidence(
+    repository: str,
+    expected: str,
+    comments: list[dict[str, Any]],
+    reviews: list[dict[str, Any]],
+) -> bool:
+    clean_comment = any(
+        (comment.get("user") or {}).get("login") == BOT
+        and "Codex Review: Didn't find any major issues." in (comment.get("body") or "")
+        and _comment_matches_exact_head(repository, expected, comment.get("body") or "")
+        for comment in comments
+    )
+    return (clean_comment or _has_exact_bot_review(reviews, expected)) and not (
+        _has_exact_bot_review_blocker(reviews, expected)
     )
 
 
@@ -179,44 +207,67 @@ def main() -> int:
     expected = os.environ["EXPECTED_HEAD"]
     number = os.environ["PR_NUMBER"]
     repository = os.environ["GITHUB_REPOSITORY"]
-    deadline = time.monotonic() + int(os.environ.get("CODEX_EVIDENCE_WAIT_SECONDS", "0"))
+    wait_seconds = max(0, int(os.environ.get("CODEX_EVIDENCE_WAIT_SECONDS", "0")))
+    deadline = time.monotonic() + wait_seconds
+    first_observation = True
     while True:
+        if not first_observation and time.monotonic() >= deadline:
+            raise SystemExit("missing clean exact-head Codex advisory evidence")
         pr = _gh("api", f"repos/{repository}/pulls/{number}")
         if pr["head"]["sha"] != expected:
             raise SystemExit("current PR head changed during Codex evidence verification")
         comments = _all_issue_comments(repository, number)
         reviews = _all_reviews(repository, number)
-        clean_comment = any(
-            comment["user"]["login"] == BOT
-            and "Codex Review: Didn't find any major issues." in comment["body"]
-            and _comment_matches_exact_head(repository, expected, comment["body"])
-            for comment in comments
-        )
-        clean = (clean_comment or _has_exact_bot_review(reviews, expected)) and not (
-            _has_exact_bot_review_blocker(reviews, expected)
-        )
+        clean = _has_clean_evidence(repository, expected, comments, reviews)
+        observed_at = time.monotonic()
+        if observed_at >= deadline and not (first_observation and wait_seconds == 0):
+            raise SystemExit("missing clean exact-head Codex advisory evidence")
         if clean:
             break
-        if time.monotonic() >= deadline:
+        if observed_at >= deadline:
             raise SystemExit("missing clean exact-head Codex advisory evidence")
-        time.sleep(10)
-    # Reviews discovered while threads are being paginated can contain inline
-    # blockers absent from the first thread scan. Retry until both surfaces
-    # share one stable review set.
+        first_observation = False
+        time.sleep(max(0, min(10, deadline - observed_at)))
+    # GitHub may expose a review object before its inline threads. Require a
+    # full quiescence window, resetting it whenever any review surface changes.
+    stability_window = max(0, int(os.environ.get("CODEX_EVIDENCE_STABILITY_SECONDS", "60")))
+    poll_interval = max(0, int(os.environ.get("CODEX_EVIDENCE_POLL_SECONDS", "10")))
+    stability_deadline = time.monotonic() + max(
+        stability_window,
+        int(os.environ.get("CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS", "180")),
+    )
+    previous_snapshot: tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]] | None = None
+    stable_since: float | None = None
     while True:
+        if previous_snapshot is not None and time.monotonic() >= stability_deadline:
+            raise SystemExit("Codex review surfaces did not stabilize before timeout")
+        comments = _all_issue_comments(repository, number)
+        reviews = _all_reviews(repository, number)
         threads = _all_review_threads(repository, number)
-        final_reviews = _all_reviews(repository, number)
-        if _review_snapshot_ids(reviews) == _review_snapshot_ids(final_reviews):
-            reviews = final_reviews
-            break
-        reviews = final_reviews
+        if _has_current_blocker(threads) or _has_exact_bot_review_blocker(reviews, expected):
+            raise SystemExit("current Codex P0/P1/P2 finding blocks admission")
+        if not _has_clean_evidence(repository, expected, comments, reviews):
+            raise SystemExit("clean exact-head Codex evidence disappeared during stabilization")
+        snapshot = _surface_snapshot(comments, reviews, threads)
+        observed_at = time.monotonic()
+        if observed_at >= stability_deadline:
+            raise SystemExit("Codex review surfaces did not stabilize before timeout")
+        if previous_snapshot == snapshot:
+            if stable_since is not None and observed_at - stable_since >= stability_window:
+                break
+        else:
+            previous_snapshot = snapshot
+            stable_since = observed_at
+        assert stable_since is not None
+        remaining_window = stability_window - (observed_at - stable_since)
+        remaining_deadline = stability_deadline - observed_at
+        time.sleep(max(0, min(poll_interval, remaining_window, remaining_deadline)))
 
-    # A top-level review has no review thread, so inspect its final stable set.
     final_pr = _gh("api", f"repos/{repository}/pulls/{number}")
     if final_pr["head"]["sha"] != expected:
         raise SystemExit("current PR head changed during Codex evidence verification")
-    if _has_current_blocker(threads) or _has_exact_bot_review_blocker(reviews, expected):
-        raise SystemExit("current Codex P0/P1/P2 finding blocks admission")
+    if time.monotonic() >= stability_deadline:
+        raise SystemExit("Codex review surfaces did not stabilize before timeout")
     print(f"CODEX ADVISORY REVIEW — CLEAN — EXACT HEAD {expected}")
     return 0
 
