@@ -131,6 +131,59 @@ def test_inspect_reads_only_the_sealed_candidate_and_checks_workspace_drift(
     assert drift["workspace"]["changed"] == ["product.py"]
 
 
+def test_inspect_rejects_a_symlinked_workspace_root(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+    _sealed_run(tmp_path)
+    workspace = tmp_path / "candidate"
+    workspace.mkdir()
+    (workspace / "product.py").write_text("def health():\n    return {'status': 'ok'}\n")
+    workspace_link = tmp_path / "candidate-link"
+    workspace_link.symlink_to(workspace, target_is_directory=True)
+
+    result = main(
+        [
+            "barebones",
+            "inspect",
+            "sealed",
+            "--repository-root",
+            str(tmp_path),
+            "--workspace",
+            str(workspace_link),
+        ]
+    )
+
+    assert result == 3
+    output = json.loads(capsys.readouterr().out)
+    assert output["workspace"] == {
+        "changed": [],
+        "missing": ["product.py"],
+        "symlinks": ["."],
+        "status": "DRIFT",
+        "untracked": [],
+    }
+
+
+def test_inspection_commands_report_invalid_run_ids_as_json(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+    for command in ("status", "evidence", "inspect"):
+        result = main(
+            [
+                "barebones",
+                command,
+                "../bad",
+                "--repository-root",
+                str(tmp_path),
+            ]
+        )
+
+        assert result == 3
+        captured = capsys.readouterr()
+        assert captured.err == ""
+        assert json.loads(captured.out) == {
+            "cause": "EVIDENCE_INVALID",
+            "detail": "run_id must be a bounded filesystem-safe identifier",
+            "state": "HALTED",
+        }
+
+
 def test_inspection_fails_closed_when_evidence_is_mutated(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
     _, file_digest = _sealed_run(tmp_path)
     blob = tmp_path / ".pmpe" / "blobs" / file_digest.removeprefix("sha256:")

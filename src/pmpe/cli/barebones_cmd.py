@@ -258,7 +258,10 @@ def _run(args: argparse.Namespace) -> int:
 def _verified_events(
     args: argparse.Namespace,
 ) -> tuple[EvidenceLedger, tuple[Mapping[str, Any], ...]]:
-    ledger = EvidenceLedger.open_existing(Path(args.repository_root).resolve(), args.run_id)
+    try:
+        ledger = EvidenceLedger.open_existing(Path(args.repository_root).resolve(), args.run_id)
+    except ValueError as exc:
+        raise EvidenceIntegrityError(str(exc)) from exc
     events = tuple(ledger.verify())
     if not events:
         raise EvidenceIntegrityError("evidence ledger is empty")
@@ -370,6 +373,14 @@ def _candidate_manifest(
 
 
 def _workspace_comparison(workspace: Path, manifest: Mapping[str, str]) -> dict[str, Any]:
+    if workspace.is_symlink():
+        return {
+            "status": "DRIFT",
+            "missing": sorted(manifest),
+            "changed": [],
+            "untracked": [],
+            "symlinks": ["."],
+        }
     if not workspace.is_dir():
         return {
             "status": "DRIFT",
@@ -428,7 +439,7 @@ def _inspect(args: argparse.Namespace) -> int:
             }
         exit_code = 0
         if args.workspace is not None:
-            comparison = _workspace_comparison(Path(args.workspace).resolve(), manifest)
+            comparison = _workspace_comparison(Path(args.workspace), manifest)
             output["workspace"] = comparison
             if comparison["status"] != "MATCH":
                 exit_code = 3
