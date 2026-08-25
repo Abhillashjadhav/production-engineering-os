@@ -326,6 +326,28 @@ def test_malformed_structured_result_fails_closed(
     assert captured.err == "CODEX_RESULT_MALFORMED\n"
 
 
+def test_duplicate_generated_paths_fail_closed(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    provider = _provider_module()
+    fake = _FakeCodex(
+        {
+            "files": [
+                {"path": "product.py", "content": "first\n"},
+                {"path": "product.py", "content": "second\n"},
+            ]
+        }
+    )
+    _install_fake(provider, monkeypatch, fake)
+
+    with pytest.raises(SystemExit, match="2"):
+        _run_main(provider, monkeypatch, _message())
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == "CODEX_RESULT_MALFORMED\n"
+
+
 def test_missing_result_file_fails_closed(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
