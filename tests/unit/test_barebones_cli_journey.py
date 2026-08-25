@@ -225,6 +225,29 @@ def test_inspection_commands_report_invalid_run_ids_as_json(tmp_path: Path, caps
         }
 
 
+def test_status_rejects_a_recursively_nested_event_log_as_json(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+    ledger = EvidenceLedger(tmp_path, "recursive")
+    depth = 10_000
+    ledger.events_path.write_text('{"nested":' * depth + "null" + "}" * depth)
+
+    result = main(
+        [
+            "barebones",
+            "status",
+            "recursive",
+            "--repository-root",
+            str(tmp_path),
+        ]
+    )
+
+    assert result == 3
+    assert json.loads(capsys.readouterr().out) == {
+        "cause": "EVIDENCE_INVALID",
+        "detail": "event is not canonical JSON",
+        "state": "HALTED",
+    }
+
+
 def test_inspection_fails_closed_when_evidence_is_mutated(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
     _, file_digest = _sealed_run(tmp_path)
     blob = tmp_path / ".pmpe" / "blobs" / file_digest.removeprefix("sha256:")

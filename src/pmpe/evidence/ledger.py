@@ -161,7 +161,7 @@ class EvidenceLedger:
         for expected_sequence, raw_line in enumerate(raw_events, start=1):
             try:
                 event = json.loads(raw_line)
-            except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
                 raise EvidenceIntegrityError("event is not canonical JSON") from exc
             if not isinstance(event, dict):
                 raise EvidenceIntegrityError("event must be an object")
