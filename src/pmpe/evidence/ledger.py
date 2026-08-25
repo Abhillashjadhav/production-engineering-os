@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import json
 import os
 import re
 import tempfile
@@ -11,7 +10,11 @@ from collections.abc import Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
+from pmpe.contracts.canonical import (
+    canonical_digest,
+    canonical_json_bytes,
+    strict_loads,
+)
 
 _RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _DIGEST = re.compile(r"sha256:([0-9a-f]{64})\Z")
@@ -160,11 +163,9 @@ class EvidenceLedger:
         previous = GENESIS_DIGEST
         for expected_sequence, raw_line in enumerate(raw_events, start=1):
             try:
-                event = json.loads(raw_line)
-            except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as exc:
+                event = strict_loads(raw_line, "application/json")
+            except ValueError as exc:
                 raise EvidenceIntegrityError("event is not canonical JSON") from exc
-            if not isinstance(event, dict):
-                raise EvidenceIntegrityError("event must be an object")
             event_digest = event.pop("event_digest", None)
             if (
                 event.get("sequence") != expected_sequence
