@@ -86,3 +86,14 @@ def test_blob_tampering_is_detected(tmp_path: Path) -> None:
 
     with pytest.raises(EvidenceIntegrityError):
         tuple(ledger.verify())
+
+
+def test_read_blob_verifies_content_address_before_returning_bytes(tmp_path: Path) -> None:
+    ledger = EvidenceLedger(tmp_path, "run-001")
+    blob = ledger.put_blob(b"sealed candidate file")
+
+    assert ledger.read_blob(blob) == b"sealed candidate file"
+
+    (ledger.blobs_directory / blob.removeprefix("sha256:")).write_bytes(b"changed")
+    with pytest.raises(EvidenceIntegrityError, match="does not match"):
+        ledger.read_blob(blob)

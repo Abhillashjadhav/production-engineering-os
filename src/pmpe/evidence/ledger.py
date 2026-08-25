@@ -99,6 +99,23 @@ class EvidenceLedger:
             Path(temporary_name).unlink(missing_ok=True)
         return digest
 
+    def read_blob(self, digest: str) -> bytes:
+        """Return one verified content-addressed blob without mutating the ledger."""
+
+        match = _DIGEST.fullmatch(digest)
+        if match is None:
+            raise EvidenceIntegrityError("blob digest is malformed")
+        blob_path = self.blobs_directory / match.group(1)
+        try:
+            if not blob_path.is_file():
+                raise EvidenceIntegrityError("evidence blob does not exist")
+            payload = blob_path.read_bytes()
+        except OSError as exc:
+            raise EvidenceIntegrityError("evidence blob cannot be read") from exc
+        if "sha256:" + hashlib.sha256(payload).hexdigest() != digest:
+            raise EvidenceIntegrityError("blob content does not match its digest")
+        return payload
+
     def append(
         self,
         *,
@@ -155,12 +172,12 @@ class EvidenceLedger:
             ):
                 raise EvidenceIntegrityError(f"broken evidence chain at event {expected_sequence}")
             for digest in event.get("blob_digests", []):
-                match = _DIGEST.fullmatch(digest) if isinstance(digest, str) else None
-                blob_path = self.blobs_directory / (match.group(1) if match else "invalid")
-                if match is None or not blob_path.is_file():
+                if not isinstance(digest, str):
                     raise EvidenceIntegrityError("event references a missing blob")
-                if "sha256:" + hashlib.sha256(blob_path.read_bytes()).hexdigest() != digest:
-                    raise EvidenceIntegrityError("blob content does not match its digest")
+                try:
+                    self.read_blob(digest)
+                except EvidenceIntegrityError as exc:
+                    raise EvidenceIntegrityError("event references an invalid blob") from exc
             restored = {**event, "event_digest": event_digest}
             previous = str(event_digest)
             yield restored

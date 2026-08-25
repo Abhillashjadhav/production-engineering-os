@@ -88,7 +88,7 @@ python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 
-pmpe barebones examples/barebones/e1-contract.json \
+pmpe barebones run examples/barebones/e1-contract.json \
   --workspace /tmp/pmpe-e1-candidate \
   --run-id e1 \
   --repository-root /tmp/pmpe-e1-evidence \
@@ -96,6 +96,22 @@ pmpe barebones examples/barebones/e1-contract.json \
   --expected-approver fixture-human \
   --provider-command "python examples/barebones/e1-provider.py"
 ```
+
+The default product journey is intentionally small:
+
+```bash
+pmpe barebones compile examples/barebones/e1-contract.json --repository-root .
+pmpe barebones status e1 --repository-root /tmp/pmpe-e1-evidence
+pmpe barebones evidence e1 --repository-root /tmp/pmpe-e1-evidence
+pmpe barebones inspect e1 \
+  --repository-root /tmp/pmpe-e1-evidence \
+  --workspace /tmp/pmpe-e1-candidate
+```
+
+`inspect` reads the candidate manifest from the verified evidence chain. When a
+workspace is supplied, it fails with exit code `3` if any sealed file is changed or
+missing, or if an untracked file or symbolic link appears. Use `--file <path>` to print
+one digest-bound UTF-8 candidate file as escaped JSON before the human release decision.
 
 The example provider returns scripted responses. It proves compiler-to-engine plumbing; it does not prove that an LLM can build the requested software.
 

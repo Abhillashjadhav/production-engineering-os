@@ -33,6 +33,7 @@ _LEGACY_COMMANDS = frozenset(
         "support-demo",
     }
 )
+_BAREBONES_COMMANDS = frozenset({"compile", "run", "status", "evidence", "inspect"})
 
 
 class PlatformArgumentParser(argparse.ArgumentParser):
@@ -46,6 +47,13 @@ class PlatformArgumentParser(argparse.ArgumentParser):
         values = list(sys.argv[1:] if args is None else args)
         if self.prog == "pmpe" and values and values[0] in _LEGACY_COMMANDS:
             values.insert(0, "legacy")
+        elif (
+            self.prog == "pmpe"
+            and len(values) > 1
+            and values[0] == "barebones"
+            and values[1] not in _BAREBONES_COMMANDS | {"-h", "--help"}
+        ):
+            values.insert(1, "run")
         return super().parse_known_args(values, namespace)
 
 
