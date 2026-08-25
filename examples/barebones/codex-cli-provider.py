@@ -96,9 +96,7 @@ def _prompt(purpose: str, request: Mapping[str, Any]) -> bytes:
 
 def _child_environment() -> dict[str, str]:
     return {
-        name: value
-        for name, value in os.environ.items()
-        if name not in _API_CREDENTIAL_VARIABLES
+        name: value for name, value in os.environ.items() if name not in _API_CREDENTIAL_VARIABLES
     }
 
 
@@ -140,18 +138,14 @@ def _run_command(
     return subprocess.CompletedProcess(tuple(argv), process.returncode, stdout, stderr)
 
 
-def _auth_preflight(
-    executable: str, *, cwd: Path, environment: Mapping[str, str]
-) -> None:
+def _auth_preflight(executable: str, *, cwd: Path, environment: Mapping[str, str]) -> None:
     completed = _run_command(
         (executable, "login", "status"),
         input_bytes=b"",
         cwd=cwd,
         environment=environment,
     )
-    status = (completed.stdout + b"\n" + completed.stderr).decode(
-        "utf-8", errors="replace"
-    ).lower()
+    status = (completed.stdout + b"\n" + completed.stderr).decode("utf-8", errors="replace").lower()
     if (
         completed.returncode != 0
         or re.search(r"\blogged in (?:using|with) chatgpt\b", status) is None
@@ -161,9 +155,7 @@ def _auth_preflight(
         raise ProviderFailure("CODEX_CHATGPT_AUTH_REQUIRED")
 
 
-def _cli_version(
-    executable: str, *, cwd: Path, environment: Mapping[str, str]
-) -> str:
+def _cli_version(executable: str, *, cwd: Path, environment: Mapping[str, str]) -> str:
     try:
         completed = _run_command(
             (executable, "--version"),
@@ -259,9 +251,7 @@ def _adapt_result(
     response["provider_metadata"] = {
         "provider": "codex-cli-chatgpt",
         "model": _MODEL,
-        "prompt_version": (
-            f"{_ADAPTER_VERSION};effort={_REASONING_EFFORT};cli={version}"
-        ),
+        "prompt_version": (f"{_ADAPTER_VERSION};effort={_REASONING_EFFORT};cli={version}"),
         "reasoning_effort": _REASONING_EFFORT,
         "cli_version": version,
         "auth_mode": "chatgpt",

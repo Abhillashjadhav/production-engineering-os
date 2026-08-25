@@ -395,9 +395,7 @@ def test_command_timeout_kills_the_process_group(
         def __init__(self) -> None:
             self.calls = 0
 
-        def communicate(
-            self, *, input: bytes | None = None, timeout: float | None = None
-        ) -> None:
+        def communicate(self, *, input: bytes | None = None, timeout: float | None = None) -> None:
             del input, timeout
             self.calls += 1
             if self.calls == 1:
@@ -419,18 +417,14 @@ def test_command_timeout_kills_the_process_group(
     assert killed == [(1234, provider.signal.SIGKILL)]
 
 
-def test_command_output_limit_is_enforced(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def test_command_output_limit_is_enforced(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     provider = _provider_module()
 
     class _LargeOutputProcess:
         pid = 1234
         returncode = 0
 
-        def communicate(
-            self, *, input: bytes | None = None, timeout: float | None = None
-        ) -> None:
+        def communicate(self, *, input: bytes | None = None, timeout: float | None = None) -> None:
             del input, timeout
 
     def fake_popen(*_args: Any, **kwargs: Any) -> _LargeOutputProcess:

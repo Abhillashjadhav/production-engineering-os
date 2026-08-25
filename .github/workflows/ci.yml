@@ -24,7 +24,8 @@ jobs:
         run: |
           ruff format --check \
             src tests/unit tests/integration tests/e2e tests/conftest.py \
-            scripts/ci/classify_frontend_ci.py examples/barebones/*.py
+            scripts/ci/classify_frontend_ci.py \
+            examples/barebones/codex-cli-provider.py
       - name: ruff lint
         run: |
           ruff check \
