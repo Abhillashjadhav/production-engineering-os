@@ -107,6 +107,28 @@ def test_verify_rejects_a_hash_consistent_non_list_blob_container(tmp_path: Path
         tuple(ledger.verify())
 
 
+def test_verify_translates_event_log_read_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ledger = EvidenceLedger(tmp_path, "run-001")
+    ledger.append(
+        event_type="validated",
+        state="VALIDATED",
+        subject_digest=canonical_digest({"candidate": 1}),
+    )
+    original_read_bytes = Path.read_bytes
+
+    def guarded_read_bytes(path: Path) -> bytes:
+        if path == ledger.events_path:
+            raise PermissionError("denied")
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", guarded_read_bytes)
+
+    with pytest.raises(EvidenceIntegrityError, match="ledger cannot be read"):
+        tuple(ledger.verify())
+
+
 def test_blob_tampering_is_detected(tmp_path: Path) -> None:
     ledger = EvidenceLedger(tmp_path, "run-001")
     blob = ledger.put_blob(b"original")

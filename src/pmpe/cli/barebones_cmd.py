@@ -391,13 +391,36 @@ def _workspace_comparison(workspace: Path, manifest: Mapping[str, str]) -> dict[
         }
     observed: dict[str, str] = {}
     symlinks: list[str] = []
+
+    def fail_scan(exc: OSError) -> None:
+        raise EvidenceIntegrityError("candidate workspace cannot be inspected") from exc
+
     try:
-        for path in sorted(workspace.rglob("*")):
-            relative = path.relative_to(workspace).as_posix()
-            if path.is_symlink():
-                symlinks.append(relative)
-            elif path.is_file():
-                observed[relative] = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+        for directory, directory_names, file_names in os.walk(
+            workspace,
+            topdown=True,
+            onerror=fail_scan,
+            followlinks=False,
+        ):
+            directory_names.sort()
+            file_names.sort()
+            root = Path(directory)
+            for name in tuple(directory_names):
+                path = root / name
+                if path.is_symlink():
+                    symlinks.append(path.relative_to(workspace).as_posix())
+                    directory_names.remove(name)
+            for name in file_names:
+                path = root / name
+                relative = path.relative_to(workspace).as_posix()
+                if path.is_symlink():
+                    symlinks.append(relative)
+                elif path.is_file():
+                    observed[relative] = "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+                else:
+                    raise EvidenceIntegrityError(
+                        "candidate workspace contains an unsupported filesystem entry"
+                    )
     except OSError as exc:
         raise EvidenceIntegrityError("candidate workspace cannot be inspected") from exc
     missing = sorted(set(manifest) - set(observed))
@@ -410,7 +433,7 @@ def _workspace_comparison(workspace: Path, manifest: Mapping[str, str]) -> dict[
         "missing": missing,
         "changed": changed,
         "untracked": untracked,
-        "symlinks": symlinks,
+        "symlinks": sorted(symlinks),
     }
 
 

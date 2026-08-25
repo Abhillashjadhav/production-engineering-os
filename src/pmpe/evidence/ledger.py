@@ -153,10 +153,12 @@ class EvidenceLedger:
     def verify(self) -> Iterator[Mapping[str, Any]]:
         if not self.events_path.exists():
             return
+        try:
+            raw_events = self.events_path.read_bytes().splitlines()
+        except OSError as exc:
+            raise EvidenceIntegrityError("evidence ledger cannot be read") from exc
         previous = GENESIS_DIGEST
-        for expected_sequence, raw_line in enumerate(
-            self.events_path.read_bytes().splitlines(), start=1
-        ):
+        for expected_sequence, raw_line in enumerate(raw_events, start=1):
             try:
                 event = json.loads(raw_line)
             except (UnicodeDecodeError, json.JSONDecodeError) as exc:

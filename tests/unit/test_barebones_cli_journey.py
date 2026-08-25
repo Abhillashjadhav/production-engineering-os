@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 from pmpe.cli import main
@@ -159,6 +160,46 @@ def test_inspect_rejects_a_symlinked_workspace_root(tmp_path: Path, capsys) -> N
         "symlinks": ["."],
         "status": "DRIFT",
         "untracked": [],
+    }
+
+
+def test_inspect_fails_closed_when_a_workspace_subtree_cannot_be_scanned(
+    tmp_path: Path, capsys, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    _sealed_run(tmp_path)
+    workspace = tmp_path / "candidate"
+    workspace.mkdir()
+    (workspace / "product.py").write_text("def health():\n    return {'status': 'ok'}\n")
+    blocked = workspace / "blocked"
+    blocked.mkdir()
+    (blocked / "untracked.py").write_text("hidden = True\n")
+    original_scandir = os.scandir
+
+    def guarded_scandir(path):  # type: ignore[no-untyped-def]
+        if Path(path) == blocked:
+            raise PermissionError("denied")
+        return original_scandir(path)
+
+    monkeypatch.setattr(os, "scandir", guarded_scandir)
+
+    result = main(
+        [
+            "barebones",
+            "inspect",
+            "sealed",
+            "--repository-root",
+            str(tmp_path),
+            "--workspace",
+            str(workspace),
+        ]
+    )
+
+    assert result == 3
+    output = json.loads(capsys.readouterr().out)
+    assert output == {
+        "cause": "EVIDENCE_INVALID",
+        "detail": "candidate workspace cannot be inspected",
+        "state": "HALTED",
     }
 
 
