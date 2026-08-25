@@ -1,5 +1,21 @@
 # Usage — pmpe CLI
 
+## Default six-state journey
+
+The installed product surface is one command group:
+
+| Command | Purpose | Exit codes |
+|---|---|---|
+| `pmpe barebones compile <contract> --repository-root DIR` | compile acceptance truth and report deterministic coverage without starting a run | 0 valid · 3 halted |
+| `pmpe barebones run <contract> ...` | run an approved contract through the bounded Coder and stop at `RELEASE_READY` or `HALTED` | 0 ready · 3 halted |
+| `pmpe barebones status <run_id> --repository-root DIR` | verify the evidence chain and report its current state | 0 valid · 3 invalid |
+| `pmpe barebones evidence <run_id> --repository-root DIR` | verify and locate the event log and referenced blobs | 0 valid · 3 invalid |
+| `pmpe barebones inspect <run_id> --repository-root DIR [--workspace DIR] [--file PATH]` | inspect the sealed candidate and optionally detect workspace drift | 0 match · 3 invalid/drift |
+
+The historical `pmpe barebones <contract> ...` spelling remains a compatibility alias
+for `pmpe barebones run <contract> ...`, but it is not shown as a second product path.
+All commands emit one JSON object so users and automation see the same state.
+
 ## Legacy-compatible commands
 
 | Command | Purpose | Exit codes |

@@ -326,6 +326,43 @@ def _write_files(root: Path, files: Mapping[str, str]) -> tuple[str, ...]:
     return tuple(changed)
 
 
+def compile_barebones_plan(
+    *,
+    contract: Mapping[str, Any],
+    repository_root: Path,
+    template: Template | None = None,
+) -> AcceptanceBuildPlan:
+    """Compile the same deterministic plan used by the six-state runtime."""
+
+    active_template = template or default_template()
+    template_test_digests: dict[str, str] = {}
+    for test_id, proof in active_template.proofs.items():
+        if not _SAFE_RELATIVE.fullmatch(proof.path) or any(
+            part in {".", ".."} for part in proof.path.split("/")
+        ):
+            raise ContractInvalidError(f"invalid template proof path: {test_id}")
+        target = f"{proof.path}::{proof.node_id}"
+        if proof.path not in active_template.files or target not in proof.command:
+            raise ContractInvalidError(f"invalid template proof binding: {test_id}")
+        template_test_digests[test_id] = (
+            "sha256:" + hashlib.sha256(active_template.files[proof.path].encode()).hexdigest()
+        )
+    trusted_test_digests = {
+        relative: "sha256:" + hashlib.sha256(content.encode()).hexdigest()
+        for relative, content in active_template.files.items()
+        if relative.startswith("tests/")
+    }
+    return compile_acceptance_plan(
+        contract,
+        repository_root=repository_root,
+        registered_actions=frozenset(active_template.actions),
+        template_version=active_template.version,
+        template_test_digests=template_test_digests,
+        registered_measures=frozenset(active_template.measures),
+        trusted_test_digests=trusted_test_digests,
+    )
+
+
 def _path(value: Any, dotted_path: str) -> Any:
     current = value
     for part in dotted_path.split("."):
@@ -905,29 +942,10 @@ def run_to_release_ready(
             "receipt_digest": receipt_digest,
         }
 
-    template_test_digests: dict[str, str] = {}
-    for test_id, proof in active_template.proofs.items():
-        _safe_path(workspace, proof.path)
-        target = f"{proof.path}::{proof.node_id}"
-        if proof.path not in active_template.files or target not in proof.command:
-            raise ContractInvalidError(f"invalid template proof binding: {test_id}")
-        template_test_digests[test_id] = (
-            "sha256:" + hashlib.sha256(active_template.files[proof.path].encode()).hexdigest()
-        )
-    trusted_test_digests = {
-        relative: "sha256:" + hashlib.sha256(content.encode()).hexdigest()
-        for relative, content in active_template.files.items()
-        if relative.startswith("tests/")
-    }
-
-    plan = compile_acceptance_plan(
-        contract,
+    plan = compile_barebones_plan(
+        contract=contract,
         repository_root=repository_root,
-        registered_actions=frozenset(active_template.actions),
-        template_version=active_template.version,
-        template_test_digests=template_test_digests,
-        registered_measures=frozenset(active_template.measures),
-        trusted_test_digests=trusted_test_digests,
+        template=active_template,
     )
     counters["structured_criteria_count"] = sum(item.form != "human_test" for item in plan.criteria)
     counters["human_test_count"] = sum(item.form == "human_test" for item in plan.criteria)

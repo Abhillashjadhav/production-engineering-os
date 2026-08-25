@@ -41,7 +41,7 @@ defense in depth, checks `codex login status`, and passes the explicit override
 ### Run
 
 ```bash
-pmpe barebones examples/barebones/e1-contract.json \
+pmpe barebones run examples/barebones/e1-contract.json \
   --workspace /tmp/pmpe-codex-e1-candidate \
   --run-id codex-e1 \
   --repository-root /tmp/pmpe-codex-e1-evidence \

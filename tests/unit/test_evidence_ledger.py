@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from pmpe.contracts.canonical import canonical_digest
+from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 
 
@@ -73,6 +73,112 @@ def test_event_tampering_is_detected(tmp_path: Path) -> None:
         EvidenceLedger.open_existing(tmp_path, "run-001")
 
 
+def test_open_existing_rejects_an_event_chain_copied_from_another_run(
+    tmp_path: Path,
+) -> None:
+    source = EvidenceLedger(tmp_path, "source")
+    source.append(
+        event_type="validated",
+        state="VALIDATED",
+        subject_digest=canonical_digest({"candidate": 1}),
+    )
+    target_events = tmp_path / ".pmpe" / "runs" / "target" / "events.jsonl"
+    target_events.parent.mkdir(parents=True)
+    target_events.write_bytes(source.events_path.read_bytes())
+
+    with pytest.raises(EvidenceIntegrityError, match="run_id mismatch"):
+        EvidenceLedger.open_existing(tmp_path, "target")
+
+
+def test_verify_rejects_a_hash_consistent_non_list_blob_container(tmp_path: Path) -> None:
+    ledger = EvidenceLedger(tmp_path, "run-001")
+    ledger.append(
+        event_type="validated",
+        state="VALIDATED",
+        subject_digest=canonical_digest({"candidate": 1}),
+    )
+    event = json.loads(ledger.events_path.read_text())
+    event.pop("event_digest")
+    event["blob_digests"] = None
+    event["event_digest"] = canonical_digest(event)
+    ledger.events_path.write_bytes(canonical_json_bytes(event) + b"\n")
+
+    with pytest.raises(EvidenceIntegrityError, match="blob_digests must be a list"):
+        tuple(ledger.verify())
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("schema_version", "2.0.0", "schema_version is unsupported"),
+        ("sequence", True, "sequence is malformed"),
+        ("event_type", None, "event_type is malformed"),
+        ("state", "UNKNOWN", "state is not a frozen core state"),
+        ("subject_digest", None, "subject_digest is malformed"),
+        ("payload", [], "payload must be an object"),
+    ),
+)
+def test_verify_rejects_hash_consistent_events_with_invalid_required_fields(
+    tmp_path: Path, field: str, value: object, message: str
+) -> None:
+    ledger = EvidenceLedger(tmp_path, "run-001")
+    ledger.append(
+        event_type="validated",
+        state="VALIDATED",
+        subject_digest=canonical_digest({"candidate": 1}),
+    )
+    event = json.loads(ledger.events_path.read_text())
+    event.pop("event_digest")
+    event[field] = value
+    event["event_digest"] = canonical_digest(event)
+    ledger.events_path.write_bytes(canonical_json_bytes(event) + b"\n")
+
+    with pytest.raises(EvidenceIntegrityError, match=message):
+        tuple(ledger.verify())
+
+
+@pytest.mark.parametrize("field", ("event_type", "state", "subject_digest", "payload"))
+def test_verify_rejects_hash_consistent_events_missing_required_fields(
+    tmp_path: Path, field: str
+) -> None:
+    ledger = EvidenceLedger(tmp_path, "run-001")
+    ledger.append(
+        event_type="validated",
+        state="VALIDATED",
+        subject_digest=canonical_digest({"candidate": 1}),
+    )
+    event = json.loads(ledger.events_path.read_text())
+    event.pop("event_digest")
+    event.pop(field)
+    event["event_digest"] = canonical_digest(event)
+    ledger.events_path.write_bytes(canonical_json_bytes(event) + b"\n")
+
+    with pytest.raises(EvidenceIntegrityError, match="fields do not match schema"):
+        tuple(ledger.verify())
+
+
+def test_verify_translates_event_log_read_failures(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ledger = EvidenceLedger(tmp_path, "run-001")
+    ledger.append(
+        event_type="validated",
+        state="VALIDATED",
+        subject_digest=canonical_digest({"candidate": 1}),
+    )
+    original_read_bytes = Path.read_bytes
+
+    def guarded_read_bytes(path: Path) -> bytes:
+        if path == ledger.events_path:
+            raise PermissionError("denied")
+        return original_read_bytes(path)
+
+    monkeypatch.setattr(Path, "read_bytes", guarded_read_bytes)
+
+    with pytest.raises(EvidenceIntegrityError, match="ledger cannot be read"):
+        tuple(ledger.verify())
+
+
 def test_blob_tampering_is_detected(tmp_path: Path) -> None:
     ledger = EvidenceLedger(tmp_path, "run-001")
     blob = ledger.put_blob(b"original")
@@ -86,3 +192,14 @@ def test_blob_tampering_is_detected(tmp_path: Path) -> None:
 
     with pytest.raises(EvidenceIntegrityError):
         tuple(ledger.verify())
+
+
+def test_read_blob_verifies_content_address_before_returning_bytes(tmp_path: Path) -> None:
+    ledger = EvidenceLedger(tmp_path, "run-001")
+    blob = ledger.put_blob(b"sealed candidate file")
+
+    assert ledger.read_blob(blob) == b"sealed candidate file"
+
+    (ledger.blobs_directory / blob.removeprefix("sha256:")).write_bytes(b"changed")
+    with pytest.raises(EvidenceIntegrityError, match="does not match"):
+        ledger.read_blob(blob)

@@ -119,6 +119,40 @@ def test_missing_approval_receipt_is_structured_contract_error(
     assert output["detail"] == "cannot read approval receipt"
 
 
+def test_invalid_run_id_is_rejected_before_contract_or_provider(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    args = build_parser().parse_args(
+        [
+            "barebones",
+            "run",
+            str(_REPOSITORY / "examples/barebones/e1-contract.json"),
+            "--workspace",
+            str(tmp_path / "candidate"),
+            "--run-id",
+            "../bad",
+            "--repository-root",
+            str(tmp_path),
+            "--approval-receipt",
+            str(_REPOSITORY / "examples/barebones/e1-approval-receipt.json"),
+            "--expected-approver",
+            "fixture-human",
+            "--provider-command",
+            "must-not-run",
+        ]
+    )
+
+    assert args.fn(args) == 3
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert json.loads(captured.out) == {
+        "cause": "EVIDENCE_INVALID",
+        "detail": "run_id must be a bounded filesystem-safe identifier",
+        "state": "HALTED",
+    }
+    assert not (tmp_path / ".pmpe").exists()
+
+
 def test_contract_changed_after_approval_is_rejected(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
