@@ -171,7 +171,12 @@ class EvidenceLedger:
                 or raw_line != canonical_json_bytes({**event, "event_digest": event_digest})
             ):
                 raise EvidenceIntegrityError(f"broken evidence chain at event {expected_sequence}")
-            for digest in event.get("blob_digests", []):
+            if event.get("run_id") != self.run_id:
+                raise EvidenceIntegrityError(f"event run_id mismatch at event {expected_sequence}")
+            blob_digests = event.get("blob_digests")
+            if not isinstance(blob_digests, list):
+                raise EvidenceIntegrityError("event blob_digests must be a list")
+            for digest in blob_digests:
                 if not isinstance(digest, str):
                     raise EvidenceIntegrityError("event references a missing blob")
                 try:

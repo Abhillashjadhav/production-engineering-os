@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from pmpe.contracts.canonical import canonical_digest
+from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 
 
@@ -71,6 +71,40 @@ def test_event_tampering_is_detected(tmp_path: Path) -> None:
 
     with pytest.raises(EvidenceIntegrityError):
         EvidenceLedger.open_existing(tmp_path, "run-001")
+
+
+def test_open_existing_rejects_an_event_chain_copied_from_another_run(
+    tmp_path: Path,
+) -> None:
+    source = EvidenceLedger(tmp_path, "source")
+    source.append(
+        event_type="validated",
+        state="VALIDATED",
+        subject_digest=canonical_digest({"candidate": 1}),
+    )
+    target_events = tmp_path / ".pmpe" / "runs" / "target" / "events.jsonl"
+    target_events.parent.mkdir(parents=True)
+    target_events.write_bytes(source.events_path.read_bytes())
+
+    with pytest.raises(EvidenceIntegrityError, match="run_id mismatch"):
+        EvidenceLedger.open_existing(tmp_path, "target")
+
+
+def test_verify_rejects_a_hash_consistent_non_list_blob_container(tmp_path: Path) -> None:
+    ledger = EvidenceLedger(tmp_path, "run-001")
+    ledger.append(
+        event_type="validated",
+        state="VALIDATED",
+        subject_digest=canonical_digest({"candidate": 1}),
+    )
+    event = json.loads(ledger.events_path.read_text())
+    event.pop("event_digest")
+    event["blob_digests"] = None
+    event["event_digest"] = canonical_digest(event)
+    ledger.events_path.write_bytes(canonical_json_bytes(event) + b"\n")
+
+    with pytest.raises(EvidenceIntegrityError, match="blob_digests must be a list"):
+        tuple(ledger.verify())
 
 
 def test_blob_tampering_is_detected(tmp_path: Path) -> None:
