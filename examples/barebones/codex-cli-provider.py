@@ -154,7 +154,7 @@ def _auth_preflight(
     ).lower()
     if (
         completed.returncode != 0
-        or "chatgpt" not in status
+        or re.search(r"\blogged in (?:using|with) chatgpt\b", status) is None
         or "api key" in status
         or "api-key" in status
     ):

@@ -248,7 +248,12 @@ def test_cli_version_is_recorded_but_not_a_run_gate(
 
 @pytest.mark.parametrize(
     "auth",
-    [b"Logged in using API key\n", b"Not logged in\n", b""],
+    [
+        b"Logged in using API key\n",
+        b"Not logged in to ChatGPT\n",
+        b"Not logged in\n",
+        b"",
+    ],
 )
 def test_non_chatgpt_auth_fails_before_version_or_exec(
     monkeypatch: pytest.MonkeyPatch,
