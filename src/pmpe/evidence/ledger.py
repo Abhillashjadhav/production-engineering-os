@@ -19,10 +19,64 @@ from pmpe.contracts.canonical import (
 _RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}\Z")
 _DIGEST = re.compile(r"sha256:([0-9a-f]{64})\Z")
 GENESIS_DIGEST = "sha256:" + "0" * 64
+_EVENT_FIELDS = frozenset(
+    {
+        "schema_version",
+        "run_id",
+        "sequence",
+        "previous_digest",
+        "event_type",
+        "state",
+        "subject_digest",
+        "blob_digests",
+        "payload",
+        "event_digest",
+    }
+)
+_FROZEN_STATES = frozenset(
+    {"VALIDATED", "BUILDING", "VERIFYING", "RELEASE_READY", "HALTED", "STOPPED"}
+)
 
 
 class EvidenceIntegrityError(ValueError):
     """The evidence ledger is malformed or its hash chain is broken."""
+
+
+def _is_digest(value: object) -> bool:
+    return isinstance(value, str) and _DIGEST.fullmatch(value) is not None
+
+
+def _validate_event_schema(event: Mapping[str, Any]) -> None:
+    """Reject records that could not have been emitted by the v1 ledger writer."""
+
+    if set(event) != _EVENT_FIELDS:
+        raise EvidenceIntegrityError("event fields do not match schema version 1.0.0")
+    if event["schema_version"] != "1.0.0":
+        raise EvidenceIntegrityError("event schema_version is unsupported")
+    if not isinstance(event["run_id"], str) or _RUN_ID.fullmatch(event["run_id"]) is None:
+        raise EvidenceIntegrityError("event run_id is malformed")
+    sequence = event["sequence"]
+    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
+        raise EvidenceIntegrityError("event sequence is malformed")
+    if not _is_digest(event["previous_digest"]):
+        raise EvidenceIntegrityError("event previous_digest is malformed")
+    if not isinstance(event["event_type"], str) or not event["event_type"]:
+        raise EvidenceIntegrityError("event event_type is malformed")
+    if not isinstance(event["state"], str) or event["state"] not in _FROZEN_STATES:
+        raise EvidenceIntegrityError("event state is not a frozen core state")
+    if not _is_digest(event["subject_digest"]):
+        raise EvidenceIntegrityError("event subject_digest is malformed")
+    blob_digests = event["blob_digests"]
+    if not isinstance(blob_digests, list):
+        raise EvidenceIntegrityError("event blob_digests must be a list")
+    if any(not _is_digest(digest) for digest in blob_digests):
+        raise EvidenceIntegrityError("event blob_digests contain a malformed digest")
+    if blob_digests != sorted(set(blob_digests)):
+        raise EvidenceIntegrityError("event blob_digests must be sorted and unique")
+    if not isinstance(event["payload"], dict):
+        raise EvidenceIntegrityError("event payload must be an object")
+    if not _is_digest(event["event_digest"]):
+        raise EvidenceIntegrityError("event event_digest is malformed")
 
 
 class EvidenceLedger:
@@ -130,9 +184,15 @@ class EvidenceLedger:
     ) -> Mapping[str, Any]:
         if self._read_only:
             raise EvidenceIntegrityError("an inspection ledger is read-only")
-        if not event_type or not state or _DIGEST.fullmatch(subject_digest) is None:
+        if (
+            not isinstance(event_type, str)
+            or not event_type
+            or not isinstance(state, str)
+            or state not in _FROZEN_STATES
+            or not _is_digest(subject_digest)
+        ):
             raise ValueError("event type, state, and subject digest are required")
-        if any(_DIGEST.fullmatch(item) is None for item in blob_digests):
+        if any(not _is_digest(item) for item in blob_digests):
             raise ValueError("blob references must be SHA-256 digests")
         events = tuple(self.verify())
         body: dict[str, Any] = {
@@ -147,6 +207,7 @@ class EvidenceLedger:
             "payload": dict(payload or {}),
         }
         event = {**body, "event_digest": canonical_digest(body)}
+        _validate_event_schema(event)
         with self.events_path.open("ab") as stream:
             stream.write(canonical_json_bytes(event) + b"\n")
             stream.flush()
@@ -166,12 +227,14 @@ class EvidenceLedger:
                 event = strict_loads(raw_line, "application/json")
             except ValueError as exc:
                 raise EvidenceIntegrityError("event is not canonical JSON") from exc
-            event_digest = event.pop("event_digest", None)
+            _validate_event_schema(event)
+            event_digest = event["event_digest"]
+            body = {key: value for key, value in event.items() if key != "event_digest"}
             if (
                 event.get("sequence") != expected_sequence
                 or event.get("previous_digest") != previous
-                or event_digest != canonical_digest(event)
-                or raw_line != canonical_json_bytes({**event, "event_digest": event_digest})
+                or event_digest != canonical_digest(body)
+                or raw_line != canonical_json_bytes(event)
             ):
                 raise EvidenceIntegrityError(f"broken evidence chain at event {expected_sequence}")
             if event.get("run_id") != self.run_id:
@@ -186,6 +249,5 @@ class EvidenceLedger:
                     self.read_blob(digest)
                 except EvidenceIntegrityError as exc:
                     raise EvidenceIntegrityError("event references an invalid blob") from exc
-            restored = {**event, "event_digest": event_digest}
             previous = str(event_digest)
-            yield restored
+            yield event

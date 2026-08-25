@@ -107,6 +107,56 @@ def test_verify_rejects_a_hash_consistent_non_list_blob_container(tmp_path: Path
         tuple(ledger.verify())
 
 
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    (
+        ("schema_version", "2.0.0", "schema_version is unsupported"),
+        ("sequence", True, "sequence is malformed"),
+        ("event_type", None, "event_type is malformed"),
+        ("state", "UNKNOWN", "state is not a frozen core state"),
+        ("subject_digest", None, "subject_digest is malformed"),
+        ("payload", [], "payload must be an object"),
+    ),
+)
+def test_verify_rejects_hash_consistent_events_with_invalid_required_fields(
+    tmp_path: Path, field: str, value: object, message: str
+) -> None:
+    ledger = EvidenceLedger(tmp_path, "run-001")
+    ledger.append(
+        event_type="validated",
+        state="VALIDATED",
+        subject_digest=canonical_digest({"candidate": 1}),
+    )
+    event = json.loads(ledger.events_path.read_text())
+    event.pop("event_digest")
+    event[field] = value
+    event["event_digest"] = canonical_digest(event)
+    ledger.events_path.write_bytes(canonical_json_bytes(event) + b"\n")
+
+    with pytest.raises(EvidenceIntegrityError, match=message):
+        tuple(ledger.verify())
+
+
+@pytest.mark.parametrize("field", ("event_type", "state", "subject_digest", "payload"))
+def test_verify_rejects_hash_consistent_events_missing_required_fields(
+    tmp_path: Path, field: str
+) -> None:
+    ledger = EvidenceLedger(tmp_path, "run-001")
+    ledger.append(
+        event_type="validated",
+        state="VALIDATED",
+        subject_digest=canonical_digest({"candidate": 1}),
+    )
+    event = json.loads(ledger.events_path.read_text())
+    event.pop("event_digest")
+    event.pop(field)
+    event["event_digest"] = canonical_digest(event)
+    ledger.events_path.write_bytes(canonical_json_bytes(event) + b"\n")
+
+    with pytest.raises(EvidenceIntegrityError, match="fields do not match schema"):
+        tuple(ledger.verify())
+
+
 def test_verify_translates_event_log_read_failures(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
