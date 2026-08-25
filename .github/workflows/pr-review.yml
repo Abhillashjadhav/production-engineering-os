@@ -58,4 +58,6 @@ jobs:
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           CODEX_EVIDENCE_WAIT_SECONDS: 300
+          CODEX_EVIDENCE_STABILITY_SECONDS: 10
+          CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS: 60
         run: python scripts/verify_codex_review.py

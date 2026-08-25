@@ -23,7 +23,11 @@ head and accepts a clean result only from the Codex bot when either its
 GitHub-visible conversation comment identifies the current exact SHA or its
 authenticated pull-request review is bound to that exact SHA. It paginates both
 evidence surfaces and rejects any current exact-head Codex review body or
-non-outdated review thread containing P0/P1/P2. GitHub may represent a clean
+non-outdated review thread containing P0/P1/P2. Before admission, it requires
+the conversation comments, review objects, and complete inline-thread surface
+to remain byte-for-byte stable across two observations ten seconds apart. This
+closes the GitHub publication window where a review object can appear before
+its inline findings. GitHub may represent a clean
 result as a conversation comment or a pull-request review; it is recorded truthfully as
 `CODEX ADVISORY REVIEW — CLEAN — EXACT HEAD`. Missing, stale, owner-authored,
 trigger-only, or finding-bearing evidence fails closed.

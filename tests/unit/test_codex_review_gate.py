@@ -14,6 +14,8 @@ def test_workflow_is_codex_only_and_runs_the_exact_head_evidence_gate() -> None:
     assert "Verify Codex exact-head evidence" in workflow
     assert "scripts/verify_codex_review.py" in workflow
     assert "CODEX_EVIDENCE_WAIT_SECONDS: 300" in workflow
+    assert "CODEX_EVIDENCE_STABILITY_SECONDS: 10" in workflow
+    assert "CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS: 60" in workflow
     assert "contents: read" in workflow
     assert "pull-requests: read" in workflow
     assert "issues: read" in workflow
@@ -172,6 +174,17 @@ def test_deleted_review_author_cannot_crash_exact_review_scan(verifier_module) -
     )
 
 
+def test_deleted_comment_author_cannot_crash_clean_evidence_scan(verifier_module) -> None:
+    expected = "a" * 40
+
+    assert not verifier_module._has_clean_evidence(
+        "owner/repo",
+        expected,
+        [{"user": None, "body": None}],
+        [],
+    )
+
+
 def test_any_exact_head_bot_review_with_a_blocker_rejects_the_evidence_set(verifier_module) -> None:
     expected = "a" * 40
     reviews = [
@@ -232,6 +245,7 @@ def test_main_rechecks_review_bodies_after_thread_pagination(
     monkeypatch.setenv("PR_NUMBER", "99")
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_SECONDS", "0")
     monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
     monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
     monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: next(review_snapshots))
@@ -285,6 +299,7 @@ def test_main_retries_thread_scan_when_review_set_changes(
     monkeypatch.setenv("PR_NUMBER", "99")
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_SECONDS", "0")
     monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
     monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
     monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: next(review_snapshots))
@@ -337,6 +352,65 @@ def test_main_rechecks_threads_when_review_identity_stays_unchanged(
     )
 
     with pytest.raises(SystemExit, match="current Codex P0/P1/P2 finding blocks admission"):
+        verifier_module.main()
+
+
+def test_main_admits_only_after_two_stable_joint_observations(
+    monkeypatch: pytest.MonkeyPatch, verifier_module, capsys
+) -> None:
+    expected = "a" * 40
+    clean_review = {
+        "id": 1,
+        "user": {"login": verifier_module.BOT},
+        "commit_id": expected,
+        "state": "COMMENTED",
+        "body": verifier_module.REVIEW_MARKER,
+    }
+    review_snapshots = iter([[clean_review], [clean_review], [clean_review]])
+    thread_snapshots = iter([[], []])
+
+    monkeypatch.setenv("EXPECTED_HEAD", expected)
+    monkeypatch.setenv("PR_NUMBER", "99")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS", "60")
+    monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
+    monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
+    monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: next(review_snapshots))
+    monkeypatch.setattr(
+        verifier_module, "_all_review_threads", lambda *_args: next(thread_snapshots)
+    )
+
+    assert verifier_module.main() == 0
+    assert f"CLEAN — EXACT HEAD {expected}" in capsys.readouterr().out
+
+
+def test_main_fails_closed_when_review_surfaces_do_not_stabilize_before_timeout(
+    monkeypatch: pytest.MonkeyPatch, verifier_module
+) -> None:
+    expected = "a" * 40
+    clean_review = {
+        "id": 1,
+        "user": {"login": verifier_module.BOT},
+        "commit_id": expected,
+        "state": "COMMENTED",
+        "body": verifier_module.REVIEW_MARKER,
+    }
+    review_snapshots = iter([[clean_review], [clean_review]])
+
+    monkeypatch.setenv("EXPECTED_HEAD", expected)
+    monkeypatch.setenv("PR_NUMBER", "99")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS", "0")
+    monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
+    monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
+    monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: next(review_snapshots))
+    monkeypatch.setattr(verifier_module, "_all_review_threads", lambda *_args: [])
+
+    with pytest.raises(SystemExit, match="review surfaces did not stabilize before timeout"):
         verifier_module.main()
 
 
