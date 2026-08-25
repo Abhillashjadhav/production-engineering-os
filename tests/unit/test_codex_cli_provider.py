@@ -379,7 +379,7 @@ def test_result_output_limit_is_enforced(tmp_path: Path) -> None:
     result = tmp_path / "result.json"
     result.write_bytes(b"x" * (provider._OUTPUT_LIMIT_BYTES + 1))
 
-    with pytest.raises(provider.ProviderFailure, match="CODEX_RESULT_OUTPUT_LIMIT"):
+    with pytest.raises(provider.ProviderError, match="CODEX_RESULT_OUTPUT_LIMIT"):
         provider._load_result(result)
 
 
@@ -406,7 +406,7 @@ def test_command_timeout_kills_the_process_group(
     monkeypatch.setattr(provider.subprocess, "Popen", lambda *_args, **_kwargs: process)
     monkeypatch.setattr(provider.os, "killpg", lambda pid, sig: killed.append((pid, sig)))
 
-    with pytest.raises(provider.ProviderFailure, match="CODEX_EXEC_TIMEOUT"):
+    with pytest.raises(provider.ProviderError, match="CODEX_EXEC_TIMEOUT"):
         provider._run_command(
             ("codex", "exec"),
             input_bytes=b"prompt",
@@ -433,7 +433,7 @@ def test_command_output_limit_is_enforced(monkeypatch: pytest.MonkeyPatch, tmp_p
 
     monkeypatch.setattr(provider.subprocess, "Popen", fake_popen)
 
-    with pytest.raises(provider.ProviderFailure, match="CODEX_EXEC_OUTPUT_LIMIT"):
+    with pytest.raises(provider.ProviderError, match="CODEX_EXEC_OUTPUT_LIMIT"):
         provider._run_command(
             ("codex", "exec"),
             input_bytes=b"prompt",

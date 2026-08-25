@@ -8,6 +8,7 @@ Codex progress and JSONL telemetry are captured internally and never forwarded.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -29,7 +30,7 @@ _API_CREDENTIAL_VARIABLES = frozenset({"OPENAI_API_KEY", "CODEX_API_KEY"})
 _SAFE_VERSION = re.compile(r"[^A-Za-z0-9._+-]+")
 
 
-class ProviderFailure(RuntimeError):
+class ProviderError(RuntimeError):
     """A compact failure safe to expose to the parent provider process."""
 
 
@@ -66,7 +67,7 @@ def _schema(purpose: str) -> dict[str, Any]:
             "required": ["summary"],
             "additionalProperties": False,
         }
-    raise ProviderFailure("CODEX_UNSUPPORTED_PURPOSE")
+    raise ProviderError("CODEX_UNSUPPORTED_PURPOSE")
 
 
 def _prompt(purpose: str, request: Mapping[str, Any]) -> bytes:
@@ -89,7 +90,7 @@ def _prompt(purpose: str, request: Mapping[str, Any]) -> bytes:
             "advisory summary; do not claim deployment or production readiness."
         )
     else:
-        raise ProviderFailure("CODEX_UNSUPPORTED_PURPOSE")
+        raise ProviderError("CODEX_UNSUPPORTED_PURPOSE")
     payload = json.dumps(request, sort_keys=True, separators=(",", ":"))
     return f"{instruction}\n\nPMPE provider request JSON:\n{payload}\n".encode()
 
@@ -119,22 +120,20 @@ def _run_command(
                 start_new_session=True,
             )
         except OSError as exc:
-            raise ProviderFailure("CODEX_EXEC_START_FAILED") from exc
+            raise ProviderError("CODEX_EXEC_START_FAILED") from exc
         try:
             process.communicate(input=input_bytes, timeout=_COMMAND_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired as exc:
-            try:
+            with contextlib.suppress(ProcessLookupError):
                 os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
             process.communicate()
-            raise ProviderFailure("CODEX_EXEC_TIMEOUT") from exc
+            raise ProviderError("CODEX_EXEC_TIMEOUT") from exc
         stdout_file.seek(0)
         stderr_file.seek(0)
         stdout = stdout_file.read(_OUTPUT_LIMIT_BYTES + 1)
         stderr = stderr_file.read(_OUTPUT_LIMIT_BYTES + 1)
     if len(stdout) > _OUTPUT_LIMIT_BYTES or len(stderr) > _OUTPUT_LIMIT_BYTES:
-        raise ProviderFailure("CODEX_EXEC_OUTPUT_LIMIT")
+        raise ProviderError("CODEX_EXEC_OUTPUT_LIMIT")
     return subprocess.CompletedProcess(tuple(argv), process.returncode, stdout, stderr)
 
 
@@ -152,7 +151,7 @@ def _auth_preflight(executable: str, *, cwd: Path, environment: Mapping[str, str
         or "api key" in status
         or "api-key" in status
     ):
-        raise ProviderFailure("CODEX_CHATGPT_AUTH_REQUIRED")
+        raise ProviderError("CODEX_CHATGPT_AUTH_REQUIRED")
 
 
 def _cli_version(executable: str, *, cwd: Path, environment: Mapping[str, str]) -> str:
@@ -163,7 +162,7 @@ def _cli_version(executable: str, *, cwd: Path, environment: Mapping[str, str]) 
             cwd=cwd,
             environment=environment,
         )
-    except ProviderFailure:
+    except ProviderError:
         return "unknown"
     if completed.returncode != 0:
         return "unknown"
@@ -205,15 +204,15 @@ def _load_result(path: Path) -> Mapping[str, Any]:
     try:
         raw = path.read_bytes()
     except OSError as exc:
-        raise ProviderFailure("CODEX_RESULT_MISSING") from exc
+        raise ProviderError("CODEX_RESULT_MISSING") from exc
     if len(raw) > _OUTPUT_LIMIT_BYTES:
-        raise ProviderFailure("CODEX_RESULT_OUTPUT_LIMIT")
+        raise ProviderError("CODEX_RESULT_OUTPUT_LIMIT")
     try:
         result = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ProviderFailure("CODEX_RESULT_MALFORMED") from exc
+        raise ProviderError("CODEX_RESULT_MALFORMED") from exc
     if not isinstance(result, Mapping):
-        raise ProviderFailure("CODEX_RESULT_MALFORMED")
+        raise ProviderError("CODEX_RESULT_MALFORMED")
     return result
 
 
@@ -227,27 +226,27 @@ def _adapt_result(
 ) -> dict[str, Any]:
     request_digest = request.get("request_digest")
     if not isinstance(request_digest, str):
-        raise ProviderFailure("CODEX_REQUEST_DIGEST_MISSING")
+        raise ProviderError("CODEX_REQUEST_DIGEST_MISSING")
     if purpose == "code":
         entries = generated.get("files")
         if not isinstance(entries, list):
-            raise ProviderFailure("CODEX_RESULT_MALFORMED")
+            raise ProviderError("CODEX_RESULT_MALFORMED")
         files: dict[str, str] = {}
         for entry in entries:
             if not isinstance(entry, Mapping):
-                raise ProviderFailure("CODEX_RESULT_MALFORMED")
+                raise ProviderError("CODEX_RESULT_MALFORMED")
             path, content = entry.get("path"), entry.get("content")
             if not isinstance(path, str) or not isinstance(content, str):
-                raise ProviderFailure("CODEX_RESULT_MALFORMED")
+                raise ProviderError("CODEX_RESULT_MALFORMED")
             files[path] = content
         response: dict[str, Any] = {"request_digest": request_digest, "files": files}
     elif purpose == "advisory_review":
         summary = generated.get("summary")
         if not isinstance(summary, str):
-            raise ProviderFailure("CODEX_RESULT_MALFORMED")
+            raise ProviderError("CODEX_RESULT_MALFORMED")
         response = {"request_digest": request_digest, "summary": summary}
     else:
-        raise ProviderFailure("CODEX_UNSUPPORTED_PURPOSE")
+        raise ProviderError("CODEX_UNSUPPORTED_PURPOSE")
     response["provider_metadata"] = {
         "provider": "codex-cli-chatgpt",
         "model": _MODEL,
@@ -264,7 +263,7 @@ def _invoke(message: Mapping[str, Any], executable: str) -> dict[str, Any]:
     purpose = message.get("purpose")
     request = message.get("request")
     if not isinstance(purpose, str) or not isinstance(request, Mapping):
-        raise ProviderFailure("CODEX_INPUT_INVALID")
+        raise ProviderError("CODEX_INPUT_INVALID")
     schema = _schema(purpose)
     prompt = _prompt(purpose, request)
     environment = _child_environment()
@@ -306,7 +305,7 @@ def _invoke(message: Mapping[str, Any], executable: str) -> dict[str, Any]:
             environment=environment,
         )
         if completed.returncode != 0:
-            raise ProviderFailure("CODEX_EXEC_FAILED")
+            raise ProviderError("CODEX_EXEC_FAILED")
         generated = _load_result(result_path)
         return _adapt_result(
             purpose=purpose,
@@ -329,7 +328,7 @@ def main() -> int:
         _fail("CODEX_CLI_NOT_FOUND")
     try:
         response = _invoke(message, executable)
-    except ProviderFailure as exc:
+    except ProviderError as exc:
         _fail(str(exc))
     json.dump(response, sys.stdout, sort_keys=True, separators=(",", ":"))
     return 0
