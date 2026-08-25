@@ -296,6 +296,50 @@ def test_main_retries_thread_scan_when_review_set_changes(
         verifier_module.main()
 
 
+def test_main_rechecks_threads_when_review_identity_stays_unchanged(
+    monkeypatch: pytest.MonkeyPatch, verifier_module
+) -> None:
+    """A review can become visible before GitHub publishes its inline threads."""
+    expected = "a" * 40
+    clean_review = {
+        "id": 1,
+        "user": {"login": verifier_module.BOT},
+        "commit_id": expected,
+        "state": "COMMENTED",
+        "body": verifier_module.REVIEW_MARKER,
+    }
+    delayed_blocker = {
+        "id": "thread-delayed",
+        "isOutdated": False,
+        "isResolved": False,
+        "comments": {
+            "nodes": [
+                {
+                    "author": {"login": verifier_module.BOT},
+                    "body": "![P2 Badge] published after the review object",
+                }
+            ]
+        },
+    }
+    review_snapshots = iter([[clean_review], [clean_review], [clean_review]])
+    thread_snapshots = iter([[], [delayed_blocker]])
+
+    monkeypatch.setenv("EXPECTED_HEAD", expected)
+    monkeypatch.setenv("PR_NUMBER", "99")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_SECONDS", "0")
+    monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
+    monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
+    monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: next(review_snapshots))
+    monkeypatch.setattr(
+        verifier_module, "_all_review_threads", lambda *_args: next(thread_snapshots)
+    )
+
+    with pytest.raises(SystemExit, match="current Codex P0/P1/P2 finding blocks admission"):
+        verifier_module.main()
+
+
 def test_all_review_threads_finds_blocker_on_later_graphql_page(
     monkeypatch: pytest.MonkeyPatch, verifier_module
 ) -> None:
