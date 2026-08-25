@@ -211,6 +211,8 @@ def main() -> int:
     deadline = time.monotonic() + wait_seconds
     first_observation = True
     while True:
+        if not first_observation and time.monotonic() >= deadline:
+            raise SystemExit("missing clean exact-head Codex advisory evidence")
         pr = _gh("api", f"repos/{repository}/pulls/{number}")
         if pr["head"]["sha"] != expected:
             raise SystemExit("current PR head changed during Codex evidence verification")
@@ -237,6 +239,8 @@ def main() -> int:
     previous_snapshot: tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]] | None = None
     stable_since: float | None = None
     while True:
+        if previous_snapshot is not None and time.monotonic() >= stability_deadline:
+            raise SystemExit("Codex review surfaces did not stabilize before timeout")
         comments = _all_issue_comments(repository, number)
         reviews = _all_reviews(repository, number)
         threads = _all_review_threads(repository, number)

@@ -565,6 +565,33 @@ def test_slow_clean_observation_cannot_cross_the_publication_deadline(
         verifier_module.main()
 
 
+def test_publication_deadline_stops_before_starting_another_api_observation(
+    monkeypatch: pytest.MonkeyPatch, verifier_module
+) -> None:
+    expected = "a" * 40
+    clock = [0.0]
+    pr_observations = [0]
+
+    monkeypatch.setenv("EXPECTED_HEAD", expected)
+    monkeypatch.setenv("PR_NUMBER", "99")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "60")
+    monkeypatch.setattr(verifier_module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(verifier_module.time, "sleep", lambda _seconds: clock.__setitem__(0, 60))
+
+    def observe_pr(*_args):  # type: ignore[no-untyped-def]
+        pr_observations[0] += 1
+        return {"head": {"sha": expected}}
+
+    monkeypatch.setattr(verifier_module, "_gh", observe_pr)
+    monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
+    monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: [])
+
+    with pytest.raises(SystemExit, match="missing clean exact-head Codex advisory evidence"):
+        verifier_module.main()
+    assert pr_observations[0] == 1
+
+
 def test_slow_final_head_check_cannot_cross_the_stabilization_deadline(
     monkeypatch: pytest.MonkeyPatch, verifier_module
 ) -> None:
