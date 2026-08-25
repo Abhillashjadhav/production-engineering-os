@@ -14,8 +14,9 @@ def test_workflow_is_codex_only_and_runs_the_exact_head_evidence_gate() -> None:
     assert "Verify Codex exact-head evidence" in workflow
     assert "scripts/verify_codex_review.py" in workflow
     assert "CODEX_EVIDENCE_WAIT_SECONDS: 900" in workflow
-    assert "CODEX_EVIDENCE_STABILITY_SECONDS: 10" in workflow
-    assert "CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS: 60" in workflow
+    assert "CODEX_EVIDENCE_STABILITY_SECONDS: 60" in workflow
+    assert "CODEX_EVIDENCE_POLL_SECONDS: 10" in workflow
+    assert "CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS: 180" in workflow
     assert "contents: read" in workflow
     assert "pull-requests: read" in workflow
     assert "issues: read" in workflow
@@ -246,6 +247,7 @@ def test_main_rechecks_review_bodies_after_thread_pagination(
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
     monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_POLL_SECONDS", "0")
     monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
     monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
     monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: next(review_snapshots))
@@ -300,6 +302,7 @@ def test_main_retries_thread_scan_when_review_set_changes(
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
     monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_POLL_SECONDS", "0")
     monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
     monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
     monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: next(review_snapshots))
@@ -344,6 +347,7 @@ def test_main_rechecks_threads_when_review_identity_stays_unchanged(
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
     monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_POLL_SECONDS", "0")
     monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
     monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
     monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: next(review_snapshots))
@@ -353,6 +357,140 @@ def test_main_rechecks_threads_when_review_identity_stays_unchanged(
 
     with pytest.raises(SystemExit, match="current Codex P0/P1/P2 finding blocks admission"):
         verifier_module.main()
+
+
+def test_main_observes_the_full_quiescence_window_before_admission(
+    monkeypatch: pytest.MonkeyPatch, verifier_module, capsys
+) -> None:
+    expected = "a" * 40
+    clean_review = {
+        "id": 1,
+        "user": {"login": verifier_module.BOT},
+        "commit_id": expected,
+        "state": "COMMENTED",
+        "body": verifier_module.REVIEW_MARKER,
+    }
+    clock = [0.0]
+    thread_observations = [0]
+
+    monkeypatch.setenv("EXPECTED_HEAD", expected)
+    monkeypatch.setenv("PR_NUMBER", "99")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_SECONDS", "60")
+    monkeypatch.setenv("CODEX_EVIDENCE_POLL_SECONDS", "10")
+    monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS", "180")
+    monkeypatch.setattr(verifier_module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        verifier_module.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+    )
+    monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
+    monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
+    monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: [clean_review])
+
+    def observe_threads(*_args):  # type: ignore[no-untyped-def]
+        thread_observations[0] += 1
+        return []
+
+    monkeypatch.setattr(verifier_module, "_all_review_threads", observe_threads)
+
+    assert verifier_module.main() == 0
+    assert clock[0] == 60
+    assert thread_observations[0] == 7
+    assert f"CLEAN — EXACT HEAD {expected}" in capsys.readouterr().out
+
+
+def test_main_blocks_a_thread_published_after_the_first_matching_pair(
+    monkeypatch: pytest.MonkeyPatch, verifier_module
+) -> None:
+    expected = "a" * 40
+    clean_review = {
+        "id": 1,
+        "user": {"login": verifier_module.BOT},
+        "commit_id": expected,
+        "state": "COMMENTED",
+        "body": verifier_module.REVIEW_MARKER,
+    }
+    delayed_blocker = {
+        "id": "thread-after-ten-seconds",
+        "isOutdated": False,
+        "isResolved": False,
+        "comments": {
+            "nodes": [
+                {
+                    "author": {"login": verifier_module.BOT},
+                    "body": "![P1 Badge] published after the first matching pair",
+                }
+            ]
+        },
+    }
+    clock = [0.0]
+    thread_snapshots = iter([[], [], [delayed_blocker]])
+
+    monkeypatch.setenv("EXPECTED_HEAD", expected)
+    monkeypatch.setenv("PR_NUMBER", "99")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_SECONDS", "60")
+    monkeypatch.setenv("CODEX_EVIDENCE_POLL_SECONDS", "10")
+    monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS", "180")
+    monkeypatch.setattr(verifier_module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        verifier_module.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+    )
+    monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
+    monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
+    monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: [clean_review])
+    monkeypatch.setattr(
+        verifier_module, "_all_review_threads", lambda *_args: next(thread_snapshots)
+    )
+
+    with pytest.raises(SystemExit, match="current Codex P0/P1/P2 finding blocks admission"):
+        verifier_module.main()
+    assert clock[0] == 20
+
+
+def test_review_surface_change_resets_the_full_quiescence_window(
+    monkeypatch: pytest.MonkeyPatch, verifier_module
+) -> None:
+    expected = "a" * 40
+    clean_review = {
+        "id": 1,
+        "user": {"login": verifier_module.BOT},
+        "commit_id": expected,
+        "state": "COMMENTED",
+        "body": verifier_module.REVIEW_MARKER,
+    }
+    informational_thread = {
+        "id": "informational-thread",
+        "isOutdated": False,
+        "isResolved": True,
+        "comments": {"nodes": [{"author": None, "body": "resolved context"}]},
+    }
+    clock = [0.0]
+
+    monkeypatch.setenv("EXPECTED_HEAD", expected)
+    monkeypatch.setenv("PR_NUMBER", "99")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_SECONDS", "60")
+    monkeypatch.setenv("CODEX_EVIDENCE_POLL_SECONDS", "10")
+    monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS", "180")
+    monkeypatch.setattr(verifier_module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        verifier_module.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+    )
+    monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
+    monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
+    monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: [clean_review])
+    monkeypatch.setattr(
+        verifier_module,
+        "_all_review_threads",
+        lambda *_args: [] if clock[0] < 20 else [informational_thread],
+    )
+
+    assert verifier_module.main() == 0
+    assert clock[0] == 80
 
 
 def test_main_admits_only_after_two_stable_joint_observations(
@@ -374,6 +512,7 @@ def test_main_admits_only_after_two_stable_joint_observations(
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
     monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_POLL_SECONDS", "0")
     monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS", "60")
     monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
     monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
@@ -404,6 +543,7 @@ def test_main_fails_closed_when_review_surfaces_do_not_stabilize_before_timeout(
     monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
     monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
     monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_POLL_SECONDS", "0")
     monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS", "0")
     monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
     monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])

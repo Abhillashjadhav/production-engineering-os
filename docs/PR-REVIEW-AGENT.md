@@ -26,12 +26,14 @@ evidence surfaces and rejects any current exact-head Codex review body or
 non-outdated review thread containing P0/P1/P2. Before admission, it requires
 up to fifteen minutes for the asynchronous deep review to publish, then requires
 the conversation comments, review objects, and complete inline-thread surface
-to remain byte-for-byte stable across two observations ten seconds apart. This
-closes the GitHub publication window where a review object can appear before
-its inline findings. GitHub may represent a clean
-result as a conversation comment or a pull-request review; it is recorded truthfully as
-`CODEX ADVISORY REVIEW — CLEAN — EXACT HEAD`. Missing, stale, owner-authored,
-trigger-only, or finding-bearing evidence fails closed.
+to remain byte-for-byte stable for a full sixty-second quiescence window,
+observed every ten seconds. Any surface change resets the window; failure to
+stabilize within three minutes fails closed. This closes the GitHub publication
+window where a review object can appear before its inline findings. GitHub may
+represent a clean result as a conversation comment or a pull-request review; it
+is recorded truthfully as `CODEX ADVISORY REVIEW — CLEAN — EXACT HEAD`.
+Missing, stale, owner-authored, trigger-only, or finding-bearing evidence fails
+closed.
 
 Draft pull requests are not reviewed. A synchronize event is a new candidate
 and requires a fresh successful exact-head review. Review comments, reactions,

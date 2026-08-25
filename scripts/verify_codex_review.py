@@ -219,13 +219,16 @@ def main() -> int:
         if time.monotonic() >= deadline:
             raise SystemExit("missing clean exact-head Codex advisory evidence")
         time.sleep(10)
-    # GitHub may expose a review object before its inline threads. Admit only
-    # after two separated, identical observations of every review surface.
-    stability_interval = max(0, int(os.environ.get("CODEX_EVIDENCE_STABILITY_SECONDS", "10")))
+    # GitHub may expose a review object before its inline threads. Require a
+    # full quiescence window, resetting it whenever any review surface changes.
+    stability_window = max(0, int(os.environ.get("CODEX_EVIDENCE_STABILITY_SECONDS", "60")))
+    poll_interval = max(0, int(os.environ.get("CODEX_EVIDENCE_POLL_SECONDS", "10")))
     stability_deadline = time.monotonic() + max(
-        0, int(os.environ.get("CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS", "60"))
+        stability_window,
+        int(os.environ.get("CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS", "180")),
     )
     previous_snapshot: tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]] | None = None
+    stable_since: float | None = None
     while True:
         comments = _all_issue_comments(repository, number)
         reviews = _all_reviews(repository, number)
@@ -237,13 +240,17 @@ def main() -> int:
         snapshot = _surface_snapshot(comments, reviews, threads)
         observed_at = time.monotonic()
         if previous_snapshot == snapshot:
-            if observed_at > stability_deadline:
-                raise SystemExit("Codex review surfaces did not stabilize before timeout")
-            break
-        previous_snapshot = snapshot
+            if stable_since is not None and observed_at - stable_since >= stability_window:
+                break
+        else:
+            previous_snapshot = snapshot
+            stable_since = observed_at
         if observed_at >= stability_deadline:
             raise SystemExit("Codex review surfaces did not stabilize before timeout")
-        time.sleep(stability_interval)
+        assert stable_since is not None
+        remaining_window = stability_window - (observed_at - stable_since)
+        remaining_deadline = stability_deadline - observed_at
+        time.sleep(max(0, min(poll_interval, remaining_window, remaining_deadline)))
 
     final_pr = _gh("api", f"repos/{repository}/pulls/{number}")
     if final_pr["head"]["sha"] != expected:
