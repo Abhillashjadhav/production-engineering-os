@@ -236,11 +236,7 @@ def _adapt_result(
             if not isinstance(entry, Mapping):
                 raise ProviderError("CODEX_RESULT_MALFORMED")
             path, content = entry.get("path"), entry.get("content")
-            if (
-                not isinstance(path, str)
-                or not isinstance(content, str)
-                or path in files
-            ):
+            if not isinstance(path, str) or not isinstance(content, str) or path in files:
                 raise ProviderError("CODEX_RESULT_MALFORMED")
             files[path] = content
         response: dict[str, Any] = {"request_digest": request_digest, "files": files}
