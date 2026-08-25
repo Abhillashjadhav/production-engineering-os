@@ -36,7 +36,7 @@ PMOS contract
 
 The engine has six states: `VALIDATED`, `BUILDING`, `VERIFYING`, `RELEASE_READY`, `HALTED`, and `STOPPED`.
 
-The Coder is the only mandatory LLM worker. A command implementing the `ModelProvider` JSON protocol is the only external adapter. That provider command currently runs as the invoking host user with the host process environment and filesystem permissions; it is **not** inside the Bubblewrap candidate sandbox. Treat the provider command as trusted. The core does not deploy, mutate GitHub, or make the release decision.
+The Coder is the only mandatory LLM worker. A command implementing the `ModelProvider` JSON protocol is the only external adapter. That provider command currently runs as the invoking host user with the host process environment and filesystem permissions; it is **not** inside the Bubblewrap candidate sandbox. Treat the provider command as trusted. The core does not deploy, mutate GitHub, or make the release decision. When the Codex CLI adapter is selected, one bounded PEOS call contains an agentic `codex exec` loop whose internal turns are not individually visible to PEOS.
 
 Evidence is stored as plain files:
 
@@ -99,7 +99,7 @@ pmpe barebones examples/barebones/e1-contract.json \
 
 The example provider returns scripted responses. It proves compiler-to-engine plumbing; it does not prove that an LLM can build the requested software.
 
-For a real-model run, use the documented [OpenAI Responses API reference provider](docs/real-model-provider.md). Its implementation and unit tests prove the adapter boundary only; no live PMOS-to-real-model run is claimed until its complete evidence bundle is published.
+For a real-model run, use one of the documented [reference providers](docs/real-model-provider.md): the Responses API adapter or the Codex CLI adapter with saved ChatGPT subscription authentication. Their implementation and unit tests prove the adapter boundary only; no live PMOS-to-real-model run is claimed until its complete evidence bundle is published.
 
 A provider receives one JSON object on standard input:
 
@@ -108,6 +108,13 @@ A provider receives one JSON object on standard input:
 ```
 
 The contract must contain `contract_status: APPROVED` and `approved_by`; the CLI requires an exact `--expected-approver` match before invoking the provider. The provider must return one UTF-8 JSON object containing the same `request_digest`. Do not record provider credentials in contracts, commands, candidate workspaces, or evidence.
+
+The Codex CLI path is deliberately explicit about its boundaries: it requires a host
+`CODEX_HOME` authenticated with ChatGPT, strips API-key variables, and enforces ChatGPT
+mode again on the command line. Its ephemeral read-only sandbox protects the provider
+run; the separate Bubblewrap sandbox protects candidate execution. The prompt still
+transits OpenAI. Subscription runs record pricing as not applicable per run rather than
+claiming a zero-dollar API cost.
 
 ## Current evidence gap
 
