@@ -493,6 +493,47 @@ def test_review_surface_change_resets_the_full_quiescence_window(
     assert clock[0] == 80
 
 
+def test_slow_observation_cannot_admit_after_the_stabilization_deadline(
+    monkeypatch: pytest.MonkeyPatch, verifier_module
+) -> None:
+    expected = "a" * 40
+    clean_review = {
+        "id": 1,
+        "user": {"login": verifier_module.BOT},
+        "commit_id": expected,
+        "state": "COMMENTED",
+        "body": verifier_module.REVIEW_MARKER,
+    }
+    clock = [0.0]
+    thread_observations = [0]
+
+    monkeypatch.setenv("EXPECTED_HEAD", expected)
+    monkeypatch.setenv("PR_NUMBER", "99")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "0")
+    monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_SECONDS", "60")
+    monkeypatch.setenv("CODEX_EVIDENCE_POLL_SECONDS", "10")
+    monkeypatch.setenv("CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS", "180")
+    monkeypatch.setattr(verifier_module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        verifier_module.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+    )
+    monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
+    monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
+    monkeypatch.setattr(verifier_module, "_all_reviews", lambda *_args: [clean_review])
+
+    def observe_threads(*_args):  # type: ignore[no-untyped-def]
+        thread_observations[0] += 1
+        if thread_observations[0] == 2:
+            clock[0] = 181
+        return []
+
+    monkeypatch.setattr(verifier_module, "_all_review_threads", observe_threads)
+
+    with pytest.raises(SystemExit, match="review surfaces did not stabilize before timeout"):
+        verifier_module.main()
+
+
 def test_main_admits_only_after_two_stable_joint_observations(
     monkeypatch: pytest.MonkeyPatch, verifier_module, capsys
 ) -> None:

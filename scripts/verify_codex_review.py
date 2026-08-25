@@ -239,14 +239,14 @@ def main() -> int:
             raise SystemExit("clean exact-head Codex evidence disappeared during stabilization")
         snapshot = _surface_snapshot(comments, reviews, threads)
         observed_at = time.monotonic()
+        if observed_at >= stability_deadline:
+            raise SystemExit("Codex review surfaces did not stabilize before timeout")
         if previous_snapshot == snapshot:
             if stable_since is not None and observed_at - stable_since >= stability_window:
                 break
         else:
             previous_snapshot = snapshot
             stable_since = observed_at
-        if observed_at >= stability_deadline:
-            raise SystemExit("Codex review surfaces did not stabilize before timeout")
         assert stable_since is not None
         remaining_window = stability_window - (observed_at - stable_since)
         remaining_deadline = stability_deadline - observed_at
