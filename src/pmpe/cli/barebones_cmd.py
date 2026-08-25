@@ -195,6 +195,10 @@ def _require_approved_contract(
 
 
 def _run(args: argparse.Namespace) -> int:
+    try:
+        EvidenceLedger.validate_run_id(args.run_id)
+    except ValueError as exc:
+        return _evidence_invalid(EvidenceIntegrityError(str(exc)))
     contract_path = Path(args.contract)
     try:
         contract = _load_contract(contract_path)

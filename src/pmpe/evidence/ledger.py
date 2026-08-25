@@ -82,9 +82,15 @@ def _validate_event_schema(event: Mapping[str, Any]) -> None:
 class EvidenceLedger:
     """Append-only JSONL events and SHA-256 blobs under one `.pmpe` directory."""
 
-    def __init__(self, repository_root: Path, run_id: str, *, resume: bool = False) -> None:
-        if not _RUN_ID.fullmatch(run_id):
+    @staticmethod
+    def validate_run_id(run_id: str) -> None:
+        """Validate a run identifier without creating evidence directories."""
+
+        if not isinstance(run_id, str) or not _RUN_ID.fullmatch(run_id):
             raise ValueError("run_id must be a bounded filesystem-safe identifier")
+
+    def __init__(self, repository_root: Path, run_id: str, *, resume: bool = False) -> None:
+        self.validate_run_id(run_id)
         self.run_id = run_id
         self.root = repository_root / ".pmpe"
         self.run_directory = self.root / "runs" / run_id
@@ -118,8 +124,7 @@ class EvidenceLedger:
     def open_existing(cls, repository_root: Path, run_id: str) -> EvidenceLedger:
         """Open and verify an existing ledger without attempting to resume its run."""
 
-        if not _RUN_ID.fullmatch(run_id):
-            raise ValueError("run_id must be a bounded filesystem-safe identifier")
+        cls.validate_run_id(run_id)
         ledger = cls.__new__(cls)
         ledger.run_id = run_id
         ledger.root = repository_root / ".pmpe"
