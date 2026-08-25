@@ -13,7 +13,7 @@ def test_workflow_is_codex_only_and_runs_the_exact_head_evidence_gate() -> None:
     assert "CLAUDE_CODE_OAUTH_TOKEN" not in workflow
     assert "Verify Codex exact-head evidence" in workflow
     assert "scripts/verify_codex_review.py" in workflow
-    assert "CODEX_EVIDENCE_WAIT_SECONDS: 300" in workflow
+    assert "CODEX_EVIDENCE_WAIT_SECONDS: 900" in workflow
     assert "CODEX_EVIDENCE_STABILITY_SECONDS: 10" in workflow
     assert "CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS: 60" in workflow
     assert "contents: read" in workflow
