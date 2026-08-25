@@ -207,18 +207,24 @@ def main() -> int:
     expected = os.environ["EXPECTED_HEAD"]
     number = os.environ["PR_NUMBER"]
     repository = os.environ["GITHUB_REPOSITORY"]
-    deadline = time.monotonic() + int(os.environ.get("CODEX_EVIDENCE_WAIT_SECONDS", "0"))
+    wait_seconds = max(0, int(os.environ.get("CODEX_EVIDENCE_WAIT_SECONDS", "0")))
+    deadline = time.monotonic() + wait_seconds
+    first_observation = True
     while True:
         pr = _gh("api", f"repos/{repository}/pulls/{number}")
         if pr["head"]["sha"] != expected:
             raise SystemExit("current PR head changed during Codex evidence verification")
         comments = _all_issue_comments(repository, number)
         reviews = _all_reviews(repository, number)
+        observed_at = time.monotonic()
+        if observed_at >= deadline and not (first_observation and wait_seconds == 0):
+            raise SystemExit("missing clean exact-head Codex advisory evidence")
         if _has_clean_evidence(repository, expected, comments, reviews):
             break
-        if time.monotonic() >= deadline:
+        if observed_at >= deadline:
             raise SystemExit("missing clean exact-head Codex advisory evidence")
-        time.sleep(10)
+        first_observation = False
+        time.sleep(max(0, min(10, deadline - observed_at)))
     # GitHub may expose a review object before its inline threads. Require a
     # full quiescence window, resetting it whenever any review surface changes.
     stability_window = max(0, int(os.environ.get("CODEX_EVIDENCE_STABILITY_SECONDS", "60")))

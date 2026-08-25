@@ -47,7 +47,7 @@ def test_gate_waits_boundedly_for_asynchronous_codex_evidence() -> None:
 
     assert "CODEX_EVIDENCE_WAIT_SECONDS" in verifier
     assert "time.monotonic()" in verifier
-    assert "time.sleep(10)" in verifier
+    assert "min(10, deadline - observed_at)" in verifier
 
 
 def test_operator_recovery_is_codex_only_and_reenters_the_exact_head_cycle() -> None:
@@ -531,6 +531,37 @@ def test_slow_observation_cannot_admit_after_the_stabilization_deadline(
     monkeypatch.setattr(verifier_module, "_all_review_threads", observe_threads)
 
     with pytest.raises(SystemExit, match="review surfaces did not stabilize before timeout"):
+        verifier_module.main()
+
+
+def test_slow_clean_observation_cannot_cross_the_publication_deadline(
+    monkeypatch: pytest.MonkeyPatch, verifier_module
+) -> None:
+    expected = "a" * 40
+    clean_review = {
+        "id": 1,
+        "user": {"login": verifier_module.BOT},
+        "commit_id": expected,
+        "state": "COMMENTED",
+        "body": verifier_module.REVIEW_MARKER,
+    }
+    clock = [0.0]
+
+    monkeypatch.setenv("EXPECTED_HEAD", expected)
+    monkeypatch.setenv("PR_NUMBER", "99")
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("CODEX_EVIDENCE_WAIT_SECONDS", "60")
+    monkeypatch.setattr(verifier_module.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(verifier_module, "_gh", lambda *_args: {"head": {"sha": expected}})
+    monkeypatch.setattr(verifier_module, "_all_issue_comments", lambda *_args: [])
+
+    def slow_reviews(*_args):  # type: ignore[no-untyped-def]
+        clock[0] = 61
+        return [clean_review]
+
+    monkeypatch.setattr(verifier_module, "_all_reviews", slow_reviews)
+
+    with pytest.raises(SystemExit, match="missing clean exact-head Codex advisory evidence"):
         verifier_module.main()
 
 
