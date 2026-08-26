@@ -542,6 +542,34 @@ def test_command_provider_output_is_bounded_before_capture() -> None:
         )
 
 
+def test_provider_group_is_fenced_before_the_exited_leader_is_reaped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[object] = []
+
+    class ExitedProvider:
+        pid = 4321
+
+        def wait(self, timeout: float | None = None) -> int:
+            events.append(("wait", timeout))
+            return 7
+
+    def observed_waitid(*args: object) -> object:
+        events.append(("waitid", args))
+        return object()
+
+    def observed_killpg(pid: int, action: object) -> None:
+        events.append(("killpg", pid, action))
+
+    monkeypatch.setattr(barebones_cmd.os, "waitid", observed_waitid)
+    monkeypatch.setattr(barebones_cmd.os, "killpg", observed_killpg)
+    process = ExitedProvider()
+
+    assert barebones_cmd._wait_for_provider_exit_without_reaping(process, 1.0)  # type: ignore[arg-type]
+    assert barebones_cmd._fence_provider_group(process) == 7  # type: ignore[arg-type]
+    assert [event[0] for event in events] == ["waitid", "killpg", "wait"]  # type: ignore[index]
+
+
 def test_command_provider_propagates_outer_timeout_to_the_adapter(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

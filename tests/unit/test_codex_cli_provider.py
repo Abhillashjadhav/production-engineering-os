@@ -222,6 +222,22 @@ def test_codex_timeout_override_is_clamped_below_the_outer_provider_budget() -> 
     assert provider._effective_exec_timeout({"PMPE_PROVIDER_TIMEOUT_SECONDS": "960"}) == 900.0
 
 
+def test_invoke_deducts_elapsed_preflight_time_from_the_outer_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _provider_module()
+    fake = _FakeCodex()
+    _install_fake(provider, monkeypatch, fake)
+    monkeypatch.setenv("PMPE_CODEX_TIMEOUT_SECONDS", "1200")
+    monkeypatch.setenv("PMPE_PROVIDER_TIMEOUT_SECONDS", "960")
+    moments = iter((100.0, 160.0))
+    monkeypatch.setattr(provider.time, "monotonic", lambda: next(moments))
+
+    provider._invoke(_message(), "/usr/bin/codex")
+
+    assert fake.calls[2]["timeout_seconds"] == 899.0
+
+
 @pytest.mark.parametrize(
     "environment",
     [
