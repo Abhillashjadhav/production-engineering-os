@@ -141,6 +141,37 @@ def test_arbitrary_command_symlink_is_not_resolved(
     assert observed[-2:] == [str(command_link), "--version"]
 
 
+def test_active_interpreter_outside_bound_roots_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "candidate"
+    workspace.mkdir()
+    managed_bin = tmp_path / "managed-python" / "bin"
+    managed_bin.mkdir(parents=True)
+    canonical = managed_bin / "python3.12"
+    canonical.write_text("trusted interpreter")
+    active = tmp_path / "venv" / "bin" / "python"
+    active.parent.mkdir(parents=True)
+    active.symlink_to(canonical)
+    sandbox = BubblewrapCandidateSandbox()
+
+    monkeypatch.setattr(barebones.sys, "executable", str(active))
+    monkeypatch.setattr(sandbox, "_runtime_roots", lambda: (Path("/usr"),))
+    monkeypatch.setattr(
+        barebones.shutil,
+        "which",
+        lambda name, path=None: f"/usr/bin/{name}",
+    )
+
+    with pytest.raises(ContractInvalidError, match="outside trusted runtime roots"):
+        sandbox.run(
+            workspace,
+            (str(active), "-V"),
+            timeout_seconds=2,
+            environment={},
+        )
+
+
 def test_model_file_path_cannot_escape_candidate_root(tmp_path: Path) -> None:
     workspace = tmp_path / "candidate"
     workspace.mkdir()

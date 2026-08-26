@@ -165,6 +165,22 @@ class BubblewrapCandidateSandbox:
             current = current.parent
         return tuple(reversed(parents))
 
+    @staticmethod
+    def _trusted_command(argv: Sequence[str], runtime_roots: tuple[Path, ...]) -> list[str]:
+        command = list(argv)
+        if not command or command[0] != sys.executable:
+            return command
+        try:
+            canonical = Path(sys.executable).resolve(strict=True)
+        except OSError as exc:
+            raise ContractInvalidError("active Python interpreter is unavailable") from exc
+        if not canonical.is_file() or not any(
+            canonical.is_relative_to(root) for root in runtime_roots
+        ):
+            raise ContractInvalidError("active Python interpreter is outside trusted runtime roots")
+        command[0] = str(canonical)
+        return command
+
     def run(
         self,
         workspace: Path,
@@ -177,6 +193,8 @@ class BubblewrapCandidateSandbox:
         limiter = shutil.which(self.limiter, path=_SANDBOX_PATH)
         if sandbox is None or limiter is None:
             raise ContractInvalidError("candidate OS sandbox is unavailable")
+        runtime_roots = self._runtime_roots()
+        sandbox_command = self._trusted_command(argv, runtime_roots)
         sandbox_argv = [
             sandbox,
             "--die-with-parent",
@@ -192,7 +210,7 @@ class BubblewrapCandidateSandbox:
         ]
         created_directories: set[str] = {"/etc", "/workspace"}
         bound_roots: list[Path] = []
-        for runtime_root in self._runtime_roots():
+        for runtime_root in runtime_roots:
             if any(runtime_root.is_relative_to(bound) for bound in bound_roots):
                 continue
             for parent in self._parent_directories(runtime_root):
@@ -235,7 +253,7 @@ class BubblewrapCandidateSandbox:
         )
         for name, value in sorted(environment.items()):
             sandbox_argv.extend(("--setenv", name, value))
-        sandbox_argv.extend(("--chdir", "/workspace", "--", *argv))
+        sandbox_argv.extend(("--chdir", "/workspace", "--", *sandbox_command))
         command = [
             limiter,
             f"--as={1024 * 1024 * 1024}",
