@@ -239,7 +239,7 @@ def _sha256(path: Path) -> str:
 
 def _snapshot_image(
     source_checkout: Path,
-) -> tuple[list[dict[str, str | int]], list[tuple[str, bytes]]]:
+) -> tuple[list[dict[str, str | int]], list[tuple[str, bytes, int]]]:
     entries: list[dict[str, str | int]] = [
         {
             "mode": stat.S_IMODE(source_checkout.stat().st_mode),
@@ -247,7 +247,7 @@ def _snapshot_image(
             "type": "directory",
         }
     ]
-    files: list[tuple[str, bytes]] = []
+    files: list[tuple[str, bytes, int]] = []
     for path in sorted(source_checkout.rglob("*")):
         relative = path.relative_to(source_checkout).as_posix()
         metadata = path.lstat()
@@ -273,13 +273,20 @@ def _snapshot_image(
                 "type": "file",
             }
         )
-        files.append((relative, content))
+        files.append((relative, content, stat.S_IMODE(metadata.st_mode)))
     return entries, files
 
 
 def _snapshot_entries_digest(entries: list[dict[str, str | int]]) -> str:
     payload = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode()
     return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _snapshot_mode(entry: dict[str, str | int]) -> str:
+    mode = entry.get("mode")
+    if isinstance(mode, bool) or not isinstance(mode, int) or not 0 <= mode <= 0o7777:
+        raise RuntimeError("source snapshot contains an invalid mode")
+    return f"{mode:04o}"
 
 
 def _snapshot_tree_digest(source_checkout: Path) -> str:
@@ -337,26 +344,38 @@ def _snapshot_command(
     if _snapshot_entries_digest(entries) != expected_tree_digest:
         raise RuntimeError("private source image does not match the captured snapshot")
     descriptors: list[int] = []
+    root_entry = entries[0]
+    if root_entry.get("path") != "." or root_entry.get("type") != "directory":
+        raise RuntimeError("source snapshot root entry is invalid")
     command = [
         bwrap_executable,
         "--die-with-parent",
         "--bind",
         "/",
         "/",
+        "--perms",
+        _snapshot_mode(root_entry),
         "--tmpfs",
         str(source_checkout),
     ]
     for entry in entries:
         if entry["type"] == "directory" and entry["path"] != ".":
-            command.extend(("--dir", str(source_checkout / str(entry["path"]))))
+            command.extend(
+                (
+                    "--perms",
+                    _snapshot_mode(entry),
+                    "--dir",
+                    str(source_checkout / str(entry["path"])),
+                )
+            )
     try:
-        for relative, content in files:
+        for relative, content, mode in files:
             descriptor = _sealed_memfd(content)
             descriptors.append(descriptor)
             command.extend(
                 (
                     "--perms",
-                    "0444",
+                    f"{mode:04o}",
                     "--file",
                     str(descriptor),
                     str(source_checkout / relative),
