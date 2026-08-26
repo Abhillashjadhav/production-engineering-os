@@ -177,8 +177,27 @@ class BubblewrapCandidateSandbox:
         ):
             raise ContractInvalidError("active Python interpreter is outside trusted runtime roots")
         active = Path(sys.executable)
-        if not any(active.is_relative_to(root) for root in runtime_roots):
-            command[0] = str(canonical)
+        if any(active.is_relative_to(root) for root in runtime_roots):
+            return command
+        prefix = Path(sys.prefix)
+        if prefix != Path(sys.base_prefix) and active.is_relative_to(prefix):
+            relative = active.relative_to(prefix)
+            if ".." in relative.parts:
+                raise ContractInvalidError("active Python virtualenv path is invalid")
+            try:
+                mounted = prefix.resolve(strict=True) / relative
+                mounted_target = mounted.resolve(strict=True)
+            except OSError as exc:
+                raise ContractInvalidError("active Python virtualenv is unavailable") from exc
+            if not any(mounted.is_relative_to(root) for root in runtime_roots):
+                raise ContractInvalidError(
+                    "active Python virtualenv is outside trusted runtime roots"
+                )
+            if mounted_target != canonical:
+                raise ContractInvalidError("active Python virtualenv target is inconsistent")
+            command[0] = str(mounted)
+            return command
+        command[0] = str(canonical)
         return command
 
     def run(
