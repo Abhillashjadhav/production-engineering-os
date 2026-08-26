@@ -91,6 +91,12 @@ COMPARISONS = (
     ("readiness-v1-01", "readiness-v1-03", 0),
     ("e1-v1-01", "readiness-v1-01", 3),
 )
+PLANTED_COMPARISON = "e1-v1-01--e1-v2-01"
+CONTROL_COMPARISONS = frozenset(
+    f"{baseline}--{current}"
+    for baseline, current, expected_exit_code in COMPARISONS
+    if expected_exit_code == 0 and f"{baseline}--{current}" != PLANTED_COMPARISON
+)
 
 
 def _command(argv: list[str], *, environment: dict[str, str], timeout: int) -> tuple[int, str]:
@@ -285,7 +291,12 @@ def _gate_passes(
         elif result.get("status") != "NOT_COMPARABLE" or result.get("cause") != "CONTRACT_CHANGED":
             return False
     by_name = {item["name"]: item for item in comparison_results}
-    version_change = by_name.get("e1-v1-01--e1-v2-01", {}).get("result")
+    for name in CONTROL_COMPARISONS:
+        control = by_name.get(name, {}).get("result")
+        control_drift = control.get("behavior_drift") if isinstance(control, dict) else None
+        if not isinstance(control_drift, dict) or control_drift.get("attribution") != []:
+            return False
+    version_change = by_name.get(PLANTED_COMPARISON, {}).get("result")
     if not isinstance(version_change, dict):
         return False
     drift = version_change.get("behavior_drift")

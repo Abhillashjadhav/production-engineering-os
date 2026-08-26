@@ -88,26 +88,31 @@ def _passing_results() -> tuple[list[dict[str, object]], list[dict[str, object]]
         {"exit_code": 0, "result": {"state": "RELEASE_READY", "cause": "PASS"}}
         for _ in drift_eval.RUNS
     ]
-    comparisons: list[dict[str, object]] = [
-        {
-            "name": f"{baseline}--{current}",
-            "exit_code": expected,
-            "expected_exit_code": expected,
-            "result": (
-                {
-                    "status": "COMPARABLE",
-                    "plan_repeatable": True,
-                    "behavior_drift": {
-                        "detected": True,
-                        "attribution": ["prompt_version"],
-                    },
-                }
-                if expected == 0
-                else {"status": "NOT_COMPARABLE", "cause": "CONTRACT_CHANGED"}
-            ),
-        }
-        for baseline, current, expected in drift_eval.COMPARISONS
-    ]
+    comparisons: list[dict[str, object]] = []
+    for baseline, current, expected in drift_eval.COMPARISONS:
+        name = f"{baseline}--{current}"
+        result = (
+            {
+                "status": "COMPARABLE",
+                "plan_repeatable": True,
+                "behavior_drift": {
+                    "detected": True,
+                    "attribution": (
+                        ["prompt_version"] if name == drift_eval.PLANTED_COMPARISON else []
+                    ),
+                },
+            }
+            if expected == 0
+            else {"status": "NOT_COMPARABLE", "cause": "CONTRACT_CHANGED"}
+        )
+        comparisons.append(
+            {
+                "name": name,
+                "exit_code": expected,
+                "expected_exit_code": expected,
+                "result": result,
+            }
+        )
     return runs, comparisons
 
 
@@ -132,6 +137,19 @@ def test_gate_rejects_prompt_drift_confounded_by_cli_change() -> None:
     behavior_drift["attribution"] = ["prompt_version", "cli_version"]
 
     assert drift_eval._gate_passes(runs, comparisons) is False
+
+
+def test_gate_rejects_configuration_drift_in_control_repeats() -> None:
+    runs, comparisons = _passing_results()
+    control = comparisons[0]["result"]
+    assert isinstance(control, dict)
+    behavior_drift = control["behavior_drift"]
+    assert isinstance(behavior_drift, dict)
+    behavior_drift["attribution"] = ["cli_version"]
+
+    assert drift_eval._gate_passes(runs, comparisons) is False
+    behavior_drift["attribution"] = []
+    assert drift_eval._gate_passes(runs, comparisons) is True
 
 
 def test_source_reverification_rejects_mid_matrix_source_change(
