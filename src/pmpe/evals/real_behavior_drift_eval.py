@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -94,6 +95,11 @@ COMPARISONS = (
     ("e1-v1-01", "readiness-v1-01", 3),
 )
 PLANTED_COMPARISON = "e1-v1-01--e1-v2-01"
+PLANTED_BASELINE_RUN_ID = "e1-v1-01"
+PLANTED_RUN_ID = "e1-v2-01"
+PLANTED_FILE = "product.py"
+PLANTED_CONSTANT = "PMPE_PROMPT_PROFILE"
+PLANTED_VALUE = "drift-eval-v2"
 CONTROL_COMPARISONS = frozenset(
     f"{baseline}--{current}"
     for baseline, current, expected_exit_code in COMPARISONS
@@ -290,8 +296,80 @@ def _provider_configuration_changes(comparison: dict[str, Any]) -> list[str] | N
     ]
 
 
+def _has_exact_planted_constant(content: str) -> bool:
+    """Require one exact top-level assignment in the sealed planted candidate."""
+
+    try:
+        module = ast.parse(content)
+    except SyntaxError:
+        return False
+    assignments: list[ast.expr | None] = []
+    for statement in module.body:
+        if isinstance(statement, ast.Assign):
+            targets = statement.targets
+        elif isinstance(statement, ast.AnnAssign):
+            targets = [statement.target]
+        else:
+            continue
+        if any(
+            isinstance(target, ast.Name) and target.id == PLANTED_CONSTANT for target in targets
+        ):
+            assignments.append(statement.value)
+    return (
+        len(assignments) == 1
+        and isinstance(assignments[0], ast.Constant)
+        and (assignments[0].value == PLANTED_VALUE)
+    )
+
+
+def _inspect_planted_behavior(
+    pmpe_command: list[str], evidence_root: Path, environment: dict[str, str]
+) -> dict[str, Any]:
+    """Verify the requested plant in the immutable candidate ledger, not the workspace."""
+
+    def inspect(run_id: str) -> tuple[int, str | None, bool]:
+        exit_code, command_output = _command(
+            [
+                *pmpe_command,
+                "barebones",
+                "inspect",
+                run_id,
+                "--repository-root",
+                str(evidence_root),
+                "--file",
+                PLANTED_FILE,
+            ],
+            environment=environment,
+            timeout=60,
+        )
+        result = _parse_json(command_output)
+        selected_file = result.get("selected_file") if isinstance(result, dict) else None
+        content = selected_file.get("content") if isinstance(selected_file, dict) else None
+        digest = selected_file.get("digest") if isinstance(selected_file, dict) else None
+        observed = isinstance(content, str) and _has_exact_planted_constant(content)
+        return exit_code, digest if isinstance(digest, str) else None, observed
+
+    baseline_exit_code, baseline_digest, baseline_observed = inspect(PLANTED_BASELINE_RUN_ID)
+    exit_code, digest, observed = inspect(PLANTED_RUN_ID)
+    return {
+        "baseline_exit_code": baseline_exit_code,
+        "baseline_run_id": PLANTED_BASELINE_RUN_ID,
+        "baseline_selected_file_digest": baseline_digest,
+        "baseline_observed": baseline_observed,
+        "exit_code": exit_code,
+        "run_id": PLANTED_RUN_ID,
+        "file": PLANTED_FILE,
+        "selected_file_digest": digest if isinstance(digest, str) else None,
+        "constant": PLANTED_CONSTANT,
+        "expected_value": PLANTED_VALUE,
+        "observed": observed,
+    }
+
+
 def _gate_passes(
-    run_results: list[dict[str, Any]], comparison_results: list[dict[str, Any]]
+    run_results: list[dict[str, Any]],
+    comparison_results: list[dict[str, Any]],
+    planted_behavior: dict[str, Any],
 ) -> bool:
     if len(run_results) != len(RUNS) or len(comparison_results) != len(COMPARISONS):
         return False
@@ -301,6 +379,20 @@ def _gate_passes(
         or item["result"].get("state") != "RELEASE_READY"
         or item["result"].get("cause") != "PASS"
         for item in run_results
+    ):
+        return False
+    if (
+        planted_behavior.get("baseline_exit_code") != 0
+        or planted_behavior.get("baseline_run_id") != PLANTED_BASELINE_RUN_ID
+        or not isinstance(planted_behavior.get("baseline_selected_file_digest"), str)
+        or planted_behavior.get("baseline_observed") is not False
+        or planted_behavior.get("exit_code") != 0
+        or planted_behavior.get("run_id") != PLANTED_RUN_ID
+        or planted_behavior.get("file") != PLANTED_FILE
+        or planted_behavior.get("constant") != PLANTED_CONSTANT
+        or planted_behavior.get("expected_value") != PLANTED_VALUE
+        or planted_behavior.get("observed") is not True
+        or not isinstance(planted_behavior.get("selected_file_digest"), str)
     ):
         return False
     for item in comparison_results:
@@ -451,14 +543,16 @@ def main() -> int:
             }
         )
 
+    planted_behavior = _inspect_planted_behavior(pmpe_command, evidence_root, environment)
     source_reverification = _reverify_source_identity(source_identity, commands, environment)
     passed = source_reverification.get("status") == "PASS" and _gate_passes(
-        run_results, comparison_results
+        run_results, comparison_results, planted_behavior
     )
     summary = {
         "gate": "PASS" if passed else "FAIL",
         "runs": run_results,
         "comparisons": comparison_results,
+        "planted_behavior": planted_behavior,
         "source_reverification": source_reverification,
     }
     _json_file(output / "summary.json", summary)

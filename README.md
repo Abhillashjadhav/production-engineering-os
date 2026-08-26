@@ -24,8 +24,9 @@ The current classification is **reference implementation**. A reusable product o
 
 The bounded #146 evidence runner is available as
 `python examples/barebones/run_real_behavior_drift_eval.py`. Its existence proves the
-experiment is reproducible; this table remains unchanged until the resulting real ledgers
-are published and independently verified.
+experiment is reproducible. The launcher imports PMPE from that exact checkout, even when
+a different installation is present; this table remains unchanged until the resulting real
+ledgers are published and independently verified.
 
 ## Frozen core
 

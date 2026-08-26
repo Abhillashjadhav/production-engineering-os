@@ -129,7 +129,10 @@ model, prompt, and known-or-unknown CLI fields plus zero configuration attributi
 still permitting visible, unattributed model-output variation. The planted experiment
 passes only when `prompt_version` is the sole recorded configuration change and sole
 attribution; a simultaneous CLI, model, or provider change is a confounded experiment
-and fails closed.
+and fails closed. It also inspects `product.py` from the immutable candidate ledger and
+requires exactly one top-level `PMPE_PROMPT_PROFILE = "drift-eval-v2"` assignment, so
+while requiring that marker to be absent from the sealed baseline. Unrelated
+nondeterministic output therefore cannot masquerade as the requested plant.
 The runner does not silently fall back to the Responses API.
 
 ## Responses API adapter

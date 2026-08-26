@@ -52,8 +52,11 @@ variables from every child environment and executes seven runs: three E1 repeats
 planted prompt-version change, and three repeats of a digest-approved synthetic
 multi-criterion readiness contract. It packages every candidate, ledger, log, comparison,
 summary, and checksum into one `.tgz`. A failed run is retained in the same report rather
-than discarded. This second fixture tests contract/criterion transfer, not external product
-authorship or transfer to another product type.
+than discarded. The planted run passes only when its sealed `product.py` contains the exact
+requested top-level profile constant; a prompt-version change plus unrelated output drift is
+rejected. The launcher also loads PMPE from the source checkout instead of a stale installed
+copy. This second fixture tests contract/criterion transfer, not external product authorship
+or transfer to another product type.
 
 ## Why E5 allows candidate variation
 
