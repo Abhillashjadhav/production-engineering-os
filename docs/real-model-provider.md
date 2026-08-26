@@ -34,9 +34,12 @@ codex login status
 The adapter depends on saved host authentication in `CODEX_HOME` (by default
 `~/.codex/auth.json` or the operating-system keyring). That credential state is not
 copied into the repository, candidate workspace, prompt, provider response, or evidence.
-The adapter removes `OPENAI_API_KEY` and `CODEX_API_KEY` from the child environment as
-defense in depth, checks `codex login status`, and passes the explicit override
-`forced_login_method="chatgpt"`. It fails closed unless both controls select ChatGPT.
+The adapter gives the network-connected Codex child only an explicit environment
+allowlist (`PATH`, auth/config locations, locale, terminal, temporary-directory, and TLS
+certificate locations). API keys, cloud credentials, repository tokens, database URLs,
+and unrelated host variables are not forwarded. It checks `codex login status` and
+passes the explicit override `forced_login_method="chatgpt"`. It fails closed unless
+both controls select ChatGPT.
 
 ### Run
 
@@ -47,7 +50,8 @@ pmpe barebones run examples/barebones/e1-contract.json \
   --repository-root /tmp/pmpe-codex-e1-evidence \
   --approval-receipt examples/barebones/e1-approval-receipt.json \
   --expected-approver fixture-human \
-  --provider-command "python examples/barebones/codex-cli-provider.py"
+  --provider-command "python examples/barebones/codex-cli-provider.py" \
+  --provider-timeout 960
 ```
 
 The adapter fixes the run to `gpt-5.6-sol` with `xhigh` reasoning and invokes
@@ -57,6 +61,13 @@ output schema. It runs in a fresh temporary working directory and supplies the c
 request through stdin so contract content does not appear in the process argument list.
 Codex stdout and stderr are captured; only one digest-bound PEOS JSON response is
 written to adapter stdout.
+
+The Codex execution budget defaults to 900 seconds and can be lowered with
+`PMPE_CODEX_TIMEOUT_SECONDS`. The outer `--provider-timeout` defaults to 960 seconds;
+PMPE passes that value to the adapter, which clamps its execution budget to remain
+strictly below the outer deadline. Codex inherits the adapter's process group, so an
+outer timeout terminates both instead of leaving an authenticated orphan process.
+Stdout and stderr are bounded while Codex is running rather than after completion.
 
 These controls have precise limits:
 
@@ -75,10 +86,11 @@ These controls have precise limits:
   `per_run_cost_applicable = false`. A core `estimated_cost_usd` counter of `0.0`
   therefore means no per-run API price applies, not that the subscription is free.
 
-The adapter records the Codex CLI version without imposing a version allowlist. Its
-composite `prompt_version` contains adapter version, reasoning effort, and CLI version
-so drift caused by any of those inputs is attributable through the existing behavior
-comparison tuple.
+The adapter records the Codex CLI version without imposing a version allowlist.
+`prompt_version` contains only the adapter version and reasoning effort; the optional
+CLI-version probe is separate telemetry, so a transient failed probe cannot be
+misreported as a prompt-configuration change. The current behavior comparator does not
+attribute CLI-version changes separately; they remain visible in the raw evidence.
 
 ## Responses API adapter
 

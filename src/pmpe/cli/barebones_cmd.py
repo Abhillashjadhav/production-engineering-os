@@ -77,7 +77,8 @@ def _compile(args: argparse.Namespace) -> int:
     human = sum(item.form == "human_test" for item in plan.criteria)
     _json(
         {
-            "status": "VALIDATED",
+            "status": "COMPILES",
+            "contract_status": contract.get("contract_status"),
             "coverage": {
                 "structured": structured,
                 "human_test": human,
@@ -100,6 +101,7 @@ def _run_provider_command(
     payload: bytes,
     timeout_seconds: int,
     output_limit_bytes: int = _PROVIDER_OUTPUT_LIMIT_BYTES,
+    environment: Mapping[str, str] | None = None,
 ) -> subprocess.CompletedProcess[bytes]:
     with tempfile.TemporaryFile() as stdin_file:
         stdin_file.write(payload)
@@ -110,6 +112,7 @@ def _run_provider_command(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True,
+            env=dict(environment) if environment is not None else None,
         )
         if process.stdout is None or process.stderr is None:
             _terminate_provider(process)
@@ -163,10 +166,13 @@ class CommandModelProvider:
         self.timeout_seconds = timeout_seconds
 
     def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        environment = dict(os.environ)
+        environment["PMPE_PROVIDER_TIMEOUT_SECONDS"] = str(self.timeout_seconds)
         completed = _run_provider_command(
             self.argv,
             json.dumps({"purpose": purpose, "request": request}).encode(),
             self.timeout_seconds,
+            environment=environment,
         )
         if completed.returncode != 0:
             raise RuntimeError("MODEL_PROVIDER_FAILED")
@@ -277,9 +283,37 @@ def _evidence_invalid(exc: EvidenceIntegrityError) -> int:
     return 3
 
 
+def _approval_summary(events: tuple[Mapping[str, Any], ...]) -> dict[str, str]:
+    for event in events:
+        if event.get("event_type") != "contract_validated":
+            continue
+        payload = event.get("payload")
+        if not isinstance(payload, Mapping):
+            raise EvidenceIntegrityError("approval evidence is malformed")
+        approval = payload.get("approval")
+        if not isinstance(approval, Mapping):
+            raise EvidenceIntegrityError("approval evidence is malformed")
+        status = approval.get("status")
+        if status == "UNVERIFIED_DIRECT_CALL":
+            return {"status": status}
+        if status != "VERIFIED":
+            raise EvidenceIntegrityError("approval evidence is malformed")
+        authority = approval.get("authority")
+        receipt_digest = approval.get("receipt_digest")
+        if not isinstance(authority, str) or not isinstance(receipt_digest, str):
+            raise EvidenceIntegrityError("approval evidence is malformed")
+        return {
+            "status": status,
+            "authority": authority,
+            "receipt_digest": receipt_digest,
+        }
+    return {"status": "NOT_RECORDED"}
+
+
 def _status(args: argparse.Namespace) -> int:
     try:
         _, events = _verified_events(args)
+        approval = _approval_summary(events)
     except EvidenceIntegrityError as exc:
         return _evidence_invalid(exc)
     terminal = events[-1]
@@ -298,6 +332,7 @@ def _status(args: argparse.Namespace) -> int:
             "events": len(events),
             "head_event_digest": terminal.get("event_digest"),
             "telemetry": dict(telemetry) if isinstance(telemetry, Mapping) else {},
+            "approval": approval,
         }
     )
     return 0
@@ -306,6 +341,7 @@ def _status(args: argparse.Namespace) -> int:
 def _evidence(args: argparse.Namespace) -> int:
     try:
         ledger, events = _verified_events(args)
+        approval = _approval_summary(events)
     except EvidenceIntegrityError as exc:
         return _evidence_invalid(exc)
     referenced = {
@@ -323,6 +359,7 @@ def _evidence(args: argparse.Namespace) -> int:
             "head_event_digest": events[-1].get("event_digest"),
             "events_path": str(ledger.events_path),
             "blobs_directory": str(ledger.blobs_directory),
+            "approval": approval,
         }
     )
     return 0
@@ -444,12 +481,14 @@ def _workspace_comparison(workspace: Path, manifest: Mapping[str, str]) -> dict[
 def _inspect(args: argparse.Namespace) -> int:
     try:
         ledger, events = _verified_events(args)
+        approval = _approval_summary(events)
         candidate_digest, manifest = _candidate_manifest(ledger, events[-1])
         output: dict[str, Any] = {
             "run_id": args.run_id,
             "state": "RELEASE_READY",
             "candidate_digest": candidate_digest,
             "files": manifest,
+            "approval": approval,
         }
         if args.file is not None:
             digest = manifest.get(args.file)
@@ -465,6 +504,11 @@ def _inspect(args: argparse.Namespace) -> int:
                 "content": content,
             }
         exit_code = 0
+        if approval["status"] == "UNVERIFIED_DIRECT_CALL":
+            output["release_eligible"] = False
+            exit_code = 3
+        elif approval["status"] == "VERIFIED":
+            output["release_eligible"] = True
         if args.workspace is not None:
             comparison = _workspace_comparison(Path(args.workspace), manifest)
             output["workspace"] = comparison
@@ -506,7 +550,7 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
         required=True,
         help="local ModelProvider command; receives and returns JSON over stdio",
     )
-    run_parser.add_argument("--provider-timeout", type=int, default=120)
+    run_parser.add_argument("--provider-timeout", type=int, default=960)
     run_parser.set_defaults(fn=_run)
 
     for name, function, help_text in (

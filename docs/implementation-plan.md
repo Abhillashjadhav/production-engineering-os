@@ -1,5 +1,9 @@
 # Implementation plan (file-by-file)
 
+> **Historical / superseded.** This completed V1 plan is retained for provenance only.
+> See [README.md](../README.md) for the authoritative current architecture and supported
+> product journey.
+
 Order of commits mirrors this order; tests land before the code they test.
 
 ## Commit 1 — PRD + decisions (done)

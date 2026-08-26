@@ -145,7 +145,7 @@ def test_success_is_one_digest_bound_object_and_codex_jsonl_is_not_forwarded(
         "auth_mode": "chatgpt",
         "cli_version": "codex-cli_9.8.7",
         "model": "gpt-5.6-sol",
-        "prompt_version": "pmpe-barebones-codex-cli-v1;effort=xhigh;cli=codex-cli_9.8.7",
+        "prompt_version": "pmpe-barebones-codex-cli-v1;effort=xhigh",
         "provider": "codex-cli-chatgpt",
         "reasoning_effort": "xhigh",
     }
@@ -193,12 +193,18 @@ def test_codex_child_environment_is_an_explicit_allowlist(
 
     environment = provider._child_environment()
 
-    assert environment == {
-        "CODEX_HOME": "/home/operator/.codex",
-        "HOME": "/home/operator",
-        "LANG": "C.UTF-8",
-        "PATH": "/usr/local/bin:/usr/bin:/bin",
-    }
+    assert environment["CODEX_HOME"] == "/home/operator/.codex"
+    assert environment["HOME"] == "/home/operator"
+    assert environment["LANG"] == "C.UTF-8"
+    assert environment["PATH"] == "/usr/local/bin:/usr/bin:/bin"
+    assert set(environment).issubset(provider._CHILD_ENV_ALLOWLIST)
+    for secret in (
+        "OPENAI_API_KEY",
+        "AWS_SECRET_ACCESS_KEY",
+        "GITHUB_TOKEN",
+        "PMPE_PLANTED_HOST_SECRET",
+    ):
+        assert secret not in environment
 
 
 def test_codex_timeout_override_is_clamped_below_the_outer_provider_budget() -> None:
@@ -213,12 +219,7 @@ def test_codex_timeout_override_is_clamped_below_the_outer_provider_budget() -> 
         )
         == 959.0
     )
-    assert (
-        provider._effective_exec_timeout(
-            {"PMPE_PROVIDER_TIMEOUT_SECONDS": "960"}
-        )
-        == 900.0
-    )
+    assert provider._effective_exec_timeout({"PMPE_PROVIDER_TIMEOUT_SECONDS": "960"}) == 900.0
 
 
 @pytest.mark.parametrize(
@@ -312,6 +313,26 @@ def test_cli_version_is_recorded_but_not_a_run_gate(
     assert (
         response["provider_metadata"]["prompt_version"]
         == "pmpe-barebones-codex-cli-v1;effort=xhigh"
+    )
+
+
+def test_optional_cli_version_probe_does_not_change_prompt_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _provider_module()
+    known = _FakeCodex()
+    _install_fake(provider, monkeypatch, known)
+    known_response = provider._invoke(_message(), "/usr/bin/codex")
+
+    unknown = _FakeCodex(version_returncode=1)
+    _install_fake(provider, monkeypatch, unknown)
+    unknown_response = provider._invoke(_message(), "/usr/bin/codex")
+
+    assert known_response["provider_metadata"]["cli_version"] == "codex-cli_9.8.7"
+    assert unknown_response["provider_metadata"]["cli_version"] == "unknown"
+    assert (
+        known_response["provider_metadata"]["prompt_version"]
+        == unknown_response["provider_metadata"]["prompt_version"]
     )
 
 

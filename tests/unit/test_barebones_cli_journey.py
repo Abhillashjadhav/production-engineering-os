@@ -75,6 +75,32 @@ def test_compile_reports_the_deterministic_plan_without_starting_a_run(
     assert not (tmp_path / ".pmpe").exists()
 
 
+def test_compile_reports_a_draft_as_compilable_without_claiming_validation(
+    tmp_path: Path, capsys
+) -> None:  # type: ignore[no-untyped-def]
+    contract = json.loads((ROOT / "examples" / "barebones" / "e1-contract.json").read_text())
+    contract["contract_status"] = "DRAFT"
+    draft = tmp_path / "draft.json"
+    draft.write_text(json.dumps(contract))
+
+    assert (
+        main(
+            [
+                "barebones",
+                "compile",
+                str(draft),
+                "--repository-root",
+                str(ROOT),
+            ]
+        )
+        == 0
+    )
+
+    output = json.loads(capsys.readouterr().out)
+    assert output["status"] == "COMPILES"
+    assert output["contract_status"] == "DRAFT"
+
+
 def test_status_and_evidence_verify_the_sealed_chain(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
     _sealed_run(tmp_path)
 
@@ -92,9 +118,7 @@ def test_status_and_evidence_verify_the_sealed_chain(tmp_path: Path, capsys) -> 
     assert evidence["head_event_digest"].startswith("sha256:")
 
 
-def test_inspection_commands_surface_verified_approval_authority(
-    tmp_path: Path, capsys
-) -> None:  # type: ignore[no-untyped-def]
+def test_inspection_commands_surface_verified_approval_authority(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
     receipt_digest = "sha256:" + "9" * 64
     approval = {
         "status": "VERIFIED",
@@ -120,9 +144,7 @@ def test_inspection_commands_surface_verified_approval_authority(
         assert output["approval"] == approval
 
 
-def test_inspect_refuses_to_publish_an_unverified_direct_call(
-    tmp_path: Path, capsys
-) -> None:  # type: ignore[no-untyped-def]
+def test_inspect_refuses_to_publish_an_unverified_direct_call(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
     _sealed_run(
         tmp_path,
         "unverified",

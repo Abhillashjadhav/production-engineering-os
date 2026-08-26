@@ -12,7 +12,7 @@ import pytest
 
 from pmpe import barebones as barebones_runtime
 from pmpe.barebones import BudgetCaps, RunState, run_to_release_ready
-from pmpe.cli import barebones_cmd, build_parser
+from pmpe.cli import barebones_cmd, build_parser, main
 from pmpe.cli.barebones_cmd import CommandModelProvider
 
 _REPOSITORY = Path(__file__).parents[2]
@@ -54,6 +54,26 @@ def test_barebones_cli_runs_a_contract_without_cloud_services(
     submitted_digest = "sha256:" + hashlib.sha256(receipt_path.read_bytes()).hexdigest()
     assert approval["receipt_digest"] == receipt["receipt_digest"]
     assert approval["receipt_blob_digest"] == submitted_digest
+
+    for command in ("status", "evidence", "inspect"):
+        assert (
+            main(
+                [
+                    "barebones",
+                    command,
+                    "cli-e1",
+                    "--repository-root",
+                    str(tmp_path),
+                ]
+            )
+            == 0
+        )
+        publication = json.loads(capsys.readouterr().out)
+        assert publication["approval"] == {
+            "status": "VERIFIED",
+            "authority": "fixture-human",
+            "receipt_digest": receipt["receipt_digest"],
+        }
 
 
 def test_unapproved_contract_is_rejected_before_provider(

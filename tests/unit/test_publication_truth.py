@@ -10,10 +10,13 @@ def test_readme_capability_evidence_does_not_claim_stale_exact_head_links() -> N
     readme = (ROOT / "README.md").read_text()
 
     assert "exact-head" not in readme.lower()
-    assert re.search(
-        r"github\.com/Abhillashjadhav/production-engineering-os/blob/[0-9a-f]{40}/",
-        readme,
-    ) is None
+    assert (
+        re.search(
+            r"github\.com/Abhillashjadhav/production-engineering-os/blob/[0-9a-f]{40}/",
+            readme,
+        )
+        is None
+    )
 
 
 def test_legacy_architecture_and_plan_surfaces_are_marked_historical() -> None:
