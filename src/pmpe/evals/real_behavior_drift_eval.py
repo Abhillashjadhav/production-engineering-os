@@ -15,6 +15,7 @@ import signal
 import subprocess
 import sys
 import tarfile
+import tempfile
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -107,10 +108,16 @@ CONTROL_COMPARISONS = frozenset(
 )
 
 
-def _command(argv: list[str], *, environment: dict[str, str], timeout: int) -> tuple[int, str]:
+def _command(
+    argv: list[str],
+    *,
+    environment: dict[str, str],
+    timeout: int,
+    cwd: Path = ROOT,
+) -> tuple[int, str]:
     process = subprocess.Popen(
         argv,
-        cwd=ROOT,
+        cwd=cwd,
         env=environment,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -193,8 +200,8 @@ def _preflight(environment: dict[str, str]) -> dict[str, str]:
     return resolved
 
 
-def _pmpe_command() -> list[str]:
-    source_root = str(ROOT / "src")
+def _pmpe_command(source_checkout: Path = ROOT) -> list[str]:
+    source_root = str(source_checkout / "src")
     launcher = (
         f"import sys;sys.path.insert(0,{source_root!r});"
         "from pmpe.cli import main;raise SystemExit(main())"
@@ -219,6 +226,56 @@ def _json_file(path: Path, value: Any) -> None:
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _materialize_source_snapshot(
+    destination: Path,
+    *,
+    git_executable: str,
+    git_head: str,
+    environment: dict[str, str],
+) -> dict[str, str]:
+    """Extract one content-addressed Git tree and make it read-only for all children."""
+
+    if destination.exists():
+        raise RuntimeError("source snapshot destination already exists")
+    destination.mkdir(parents=True)
+    try:
+        with tempfile.TemporaryFile() as archive_file:
+            completed = subprocess.run(
+                [git_executable, "archive", "--format=tar", git_head],
+                cwd=ROOT,
+                env=environment,
+                stdout=archive_file,
+                stderr=subprocess.PIPE,
+                timeout=60,
+                check=False,
+            )
+            if completed.returncode != 0:
+                raise RuntimeError("could not archive the captured source commit")
+            archive_file.seek(0)
+            archive_hasher = hashlib.sha256()
+            while chunk := archive_file.read(1024 * 1024):
+                archive_hasher.update(chunk)
+            archive_file.seek(0)
+            with tarfile.open(fileobj=archive_file, mode="r:") as bundle:
+                bundle.extractall(destination, filter="data")
+    except (OSError, subprocess.SubprocessError, tarfile.TarError) as exc:
+        raise RuntimeError("could not materialize the captured source commit") from exc
+
+    snapshot_provider = destination / "examples/barebones/codex-cli-provider.py"
+    if not snapshot_provider.is_file():
+        raise RuntimeError("source snapshot does not contain the reviewed provider")
+    for path in sorted(destination.rglob("*"), key=lambda item: len(item.parts), reverse=True):
+        if path.is_symlink():
+            continue
+        path.chmod(0o555 if path.is_dir() else 0o444)
+    destination.chmod(0o555)
+    return {
+        "archive_digest": "sha256:" + archive_hasher.hexdigest(),
+        "git_head": git_head,
+        "provider_digest": "sha256:" + _sha256(snapshot_provider),
+    }
 
 
 def _source_identity(commands: dict[str, str], environment: dict[str, str]) -> dict[str, str]:
@@ -323,7 +380,11 @@ def _has_exact_planted_constant(content: str) -> bool:
 
 
 def _inspect_planted_behavior(
-    pmpe_command: list[str], evidence_root: Path, environment: dict[str, str]
+    pmpe_command: list[str],
+    evidence_root: Path,
+    environment: dict[str, str],
+    *,
+    source_checkout: Path = ROOT,
 ) -> dict[str, Any]:
     """Verify the requested plant in the immutable candidate ledger, not the workspace."""
 
@@ -341,6 +402,7 @@ def _inspect_planted_behavior(
             ],
             environment=environment,
             timeout=60,
+            cwd=source_checkout,
         )
         result = _parse_json(command_output)
         selected_file = result.get("selected_file") if isinstance(result, dict) else None
@@ -464,16 +526,28 @@ def main() -> int:
         directory.mkdir(parents=True)
 
     source_identity = _source_identity(commands, environment)
+    source_checkout = output / "source-snapshot"
+    snapshot_identity = _materialize_source_snapshot(
+        source_checkout,
+        git_executable=commands["git"],
+        git_head=source_identity["git_head"],
+        environment=environment,
+    )
+    if snapshot_identity["provider_digest"] != source_identity["provider_digest"]:
+        raise RuntimeError("captured source snapshot does not match the reviewed provider")
     source = {
         **source_identity,
         "auth_mode": "chatgpt",
         "created_at": datetime.now(UTC).isoformat(),
+        "execution_source": "read_only_git_snapshot",
         "paid_api_environment_removed": list(PAID_API_ENVIRONMENT),
+        "snapshot": snapshot_identity,
     }
     _json_file(output / "source.json", source)
 
-    provider_command = f"{shlex.quote(sys.executable)} {shlex.quote(str(PROVIDER))}"
-    pmpe_command = _pmpe_command()
+    snapshot_provider = source_checkout / "examples/barebones/codex-cli-provider.py"
+    provider_command = f"{shlex.quote(sys.executable)} {shlex.quote(str(snapshot_provider))}"
+    pmpe_command = _pmpe_command(source_checkout)
     run_results: list[dict[str, Any]] = []
     for spec in RUNS:
         print(f"running {spec.run_id} ({spec.prompt_profile})", flush=True)
@@ -484,7 +558,7 @@ def main() -> int:
             *pmpe_command,
             "barebones",
             "run",
-            str(ROOT / spec.contract),
+            str(source_checkout / spec.contract),
             "--workspace",
             str(candidates / spec.run_id),
             "--run-id",
@@ -492,7 +566,7 @@ def main() -> int:
             "--repository-root",
             str(evidence_root),
             "--approval-receipt",
-            str(ROOT / spec.receipt),
+            str(source_checkout / spec.receipt),
             "--expected-approver",
             spec.approver,
             "--provider-command",
@@ -504,6 +578,7 @@ def main() -> int:
             argv,
             environment=run_environment,
             timeout=_run_wrapper_timeout(args.provider_timeout),
+            cwd=source_checkout,
         )
         (logs / f"{spec.run_id}.log").write_text(command_output)
         run_results.append(
@@ -530,9 +605,14 @@ def main() -> int:
             "--expected-approver",
             MATRIX_APPROVER,
             "--compiler-root",
-            str(ROOT),
+            str(source_checkout),
         ]
-        exit_code, command_output = _command(argv, environment=environment, timeout=60)
+        exit_code, command_output = _command(
+            argv,
+            environment=environment,
+            timeout=60,
+            cwd=source_checkout,
+        )
         (comparisons / f"{name}.json").write_text(command_output)
         comparison_results.append(
             {
@@ -543,7 +623,12 @@ def main() -> int:
             }
         )
 
-    planted_behavior = _inspect_planted_behavior(pmpe_command, evidence_root, environment)
+    planted_behavior = _inspect_planted_behavior(
+        pmpe_command,
+        evidence_root,
+        environment,
+        source_checkout=source_checkout,
+    )
     source_reverification = _reverify_source_identity(source_identity, commands, environment)
     passed = source_reverification.get("status") == "PASS" and _gate_passes(
         run_results, comparison_results, planted_behavior

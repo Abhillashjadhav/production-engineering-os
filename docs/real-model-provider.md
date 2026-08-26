@@ -118,13 +118,15 @@ python examples/barebones/run_real_behavior_drift_eval.py
 
 The runner explicitly removes `OPENAI_API_KEY` and `CODEX_API_KEY`, rechecks ChatGPT login,
 requires a clean source checkout, and packages failures as evidence. Immediately before
-sealing the archive it re-verifies the Git head/worktree, provider digest, Codex CLI
-version, and Python version captured at the start. Any mid-matrix identity change fails
-the gate. A custom `--output-dir` must be outside the checkout so generated evidence
-cannot masquerade as source drift. The outer run wrapper covers the complete configured
-model-call budget plus bounded verification overhead, leaving each inner provider timeout
-responsible for fencing its complete Codex process group before the wrapper can advance
-the matrix. Every same-profile control repeat requires identical recorded provider,
+the matrix, it archives the captured Git commit, records the archive digest, makes the
+extracted tree read-only, and runs every PMPE/provider child from that snapshot instead of
+the mutable checkout. Immediately before sealing, it also re-verifies the original Git
+head/worktree, provider digest, Codex CLI version, and Python version captured at the start.
+A custom `--output-dir` must be outside the checkout so generated evidence cannot
+masquerade as source drift. The outer run wrapper covers the complete configured model-call
+budget plus bounded verification overhead, leaving each inner provider timeout responsible
+for fencing its complete Codex process group before the wrapper can advance the matrix.
+Every same-profile control repeat requires identical recorded provider,
 model, prompt, and known-or-unknown CLI fields plus zero configuration attribution, while
 still permitting visible, unattributed model-output variation. The planted experiment
 passes only when `prompt_version` is the sole recorded configuration change and sole

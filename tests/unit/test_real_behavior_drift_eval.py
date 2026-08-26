@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -70,6 +71,49 @@ def test_pmpe_command_binds_the_active_interpreter_to_this_checkout() -> None:
         environment=drift_eval._sanitized_environment(),
     )
     assert "usage: pmpe" in output
+
+
+def test_pmpe_command_can_bind_an_immutable_source_snapshot(tmp_path: Path) -> None:
+    command = drift_eval._pmpe_command(tmp_path / "source-snapshot")
+
+    assert str(tmp_path / "source-snapshot" / "src") in command[3]
+
+
+def test_source_snapshot_is_the_captured_git_tree_and_read_only(tmp_path: Path) -> None:
+    environment = drift_eval._sanitized_environment()
+    git_executable = shutil.which("git", path=environment.get("PATH"))
+    assert git_executable is not None
+    git_head = drift_eval._checked_output(
+        [git_executable, "rev-parse", "HEAD"],
+        environment=environment,
+    )
+    destination = tmp_path / "source-snapshot"
+
+    try:
+        identity = drift_eval._materialize_source_snapshot(
+            destination,
+            git_executable=git_executable,
+            git_head=git_head,
+            environment=environment,
+        )
+
+        provider = destination / "examples/barebones/codex-cli-provider.py"
+        assert identity == {
+            "archive_digest": identity["archive_digest"],
+            "git_head": git_head,
+            "provider_digest": "sha256:" + drift_eval._sha256(provider),
+        }
+        assert identity["archive_digest"].startswith("sha256:")
+        assert len(identity["archive_digest"]) == len("sha256:") + 64
+        assert not (destination / ".git").exists()
+        assert provider.stat().st_mode & 0o222 == 0
+        assert destination.stat().st_mode & 0o222 == 0
+    finally:
+        if destination.exists():
+            for path in sorted(destination.rglob("*"), key=lambda item: len(item.parts)):
+                if not path.is_symlink():
+                    path.chmod(0o755 if path.is_dir() else 0o644)
+            destination.chmod(0o755)
 
 
 def test_run_wrapper_timeout_covers_the_complete_model_call_budget() -> None:
@@ -214,9 +258,18 @@ def test_planted_behavior_is_read_from_both_sealed_candidates(
 ) -> None:
     calls: list[list[str]] = []
 
-    def command(argv: list[str], *, environment: dict[str, str], timeout: int) -> tuple[int, str]:
+    source_checkout = tmp_path / "source-snapshot"
+
+    def command(
+        argv: list[str],
+        *,
+        environment: dict[str, str],
+        timeout: int,
+        cwd: Path,
+    ) -> tuple[int, str]:
         assert environment == {"PATH": "/trusted"}
         assert timeout == 60
+        assert cwd == source_checkout
         calls.append(argv)
         run_id = argv[argv.index("inspect") + 1]
         content = (
@@ -237,7 +290,10 @@ def test_planted_behavior_is_read_from_both_sealed_candidates(
     monkeypatch.setattr(drift_eval, "_command", command)
 
     result = drift_eval._inspect_planted_behavior(
-        ["python", "-m", "pmpe"], tmp_path / "evidence", {"PATH": "/trusted"}
+        ["python", "-m", "pmpe"],
+        tmp_path / "evidence",
+        {"PATH": "/trusted"},
+        source_checkout=source_checkout,
     )
 
     assert result["baseline_observed"] is False
