@@ -14,6 +14,8 @@ from pmpe import barebones as barebones_runtime
 from pmpe.barebones import BudgetCaps, RunState, run_to_release_ready
 from pmpe.cli import barebones_cmd, build_parser, main
 from pmpe.cli.barebones_cmd import CommandModelProvider
+from pmpe.contracts.canonical import canonical_digest
+from pmpe.domain.errors import ContractViolation
 
 _REPOSITORY = Path(__file__).parents[2]
 
@@ -617,3 +619,215 @@ def test_default_provider_timeout_allows_the_codex_xhigh_budget() -> None:
     )
 
     assert args.provider_timeout == 960
+
+
+class _ComparableProvider:
+    def __init__(
+        self,
+        *,
+        variant: str,
+        prompt_version: str = "prompt-v1",
+        cli_version: str = "codex-cli_1.0.0",
+    ) -> None:
+        self.variant = variant
+        self.prompt_version = prompt_version
+        self.cli_version = cli_version
+
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        metadata = {
+            "provider": "real-provider-fixture",
+            "model": "gpt-example",
+            "prompt_version": self.prompt_version,
+            "cli_version": self.cli_version,
+        }
+        if purpose == "code":
+            return {
+                "request_digest": request["request_digest"],
+                "provider_metadata": metadata,
+                "files": {
+                    "product.py": (
+                        f'"""{self.variant}."""\n\n'
+                        "def health() -> dict[str, str]:\n"
+                        '    return {"status": "ok"}\n'
+                    )
+                },
+            }
+        return {
+            "request_digest": request["request_digest"],
+            "provider_metadata": metadata,
+            "summary": "Deterministic checks passed.",
+        }
+
+
+def _approved_comparable_run(
+    root: Path,
+    *,
+    run_id: str,
+    variant: str,
+    prompt_version: str = "prompt-v1",
+) -> None:
+    contract_path = _REPOSITORY / "examples/barebones/e1-contract.json"
+    receipt_path = _REPOSITORY / "examples/barebones/e1-approval-receipt.json"
+    contract = json.loads(contract_path.read_text())
+    receipt_source = receipt_path.read_bytes()
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=root,
+        workspace=root / "candidate",
+        run_id=run_id,
+        provider=_ComparableProvider(
+            variant=variant,
+            prompt_version=prompt_version,
+        ),
+        approval_receipt=json.loads(receipt_source),
+        approval_authority="fixture-human",
+        approval_receipt_bytes=receipt_source,
+    )
+    assert result.state is RunState.RELEASE_READY
+
+
+def test_compare_uses_verified_ledgers_and_keeps_candidate_variation_visible(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(
+        baseline_root,
+        run_id="baseline",
+        variant="first candidate",
+    )
+    _approved_comparable_run(
+        current_root,
+        run_id="current",
+        variant="second candidate",
+        prompt_version="prompt-v2",
+    )
+
+    result = main(
+        [
+            "barebones",
+            "compare",
+            "baseline",
+            "current",
+            "--baseline-root",
+            str(baseline_root),
+            "--current-root",
+            str(current_root),
+        ]
+    )
+
+    assert result == 0
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["status"] == "COMPARABLE"
+    assert comparison["plan_repeatable"] is True
+    assert comparison["candidate_variation"]["detected"] is True
+    assert comparison["behavior_drift"]["detected"] is True
+    assert comparison["behavior_drift"]["cause"] == "PROVIDER_CONFIGURATION_CHANGED"
+    assert comparison["behavior_drift"]["attribution"] == ["prompt_version"]
+    assert comparison["baseline"]["provider_behavior"]["cli_version"] == "codex-cli_1.0.0"
+
+
+def test_compare_fails_closed_for_different_provider_requests(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(
+        baseline_root,
+        run_id="baseline",
+        variant="first candidate",
+    )
+    contract = json.loads((_REPOSITORY / "examples/barebones/e1-contract.json").read_text())
+    contract["contract_status"] = "DRAFT"
+    contract["approved_by"] = ""
+    contract["approved_at"] = ""
+    contract["functional_requirements"]["FR-001"]["statement"] = "A different request"
+    draft_digest = canonical_digest(contract)
+    approved_contract = json.loads(json.dumps(contract))
+    approved_contract["contract_status"] = "APPROVED"
+    approved_contract["approved_by"] = "fixture-human"
+    approved_contract["approved_at"] = "2026-08-26T15:00:00Z"
+    receipt = {
+        "approved_at": approved_contract["approved_at"],
+        "approved_by": approved_contract["approved_by"],
+        "approved_contract_digest": canonical_digest(approved_contract),
+        "contract_id": approved_contract["contract_id"],
+        "contract_version": approved_contract["contract_version"],
+        "decision": "APPROVED",
+        "draft_digest": draft_digest,
+        "schema_version": "1.0.0",
+    }
+    receipt["receipt_digest"] = canonical_digest(receipt)
+    receipt_source = json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode()
+    result = run_to_release_ready(
+        contract=approved_contract,
+        repository_root=current_root,
+        workspace=current_root / "candidate",
+        run_id="current",
+        provider=_ComparableProvider(variant="second candidate"),
+        approval_receipt=receipt,
+        approval_authority="fixture-human",
+        approval_receipt_bytes=receipt_source,
+    )
+    assert result.state is RunState.RELEASE_READY
+
+    exit_code = main(
+        [
+            "barebones",
+            "compare",
+            "baseline",
+            "current",
+            "--baseline-root",
+            str(baseline_root),
+            "--current-root",
+            str(current_root),
+        ]
+    )
+
+    assert exit_code == 3
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["status"] == "NOT_COMPARABLE"
+    assert comparison["cause"] == "CONTRACT_CHANGED"
+
+
+def test_compare_reverifies_approval_binding(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(
+        baseline_root,
+        run_id="baseline",
+        variant="first candidate",
+    )
+    _approved_comparable_run(
+        current_root,
+        run_id="current",
+        variant="second candidate",
+    )
+
+    def reject_approval(*args: object, **kwargs: object) -> str:
+        raise ContractViolation("injected approval mismatch")
+
+    monkeypatch.setattr(barebones_cmd, "verify_contract_approval", reject_approval)
+
+    exit_code = main(
+        [
+            "barebones",
+            "compare",
+            "baseline",
+            "current",
+            "--baseline-root",
+            str(baseline_root),
+            "--current-root",
+            str(current_root),
+        ]
+    )
+
+    assert exit_code == 3
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["state"] == "HALTED"
+    assert comparison["cause"] == "EVIDENCE_INVALID"
+    assert comparison["detail"] == "approval evidence is not bound to the contract"

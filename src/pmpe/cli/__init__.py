@@ -33,7 +33,7 @@ _LEGACY_COMMANDS = frozenset(
         "support-demo",
     }
 )
-_BAREBONES_COMMANDS = frozenset({"compile", "run", "status", "evidence", "inspect"})
+_BAREBONES_COMMANDS = frozenset({"compare", "compile", "run", "status", "evidence", "inspect"})
 
 
 class PlatformArgumentParser(argparse.ArgumentParser):

@@ -15,13 +15,13 @@ and behavior drift as separate claims.
 
 ## Behavior drift
 
-`pmpe.evals.barebones_drift` compares two recorded responses only when they have the
-same purpose and request digest. It hashes the behavior-bearing output (`files` for
-Coder responses or `summary` for advisory responses) separately from adapter-declared
-provider, model, and prompt versions.
+`pmpe barebones compare` verifies two complete ledgers, requires digest-bound approval
+and sealed `RELEASE_READY` candidates, then compares the final Coder responses only when
+their contract, plan, purpose, and request digests match. It hashes the behavior-bearing
+file map separately from adapter-declared provider, model, prompt, and CLI versions.
 
 - Identical output is not behavior drift, even if a prompt version changed.
-- Changed output with a changed provider/model/prompt version is detected and
+- Changed output with a changed provider/model/prompt/CLI version is detected and
   attributed to the changed configuration fields.
 - Changed output without any recorded configuration change is
   `UNATTRIBUTED_BEHAVIOR_DRIFT`.
@@ -30,6 +30,27 @@ provider, model, and prompt versions.
 Provider metadata is adapter-declared provenance, not an independent attestation. A
 promotion claim should bind it to the provider command/configuration and the complete
 run evidence.
+
+The comparison also reports plan repeatability and candidate-digest variation. Different
+contracts or plans return `NOT_COMPARABLE`; their separate runs still provide transfer
+evidence, but are not mislabeled as behavior drift.
+
+## Real evidence matrix
+
+On an authenticated Linux host, run:
+
+```bash
+python examples/barebones/run_real_behavior_drift_eval.py
+```
+
+The script fails closed unless Codex reports ChatGPT authentication, Bubblewrap isolation
+works, `/proc` is mounted, and tracked source is clean. It removes paid-API credential
+variables from every child environment and executes seven runs: three E1 repeats, one
+planted prompt-version change, and three repeats of a digest-approved synthetic
+multi-criterion readiness contract. It packages every candidate, ledger, log, comparison,
+summary, and checksum into one `.tgz`. A failed run is retained in the same report rather
+than discarded. This second fixture tests contract/criterion transfer, not external product
+authorship or transfer to another product type.
 
 ## Why E5 allows candidate variation
 

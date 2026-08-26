@@ -404,6 +404,39 @@ def test_optional_cli_version_probe_does_not_change_prompt_identity(
     )
 
 
+def test_planted_drift_profile_changes_prompt_and_records_exact_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _provider_module()
+    fake = _FakeCodex()
+    _install_fake(provider, monkeypatch, fake)
+    monkeypatch.setenv("PMPE_CODEX_PROMPT_PROFILE", "drift-eval-v2")
+
+    response = provider._invoke(_message(), "/usr/bin/codex")
+
+    assert (
+        response["provider_metadata"]["prompt_version"]
+        == "pmpe-barebones-codex-cli-v1;profile=drift-eval-v2;effort=xhigh"
+    )
+    assert b"PMPE_PROMPT_PROFILE" in fake.calls[2]["input"]
+    assert b"drift-eval-v2" in fake.calls[2]["input"]
+    assert "PMPE_CODEX_PROMPT_PROFILE" not in fake.calls[2]["environment"]
+
+
+def test_unknown_prompt_profile_fails_before_authentication(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _provider_module()
+    fake = _FakeCodex()
+    _install_fake(provider, monkeypatch, fake)
+    monkeypatch.setenv("PMPE_CODEX_PROMPT_PROFILE", "unreviewed")
+
+    with pytest.raises(provider.ProviderError, match="CODEX_PROMPT_PROFILE_INVALID"):
+        provider._invoke(_message(), "/usr/bin/codex")
+
+    assert fake.calls == []
+
+
 def test_truncated_auth_preflight_fails_closed(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

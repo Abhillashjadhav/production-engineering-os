@@ -96,8 +96,27 @@ These controls have precise limits:
 The adapter records the Codex CLI version without imposing a version allowlist.
 `prompt_version` contains only the adapter version and reasoning effort; the optional
 CLI-version probe is separate telemetry, so a transient failed probe cannot be
-misreported as a prompt-configuration change. The current behavior comparator does not
-attribute CLI-version changes separately; they remain visible in the raw evidence.
+misreported as a prompt-configuration change. Behavior comparison records CLI-version
+changes as a separate attribution field.
+
+The `model` field records the configured Codex model name; ChatGPT subscription auth does
+not make that name an immutable provider-version pin. The #146 matrix therefore requires
+attribution only for its planted `prompt_version` change and must not claim model-version
+causality when the provider does not expose one.
+
+Issue #146 also defines one planted, allowlisted prompt profile named `drift-eval-v2`.
+It exists only to prove that a real behavior change can be detected alongside a recorded
+prompt-version change. Unknown profile names fail before authentication or model execution.
+The default profile and its historical `prompt_version` remain unchanged.
+
+Run the complete repeated-provider matrix with:
+
+```bash
+python examples/barebones/run_real_behavior_drift_eval.py
+```
+
+The runner explicitly removes `OPENAI_API_KEY` and `CODEX_API_KEY`, rechecks ChatGPT login,
+and packages failures as evidence. It does not silently fall back to the Responses API.
 
 ## Responses API adapter
 

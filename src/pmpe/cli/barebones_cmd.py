@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import selectors
 import shlex
 import signal
@@ -14,17 +15,24 @@ import tempfile
 import time
 from collections.abc import Callable, Mapping
 from contextlib import suppress
+from dataclasses import asdict
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
 from pmpe.barebones import ContractInvalidError, compile_barebones_plan, run_to_release_ready
 from pmpe.contracts.acceptance import AcceptanceCompileError
 from pmpe.contracts.authoring import verify_contract_approval
-from pmpe.contracts.canonical import CanonicalInputError, strict_loads
+from pmpe.contracts.canonical import CanonicalInputError, canonical_digest, strict_loads
 from pmpe.domain.errors import ContractViolation
+from pmpe.evals.barebones_drift import (
+    ProviderBehavior,
+    compare_provider_behavior,
+    observe_provider_behavior,
+)
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 
 _PROVIDER_OUTPUT_LIMIT_BYTES = 1_000_000
+_SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
 
 def _json(payload: Mapping[str, Any]) -> None:
@@ -301,17 +309,23 @@ def _run(args: argparse.Namespace) -> int:
     return 0 if result.state == "RELEASE_READY" else 3
 
 
-def _verified_events(
-    args: argparse.Namespace,
+def _open_verified_events(
+    repository_root: Path, run_id: str
 ) -> tuple[EvidenceLedger, tuple[Mapping[str, Any], ...]]:
     try:
-        ledger = EvidenceLedger.open_existing(Path(args.repository_root).resolve(), args.run_id)
+        ledger = EvidenceLedger.open_existing(repository_root.resolve(), run_id)
     except ValueError as exc:
         raise EvidenceIntegrityError(str(exc)) from exc
     events = tuple(ledger.verify())
     if not events:
         raise EvidenceIntegrityError("evidence ledger is empty")
     return ledger, events
+
+
+def _verified_events(
+    args: argparse.Namespace,
+) -> tuple[EvidenceLedger, tuple[Mapping[str, Any], ...]]:
+    return _open_verified_events(Path(args.repository_root), args.run_id)
 
 
 def _evidence_invalid(exc: EvidenceIntegrityError) -> int:
@@ -396,6 +410,201 @@ def _evidence(args: argparse.Namespace) -> int:
             "events_path": str(ledger.events_path),
             "blobs_directory": str(ledger.blobs_directory),
             "approval": approval,
+        }
+    )
+    return 0
+
+
+def _comparison_observation(repository_root: Path, run_id: str) -> dict[str, Any]:
+    ledger, events = _open_verified_events(repository_root, run_id)
+    validation_events = [
+        event for event in events if event.get("event_type") == "contract_validated"
+    ]
+    if len(validation_events) != 1:
+        raise EvidenceIntegrityError("run does not contain one contract validation event")
+    validation = validation_events[0]
+    validation_payload = validation.get("payload")
+    if not isinstance(validation_payload, Mapping):
+        raise EvidenceIntegrityError("contract validation evidence is malformed")
+    contract_digest = validation_payload.get("contract_digest")
+    plan_digest = validation_payload.get("plan_digest")
+    approval = validation_payload.get("approval")
+    validation_blobs = validation.get("blob_digests")
+    if (
+        not isinstance(contract_digest, str)
+        or not isinstance(plan_digest, str)
+        or not isinstance(approval, Mapping)
+        or not isinstance(validation_blobs, list)
+        or contract_digest not in validation_blobs
+        or _SHA256.fullmatch(contract_digest) is None
+        or _SHA256.fullmatch(plan_digest) is None
+        or validation.get("subject_digest") != contract_digest
+    ):
+        raise EvidenceIntegrityError("contract or plan identity is malformed")
+    authority = approval.get("authority")
+    receipt_digest = approval.get("receipt_digest")
+    receipt_blob_digest = approval.get("receipt_blob_digest")
+    if (
+        approval.get("status") != "VERIFIED"
+        or not isinstance(authority, str)
+        or not authority
+        or not isinstance(receipt_digest, str)
+        or _SHA256.fullmatch(receipt_digest) is None
+        or not isinstance(receipt_blob_digest, str)
+        or _SHA256.fullmatch(receipt_blob_digest) is None
+        or receipt_blob_digest not in validation_blobs
+    ):
+        raise EvidenceIntegrityError("behavior comparison requires verified approval evidence")
+    plan_blob_digests = [
+        digest
+        for digest in validation_blobs
+        if digest not in {contract_digest, receipt_blob_digest}
+    ]
+    if (
+        len(plan_blob_digests) != 1
+        or not isinstance(plan_blob_digests[0], str)
+        or _SHA256.fullmatch(plan_blob_digests[0]) is None
+    ):
+        raise EvidenceIntegrityError("contract or plan identity is malformed")
+    try:
+        contract = strict_loads(ledger.read_blob(contract_digest), "application/json")
+        plan = strict_loads(ledger.read_blob(plan_blob_digests[0]), "application/json")
+        receipt = strict_loads(ledger.read_blob(receipt_blob_digest), "application/json")
+    except CanonicalInputError as exc:
+        raise EvidenceIntegrityError("contract, plan, or approval evidence is malformed") from exc
+    if (
+        not isinstance(contract, dict)
+        or not isinstance(plan, dict)
+        or not isinstance(receipt, dict)
+    ):
+        raise EvidenceIntegrityError("contract, plan, or approval evidence is malformed")
+    if (
+        canonical_digest(contract) != contract_digest
+        or plan.get("contract_digest") != contract_digest
+        or plan.get("plan_digest") != plan_digest
+    ):
+        raise EvidenceIntegrityError("contract or plan evidence is not digest-bound")
+    try:
+        verified_receipt_digest = verify_contract_approval(
+            contract,
+            receipt,
+            expected_approver=authority,
+        )
+    except ContractViolation as exc:
+        raise EvidenceIntegrityError("approval evidence is not bound to the contract") from exc
+    if verified_receipt_digest != receipt_digest:
+        raise EvidenceIntegrityError("approval receipt identity is inconsistent")
+
+    coder_events = [event for event in events if event.get("event_type") == "coder_completed"]
+    if not coder_events:
+        raise EvidenceIntegrityError("run has no recorded Coder behavior")
+    coder_event = coder_events[-1]
+    coder_blobs = coder_event.get("blob_digests")
+    if not isinstance(coder_blobs, list) or len(coder_blobs) != 1:
+        raise EvidenceIntegrityError("Coder response evidence is malformed")
+    try:
+        response = strict_loads(ledger.read_blob(coder_blobs[0]), "application/json")
+    except CanonicalInputError as exc:
+        raise EvidenceIntegrityError("Coder response evidence is malformed") from exc
+    if not isinstance(response, Mapping):
+        raise EvidenceIntegrityError("Coder response evidence is malformed")
+    try:
+        behavior = observe_provider_behavior(purpose="code", response=response)
+    except ValueError as exc:
+        raise EvidenceIntegrityError("Coder behavior evidence is malformed") from exc
+    coder_payload = coder_event.get("payload")
+    recorded_behavior = (
+        coder_payload.get("provider_behavior") if isinstance(coder_payload, Mapping) else None
+    )
+    observed_behavior = asdict(behavior)
+    required_behavior_fields = {
+        "purpose",
+        "request_digest",
+        "output_digest",
+        "provider",
+        "model",
+        "prompt_version",
+    }
+    if (
+        not isinstance(recorded_behavior, Mapping)
+        or not required_behavior_fields.issubset(recorded_behavior)
+        or any(
+            key not in observed_behavior or observed_behavior[key] != value
+            for key, value in recorded_behavior.items()
+        )
+    ):
+        raise EvidenceIntegrityError("normalized Coder behavior does not match its response")
+
+    candidate_digest, _ = _candidate_manifest(ledger, events[-1])
+    return {
+        "run_id": run_id,
+        "contract_digest": contract_digest,
+        "plan_digest": plan_digest,
+        "candidate_digest": candidate_digest,
+        "provider_behavior": observed_behavior,
+        "events": len(events),
+        "head_event_digest": events[-1].get("event_digest"),
+    }
+
+
+def _compare(args: argparse.Namespace) -> int:
+    try:
+        baseline = _comparison_observation(Path(args.baseline_root), args.baseline_run_id)
+        current = _comparison_observation(Path(args.current_root), args.current_run_id)
+    except EvidenceIntegrityError as exc:
+        return _evidence_invalid(exc)
+    common: dict[str, Any] = {"baseline": baseline, "current": current}
+    for field, cause in (
+        ("contract_digest", "CONTRACT_CHANGED"),
+        ("plan_digest", "PLAN_CHANGED"),
+    ):
+        if baseline[field] != current[field]:
+            _json({"status": "NOT_COMPARABLE", "cause": cause, **common})
+            return 3
+    try:
+        baseline_behavior = ProviderBehavior(
+            **{
+                key: baseline["provider_behavior"][key]
+                for key in (
+                    "purpose",
+                    "request_digest",
+                    "output_digest",
+                    "provider",
+                    "model",
+                    "prompt_version",
+                    "cli_version",
+                )
+            }
+        )
+        current_behavior = ProviderBehavior(
+            **{
+                key: current["provider_behavior"][key]
+                for key in (
+                    "purpose",
+                    "request_digest",
+                    "output_digest",
+                    "provider",
+                    "model",
+                    "prompt_version",
+                    "cli_version",
+                )
+            }
+        )
+        drift = compare_provider_behavior(baseline_behavior, current_behavior)
+    except (KeyError, TypeError, ValueError):
+        _json({"status": "NOT_COMPARABLE", "cause": "PROVIDER_REQUEST_CHANGED", **common})
+        return 3
+    _json(
+        {
+            "status": "COMPARABLE",
+            "plan_repeatable": True,
+            "candidate_variation": {
+                "detected": baseline["candidate_digest"] != current["candidate_digest"],
+                "baseline_digest": baseline["candidate_digest"],
+                "current_digest": current["candidate_digest"],
+            },
+            "behavior_drift": asdict(drift),
+            **common,
         }
     )
     return 0
@@ -606,3 +815,12 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     inspect_parser.add_argument("--workspace")
     inspect_parser.add_argument("--file")
     inspect_parser.set_defaults(fn=_inspect)
+
+    compare_parser = commands.add_parser(
+        "compare", help="compare two verified RELEASE_READY provider runs"
+    )
+    compare_parser.add_argument("baseline_run_id")
+    compare_parser.add_argument("current_run_id")
+    compare_parser.add_argument("--baseline-root", default=".")
+    compare_parser.add_argument("--current-root", default=".")
+    compare_parser.set_defaults(fn=_compare)
