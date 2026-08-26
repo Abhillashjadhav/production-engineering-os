@@ -102,6 +102,25 @@ Prices are not hard-coded; the operator supplies the rates recorded in the evide
 bundle. Do not put credentials in a contract, provider command, candidate workspace,
 shell history, evidence directory, or committed file.
 
+### Run E1 on GitHub's Linux runner
+
+The manual `real-e1-evidence` Actions workflow provides the normal Linux `/proc`,
+Bubblewrap, and `prlimit` environment required by the candidate sandbox. It has
+read-only repository permission, never runs for a pull request or push, and requires
+the explicit `RUN_REAL_E1` paid-run confirmation.
+
+Before the first run, add an Actions repository secret named `OPENAI_API_KEY`. Put the
+key only in that secret; never paste it into a workflow input, issue, PR, chat, or file.
+Then open **Actions → real-e1-evidence → Run workflow**, select `RUN_REAL_E1`, and run
+it from merged `main`.
+
+The workflow uses `gpt-5.6-sol` and records the operator rates current on 2026-08-26
+($4 per million input tokens and $20 per million output tokens). It uploads the run
+output, candidate, complete hidden evidence directory, validation results, and a
+SHA-256 manifest even when execution halts. The workflow remains failed unless the
+engine reaches a successful terminal state and every evidence/inspection command
+passes.
+
 ## Usage mapping
 
 PEOS consumes `usage.input_tokens`, `usage.output_tokens`, and an optional

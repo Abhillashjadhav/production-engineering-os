@@ -1,0 +1,182 @@
+name: real-e1-evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_paid_run:
+        description: "This run calls the paid OpenAI API"
+        required: true
+        default: CANCEL
+        type: choice
+        options:
+          - CANCEL
+          - RUN_REAL_E1
+
+permissions:
+  contents: read
+
+concurrency:
+  group: real-e1-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  real-e1:
+    if: inputs.confirm_paid_run == 'RUN_REAL_E1'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      RUN_ID: real-e1-${{ github.run_id }}-${{ github.run_attempt }}
+      RUN_ROOT: ${{ runner.temp }}/pmpe-real-e1
+      ARTIFACT_ROOT: ${{ runner.temp }}/pmpe-real-e1-artifact
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Prepare evidence output
+        run: |
+          mkdir -p "$ARTIFACT_ROOT"
+          {
+            echo "repository=$GITHUB_REPOSITORY"
+            echo "commit=$GITHUB_SHA"
+            echo "run_id=$RUN_ID"
+          } > "$ARTIFACT_ROOT/preflight.txt"
+
+      - name: Require the private API credential
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [[ -z "$OPENAI_API_KEY" ]]; then
+            echo "::error::Add OPENAI_API_KEY as a repository Actions secret. Never paste it into a workflow input or repository file."
+            exit 1
+          fi
+
+      - name: Install candidate isolation runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap util-linux
+          sudo tee /etc/apparmor.d/pmpe-bwrap >/dev/null <<'EOF'
+          abi <abi/4.0>,
+          include <tunables/global>
+          /usr/bin/bwrap flags=(unconfined) {
+            userns,
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/pmpe-bwrap
+
+      - name: Install PMPE
+        run: pip install -e ".[dev]"
+
+      - name: Compile the approved contract
+        run: |
+          mkdir -p "$RUN_ROOT"
+          pmpe barebones compile examples/barebones/e1-contract.json \
+            --repository-root "$RUN_ROOT/evidence" \
+            | tee "$ARTIFACT_ROOT/compile.json"
+
+      - name: Run real E1
+        id: real_e1
+        continue-on-error: true
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          PMPE_OPENAI_MODEL: gpt-5.6-sol
+          PMPE_OPENAI_INPUT_USD_PER_MILLION: "4"
+          PMPE_OPENAI_OUTPUT_USD_PER_MILLION: "20"
+        run: |
+          set +e
+          pmpe barebones run examples/barebones/e1-contract.json \
+            --workspace "$RUN_ROOT/candidate" \
+            --run-id "$RUN_ID" \
+            --repository-root "$RUN_ROOT/evidence" \
+            --approval-receipt examples/barebones/e1-approval-receipt.json \
+            --expected-approver fixture-human \
+            --provider-command "python $GITHUB_WORKSPACE/examples/barebones/openai-responses-provider.py" \
+            2>&1 | tee "$ARTIFACT_ROOT/run-output.json"
+          run_exit="${PIPESTATUS[0]}"
+          set -e
+          echo "exit_code=$run_exit" >> "$GITHUB_OUTPUT"
+          exit "$run_exit"
+
+      - name: Validate and package all evidence
+        id: package
+        if: always()
+        run: |
+          set +e
+          pmpe barebones status "$RUN_ID" \
+            --repository-root "$RUN_ROOT/evidence" \
+            2>&1 | tee "$ARTIFACT_ROOT/status.json"
+          status_exit="${PIPESTATUS[0]}"
+          pmpe barebones evidence "$RUN_ID" \
+            --repository-root "$RUN_ROOT/evidence" \
+            2>&1 | tee "$ARTIFACT_ROOT/evidence-validation.json"
+          evidence_exit="${PIPESTATUS[0]}"
+          pmpe barebones inspect "$RUN_ID" \
+            --repository-root "$RUN_ROOT/evidence" \
+            --workspace "$RUN_ROOT/candidate" \
+            2>&1 | tee "$ARTIFACT_ROOT/candidate-inspection.json"
+          inspect_exit="${PIPESTATUS[0]}"
+          set -e
+
+          if [[ -d "$RUN_ROOT/evidence" ]]; then
+            mkdir -p "$ARTIFACT_ROOT/evidence"
+            cp -a "$RUN_ROOT/evidence/." "$ARTIFACT_ROOT/evidence/"
+          fi
+          if [[ -d "$RUN_ROOT/candidate" ]]; then
+            mkdir -p "$ARTIFACT_ROOT/candidate"
+            cp -a "$RUN_ROOT/candidate/." "$ARTIFACT_ROOT/candidate/"
+          fi
+
+          {
+            echo "# Real E1 execution"
+            echo
+            echo "- Repository: $GITHUB_REPOSITORY"
+            echo "- Commit: $GITHUB_SHA"
+            echo "- Run ID: $RUN_ID"
+            echo "- Engine exit: ${{ steps.real_e1.outputs.exit_code }}"
+            echo "- Status validation exit: $status_exit"
+            echo "- Evidence validation exit: $evidence_exit"
+            echo "- Candidate inspection exit: $inspect_exit"
+            echo "- Model: gpt-5.6-sol"
+          } > "$ARTIFACT_ROOT/summary.md"
+
+          (
+            cd "$ARTIFACT_ROOT"
+            find . -type f ! -name SHA256SUMS -print0 \
+              | sort -z \
+              | xargs -0 sha256sum > SHA256SUMS
+          )
+
+          echo "status_exit=$status_exit" >> "$GITHUB_OUTPUT"
+          echo "evidence_exit=$evidence_exit" >> "$GITHUB_OUTPUT"
+          echo "inspect_exit=$inspect_exit" >> "$GITHUB_OUTPUT"
+
+          cat "$ARTIFACT_ROOT/summary.md" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload complete evidence package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-e1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/pmpe-real-e1-artifact/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce successful terminal evidence
+        if: always()
+        env:
+          RUN_EXIT: ${{ steps.real_e1.outputs.exit_code }}
+          STATUS_EXIT: ${{ steps.package.outputs.status_exit }}
+          EVIDENCE_EXIT: ${{ steps.package.outputs.evidence_exit }}
+          INSPECT_EXIT: ${{ steps.package.outputs.inspect_exit }}
+        run: |
+          for result in "$RUN_EXIT" "$STATUS_EXIT" "$EVIDENCE_EXIT" "$INSPECT_EXIT"; do
+            if [[ "$result" != "0" ]]; then
+              echo "::error::Real E1 did not produce a complete RELEASE_READY evidence package."
+              exit 1
+            fi
+          done
