@@ -13,11 +13,13 @@ def test_real_e1_workflow_is_manual_read_only_and_evidence_preserving() -> None:
     assert "schedule:" not in workflow
     assert "contents: read" in workflow
     assert "contents: write" not in workflow
+    assert "environment: real-e1-paid" in workflow
     assert "confirm_paid_run" in workflow
     assert "RUN_REAL_E1" in workflow
     assert "github.ref == 'refs/heads/main'" in workflow
 
     assert "secrets.OPENAI_API_KEY" in workflow
+    assert "protected real-e1-paid environment" in workflow
     assert "gpt-5.6-sol" in workflow
     assert 'PMPE_OPENAI_INPUT_USD_PER_MILLION: "4"' in workflow
     assert 'PMPE_OPENAI_OUTPUT_USD_PER_MILLION: "20"' in workflow

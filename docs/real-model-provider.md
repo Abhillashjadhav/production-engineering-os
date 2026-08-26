@@ -109,10 +109,13 @@ Bubblewrap, and `prlimit` environment required by the candidate sandbox. It has
 read-only repository permission, runs only from merged `main` and never for a pull
 request or push, and requires the explicit `RUN_REAL_E1` paid-run confirmation.
 
-Before the first run, add an Actions repository secret named `OPENAI_API_KEY`. Put the
-key only in that secret; never paste it into a workflow input, issue, PR, chat, or file.
-Then open **Actions → real-e1-evidence → Run workflow**, select `RUN_REAL_E1`, and run
-it from merged `main`.
+Before the first run, create the GitHub environment `real-e1-paid`. Limit its deployment
+branch to `main`, add the API-key owner as its required reviewer, disable administrator
+bypass, and add `OPENAI_API_KEY` as an **environment secret** rather than a repository
+secret. Put the key only in that environment secret; never paste it into a workflow
+input, issue, PR, chat, or file. Then open **Actions → real-e1-evidence → Run
+workflow**, select `RUN_REAL_E1`, run it from merged `main`, and approve the protected
+environment prompt after checking the commit and run identity.
 
 The workflow uses `gpt-5.6-sol` and records the operator rates current on 2026-08-26
 ($4 per million input tokens and $20 per million output tokens). It uploads the run

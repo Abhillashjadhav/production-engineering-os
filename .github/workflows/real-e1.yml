@@ -24,6 +24,7 @@ jobs:
     if: inputs.confirm_paid_run == 'RUN_REAL_E1' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    environment: real-e1-paid
     env:
       RUN_ID: real-e1-${{ github.run_id }}-${{ github.run_attempt }}
       RUN_ROOT: ${{ runner.temp }}/pmpe-real-e1
@@ -51,7 +52,7 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           if [[ -z "$OPENAI_API_KEY" ]]; then
-            echo "::error::Add OPENAI_API_KEY as a repository Actions secret. Never paste it into a workflow input or repository file."
+            echo "::error::Add OPENAI_API_KEY to the protected real-e1-paid environment. Never paste it into a workflow input or repository file."
             exit 1
           fi
 
