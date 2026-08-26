@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -11,7 +12,7 @@ import pytest
 
 from pmpe import barebones as barebones_runtime
 from pmpe.barebones import BudgetCaps, RunState, run_to_release_ready
-from pmpe.cli import barebones_cmd, build_parser
+from pmpe.cli import barebones_cmd, build_parser, main
 from pmpe.cli.barebones_cmd import CommandModelProvider
 
 _REPOSITORY = Path(__file__).parents[2]
@@ -53,6 +54,26 @@ def test_barebones_cli_runs_a_contract_without_cloud_services(
     submitted_digest = "sha256:" + hashlib.sha256(receipt_path.read_bytes()).hexdigest()
     assert approval["receipt_digest"] == receipt["receipt_digest"]
     assert approval["receipt_blob_digest"] == submitted_digest
+
+    for command in ("status", "evidence", "inspect"):
+        assert (
+            main(
+                [
+                    "barebones",
+                    command,
+                    "cli-e1",
+                    "--repository-root",
+                    str(tmp_path),
+                ]
+            )
+            == 0
+        )
+        publication = json.loads(capsys.readouterr().out)
+        assert publication["approval"] == {
+            "status": "VERIFIED",
+            "authority": "fixture-human",
+            "receipt_digest": receipt["receipt_digest"],
+        }
 
 
 def test_unapproved_contract_is_rejected_before_provider(
@@ -519,3 +540,80 @@ def test_command_provider_output_is_bounded_before_capture() -> None:
             2,
             output_limit_bytes=32,
         )
+
+
+def test_provider_group_is_fenced_before_the_exited_leader_is_reaped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[object] = []
+
+    class ExitedProvider:
+        pid = 4321
+
+        def wait(self, timeout: float | None = None) -> int:
+            events.append(("wait", timeout))
+            return 7
+
+    def observed_waitid(*args: object) -> object:
+        events.append(("waitid", args))
+        return object()
+
+    def observed_killpg(pid: int, action: object) -> None:
+        events.append(("killpg", pid, action))
+
+    monkeypatch.setattr(barebones_cmd.os, "waitid", observed_waitid)
+    monkeypatch.setattr(barebones_cmd.os, "killpg", observed_killpg)
+    process = ExitedProvider()
+
+    assert barebones_cmd._wait_for_provider_exit_without_reaping(process, 1.0)  # type: ignore[arg-type]
+    assert barebones_cmd._fence_provider_group(process) == 7  # type: ignore[arg-type]
+    assert [event[0] for event in events] == ["waitid", "killpg", "wait"]  # type: ignore[index]
+
+
+def test_command_provider_propagates_outer_timeout_to_the_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    def completed(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        observed["args"] = args
+        observed["environment"] = kwargs.get("environment")
+        return subprocess.CompletedProcess(
+            ("provider",),
+            0,
+            b'{"request_digest":"bound","summary":"ok"}',
+            b"",
+        )
+
+    monkeypatch.setattr(barebones_cmd, "_run_provider_command", completed)
+
+    response = CommandModelProvider("provider", 960).invoke(
+        purpose="advisory_review", request={"request_digest": "bound"}
+    )
+
+    assert response["summary"] == "ok"
+    environment = observed["environment"]
+    assert isinstance(environment, dict)
+    assert environment["PMPE_PROVIDER_TIMEOUT_SECONDS"] == "960"
+
+
+def test_default_provider_timeout_allows_the_codex_xhigh_budget() -> None:
+    args = build_parser().parse_args(
+        [
+            "barebones",
+            "run",
+            "contract.json",
+            "--workspace",
+            "candidate",
+            "--run-id",
+            "run",
+            "--approval-receipt",
+            "receipt.json",
+            "--expected-approver",
+            "owner",
+            "--provider-command",
+            "provider",
+        ]
+    )
+
+    assert args.provider_timeout == 960

@@ -38,6 +38,11 @@ def test_default_candidate_sandbox_removes_host_authority(
 
     monkeypatch.setattr(barebones.subprocess, "run", completed)
     sandbox = BubblewrapCandidateSandbox()
+    monkeypatch.setattr(
+        sandbox,
+        "_runtime_roots",
+        lambda: (Path("/usr"), Path("/home/operator/project/.venv")),
+    )
     sandbox.run(
         workspace,
         ("/usr/bin/python3", "-V"),
@@ -55,7 +60,12 @@ def test_default_candidate_sandbox_removes_host_authority(
     assert ["--ro-bind", str(workspace), "/workspace"] == argv[
         argv.index(str(workspace)) - 1 : argv.index(str(workspace)) + 2
     ]
-    assert not {"/root", "/home"}.intersection(argv)
+    host_bind_sources = {
+        argv[index + 1]
+        for index, value in enumerate(argv[:-2])
+        if value in {"--ro-bind", "--ro-bind-try"}
+    }
+    assert not {"/root", "/home"}.intersection(host_bind_sources)
     assert observed["environment"] == {"LC_ALL": "C", "PATH": "/usr/local/bin:/usr/bin:/bin"}
 
 

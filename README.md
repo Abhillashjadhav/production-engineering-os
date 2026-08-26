@@ -8,11 +8,11 @@ An open-source, local-first reference implementation that compiles a machine-che
 
 | Capability | Evidence status |
 |---|---|
-| Deterministic contract compilation and compile-time rejection | Proven by [exact-head compiler tests](https://github.com/Abhillashjadhav/production-engineering-os/blob/8c096b18839d8265e0fb3cb6fd9660bb4dca9cd7/tests/unit/test_acceptance_compiler.py) in [exact-head CI #32654697877](https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/32654697877) |
-| Meaningful-RED baseline, bounded repair, and six-state engine | Proven by the [exact-head E1 fixture](https://github.com/Abhillashjadhav/production-engineering-os/blob/8c096b18839d8265e0fb3cb6fd9660bb4dca9cd7/tests/e2e/test_barebones_e1.py) and [planted eval suite](https://github.com/Abhillashjadhav/production-engineering-os/blob/8c096b18839d8265e0fb3cb6fd9660bb4dca9cd7/tests/e2e/test_barebones_evals.py) in [exact-head CI #32654697877](https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/32654697877) |
-| Hash-chained events and content-addressed evidence blobs | Proven by [exact-head ledger tests](https://github.com/Abhillashjadhav/production-engineering-os/blob/8c096b18839d8265e0fb3cb6fd9660bb4dca9cd7/tests/unit/test_evidence_ledger.py) in [exact-head CI #32654697877](https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/32654697877) |
-| Candidate execution with real Bubblewrap, no network, a read-only host view, bounded resources, symlink containment, and fail-closed composition | Proven by the [exact-head isolation tests](https://github.com/Abhillashjadhav/production-engineering-os/blob/8c096b18839d8265e0fb3cb6fd9660bb4dca9cd7/tests/unit/test_candidate_sandbox.py) in the dedicated Linux `candidate-isolation` matrix of [exact-head CI #32654697877](https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/32654697877) |
-| End-to-end scripted-provider `RELEASE_READY` engine path through real Bubblewrap | Proven by the [exact-head E1 fixture](https://github.com/Abhillashjadhav/production-engineering-os/blob/8c096b18839d8265e0fb3cb6fd9660bb4dca9cd7/tests/e2e/test_barebones_e1.py), with the local sandbox fixture disabled under `PMPE_TEST_REAL_SANDBOX=true`, in [exact-head CI #32654697877](https://github.com/Abhillashjadhav/production-engineering-os/actions/runs/32654697877) |
+| Deterministic contract compilation and compile-time rejection | Proven by the [compiler tests](tests/unit/test_acceptance_compiler.py) enforced in [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
+| Meaningful-RED baseline, bounded repair, and six-state engine | Proven by the [E1 fixture](tests/e2e/test_barebones_e1.py) and [planted eval suite](tests/e2e/test_barebones_evals.py) enforced in [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
+| Hash-chained events and content-addressed evidence blobs | Proven by the [ledger tests](tests/unit/test_evidence_ledger.py) enforced in [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
+| Candidate execution with real Bubblewrap, no network, a read-only host view, bounded resources, symlink containment, and fail-closed composition | Proven by the [isolation tests](tests/unit/test_candidate_sandbox.py) in the dedicated Linux `candidate-isolation` matrix of [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
+| End-to-end scripted-provider `RELEASE_READY` engine path through real Bubblewrap | Proven by the [E1 fixture](tests/e2e/test_barebones_e1.py), with the local sandbox fixture disabled under `PMPE_TEST_REAL_SANDBOX=true`, in [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
 | Canonical PMOS contract and digest-bound approval receipt accepted by the boundary | Proven by the [PMOS executable compatibility gate](https://github.com/Abhillashjadhav/PM-agent-OS/blob/5fa7af8207143194eb242f2edd9f7edfca8bb969/tests/decision-to-contract/validate_contract.py), including a planted post-approval tampering rejection |
 | Product built with a real model provider | **Not yet proven** |
 | Repeated real-provider behavioural drift evidence | **Not yet proven** |
@@ -108,6 +108,11 @@ pmpe barebones inspect e1 \
   --workspace /tmp/pmpe-e1-candidate
 ```
 
+`compile` reports `COMPILES` and the contract's recorded status; it does not imply
+human approval or release eligibility. `status`, `evidence`, and `inspect` surface the
+approval record from the verified ledger. `inspect` exits with code `3` for an
+explicitly unverified direct-call run, even when its candidate is otherwise sealed.
+
 `inspect` reads the candidate manifest from the verified evidence chain. When a
 workspace is supplied, it fails with exit code `3` if any sealed file is changed or
 missing, or if an untracked file or symbolic link appears. Use `--file <path>` to print
@@ -115,7 +120,7 @@ one digest-bound UTF-8 candidate file as escaped JSON before the human release d
 
 The example provider returns scripted responses. It proves compiler-to-engine plumbing; it does not prove that an LLM can build the requested software.
 
-For a real-model run, use one of the documented [reference providers](docs/real-model-provider.md): the Responses API adapter or the Codex CLI adapter with saved ChatGPT subscription authentication. Their implementation and unit tests prove the adapter boundary only; no live PMOS-to-real-model run is claimed until its complete evidence bundle is published.
+For the real-model promotion run, use the documented [Codex CLI provider](docs/real-model-provider.md) with saved ChatGPT subscription authentication. It does not require an API key. The optional Responses API example is not the promotion path. Provider implementation and unit tests prove the adapter boundary only; no live PMOS-to-real-model run is claimed until its complete evidence bundle is published.
 
 A provider receives one JSON object on standard input:
 
@@ -126,7 +131,8 @@ A provider receives one JSON object on standard input:
 The contract must contain `contract_status: APPROVED` and `approved_by`; the CLI requires an exact `--expected-approver` match before invoking the provider. The provider must return one UTF-8 JSON object containing the same `request_digest`. Do not record provider credentials in contracts, commands, candidate workspaces, or evidence.
 
 The Codex CLI path is deliberately explicit about its boundaries: it requires a host
-`CODEX_HOME` authenticated with ChatGPT, strips API-key variables, and enforces ChatGPT
+`CODEX_HOME` authenticated with ChatGPT, gives the Codex child only an explicit safe
+environment allowlist, and enforces ChatGPT
 mode again on the command line. Its ephemeral read-only sandbox protects the provider
 run; the separate Bubblewrap sandbox protects candidate execution. The prompt still
 transits OpenAI. Subscription runs record pricing as not applicable per run rather than

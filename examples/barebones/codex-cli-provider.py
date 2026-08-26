@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import re
+import selectors
 import shutil
-import signal
 import subprocess
 import sys
 import tempfile
+import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any, NoReturn
@@ -24,9 +26,33 @@ from typing import Any, NoReturn
 _MODEL = "gpt-5.6-sol"
 _REASONING_EFFORT = "xhigh"
 _ADAPTER_VERSION = "pmpe-barebones-codex-cli-v1"
-_COMMAND_TIMEOUT_SECONDS = 110.0
+_DEFAULT_EXEC_TIMEOUT_SECONDS = 900.0
+_PREFLIGHT_TIMEOUT_SECONDS = 30.0
+_OUTER_TIMEOUT_MARGIN_SECONDS = 1.0
+_MAX_TIMEOUT_SECONDS = 3600.0
 _OUTPUT_LIMIT_BYTES = 1_000_000
-_API_CREDENTIAL_VARIABLES = frozenset({"OPENAI_API_KEY", "CODEX_API_KEY"})
+_CHILD_ENV_ALLOWLIST = frozenset(
+    {
+        "CODEX_HOME",
+        "HOME",
+        "LANG",
+        "LC_ALL",
+        "LC_CTYPE",
+        "LOGNAME",
+        "PATH",
+        "SSL_CERT_DIR",
+        "SSL_CERT_FILE",
+        "TEMP",
+        "TERM",
+        "TMP",
+        "TMPDIR",
+        "USER",
+        "XDG_CACHE_HOME",
+        "XDG_CONFIG_HOME",
+        "XDG_DATA_HOME",
+        "XDG_STATE_HOME",
+    }
+)
 _SAFE_VERSION = re.compile(r"[^A-Za-z0-9._+-]+")
 
 
@@ -95,10 +121,56 @@ def _prompt(purpose: str, request: Mapping[str, Any]) -> bytes:
     return f"{instruction}\n\nPMPE provider request JSON:\n{payload}\n".encode()
 
 
-def _child_environment() -> dict[str, str]:
+def _child_environment(source: Mapping[str, str] | None = None) -> dict[str, str]:
+    parent = os.environ if source is None else source
     return {
-        name: value for name, value in os.environ.items() if name not in _API_CREDENTIAL_VARIABLES
+        name: parent[name]
+        for name in sorted(_CHILD_ENV_ALLOWLIST)
+        if name in parent and parent[name]
     }
+
+
+def _timeout_value(
+    environment: Mapping[str, str], name: str, *, default: float | None = None
+) -> float:
+    raw = environment.get(name)
+    if raw is None:
+        if default is None:
+            raise ProviderError("CODEX_TIMEOUT_INVALID")
+        return default
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ProviderError("CODEX_TIMEOUT_INVALID") from exc
+    if not math.isfinite(value) or value <= 0 or value > _MAX_TIMEOUT_SECONDS:
+        raise ProviderError("CODEX_TIMEOUT_INVALID")
+    return value
+
+
+def _effective_exec_timeout(
+    environment: Mapping[str, str], *, elapsed_seconds: float = 0.0
+) -> float:
+    if not math.isfinite(elapsed_seconds) or elapsed_seconds < 0:
+        raise ProviderError("CODEX_TIMEOUT_INVALID")
+    requested = _timeout_value(
+        environment,
+        "PMPE_CODEX_TIMEOUT_SECONDS",
+        default=_DEFAULT_EXEC_TIMEOUT_SECONDS,
+    )
+    if "PMPE_PROVIDER_TIMEOUT_SECONDS" not in environment:
+        return requested
+    outer = _timeout_value(environment, "PMPE_PROVIDER_TIMEOUT_SECONDS")
+    available = outer - elapsed_seconds - _OUTER_TIMEOUT_MARGIN_SECONDS
+    if available <= 0:
+        raise ProviderError("CODEX_TIMEOUT_INVALID")
+    return min(requested, available)
+
+
+def _terminate_process(process: subprocess.Popen[bytes]) -> None:
+    with contextlib.suppress(ProcessLookupError):
+        process.kill()
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        process.wait(timeout=5)
 
 
 def _run_command(
@@ -107,34 +179,66 @@ def _run_command(
     input_bytes: bytes,
     cwd: Path,
     environment: Mapping[str, str],
+    timeout_seconds: float,
+    output_limit_bytes: int = _OUTPUT_LIMIT_BYTES,
 ) -> subprocess.CompletedProcess[bytes]:
-    with tempfile.TemporaryFile() as stdout_file, tempfile.TemporaryFile() as stderr_file:
+    with tempfile.TemporaryFile() as stdin_file:
+        stdin_file.write(input_bytes)
+        stdin_file.seek(0)
         try:
             process = subprocess.Popen(
                 argv,
                 cwd=cwd,
                 env=dict(environment),
-                stdin=subprocess.PIPE,
-                stdout=stdout_file,
-                stderr=stderr_file,
-                start_new_session=True,
+                stdin=stdin_file,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=False,
             )
         except OSError as exc:
             raise ProviderError("CODEX_EXEC_START_FAILED") from exc
+        if process.stdout is None or process.stderr is None:
+            _terminate_process(process)
+            raise ProviderError("CODEX_EXEC_IO_UNAVAILABLE")
+        streams = {"stdout": bytearray(), "stderr": bytearray()}
+        selector = selectors.DefaultSelector()
+        selector.register(process.stdout, selectors.EVENT_READ, "stdout")
+        selector.register(process.stderr, selectors.EVENT_READ, "stderr")
+        deadline = time.monotonic() + timeout_seconds
         try:
-            process.communicate(input=input_bytes, timeout=_COMMAND_TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired as exc:
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(process.pid, signal.SIGKILL)
-            process.communicate()
-            raise ProviderError("CODEX_EXEC_TIMEOUT") from exc
-        stdout_file.seek(0)
-        stderr_file.seek(0)
-        stdout = stdout_file.read(_OUTPUT_LIMIT_BYTES + 1)
-        stderr = stderr_file.read(_OUTPUT_LIMIT_BYTES + 1)
-    if len(stdout) > _OUTPUT_LIMIT_BYTES or len(stderr) > _OUTPUT_LIMIT_BYTES:
-        raise ProviderError("CODEX_EXEC_OUTPUT_LIMIT")
-    return subprocess.CompletedProcess(tuple(argv), process.returncode, stdout, stderr)
+            while selector.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ProviderError("CODEX_EXEC_TIMEOUT")
+                for key, _ in selector.select(min(remaining, 0.1)):
+                    chunk = os.read(key.fd, 64 * 1024)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    output = streams[key.data]
+                    output.extend(chunk)
+                    if len(output) > output_limit_bytes:
+                        raise ProviderError("CODEX_EXEC_OUTPUT_LIMIT")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ProviderError("CODEX_EXEC_TIMEOUT")
+            try:
+                returncode = process.wait(timeout=remaining)
+            except subprocess.TimeoutExpired as exc:
+                raise ProviderError("CODEX_EXEC_TIMEOUT") from exc
+        except ProviderError:
+            _terminate_process(process)
+            raise
+        finally:
+            selector.close()
+            process.stdout.close()
+            process.stderr.close()
+        return subprocess.CompletedProcess(
+            tuple(argv),
+            returncode,
+            bytes(streams["stdout"]),
+            bytes(streams["stderr"]),
+        )
 
 
 def _auth_preflight(executable: str, *, cwd: Path, environment: Mapping[str, str]) -> None:
@@ -143,6 +247,7 @@ def _auth_preflight(executable: str, *, cwd: Path, environment: Mapping[str, str
         input_bytes=b"",
         cwd=cwd,
         environment=environment,
+        timeout_seconds=_PREFLIGHT_TIMEOUT_SECONDS,
     )
     status = (completed.stdout + b"\n" + completed.stderr).decode("utf-8", errors="replace").lower()
     if (
@@ -161,6 +266,7 @@ def _cli_version(executable: str, *, cwd: Path, environment: Mapping[str, str]) 
             input_bytes=b"",
             cwd=cwd,
             environment=environment,
+            timeout_seconds=_PREFLIGHT_TIMEOUT_SECONDS,
         )
     except ProviderError:
         return "unknown"
@@ -250,7 +356,7 @@ def _adapt_result(
     response["provider_metadata"] = {
         "provider": "codex-cli-chatgpt",
         "model": _MODEL,
-        "prompt_version": (f"{_ADAPTER_VERSION};effort={_REASONING_EFFORT};cli={version}"),
+        "prompt_version": f"{_ADAPTER_VERSION};effort={_REASONING_EFFORT}",
         "reasoning_effort": _REASONING_EFFORT,
         "cli_version": version,
         "auth_mode": "chatgpt",
@@ -264,6 +370,7 @@ def _invoke(message: Mapping[str, Any], executable: str) -> dict[str, Any]:
     request = message.get("request")
     if not isinstance(purpose, str) or not isinstance(request, Mapping):
         raise ProviderError("CODEX_INPUT_INVALID")
+    invocation_started = time.monotonic()
     schema = _schema(purpose)
     prompt = _prompt(purpose, request)
     environment = _child_environment()
@@ -274,6 +381,10 @@ def _invoke(message: Mapping[str, Any], executable: str) -> dict[str, Any]:
         schema_path.write_text(json.dumps(schema, sort_keys=True))
         _auth_preflight(executable, cwd=cwd, environment=environment)
         version = _cli_version(executable, cwd=cwd, environment=environment)
+        exec_timeout = _effective_exec_timeout(
+            os.environ,
+            elapsed_seconds=time.monotonic() - invocation_started,
+        )
         argv = (
             executable,
             "exec",
@@ -303,6 +414,7 @@ def _invoke(message: Mapping[str, Any], executable: str) -> dict[str, Any]:
             input_bytes=prompt,
             cwd=cwd,
             environment=environment,
+            timeout_seconds=exec_timeout,
         )
         if completed.returncode != 0:
             raise ProviderError("CODEX_EXEC_FAILED")
