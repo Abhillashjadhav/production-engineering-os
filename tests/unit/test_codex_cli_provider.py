@@ -60,6 +60,15 @@ class _FakeCodex:
         self.write_result = write_result
         self.calls: list[dict[str, Any]] = []
 
+    @staticmethod
+    def _completed(
+        argv: tuple[str, ...], returncode: int, stdout: bytes, stderr: bytes
+    ) -> subprocess.CompletedProcess[bytes]:
+        completed = subprocess.CompletedProcess(argv, returncode, stdout, stderr)
+        completed.stdout_truncated = False  # type: ignore[attr-defined]
+        completed.stderr_truncated = False  # type: ignore[attr-defined]
+        return completed
+
     def __call__(
         self,
         argv: tuple[str, ...],
@@ -81,18 +90,16 @@ class _FakeCodex:
             }
         )
         if argv[1:] == ("login", "status"):
-            return subprocess.CompletedProcess(argv, 0, self.auth, b"")
+            return self._completed(argv, 0, self.auth, b"")
         if argv[1:] == ("--version",):
-            return subprocess.CompletedProcess(
-                argv, self.version_returncode, b"codex-cli 9.8.7\n", b""
-            )
+            return self._completed(argv, self.version_returncode, b"codex-cli 9.8.7\n", b"")
         assert argv[1] == "exec"
         schema_path = Path(argv[argv.index("--output-schema") + 1])
         self.calls[-1]["schema"] = json.loads(schema_path.read_text())
         if self.write_result:
             output_path = Path(argv[argv.index("--output-last-message") + 1])
             output_path.write_text(json.dumps(self.generated))
-        return subprocess.CompletedProcess(argv, self.exec_returncode, self.jsonl, b"private")
+        return self._completed(argv, self.exec_returncode, self.jsonl, b"private")
 
 
 def _install_fake(
@@ -299,6 +306,51 @@ def test_missing_or_truncated_telemetry_does_not_fail_a_valid_result(
     }
 
 
+@pytest.mark.parametrize(
+    ("oversized_stream", "expected_input_tokens"),
+    [("stdout", 0), ("stderr", 100)],
+)
+def test_oversized_exec_telemetry_does_not_discard_a_valid_result(
+    tmp_path: Path,
+    oversized_stream: str,
+    expected_input_tokens: int,
+) -> None:
+    provider = _provider_module()
+    executable = tmp_path / "codex"
+    executable.write_text(
+        f"""#!{sys.executable}
+import json
+import sys
+from pathlib import Path
+
+arguments = sys.argv[1:]
+if arguments == ["login", "status"]:
+    print("Logged in using ChatGPT")
+elif arguments == ["--version"]:
+    print("codex-cli 9.8.7")
+else:
+    output = Path(arguments[arguments.index("--output-last-message") + 1])
+    output.write_text(json.dumps({{"files": []}}))
+    usage = (
+        b'{{"type":"turn.completed","usage":{{"input_tokens":100,'
+        b'"output_tokens":20}}}}\\n'
+    )
+    if {oversized_stream!r} == "stdout":
+        sys.stdout.buffer.write(b"x" * ({provider._OUTPUT_LIMIT_BYTES} + 1))
+    else:
+        sys.stdout.buffer.write(usage)
+        sys.stderr.buffer.write(b"x" * ({provider._OUTPUT_LIMIT_BYTES} + 1))
+"""
+    )
+    executable.chmod(0o755)
+
+    response = provider._invoke(_message(), str(executable))
+
+    assert response["files"] == {}
+    assert response["usage"]["telemetry_status"] == "truncated"
+    assert response["usage"]["input_tokens"] == expected_input_tokens
+
+
 def test_advisory_uses_its_own_schema_and_remains_digest_bound(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -350,6 +402,41 @@ def test_optional_cli_version_probe_does_not_change_prompt_identity(
         known_response["provider_metadata"]["prompt_version"]
         == unknown_response["provider_metadata"]["prompt_version"]
     )
+
+
+def test_truncated_auth_preflight_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    provider = _provider_module()
+    result = provider._CommandResult(
+        ("/usr/bin/codex", "login", "status"),
+        0,
+        b"Logged in using ChatGPT\n",
+        b"",
+        True,
+        False,
+    )
+    monkeypatch.setattr(provider, "_run_command", lambda *args, **kwargs: result)
+
+    with pytest.raises(provider.ProviderError, match="CODEX_CHATGPT_AUTH_REQUIRED"):
+        provider._auth_preflight("/usr/bin/codex", cwd=tmp_path, environment={})
+
+
+def test_truncated_optional_version_probe_returns_unknown(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    provider = _provider_module()
+    result = provider._CommandResult(
+        ("/usr/bin/codex", "--version"),
+        0,
+        b"codex-cli 9.8.7\n",
+        b"",
+        True,
+        False,
+    )
+    monkeypatch.setattr(provider, "_run_command", lambda *args, **kwargs: result)
+
+    assert provider._cli_version("/usr/bin/codex", cwd=tmp_path, environment={}) == "unknown"
 
 
 @pytest.mark.parametrize(
@@ -538,22 +625,22 @@ def test_command_timeout_kills_codex_without_creating_a_new_process_group(
     assert observed == [False]
 
 
-def test_command_output_limit_is_enforced_while_codex_is_running(tmp_path: Path) -> None:
+def test_command_output_is_bounded_while_codex_is_running(tmp_path: Path) -> None:
     provider = _provider_module()
     started = time.monotonic()
 
-    with pytest.raises(provider.ProviderError, match="CODEX_EXEC_OUTPUT_LIMIT"):
-        provider._run_command(
-            (
-                sys.executable,
-                "-c",
-                "import os,time; os.write(1, b'x' * 1024); time.sleep(5)",
-            ),
-            input_bytes=b"prompt",
-            cwd=tmp_path,
-            environment={},
-            timeout_seconds=2,
-            output_limit_bytes=32,
-        )
+    completed = provider._run_command(
+        (sys.executable, "-c", "import os; os.write(1, b'x' * 1024)"),
+        input_bytes=b"prompt",
+        cwd=tmp_path,
+        environment={},
+        timeout_seconds=2,
+        output_limit_bytes=32,
+    )
 
     assert time.monotonic() - started < 2
+    assert completed.returncode == 0
+    assert completed.stdout == b"x" * 32
+    assert completed.stderr == b""
+    assert completed.stdout_truncated is True
+    assert completed.stderr_truncated is False

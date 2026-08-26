@@ -21,7 +21,7 @@ import tempfile
 import time
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, NamedTuple, NoReturn
 
 _MODEL = "gpt-5.6-sol"
 _REASONING_EFFORT = "xhigh"
@@ -58,6 +58,15 @@ _SAFE_VERSION = re.compile(r"[^A-Za-z0-9._+-]+")
 
 class ProviderError(RuntimeError):
     """A compact failure safe to expose to the parent provider process."""
+
+
+class _CommandResult(NamedTuple):
+    args: tuple[str, ...]
+    returncode: int
+    stdout: bytes
+    stderr: bytes
+    stdout_truncated: bool
+    stderr_truncated: bool
 
 
 def _fail(code: str) -> NoReturn:
@@ -181,7 +190,7 @@ def _run_command(
     environment: Mapping[str, str],
     timeout_seconds: float,
     output_limit_bytes: int = _OUTPUT_LIMIT_BYTES,
-) -> subprocess.CompletedProcess[bytes]:
+) -> _CommandResult:
     with tempfile.TemporaryFile() as stdin_file:
         stdin_file.write(input_bytes)
         stdin_file.seek(0)
@@ -201,6 +210,7 @@ def _run_command(
             _terminate_process(process)
             raise ProviderError("CODEX_EXEC_IO_UNAVAILABLE")
         streams = {"stdout": bytearray(), "stderr": bytearray()}
+        truncated = {"stdout": False, "stderr": False}
         selector = selectors.DefaultSelector()
         selector.register(process.stdout, selectors.EVENT_READ, "stdout")
         selector.register(process.stderr, selectors.EVENT_READ, "stderr")
@@ -215,10 +225,12 @@ def _run_command(
                     if not chunk:
                         selector.unregister(key.fileobj)
                         continue
-                    output = streams[key.data]
-                    output.extend(chunk)
-                    if len(output) > output_limit_bytes:
-                        raise ProviderError("CODEX_EXEC_OUTPUT_LIMIT")
+                    stream_name = key.data
+                    output = streams[stream_name]
+                    remaining_capacity = max(output_limit_bytes - len(output), 0)
+                    output.extend(chunk[:remaining_capacity])
+                    if len(chunk) > remaining_capacity:
+                        truncated[stream_name] = True
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise ProviderError("CODEX_EXEC_TIMEOUT")
@@ -233,11 +245,13 @@ def _run_command(
             selector.close()
             process.stdout.close()
             process.stderr.close()
-        return subprocess.CompletedProcess(
+        return _CommandResult(
             tuple(argv),
             returncode,
             bytes(streams["stdout"]),
             bytes(streams["stderr"]),
+            truncated["stdout"],
+            truncated["stderr"],
         )
 
 
@@ -251,7 +265,9 @@ def _auth_preflight(executable: str, *, cwd: Path, environment: Mapping[str, str
     )
     status = (completed.stdout + b"\n" + completed.stderr).decode("utf-8", errors="replace").lower()
     if (
-        completed.returncode != 0
+        completed.stdout_truncated
+        or completed.stderr_truncated
+        or completed.returncode != 0
         or re.search(r"\blogged in (?:using|with) chatgpt\b", status) is None
         or "api key" in status
         or "api-key" in status
@@ -270,7 +286,7 @@ def _cli_version(executable: str, *, cwd: Path, environment: Mapping[str, str]) 
         )
     except ProviderError:
         return "unknown"
-    if completed.returncode != 0:
+    if completed.returncode != 0 or completed.stdout_truncated or completed.stderr_truncated:
         return "unknown"
     first_line = completed.stdout.decode("utf-8", errors="replace").strip().splitlines()
     if not first_line:
@@ -279,7 +295,7 @@ def _cli_version(executable: str, *, cwd: Path, environment: Mapping[str, str]) 
     return sanitized[:120] or "unknown"
 
 
-def _usage_from_jsonl(raw: bytes) -> dict[str, Any]:
+def _usage_from_jsonl(raw: bytes, *, truncated: bool = False) -> dict[str, Any]:
     usage: Mapping[str, Any] | None = None
     for line in raw.splitlines():
         try:
@@ -298,7 +314,10 @@ def _usage_from_jsonl(raw: bytes) -> dict[str, Any]:
             recorded[name] = value
     recorded.setdefault("input_tokens", 0)
     recorded.setdefault("output_tokens", 0)
-    recorded["telemetry_status"] = "reported" if usage is not None else "unavailable"
+    if truncated:
+        recorded["telemetry_status"] = "truncated"
+    else:
+        recorded["telemetry_status"] = "reported" if usage is not None else "unavailable"
     recorded["pricing"] = {
         "source": "chatgpt_subscription",
         "per_run_cost_applicable": False,
@@ -329,6 +348,7 @@ def _adapt_result(
     generated: Mapping[str, Any],
     version: str,
     jsonl: bytes,
+    telemetry_truncated: bool = False,
 ) -> dict[str, Any]:
     request_digest = request.get("request_digest")
     if not isinstance(request_digest, str):
@@ -361,7 +381,7 @@ def _adapt_result(
         "cli_version": version,
         "auth_mode": "chatgpt",
     }
-    response["usage"] = _usage_from_jsonl(jsonl)
+    response["usage"] = _usage_from_jsonl(jsonl, truncated=telemetry_truncated)
     return response
 
 
@@ -425,6 +445,7 @@ def _invoke(message: Mapping[str, Any], executable: str) -> dict[str, Any]:
             generated=generated,
             version=version,
             jsonl=completed.stdout,
+            telemetry_truncated=(completed.stdout_truncated or completed.stderr_truncated),
         )
 
 
