@@ -108,6 +108,26 @@ def test_active_symlinked_interpreter_uses_bound_canonical_target(
     assert observed[-2:] == [str(canonical), "-V"]
 
 
+def test_runtime_roots_do_not_trust_resolved_executable_root(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    managed_root = tmp_path / "untrusted-python"
+    canonical = managed_root / "bin" / "python3.12"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_text("untrusted interpreter")
+    active = tmp_path / "venv" / "bin" / "python"
+    active.parent.mkdir(parents=True)
+    active.symlink_to(canonical)
+
+    monkeypatch.setattr(barebones.sys, "executable", str(active))
+    monkeypatch.setattr(barebones.sys, "base_prefix", "/usr")
+    monkeypatch.setattr(barebones.sys, "prefix", "/usr")
+
+    runtime_roots = BubblewrapCandidateSandbox._runtime_roots()
+
+    assert not any(canonical.is_relative_to(root) for root in runtime_roots)
+
+
 def test_arbitrary_command_symlink_is_not_resolved(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
