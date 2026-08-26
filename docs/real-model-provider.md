@@ -124,10 +124,12 @@ the gate. A custom `--output-dir` must be outside the checkout so generated evid
 cannot masquerade as source drift. The outer run wrapper covers the complete configured
 model-call budget plus bounded verification overhead, leaving each inner provider timeout
 responsible for fencing its complete Codex process group before the wrapper can advance
-the matrix. Every same-profile control repeat requires zero provider-configuration
-attribution while still permitting visible, unattributed model-output variation. The
-planted experiment passes only when `prompt_version` is the sole attribution; a
-simultaneous CLI, model, or provider change is a confounded experiment and fails closed.
+the matrix. Every same-profile control repeat requires identical recorded provider,
+model, prompt, and known-or-unknown CLI fields plus zero configuration attribution, while
+still permitting visible, unattributed model-output variation. The planted experiment
+passes only when `prompt_version` is the sole recorded configuration change and sole
+attribution; a simultaneous CLI, model, or provider change is a confounded experiment
+and fails closed.
 The runner does not silently fall back to the Responses API.
 
 ## Responses API adapter

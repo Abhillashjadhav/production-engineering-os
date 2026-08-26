@@ -15,10 +15,13 @@ and behavior drift as separate claims.
 
 ## Behavior drift
 
-`pmpe barebones compare` verifies two complete ledgers, requires digest-bound approval
-and sealed `RELEASE_READY` candidates, then compares the final Coder responses only when
-their contract, plan, purpose, and request digests match. It hashes the behavior-bearing
-file map separately from adapter-declared provider, model, prompt, and CLI versions.
+`pmpe barebones compare` verifies two complete ledgers, requires an externally supplied
+`--expected-approver`, recompiles each recorded contract from the trusted
+`--compiler-root`, and requires sealed `RELEASE_READY` candidates. It then compares the
+final Coder responses only when their contract, plan, purpose, and request digests match.
+It hashes the behavior-bearing file map separately from adapter-declared provider, model,
+prompt, and CLI versions. Neither approval authority nor compiled-plan truth is accepted
+solely because the ledger says so.
 
 - Identical output is not behavior drift, even if a prompt version changed.
 - Changed output with a changed provider/model/prompt/CLI version is detected and

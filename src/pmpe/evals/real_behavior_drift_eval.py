@@ -26,6 +26,8 @@ PROVIDER = ROOT / "examples/barebones/codex-cli-provider.py"
 PROMPT_PROFILE_ENV = "PMPE_CODEX_PROMPT_PROFILE"
 PAID_API_ENVIRONMENT = ("CODEX_API_KEY", "OPENAI_API_KEY")
 _RUN_WRAPPER_OVERHEAD_SECONDS = 300
+MATRIX_APPROVER = "fixture-human"
+_PROVIDER_CONFIGURATION_FIELDS = ("provider", "model", "prompt_version", "cli_version")
 
 
 @dataclass(frozen=True)
@@ -42,44 +44,44 @@ RUNS = (
         "e1-v1-01",
         "examples/barebones/e1-contract.json",
         "examples/barebones/e1-approval-receipt.json",
-        "fixture-human",
+        MATRIX_APPROVER,
     ),
     RunSpec(
         "e1-v1-02",
         "examples/barebones/e1-contract.json",
         "examples/barebones/e1-approval-receipt.json",
-        "fixture-human",
+        MATRIX_APPROVER,
     ),
     RunSpec(
         "e1-v1-03",
         "examples/barebones/e1-contract.json",
         "examples/barebones/e1-approval-receipt.json",
-        "fixture-human",
+        MATRIX_APPROVER,
     ),
     RunSpec(
         "e1-v2-01",
         "examples/barebones/e1-contract.json",
         "examples/barebones/e1-approval-receipt.json",
-        "fixture-human",
+        MATRIX_APPROVER,
         "drift-eval-v2",
     ),
     RunSpec(
         "readiness-v1-01",
         "examples/barebones/readiness-contract.json",
         "examples/barebones/readiness-approval-receipt.json",
-        "fixture-human",
+        MATRIX_APPROVER,
     ),
     RunSpec(
         "readiness-v1-02",
         "examples/barebones/readiness-contract.json",
         "examples/barebones/readiness-approval-receipt.json",
-        "fixture-human",
+        MATRIX_APPROVER,
     ),
     RunSpec(
         "readiness-v1-03",
         "examples/barebones/readiness-contract.json",
         "examples/barebones/readiness-approval-receipt.json",
-        "fixture-human",
+        MATRIX_APPROVER,
     ),
 )
 
@@ -268,6 +270,26 @@ def _parse_json(output: str) -> dict[str, Any] | None:
     return value if isinstance(value, dict) else None
 
 
+def _provider_configuration_changes(comparison: dict[str, Any]) -> list[str] | None:
+    baseline = comparison.get("baseline")
+    current = comparison.get("current")
+    baseline_behavior = baseline.get("provider_behavior") if isinstance(baseline, dict) else None
+    current_behavior = current.get("provider_behavior") if isinstance(current, dict) else None
+    if not isinstance(baseline_behavior, dict) or not isinstance(current_behavior, dict):
+        return None
+    if any(
+        not isinstance(baseline_behavior.get(field), str)
+        or not isinstance(current_behavior.get(field), str)
+        for field in _PROVIDER_CONFIGURATION_FIELDS
+    ):
+        return None
+    return [
+        field
+        for field in _PROVIDER_CONFIGURATION_FIELDS
+        if baseline_behavior[field] != current_behavior[field]
+    ]
+
+
 def _gate_passes(
     run_results: list[dict[str, Any]], comparison_results: list[dict[str, Any]]
 ) -> bool:
@@ -293,8 +315,14 @@ def _gate_passes(
     by_name = {item["name"]: item for item in comparison_results}
     for name in CONTROL_COMPARISONS:
         control = by_name.get(name, {}).get("result")
-        control_drift = control.get("behavior_drift") if isinstance(control, dict) else None
-        if not isinstance(control_drift, dict) or control_drift.get("attribution") != []:
+        if not isinstance(control, dict):
+            return False
+        control_drift = control.get("behavior_drift")
+        if (
+            not isinstance(control_drift, dict)
+            or control_drift.get("attribution") != []
+            or _provider_configuration_changes(control) != []
+        ):
             return False
     version_change = by_name.get(PLANTED_COMPARISON, {}).get("result")
     if not isinstance(version_change, dict):
@@ -304,6 +332,7 @@ def _gate_passes(
         isinstance(drift, dict)
         and drift.get("detected") is True
         and drift.get("attribution") == ["prompt_version"]
+        and _provider_configuration_changes(version_change) == ["prompt_version"]
     )
 
 
@@ -406,6 +435,10 @@ def main() -> int:
             str(evidence_root),
             "--current-root",
             str(evidence_root),
+            "--expected-approver",
+            MATRIX_APPROVER,
+            "--compiler-root",
+            str(ROOT),
         ]
         exit_code, command_output = _command(argv, environment=environment, timeout=60)
         (comparisons / f"{name}.json").write_text(command_output)

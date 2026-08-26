@@ -659,29 +659,6 @@ class _ComparableProvider:
         }
 
 
-def test_plan_identity_is_recomputed_from_the_recorded_projection() -> None:
-    contract = json.loads((_REPOSITORY / "examples/barebones/e1-contract.json").read_text())
-    compiled = barebones_runtime.compile_barebones_plan(
-        contract=contract,
-        repository_root=_REPOSITORY,
-    )
-    plan = compiled.as_dict()
-
-    assert barebones_cmd._plan_matches_identity(
-        plan,
-        contract_digest=compiled.contract_digest,
-        plan_digest=compiled.plan_digest,
-    )
-    requirements = plan["requirements"]
-    assert isinstance(requirements, (list, tuple))
-    plan["requirements"] = [*requirements, "FORGED-REQUIREMENT"]
-    assert not barebones_cmd._plan_matches_identity(
-        plan,
-        contract_digest=compiled.contract_digest,
-        plan_digest=compiled.plan_digest,
-    )
-
-
 def _approved_comparable_run(
     root: Path,
     *,
@@ -709,21 +686,63 @@ def _approved_comparable_run(
     assert result.state is RunState.RELEASE_READY
 
 
+def _write_events_with_valid_hash_chain(events_path: Path, events: list[dict[str, Any]]) -> None:
+    previous_digest = "sha256:" + "0" * 64
+    for event in events:
+        event["previous_digest"] = previous_digest
+        body = {key: value for key, value in event.items() if key != "event_digest"}
+        event["event_digest"] = canonical_digest(body)
+        previous_digest = event["event_digest"]
+    events_path.write_bytes(b"".join(canonical_json_bytes(event) + b"\n" for event in events))
+
+
 def _rewrite_subject_with_valid_hash_chain(root: Path, *, run_id: str, event_type: str) -> None:
     events_path = root / ".pmpe" / "runs" / run_id / "events.jsonl"
     events = [json.loads(line) for line in events_path.read_text().splitlines()]
-    previous_digest = "sha256:" + "0" * 64
     changed = False
     for event in events:
         if event["event_type"] == event_type:
             event["subject_digest"] = "sha256:" + "f" * 64
             changed = True
-        event["previous_digest"] = previous_digest
-        body = {key: value for key, value in event.items() if key != "event_digest"}
-        event["event_digest"] = canonical_digest(body)
-        previous_digest = event["event_digest"]
     assert changed
-    events_path.write_bytes(b"".join(canonical_json_bytes(event) + b"\n" for event in events))
+    _write_events_with_valid_hash_chain(events_path, events)
+
+
+def _rewrite_plan_with_valid_hash_chain(root: Path, *, run_id: str) -> None:
+    events_path = root / ".pmpe" / "runs" / run_id / "events.jsonl"
+    events = [json.loads(line) for line in events_path.read_text().splitlines()]
+    validation = next(event for event in events if event["event_type"] == "contract_validated")
+    payload = validation["payload"]
+    contract_digest = payload["contract_digest"]
+    receipt_blob_digest = payload["approval"]["receipt_blob_digest"]
+    plan_blob_digest = next(
+        digest
+        for digest in validation["blob_digests"]
+        if digest not in {contract_digest, receipt_blob_digest}
+    )
+    blobs = root / ".pmpe" / "blobs"
+    plan = json.loads((blobs / plan_blob_digest.removeprefix("sha256:")).read_text())
+    plan["requirements"] = [*plan["requirements"], "FORGED-REQUIREMENT"]
+    projection = {
+        field: plan[field]
+        for field in (
+            "contract_digest",
+            "requirements",
+            "tasks",
+            "criteria",
+            "trusted_test_digests",
+        )
+    }
+    plan["plan_digest"] = canonical_digest(projection)
+    plan_source = json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()
+    replacement_digest = "sha256:" + hashlib.sha256(plan_source).hexdigest()
+    (blobs / replacement_digest.removeprefix("sha256:")).write_bytes(plan_source)
+    validation["blob_digests"] = sorted(
+        replacement_digest if digest == plan_blob_digest else digest
+        for digest in validation["blob_digests"]
+    )
+    payload["plan_digest"] = plan["plan_digest"]
+    _write_events_with_valid_hash_chain(events_path, events)
 
 
 def test_compare_uses_verified_ledgers_and_keeps_candidate_variation_visible(
@@ -753,6 +772,10 @@ def test_compare_uses_verified_ledgers_and_keeps_candidate_variation_visible(
             str(baseline_root),
             "--current-root",
             str(current_root),
+            "--expected-approver",
+            "fixture-human",
+            "--compiler-root",
+            str(_REPOSITORY),
         ]
     )
 
@@ -821,6 +844,10 @@ def test_compare_fails_closed_for_different_provider_requests(
             str(baseline_root),
             "--current-root",
             str(current_root),
+            "--expected-approver",
+            "fixture-human",
+            "--compiler-root",
+            str(_REPOSITORY),
         ]
     )
 
@@ -863,6 +890,10 @@ def test_compare_reverifies_approval_binding(
             str(baseline_root),
             "--current-root",
             str(current_root),
+            "--expected-approver",
+            "fixture-human",
+            "--compiler-root",
+            str(_REPOSITORY),
         ]
     )
 
@@ -914,6 +945,10 @@ def test_compare_rejects_cross_subject_coder_and_release_evidence(
             str(baseline_root),
             "--current-root",
             str(current_root),
+            "--expected-approver",
+            "fixture-human",
+            "--compiler-root",
+            str(_REPOSITORY),
         ]
     )
 
@@ -922,3 +957,84 @@ def test_compare_rejects_cross_subject_coder_and_release_evidence(
     assert comparison["state"] == "HALTED"
     assert comparison["cause"] == "EVIDENCE_INVALID"
     assert comparison["detail"] == expected_detail
+
+
+def test_compare_requires_a_caller_trusted_approval_authority(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(
+        baseline_root,
+        run_id="baseline",
+        variant="first candidate",
+    )
+    _approved_comparable_run(
+        current_root,
+        run_id="current",
+        variant="second candidate",
+    )
+
+    exit_code = main(
+        [
+            "barebones",
+            "compare",
+            "baseline",
+            "current",
+            "--baseline-root",
+            str(baseline_root),
+            "--current-root",
+            str(current_root),
+            "--expected-approver",
+            "untrusted-ledger-authority",
+            "--compiler-root",
+            str(_REPOSITORY),
+        ]
+    )
+
+    assert exit_code == 3
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["state"] == "HALTED"
+    assert comparison["cause"] == "EVIDENCE_INVALID"
+    assert comparison["detail"] == "approval authority does not match --expected-approver"
+
+
+def test_compare_recompiles_the_contract_instead_of_trusting_a_fabricated_plan(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(
+        baseline_root,
+        run_id="baseline",
+        variant="first candidate",
+    )
+    _approved_comparable_run(
+        current_root,
+        run_id="current",
+        variant="second candidate",
+    )
+    _rewrite_plan_with_valid_hash_chain(current_root, run_id="current")
+
+    exit_code = main(
+        [
+            "barebones",
+            "compare",
+            "baseline",
+            "current",
+            "--baseline-root",
+            str(baseline_root),
+            "--current-root",
+            str(current_root),
+            "--expected-approver",
+            "fixture-human",
+            "--compiler-root",
+            str(_REPOSITORY),
+        ]
+    )
+
+    assert exit_code == 3
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["state"] == "HALTED"
+    assert comparison["cause"] == "EVIDENCE_INVALID"
+    assert comparison["detail"] == "recorded plan does not match deterministic compilation"

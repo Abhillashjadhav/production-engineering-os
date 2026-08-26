@@ -33,9 +33,6 @@ from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 
 _PROVIDER_OUTPUT_LIMIT_BYTES = 1_000_000
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
-_PLAN_PROJECTION_FIELDS = frozenset(
-    {"contract_digest", "requirements", "tasks", "criteria", "trusted_test_digests"}
-)
 
 
 def _json(payload: Mapping[str, Any]) -> None:
@@ -418,21 +415,14 @@ def _evidence(args: argparse.Namespace) -> int:
     return 0
 
 
-def _plan_matches_identity(
-    plan: Mapping[str, Any], *, contract_digest: str, plan_digest: str
-) -> bool:
-    if set(plan) != _PLAN_PROJECTION_FIELDS | {"plan_digest"}:
-        return False
-    projection = {field: plan[field] for field in _PLAN_PROJECTION_FIELDS}
-    return bool(
-        plan.get("contract_digest") == contract_digest
-        and plan.get("plan_digest") == plan_digest
-        and canonical_digest(projection) == plan_digest
-    )
-
-
-def _comparison_observation(repository_root: Path, run_id: str) -> dict[str, Any]:
-    ledger, events = _open_verified_events(repository_root, run_id)
+def _comparison_observation(
+    evidence_root: Path,
+    run_id: str,
+    *,
+    expected_approver: str,
+    compiler_root: Path,
+) -> dict[str, Any]:
+    ledger, events = _open_verified_events(evidence_root, run_id)
     validation_events = [
         event for event in events if event.get("event_type") == "contract_validated"
     ]
@@ -471,6 +461,8 @@ def _comparison_observation(repository_root: Path, run_id: str) -> dict[str, Any
         or receipt_blob_digest not in validation_blobs
     ):
         raise EvidenceIntegrityError("behavior comparison requires verified approval evidence")
+    if authority != expected_approver:
+        raise EvidenceIntegrityError("approval authority does not match --expected-approver")
     plan_blob_digests = [
         digest
         for digest in validation_blobs
@@ -494,17 +486,27 @@ def _comparison_observation(repository_root: Path, run_id: str) -> dict[str, Any
         or not isinstance(receipt, dict)
     ):
         raise EvidenceIntegrityError("contract, plan, or approval evidence is malformed")
-    if canonical_digest(contract) != contract_digest or not _plan_matches_identity(
-        plan,
-        contract_digest=contract_digest,
-        plan_digest=plan_digest,
+    if canonical_digest(contract) != contract_digest:
+        raise EvidenceIntegrityError("contract evidence is not digest-bound")
+    try:
+        expected_plan = compile_barebones_plan(
+            contract=contract,
+            repository_root=compiler_root,
+        ).as_dict()
+    except (AcceptanceCompileError, ContractInvalidError, OSError) as exc:
+        raise EvidenceIntegrityError(
+            "recorded contract cannot be deterministically recompiled"
+        ) from exc
+    if (
+        canonical_digest(plan) != canonical_digest(expected_plan)
+        or plan.get("plan_digest") != plan_digest
     ):
-        raise EvidenceIntegrityError("contract or plan evidence is not digest-bound")
+        raise EvidenceIntegrityError("recorded plan does not match deterministic compilation")
     try:
         verified_receipt_digest = verify_contract_approval(
             contract,
             receipt,
-            expected_approver=authority,
+            expected_approver=expected_approver,
         )
     except ContractViolation as exc:
         raise EvidenceIntegrityError("approval evidence is not bound to the contract") from exc
@@ -570,8 +572,19 @@ def _comparison_observation(repository_root: Path, run_id: str) -> dict[str, Any
 
 def _compare(args: argparse.Namespace) -> int:
     try:
-        baseline = _comparison_observation(Path(args.baseline_root), args.baseline_run_id)
-        current = _comparison_observation(Path(args.current_root), args.current_run_id)
+        compiler_root = Path(args.compiler_root).resolve()
+        baseline = _comparison_observation(
+            Path(args.baseline_root),
+            args.baseline_run_id,
+            expected_approver=args.expected_approver,
+            compiler_root=compiler_root,
+        )
+        current = _comparison_observation(
+            Path(args.current_root),
+            args.current_run_id,
+            expected_approver=args.expected_approver,
+            compiler_root=compiler_root,
+        )
     except EvidenceIntegrityError as exc:
         return _evidence_invalid(exc)
     common: dict[str, Any] = {"baseline": baseline, "current": current}
@@ -844,4 +857,14 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     compare_parser.add_argument("current_run_id")
     compare_parser.add_argument("--baseline-root", default=".")
     compare_parser.add_argument("--current-root", default=".")
+    compare_parser.add_argument(
+        "--expected-approver",
+        required=True,
+        help="trusted human identity that both recorded approvals must match",
+    )
+    compare_parser.add_argument(
+        "--compiler-root",
+        default=".",
+        help="trusted repository root used to deterministically recompile each contract",
+    )
     compare_parser.set_defaults(fn=_compare)

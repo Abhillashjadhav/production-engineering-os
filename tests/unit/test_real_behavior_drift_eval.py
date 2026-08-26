@@ -91,10 +91,21 @@ def _passing_results() -> tuple[list[dict[str, object]], list[dict[str, object]]
     comparisons: list[dict[str, object]] = []
     for baseline, current, expected in drift_eval.COMPARISONS:
         name = f"{baseline}--{current}"
+        baseline_behavior = {
+            "provider": "codex-cli-chatgpt",
+            "model": "gpt-example",
+            "prompt_version": "prompt-v1",
+            "cli_version": "codex-cli_1.0.0",
+        }
+        current_behavior = dict(baseline_behavior)
+        if name == drift_eval.PLANTED_COMPARISON:
+            current_behavior["prompt_version"] = "prompt-v2"
         result = (
             {
                 "status": "COMPARABLE",
                 "plan_repeatable": True,
+                "baseline": {"provider_behavior": baseline_behavior},
+                "current": {"provider_behavior": current_behavior},
                 "behavior_drift": {
                     "detected": True,
                     "attribution": (
@@ -150,6 +161,13 @@ def test_gate_rejects_configuration_drift_in_control_repeats() -> None:
     assert drift_eval._gate_passes(runs, comparisons) is False
     behavior_drift["attribution"] = []
     assert drift_eval._gate_passes(runs, comparisons) is True
+    behavior_drift["detected"] = False
+    current = control["current"]
+    assert isinstance(current, dict)
+    current_behavior = current["provider_behavior"]
+    assert isinstance(current_behavior, dict)
+    current_behavior["cli_version"] = "codex-cli_2.0.0"
+    assert drift_eval._gate_passes(runs, comparisons) is False
 
 
 def test_source_reverification_rejects_mid_matrix_source_change(
