@@ -130,9 +130,13 @@ still permitting visible, unattributed model-output variation. The planted exper
 passes only when `prompt_version` is the sole recorded configuration change and sole
 attribution; a simultaneous CLI, model, or provider change is a confounded experiment
 and fails closed. It also inspects `product.py` from the immutable candidate ledger and
-requires exactly one top-level `PMPE_PROMPT_PROFILE = "drift-eval-v2"` assignment, so
-while requiring that marker to be absent from the sealed baseline. Unrelated
-nondeterministic output therefore cannot masquerade as the requested plant.
+requires exactly one top-level `PMPE_PROMPT_PROFILE = "drift-eval-v2"` assignment while
+requiring that marker to be absent from the sealed baseline. Unrelated nondeterministic
+output therefore cannot masquerade as the requested plant.
+Every Coder event stores separate digest-addressed request and response blobs. Comparison
+recomputes the request digest, binds its contract and plan to the independently verified
+approval evidence, and requires every response file to match the corresponding sealed
+candidate blob before behavior is admitted.
 The runner does not silently fall back to the Responses API.
 
 ## Responses API adapter

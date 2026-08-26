@@ -4,7 +4,7 @@ import hashlib
 import json
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -745,6 +745,41 @@ def _rewrite_plan_with_valid_hash_chain(root: Path, *, run_id: str) -> None:
     _write_events_with_valid_hash_chain(events_path, events)
 
 
+def _put_json_blob(root: Path, value: Any) -> str:
+    source = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    digest = "sha256:" + hashlib.sha256(source).hexdigest()
+    (root / ".pmpe" / "blobs" / digest.removeprefix("sha256:")).write_bytes(source)
+    return digest
+
+
+def _rewrite_coder_evidence(
+    root: Path,
+    *,
+    run_id: str,
+    mutate: Callable[[dict[str, Any], dict[str, Any]], None],
+) -> None:
+    events_path = root / ".pmpe" / "runs" / run_id / "events.jsonl"
+    events = [json.loads(line) for line in events_path.read_text().splitlines()]
+    coder = next(event for event in reversed(events) if event["event_type"] == "coder_completed")
+    payload = coder["payload"]
+    blobs = root / ".pmpe" / "blobs"
+    request = json.loads(
+        (blobs / payload["request_blob_digest"].removeprefix("sha256:")).read_text()
+    )
+    response = json.loads(
+        (blobs / payload["response_blob_digest"].removeprefix("sha256:")).read_text()
+    )
+    mutate(request, response)
+    request_blob_digest = _put_json_blob(root, request)
+    response_blob_digest = _put_json_blob(root, response)
+    payload["request_blob_digest"] = request_blob_digest
+    payload["response_blob_digest"] = response_blob_digest
+    payload["provider_behavior"]["request_digest"] = response["request_digest"]
+    payload["provider_behavior"]["output_digest"] = canonical_digest(response["files"])
+    coder["blob_digests"] = sorted({request_blob_digest, response_blob_digest})
+    _write_events_with_valid_hash_chain(events_path, events)
+
+
 def test_compare_uses_verified_ledgers_and_keeps_candidate_variation_visible(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -788,6 +823,137 @@ def test_compare_uses_verified_ledgers_and_keeps_candidate_variation_visible(
     assert comparison["behavior_drift"]["cause"] == "PROVIDER_CONFIGURATION_CHANGED"
     assert comparison["behavior_drift"]["attribution"] == ["prompt_version"]
     assert comparison["baseline"]["provider_behavior"]["cli_version"] == "codex-cli_1.0.0"
+
+
+@pytest.mark.parametrize(
+    "replacement_files",
+    (
+        {},
+        {
+            "product.py": (
+                '"""Unsealed response."""\n\n'
+                "def health() -> dict[str, str]:\n"
+                '    return {"status": "ok"}\n'
+            )
+        },
+    ),
+    ids=("empty-response", "different-response"),
+)
+def test_compare_rejects_coder_response_not_bound_to_sealed_candidate(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    replacement_files: dict[str, str],
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(baseline_root, run_id="baseline", variant="first candidate")
+    _approved_comparable_run(current_root, run_id="current", variant="second candidate")
+
+    def replace_response(_request: dict[str, Any], response: dict[str, Any]) -> None:
+        response["files"] = replacement_files
+
+    _rewrite_coder_evidence(
+        current_root,
+        run_id="current",
+        mutate=replace_response,
+    )
+
+    exit_code = main(
+        [
+            "barebones",
+            "compare",
+            "baseline",
+            "current",
+            "--baseline-root",
+            str(baseline_root),
+            "--current-root",
+            str(current_root),
+            "--expected-approver",
+            "fixture-human",
+            "--compiler-root",
+            str(_REPOSITORY),
+        ]
+    )
+
+    assert exit_code == 3
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["detail"] == "Coder response files do not match the sealed candidate"
+
+
+def test_compare_recomputes_the_recorded_coder_request_digest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(baseline_root, run_id="baseline", variant="first candidate")
+    _approved_comparable_run(current_root, run_id="current", variant="second candidate")
+
+    def forge_digest(request: dict[str, Any], response: dict[str, Any]) -> None:
+        forged = "sha256:" + "f" * 64
+        request["request_digest"] = forged
+        response["request_digest"] = forged
+
+    _rewrite_coder_evidence(current_root, run_id="current", mutate=forge_digest)
+
+    exit_code = main(
+        [
+            "barebones",
+            "compare",
+            "baseline",
+            "current",
+            "--baseline-root",
+            str(baseline_root),
+            "--current-root",
+            str(current_root),
+            "--expected-approver",
+            "fixture-human",
+            "--compiler-root",
+            str(_REPOSITORY),
+        ]
+    )
+
+    assert exit_code == 3
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["detail"] == "Coder request digest is inconsistent"
+
+
+def test_compare_binds_recorded_coder_request_to_the_approved_contract_and_plan(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(baseline_root, run_id="baseline", variant="first candidate")
+    _approved_comparable_run(current_root, run_id="current", variant="second candidate")
+
+    def forge_contract(request: dict[str, Any], response: dict[str, Any]) -> None:
+        request["contract"]["contract_id"] = "FORGED-CONTRACT"
+        body = {key: value for key, value in request.items() if key != "request_digest"}
+        request_digest = canonical_digest(body)
+        request["request_digest"] = request_digest
+        response["request_digest"] = request_digest
+
+    _rewrite_coder_evidence(current_root, run_id="current", mutate=forge_contract)
+
+    exit_code = main(
+        [
+            "barebones",
+            "compare",
+            "baseline",
+            "current",
+            "--baseline-root",
+            str(baseline_root),
+            "--current-root",
+            str(current_root),
+            "--expected-approver",
+            "fixture-human",
+            "--compiler-root",
+            str(_REPOSITORY),
+        ]
+    )
+
+    assert exit_code == 3
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["detail"] == ("Coder request is not bound to the approved contract and plan")
 
 
 def test_compare_fails_closed_for_different_provider_requests(

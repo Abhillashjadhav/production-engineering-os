@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from pmpe.barebones import RunState, run_to_release_ready
+from pmpe.contracts.canonical import canonical_digest
 
 _METADATA = {
     "provider": "scripted-fixture",
@@ -93,6 +94,12 @@ def test_e1_real_contract_reaches_release_ready(tmp_path: Path) -> None:
     release = next(event for event in events if event["event_type"] == "release_ready")
     assert events[0]["payload"]["approval"]["status"] == "UNVERIFIED_DIRECT_CALL"
     assert coder["payload"]["provider_behavior"]["purpose"] == "code"
+    request_blob = coder["payload"]["request_blob_digest"]
+    response_blob = coder["payload"]["response_blob_digest"]
+    assert set(coder["blob_digests"]) == {request_blob, response_blob}
+    request = json.loads((tmp_path / ".pmpe/blobs" / request_blob[7:]).read_text())
+    request_body = {key: value for key, value in request.items() if key != "request_digest"}
+    assert request["request_digest"] == canonical_digest(request_body)
     assert release["payload"]["provider_behavior"]["purpose"] == "advisory_review"
     assert coder["payload"]["provider_behavior"]["request_digest"].startswith("sha256:")
     assert release["payload"]["provider_behavior"]["output_digest"].startswith("sha256:")

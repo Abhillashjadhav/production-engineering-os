@@ -519,20 +519,55 @@ def _comparison_observation(
     coder_event = coder_events[-1]
     if coder_event.get("subject_digest") != contract_digest:
         raise EvidenceIntegrityError("Coder behavior is not bound to the approved contract")
+    coder_payload = coder_event.get("payload")
     coder_blobs = coder_event.get("blob_digests")
-    if not isinstance(coder_blobs, list) or len(coder_blobs) != 1:
+    request_blob_digest = (
+        coder_payload.get("request_blob_digest") if isinstance(coder_payload, Mapping) else None
+    )
+    response_blob_digest = (
+        coder_payload.get("response_blob_digest") if isinstance(coder_payload, Mapping) else None
+    )
+    if (
+        not isinstance(coder_blobs, list)
+        or len(coder_blobs) != 2
+        or not isinstance(request_blob_digest, str)
+        or _SHA256.fullmatch(request_blob_digest) is None
+        or not isinstance(response_blob_digest, str)
+        or _SHA256.fullmatch(response_blob_digest) is None
+        or request_blob_digest == response_blob_digest
+        or set(coder_blobs) != {request_blob_digest, response_blob_digest}
+    ):
         raise EvidenceIntegrityError("Coder response evidence is malformed")
     try:
-        response = strict_loads(ledger.read_blob(coder_blobs[0]), "application/json")
+        request = strict_loads(ledger.read_blob(request_blob_digest), "application/json")
+        response = strict_loads(ledger.read_blob(response_blob_digest), "application/json")
     except CanonicalInputError as exc:
-        raise EvidenceIntegrityError("Coder response evidence is malformed") from exc
-    if not isinstance(response, Mapping):
-        raise EvidenceIntegrityError("Coder response evidence is malformed")
+        raise EvidenceIntegrityError("Coder request or response evidence is malformed") from exc
+    if not isinstance(request, Mapping) or not isinstance(response, Mapping):
+        raise EvidenceIntegrityError("Coder request or response evidence is malformed")
+    request_fields = {"contract", "plan", "files", "findings", "request_digest"}
+    if set(request) != request_fields:
+        raise EvidenceIntegrityError("Coder request evidence has an unexpected shape")
+    request_body = {key: value for key, value in request.items() if key != "request_digest"}
+    expected_request_digest = canonical_digest(request_body)
+    if (
+        request.get("request_digest") != expected_request_digest
+        or response.get("request_digest") != expected_request_digest
+    ):
+        raise EvidenceIntegrityError("Coder request digest is inconsistent")
+    request_contract = request.get("contract")
+    request_plan = request.get("plan")
+    if (
+        not isinstance(request_contract, Mapping)
+        or not isinstance(request_plan, Mapping)
+        or canonical_digest(request_contract) != canonical_digest(contract)
+        or canonical_digest(request_plan) != canonical_digest(expected_plan)
+    ):
+        raise EvidenceIntegrityError("Coder request is not bound to the approved contract and plan")
     try:
         behavior = observe_provider_behavior(purpose="code", response=response)
     except ValueError as exc:
         raise EvidenceIntegrityError("Coder behavior evidence is malformed") from exc
-    coder_payload = coder_event.get("payload")
     recorded_behavior = (
         coder_payload.get("provider_behavior") if isinstance(coder_payload, Mapping) else None
     )
@@ -558,7 +593,20 @@ def _comparison_observation(
     terminal = events[-1]
     if terminal.get("subject_digest") != contract_digest:
         raise EvidenceIntegrityError("release candidate is not bound to the approved contract")
-    candidate_digest, _ = _candidate_manifest(ledger, terminal)
+    candidate_digest, candidate_manifest = _candidate_manifest(ledger, terminal)
+    response_files = response.get("files")
+    if (
+        not isinstance(response_files, Mapping)
+        or not response_files
+        or any(
+            not isinstance(path, str)
+            or not isinstance(content, str)
+            or candidate_manifest.get(path)
+            != "sha256:" + hashlib.sha256(content.encode()).hexdigest()
+            for path, content in response_files.items()
+        )
+    ):
+        raise EvidenceIntegrityError("Coder response files do not match the sealed candidate")
     return {
         "run_id": run_id,
         "contract_digest": contract_digest,
