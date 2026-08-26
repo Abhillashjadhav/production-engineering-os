@@ -138,6 +138,45 @@ def test_runtime_roots_do_not_trust_resolved_executable_root(
     assert not any(canonical.is_relative_to(root) for root in runtime_roots)
 
 
+def test_active_interpreter_alias_outside_bound_roots_uses_canonical_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "candidate"
+    workspace.mkdir()
+    managed_root = tmp_path / "managed-python"
+    canonical = managed_root / "bin" / "python3.12"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_text("trusted interpreter")
+    active = tmp_path / "external-alias" / "python"
+    active.parent.mkdir()
+    active.symlink_to(canonical)
+    observed: list[str] = []
+
+    monkeypatch.setattr(barebones.sys, "executable", str(active))
+    monkeypatch.setattr(
+        barebones.shutil,
+        "which",
+        lambda name, path=None: f"/usr/bin/{name}",
+    )
+    sandbox = BubblewrapCandidateSandbox()
+    monkeypatch.setattr(sandbox, "_runtime_roots", lambda: (managed_root,))
+
+    def completed(argv: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        observed.extend(argv)  # type: ignore[arg-type]
+        return subprocess.CompletedProcess(argv, 0, b"", b"")  # type: ignore[arg-type]
+
+    monkeypatch.setattr(barebones.subprocess, "run", completed)
+
+    sandbox.run(
+        workspace,
+        (str(active), "-V"),
+        timeout_seconds=2,
+        environment={},
+    )
+
+    assert observed[-2:] == [str(canonical), "-V"]
+
+
 def test_arbitrary_command_symlink_is_not_resolved(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
