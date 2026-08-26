@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
+import shlex
+import shutil
+import sys
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
 from pmpe.barebones import RunState, run_to_release_ready
 from pmpe.contracts.canonical import canonical_digest
+from pmpe.evals import real_behavior_drift_eval as drift_eval
 
 _METADATA = {
     "provider": "scripted-fixture",
@@ -61,6 +66,87 @@ class ReadinessProvider:
         }
 
 
+def _prove_private_source_wrapper_with_nested_candidate_sandbox(tmp_path: Path) -> None:
+    environment = drift_eval._sanitized_environment()
+    git_executable = shutil.which("git", path=environment.get("PATH"))
+    bwrap_executable = shutil.which("bwrap", path=environment.get("PATH"))
+    assert git_executable is not None
+    assert bwrap_executable is not None
+    git_head = drift_eval._checked_output(
+        [git_executable, "rev-parse", "HEAD"],
+        environment=environment,
+    )
+    source_checkout = tmp_path / "source-snapshot"
+
+    try:
+        identity = drift_eval._materialize_source_snapshot(
+            source_checkout,
+            git_executable=git_executable,
+            git_head=git_head,
+            environment=environment,
+        )
+        provider = source_checkout / "examples/barebones/e1-provider.py"
+        original_provider = provider.read_bytes()
+        mutation = (
+            "from pathlib import Path;"
+            f"path=Path({str(provider)!r});"
+            "path.chmod(0o644);path.write_text('tampered')"
+        )
+
+        mutation_exit, _ = drift_eval._snapshot_command(
+            [sys.executable, "-I", "-c", mutation],
+            bwrap_executable=bwrap_executable,
+            environment=environment,
+            expected_tree_digest=identity["tree_digest"],
+            source_checkout=source_checkout,
+            timeout=30,
+        )
+
+        assert mutation_exit != 0
+        assert provider.read_bytes() == original_provider
+
+        evidence_root = tmp_path / "snapshot-evidence"
+        candidate = tmp_path / "snapshot-candidate"
+        provider_command = f"{shlex.quote(sys.executable)} {shlex.quote(str(provider))}"
+        exit_code, output = drift_eval._snapshot_command(
+            [
+                *drift_eval._pmpe_command(source_checkout),
+                "barebones",
+                "run",
+                str(source_checkout / "examples/barebones/e1-contract.json"),
+                "--workspace",
+                str(candidate),
+                "--run-id",
+                "snapshot-nested-sandbox",
+                "--repository-root",
+                str(evidence_root),
+                "--approval-receipt",
+                str(source_checkout / "examples/barebones/e1-approval-receipt.json"),
+                "--expected-approver",
+                "fixture-human",
+                "--provider-command",
+                provider_command,
+                "--provider-timeout",
+                "30",
+            ],
+            bwrap_executable=bwrap_executable,
+            environment=environment,
+            expected_tree_digest=identity["tree_digest"],
+            source_checkout=source_checkout,
+            timeout=120,
+        )
+
+        assert exit_code == 0, output
+        result = json.loads(output)
+        assert result["state"] == "RELEASE_READY"
+    finally:
+        if source_checkout.exists():
+            for path in sorted(source_checkout.rglob("*"), key=lambda item: len(item.parts)):
+                if not path.is_symlink():
+                    path.chmod(0o755 if path.is_dir() else 0o644)
+            source_checkout.chmod(0o755)
+
+
 def test_e1_real_contract_reaches_release_ready(tmp_path: Path) -> None:
     contract = {
         "contract_id": "PMOS-E1",
@@ -103,6 +189,8 @@ def test_e1_real_contract_reaches_release_ready(tmp_path: Path) -> None:
     assert release["payload"]["provider_behavior"]["purpose"] == "advisory_review"
     assert coder["payload"]["provider_behavior"]["request_digest"].startswith("sha256:")
     assert release["payload"]["provider_behavior"]["output_digest"].startswith("sha256:")
+    if os.environ.get("PMPE_TEST_REAL_SANDBOX") == "true":
+        _prove_private_source_wrapper_with_nested_candidate_sandbox(tmp_path / "source-gate")
 
 
 def test_materially_different_readiness_contract_reaches_release_ready(

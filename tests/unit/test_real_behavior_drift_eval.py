@@ -102,6 +102,7 @@ def test_source_snapshot_is_the_captured_git_tree_and_read_only(tmp_path: Path) 
             "archive_digest": identity["archive_digest"],
             "git_head": git_head,
             "provider_digest": "sha256:" + drift_eval._sha256(provider),
+            "tree_digest": drift_eval._snapshot_tree_digest(destination),
         }
         assert identity["archive_digest"].startswith("sha256:")
         assert len(identity["archive_digest"]) == len("sha256:") + 64
@@ -114,6 +115,114 @@ def test_source_snapshot_is_the_captured_git_tree_and_read_only(tmp_path: Path) 
                 if not path.is_symlink():
                     path.chmod(0o755 if path.is_dir() else 0o644)
             destination.chmod(0o755)
+
+
+def test_snapshot_command_uses_read_only_mount_and_rechecks_the_tree(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_checkout = tmp_path / "source-snapshot"
+    source_checkout.mkdir()
+    source_file = source_checkout / "source.py"
+    source_file.write_text("VALUE = 1\n")
+    source_file.chmod(0o444)
+    source_checkout.chmod(0o555)
+    tree_digest = drift_eval._snapshot_tree_digest(source_checkout)
+
+    def command(
+        argv: list[str],
+        *,
+        environment: dict[str, str],
+        pass_fds: tuple[int, ...],
+        timeout: int,
+        cwd: Path,
+    ) -> tuple[int, str]:
+        assert len(pass_fds) == 1
+        descriptor = pass_fds[0]
+        assert os.pread(descriptor, 64, 0) == b"VALUE = 1\n"
+        with pytest.raises(OSError):
+            os.pwrite(descriptor, b"tampered", 0)
+        assert argv == [
+            "/usr/bin/bwrap",
+            "--die-with-parent",
+            "--bind",
+            "/",
+            "/",
+            "--tmpfs",
+            str(source_checkout),
+            "--perms",
+            "0444",
+            "--file",
+            str(descriptor),
+            str(source_file),
+            "--remount-ro",
+            str(source_checkout),
+            "--chdir",
+            str(source_checkout),
+            "--",
+            "/bin/true",
+        ]
+        assert environment == {"PATH": "/trusted"}
+        assert timeout == 60
+        assert cwd == source_checkout
+        return 0, ""
+
+    monkeypatch.setattr(drift_eval, "_command", command)
+
+    try:
+        result = drift_eval._snapshot_command(
+            ["/bin/true"],
+            bwrap_executable="/usr/bin/bwrap",
+            environment={"PATH": "/trusted"},
+            expected_tree_digest=tree_digest,
+            source_checkout=source_checkout,
+            timeout=60,
+        )
+
+        assert result == (0, "")
+    finally:
+        source_checkout.chmod(0o755)
+        source_file.chmod(0o644)
+
+
+def test_snapshot_command_detects_owner_mutation_after_the_child(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    source_checkout = tmp_path / "source-snapshot"
+    source_checkout.mkdir()
+    source_file = source_checkout / "source.py"
+    source_file.write_text("VALUE = 1\n")
+    source_file.chmod(0o444)
+    source_checkout.chmod(0o555)
+    tree_digest = drift_eval._snapshot_tree_digest(source_checkout)
+
+    def command(
+        _argv: list[str],
+        *,
+        environment: dict[str, str],
+        pass_fds: tuple[int, ...],
+        timeout: int,
+        cwd: Path,
+    ) -> tuple[int, str]:
+        del environment, pass_fds, timeout, cwd
+        source_file.chmod(0o644)
+        source_file.write_text("VALUE = 2\n")
+        return 0, ""
+
+    monkeypatch.setattr(drift_eval, "_command", command)
+
+    try:
+        with pytest.raises(RuntimeError, match="source snapshot changed"):
+            drift_eval._snapshot_command(
+                ["/bin/true"],
+                bwrap_executable="/usr/bin/bwrap",
+                environment={"PATH": "/trusted"},
+                expected_tree_digest=tree_digest,
+                source_checkout=source_checkout,
+                timeout=60,
+            )
+    finally:
+        source_checkout.chmod(0o755)
+        source_file.chmod(0o644)
 
 
 def test_run_wrapper_timeout_covers_the_complete_model_call_budget() -> None:
@@ -263,13 +372,17 @@ def test_planted_behavior_is_read_from_both_sealed_candidates(
     def command(
         argv: list[str],
         *,
+        bwrap_executable: str,
         environment: dict[str, str],
+        expected_tree_digest: str,
+        source_checkout: Path,
         timeout: int,
-        cwd: Path,
     ) -> tuple[int, str]:
+        assert bwrap_executable == "/usr/bin/bwrap"
         assert environment == {"PATH": "/trusted"}
+        assert expected_tree_digest == "sha256:trusted"
         assert timeout == 60
-        assert cwd == source_checkout
+        assert source_checkout == expected_source_checkout
         calls.append(argv)
         run_id = argv[argv.index("inspect") + 1]
         content = (
@@ -287,12 +400,15 @@ def test_planted_behavior_is_read_from_both_sealed_candidates(
             }
         )
 
-    monkeypatch.setattr(drift_eval, "_command", command)
+    expected_source_checkout = source_checkout
+    monkeypatch.setattr(drift_eval, "_snapshot_command", command)
 
     result = drift_eval._inspect_planted_behavior(
         ["python", "-m", "pmpe"],
         tmp_path / "evidence",
         {"PATH": "/trusted"},
+        bwrap_executable="/usr/bin/bwrap",
+        expected_tree_digest="sha256:trusted",
         source_checkout=source_checkout,
     )
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import fcntl
 import hashlib
 import json
 import os
@@ -12,6 +13,7 @@ import re
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tarfile
@@ -30,6 +32,11 @@ PAID_API_ENVIRONMENT = ("CODEX_API_KEY", "OPENAI_API_KEY")
 _RUN_WRAPPER_OVERHEAD_SECONDS = 300
 MATRIX_APPROVER = "fixture-human"
 _PROVIDER_CONFIGURATION_FIELDS = ("provider", "model", "prompt_version", "cli_version")
+_F_ADD_SEALS = getattr(fcntl, "F_ADD_SEALS", 1033)
+_F_SEAL_SEAL = getattr(fcntl, "F_SEAL_SEAL", 0x0001)
+_F_SEAL_SHRINK = getattr(fcntl, "F_SEAL_SHRINK", 0x0002)
+_F_SEAL_GROW = getattr(fcntl, "F_SEAL_GROW", 0x0004)
+_F_SEAL_WRITE = getattr(fcntl, "F_SEAL_WRITE", 0x0008)
 
 
 @dataclass(frozen=True)
@@ -112,6 +119,7 @@ def _command(
     argv: list[str],
     *,
     environment: dict[str, str],
+    pass_fds: tuple[int, ...] = (),
     timeout: int,
     cwd: Path = ROOT,
 ) -> tuple[int, str]:
@@ -123,6 +131,7 @@ def _command(
         stderr=subprocess.STDOUT,
         text=True,
         start_new_session=True,
+        pass_fds=pass_fds,
     )
     try:
         output, _ = process.communicate(timeout=timeout)
@@ -228,6 +237,154 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _snapshot_image(
+    source_checkout: Path,
+) -> tuple[list[dict[str, str | int]], list[tuple[str, bytes]]]:
+    entries: list[dict[str, str | int]] = [
+        {
+            "mode": stat.S_IMODE(source_checkout.stat().st_mode),
+            "path": ".",
+            "type": "directory",
+        }
+    ]
+    files: list[tuple[str, bytes]] = []
+    for path in sorted(source_checkout.rglob("*")):
+        relative = path.relative_to(source_checkout).as_posix()
+        metadata = path.lstat()
+        if stat.S_ISLNK(metadata.st_mode):
+            raise RuntimeError("source snapshot contains a symbolic link")
+        if stat.S_ISDIR(metadata.st_mode):
+            entries.append(
+                {
+                    "mode": stat.S_IMODE(metadata.st_mode),
+                    "path": relative,
+                    "type": "directory",
+                }
+            )
+            continue
+        if not stat.S_ISREG(metadata.st_mode):
+            raise RuntimeError("source snapshot contains an unsupported file type")
+        content = path.read_bytes()
+        entries.append(
+            {
+                "content_digest": "sha256:" + hashlib.sha256(content).hexdigest(),
+                "mode": stat.S_IMODE(metadata.st_mode),
+                "path": relative,
+                "type": "file",
+            }
+        )
+        files.append((relative, content))
+    return entries, files
+
+
+def _snapshot_entries_digest(entries: list[dict[str, str | int]]) -> str:
+    payload = json.dumps(entries, sort_keys=True, separators=(",", ":")).encode()
+    return "sha256:" + hashlib.sha256(payload).hexdigest()
+
+
+def _snapshot_tree_digest(source_checkout: Path) -> str:
+    """Hash every source entry, including its path, type, mode, and content."""
+
+    entries, _ = _snapshot_image(source_checkout)
+    return _snapshot_entries_digest(entries)
+
+
+def _assert_snapshot_identity(source_checkout: Path, expected_tree_digest: str) -> None:
+    try:
+        observed = _snapshot_tree_digest(source_checkout)
+    except OSError as exc:
+        raise RuntimeError("source snapshot could not be reverified") from exc
+    if observed != expected_tree_digest:
+        raise RuntimeError("source snapshot changed during the matrix")
+
+
+def _sealed_memfd(content: bytes) -> int:
+    try:
+        descriptor = os.memfd_create(
+            "pmpe-source",
+            flags=os.MFD_CLOEXEC | os.MFD_ALLOW_SEALING,
+        )
+        remaining = memoryview(content)
+        while remaining:
+            written = os.write(descriptor, remaining)
+            remaining = remaining[written:]
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        fcntl.fcntl(
+            descriptor,
+            _F_ADD_SEALS,
+            _F_SEAL_SEAL | _F_SEAL_SHRINK | _F_SEAL_GROW | _F_SEAL_WRITE,
+        )
+    except (AttributeError, OSError) as exc:
+        if "descriptor" in locals():
+            os.close(descriptor)
+        raise RuntimeError("could not seal the private source image") from exc
+    return descriptor
+
+
+def _snapshot_command(
+    argv: list[str],
+    *,
+    bwrap_executable: str,
+    environment: dict[str, str],
+    expected_tree_digest: str,
+    source_checkout: Path,
+    timeout: int,
+) -> tuple[int, str]:
+    """Execute with the source mounted read-only and verify it at both boundaries."""
+
+    _assert_snapshot_identity(source_checkout, expected_tree_digest)
+    entries, files = _snapshot_image(source_checkout)
+    if _snapshot_entries_digest(entries) != expected_tree_digest:
+        raise RuntimeError("private source image does not match the captured snapshot")
+    descriptors: list[int] = []
+    command = [
+        bwrap_executable,
+        "--die-with-parent",
+        "--bind",
+        "/",
+        "/",
+        "--tmpfs",
+        str(source_checkout),
+    ]
+    for entry in entries:
+        if entry["type"] == "directory" and entry["path"] != ".":
+            command.extend(("--dir", str(source_checkout / str(entry["path"]))))
+    try:
+        for relative, content in files:
+            descriptor = _sealed_memfd(content)
+            descriptors.append(descriptor)
+            command.extend(
+                (
+                    "--perms",
+                    "0444",
+                    "--file",
+                    str(descriptor),
+                    str(source_checkout / relative),
+                )
+            )
+        command.extend(
+            (
+                "--remount-ro",
+                str(source_checkout),
+                "--chdir",
+                str(source_checkout),
+                "--",
+                *argv,
+            )
+        )
+        return _command(
+            command,
+            environment=environment,
+            pass_fds=tuple(descriptors),
+            timeout=timeout,
+            cwd=source_checkout,
+        )
+    finally:
+        for descriptor in descriptors:
+            os.close(descriptor)
+        _assert_snapshot_identity(source_checkout, expected_tree_digest)
+
+
 def _materialize_source_snapshot(
     destination: Path,
     *,
@@ -268,13 +425,14 @@ def _materialize_source_snapshot(
         raise RuntimeError("source snapshot does not contain the reviewed provider")
     for path in sorted(destination.rglob("*"), key=lambda item: len(item.parts), reverse=True):
         if path.is_symlink():
-            continue
+            raise RuntimeError("source snapshot contains a symbolic link")
         path.chmod(0o555 if path.is_dir() else 0o444)
     destination.chmod(0o555)
     return {
         "archive_digest": "sha256:" + archive_hasher.hexdigest(),
         "git_head": git_head,
         "provider_digest": "sha256:" + _sha256(snapshot_provider),
+        "tree_digest": _snapshot_tree_digest(destination),
     }
 
 
@@ -384,12 +542,14 @@ def _inspect_planted_behavior(
     evidence_root: Path,
     environment: dict[str, str],
     *,
+    bwrap_executable: str,
+    expected_tree_digest: str,
     source_checkout: Path = ROOT,
 ) -> dict[str, Any]:
     """Verify the requested plant in the immutable candidate ledger, not the workspace."""
 
     def inspect(run_id: str) -> tuple[int, str | None, bool]:
-        exit_code, command_output = _command(
+        exit_code, command_output = _snapshot_command(
             [
                 *pmpe_command,
                 "barebones",
@@ -400,9 +560,11 @@ def _inspect_planted_behavior(
                 "--file",
                 PLANTED_FILE,
             ],
+            bwrap_executable=bwrap_executable,
             environment=environment,
+            expected_tree_digest=expected_tree_digest,
+            source_checkout=source_checkout,
             timeout=60,
-            cwd=source_checkout,
         )
         result = _parse_json(command_output)
         selected_file = result.get("selected_file") if isinstance(result, dict) else None
@@ -574,11 +736,13 @@ def main() -> int:
             "--provider-timeout",
             str(args.provider_timeout),
         ]
-        exit_code, command_output = _command(
+        exit_code, command_output = _snapshot_command(
             argv,
+            bwrap_executable=commands["bwrap"],
             environment=run_environment,
+            expected_tree_digest=snapshot_identity["tree_digest"],
+            source_checkout=source_checkout,
             timeout=_run_wrapper_timeout(args.provider_timeout),
-            cwd=source_checkout,
         )
         (logs / f"{spec.run_id}.log").write_text(command_output)
         run_results.append(
@@ -607,11 +771,13 @@ def main() -> int:
             "--compiler-root",
             str(source_checkout),
         ]
-        exit_code, command_output = _command(
+        exit_code, command_output = _snapshot_command(
             argv,
+            bwrap_executable=commands["bwrap"],
             environment=environment,
+            expected_tree_digest=snapshot_identity["tree_digest"],
+            source_checkout=source_checkout,
             timeout=60,
-            cwd=source_checkout,
         )
         (comparisons / f"{name}.json").write_text(command_output)
         comparison_results.append(
@@ -627,8 +793,11 @@ def main() -> int:
         pmpe_command,
         evidence_root,
         environment,
+        bwrap_executable=commands["bwrap"],
+        expected_tree_digest=snapshot_identity["tree_digest"],
         source_checkout=source_checkout,
     )
+    _assert_snapshot_identity(source_checkout, snapshot_identity["tree_digest"])
     source_reverification = _reverify_source_identity(source_identity, commands, environment)
     passed = source_reverification.get("status") == "PASS" and _gate_passes(
         run_results, comparison_results, planted_behavior
