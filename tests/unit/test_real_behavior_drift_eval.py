@@ -54,6 +54,18 @@ def test_preflight_children_receive_only_the_sanitized_environment(
     )
 
 
+def test_pmpe_command_binds_the_active_interpreter_to_this_checkout() -> None:
+    command = drift_eval._pmpe_command()
+
+    assert command[:3] == [drift_eval.sys.executable, "-I", "-c"]
+    assert str(drift_eval.ROOT / "src") in command[3]
+    output = drift_eval._checked_output(
+        [*command, "--help"],
+        environment=drift_eval._sanitized_environment(),
+    )
+    assert "usage: pmpe" in output
+
+
 def _passing_results() -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     runs: list[dict[str, object]] = [
         {"exit_code": 0, "result": {"state": "RELEASE_READY", "cause": "PASS"}}

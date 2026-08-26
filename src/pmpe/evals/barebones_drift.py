@@ -98,6 +98,7 @@ def compare_provider_behavior(
         field
         for field in ("provider", "model", "prompt_version", "cli_version")
         if getattr(baseline, field) != getattr(current, field)
+        and (field != "cli_version" or "unknown" not in {baseline.cli_version, current.cli_version})
     )
     return BehaviorDrift(
         True,

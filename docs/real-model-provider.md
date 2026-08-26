@@ -97,7 +97,8 @@ The adapter records the Codex CLI version without imposing a version allowlist.
 `prompt_version` contains only the adapter version and reasoning effort; the optional
 CLI-version probe is separate telemetry, so a transient failed probe cannot be
 misreported as a prompt-configuration change. Behavior comparison records CLI-version
-changes as a separate attribution field.
+changes as a separate attribution field only when both runs recorded known versions;
+`unknown` telemetry is never treated as causal attribution.
 
 The `model` field records the configured Codex model name; ChatGPT subscription auth does
 not make that name an immutable provider-version pin. The #146 matrix therefore requires

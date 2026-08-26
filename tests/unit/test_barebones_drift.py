@@ -89,6 +89,31 @@ def test_cli_change_is_visible_as_separate_attribution() -> None:
     assert drift.attribution == ("cli_version",)
 
 
+def test_unknown_cli_telemetry_is_not_configuration_attribution() -> None:
+    baseline = observe_provider_behavior(
+        purpose="code",
+        response=_response(
+            status="ok",
+            prompt_version="prompt-v1",
+            cli_version="unknown",
+        ),
+    )
+    current = observe_provider_behavior(
+        purpose="code",
+        response=_response(
+            status="degraded",
+            prompt_version="prompt-v1",
+            cli_version="codex-cli_1.1.0",
+        ),
+    )
+
+    drift = compare_provider_behavior(baseline, current)
+
+    assert drift.detected is True
+    assert drift.attribution == ()
+    assert drift.cause == "UNATTRIBUTED_BEHAVIOR_DRIFT"
+
+
 def test_different_requests_are_not_comparable() -> None:
     baseline = observe_provider_behavior(
         purpose="code", response=_response(status="ok", prompt_version="prompt-v1")

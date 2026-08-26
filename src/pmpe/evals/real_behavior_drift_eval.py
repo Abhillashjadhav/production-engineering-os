@@ -137,7 +137,7 @@ def _preflight(environment: dict[str, str]) -> dict[str, str]:
     if sys.platform != "linux" or not Path("/proc/self/exe").is_file():
         raise RuntimeError("real drift evaluation requires Linux with mounted /proc")
     resolved: dict[str, str] = {}
-    for command in ("bwrap", "codex", "git", "pmpe", "prlimit"):
+    for command in ("bwrap", "codex", "git", "prlimit"):
         executable = shutil.which(command, path=environment.get("PATH"))
         if executable is None:
             raise RuntimeError(f"required command is missing: {command}")
@@ -168,6 +168,15 @@ def _preflight(environment: dict[str, str]) -> dict[str, str]:
     _checked_output([resolved["git"], "diff", "--quiet"], environment=environment)
     _checked_output([resolved["git"], "diff", "--cached", "--quiet"], environment=environment)
     return resolved
+
+
+def _pmpe_command() -> list[str]:
+    source_root = str(ROOT / "src")
+    launcher = (
+        f"import sys;sys.path.insert(0,{source_root!r});"
+        "from pmpe.cli import main;raise SystemExit(main())"
+    )
+    return [sys.executable, "-I", "-c", launcher]
 
 
 def _json_file(path: Path, value: Any) -> None:
@@ -274,6 +283,7 @@ def main() -> int:
     _json_file(output / "source.json", source)
 
     provider_command = f"{shlex.quote(sys.executable)} {shlex.quote(str(PROVIDER))}"
+    pmpe_command = _pmpe_command()
     run_results: list[dict[str, Any]] = []
     for spec in RUNS:
         print(f"running {spec.run_id} ({spec.prompt_profile})", flush=True)
@@ -281,7 +291,7 @@ def main() -> int:
         if spec.prompt_profile != "default":
             run_environment[PROMPT_PROFILE_ENV] = spec.prompt_profile
         argv = [
-            commands["pmpe"],
+            *pmpe_command,
             "barebones",
             "run",
             str(ROOT / spec.contract),
@@ -318,7 +328,7 @@ def main() -> int:
     for baseline, current, expected_exit_code in COMPARISONS:
         name = f"{baseline}--{current}"
         argv = [
-            commands["pmpe"],
+            *pmpe_command,
             "barebones",
             "compare",
             baseline,
