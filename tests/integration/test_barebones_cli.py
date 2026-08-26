@@ -14,7 +14,7 @@ from pmpe import barebones as barebones_runtime
 from pmpe.barebones import BudgetCaps, RunState, run_to_release_ready
 from pmpe.cli import barebones_cmd, build_parser, main
 from pmpe.cli.barebones_cmd import CommandModelProvider
-from pmpe.contracts.canonical import canonical_digest
+from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from pmpe.domain.errors import ContractViolation
 
 _REPOSITORY = Path(__file__).parents[2]
@@ -709,6 +709,23 @@ def _approved_comparable_run(
     assert result.state is RunState.RELEASE_READY
 
 
+def _rewrite_subject_with_valid_hash_chain(root: Path, *, run_id: str, event_type: str) -> None:
+    events_path = root / ".pmpe" / "runs" / run_id / "events.jsonl"
+    events = [json.loads(line) for line in events_path.read_text().splitlines()]
+    previous_digest = "sha256:" + "0" * 64
+    changed = False
+    for event in events:
+        if event["event_type"] == event_type:
+            event["subject_digest"] = "sha256:" + "f" * 64
+            changed = True
+        event["previous_digest"] = previous_digest
+        body = {key: value for key, value in event.items() if key != "event_digest"}
+        event["event_digest"] = canonical_digest(body)
+        previous_digest = event["event_digest"]
+    assert changed
+    events_path.write_bytes(b"".join(canonical_json_bytes(event) + b"\n" for event in events))
+
+
 def test_compare_uses_verified_ledgers_and_keeps_candidate_variation_visible(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -854,3 +871,54 @@ def test_compare_reverifies_approval_binding(
     assert comparison["state"] == "HALTED"
     assert comparison["cause"] == "EVIDENCE_INVALID"
     assert comparison["detail"] == "approval evidence is not bound to the contract"
+
+
+@pytest.mark.parametrize(
+    ("event_type", "expected_detail"),
+    (
+        ("coder_completed", "Coder behavior is not bound to the approved contract"),
+        ("release_ready", "release candidate is not bound to the approved contract"),
+    ),
+)
+def test_compare_rejects_cross_subject_coder_and_release_evidence(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    event_type: str,
+    expected_detail: str,
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(
+        baseline_root,
+        run_id="baseline",
+        variant="first candidate",
+    )
+    _approved_comparable_run(
+        current_root,
+        run_id="current",
+        variant="second candidate",
+    )
+    _rewrite_subject_with_valid_hash_chain(
+        current_root,
+        run_id="current",
+        event_type=event_type,
+    )
+
+    exit_code = main(
+        [
+            "barebones",
+            "compare",
+            "baseline",
+            "current",
+            "--baseline-root",
+            str(baseline_root),
+            "--current-root",
+            str(current_root),
+        ]
+    )
+
+    assert exit_code == 3
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["state"] == "HALTED"
+    assert comparison["cause"] == "EVIDENCE_INVALID"
+    assert comparison["detail"] == expected_detail

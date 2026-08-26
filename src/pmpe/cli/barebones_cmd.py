@@ -515,6 +515,8 @@ def _comparison_observation(repository_root: Path, run_id: str) -> dict[str, Any
     if not coder_events:
         raise EvidenceIntegrityError("run has no recorded Coder behavior")
     coder_event = coder_events[-1]
+    if coder_event.get("subject_digest") != contract_digest:
+        raise EvidenceIntegrityError("Coder behavior is not bound to the approved contract")
     coder_blobs = coder_event.get("blob_digests")
     if not isinstance(coder_blobs, list) or len(coder_blobs) != 1:
         raise EvidenceIntegrityError("Coder response evidence is malformed")
@@ -551,7 +553,10 @@ def _comparison_observation(repository_root: Path, run_id: str) -> dict[str, Any
     ):
         raise EvidenceIntegrityError("normalized Coder behavior does not match its response")
 
-    candidate_digest, _ = _candidate_manifest(ledger, events[-1])
+    terminal = events[-1]
+    if terminal.get("subject_digest") != contract_digest:
+        raise EvidenceIntegrityError("release candidate is not bound to the approved contract")
+    candidate_digest, _ = _candidate_manifest(ledger, terminal)
     return {
         "run_id": run_id,
         "contract_digest": contract_digest,
