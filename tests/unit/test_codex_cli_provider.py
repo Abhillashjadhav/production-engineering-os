@@ -299,6 +299,51 @@ def test_missing_or_truncated_telemetry_does_not_fail_a_valid_result(
     }
 
 
+@pytest.mark.parametrize(
+    ("oversized_stream", "expected_input_tokens"),
+    [("stdout", 0), ("stderr", 100)],
+)
+def test_oversized_exec_telemetry_does_not_discard_a_valid_result(
+    tmp_path: Path,
+    oversized_stream: str,
+    expected_input_tokens: int,
+) -> None:
+    provider = _provider_module()
+    executable = tmp_path / "codex"
+    executable.write_text(
+        f"""#!{sys.executable}
+import json
+import sys
+from pathlib import Path
+
+arguments = sys.argv[1:]
+if arguments == ["login", "status"]:
+    print("Logged in using ChatGPT")
+elif arguments == ["--version"]:
+    print("codex-cli 9.8.7")
+else:
+    output = Path(arguments[arguments.index("--output-last-message") + 1])
+    output.write_text(json.dumps({{"files": []}}))
+    usage = (
+        b'{{"type":"turn.completed","usage":{{"input_tokens":100,'
+        b'"output_tokens":20}}}}\\n'
+    )
+    if {oversized_stream!r} == "stdout":
+        sys.stdout.buffer.write(b"x" * ({provider._OUTPUT_LIMIT_BYTES} + 1))
+    else:
+        sys.stdout.buffer.write(usage)
+        sys.stderr.buffer.write(b"x" * ({provider._OUTPUT_LIMIT_BYTES} + 1))
+"""
+    )
+    executable.chmod(0o755)
+
+    response = provider._invoke(_message(), str(executable))
+
+    assert response["files"] == {}
+    assert response["usage"]["telemetry_status"] == "truncated"
+    assert response["usage"]["input_tokens"] == expected_input_tokens
+
+
 def test_advisory_uses_its_own_schema_and_remains_digest_bound(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
