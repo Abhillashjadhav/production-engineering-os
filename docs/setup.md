@@ -49,9 +49,11 @@ pytest tests/unit           # fast sanity (~10s); full suite: pytest (~2 min)
 Virtual environments whose active Python executable is a symlink to a managed
 Python installation are supported. The candidate sandbox validates that
 interpreter's canonical target against the independently reported Python
-base/prefix roots, which are bound read-only, while invoking the original path
-to preserve virtual-environment identity. It does not trust a root derived from
-the executable target or resolve candidate-selected command links.
+base/prefix roots, which are bound read-only. It preserves the original path
+when that path is inside a bound root so Python retains virtual-environment
+identity; an alias outside those roots is replaced with the validated canonical
+path. It does not trust a root derived from the executable target or resolve
+candidate-selected command links.
 
 ## Legacy compatibility verification
 
