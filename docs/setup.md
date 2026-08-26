@@ -46,6 +46,11 @@ pmpe legacy validate examples/taskflow_mvp_spec.yaml
 pytest tests/unit           # fast sanity (~10s); full suite: pytest (~2 min)
 ```
 
+Virtual environments whose active Python executable is a symlink to a managed
+Python installation are supported. The candidate sandbox canonicalizes only
+that trusted interpreter into an already-bound read-only runtime root; it does
+not resolve candidate-selected command links.
+
 ## Legacy compatibility verification
 
 ```bash
