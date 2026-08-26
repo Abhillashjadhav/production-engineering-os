@@ -91,6 +91,8 @@ def test_active_symlinked_interpreter_uses_bound_canonical_target(
         "which",
         lambda name, path=None: f"/usr/bin/{name}",
     )
+    sandbox = BubblewrapCandidateSandbox()
+    monkeypatch.setattr(sandbox, "_runtime_roots", lambda: (managed_root,))
 
     def completed(argv: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
         observed.extend(argv)  # type: ignore[arg-type]
@@ -98,7 +100,7 @@ def test_active_symlinked_interpreter_uses_bound_canonical_target(
 
     monkeypatch.setattr(barebones.subprocess, "run", completed)
 
-    BubblewrapCandidateSandbox().run(
+    sandbox.run(
         workspace,
         (str(active), "-V"),
         timeout_seconds=2,

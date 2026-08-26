@@ -143,7 +143,6 @@ class BubblewrapCandidateSandbox:
 
     @staticmethod
     def _runtime_roots() -> tuple[Path, ...]:
-        executable_root = Path(sys.executable).resolve().parent.parent
         candidates = {
             Path("/usr"),
             Path("/bin"),
@@ -152,7 +151,6 @@ class BubblewrapCandidateSandbox:
             Path("/lib64"),
             Path(sys.base_prefix).resolve(),
             Path(sys.prefix).resolve(),
-            executable_root,
         }
         return tuple(sorted((item for item in candidates if item.exists()), key=str))
 
