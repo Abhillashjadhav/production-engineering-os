@@ -1,5 +1,7 @@
 # pipeline run outputs (each run is a throwaway workspace + audit trail)
 runs/
+!docs/evidence/e1-real-provider-20260826/evidence/.pmpe/runs/
+!docs/evidence/e1-real-provider-20260826/evidence/.pmpe/runs/**
 
 # python
 __pycache__/
