@@ -106,8 +106,8 @@ shell history, evidence directory, or committed file.
 
 The manual `real-e1-evidence` Actions workflow provides the normal Linux `/proc`,
 Bubblewrap, and `prlimit` environment required by the candidate sandbox. It has
-read-only repository permission, never runs for a pull request or push, and requires
-the explicit `RUN_REAL_E1` paid-run confirmation.
+read-only repository permission, runs only from merged `main` and never for a pull
+request or push, and requires the explicit `RUN_REAL_E1` paid-run confirmation.
 
 Before the first run, add an Actions repository secret named `OPENAI_API_KEY`. Put the
 key only in that secret; never paste it into a workflow input, issue, PR, chat, or file.

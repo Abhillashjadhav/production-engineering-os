@@ -21,7 +21,7 @@ concurrency:
 
 jobs:
   real-e1:
-    if: inputs.confirm_paid_run == 'RUN_REAL_E1'
+    if: inputs.confirm_paid_run == 'RUN_REAL_E1' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
