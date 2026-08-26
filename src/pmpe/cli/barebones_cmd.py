@@ -33,6 +33,9 @@ from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 
 _PROVIDER_OUTPUT_LIMIT_BYTES = 1_000_000
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
+_PLAN_PROJECTION_FIELDS = frozenset(
+    {"contract_digest", "requirements", "tasks", "criteria", "trusted_test_digests"}
+)
 
 
 def _json(payload: Mapping[str, Any]) -> None:
@@ -415,6 +418,19 @@ def _evidence(args: argparse.Namespace) -> int:
     return 0
 
 
+def _plan_matches_identity(
+    plan: Mapping[str, Any], *, contract_digest: str, plan_digest: str
+) -> bool:
+    if set(plan) != _PLAN_PROJECTION_FIELDS | {"plan_digest"}:
+        return False
+    projection = {field: plan[field] for field in _PLAN_PROJECTION_FIELDS}
+    return bool(
+        plan.get("contract_digest") == contract_digest
+        and plan.get("plan_digest") == plan_digest
+        and canonical_digest(projection) == plan_digest
+    )
+
+
 def _comparison_observation(repository_root: Path, run_id: str) -> dict[str, Any]:
     ledger, events = _open_verified_events(repository_root, run_id)
     validation_events = [
@@ -478,10 +494,10 @@ def _comparison_observation(repository_root: Path, run_id: str) -> dict[str, Any
         or not isinstance(receipt, dict)
     ):
         raise EvidenceIntegrityError("contract, plan, or approval evidence is malformed")
-    if (
-        canonical_digest(contract) != contract_digest
-        or plan.get("contract_digest") != contract_digest
-        or plan.get("plan_digest") != plan_digest
+    if canonical_digest(contract) != contract_digest or not _plan_matches_identity(
+        plan,
+        contract_digest=contract_digest,
+        plan_digest=plan_digest,
     ):
         raise EvidenceIntegrityError("contract or plan evidence is not digest-bound")
     try:

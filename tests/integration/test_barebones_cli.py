@@ -659,6 +659,29 @@ class _ComparableProvider:
         }
 
 
+def test_plan_identity_is_recomputed_from_the_recorded_projection() -> None:
+    contract = json.loads((_REPOSITORY / "examples/barebones/e1-contract.json").read_text())
+    compiled = barebones_runtime.compile_barebones_plan(
+        contract=contract,
+        repository_root=_REPOSITORY,
+    )
+    plan = compiled.as_dict()
+
+    assert barebones_cmd._plan_matches_identity(
+        plan,
+        contract_digest=compiled.contract_digest,
+        plan_digest=compiled.plan_digest,
+    )
+    requirements = plan["requirements"]
+    assert isinstance(requirements, (list, tuple))
+    plan["requirements"] = [*requirements, "FORGED-REQUIREMENT"]
+    assert not barebones_cmd._plan_matches_identity(
+        plan,
+        contract_digest=compiled.contract_digest,
+        plan_digest=compiled.plan_digest,
+    )
+
+
 def _approved_comparable_run(
     root: Path,
     *,

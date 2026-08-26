@@ -109,10 +109,19 @@ def _command(argv: list[str], *, environment: dict[str, str], timeout: int) -> t
         return 124, output + "\nEVAL_WRAPPER_TIMEOUT\n"
 
 
-def _checked_output(argv: list[str], *, timeout: int = 30) -> str:
+def _sanitized_environment() -> dict[str, str]:
+    environment = dict(os.environ)
+    for name in PAID_API_ENVIRONMENT:
+        environment.pop(name, None)
+    environment.pop(PROMPT_PROFILE_ENV, None)
+    return environment
+
+
+def _checked_output(argv: list[str], *, environment: dict[str, str], timeout: int = 30) -> str:
     completed = subprocess.run(
         argv,
         cwd=ROOT,
+        env=environment,
         text=True,
         capture_output=True,
         timeout=timeout,
@@ -124,16 +133,16 @@ def _checked_output(argv: list[str], *, timeout: int = 30) -> str:
     return output
 
 
-def _preflight() -> dict[str, str]:
+def _preflight(environment: dict[str, str]) -> dict[str, str]:
     if sys.platform != "linux" or not Path("/proc/self/exe").is_file():
         raise RuntimeError("real drift evaluation requires Linux with mounted /proc")
     resolved: dict[str, str] = {}
     for command in ("bwrap", "codex", "git", "pmpe", "prlimit"):
-        executable = shutil.which(command)
+        executable = shutil.which(command, path=environment.get("PATH"))
         if executable is None:
             raise RuntimeError(f"required command is missing: {command}")
         resolved[command] = executable
-    auth = _checked_output([resolved["codex"], "login", "status"])
+    auth = _checked_output([resolved["codex"], "login", "status"], environment=environment)
     normalized_auth = auth.lower()
     if (
         re.search(r"\blogged in (?:using|with) chatgpt\b", normalized_auth) is None
@@ -153,10 +162,11 @@ def _preflight() -> dict[str, str]:
             "--dev",
             "/dev",
             "/bin/true",
-        ]
+        ],
+        environment=environment,
     )
-    _checked_output([resolved["git"], "diff", "--quiet"])
-    _checked_output([resolved["git"], "diff", "--cached", "--quiet"])
+    _checked_output([resolved["git"], "diff", "--quiet"], environment=environment)
+    _checked_output([resolved["git"], "diff", "--cached", "--quiet"], environment=environment)
     return resolved
 
 
@@ -230,7 +240,8 @@ def main() -> int:
     args = _arguments()
     if args.provider_timeout < 60 or args.provider_timeout > 3600:
         raise SystemExit("--provider-timeout must be between 60 and 3600 seconds")
-    commands = _preflight()
+    environment = _sanitized_environment()
+    commands = _preflight(environment)
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     output = (
         args.output_dir.expanduser().resolve()
@@ -249,15 +260,13 @@ def main() -> int:
     for directory in (evidence_root, candidates, logs, comparisons):
         directory.mkdir(parents=True)
 
-    environment = dict(os.environ)
-    for name in PAID_API_ENVIRONMENT:
-        environment.pop(name, None)
-    environment.pop(PROMPT_PROFILE_ENV, None)
     source = {
         "auth_mode": "chatgpt",
-        "codex_version": _checked_output([commands["codex"], "--version"]),
+        "codex_version": _checked_output([commands["codex"], "--version"], environment=environment),
         "created_at": datetime.now(UTC).isoformat(),
-        "git_head": _checked_output([commands["git"], "rev-parse", "HEAD"]),
+        "git_head": _checked_output(
+            [commands["git"], "rev-parse", "HEAD"], environment=environment
+        ),
         "paid_api_environment_removed": list(PAID_API_ENVIRONMENT),
         "provider_digest": "sha256:" + _sha256(PROVIDER),
         "python": sys.version.split()[0],
