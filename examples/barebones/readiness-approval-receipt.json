@@ -1,0 +1,11 @@
+{
+  "approved_at": "2026-08-26T15:42:52Z",
+  "approved_by": "fixture-human",
+  "approved_contract_digest": "sha256:c3faac44c928aa4be1066d803f790870d6586d65c9c4ed9b4bb77f51ea78dc3c",
+  "contract_id": "PMOS-EVAL-READINESS",
+  "contract_version": 1,
+  "decision": "APPROVED",
+  "draft_digest": "sha256:5cd5277d7c8e76b6322c83b66793e5163d318e7d53c6a47c5b4d49c7a689a9da",
+  "schema_version": "1.0.0",
+  "receipt_digest": "sha256:61a39e96a0cb83f5c6d19307fc84ae33455e7418d87e7d6f0ff190e90286bd8c"
+}

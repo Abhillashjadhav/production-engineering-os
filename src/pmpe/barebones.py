@@ -1247,7 +1247,15 @@ def run_to_release_ready(
         coder_blob = ledger.put_blob(
             json.dumps(response, sort_keys=True, separators=(",", ":")).encode()
         )
-        coder_payload: dict[str, Any] = {"attempt": attempt, "changed": list(changed)}
+        request_blob = ledger.put_blob(
+            json.dumps(request, sort_keys=True, separators=(",", ":")).encode()
+        )
+        coder_payload: dict[str, Any] = {
+            "attempt": attempt,
+            "changed": list(changed),
+            "request_blob_digest": request_blob,
+            "response_blob_digest": coder_blob,
+        }
         coder_behavior = _provider_behavior_payload("code", response)
         if coder_behavior is not None:
             coder_payload["provider_behavior"] = coder_behavior
@@ -1255,7 +1263,7 @@ def run_to_release_ready(
             event_type="coder_completed",
             state=RunState.BUILDING,
             subject_digest=subject_digest,
-            blob_digests=(coder_blob,),
+            blob_digests=(request_blob, coder_blob),
             payload=coder_payload,
         )
         finding_digest = canonical_digest([asdict(item) for item in findings])

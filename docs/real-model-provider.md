@@ -96,8 +96,54 @@ These controls have precise limits:
 The adapter records the Codex CLI version without imposing a version allowlist.
 `prompt_version` contains only the adapter version and reasoning effort; the optional
 CLI-version probe is separate telemetry, so a transient failed probe cannot be
-misreported as a prompt-configuration change. The current behavior comparator does not
-attribute CLI-version changes separately; they remain visible in the raw evidence.
+misreported as a prompt-configuration change. Behavior comparison records CLI-version
+changes as a separate attribution field only when both runs recorded known versions;
+`unknown` telemetry is never treated as causal attribution.
+
+The `model` field records the configured Codex model name; ChatGPT subscription auth does
+not make that name an immutable provider-version pin. The #146 matrix therefore requires
+attribution only for its planted `prompt_version` change and must not claim model-version
+causality when the provider does not expose one.
+
+Issue #146 also defines one planted, allowlisted prompt profile named `drift-eval-v2`.
+It exists only to prove that a real behavior change can be detected alongside a recorded
+prompt-version change. Unknown profile names fail before authentication or model execution.
+The default profile and its historical `prompt_version` remain unchanged.
+
+Run the complete repeated-provider matrix with:
+
+```bash
+python examples/barebones/run_real_behavior_drift_eval.py
+```
+
+The runner explicitly removes `OPENAI_API_KEY` and `CODEX_API_KEY`, rechecks ChatGPT login,
+requires a clean source checkout, and packages failures as evidence. Immediately before
+the matrix, it archives the captured Git commit and records both the archive digest and a
+complete extracted-tree digest. Every PMPE/provider child receives a private tmpfs copy made
+from sealed in-memory file descriptors only after that complete digest matches. Bubblewrap
+then remounts the private tree read-only before execution, so neither the child nor another
+same-user host process can substitute source during the run. The packaged tree is rehashed
+before and after every child and again before sealing. Immediately before sealing, the
+runner also re-verifies the original Git head/worktree, provider digest, Codex CLI version,
+and Python version captured at the start. A custom `--output-dir` must be
+outside the checkout so generated evidence cannot masquerade as source drift. The outer run
+wrapper covers the complete configured model-call budget plus bounded verification
+overhead, leaving each inner provider timeout responsible for fencing its complete Codex
+process group before the wrapper can advance the matrix. Every same-profile control repeat
+requires identical recorded provider,
+model, prompt, and known-or-unknown CLI fields plus zero configuration attribution, while
+still permitting visible, unattributed model-output variation. The planted experiment
+passes only when `prompt_version` is the sole recorded configuration change and sole
+attribution; a simultaneous CLI, model, or provider change is a confounded experiment
+and fails closed. It also inspects `product.py` from the immutable candidate ledger and
+requires exactly one top-level `PMPE_PROMPT_PROFILE = "drift-eval-v2"` assignment while
+requiring that marker to be absent from the sealed baseline. Unrelated nondeterministic
+output therefore cannot masquerade as the requested plant.
+Every Coder event stores separate digest-addressed request and response blobs. Comparison
+recomputes the request digest, binds its contract and plan to the independently verified
+approval evidence, and requires every response file to match the corresponding sealed
+candidate blob before behavior is admitted.
+The runner does not silently fall back to the Responses API.
 
 ## Responses API adapter
 

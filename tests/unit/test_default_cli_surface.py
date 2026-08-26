@@ -18,7 +18,14 @@ def test_default_cli_exposes_only_alpha_and_explicit_legacy_boundary() -> None:
     lifecycle = next(
         action for action in barebones._actions if isinstance(action, argparse._SubParsersAction)
     )
-    assert set(lifecycle.choices) == {"compile", "run", "status", "evidence", "inspect"}
+    assert set(lifecycle.choices) == {
+        "compare",
+        "compile",
+        "run",
+        "status",
+        "evidence",
+        "inspect",
+    }
 
 
 def test_legacy_commands_require_the_legacy_prefix() -> None:

@@ -10,7 +10,9 @@ from pmpe.evals.barebones_drift import (
 _REQUEST_DIGEST = "sha256:" + "1" * 64
 
 
-def _response(*, status: str, prompt_version: str) -> dict[str, object]:
+def _response(
+    *, status: str, prompt_version: str, cli_version: str = "codex-cli_1.0.0"
+) -> dict[str, object]:
     return {
         "request_digest": _REQUEST_DIGEST,
         "files": {"product.py": f"def health():\n    return {{'status': {status!r}}}\n"},
@@ -18,6 +20,7 @@ def _response(*, status: str, prompt_version: str) -> dict[str, object]:
             "provider": "openai-responses",
             "model": "gpt-example-2026-01-01",
             "prompt_version": prompt_version,
+            "cli_version": cli_version,
         },
     }
 
@@ -64,6 +67,51 @@ def test_identical_behavior_is_not_drift_even_after_prompt_change() -> None:
 
     assert drift.detected is False
     assert drift.cause == "NO_BEHAVIOR_DRIFT"
+
+
+def test_cli_change_is_visible_as_separate_attribution() -> None:
+    baseline = observe_provider_behavior(
+        purpose="code",
+        response=_response(status="ok", prompt_version="prompt-v1", cli_version="codex-cli_1.0.0"),
+    )
+    current = observe_provider_behavior(
+        purpose="code",
+        response=_response(
+            status="degraded",
+            prompt_version="prompt-v1",
+            cli_version="codex-cli_1.1.0",
+        ),
+    )
+
+    drift = compare_provider_behavior(baseline, current)
+
+    assert drift.detected is True
+    assert drift.attribution == ("cli_version",)
+
+
+def test_unknown_cli_telemetry_is_not_configuration_attribution() -> None:
+    baseline = observe_provider_behavior(
+        purpose="code",
+        response=_response(
+            status="ok",
+            prompt_version="prompt-v1",
+            cli_version="unknown",
+        ),
+    )
+    current = observe_provider_behavior(
+        purpose="code",
+        response=_response(
+            status="degraded",
+            prompt_version="prompt-v1",
+            cli_version="codex-cli_1.1.0",
+        ),
+    )
+
+    drift = compare_provider_behavior(baseline, current)
+
+    assert drift.detected is True
+    assert drift.attribution == ()
+    assert drift.cause == "UNATTRIBUTED_BEHAVIOR_DRIFT"
 
 
 def test_different_requests_are_not_comparable() -> None:

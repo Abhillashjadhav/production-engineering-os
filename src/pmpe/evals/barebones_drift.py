@@ -20,6 +20,7 @@ class ProviderBehavior:
     provider: str
     model: str
     prompt_version: str
+    cli_version: str
 
 
 @dataclass(frozen=True)
@@ -50,6 +51,9 @@ def observe_provider_behavior(*, purpose: str, response: Mapping[str, Any]) -> P
         if not isinstance(value, str) or not value:
             raise ValueError(f"provider metadata lacks {field}")
         identity[field] = value
+    cli_version = metadata.get("cli_version", "unknown")
+    if not isinstance(cli_version, str) or not cli_version:
+        raise ValueError("provider metadata has malformed cli_version")
     if purpose == "code":
         output = response.get("files")
         if not isinstance(output, Mapping) or any(
@@ -68,6 +72,7 @@ def observe_provider_behavior(*, purpose: str, response: Mapping[str, Any]) -> P
         provider=identity["provider"],
         model=identity["model"],
         prompt_version=identity["prompt_version"],
+        cli_version=cli_version,
     )
 
 
@@ -91,8 +96,9 @@ def compare_provider_behavior(
         )
     attribution = tuple(
         field
-        for field in ("provider", "model", "prompt_version")
+        for field in ("provider", "model", "prompt_version", "cli_version")
         if getattr(baseline, field) != getattr(current, field)
+        and (field != "cli_version" or "unknown" not in {baseline.cli_version, current.cli_version})
     )
     return BehaviorDrift(
         True,

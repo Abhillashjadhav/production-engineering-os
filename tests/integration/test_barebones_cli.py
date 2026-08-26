@@ -4,7 +4,7 @@ import hashlib
 import json
 import subprocess
 import sys
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +14,8 @@ from pmpe import barebones as barebones_runtime
 from pmpe.barebones import BudgetCaps, RunState, run_to_release_ready
 from pmpe.cli import barebones_cmd, build_parser, main
 from pmpe.cli.barebones_cmd import CommandModelProvider
+from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
+from pmpe.domain.errors import ContractViolation
 
 _REPOSITORY = Path(__file__).parents[2]
 
@@ -617,3 +619,588 @@ def test_default_provider_timeout_allows_the_codex_xhigh_budget() -> None:
     )
 
     assert args.provider_timeout == 960
+
+
+class _ComparableProvider:
+    def __init__(
+        self,
+        *,
+        variant: str,
+        prompt_version: str = "prompt-v1",
+        cli_version: str = "codex-cli_1.0.0",
+    ) -> None:
+        self.variant = variant
+        self.prompt_version = prompt_version
+        self.cli_version = cli_version
+
+    def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+        metadata = {
+            "provider": "real-provider-fixture",
+            "model": "gpt-example",
+            "prompt_version": self.prompt_version,
+            "cli_version": self.cli_version,
+        }
+        if purpose == "code":
+            return {
+                "request_digest": request["request_digest"],
+                "provider_metadata": metadata,
+                "files": {
+                    "product.py": (
+                        f'"""{self.variant}."""\n\n'
+                        "def health() -> dict[str, str]:\n"
+                        '    return {"status": "ok"}\n'
+                    )
+                },
+            }
+        return {
+            "request_digest": request["request_digest"],
+            "provider_metadata": metadata,
+            "summary": "Deterministic checks passed.",
+        }
+
+
+def _approved_comparable_run(
+    root: Path,
+    *,
+    run_id: str,
+    variant: str,
+    prompt_version: str = "prompt-v1",
+) -> None:
+    contract_path = _REPOSITORY / "examples/barebones/e1-contract.json"
+    receipt_path = _REPOSITORY / "examples/barebones/e1-approval-receipt.json"
+    contract = json.loads(contract_path.read_text())
+    receipt_source = receipt_path.read_bytes()
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=root,
+        workspace=root / "candidate",
+        run_id=run_id,
+        provider=_ComparableProvider(
+            variant=variant,
+            prompt_version=prompt_version,
+        ),
+        approval_receipt=json.loads(receipt_source),
+        approval_authority="fixture-human",
+        approval_receipt_bytes=receipt_source,
+    )
+    assert result.state is RunState.RELEASE_READY
+
+
+def _write_events_with_valid_hash_chain(events_path: Path, events: list[dict[str, Any]]) -> None:
+    previous_digest = "sha256:" + "0" * 64
+    for event in events:
+        event["previous_digest"] = previous_digest
+        body = {key: value for key, value in event.items() if key != "event_digest"}
+        event["event_digest"] = canonical_digest(body)
+        previous_digest = event["event_digest"]
+    events_path.write_bytes(b"".join(canonical_json_bytes(event) + b"\n" for event in events))
+
+
+def _rewrite_subject_with_valid_hash_chain(root: Path, *, run_id: str, event_type: str) -> None:
+    events_path = root / ".pmpe" / "runs" / run_id / "events.jsonl"
+    events = [json.loads(line) for line in events_path.read_text().splitlines()]
+    changed = False
+    for event in events:
+        if event["event_type"] == event_type:
+            event["subject_digest"] = "sha256:" + "f" * 64
+            changed = True
+    assert changed
+    _write_events_with_valid_hash_chain(events_path, events)
+
+
+def _rewrite_plan_with_valid_hash_chain(root: Path, *, run_id: str) -> None:
+    events_path = root / ".pmpe" / "runs" / run_id / "events.jsonl"
+    events = [json.loads(line) for line in events_path.read_text().splitlines()]
+    validation = next(event for event in events if event["event_type"] == "contract_validated")
+    payload = validation["payload"]
+    contract_digest = payload["contract_digest"]
+    receipt_blob_digest = payload["approval"]["receipt_blob_digest"]
+    plan_blob_digest = next(
+        digest
+        for digest in validation["blob_digests"]
+        if digest not in {contract_digest, receipt_blob_digest}
+    )
+    blobs = root / ".pmpe" / "blobs"
+    plan = json.loads((blobs / plan_blob_digest.removeprefix("sha256:")).read_text())
+    plan["requirements"] = [*plan["requirements"], "FORGED-REQUIREMENT"]
+    projection = {
+        field: plan[field]
+        for field in (
+            "contract_digest",
+            "requirements",
+            "tasks",
+            "criteria",
+            "trusted_test_digests",
+        )
+    }
+    plan["plan_digest"] = canonical_digest(projection)
+    plan_source = json.dumps(plan, sort_keys=True, separators=(",", ":")).encode()
+    replacement_digest = "sha256:" + hashlib.sha256(plan_source).hexdigest()
+    (blobs / replacement_digest.removeprefix("sha256:")).write_bytes(plan_source)
+    validation["blob_digests"] = sorted(
+        replacement_digest if digest == plan_blob_digest else digest
+        for digest in validation["blob_digests"]
+    )
+    payload["plan_digest"] = plan["plan_digest"]
+    _write_events_with_valid_hash_chain(events_path, events)
+
+
+def _put_json_blob(root: Path, value: Any) -> str:
+    source = json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+    digest = "sha256:" + hashlib.sha256(source).hexdigest()
+    (root / ".pmpe" / "blobs" / digest.removeprefix("sha256:")).write_bytes(source)
+    return digest
+
+
+def _rewrite_coder_evidence(
+    root: Path,
+    *,
+    run_id: str,
+    mutate: Callable[[dict[str, Any], dict[str, Any]], None],
+) -> None:
+    events_path = root / ".pmpe" / "runs" / run_id / "events.jsonl"
+    events = [json.loads(line) for line in events_path.read_text().splitlines()]
+    coder = next(event for event in reversed(events) if event["event_type"] == "coder_completed")
+    payload = coder["payload"]
+    blobs = root / ".pmpe" / "blobs"
+    request = json.loads(
+        (blobs / payload["request_blob_digest"].removeprefix("sha256:")).read_text()
+    )
+    response = json.loads(
+        (blobs / payload["response_blob_digest"].removeprefix("sha256:")).read_text()
+    )
+    mutate(request, response)
+    request_blob_digest = _put_json_blob(root, request)
+    response_blob_digest = _put_json_blob(root, response)
+    payload["request_blob_digest"] = request_blob_digest
+    payload["response_blob_digest"] = response_blob_digest
+    payload["provider_behavior"]["request_digest"] = response["request_digest"]
+    payload["provider_behavior"]["output_digest"] = canonical_digest(response["files"])
+    coder["blob_digests"] = sorted({request_blob_digest, response_blob_digest})
+    _write_events_with_valid_hash_chain(events_path, events)
+
+
+def test_compare_uses_verified_ledgers_and_keeps_candidate_variation_visible(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(
+        baseline_root,
+        run_id="baseline",
+        variant="first candidate",
+    )
+    _approved_comparable_run(
+        current_root,
+        run_id="current",
+        variant="second candidate",
+        prompt_version="prompt-v2",
+    )
+
+    result = main(
+        [
+            "barebones",
+            "compare",
+            "baseline",
+            "current",
+            "--baseline-root",
+            str(baseline_root),
+            "--current-root",
+            str(current_root),
+            "--expected-approver",
+            "fixture-human",
+            "--compiler-root",
+            str(_REPOSITORY),
+        ]
+    )
+
+    assert result == 0
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["status"] == "COMPARABLE"
+    assert comparison["plan_repeatable"] is True
+    assert comparison["candidate_variation"]["detected"] is True
+    assert comparison["behavior_drift"]["detected"] is True
+    assert comparison["behavior_drift"]["cause"] == "PROVIDER_CONFIGURATION_CHANGED"
+    assert comparison["behavior_drift"]["attribution"] == ["prompt_version"]
+    assert comparison["baseline"]["provider_behavior"]["cli_version"] == "codex-cli_1.0.0"
+
+
+@pytest.mark.parametrize(
+    "replacement_files",
+    (
+        {},
+        {
+            "product.py": (
+                '"""Unsealed response."""\n\n'
+                "def health() -> dict[str, str]:\n"
+                '    return {"status": "ok"}\n'
+            )
+        },
+    ),
+    ids=("empty-response", "different-response"),
+)
+def test_compare_rejects_coder_response_not_bound_to_sealed_candidate(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    replacement_files: dict[str, str],
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(baseline_root, run_id="baseline", variant="first candidate")
+    _approved_comparable_run(current_root, run_id="current", variant="second candidate")
+
+    def replace_response(_request: dict[str, Any], response: dict[str, Any]) -> None:
+        response["files"] = replacement_files
+
+    _rewrite_coder_evidence(
+        current_root,
+        run_id="current",
+        mutate=replace_response,
+    )
+
+    exit_code = main(
+        [
+            "barebones",
+            "compare",
+            "baseline",
+            "current",
+            "--baseline-root",
+            str(baseline_root),
+            "--current-root",
+            str(current_root),
+            "--expected-approver",
+            "fixture-human",
+            "--compiler-root",
+            str(_REPOSITORY),
+        ]
+    )
+
+    assert exit_code == 3
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["detail"] == "Coder response files do not match the sealed candidate"
+
+
+def test_compare_recomputes_the_recorded_coder_request_digest(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(baseline_root, run_id="baseline", variant="first candidate")
+    _approved_comparable_run(current_root, run_id="current", variant="second candidate")
+
+    def forge_digest(request: dict[str, Any], response: dict[str, Any]) -> None:
+        forged = "sha256:" + "f" * 64
+        request["request_digest"] = forged
+        response["request_digest"] = forged
+
+    _rewrite_coder_evidence(current_root, run_id="current", mutate=forge_digest)
+
+    exit_code = main(
+        [
+            "barebones",
+            "compare",
+            "baseline",
+            "current",
+            "--baseline-root",
+            str(baseline_root),
+            "--current-root",
+            str(current_root),
+            "--expected-approver",
+            "fixture-human",
+            "--compiler-root",
+            str(_REPOSITORY),
+        ]
+    )
+
+    assert exit_code == 3
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["detail"] == "Coder request digest is inconsistent"
+
+
+def test_compare_binds_recorded_coder_request_to_the_approved_contract_and_plan(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(baseline_root, run_id="baseline", variant="first candidate")
+    _approved_comparable_run(current_root, run_id="current", variant="second candidate")
+
+    def forge_contract(request: dict[str, Any], response: dict[str, Any]) -> None:
+        request["contract"]["contract_id"] = "FORGED-CONTRACT"
+        body = {key: value for key, value in request.items() if key != "request_digest"}
+        request_digest = canonical_digest(body)
+        request["request_digest"] = request_digest
+        response["request_digest"] = request_digest
+
+    _rewrite_coder_evidence(current_root, run_id="current", mutate=forge_contract)
+
+    exit_code = main(
+        [
+            "barebones",
+            "compare",
+            "baseline",
+            "current",
+            "--baseline-root",
+            str(baseline_root),
+            "--current-root",
+            str(current_root),
+            "--expected-approver",
+            "fixture-human",
+            "--compiler-root",
+            str(_REPOSITORY),
+        ]
+    )
+
+    assert exit_code == 3
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["detail"] == ("Coder request is not bound to the approved contract and plan")
+
+
+def test_compare_fails_closed_for_different_provider_requests(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(
+        baseline_root,
+        run_id="baseline",
+        variant="first candidate",
+    )
+    contract = json.loads((_REPOSITORY / "examples/barebones/e1-contract.json").read_text())
+    contract["contract_status"] = "DRAFT"
+    contract["approved_by"] = ""
+    contract["approved_at"] = ""
+    contract["functional_requirements"]["FR-001"]["statement"] = "A different request"
+    draft_digest = canonical_digest(contract)
+    approved_contract = json.loads(json.dumps(contract))
+    approved_contract["contract_status"] = "APPROVED"
+    approved_contract["approved_by"] = "fixture-human"
+    approved_contract["approved_at"] = "2026-08-26T15:00:00Z"
+    receipt = {
+        "approved_at": approved_contract["approved_at"],
+        "approved_by": approved_contract["approved_by"],
+        "approved_contract_digest": canonical_digest(approved_contract),
+        "contract_id": approved_contract["contract_id"],
+        "contract_version": approved_contract["contract_version"],
+        "decision": "APPROVED",
+        "draft_digest": draft_digest,
+        "schema_version": "1.0.0",
+    }
+    receipt["receipt_digest"] = canonical_digest(receipt)
+    receipt_source = json.dumps(receipt, sort_keys=True, separators=(",", ":")).encode()
+    result = run_to_release_ready(
+        contract=approved_contract,
+        repository_root=current_root,
+        workspace=current_root / "candidate",
+        run_id="current",
+        provider=_ComparableProvider(variant="second candidate"),
+        approval_receipt=receipt,
+        approval_authority="fixture-human",
+        approval_receipt_bytes=receipt_source,
+    )
+    assert result.state is RunState.RELEASE_READY
+
+    exit_code = main(
+        [
+            "barebones",
+            "compare",
+            "baseline",
+            "current",
+            "--baseline-root",
+            str(baseline_root),
+            "--current-root",
+            str(current_root),
+            "--expected-approver",
+            "fixture-human",
+            "--compiler-root",
+            str(_REPOSITORY),
+        ]
+    )
+
+    assert exit_code == 3
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["status"] == "NOT_COMPARABLE"
+    assert comparison["cause"] == "CONTRACT_CHANGED"
+
+
+def test_compare_reverifies_approval_binding(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(
+        baseline_root,
+        run_id="baseline",
+        variant="first candidate",
+    )
+    _approved_comparable_run(
+        current_root,
+        run_id="current",
+        variant="second candidate",
+    )
+
+    def reject_approval(*args: object, **kwargs: object) -> str:
+        raise ContractViolation("injected approval mismatch")
+
+    monkeypatch.setattr(barebones_cmd, "verify_contract_approval", reject_approval)
+
+    exit_code = main(
+        [
+            "barebones",
+            "compare",
+            "baseline",
+            "current",
+            "--baseline-root",
+            str(baseline_root),
+            "--current-root",
+            str(current_root),
+            "--expected-approver",
+            "fixture-human",
+            "--compiler-root",
+            str(_REPOSITORY),
+        ]
+    )
+
+    assert exit_code == 3
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["state"] == "HALTED"
+    assert comparison["cause"] == "EVIDENCE_INVALID"
+    assert comparison["detail"] == "approval evidence is not bound to the contract"
+
+
+@pytest.mark.parametrize(
+    ("event_type", "expected_detail"),
+    (
+        ("coder_completed", "Coder behavior is not bound to the approved contract"),
+        ("release_ready", "release candidate is not bound to the approved contract"),
+    ),
+)
+def test_compare_rejects_cross_subject_coder_and_release_evidence(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    event_type: str,
+    expected_detail: str,
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(
+        baseline_root,
+        run_id="baseline",
+        variant="first candidate",
+    )
+    _approved_comparable_run(
+        current_root,
+        run_id="current",
+        variant="second candidate",
+    )
+    _rewrite_subject_with_valid_hash_chain(
+        current_root,
+        run_id="current",
+        event_type=event_type,
+    )
+
+    exit_code = main(
+        [
+            "barebones",
+            "compare",
+            "baseline",
+            "current",
+            "--baseline-root",
+            str(baseline_root),
+            "--current-root",
+            str(current_root),
+            "--expected-approver",
+            "fixture-human",
+            "--compiler-root",
+            str(_REPOSITORY),
+        ]
+    )
+
+    assert exit_code == 3
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["state"] == "HALTED"
+    assert comparison["cause"] == "EVIDENCE_INVALID"
+    assert comparison["detail"] == expected_detail
+
+
+def test_compare_requires_a_caller_trusted_approval_authority(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(
+        baseline_root,
+        run_id="baseline",
+        variant="first candidate",
+    )
+    _approved_comparable_run(
+        current_root,
+        run_id="current",
+        variant="second candidate",
+    )
+
+    exit_code = main(
+        [
+            "barebones",
+            "compare",
+            "baseline",
+            "current",
+            "--baseline-root",
+            str(baseline_root),
+            "--current-root",
+            str(current_root),
+            "--expected-approver",
+            "untrusted-ledger-authority",
+            "--compiler-root",
+            str(_REPOSITORY),
+        ]
+    )
+
+    assert exit_code == 3
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["state"] == "HALTED"
+    assert comparison["cause"] == "EVIDENCE_INVALID"
+    assert comparison["detail"] == "approval authority does not match --expected-approver"
+
+
+def test_compare_recompiles_the_contract_instead_of_trusting_a_fabricated_plan(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    baseline_root = tmp_path / "baseline"
+    current_root = tmp_path / "current"
+    _approved_comparable_run(
+        baseline_root,
+        run_id="baseline",
+        variant="first candidate",
+    )
+    _approved_comparable_run(
+        current_root,
+        run_id="current",
+        variant="second candidate",
+    )
+    _rewrite_plan_with_valid_hash_chain(current_root, run_id="current")
+
+    exit_code = main(
+        [
+            "barebones",
+            "compare",
+            "baseline",
+            "current",
+            "--baseline-root",
+            str(baseline_root),
+            "--current-root",
+            str(current_root),
+            "--expected-approver",
+            "fixture-human",
+            "--compiler-root",
+            str(_REPOSITORY),
+        ]
+    )
+
+    assert exit_code == 3
+    comparison = json.loads(capsys.readouterr().out)
+    assert comparison["state"] == "HALTED"
+    assert comparison["cause"] == "EVIDENCE_INVALID"
+    assert comparison["detail"] == "recorded plan does not match deterministic compilation"
