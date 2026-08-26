@@ -12,10 +12,10 @@ import signal
 import subprocess
 import tempfile
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from contextlib import suppress
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, cast
 
 from pmpe.barebones import ContractInvalidError, compile_barebones_plan, run_to_release_ready
 from pmpe.contracts.acceptance import AcceptanceCompileError
@@ -90,10 +90,42 @@ def _compile(args: argparse.Namespace) -> int:
     return 0
 
 
-def _terminate_provider(process: subprocess.Popen[bytes]) -> None:
+def _fence_provider_group(process: subprocess.Popen[bytes]) -> int:
     with suppress(ProcessLookupError):
         os.killpg(process.pid, signal.SIGKILL)
-    process.wait()
+    return process.wait()
+
+
+def _terminate_provider(process: subprocess.Popen[bytes]) -> None:
+    _fence_provider_group(process)
+
+
+def _wait_for_provider_exit_without_reaping(
+    process: subprocess.Popen[bytes], timeout_seconds: float
+) -> bool:
+    """Observe provider exit while retaining its PID until its group is fenced."""
+
+    if not all(hasattr(os, name) for name in ("P_PID", "WEXITED", "WNOHANG", "WNOWAIT")):
+        raise RuntimeError("MODEL_PROVIDER_PROCESS_GROUP_UNAVAILABLE")
+    waitid = cast(
+        Callable[[int, int, int], object | None],
+        vars(os)["waitid"],
+    )
+    deadline = time.monotonic() + timeout_seconds
+    while True:
+        try:
+            result = waitid(
+                os.P_PID,
+                process.pid,
+                os.WEXITED | os.WNOHANG | os.WNOWAIT,
+            )
+        except ChildProcessError as exc:
+            raise RuntimeError("MODEL_PROVIDER_PROCESS_REAPED") from exc
+        if result is not None:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.01)
 
 
 def _run_provider_command(
@@ -139,7 +171,9 @@ def _run_provider_command(
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise RuntimeError("MODEL_PROVIDER_TIMEOUT")
-            returncode = process.wait(timeout=remaining)
+            if not _wait_for_provider_exit_without_reaping(process, remaining):
+                raise RuntimeError("MODEL_PROVIDER_TIMEOUT")
+            returncode = _fence_provider_group(process)
         except subprocess.TimeoutExpired as exc:
             _terminate_provider(process)
             raise RuntimeError("MODEL_PROVIDER_TIMEOUT") from exc
@@ -148,6 +182,8 @@ def _run_provider_command(
             raise
         finally:
             selector.close()
+            process.stdout.close()
+            process.stderr.close()
         return subprocess.CompletedProcess(
             argv,
             returncode,

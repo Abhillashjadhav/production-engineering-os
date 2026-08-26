@@ -66,7 +66,11 @@ The Codex execution budget defaults to 900 seconds and can be lowered with
 `PMPE_CODEX_TIMEOUT_SECONDS`. The outer `--provider-timeout` defaults to 960 seconds;
 PMPE passes that value to the adapter, which clamps its execution budget to remain
 strictly below the outer deadline. Codex inherits the adapter's process group, so an
-outer timeout terminates both instead of leaving an authenticated orphan process.
+outer timeout terminates both instead of leaving an authenticated orphan process. The
+adapter deducts actual authentication and version-preflight time before assigning the
+Codex execution budget. After the provider leader exits, PMPE observes that exit without
+reaping its PID, fences the complete provider process group, and only then reaps the
+leader; this also removes descendants after an inner timeout or output-limit failure.
 Stdout and stderr are bounded while Codex is running rather than after completion.
 
 These controls have precise limits:

@@ -147,7 +147,11 @@ def _timeout_value(
     return value
 
 
-def _effective_exec_timeout(environment: Mapping[str, str]) -> float:
+def _effective_exec_timeout(
+    environment: Mapping[str, str], *, elapsed_seconds: float = 0.0
+) -> float:
+    if not math.isfinite(elapsed_seconds) or elapsed_seconds < 0:
+        raise ProviderError("CODEX_TIMEOUT_INVALID")
     requested = _timeout_value(
         environment,
         "PMPE_CODEX_TIMEOUT_SECONDS",
@@ -156,7 +160,7 @@ def _effective_exec_timeout(environment: Mapping[str, str]) -> float:
     if "PMPE_PROVIDER_TIMEOUT_SECONDS" not in environment:
         return requested
     outer = _timeout_value(environment, "PMPE_PROVIDER_TIMEOUT_SECONDS")
-    available = outer - _OUTER_TIMEOUT_MARGIN_SECONDS
+    available = outer - elapsed_seconds - _OUTER_TIMEOUT_MARGIN_SECONDS
     if available <= 0:
         raise ProviderError("CODEX_TIMEOUT_INVALID")
     return min(requested, available)
@@ -366,9 +370,9 @@ def _invoke(message: Mapping[str, Any], executable: str) -> dict[str, Any]:
     request = message.get("request")
     if not isinstance(purpose, str) or not isinstance(request, Mapping):
         raise ProviderError("CODEX_INPUT_INVALID")
+    invocation_started = time.monotonic()
     schema = _schema(purpose)
     prompt = _prompt(purpose, request)
-    exec_timeout = _effective_exec_timeout(os.environ)
     environment = _child_environment()
     with tempfile.TemporaryDirectory(prefix="pmpe-codex-provider-") as temporary:
         cwd = Path(temporary)
@@ -377,6 +381,10 @@ def _invoke(message: Mapping[str, Any], executable: str) -> dict[str, Any]:
         schema_path.write_text(json.dumps(schema, sort_keys=True))
         _auth_preflight(executable, cwd=cwd, environment=environment)
         version = _cli_version(executable, cwd=cwd, environment=environment)
+        exec_timeout = _effective_exec_timeout(
+            os.environ,
+            elapsed_seconds=time.monotonic() - invocation_started,
+        )
         argv = (
             executable,
             "exec",
