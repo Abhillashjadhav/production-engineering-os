@@ -122,9 +122,12 @@ def test_snapshot_command_uses_read_only_mount_and_rechecks_the_tree(
 ) -> None:
     source_checkout = tmp_path / "source-snapshot"
     source_checkout.mkdir()
-    source_file = source_checkout / "source.py"
+    source_directory = source_checkout / "package"
+    source_directory.mkdir()
+    source_file = source_directory / "source.py"
     source_file.write_text("VALUE = 1\n")
-    source_file.chmod(0o444)
+    source_file.chmod(0o440)
+    source_directory.chmod(0o550)
     source_checkout.chmod(0o555)
     tree_digest = drift_eval._snapshot_tree_digest(source_checkout)
 
@@ -147,10 +150,16 @@ def test_snapshot_command_uses_read_only_mount_and_rechecks_the_tree(
             "--bind",
             "/",
             "/",
+            "--perms",
+            "0555",
             "--tmpfs",
             str(source_checkout),
             "--perms",
-            "0444",
+            "0550",
+            "--dir",
+            str(source_directory),
+            "--perms",
+            "0440",
             "--file",
             str(descriptor),
             str(source_file),
@@ -181,6 +190,7 @@ def test_snapshot_command_uses_read_only_mount_and_rechecks_the_tree(
         assert result == (0, "")
     finally:
         source_checkout.chmod(0o755)
+        source_directory.chmod(0o755)
         source_file.chmod(0o644)
 
 
