@@ -46,6 +46,19 @@ pmpe legacy validate examples/taskflow_mvp_spec.yaml
 pytest tests/unit           # fast sanity (~10s); full suite: pytest (~2 min)
 ```
 
+Virtual environments whose active Python executable is a symlink to a managed
+Python installation are supported. The candidate sandbox validates that
+interpreter's canonical target against the independently reported Python
+base/prefix roots, which are bound read-only. It preserves the original path
+when that path is inside a bound root so Python retains virtual-environment
+identity. For a symlinked virtualenv directory, it uses the equivalent path
+inside the mounted real virtualenv after proving that it resolves to the same
+trusted interpreter. If that path's link chain crosses an external alias, only
+the verified link entries are recreated in otherwise empty sandbox directories;
+no external directory is mounted. Other aliases outside the bound roots use the
+validated canonical path. It does not trust a root derived from the executable
+target or resolve candidate-selected command links.
+
 ## Legacy compatibility verification
 
 ```bash
