@@ -106,6 +106,36 @@ def test_gate_requires_real_prompt_version_drift_attribution() -> None:
     assert drift_eval._gate_passes(runs, comparisons) is False
 
 
+def test_gate_rejects_prompt_drift_confounded_by_cli_change() -> None:
+    runs, comparisons = _passing_results()
+    version_change = comparisons[2]["result"]
+    assert isinstance(version_change, dict)
+    behavior_drift = version_change["behavior_drift"]
+    assert isinstance(behavior_drift, dict)
+    behavior_drift["attribution"] = ["prompt_version", "cli_version"]
+
+    assert drift_eval._gate_passes(runs, comparisons) is False
+
+
+def test_source_reverification_rejects_mid_matrix_source_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expected = {
+        "codex_version": "codex-cli 1.0.0",
+        "git_head": "a" * 40,
+        "git_status": "",
+        "provider_digest": "sha256:" + "b" * 64,
+        "python": "3.12.0",
+    }
+    observed = {**expected, "git_head": "c" * 40, "git_status": " M provider.py"}
+    monkeypatch.setattr(drift_eval, "_source_identity", lambda _commands, _environment: observed)
+
+    result = drift_eval._reverify_source_identity(expected, {}, {})
+
+    assert result["status"] == "FAIL"
+    assert result["changed_fields"] == ["git_head", "git_status"]
+
+
 def test_gate_rejects_success_exit_without_complete_release_evidence() -> None:
     runs, comparisons = _passing_results()
 

@@ -117,7 +117,13 @@ python examples/barebones/run_real_behavior_drift_eval.py
 ```
 
 The runner explicitly removes `OPENAI_API_KEY` and `CODEX_API_KEY`, rechecks ChatGPT login,
-and packages failures as evidence. It does not silently fall back to the Responses API.
+requires a clean source checkout, and packages failures as evidence. Immediately before
+sealing the archive it re-verifies the Git head/worktree, provider digest, Codex CLI
+version, and Python version captured at the start. Any mid-matrix identity change fails
+the gate. The planted experiment also passes only when `prompt_version` is the sole
+provider-configuration attribution; a simultaneous CLI, model, or provider change is a
+confounded experiment and fails closed. The runner does not silently fall back to the
+Responses API.
 
 ## Responses API adapter
 

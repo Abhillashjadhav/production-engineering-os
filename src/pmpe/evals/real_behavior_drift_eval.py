@@ -167,6 +167,12 @@ def _preflight(environment: dict[str, str]) -> dict[str, str]:
     )
     _checked_output([resolved["git"], "diff", "--quiet"], environment=environment)
     _checked_output([resolved["git"], "diff", "--cached", "--quiet"], environment=environment)
+    status = _checked_output(
+        [resolved["git"], "status", "--porcelain=v1", "--untracked-files=all"],
+        environment=environment,
+    )
+    if status:
+        raise RuntimeError("source checkout must be clean before real drift evaluation")
     return resolved
 
 
@@ -185,6 +191,44 @@ def _json_file(path: Path, value: Any) -> None:
 
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _source_identity(commands: dict[str, str], environment: dict[str, str]) -> dict[str, str]:
+    """Capture the mutable source/provider identity used by matrix children."""
+
+    return {
+        "codex_version": _checked_output([commands["codex"], "--version"], environment=environment),
+        "git_head": _checked_output(
+            [commands["git"], "rev-parse", "HEAD"], environment=environment
+        ),
+        "git_status": _checked_output(
+            [commands["git"], "status", "--porcelain=v1", "--untracked-files=all"],
+            environment=environment,
+        ),
+        "provider_digest": "sha256:" + _sha256(PROVIDER),
+        "python": sys.version.split()[0],
+    }
+
+
+def _reverify_source_identity(
+    expected: dict[str, str],
+    commands: dict[str, str],
+    environment: dict[str, str],
+) -> dict[str, Any]:
+    """Fail closed when source or provider identity changes during the matrix."""
+
+    try:
+        observed = _source_identity(commands, environment)
+    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+        return {"status": "FAIL", "error": str(exc)}
+    changed_fields = sorted(
+        field for field, value in expected.items() if observed.get(field) != value
+    )
+    return {
+        "status": "PASS" if not changed_fields else "FAIL",
+        "changed_fields": changed_fields,
+        "observed": observed,
+    }
 
 
 def _write_manifest(output: Path) -> None:
@@ -234,7 +278,7 @@ def _gate_passes(
     return bool(
         isinstance(drift, dict)
         and drift.get("detected") is True
-        and "prompt_version" in drift.get("attribution", [])
+        and drift.get("attribution") == ["prompt_version"]
     )
 
 
@@ -269,16 +313,12 @@ def main() -> int:
     for directory in (evidence_root, candidates, logs, comparisons):
         directory.mkdir(parents=True)
 
+    source_identity = _source_identity(commands, environment)
     source = {
+        **source_identity,
         "auth_mode": "chatgpt",
-        "codex_version": _checked_output([commands["codex"], "--version"], environment=environment),
         "created_at": datetime.now(UTC).isoformat(),
-        "git_head": _checked_output(
-            [commands["git"], "rev-parse", "HEAD"], environment=environment
-        ),
         "paid_api_environment_removed": list(PAID_API_ENVIRONMENT),
-        "provider_digest": "sha256:" + _sha256(PROVIDER),
-        "python": sys.version.split()[0],
     }
     _json_file(output / "source.json", source)
 
@@ -349,11 +389,15 @@ def main() -> int:
             }
         )
 
-    passed = _gate_passes(run_results, comparison_results)
+    source_reverification = _reverify_source_identity(source_identity, commands, environment)
+    passed = source_reverification.get("status") == "PASS" and _gate_passes(
+        run_results, comparison_results
+    )
     summary = {
         "gate": "PASS" if passed else "FAIL",
         "runs": run_results,
         "comparisons": comparison_results,
+        "source_reverification": source_reverification,
     }
     _json_file(output / "summary.json", summary)
     _write_manifest(output)
