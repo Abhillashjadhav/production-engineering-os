@@ -71,7 +71,10 @@ adapter deducts actual authentication and version-preflight time before assignin
 Codex execution budget. After the provider leader exits, PMPE observes that exit without
 reaping its PID, fences the complete provider process group, and only then reaps the
 leader; this also removes descendants after an inner timeout or output-limit failure.
-Stdout and stderr are bounded while Codex is running rather than after completion.
+Stdout and stderr are bounded while Codex is running rather than after completion. Excess
+telemetry bytes are drained and discarded so a valid authoritative result is not rejected
+solely because a progress stream is verbose. The independent result-file limit remains a
+hard failure.
 
 These controls have precise limits:
 
@@ -124,9 +127,11 @@ PEOS consumes `usage.input_tokens`, `usage.output_tokens`, and an optional
 `usage.estimated_cost_usd`. Both adapters keep `output_tokens` output-only. The Responses
 adapter preserves the provider's complete usage object, including any nested cached or
 reasoning details. The Codex adapter records `cached_input_tokens` and
-`reasoning_output_tokens` as additional keys. Missing or truncated Codex JSONL telemetry
-does not invalidate a schema-valid result: input and output are recorded as zero with
-`telemetry_status = "unavailable"`.
+`reasoning_output_tokens` as additional keys. Missing Codex JSONL telemetry does not
+invalidate a schema-valid result and records `telemetry_status = "unavailable"`.
+Oversized stdout or stderr is retained only up to the configured cap and records
+`telemetry_status = "truncated"`; any complete usage event captured before truncation is
+preserved, otherwise input and output fall back to zero.
 
 Successful responses with complete non-secret provider metadata also emit normalized
 `provider_behavior` observations into hash-chained events. Those observations enable
