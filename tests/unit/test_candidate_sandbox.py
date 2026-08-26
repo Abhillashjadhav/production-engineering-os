@@ -69,7 +69,7 @@ def test_default_candidate_sandbox_removes_host_authority(
     assert observed["environment"] == {"LC_ALL": "C", "PATH": "/usr/local/bin:/usr/bin:/bin"}
 
 
-def test_active_symlinked_interpreter_uses_bound_canonical_target(
+def test_active_symlinked_interpreter_preserves_virtualenv_identity(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     workspace = tmp_path / "candidate"
@@ -107,7 +107,7 @@ def test_active_symlinked_interpreter_uses_bound_canonical_target(
         environment={},
     )
 
-    assert observed[-2:] == [str(canonical), "-V"]
+    assert observed[-2:] == [str(active), "-V"]
 
 
 def test_runtime_roots_do_not_trust_resolved_executable_root(
