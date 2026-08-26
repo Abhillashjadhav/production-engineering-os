@@ -5,6 +5,7 @@ import io
 import json
 import subprocess
 import sys
+import time
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -66,6 +67,8 @@ class _FakeCodex:
         input_bytes: bytes,
         cwd: Path,
         environment: dict[str, str],
+        timeout_seconds: float | None = None,
+        output_limit_bytes: int | None = None,
     ) -> subprocess.CompletedProcess[bytes]:
         self.calls.append(
             {
@@ -73,6 +76,8 @@ class _FakeCodex:
                 "input": input_bytes,
                 "cwd": cwd,
                 "environment": environment,
+                "timeout_seconds": timeout_seconds,
+                "output_limit_bytes": output_limit_bytes,
             }
         )
         if argv[1:] == ("login", "status"):
@@ -167,9 +172,70 @@ def test_success_is_one_digest_bound_object_and_codex_jsonl_is_not_forwarded(
     assert exec_call["schema"]["properties"]["files"]["type"] == "array"
     assert exec_call["schema"]["additionalProperties"] is False
     assert exec_call["cwd"].name.startswith("pmpe-codex-provider-")
+    assert exec_call["timeout_seconds"] == 900.0
     assert "OPENAI_API_KEY" not in exec_call["environment"]
     assert "CODEX_API_KEY" not in exec_call["environment"]
     assert exec_call["environment"]["CODEX_HOME"] == "/host/codex-home"
+
+
+def test_codex_child_environment_is_an_explicit_allowlist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    provider = _provider_module()
+    monkeypatch.setenv("PATH", "/usr/local/bin:/usr/bin:/bin")
+    monkeypatch.setenv("HOME", "/home/operator")
+    monkeypatch.setenv("CODEX_HOME", "/home/operator/.codex")
+    monkeypatch.setenv("LANG", "C.UTF-8")
+    monkeypatch.setenv("OPENAI_API_KEY", "must-not-cross")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "must-not-cross")
+    monkeypatch.setenv("GITHUB_TOKEN", "must-not-cross")
+    monkeypatch.setenv("PMPE_PLANTED_HOST_SECRET", "must-not-cross")
+
+    environment = provider._child_environment()
+
+    assert environment == {
+        "CODEX_HOME": "/home/operator/.codex",
+        "HOME": "/home/operator",
+        "LANG": "C.UTF-8",
+        "PATH": "/usr/local/bin:/usr/bin:/bin",
+    }
+
+
+def test_codex_timeout_override_is_clamped_below_the_outer_provider_budget() -> None:
+    provider = _provider_module()
+
+    assert (
+        provider._effective_exec_timeout(
+            {
+                "PMPE_CODEX_TIMEOUT_SECONDS": "1200",
+                "PMPE_PROVIDER_TIMEOUT_SECONDS": "960",
+            }
+        )
+        == 959.0
+    )
+    assert (
+        provider._effective_exec_timeout(
+            {"PMPE_PROVIDER_TIMEOUT_SECONDS": "960"}
+        )
+        == 900.0
+    )
+
+
+@pytest.mark.parametrize(
+    "environment",
+    [
+        {"PMPE_CODEX_TIMEOUT_SECONDS": "not-a-number"},
+        {"PMPE_CODEX_TIMEOUT_SECONDS": "0"},
+        {"PMPE_PROVIDER_TIMEOUT_SECONDS": "1"},
+    ],
+)
+def test_invalid_codex_timeout_configuration_fails_closed(
+    environment: dict[str, str],
+) -> None:
+    provider = _provider_module()
+
+    with pytest.raises(provider.ProviderError, match="CODEX_TIMEOUT_INVALID"):
+        provider._effective_exec_timeout(environment)
 
 
 def test_usage_keeps_output_only_and_preserves_cached_and_reasoning_tokens(
@@ -243,7 +309,10 @@ def test_cli_version_is_recorded_but_not_a_run_gate(
     response = provider._invoke(_message(), "/usr/bin/codex")
 
     assert response["provider_metadata"]["cli_version"] == "unknown"
-    assert response["provider_metadata"]["prompt_version"].endswith("cli=unknown")
+    assert (
+        response["provider_metadata"]["prompt_version"]
+        == "pmpe-barebones-codex-cli-v1;effort=xhigh"
+    )
 
 
 @pytest.mark.parametrize(
@@ -405,60 +474,49 @@ def test_result_output_limit_is_enforced(tmp_path: Path) -> None:
         provider._load_result(result)
 
 
-def test_command_timeout_kills_the_process_group(
+def test_command_timeout_kills_codex_without_creating_a_new_process_group(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     provider = _provider_module()
+    real_popen = provider.subprocess.Popen
+    observed: list[bool | None] = []
 
-    class _TimedOutProcess:
-        pid = 1234
-        returncode = -9
+    def recording_popen(*args: Any, **kwargs: Any) -> subprocess.Popen[bytes]:
+        observed.append(kwargs.get("start_new_session"))
+        return real_popen(*args, **kwargs)
 
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def communicate(self, *, input: bytes | None = None, timeout: float | None = None) -> None:
-            del input, timeout
-            self.calls += 1
-            if self.calls == 1:
-                raise subprocess.TimeoutExpired(("codex", "exec"), 1)
-
-    process = _TimedOutProcess()
-    killed: list[tuple[int, int]] = []
-    monkeypatch.setattr(provider.subprocess, "Popen", lambda *_args, **_kwargs: process)
-    monkeypatch.setattr(provider.os, "killpg", lambda pid, sig: killed.append((pid, sig)))
+    monkeypatch.setattr(provider.subprocess, "Popen", recording_popen)
+    started = time.monotonic()
 
     with pytest.raises(provider.ProviderError, match="CODEX_EXEC_TIMEOUT"):
         provider._run_command(
-            ("codex", "exec"),
+            (sys.executable, "-c", "import time; time.sleep(5)"),
             input_bytes=b"prompt",
             cwd=tmp_path,
             environment={},
+            timeout_seconds=0.1,
         )
 
-    assert killed == [(1234, provider.signal.SIGKILL)]
+    assert time.monotonic() - started < 2
+    assert observed == [False]
 
 
-def test_command_output_limit_is_enforced(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_command_output_limit_is_enforced_while_codex_is_running(tmp_path: Path) -> None:
     provider = _provider_module()
-
-    class _LargeOutputProcess:
-        pid = 1234
-        returncode = 0
-
-        def communicate(self, *, input: bytes | None = None, timeout: float | None = None) -> None:
-            del input, timeout
-
-    def fake_popen(*_args: Any, **kwargs: Any) -> _LargeOutputProcess:
-        kwargs["stdout"].write(b"x" * (provider._OUTPUT_LIMIT_BYTES + 1))
-        return _LargeOutputProcess()
-
-    monkeypatch.setattr(provider.subprocess, "Popen", fake_popen)
+    started = time.monotonic()
 
     with pytest.raises(provider.ProviderError, match="CODEX_EXEC_OUTPUT_LIMIT"):
         provider._run_command(
-            ("codex", "exec"),
+            (
+                sys.executable,
+                "-c",
+                "import os,time; os.write(1, b'x' * 1024); time.sleep(5)",
+            ),
             input_bytes=b"prompt",
             cwd=tmp_path,
             environment={},
+            timeout_seconds=2,
+            output_limit_bytes=32,
         )
+
+    assert time.monotonic() - started < 2

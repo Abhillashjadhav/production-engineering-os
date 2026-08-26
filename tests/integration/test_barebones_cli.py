@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import sys
 from collections.abc import Mapping
 from pathlib import Path
@@ -519,3 +520,52 @@ def test_command_provider_output_is_bounded_before_capture() -> None:
             2,
             output_limit_bytes=32,
         )
+
+
+def test_command_provider_propagates_outer_timeout_to_the_adapter(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    def completed(*args: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        observed["args"] = args
+        observed["environment"] = kwargs.get("environment")
+        return subprocess.CompletedProcess(
+            ("provider",),
+            0,
+            b'{"request_digest":"bound","summary":"ok"}',
+            b"",
+        )
+
+    monkeypatch.setattr(barebones_cmd, "_run_provider_command", completed)
+
+    response = CommandModelProvider("provider", 960).invoke(
+        purpose="advisory_review", request={"request_digest": "bound"}
+    )
+
+    assert response["summary"] == "ok"
+    environment = observed["environment"]
+    assert isinstance(environment, dict)
+    assert environment["PMPE_PROVIDER_TIMEOUT_SECONDS"] == "960"
+
+
+def test_default_provider_timeout_allows_the_codex_xhigh_budget() -> None:
+    args = build_parser().parse_args(
+        [
+            "barebones",
+            "run",
+            "contract.json",
+            "--workspace",
+            "candidate",
+            "--run-id",
+            "run",
+            "--approval-receipt",
+            "receipt.json",
+            "--expected-approver",
+            "owner",
+            "--provider-command",
+            "provider",
+        ]
+    )
+
+    assert args.provider_timeout == 960

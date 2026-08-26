@@ -10,8 +10,27 @@ from pmpe.evidence.ledger import EvidenceLedger
 ROOT = Path(__file__).resolve().parents[2]
 
 
-def _sealed_run(repository_root: Path, run_id: str = "sealed") -> tuple[str, str]:
+def _sealed_run(
+    repository_root: Path,
+    run_id: str = "sealed",
+    *,
+    approval: dict[str, str] | None = None,
+) -> tuple[str, str]:
     ledger = EvidenceLedger(repository_root, run_id)
+    if approval is not None:
+        contract_digest = ledger.put_blob(b'{"contract_status":"APPROVED"}')
+        plan_digest = ledger.put_blob(b'{"criteria":[]}')
+        ledger.append(
+            event_type="contract_validated",
+            state="VALIDATED",
+            subject_digest="sha256:" + "1" * 64,
+            blob_digests=(contract_digest, plan_digest),
+            payload={
+                "approval": approval,
+                "contract_digest": contract_digest,
+                "plan_digest": plan_digest,
+            },
+        )
     content = b"def health():\n    return {'status': 'ok'}\n"
     file_digest = ledger.put_blob(content)
     manifest_digest = ledger.put_blob(
@@ -45,7 +64,8 @@ def test_compile_reports_the_deterministic_plan_without_starting_a_run(
 
     assert result == 0
     output = json.loads(capsys.readouterr().out)
-    assert output["status"] == "VALIDATED"
+    assert output["status"] == "COMPILES"
+    assert output["contract_status"] == "APPROVED"
     assert output["plan"]["plan_digest"].startswith("sha256:")
     assert output["coverage"] == {
         "human_test": 0,
@@ -70,6 +90,60 @@ def test_status_and_evidence_verify_the_sealed_chain(tmp_path: Path, capsys) -> 
     assert evidence["events"] == 1
     assert evidence["referenced_blobs"] == 2
     assert evidence["head_event_digest"].startswith("sha256:")
+
+
+def test_inspection_commands_surface_verified_approval_authority(
+    tmp_path: Path, capsys
+) -> None:  # type: ignore[no-untyped-def]
+    receipt_digest = "sha256:" + "9" * 64
+    approval = {
+        "status": "VERIFIED",
+        "authority": "pmos-owner",
+        "receipt_digest": receipt_digest,
+    }
+    _sealed_run(tmp_path, "approved", approval=approval)
+
+    for command in ("status", "evidence", "inspect"):
+        assert (
+            main(
+                [
+                    "barebones",
+                    command,
+                    "approved",
+                    "--repository-root",
+                    str(tmp_path),
+                ]
+            )
+            == 0
+        )
+        output = json.loads(capsys.readouterr().out)
+        assert output["approval"] == approval
+
+
+def test_inspect_refuses_to_publish_an_unverified_direct_call(
+    tmp_path: Path, capsys
+) -> None:  # type: ignore[no-untyped-def]
+    _sealed_run(
+        tmp_path,
+        "unverified",
+        approval={"status": "UNVERIFIED_DIRECT_CALL"},
+    )
+
+    result = main(
+        [
+            "barebones",
+            "inspect",
+            "unverified",
+            "--repository-root",
+            str(tmp_path),
+        ]
+    )
+
+    assert result == 3
+    output = json.loads(capsys.readouterr().out)
+    assert output["state"] == "RELEASE_READY"
+    assert output["approval"] == {"status": "UNVERIFIED_DIRECT_CALL"}
+    assert output["release_eligible"] is False
 
 
 def test_inspect_reads_only_the_sealed_candidate_and_checks_workspace_drift(
