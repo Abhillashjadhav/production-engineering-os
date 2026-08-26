@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import operator as comparison
+import os
 import re
 import shutil
 import subprocess
@@ -101,6 +102,9 @@ _ACTION_TIMEOUT_SECONDS = 10.0
 _PYTEST_TIMEOUT_SECONDS = 30.0
 _CANDIDATE_OUTPUT_LIMIT_BYTES = 1_000_000
 _SANDBOX_PATH = "/usr/local/bin:/usr/bin:/bin"
+_SANDBOX_RESERVED_ALIAS_ROOTS = tuple(
+    Path(path) for path in ("/workspace", "/tmp", "/etc", "/dev", "/proc")
+)
 _PYTEST_RESULT_PREFIX = "__PMPE_PYTEST_RESULT__:"
 
 _PROVIDER_ERROR_CODE = re.compile(r"[A-Z][A-Z0-9_]*\Z")
@@ -164,10 +168,12 @@ class BubblewrapCandidateSandbox:
         return tuple(reversed(parents))
 
     @staticmethod
-    def _trusted_command(argv: Sequence[str], runtime_roots: tuple[Path, ...]) -> list[str]:
+    def _trusted_command(
+        argv: Sequence[str], runtime_roots: tuple[Path, ...]
+    ) -> tuple[list[str], Path | None]:
         command = list(argv)
         if not command or command[0] != sys.executable:
-            return command
+            return command, None
         try:
             canonical = Path(sys.executable).resolve(strict=True)
         except OSError as exc:
@@ -178,7 +184,7 @@ class BubblewrapCandidateSandbox:
             raise ContractInvalidError("active Python interpreter is outside trusted runtime roots")
         active = Path(sys.executable)
         if any(active.is_relative_to(root) for root in runtime_roots):
-            return command
+            return command, canonical
         prefix = Path(sys.prefix)
         if prefix != Path(sys.base_prefix) and active.is_relative_to(prefix):
             relative = active.relative_to(prefix)
@@ -196,9 +202,61 @@ class BubblewrapCandidateSandbox:
             if mounted_target != canonical:
                 raise ContractInvalidError("active Python virtualenv target is inconsistent")
             command[0] = str(mounted)
-            return command
+            return command, canonical
         command[0] = str(canonical)
-        return command
+        return command, canonical
+
+    @staticmethod
+    def _interpreter_aliases(
+        executable: Path,
+        canonical: Path,
+        runtime_roots: tuple[Path, ...],
+    ) -> tuple[tuple[str, str], ...]:
+        def first_link(path: Path) -> tuple[Path, Path, tuple[str, ...]] | None:
+            parts = path.parts
+            current = Path(parts[0])
+            for index, part in enumerate(parts[1:], start=1):
+                current /= part
+                if current.is_symlink():
+                    try:
+                        return current, current.readlink(), parts[index + 1 :]
+                    except OSError as exc:
+                        raise ContractInvalidError(
+                            "active Python interpreter alias is unavailable"
+                        ) from exc
+            return None
+
+        if not executable.is_absolute():
+            raise ContractInvalidError("active Python interpreter alias is not absolute")
+        aliases: list[tuple[str, str]] = []
+        current = executable
+        seen: set[Path] = set()
+        while current != canonical:
+            if current in seen:
+                raise ContractInvalidError("active Python interpreter alias has a cycle")
+            seen.add(current)
+            link_record = first_link(current)
+            if link_record is None:
+                raise ContractInvalidError(
+                    "active Python interpreter alias does not reach the trusted runtime"
+                )
+            alias, link, remainder = link_record
+            if not any(alias.is_relative_to(root) for root in runtime_roots):
+                if any(
+                    alias == root or alias.is_relative_to(root)
+                    for root in _SANDBOX_RESERVED_ALIAS_ROOTS
+                ):
+                    raise ContractInvalidError(
+                        "active Python interpreter alias uses a reserved path"
+                    )
+                aliases.append((str(link), str(alias)))
+            target = link if link.is_absolute() else alias.parent / link
+            current = Path(os.path.normpath(str(target.joinpath(*remainder))))
+        if not any(current.is_relative_to(root) for root in runtime_roots):
+            raise ContractInvalidError(
+                "active Python interpreter alias escapes trusted runtime roots"
+            )
+        return tuple(aliases)
 
     def run(
         self,
@@ -213,7 +271,14 @@ class BubblewrapCandidateSandbox:
         if sandbox is None or limiter is None:
             raise ContractInvalidError("candidate OS sandbox is unavailable")
         runtime_roots = self._runtime_roots()
-        sandbox_command = self._trusted_command(argv, runtime_roots)
+        sandbox_command, canonical_interpreter = self._trusted_command(argv, runtime_roots)
+        interpreter_aliases = (
+            ()
+            if canonical_interpreter is None
+            else self._interpreter_aliases(
+                Path(sandbox_command[0]), canonical_interpreter, runtime_roots
+            )
+        )
         sandbox_argv = [
             sandbox,
             "--die-with-parent",
@@ -240,6 +305,13 @@ class BubblewrapCandidateSandbox:
                     created_directories.add(parent)
             sandbox_argv.extend(("--ro-bind", str(runtime_root), str(runtime_root)))
             bound_roots.append(runtime_root)
+        for target, destination in interpreter_aliases:
+            destination_path = Path(destination)
+            for parent in self._parent_directories(destination_path):
+                if parent not in created_directories:
+                    sandbox_argv.extend(("--dir", parent))
+                    created_directories.add(parent)
+            sandbox_argv.extend(("--symlink", target, destination))
         for host_path in (
             "/etc/alternatives",
             "/etc/group",

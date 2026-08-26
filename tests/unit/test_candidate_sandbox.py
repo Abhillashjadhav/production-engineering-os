@@ -250,6 +250,7 @@ def test_symlinked_virtualenv_recreates_verified_external_interpreter_alias(
 
     monkeypatch.setattr(barebones.sys, "executable", str(active))
     monkeypatch.setattr(barebones.sys, "prefix", str(virtualenv_alias))
+    monkeypatch.setattr(barebones, "_SANDBOX_RESERVED_ALIAS_ROOTS", ())
     monkeypatch.setattr(
         barebones.shutil,
         "which",
