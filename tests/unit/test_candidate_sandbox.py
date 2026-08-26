@@ -177,6 +177,55 @@ def test_active_interpreter_alias_outside_bound_roots_uses_canonical_target(
     assert observed[-2:] == [str(canonical), "-V"]
 
 
+def test_symlinked_virtualenv_uses_mounted_virtualenv_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    workspace = tmp_path / "candidate"
+    workspace.mkdir()
+    managed_root = tmp_path / "managed-python"
+    canonical = managed_root / "bin" / "python3.12"
+    canonical.parent.mkdir(parents=True)
+    canonical.write_text("trusted interpreter")
+    virtualenv_root = tmp_path / "venvs" / "v1"
+    virtualenv_python = virtualenv_root / "bin" / "python"
+    virtualenv_python.parent.mkdir(parents=True)
+    virtualenv_python.symlink_to(canonical)
+    (virtualenv_root / "pyvenv.cfg").write_text("home = managed-python/bin\n")
+    virtualenv_alias = tmp_path / "current"
+    virtualenv_alias.symlink_to(virtualenv_root, target_is_directory=True)
+    active = virtualenv_alias / "bin" / "python"
+    observed: list[str] = []
+
+    monkeypatch.setattr(barebones.sys, "executable", str(active))
+    monkeypatch.setattr(barebones.sys, "prefix", str(virtualenv_alias))
+    monkeypatch.setattr(
+        barebones.shutil,
+        "which",
+        lambda name, path=None: f"/usr/bin/{name}",
+    )
+    sandbox = BubblewrapCandidateSandbox()
+    monkeypatch.setattr(
+        sandbox,
+        "_runtime_roots",
+        lambda: (managed_root, virtualenv_root),
+    )
+
+    def completed(argv: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        observed.extend(argv)  # type: ignore[arg-type]
+        return subprocess.CompletedProcess(argv, 0, b"", b"")  # type: ignore[arg-type]
+
+    monkeypatch.setattr(barebones.subprocess, "run", completed)
+
+    sandbox.run(
+        workspace,
+        (str(active), "-V"),
+        timeout_seconds=2,
+        environment={},
+    )
+
+    assert observed[-2:] == [str(virtualenv_python), "-V"]
+
+
 def test_arbitrary_command_symlink_is_not_resolved(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
