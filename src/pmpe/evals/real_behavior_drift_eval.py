@@ -19,10 +19,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from pmpe.barebones import BudgetCaps
+
 ROOT = Path(__file__).resolve().parents[3]
 PROVIDER = ROOT / "examples/barebones/codex-cli-provider.py"
 PROMPT_PROFILE_ENV = "PMPE_CODEX_PROMPT_PROFILE"
 PAID_API_ENVIRONMENT = ("CODEX_API_KEY", "OPENAI_API_KEY")
+_RUN_WRAPPER_OVERHEAD_SECONDS = 300
 
 
 @dataclass(frozen=True)
@@ -185,6 +188,17 @@ def _pmpe_command() -> list[str]:
     return [sys.executable, "-I", "-c", launcher]
 
 
+def _run_wrapper_timeout(provider_timeout: int) -> int:
+    """Outlive every bounded provider call so inner process-group fencing runs first."""
+
+    return provider_timeout * BudgetCaps().max_model_calls + _RUN_WRAPPER_OVERHEAD_SECONDS
+
+
+def _validate_output_path(output: Path) -> None:
+    if output == ROOT or output.is_relative_to(ROOT):
+        raise ValueError("--output-dir must be outside the source checkout")
+
+
 def _json_file(path: Path, value: Any) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
 
@@ -301,6 +315,10 @@ def main() -> int:
         if args.output_dir is not None
         else Path.home() / f"pmpe-real-drift-{timestamp}"
     )
+    try:
+        _validate_output_path(output)
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from exc
     archive = output.parent / f"{output.name}.tgz"
     if output.exists():
         raise SystemExit(f"output directory already exists: {output}")
@@ -353,7 +371,7 @@ def main() -> int:
         exit_code, command_output = _command(
             argv,
             environment=run_environment,
-            timeout=args.provider_timeout + 60,
+            timeout=_run_wrapper_timeout(args.provider_timeout),
         )
         (logs / f"{spec.run_id}.log").write_text(command_output)
         run_results.append(

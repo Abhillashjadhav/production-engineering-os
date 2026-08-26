@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from pmpe.evals import real_behavior_drift_eval as drift_eval
@@ -64,6 +66,21 @@ def test_pmpe_command_binds_the_active_interpreter_to_this_checkout() -> None:
         environment=drift_eval._sanitized_environment(),
     )
     assert "usage: pmpe" in output
+
+
+def test_run_wrapper_timeout_covers_the_complete_model_call_budget() -> None:
+    provider_timeout = 960
+
+    wrapper_timeout = drift_eval._run_wrapper_timeout(provider_timeout)
+
+    assert wrapper_timeout > provider_timeout * drift_eval.BudgetCaps().max_model_calls
+
+
+def test_output_directory_must_be_outside_the_source_checkout(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="outside the source checkout"):
+        drift_eval._validate_output_path(drift_eval.ROOT / "generated-evidence")
+
+    drift_eval._validate_output_path(tmp_path / "generated-evidence")
 
 
 def _passing_results() -> tuple[list[dict[str, object]], list[dict[str, object]]]:

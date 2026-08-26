@@ -120,7 +120,11 @@ The runner explicitly removes `OPENAI_API_KEY` and `CODEX_API_KEY`, rechecks Cha
 requires a clean source checkout, and packages failures as evidence. Immediately before
 sealing the archive it re-verifies the Git head/worktree, provider digest, Codex CLI
 version, and Python version captured at the start. Any mid-matrix identity change fails
-the gate. The planted experiment also passes only when `prompt_version` is the sole
+the gate. A custom `--output-dir` must be outside the checkout so generated evidence
+cannot masquerade as source drift. The outer run wrapper covers the complete configured
+model-call budget plus bounded verification overhead, leaving each inner provider timeout
+responsible for fencing its complete Codex process group before the wrapper can advance
+the matrix. The planted experiment also passes only when `prompt_version` is the sole
 provider-configuration attribution; a simultaneous CLI, model, or provider change is a
 confounded experiment and fails closed. The runner does not silently fall back to the
 Responses API.
