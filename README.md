@@ -1,6 +1,6 @@
 # Production Engineering OS (`pmpe`)
 
-> **ALPHA — evidence status:** the frozen bare-bones core has passed deterministic tests, a scripted-provider fixture, and that complete engine fixture through real Bubblewrap on Linux. No PM Agent OS contract has yet completed the path with a real model provider. The repository therefore does **not** yet claim arbitrary product generation, production readiness, deployment, or platform validation.
+> **ALPHA — evidence status:** one tiny approved PM Agent OS contract has completed the frozen bare-bones path with a ChatGPT-authenticated Codex CLI provider and reached `RELEASE_READY`; its [complete evidence chain is published](docs/evidence/e1-real-provider-20260826/README.md). This proves that one bounded run, not repeatability, materially different contracts, arbitrary product generation, production readiness, deployment, or platform validation.
 
 An open-source, local-first reference implementation that compiles a machine-checkable product contract into executable assertions, drives one bounded Coder through a command adapter, executes generated candidate code inside an OS sandbox, and records a tamper-evident evidence chain.
 
@@ -14,7 +14,7 @@ An open-source, local-first reference implementation that compiles a machine-che
 | Candidate execution with real Bubblewrap, no network, a read-only host view, bounded resources, symlink containment, and fail-closed composition | Proven by the [isolation tests](tests/unit/test_candidate_sandbox.py) in the dedicated Linux `candidate-isolation` matrix of [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
 | End-to-end scripted-provider `RELEASE_READY` engine path through real Bubblewrap | Proven by the [E1 fixture](tests/e2e/test_barebones_e1.py), with the local sandbox fixture disabled under `PMPE_TEST_REAL_SANDBOX=true`, in [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
 | Canonical PMOS contract and digest-bound approval receipt accepted by the boundary | Proven by the [PMOS executable compatibility gate](https://github.com/Abhillashjadhav/PM-agent-OS/blob/5fa7af8207143194eb242f2edd9f7edfca8bb969/tests/decision-to-contract/validate_contract.py), including a planted post-approval tampering rejection |
-| Product built with a real model provider | **Not yet proven** |
+| One tiny approved contract built with a real model provider | [Proven once by the published E1 run](docs/evidence/e1-real-provider-20260826/README.md) |
 | Repeated real-provider behavioural drift evidence | **Not yet proven** |
 | Reuse across multiple distinct product contracts | **Not yet proven** |
 | macOS or Windows native execution | **Not supported** |
@@ -120,7 +120,7 @@ one digest-bound UTF-8 candidate file as escaped JSON before the human release d
 
 The example provider returns scripted responses. It proves compiler-to-engine plumbing; it does not prove that an LLM can build the requested software.
 
-For the real-model promotion run, use the documented [Codex CLI provider](docs/real-model-provider.md) with saved ChatGPT subscription authentication. It does not require an API key. The optional Responses API example is not the promotion path. Provider implementation and unit tests prove the adapter boundary only; no live PMOS-to-real-model run is claimed until its complete evidence bundle is published.
+For a real-model run, use the documented [Codex CLI provider](docs/real-model-provider.md) with saved ChatGPT subscription authentication. It does not require an API key. The optional Responses API example is not the promotion path. One live E1 run and its complete evidence bundle are now published; repeated-run and materially-different-contract reliability remain unproven.
 
 A provider receives one JSON object on standard input:
 
@@ -140,9 +140,9 @@ claiming a zero-dollar API cost.
 
 ## Current evidence gap
 
-PMOS now publishes a compiler-shaped health contract plus an approval receipt bound to the exact contract digest; its pinned compatibility gate verifies the receipt, accepts the valid contract, rejects a post-approval edit, and rejects prose-only criteria. This proves the PMOS-to-PEOS handoff shape. It does not prove live-model contract-authoring reliability or a real provider build. A real E1 begins when that approved boundary is exercised with a configured provider and its complete evidence bundle is published.
+PMOS publishes a compiler-shaped health contract plus an approval receipt bound to the exact contract digest; its pinned compatibility gate verifies the receipt, accepts the valid contract, rejects a post-approval edit, and rejects prose-only criteria. The published E1 run exercised that approved boundary with a real provider once. It does not prove live-model contract-authoring reliability, repeated behavior, or transfer to materially different contracts.
 
-The next promotion gate is one real PMOS-authored contract reaching `RELEASE_READY` through a real provider with:
+The completed E1 promotion gate recorded one real PMOS-authored contract reaching `RELEASE_READY` through a real provider with:
 
 - zero human implementation edits;
 - the ratio of structured criteria (Forms A+B) to human tests (Form C);
