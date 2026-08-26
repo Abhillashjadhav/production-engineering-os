@@ -92,7 +92,12 @@ def test_active_symlinked_interpreter_preserves_virtualenv_identity(
         lambda name, path=None: f"/usr/bin/{name}",
     )
     sandbox = BubblewrapCandidateSandbox()
-    monkeypatch.setattr(sandbox, "_runtime_roots", lambda: (managed_root,))
+    virtualenv_root = virtualenv_bin.parent
+    monkeypatch.setattr(
+        sandbox,
+        "_runtime_roots",
+        lambda: (managed_root, virtualenv_root),
+    )
 
     def completed(argv: object, **kwargs: object) -> subprocess.CompletedProcess[bytes]:
         observed.extend(argv)  # type: ignore[arg-type]
@@ -108,6 +113,9 @@ def test_active_symlinked_interpreter_preserves_virtualenv_identity(
     )
 
     assert observed[-2:] == [str(active), "-V"]
+    assert ["--ro-bind", str(virtualenv_root), str(virtualenv_root)] == observed[
+        observed.index(str(virtualenv_root)) - 1 : observed.index(str(virtualenv_root)) + 2
+    ]
 
 
 def test_runtime_roots_do_not_trust_resolved_executable_root(

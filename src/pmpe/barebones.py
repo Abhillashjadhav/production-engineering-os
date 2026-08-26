@@ -176,7 +176,6 @@ class BubblewrapCandidateSandbox:
             canonical.is_relative_to(root) for root in runtime_roots
         ):
             raise ContractInvalidError("active Python interpreter is outside trusted runtime roots")
-        command[0] = str(canonical)
         return command
 
     def run(
