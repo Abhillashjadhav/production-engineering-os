@@ -68,8 +68,10 @@ Verify the complete archive before extraction:
 ```bash
 sha256sum -c SHA256SUMS
 ```
-The source snapshot is intentionally read-only. GNU tar users can preserve the
-archive safely by pre-creating its directories before extraction:
+The source snapshot is intentionally read-only. GNU tar users can avoid the
+read-only-directory extraction-order failure by pre-creating its directories,
+then restore the archive's recorded `0555` snapshot directory modes before
+checksum verification or replay:
 
 ```bash
 archive=pmpe-real-drift-20260827T141651Z.tgz
@@ -79,6 +81,8 @@ tar -tzf "$archive" | awk '/\/$/' | while IFS= read -r directory; do
   mkdir -p "$destination/$directory"
 done
 tar --no-overwrite-dir -xzf "$archive" -C "$destination"
-cd "$destination/pmpe-real-drift-20260827T141651Z"
+root="$destination/pmpe-real-drift-20260827T141651Z"
+find "$root/source-snapshot" -type d -exec chmod 0555 {} +
+cd "$root"
 sha256sum -c SHA256SUMS
 ```
