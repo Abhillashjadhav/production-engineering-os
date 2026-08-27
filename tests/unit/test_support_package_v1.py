@@ -528,6 +528,8 @@ def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -
         '{"x-api-\\u006bey":"abcdefghijklmnop"}',
         '\ufeff["https:\\/\\/hooks.slack.com\\/services\\/T\\/B\\/abcdefghijklmnop"]',
         '{"webhook":"https:\\/\\/hooks.slack.com\\/services\\/T\\/B\\/abcdefghijklmnop"}\n{"ok":true}',
+        '{\n  "webhook": "https:\\/\\/hooks.slack.com\\/services\\/T\\/B\\/'
+        'abcdefghijklmnop"\n}\n{"ok":true}',
         "https://hooks.slack.com/foo/../services/T00000000/B00000000/abcdefghijklmnop",
         "https://canary.discord.com/api/webhooks/123456/abcdefghijklmnop",
         "https://canary.discord.com/%61pi/webhooks/123456/abcdefghijklmnop",

@@ -1033,13 +1033,19 @@ def _secret_scan(root: Path) -> None:
                     parsed_json = json.loads(content, object_pairs_hook=JsonObject)
                 except (TypeError, ValueError):
                     parsed_json = []
-                    for record in content.splitlines():
-                        if not record.strip():
-                            continue
+                    decoder = json.JSONDecoder(object_pairs_hook=JsonObject)
+                    stream = decoded.lstrip("\ufeff")
+                    offset = 0
+                    while offset < len(stream):
+                        while offset < len(stream) and stream[offset].isspace():
+                            offset += 1
+                        if offset == len(stream):
+                            break
                         try:
-                            parsed_json.append(json.loads(record, object_pairs_hook=JsonObject))
-                        except (TypeError, ValueError):
-                            continue
+                            record, offset = decoder.raw_decode(stream, offset)
+                        except ValueError:
+                            break
+                        parsed_json.append(record)
             if (
                 any(pattern.search(content) for pattern in patterns)
                 or contains_prohibited_secret(content)
@@ -1275,7 +1281,7 @@ def _run_reference_verification(
             ),
         )
         try:
-            stdout, _ = proof.communicate(proof_input, timeout=10)
+            stdout, _ = proof.communicate(proof_input, timeout=30)
         except subprocess.TimeoutExpired as exc:
             if os.name == "nt":
                 subprocess.run(  # nosec B603 - fixed Windows process-tree terminator
