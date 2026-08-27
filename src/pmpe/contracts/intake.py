@@ -41,6 +41,11 @@ _SECRET_PATTERNS = (
 _PRIVACY_PATTERNS = (re.compile(rb"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"),)
 
 
+def contains_prohibited_secret(payload: bytes) -> bool:
+    """Return whether bytes match the canonical PMOS prohibited-secret patterns."""
+    return any(pattern.search(payload) for pattern in _SECRET_PATTERNS)
+
+
 class Clock(Protocol):
     def now(self) -> str: ...
 

@@ -18,6 +18,7 @@ from typing import Any
 from jsonschema import Draft7Validator
 
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes, strict_loads
+from pmpe.contracts.intake import contains_prohibited_secret
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 from pmpe.quality.security_scan import contains_hardcoded_secret
 
@@ -73,7 +74,34 @@ _SPDX_SCHEMA: dict[str, Any] = {
         "dataLicense": {"const": "CC0-1.0"},
         "documentNamespace": {"type": "string"},
         "name": {"type": "string"},
-        "packages": {"type": "array", "minItems": 1},
+        "packages": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "required": [
+                    "SPDXID",
+                    "copyrightText",
+                    "downloadLocation",
+                    "filesAnalyzed",
+                    "licenseConcluded",
+                    "licenseDeclared",
+                    "name",
+                    "versionInfo",
+                ],
+                "properties": {
+                    "SPDXID": {"type": "string"},
+                    "copyrightText": {"type": "string"},
+                    "downloadLocation": {"type": "string"},
+                    "filesAnalyzed": {"type": "boolean"},
+                    "licenseConcluded": {"type": "string"},
+                    "licenseDeclared": {"type": "string"},
+                    "name": {"type": "string"},
+                    "versionInfo": {"type": "string"},
+                },
+                "additionalProperties": False,
+            },
+        },
         "spdxVersion": {"const": "SPDX-2.3"},
     },
     "additionalProperties": False,
@@ -846,8 +874,11 @@ def _spdx() -> dict[str, Any]:
         "packages": [
             {
                 "SPDXID": "SPDXRef-Package-customer-support-agent",
+                "copyrightText": "NOASSERTION",
                 "downloadLocation": "NOASSERTION",
                 "filesAnalyzed": True,
+                "licenseConcluded": "NOASSERTION",
+                "licenseDeclared": "NOASSERTION",
                 "name": "customer-support-agent",
                 "versionInfo": "1.0.0",
             }
@@ -893,8 +924,10 @@ def _secret_scan(root: Path) -> None:
         if path.is_file():
             content = path.read_bytes()
             decoded = content.decode("utf-8", errors="replace")
-            if any(pattern.search(content) for pattern in patterns) or contains_hardcoded_secret(
-                decoded
+            if (
+                any(pattern.search(content) for pattern in patterns)
+                or contains_prohibited_secret(content)
+                or contains_hardcoded_secret(decoded)
             ):
                 raise PackageContractError(f"secret value pattern found in {path.name}")
 
@@ -915,8 +948,23 @@ def seal_support_release(
         raise PackageContractError("release run id is invalid") from exc
     target_root = Path(evidence_root)
     target_run = target_root / ".pmpe" / "runs" / run_id
+
+    def existing_result() -> dict[str, str]:
+        candidate = _load_release_candidate(target_root, run_id, contract)
+        if candidate.files != {
+            "app.py": _APP_SOURCE.encode(),
+            "package-contract-digest.txt": (contract.digest + "\n").encode(),
+        }:
+            raise PackageContractError("existing release run is not the canonical candidate")
+        return {
+            "candidate_digest": candidate.candidate_digest,
+            "head_event_digest": candidate.head_event_digest,
+            "run_id": run_id,
+            "state": "RELEASE_READY",
+        }
+
     if target_run.exists():
-        raise PackageContractError("release run id already exists")
+        return existing_result()
     app = _APP_SOURCE.encode()
     binding = (contract.digest + "\n").encode()
     with tempfile.TemporaryDirectory(prefix="pmpe-support-release-") as directory:
@@ -942,7 +990,7 @@ def seal_support_release(
             staged, sorted(contract.payload["capabilities"]["forbidden"]), expected
         )
     if target_run.exists():
-        raise PackageContractError("release run id already exists")
+        return existing_result()
     target_root.parent.mkdir(parents=True, exist_ok=True)
     temporary_root = Path(tempfile.mkdtemp(prefix=".pmpe-support-ledger-", dir=target_root.parent))
     try:
@@ -1001,9 +1049,13 @@ def seal_support_release(
             finally:
                 temporary_blob.unlink(missing_ok=True)
         if target_run.exists():
-            raise PackageContractError("release run id already exists")
+            return existing_result()
         os.rename(ledger.run_directory, target_run)
-    except (OSError, EvidenceIntegrityError) as exc:
+    except OSError as exc:
+        if target_run.exists():
+            return existing_result()
+        raise PackageContractError("release ledger publication failed") from exc
+    except EvidenceIntegrityError as exc:
         raise PackageContractError("release ledger publication failed") from exc
     finally:
         shutil.rmtree(temporary_root, ignore_errors=True)
@@ -1133,8 +1185,36 @@ def assemble_support_package(
     )
     destination = Path(output)
     if destination.exists():
-        if not destination.is_dir() or any(destination.iterdir()):
+        if not destination.is_dir():
             raise PackageContractError("package output must be absent or an empty directory")
+        if any(destination.iterdir()):
+            try:
+                existing_manifest = strict_loads((destination / "manifest.json").read_bytes())
+                if not isinstance(existing_manifest, dict):
+                    raise PackageContractError("existing package output is not reusable")
+                existing = verify_support_package(
+                    destination,
+                    expected_manifest_digest=str(existing_manifest.get("manifest_digest", "")),
+                )
+            except (OSError, UnicodeError, ValueError, PackageContractError) as exc:
+                raise PackageContractError("existing package output is not reusable") from exc
+            if (
+                existing_manifest.get("contract_digest") != contract.digest
+                or existing_manifest.get("release_candidate")
+                != {
+                    "run_id": candidate.run_id,
+                    "candidate_digest": candidate.candidate_digest,
+                    "head_event_digest": candidate.head_event_digest,
+                }
+                or existing_manifest.get("approval")
+                != {
+                    "authority": approval.authority,
+                    "receipt_digest": approval.receipt_digest,
+                    "status": "VERIFIED",
+                }
+            ):
+                raise PackageContractError("existing package output is not reusable")
+            return existing
         destination.rmdir()
     destination.parent.mkdir(parents=True, exist_ok=True)
     staged = Path(tempfile.mkdtemp(prefix=f".{destination.name}-", dir=destination.parent))

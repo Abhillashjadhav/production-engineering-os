@@ -476,11 +476,18 @@ def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -
     assert sbom["spdxVersion"] == "SPDX-2.3"
     assert sbom["creationInfo"]["created"] == "2026-08-27T00:00:00Z"
     assert sbom["packages"][0]["name"] == "customer-support-agent"
+    assert sbom["packages"][0]["licenseConcluded"] == "NOASSERTION"
+    assert sbom["packages"][0]["licenseDeclared"] == "NOASSERTION"
+    assert sbom["packages"][0]["copyrightText"] == "NOASSERTION"
 
 
 @pytest.mark.parametrize(
     "secret",
-    ["AWS_ACCESS_KEY_ID=AKIAABCDEFGHIJKLMNOP", 'password = "hunter2"'],
+    [
+        "AWS_ACCESS_KEY_ID=AKIAABCDEFGHIJKLMNOP",
+        'password = "hunter2"',
+        "ghp_0123456789abcdefghijklmnop",
+    ],
 )
 def test_secret_scan_covers_copied_release_evidence(tmp_path: Path, secret: str) -> None:
     blob = tmp_path / "release-evidence" / ".pmpe" / "blobs" / "historical"
@@ -528,6 +535,38 @@ def test_interrupted_release_ledger_is_not_published(
             "fixture-human",
         )
     assert not (tmp_path / ".pmpe" / "runs" / "interrupted-run").exists()
+
+
+def test_committed_release_and_bundle_are_idempotently_recoverable(tmp_path: Path) -> None:
+    first = support_package_module.seal_support_release(
+        Path("examples/support-package/contract.json"),
+        Path("examples/support-package/approval-receipt.json"),
+        tmp_path / "release",
+        "idempotent-run",
+        "fixture-human",
+    )
+    second = support_package_module.seal_support_release(
+        Path("examples/support-package/contract.json"),
+        Path("examples/support-package/approval-receipt.json"),
+        tmp_path / "release",
+        "idempotent-run",
+        "fixture-human",
+    )
+    assert second == first
+
+    bundle = tmp_path / "bundle"
+    built = _assemble(tmp_path, bundle)
+    manifest = json.loads((bundle / "manifest.json").read_text())
+    recovered = assemble_support_package(
+        tmp_path / "contract.json",
+        tmp_path / "approval-receipt.json",
+        tmp_path / "release-evidence-bundle",
+        "support-release-bundle",
+        manifest["release_candidate"]["head_event_digest"],
+        "fixture-human",
+        bundle,
+    )
+    assert recovered == built
 
 
 def test_failed_final_verification_does_not_publish_bundle(
