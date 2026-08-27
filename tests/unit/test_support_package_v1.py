@@ -220,6 +220,16 @@ def test_bundle_verification_fails_closed_on_source_or_corpus_tampering(tmp_path
     with pytest.raises(PackageContractError, match="digest"):
         verify_support_package(bundle)
 
+    bundle = tmp_path / "symlink-bundle"
+    _assemble(tmp_path, bundle)
+    source = bundle / "app.py"
+    target = tmp_path / "same-app.py"
+    target.write_bytes(source.read_bytes())
+    source.unlink()
+    source.symlink_to(target)
+    with pytest.raises(PackageContractError, match="symbolic link"):
+        verify_support_package(bundle)
+
 
 def test_bundle_verification_rederives_manifest_claims_and_approval(tmp_path: Path) -> None:
     bundle = tmp_path / "bundle"

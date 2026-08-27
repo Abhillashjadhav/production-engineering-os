@@ -605,11 +605,21 @@ def _write(path: Path, payload: bytes) -> None:
 
 
 def _file_digests(root: Path) -> dict[str, str]:
-    return {
-        path.relative_to(root).as_posix(): "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in sorted(root.rglob("*"))
-        if path.is_file() and path.name != "manifest.json"
-    }
+    if root.is_symlink() or not root.is_dir():
+        raise PackageContractError("package root must be a real directory")
+    files: dict[str, str] = {}
+    for path in sorted(root.rglob("*")):
+        if path.is_symlink():
+            raise PackageContractError("package contains a symbolic link")
+        if path.is_dir():
+            continue
+        if not path.is_file():
+            raise PackageContractError("package contains an unsupported filesystem entry")
+        if path.name != "manifest.json":
+            files[path.relative_to(root).as_posix()] = (
+                "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+            )
+    return files
 
 
 def _secret_scan(root: Path) -> None:
