@@ -20,6 +20,28 @@ from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 _EVIDENCE_SCHEMA_VERSION = "2.0.0-package"
 _CONTRACT_SCHEMA_VERSION = "1.0.0"
 _PACKAGE_STATE = "PACKAGE_READY"
+_MANIFEST_FIELDS = frozenset(
+    {
+        "schema_version",
+        "evidence_schema_version",
+        "state",
+        "state_vocabulary",
+        "approval",
+        "release_candidate",
+        "contract_digest",
+        "capabilities",
+        "forbidden_capability_proofs",
+        "ports",
+        "files",
+        "source_digest",
+        "lockfile_digest",
+        "sbom_digest",
+        "verification",
+        "package_subject_digest",
+        "claims",
+        "manifest_digest",
+    }
+)
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 
@@ -51,6 +73,20 @@ _DETERMINISTIC_ESCALATIONS = frozenset(
         "outside_policy_bounds",
     }
 )
+_PROOF_RUNNER = """import importlib.util, pathlib, sys, unittest
+path, class_name, method_name = sys.argv[1:]
+spec = importlib.util.spec_from_file_location("package_forbidden_proofs", pathlib.Path(path))
+if spec is None or spec.loader is None:
+    raise SystemExit(2)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+case = getattr(module, class_name, None)
+if not isinstance(case, type) or not issubclass(case, unittest.TestCase):
+    raise SystemExit(3)
+suite = unittest.TestSuite([case(method_name)])
+result = unittest.TextTestRunner(verbosity=0).run(suite)
+raise SystemExit(0 if result.wasSuccessful() and result.testsRun == 1 else 4)
+"""
 
 
 class PackageContractError(ValueError):
@@ -309,6 +345,7 @@ def _load_release_candidate(
         or canonical_digest(unsigned_receipt) != claimed_receipt_digest
         or release_receipt.get("decision") != "APPROVED"
         or release_receipt.get("approved_by") != approval["authority"]
+        or approval["authority"] != contract.payload["approved_by"]
         or release_receipt.get("approved_contract_digest") != contract_digest
         or canonical_digest(release_contract) != contract_digest
     ):
@@ -676,7 +713,7 @@ def _secret_scan(root: Path) -> None:
             raise PackageContractError(f"secret value pattern found in {path.name}")
 
 
-def _run_reference_verification(root: Path) -> dict[str, Any]:
+def _run_reference_verification(root: Path, forbidden: list[str]) -> dict[str, Any]:
     try:
         compile((root / "app.py").read_text(), "app.py", "exec")
     except (OSError, UnicodeError, SyntaxError) as exc:
@@ -686,26 +723,27 @@ def _run_reference_verification(root: Path) -> dict[str, Any]:
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONIOENCODING": "utf-8",
     }
-    completed = subprocess.run(  # nosec B603 - fixed interpreter and fixed arguments
-        [
-            os.fspath(Path(sys.executable).resolve()),
-            "-m",
-            "unittest",
-            "discover",
-            "-s",
-            "tests",
-            "-p",
-            "test_*.py",
-        ],
-        cwd=root,
-        env=environment,
-        capture_output=True,
-        check=False,
-        text=True,
-        timeout=10,
-    )
-    if completed.returncode != 0:
-        raise PackageContractError("forbidden-capability negative verification failed")
+    for capability in sorted(forbidden):
+        selector = _FORBIDDEN_PROOFS[capability]
+        file_name, class_name, method_name = selector.split("::")
+        completed = subprocess.run(  # nosec B603 - fixed interpreter and bound selector
+            [
+                os.fspath(Path(sys.executable).resolve()),
+                "-c",
+                _PROOF_RUNNER,
+                file_name,
+                class_name,
+                method_name,
+            ],
+            cwd=root,
+            env=environment,
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=10,
+        )
+        if completed.returncode != 0:
+            raise PackageContractError(f"forbidden-capability proof did not execute: {capability}")
     return {
         "forbidden_capability_tests": "PASS",
         "runtime_compile": "PASS",
@@ -771,10 +809,10 @@ def assemble_support_package(
                 content,
             )
         _secret_scan(staged)
-        verification = _run_reference_verification(staged)
+        forbidden = contract.payload["capabilities"]["forbidden"]
+        verification = _run_reference_verification(staged, forbidden)
         files = _file_digests(staged)
         corpus_digest = files["recorded-corpus.json"]
-        forbidden = contract.payload["capabilities"]["forbidden"]
         manifest: dict[str, Any] = {
             "schema_version": "1.0.0",
             "evidence_schema_version": _EVIDENCE_SCHEMA_VERSION,
@@ -840,6 +878,8 @@ def verify_support_package(
         raise PackageContractError("package manifest is unreadable") from exc
     if not isinstance(manifest, dict):
         raise PackageContractError("package manifest must be an object")
+    if set(manifest) != _MANIFEST_FIELDS or manifest.get("schema_version") != "1.0.0":
+        raise PackageContractError("package manifest schema is invalid")
     claimed_manifest_digest = manifest.get("manifest_digest")
     unsigned = dict(manifest)
     unsigned.pop("manifest_digest", None)
@@ -890,7 +930,7 @@ def verify_support_package(
         "production_deployment": "OUT_OF_SCOPE",
         "container_reproducibility": "NOT_CLAIMED",
     }
-    expected_verification = _run_reference_verification(root)
+    expected_verification = _run_reference_verification(root, forbidden)
     expected_source_digest = canonical_digest(
         {name: digest for name, digest in files.items() if name.endswith(".py")}
     )
@@ -919,6 +959,7 @@ def verify_support_package(
     if (
         not isinstance(approval, dict)
         or approval.get("status") != "VERIFIED"
+        or approval.get("authority") != contract.payload["approved_by"]
         or not _IDENTIFIER.fullmatch(str(approval.get("authority", "")))
         or not _DIGEST.fullmatch(str(approval.get("receipt_digest", "")))
     ):

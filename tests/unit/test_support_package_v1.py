@@ -79,6 +79,7 @@ def _assemble(
     payload: dict[str, object] | None = None,
     *,
     verified_release_approval: bool = True,
+    release_approver: str = "fixture-human",
 ) -> PackageResult:
     contract_path = _write_contract(tmp_path, payload)
     contract = json.loads(contract_path.read_text())
@@ -89,6 +90,10 @@ def _assemble(
         "approved_contract_digest": canonical_digest(contract),
     }
     receipt["receipt_digest"] = canonical_digest(receipt)
+    release_receipt = dict(receipt)
+    release_receipt["approved_by"] = release_approver
+    release_receipt.pop("receipt_digest")
+    release_receipt["receipt_digest"] = canonical_digest(release_receipt)
     receipt_path = tmp_path / "approval-receipt.json"
     receipt_path.write_text(json.dumps(receipt))
     run_id = f"support-release-{bundle.name}"
@@ -104,7 +109,7 @@ def _assemble(
     }
     candidate_digest = ledger.put_blob(canonical_json_bytes(candidate_manifest))
     contract_blob = ledger.put_blob(canonical_json_bytes(contract))
-    receipt_blob = ledger.put_blob(canonical_json_bytes(receipt))
+    receipt_blob = ledger.put_blob(canonical_json_bytes(release_receipt))
     ledger.append(
         event_type="contract_validated",
         state="VALIDATED",
@@ -114,8 +119,8 @@ def _assemble(
             "approval": (
                 {
                     "status": "VERIFIED",
-                    "authority": "fixture-human",
-                    "receipt_digest": receipt["receipt_digest"],
+                    "authority": release_approver,
+                    "receipt_digest": release_receipt["receipt_digest"],
                     "receipt_blob_digest": receipt_blob,
                 }
                 if verified_release_approval
@@ -297,6 +302,9 @@ def test_package_rejects_unapproved_release_run(tmp_path: Path) -> None:
     with pytest.raises(PackageContractError, match="verified release approval"):
         _assemble(tmp_path, tmp_path / "bundle", verified_release_approval=False)
 
+    with pytest.raises(PackageContractError, match="verified release approval"):
+        _assemble(tmp_path, tmp_path / "attacker-bundle", release_approver="attacker")
+
 
 def test_package_verification_rederives_every_port(tmp_path: Path) -> None:
     bundle = tmp_path / "bundle"
@@ -319,6 +327,36 @@ def test_nested_manifest_is_not_excluded_from_inventory(tmp_path: Path) -> None:
     nested.write_text("{}\n")
     with pytest.raises(PackageContractError, match="inventory"):
         verify_support_package(bundle)
+
+
+def test_manifest_schema_version_and_unknown_fields_fail_closed(tmp_path: Path) -> None:
+    for field, value in (("schema_version", "2.0.0"), ("unknown", True)):
+        bundle = tmp_path / field
+        _assemble(tmp_path, bundle)
+        manifest_path = bundle / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest[field] = value
+        manifest.pop("manifest_digest")
+        manifest["manifest_digest"] = canonical_digest(manifest)
+        manifest_path.write_text(json.dumps(manifest))
+        with pytest.raises(PackageContractError, match="manifest schema"):
+            verify_support_package(bundle)
+
+
+def test_each_declared_forbidden_proof_selector_must_execute(tmp_path: Path) -> None:
+    bundle = tmp_path / "bundle"
+    _assemble(tmp_path, bundle)
+    (bundle / "tests" / "test_forbidden_capabilities.py").write_text(
+        "import unittest\nclass Unrelated(unittest.TestCase):\n"
+        "    def test_passes(self): self.assertTrue(True)\n"
+    )
+    capabilities = _contract()["capabilities"]
+    assert isinstance(capabilities, dict)
+    forbidden = capabilities["forbidden"]
+    assert isinstance(forbidden, list)
+    assert all(isinstance(item, str) for item in forbidden)
+    with pytest.raises(PackageContractError, match="proof did not execute"):
+        support_package_module._run_reference_verification(bundle, forbidden)
 
 
 def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -> None:
