@@ -987,12 +987,15 @@ def _secret_scan(root: Path) -> None:
                         f"copied evidence is not UTF-8: {path.name}"
                     ) from exc
                 decoded = content.decode("utf-8", errors="replace")
+            url_normalized = decoded.translate({ord("\t"): None, ord("\r"): None, ord("\n"): None})
             if (
                 any(pattern.search(content) for pattern in patterns)
                 or contains_prohibited_secret(content)
                 or contains_hardcoded_secret(decoded)
                 or copied_evidence
-                and contains_known_credential(decoded)
+                and (
+                    contains_known_credential(decoded) or contains_known_credential(url_normalized)
+                )
             ):
                 raise PackageContractError(f"secret value pattern found in {path.name}")
 

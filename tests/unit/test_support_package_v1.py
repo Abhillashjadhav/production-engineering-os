@@ -518,6 +518,7 @@ def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -
         "///hooks.slack.com/services/T00000000/B00000000/abcdefghijklmnop",
         "\\\\hooks.slack.com\\services\\T00000000\\B00000000\\abcdefghijklmnop",
         "//hooks%2eslack.com/services/T00000000/B00000000/abcdefghijklmnop",
+        "//hooks.slack.com/servi\tces/T00000000/B00000000/abcdefghijklmnop",
         "https://hooks.slack.com/foo/../services/T00000000/B00000000/abcdefghijklmnop",
         "https://canary.discord.com/api/webhooks/123456/abcdefghijklmnop",
         "https://canary.discord.com/%61pi/webhooks/123456/abcdefghijklmnop",
