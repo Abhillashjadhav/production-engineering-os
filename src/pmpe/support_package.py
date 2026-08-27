@@ -638,6 +638,7 @@ import argparse
 import json
 import re
 import socket
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -709,6 +710,20 @@ def decide(payload: object) -> tuple[int, dict[str, object]]:
     return 200, result
 
 class Handler(BaseHTTPRequestHandler):
+    def _read_body(self, length: int) -> bytes:
+        deadline = time.monotonic() + float(POLICY["max_processing_seconds"])
+        body = bytearray()
+        while len(body) < length:
+            remaining_seconds = deadline - time.monotonic()
+            if remaining_seconds <= 0:
+                raise TimeoutError
+            self.connection.settimeout(remaining_seconds)
+            chunk = self.rfile.read1(min(16384, length - len(body)))
+            if not chunk:
+                raise ValueError
+            body.extend(chunk)
+        return bytes(body)
+
     def _json(self, status: int, payload: object) -> None:
         body = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         self.send_response(status)
@@ -745,8 +760,7 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
             if not 0 < length <= 16384:
                 raise ValueError
-            self.connection.settimeout(float(POLICY["max_processing_seconds"]))
-            payload = json.loads(self.rfile.read(length))
+            payload = json.loads(self._read_body(length))
         except (ValueError, json.JSONDecodeError, TimeoutError):
             self._json(400, {"error": "invalid bounded JSON"})
             return

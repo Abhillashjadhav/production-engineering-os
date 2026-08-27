@@ -111,7 +111,11 @@ class EvidenceRedactor:
                 and re.match(r"/bot[^/]+(?:/|$)", path, re.IGNORECASE)
             )
             or (
-                normalized in {"discord.com", "discordapp.com"}
+                (
+                    normalized in {"discord.com", "discordapp.com"}
+                    or normalized.endswith(".discord.com")
+                    or normalized.endswith(".discordapp.com")
+                )
                 and lowered_path.startswith("/api/webhooks/")
             )
         )
