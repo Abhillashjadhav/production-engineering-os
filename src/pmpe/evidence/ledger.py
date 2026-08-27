@@ -98,6 +98,7 @@ class EvidenceLedger:
         self.blobs_directory = self.root / "blobs"
         self._read_only = False
         self._max_read_bytes: int | None = None
+        self._max_total_read_bytes: int | None = None
         self.run_directory.mkdir(parents=True, exist_ok=True)
         self.blobs_directory.mkdir(parents=True, exist_ok=True)
         if resume:
@@ -128,6 +129,7 @@ class EvidenceLedger:
         run_id: str,
         *,
         max_read_bytes: int | None = None,
+        max_total_read_bytes: int | None = None,
     ) -> EvidenceLedger:
         """Open and verify an existing ledger without attempting to resume its run."""
 
@@ -140,6 +142,7 @@ class EvidenceLedger:
         ledger.blobs_directory = ledger.root / "blobs"
         ledger._read_only = True
         ledger._max_read_bytes = max_read_bytes
+        ledger._max_total_read_bytes = max_total_read_bytes
         if not ledger.events_path.is_file():
             raise EvidenceIntegrityError("evidence ledger does not exist")
         tuple(ledger.verify())
@@ -245,10 +248,13 @@ class EvidenceLedger:
         if not self.events_path.exists():
             return
         try:
-            raw_events = self._read_bounded(self.events_path, "evidence ledger").splitlines()
+            events_payload = self._read_bounded(self.events_path, "evidence ledger")
+            raw_events = events_payload.splitlines()
         except OSError as exc:
             raise EvidenceIntegrityError("evidence ledger cannot be read") from exc
         previous = GENESIS_DIGEST
+        total_read_bytes = len(events_payload)
+        counted_blobs: set[str] = set()
         for expected_sequence, raw_line in enumerate(raw_events, start=1):
             try:
                 event = strict_loads(raw_line, "application/json")
@@ -273,8 +279,14 @@ class EvidenceLedger:
                 if not isinstance(digest, str):
                     raise EvidenceIntegrityError("event references a missing blob")
                 try:
-                    self.read_blob(digest)
+                    blob = self.read_blob(digest)
                 except EvidenceIntegrityError as exc:
                     raise EvidenceIntegrityError("event references an invalid blob") from exc
+                if digest not in counted_blobs:
+                    total_read_bytes += len(blob)
+                    counted_blobs.add(digest)
+                    total_limit = getattr(self, "_max_total_read_bytes", None)
+                    if total_limit is not None and total_read_bytes > total_limit:
+                        raise EvidenceIntegrityError("evidence exceeds aggregate size limit")
             previous = str(event_digest)
             yield event

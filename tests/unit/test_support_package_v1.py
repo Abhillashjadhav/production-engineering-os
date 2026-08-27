@@ -550,6 +550,35 @@ def test_secret_scan_covers_copied_release_evidence(tmp_path: Path, secret: str)
         support_package_module._secret_scan(tmp_path)
 
 
+def test_secret_scan_rejects_redundant_scheme_slash_webhook(tmp_path: Path) -> None:
+    blob = tmp_path / "release-evidence" / ".pmpe" / "blobs" / "historical"
+    blob.parent.mkdir(parents=True)
+    blob.write_text("https:////hooks.slack.com/services/T/B/abcdefghijklmnop\n")
+    with pytest.raises(PackageContractError, match="secret value pattern"):
+        support_package_module._secret_scan(tmp_path)
+
+
+def test_reference_verification_preserves_windows_systemroot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tmp_path / "bundle"
+    _assemble(tmp_path, bundle)
+    captured: list[dict[str, str]] = []
+    original_popen = subprocess.Popen
+
+    def record_environment(*args: object, **kwargs: object) -> subprocess.Popen[bytes]:
+        environment = kwargs.get("env")
+        assert isinstance(environment, dict)
+        captured.append(environment)
+        return original_popen(*args, **kwargs)  # type: ignore[arg-type,return-value]
+
+    monkeypatch.setenv("SYSTEMROOT", r"C:\\Windows")
+    monkeypatch.setattr(subprocess, "Popen", record_environment)
+    _trusted_verify(bundle)
+    assert captured
+    assert all(item["SYSTEMROOT"] == r"C:\\Windows" for item in captured)
+
+
 def test_secret_scan_rejects_non_utf8_copied_evidence(tmp_path: Path) -> None:
     blob = tmp_path / "release-evidence" / ".pmpe" / "blobs" / "historical"
     blob.parent.mkdir(parents=True)

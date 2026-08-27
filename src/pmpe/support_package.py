@@ -29,6 +29,7 @@ _EVIDENCE_SCHEMA_VERSION = "2.0.0-package"
 _CONTRACT_SCHEMA_VERSION = "1.0.0"
 _PACKAGE_STATE = "PACKAGE_READY"
 _MAX_COPIED_EVIDENCE_BYTES = 1_048_576
+_MAX_TOTAL_COPIED_EVIDENCE_BYTES = 8_388_608
 _REFERENCE_VERIFICATION = {
     "forbidden_capability_tests": "PASS",
     "runtime_compile": "PASS",
@@ -520,7 +521,10 @@ def _load_release_candidate(
 ) -> ReleaseCandidate:
     try:
         ledger = EvidenceLedger.open_existing(
-            Path(evidence_root), run_id, max_read_bytes=_MAX_COPIED_EVIDENCE_BYTES
+            Path(evidence_root),
+            run_id,
+            max_read_bytes=_MAX_COPIED_EVIDENCE_BYTES,
+            max_total_read_bytes=_MAX_TOTAL_COPIED_EVIDENCE_BYTES,
         )
         events = tuple(ledger.verify())
     except (ValueError, EvidenceIntegrityError) as exc:
@@ -1261,6 +1265,8 @@ def _run_reference_verification(
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONIOENCODING": "utf-8",
     }
+    if system_root := os.environ.get("SYSTEMROOT"):
+        environment["SYSTEMROOT"] = system_root
     imported_roots = {
         alias.name.partition(".")[0]
         for node in ast.walk(syntax_tree)

@@ -31,7 +31,7 @@ def assert_distinct_identities_preserved(
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
-    version = "central-redactor/2.7.0"
+    version = "central-redactor/2.8.0"
     __slots__ = ("_environment_secrets",)
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
@@ -174,6 +174,7 @@ class EvidenceRedactor:
 
     def _sanitize_url(self, value: str) -> str:
         value = value.replace("\\", "/")
+        value = re.sub(r"^([a-z][a-z0-9+.-]*:)/{2,}", r"\1//", value, flags=re.IGNORECASE)
         if "://" not in value:
             value = "//" + value.lstrip("/")
         if "://" not in value and not value.startswith("//"):
@@ -204,6 +205,7 @@ class EvidenceRedactor:
     @classmethod
     def _url_contains_credential(cls, value: str) -> bool:
         value = value.replace("\\", "/")
+        value = re.sub(r"^([a-z][a-z0-9+.-]*:)/{2,}", r"\1//", value, flags=re.IGNORECASE)
         if "://" not in value:
             value = "//" + value.lstrip("/")
         if "://" not in value and not value.startswith("//"):
