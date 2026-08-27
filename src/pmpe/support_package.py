@@ -979,6 +979,9 @@ def _file_digests(root: Path) -> dict[str, str]:
 
 
 def _secret_scan(root: Path) -> None:
+    max_copied_evidence_bytes = 1_048_576
+    max_json_recovery_attempts = 4_096
+
     class JsonObject(list[tuple[str, Any]]):
         pass
 
@@ -986,9 +989,17 @@ def _secret_scan(root: Path) -> None:
         normalized = value.translate({ord("\t"): None, ord("\r"): None, ord("\n"): None})
         return contains_known_credential(value) or contains_known_credential(normalized)
 
-    def json_contains_url_credential(value: Any) -> bool:
+    def json_contains_url_credential(value: Any, decode_depth: int = 0) -> bool:
         if isinstance(value, str):
-            return contains_url_credential(value)
+            if contains_url_credential(value):
+                return True
+            if decode_depth >= 3:
+                return False
+            try:
+                nested = json.loads(value, object_pairs_hook=JsonObject)
+            except (TypeError, ValueError):
+                return False
+            return json_contains_url_credential(nested, decode_depth + 1)
         if isinstance(value, JsonObject):
             return any(
                 (is_sensitive_credential_field(key) and not isinstance(item, bool))
@@ -998,12 +1009,12 @@ def _secret_scan(root: Path) -> None:
                 or contains_known_credential(
                     json.dumps({key: item}, ensure_ascii=False, default=str)
                 )
-                or json_contains_url_credential(key)
-                or json_contains_url_credential(item)
+                or json_contains_url_credential(key, decode_depth)
+                or json_contains_url_credential(item, decode_depth)
                 for key, item in value
             )
         if isinstance(value, list):
-            return any(json_contains_url_credential(item) for item in value)
+            return any(json_contains_url_credential(item, decode_depth) for item in value)
         return False
 
     patterns = (
@@ -1017,6 +1028,8 @@ def _secret_scan(root: Path) -> None:
         if path.is_file():
             content = path.read_bytes()
             copied_evidence = path.relative_to(root).parts[:1] == ("release-evidence",)
+            if copied_evidence and len(content) > max_copied_evidence_bytes:
+                raise PackageContractError(f"copied evidence exceeds size limit: {path.name}")
             if copied_evidence and b"\x00" in content:
                 raise PackageContractError(f"copied evidence contains NUL bytes: {path.name}")
             try:
@@ -1036,12 +1049,18 @@ def _secret_scan(root: Path) -> None:
                     decoder = json.JSONDecoder(object_pairs_hook=JsonObject)
                     stream = decoded.lstrip("\ufeff")
                     offset = 0
+                    recovery_attempts = 0
                     while offset < len(stream):
                         while offset < len(stream) and stream[offset].isspace():
                             offset += 1
                         if offset == len(stream):
                             break
                         try:
+                            recovery_attempts += 1
+                            if recovery_attempts > max_json_recovery_attempts:
+                                raise PackageContractError(
+                                    f"copied JSON stream exceeds scan limit: {path.name}"
+                                )
                             record, offset = decoder.raw_decode(stream, offset)
                         except ValueError:
                             candidates = [
