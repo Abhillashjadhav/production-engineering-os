@@ -7,6 +7,7 @@ import hashlib
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -1203,7 +1204,7 @@ def _run_reference_verification(
         raise PackageContractError("release candidate runtime differs from canonical v1")
     proof_cases = [*sorted(forbidden), "ordinary_ticket", "low_confidence", "policy_draft"]
     for capability in proof_cases:
-        completed = subprocess.run(  # nosec B603 - fixed interpreter and verifier-owned proof
+        proof = subprocess.Popen(  # nosec B603 - fixed interpreter and verifier-owned proof
             [
                 os.fspath(Path(sys.executable).resolve()),
                 "-I",
@@ -1212,13 +1213,33 @@ def _run_reference_verification(
                 capability,
             ],
             env=environment,
-            input=proof_input,
-            capture_output=True,
-            check=False,
-            timeout=10,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            start_new_session=os.name != "nt",
+            creationflags=(
+                getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0) if os.name == "nt" else 0
+            ),
         )
+        try:
+            stdout, _ = proof.communicate(proof_input, timeout=10)
+        except subprocess.TimeoutExpired as exc:
+            if os.name == "nt":
+                subprocess.run(  # nosec B603 - fixed Windows process-tree terminator
+                    ["taskkill", "/PID", str(proof.pid), "/T", "/F"],
+                    capture_output=True,
+                    check=False,
+                )
+                if proof.poll() is None:
+                    proof.kill()
+            else:
+                os.killpg(proof.pid, signal.SIGKILL)
+            proof.wait()
+            raise PackageContractError(
+                f"forbidden-capability proof timed out: {capability}"
+            ) from exc
         expected_receipt = f"PMPE_PROOF_COMPLETE:{capability}".encode()
-        if completed.returncode != 0 or completed.stdout != expected_receipt:
+        if proof.returncode != 0 or stdout != expected_receipt:
             raise PackageContractError(f"forbidden-capability proof did not execute: {capability}")
     return dict(_REFERENCE_VERIFICATION)
 
