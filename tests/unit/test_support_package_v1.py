@@ -389,7 +389,7 @@ def test_runtime_proofs_require_completion_and_standard_library_imports(tmp_path
     assert all(isinstance(item, str) for item in forbidden)
     for index, (source, message) in enumerate(
         (
-            ("raise SystemExit(0)\n", "proof did not execute"),
+            ("raise SystemExit(0)\n", "differs from canonical v1"),
             ("import third_party_only_on_main\n", "non-standard-library dependency"),
             ("third_party = __import__('third_party')\n", "unresolved dynamic import"),
             (
@@ -397,8 +397,13 @@ def test_runtime_proofs_require_completion_and_standard_library_imports(tmp_path
                 "unresolved dynamic import",
             ),
             (
+                "import builtins\nloader = getattr(builtins, '__import__')\n"
+                "third_party = loader('third_party')\n",
+                "unresolved dynamic import",
+            ),
+            (
                 "def decide(payload):\n    return 200, {'status': 'DRAFTED'}\n",
-                "proof did not execute",
+                "differs from canonical v1",
             ),
         )
     ):

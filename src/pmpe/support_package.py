@@ -80,25 +80,45 @@ emit = os.write
 payload = json.loads(sys.stdin.buffer.read())
 source = payload["app_source"].encode()
 with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
+    runtime_policy = dict(payload["policy"])
+    if capability == "policy_draft":
+        runtime_policy["additional_confidence_below"] = 0.6
     for name, content in {
         "app.py": source,
         "recorded-corpus.json": json.dumps(payload["corpus"], sort_keys=True).encode(),
-        "runtime-policy.json": json.dumps(payload["policy"], sort_keys=True).encode(),
+        "runtime-policy.json": json.dumps(runtime_policy, sort_keys=True).encode(),
     }.items():
         path = os.path.join(directory, name)
         with open(path, "xb") as handle:
             handle.write(content)
     documented = subprocess.Popen(
-        [sys.executable, "-I", "app.py", "--port", "0"],
+        [sys.executable, "-I", "app.py", "--port", "8080"],
         cwd=directory,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
-    time.sleep(0.1)
-    assert documented.poll() is None
-    documented.terminate()
-    documented.wait(timeout=2)
+    try:
+        documented_health = None
+        documented_url = "http://127.0.0.1:8080/health"
+        for _ in range(30):
+            try:
+                with urllib.request.urlopen(documented_url, timeout=0.1) as response:
+                    documented_health = json.loads(response.read())
+                assert documented.poll() is None
+                break
+            except Exception:
+                if documented.poll() is not None:
+                    raise SystemExit(9)
+                time.sleep(0.02)
+        assert documented_health == {"status":"healthy"}
+    finally:
+        documented.terminate()
+        try:
+            documented.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            documented.kill()
+            documented.wait(timeout=2)
     reservation = socket.socket()
     reservation.bind(("127.0.0.1", 0))
     reservation.listen(16)
@@ -146,7 +166,10 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
                 "ticket_id":"O-1","text":"Damaged delivery","facts":["delivery_damage"]
             },
             "low_confidence": {
-                "ticket_id":"L-1","text":"General question","facts":["request"]
+                "ticket_id":"L-" + str(os.getpid()),"text":"General question","facts":["request"]
+            },
+            "policy_draft": {
+                "ticket_id":"P-" + str(os.getpid()),"text":"General question","facts":["request"]
             },
         }
         result = request("/tickets", tickets[capability])
@@ -172,6 +195,9 @@ elif capability == "ordinary_ticket":
 elif capability == "low_confidence":
     assert result["status"] == "NEEDS_HUMAN_DECISION"
     assert result["reasons"] == ["recorded_confidence_below_threshold"]
+    assert result["confidence"] == 0.7
+elif capability == "policy_draft":
+    assert result["status"] == "DRAFTED"
     assert result["confidence"] == 0.7
 else:
     raise SystemExit(3)
@@ -874,7 +900,9 @@ def _run_reference_verification(
         node
         for node in ast.walk(syntax_tree)
         if isinstance(node, ast.Name)
-        and node.id in {"__import__", "__builtins__", "importlib"}
+        and node.id in {"__import__", "__builtins__", "builtins", "importlib"}
+        or isinstance(node, ast.Constant)
+        and node.value in {"__import__", "import_module"}
         or isinstance(node, ast.Attribute)
         and node.attr == "import_module"
         or isinstance(node, ast.Call)
@@ -887,7 +915,9 @@ def _run_reference_verification(
     ]
     if unresolved_import_primitives:
         raise PackageContractError("generated runtime contains an unresolved dynamic import")
-    proof_cases = [*sorted(forbidden), "ordinary_ticket", "low_confidence"]
+    if app_source != _APP_SOURCE.encode():
+        raise PackageContractError("release candidate runtime differs from canonical v1")
+    proof_cases = [*sorted(forbidden), "ordinary_ticket", "low_confidence", "policy_draft"]
     for capability in proof_cases:
         completed = subprocess.run(  # nosec B603 - fixed interpreter and verifier-owned proof
             [
