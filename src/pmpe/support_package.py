@@ -988,6 +988,8 @@ def _secret_scan(root: Path) -> None:
                     ) from exc
                 decoded = content.decode("utf-8", errors="replace")
             url_normalized = decoded.translate({ord("\t"): None, ord("\r"): None, ord("\n"): None})
+            for escaped_control in (r"\t", r"\r", r"\n"):
+                url_normalized = url_normalized.replace(escaped_control, "")
             if (
                 any(pattern.search(content) for pattern in patterns)
                 or contains_prohibited_secret(content)
