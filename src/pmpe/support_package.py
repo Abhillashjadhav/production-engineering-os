@@ -20,10 +20,10 @@ from typing import Any
 from jsonschema import Draft7Validator
 
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes, strict_loads
-from pmpe.contracts.intake import contains_prohibited_secret
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 from pmpe.quality.security_scan import contains_hardcoded_secret
 from pmpe.repository.redaction import contains_known_credential, is_sensitive_credential_field
+from pmpe.security_patterns import contains_prohibited_secret
 
 _EVIDENCE_SCHEMA_VERSION = "2.0.0-package"
 _CONTRACT_SCHEMA_VERSION = "1.0.0"
@@ -162,8 +162,17 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
         path = os.path.join(directory, name)
         with open(path, "xb") as handle:
             handle.write(content)
+    documented_port_file = os.path.join(directory, "documented-port")
     documented = subprocess.Popen(
-        [sys.executable, "-I", "app.py", "--port", "8080"],
+        [
+            sys.executable,
+            "-I",
+            "app.py",
+            "--port",
+            "0",
+            "--port-file",
+            documented_port_file,
+        ],
         cwd=directory,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
@@ -171,9 +180,12 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
     )
     try:
         documented_health = None
-        documented_url = "http://127.0.0.1:8080/health"
-        for _ in range(30):
+        documented_url = None
+        for _ in range(50):
             try:
+                if documented_url is None:
+                    with open(documented_port_file, encoding="utf-8") as handle:
+                        documented_url = "http://127.0.0.1:" + handle.read() + "/health"
                 with urllib.request.urlopen(documented_url, timeout=0.1) as response:
                     documented_health = json.loads(response.read())
                 assert documented.poll() is None
@@ -1020,7 +1032,14 @@ def _secret_scan(root: Path) -> None:
                 try:
                     parsed_json = json.loads(content, object_pairs_hook=JsonObject)
                 except (TypeError, ValueError):
-                    parsed_json = None
+                    parsed_json = []
+                    for record in content.splitlines():
+                        if not record.strip():
+                            continue
+                        try:
+                            parsed_json.append(json.loads(record, object_pairs_hook=JsonObject))
+                        except (TypeError, ValueError):
+                            continue
             if (
                 any(pattern.search(content) for pattern in patterns)
                 or contains_prohibited_secret(content)

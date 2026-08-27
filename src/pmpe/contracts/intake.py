@@ -24,26 +24,20 @@ from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from pmpe.contracts.canonical import CanonicalInputError, strict_loads
+from pmpe.security_patterns import PROHIBITED_SECRET_PATTERNS as _SECRET_PATTERNS
+from pmpe.security_patterns import contains_prohibited_secret as _contains_prohibited_secret
 
 _SAFE_HANDLE = re.compile(r"^[A-Z][A-Z0-9-]{0,127}$")
 _SAFE_METADATA = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$")
 _SAFE_CONTENT_TYPE = re.compile(
     r"^[a-z0-9][a-z0-9!#$&^_.+-]{0,63}/[a-z0-9][a-z0-9!#$&^_.+-]{0,63}$"
 )
-_SECRET_PATTERNS = (
-    re.compile(rb"\bgh[pousr]_[A-Za-z0-9_]{20,}\b"),
-    re.compile(rb"\bAKIA[0-9A-Z]{16}\b"),
-    re.compile(
-        rb"(?i)\b(?:api[_-]?key|access[_-]?token|client[_-]?secret|password)"
-        rb"\s*[:=]\s*[\"']?[A-Za-z0-9_./+=-]{12,}"
-    ),
-)
 _PRIVACY_PATTERNS = (re.compile(rb"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b"),)
 
 
 def contains_prohibited_secret(payload: bytes) -> bool:
-    """Return whether bytes match the canonical PMOS prohibited-secret patterns."""
-    return any(pattern.search(payload) for pattern in _SECRET_PATTERNS)
+    """Backward-compatible canonical prohibited-secret predicate."""
+    return _contains_prohibited_secret(payload)
 
 
 class Clock(Protocol):
