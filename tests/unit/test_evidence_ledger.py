@@ -90,6 +90,37 @@ def test_open_existing_enforces_aggregate_blob_budget(tmp_path: Path) -> None:
         )
 
 
+def test_verify_reads_a_repeated_blob_digest_only_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ledger = EvidenceLedger(tmp_path, "repeated")
+    digest = ledger.put_blob(b"shared")
+    subject = canonical_digest({"candidate": 1})
+    ledger.append(
+        event_type="validated",
+        state="VALIDATED",
+        subject_digest=subject,
+        blob_digests=(digest,),
+    )
+    ledger.append(
+        event_type="building",
+        state="BUILDING",
+        subject_digest=subject,
+        blob_digests=(digest,),
+    )
+    original_read_blob = EvidenceLedger.read_blob
+    reads = 0
+
+    def count_read(self: EvidenceLedger, value: str) -> bytes:
+        nonlocal reads
+        reads += 1
+        return original_read_blob(self, value)
+
+    monkeypatch.setattr(EvidenceLedger, "read_blob", count_read)
+    tuple(ledger.verify())
+    assert reads == 1
+
+
 def test_event_tampering_is_detected(tmp_path: Path) -> None:
     ledger = EvidenceLedger(tmp_path, "run-001")
     ledger.append(

@@ -31,7 +31,7 @@ def assert_distinct_identities_preserved(
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
-    version = "central-redactor/2.8.0"
+    version = "central-redactor/2.9.0"
     __slots__ = ("_environment_secrets",)
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
@@ -53,7 +53,10 @@ class EvidenceRedactor:
     )
     _private_key_header = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*", re.DOTALL)
     _url_credentials = re.compile(r"(?i)([a-z][a-z0-9+.-]*://)[^/@\s]+@")
-    _embedded_url = re.compile(r"(?i)(?:\b[a-z][a-z0-9+.-]*:)?[\\/]{2,}[^\s<>'\"]+")
+    _embedded_url = re.compile(
+        r"(?i)(?:\b(?:https?|wss?):[\\/]*|(?:\b[a-z][a-z0-9+.-]*:)?[\\/]{2,})"
+        r"[^\s<>'\"]+"
+    )
     _common_access_key = re.compile(r"(?:AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,})")
     _vendor_token = re.compile(
         r"(?:AIza[0-9A-Za-z_-]{35}|sk_(?:live|test)_[0-9A-Za-z]{16,}"
@@ -174,7 +177,7 @@ class EvidenceRedactor:
 
     def _sanitize_url(self, value: str) -> str:
         value = value.replace("\\", "/")
-        value = re.sub(r"^([a-z][a-z0-9+.-]*:)/{2,}", r"\1//", value, flags=re.IGNORECASE)
+        value = re.sub(r"^((?:https?|wss?):)/*", r"\1//", value, flags=re.IGNORECASE)
         if "://" not in value:
             value = "//" + value.lstrip("/")
         if "://" not in value and not value.startswith("//"):
@@ -205,7 +208,7 @@ class EvidenceRedactor:
     @classmethod
     def _url_contains_credential(cls, value: str) -> bool:
         value = value.replace("\\", "/")
-        value = re.sub(r"^([a-z][a-z0-9+.-]*:)/{2,}", r"\1//", value, flags=re.IGNORECASE)
+        value = re.sub(r"^((?:https?|wss?):)/*", r"\1//", value, flags=re.IGNORECASE)
         if "://" not in value:
             value = "//" + value.lstrip("/")
         if "://" not in value and not value.startswith("//"):

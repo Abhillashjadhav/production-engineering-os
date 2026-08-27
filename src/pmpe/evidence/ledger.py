@@ -278,15 +278,16 @@ class EvidenceLedger:
             for digest in blob_digests:
                 if not isinstance(digest, str):
                     raise EvidenceIntegrityError("event references a missing blob")
+                if digest in counted_blobs:
+                    continue
                 try:
                     blob = self.read_blob(digest)
                 except EvidenceIntegrityError as exc:
                     raise EvidenceIntegrityError("event references an invalid blob") from exc
-                if digest not in counted_blobs:
-                    total_read_bytes += len(blob)
-                    counted_blobs.add(digest)
-                    total_limit = getattr(self, "_max_total_read_bytes", None)
-                    if total_limit is not None and total_read_bytes > total_limit:
-                        raise EvidenceIntegrityError("evidence exceeds aggregate size limit")
+                total_read_bytes += len(blob)
+                counted_blobs.add(digest)
+                total_limit = getattr(self, "_max_total_read_bytes", None)
+                if total_limit is not None and total_read_bytes > total_limit:
+                    raise EvidenceIntegrityError("evidence exceeds aggregate size limit")
             previous = str(event_digest)
             yield event

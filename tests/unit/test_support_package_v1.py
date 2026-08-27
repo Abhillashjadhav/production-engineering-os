@@ -558,6 +558,17 @@ def test_secret_scan_rejects_redundant_scheme_slash_webhook(tmp_path: Path) -> N
         support_package_module._secret_scan(tmp_path)
 
 
+@pytest.mark.parametrize("separator", ["", "/"])
+def test_secret_scan_rejects_special_scheme_webhook_without_authority_slashes(
+    tmp_path: Path, separator: str
+) -> None:
+    blob = tmp_path / "release-evidence" / ".pmpe" / "blobs" / "historical"
+    blob.parent.mkdir(parents=True)
+    blob.write_text(f"https:{separator}hooks.slack.com/services/T/B/abcdefghijklmnop\n")
+    with pytest.raises(PackageContractError, match="secret value pattern"):
+        support_package_module._secret_scan(tmp_path)
+
+
 def test_reference_verification_preserves_windows_systemroot(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
