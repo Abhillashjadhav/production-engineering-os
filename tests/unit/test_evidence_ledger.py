@@ -55,6 +55,22 @@ def test_completed_run_id_cannot_be_reused_or_resumed(tmp_path: Path) -> None:
         inspection.put_blob(b"changed")
 
 
+def test_open_existing_rejects_oversized_blob_before_materializing_it(tmp_path: Path) -> None:
+    ledger = EvidenceLedger(tmp_path, "bounded")
+    digest = ledger.put_blob(b"x" * 1_025)
+    ledger.append(
+        event_type="validated",
+        state="VALIDATED",
+        subject_digest=canonical_digest({"candidate": 1}),
+        blob_digests=(digest,),
+    )
+
+    with pytest.raises(EvidenceIntegrityError, match="event references an invalid blob") as exc:
+        EvidenceLedger.open_existing(tmp_path, "bounded", max_read_bytes=1_024)
+    assert exc.value.__cause__ is not None
+    assert "blob exceeds size limit" in str(exc.value.__cause__)
+
+
 def test_event_tampering_is_detected(tmp_path: Path) -> None:
     ledger = EvidenceLedger(tmp_path, "run-001")
     ledger.append(

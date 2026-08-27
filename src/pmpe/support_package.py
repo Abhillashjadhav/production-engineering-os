@@ -28,6 +28,7 @@ from pmpe.security_patterns import contains_prohibited_secret
 _EVIDENCE_SCHEMA_VERSION = "2.0.0-package"
 _CONTRACT_SCHEMA_VERSION = "1.0.0"
 _PACKAGE_STATE = "PACKAGE_READY"
+_MAX_COPIED_EVIDENCE_BYTES = 1_048_576
 _REFERENCE_VERIFICATION = {
     "forbidden_capability_tests": "PASS",
     "runtime_compile": "PASS",
@@ -518,7 +519,9 @@ def _load_release_candidate(
     expected_head_digest: str | None = None,
 ) -> ReleaseCandidate:
     try:
-        ledger = EvidenceLedger.open_existing(Path(evidence_root), run_id)
+        ledger = EvidenceLedger.open_existing(
+            Path(evidence_root), run_id, max_read_bytes=_MAX_COPIED_EVIDENCE_BYTES
+        )
         events = tuple(ledger.verify())
     except (ValueError, EvidenceIntegrityError) as exc:
         raise PackageContractError("RELEASE_READY evidence is invalid") from exc
@@ -979,7 +982,6 @@ def _file_digests(root: Path) -> dict[str, str]:
 
 
 def _secret_scan(root: Path) -> None:
-    max_copied_evidence_bytes = 1_048_576
     max_json_recovery_attempts = 4_096
 
     class JsonObject(list[tuple[str, Any]]):
@@ -993,12 +995,12 @@ def _secret_scan(root: Path) -> None:
         if isinstance(value, str):
             if contains_url_credential(value):
                 return True
-            if decode_depth >= 3:
-                return False
             try:
                 nested = json.loads(value, object_pairs_hook=JsonObject)
             except (TypeError, ValueError):
                 return False
+            if decode_depth >= 3:
+                raise PackageContractError("copied evidence exceeds JSON decode depth")
             return json_contains_url_credential(nested, decode_depth + 1)
         if isinstance(value, JsonObject):
             return any(
@@ -1026,10 +1028,14 @@ def _secret_scan(root: Path) -> None:
     )
     for path in root.rglob("*"):
         if path.is_file():
-            content = path.read_bytes()
             copied_evidence = path.relative_to(root).parts[:1] == ("release-evidence",)
-            if copied_evidence and len(content) > max_copied_evidence_bytes:
-                raise PackageContractError(f"copied evidence exceeds size limit: {path.name}")
+            if copied_evidence:
+                with path.open("rb") as input_stream:
+                    content = input_stream.read(_MAX_COPIED_EVIDENCE_BYTES + 1)
+                if len(content) > _MAX_COPIED_EVIDENCE_BYTES:
+                    raise PackageContractError(f"copied evidence exceeds size limit: {path.name}")
+            else:
+                content = path.read_bytes()
             if copied_evidence and b"\x00" in content:
                 raise PackageContractError(f"copied evidence contains NUL bytes: {path.name}")
             try:
@@ -1055,12 +1061,12 @@ def _secret_scan(root: Path) -> None:
                             offset += 1
                         if offset == len(stream):
                             break
+                        recovery_attempts += 1
+                        if recovery_attempts > max_json_recovery_attempts:
+                            raise PackageContractError(
+                                f"copied JSON stream exceeds scan limit: {path.name}"
+                            ) from None
                         try:
-                            recovery_attempts += 1
-                            if recovery_attempts > max_json_recovery_attempts:
-                                raise PackageContractError(
-                                    f"copied JSON stream exceeds scan limit: {path.name}"
-                                )
                             record, offset = decoder.raw_decode(stream, offset)
                         except ValueError:
                             candidates = [

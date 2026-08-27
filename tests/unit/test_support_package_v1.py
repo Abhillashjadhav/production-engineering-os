@@ -558,6 +558,27 @@ def test_secret_scan_rejects_non_utf8_copied_evidence(tmp_path: Path) -> None:
         support_package_module._secret_scan(tmp_path)
 
 
+def test_secret_scan_fails_closed_at_nested_json_depth_limit(tmp_path: Path) -> None:
+    value: object = {
+        "webhook": "\\u0068ttps:\\/\\/hooks.slack.com\\/services\\/T\\/B\\/abcdefghijklmnop"
+    }
+    for _ in range(5):
+        value = json.dumps(value)
+    blob = tmp_path / "release-evidence" / ".pmpe" / "blobs" / "historical"
+    blob.parent.mkdir(parents=True)
+    blob.write_text(str(value))
+    with pytest.raises(PackageContractError, match="JSON decode depth"):
+        support_package_module._secret_scan(tmp_path)
+
+
+def test_secret_scan_enforces_malformed_json_recovery_limit(tmp_path: Path) -> None:
+    blob = tmp_path / "release-evidence" / ".pmpe" / "blobs" / "historical"
+    blob.parent.mkdir(parents=True)
+    blob.write_text("{" * 4_098)
+    with pytest.raises(PackageContractError, match="JSON stream exceeds scan limit"):
+        support_package_module._secret_scan(tmp_path)
+
+
 @pytest.mark.parametrize(
     "url",
     [
