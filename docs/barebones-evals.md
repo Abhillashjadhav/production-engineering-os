@@ -58,6 +58,10 @@ rejected. The launcher also loads PMPE from the source checkout instead of a sta
 copy. This second fixture tests contract/criterion transfer, not external product authorship
 or transfer to another product type.
 
+The complete seven-run archive produced on 2026-08-27, together with its outer checksum
+and independent replay results, is
+[published here](evidence/real-behavior-drift-20260827/README.md).
+
 ## Why E5 allows candidate variation
 
 Real model providers are nondeterministic. Requiring byte-identical candidates would
