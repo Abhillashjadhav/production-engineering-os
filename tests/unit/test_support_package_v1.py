@@ -615,6 +615,16 @@ def test_verify_rejects_oversized_manifest_before_parsing(tmp_path: Path) -> Non
         verify_support_package(bundle, expected_manifest_digest="sha256:" + "0" * 64)
 
 
+def test_file_inventory_streams_and_enforces_aggregate_size(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "first.bin").write_bytes(b"a" * 10)
+    (tmp_path / "second.bin").write_bytes(b"b" * 10)
+    monkeypatch.setattr(support_package_module, "_MAX_TOTAL_PACKAGE_BYTES", 16)
+    with pytest.raises(PackageContractError, match="aggregate size limit"):
+        support_package_module._file_digests(tmp_path)
+
+
 @pytest.mark.parametrize("separator", ["", "/"])
 def test_secret_scan_rejects_special_scheme_webhook_without_authority_slashes(
     tmp_path: Path, separator: str
@@ -881,6 +891,20 @@ def test_clean_runtime_journey_uses_only_reference_adapters(tmp_path: Path) -> N
         assert result["priority"] == "high"
         assert result["model_mode"] == "recorded"
         assert result["connector_mode"] == "fixture"
+
+        invalid_unicode = urllib.request.Request(
+            f"http://127.0.0.1:{port}/tickets",
+            data=b'{"ticket_id":"A","text":"\\ud800","facts":["request"]}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with pytest.raises(urllib.error.HTTPError) as invalid_response:
+            urllib.request.urlopen(invalid_unicode, timeout=2)
+        assert invalid_response.value.code == 400
+        assert json.loads(invalid_response.value.read())["error"] == (
+            "ticket strings must be valid Unicode"
+        )
+        assert process.poll() is None
 
         request = urllib.request.Request(
             f"http://127.0.0.1:{port}/tickets",

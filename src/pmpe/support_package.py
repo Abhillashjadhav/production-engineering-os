@@ -32,6 +32,7 @@ _PACKAGE_STATE = "PACKAGE_READY"
 _MAX_COPIED_EVIDENCE_BYTES = 1_048_576
 _MAX_TOTAL_COPIED_EVIDENCE_BYTES = 8_388_608
 _MAX_PACKAGE_MANIFEST_BYTES = 1_048_576
+_MAX_TOTAL_PACKAGE_BYTES = 67_108_864
 _REFERENCE_VERIFICATION = {
     "forbidden_capability_tests": "PASS",
     "runtime_compile": "PASS",
@@ -694,10 +695,18 @@ def decide(payload: object) -> tuple[int, dict[str, object]]:
         r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}", ticket_id
     ):
         return 400, {"error": "ticket_id is invalid"}
-    if not isinstance(text, str) or not 0 < len(text.encode()) <= 4096:
+    if not isinstance(text, str):
         return 400, {"error": "ticket text is invalid"}
     if not isinstance(facts, list) or any(not isinstance(item, str) for item in facts):
         return 400, {"error": "facts must be an array of strings"}
+    try:
+        text_bytes = text.encode("utf-8")
+        for item in facts:
+            item.encode("utf-8")
+    except UnicodeEncodeError:
+        return 400, {"error": "ticket strings must be valid Unicode"}
+    if not 0 < len(text_bytes) <= 4096:
+        return 400, {"error": "ticket text is invalid"}
     fact_set = set(facts)
     reasons = []
     if not fact_set:
@@ -975,6 +984,7 @@ def _file_digests(root: Path) -> dict[str, str]:
     if root.is_symlink() or not root.is_dir():
         raise PackageContractError("package root must be a real directory")
     files: dict[str, str] = {}
+    total_bytes = 0
     for path in sorted(root.rglob("*")):
         if path.is_symlink():
             raise PackageContractError("package contains a symbolic link")
@@ -983,9 +993,17 @@ def _file_digests(root: Path) -> dict[str, str]:
         if not path.is_file():
             raise PackageContractError("package contains an unsupported filesystem entry")
         if path.relative_to(root).as_posix() != "manifest.json":
-            files[path.relative_to(root).as_posix()] = (
-                "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
-            )
+            digest = hashlib.sha256()
+            try:
+                with path.open("rb") as stream:
+                    while chunk := stream.read(65_536):
+                        total_bytes += len(chunk)
+                        if total_bytes > _MAX_TOTAL_PACKAGE_BYTES:
+                            raise PackageContractError("package exceeds aggregate size limit")
+                        digest.update(chunk)
+            except OSError as exc:
+                raise PackageContractError("package file cannot be read") from exc
+            files[path.relative_to(root).as_posix()] = "sha256:" + digest.hexdigest()
     return files
 
 
