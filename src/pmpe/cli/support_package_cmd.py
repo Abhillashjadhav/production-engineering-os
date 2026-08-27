@@ -10,8 +10,24 @@ from pmpe.domain.errors import SpecError
 from pmpe.support_package import (
     PackageContractError,
     assemble_support_package,
+    seal_support_release,
     verify_support_package,
 )
+
+
+def _release(args: argparse.Namespace) -> int:
+    try:
+        result = seal_support_release(
+            Path(args.contract),
+            Path(args.approval_receipt),
+            Path(args.evidence_root),
+            args.run_id,
+            args.expected_approver,
+        )
+    except PackageContractError as exc:
+        raise SpecError(str(exc)) from exc
+    print(json.dumps(result, sort_keys=True))
+    return 0
 
 
 def _build(args: argparse.Namespace) -> int:
@@ -66,6 +82,15 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
         help="build or verify the portable customer-support reference package",
     )
     commands = package.add_subparsers(dest="support_package_command", required=True)
+    release = commands.add_parser(
+        "release", help="seal the canonical customer-support v1 release candidate"
+    )
+    release.add_argument("--contract", required=True)
+    release.add_argument("--approval-receipt", required=True)
+    release.add_argument("--evidence-root", required=True)
+    release.add_argument("--run-id", required=True)
+    release.add_argument("--expected-approver", required=True)
+    release.set_defaults(fn=_release)
     build = commands.add_parser("build", help="assemble and seal a PACKAGE_READY bundle")
     build.add_argument("--contract", required=True)
     build.add_argument("--approval-receipt", required=True)

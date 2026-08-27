@@ -57,7 +57,30 @@ def test_package_support_build_and_verify_cli(tmp_path: Path) -> None:
     contract = Path("examples/support-package/contract.json")
     receipt = Path("examples/support-package/approval-receipt.json")
     bundle = tmp_path / "bundle"
-    evidence_root, run_id, head = _release_evidence(tmp_path, contract)
+    evidence_root = tmp_path / "release-evidence"
+    run_id = "support-release"
+    assert (
+        main(
+            [
+                "barebones",
+                "package",
+                "release",
+                "--contract",
+                str(contract),
+                "--approval-receipt",
+                str(receipt),
+                "--evidence-root",
+                str(evidence_root),
+                "--run-id",
+                run_id,
+                "--expected-approver",
+                "fixture-human",
+            ]
+        )
+        == 0
+    )
+    ledger = EvidenceLedger.open_existing(evidence_root, run_id)
+    head = str(tuple(ledger.verify())[-1]["event_digest"])
 
     assert (
         main(

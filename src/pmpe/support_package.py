@@ -841,11 +841,90 @@ def _secret_scan(root: Path) -> None:
         re.compile(rb"OPENAI_API_KEY\s*="),
         re.compile(rb"DATABASE_URL\s*="),
         re.compile(rb"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
+        re.compile(rb"AKIA[0-9A-Z]{16}"),
         re.compile(rb"sk-[A-Za-z0-9_-]{20,}"),
     )
     for path in root.rglob("*"):
         if path.is_file() and any(pattern.search(path.read_bytes()) for pattern in patterns):
             raise PackageContractError(f"secret value pattern found in {path.name}")
+
+
+def seal_support_release(
+    contract_path: Path,
+    approval_receipt_path: Path,
+    evidence_root: Path,
+    run_id: str,
+    expected_approver: str,
+) -> dict[str, str]:
+    """Produce the canonical v1 RELEASE_READY evidence consumed by package build."""
+    contract = load_support_package_contract(contract_path)
+    approval = load_package_approval(approval_receipt_path, contract, expected_approver)
+    events_path = Path(evidence_root) / ".pmpe" / "runs" / run_id / "events.jsonl"
+    if events_path.exists():
+        raise PackageContractError("release run id already exists")
+    ledger = EvidenceLedger(Path(evidence_root), run_id)
+    app = _APP_SOURCE.encode()
+    binding = (contract.digest + "\n").encode()
+    with tempfile.TemporaryDirectory(prefix="pmpe-support-release-") as directory:
+        staged = Path(directory)
+        runtime_files = {
+            "app.py": app,
+            "recorded-corpus.json": canonical_json_bytes(_RECORDED_CORPUS),
+            "runtime-policy.json": canonical_json_bytes(
+                {
+                    "additional_confidence_below": contract.payload["escalation"][
+                        "additional_confidence_below"
+                    ]
+                }
+            ),
+        }
+        for name, content in runtime_files.items():
+            _write(staged / name, content)
+        expected = {
+            name: "sha256:" + hashlib.sha256(content).hexdigest()
+            for name, content in runtime_files.items()
+        }
+        _run_reference_verification(
+            staged, sorted(contract.payload["capabilities"]["forbidden"]), expected
+        )
+    contract_blob = ledger.put_blob(canonical_json_bytes(contract.payload))
+    receipt_blob = ledger.put_blob(canonical_json_bytes(approval.payload))
+    ledger.append(
+        event_type="contract_validated",
+        state="VALIDATED",
+        subject_digest=contract.digest,
+        blob_digests=(contract_blob, receipt_blob),
+        payload={
+            "approval": {
+                "status": "VERIFIED",
+                "authority": approval.authority,
+                "receipt_digest": approval.receipt_digest,
+                "receipt_blob_digest": receipt_blob,
+            },
+            "contract_digest": contract_blob,
+            "plan_digest": canonical_digest({"producer": "support-package-v1"}),
+        },
+    )
+    app_digest = ledger.put_blob(app)
+    binding_digest = ledger.put_blob(binding)
+    candidate_manifest = {
+        "app.py": app_digest,
+        "package-contract-digest.txt": binding_digest,
+    }
+    candidate_digest = ledger.put_blob(canonical_json_bytes(candidate_manifest))
+    terminal = ledger.append(
+        event_type="release_ready",
+        state="RELEASE_READY",
+        subject_digest=contract.digest,
+        blob_digests=(app_digest, binding_digest, candidate_digest),
+        payload={"candidate_digest": candidate_digest},
+    )
+    return {
+        "candidate_digest": candidate_digest,
+        "head_event_digest": str(terminal["event_digest"]),
+        "run_id": run_id,
+        "state": "RELEASE_READY",
+    }
 
 
 def _run_reference_verification(

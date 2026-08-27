@@ -66,11 +66,18 @@ container reproducibility, or production deployment.
 ## Commands
 
 ```bash
+pmpe barebones package release \
+  --contract examples/support-package/contract.json \
+  --approval-receipt examples/support-package/approval-receipt.json \
+  --expected-approver fixture-human \
+  --evidence-root /tmp/customer-support-release-evidence \
+  --run-id customer-support-release-run
+
 pmpe barebones package build \
   --contract examples/support-package/contract.json \
   --approval-receipt examples/support-package/approval-receipt.json \
   --expected-approver fixture-human \
-  --release-evidence-root /path/to/verified-run-evidence \
+  --release-evidence-root /tmp/customer-support-release-evidence \
   --release-run-id customer-support-release-run \
   --expected-release-head-digest sha256:<trusted-terminal-event-digest> \
   --output /tmp/customer-support-package

@@ -466,6 +466,14 @@ def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -
     assert sbom["packages"][0]["name"] == "customer-support-agent"
 
 
+def test_secret_scan_covers_copied_release_evidence(tmp_path: Path) -> None:
+    blob = tmp_path / "release-evidence" / ".pmpe" / "blobs" / "historical"
+    blob.parent.mkdir(parents=True)
+    blob.write_text("AWS_ACCESS_KEY_ID=AKIAABCDEFGHIJKLMNOP\n")
+    with pytest.raises(PackageContractError, match="secret value pattern"):
+        support_package_module._secret_scan(tmp_path)
+
+
 def test_clean_runtime_journey_uses_only_reference_adapters(tmp_path: Path) -> None:
     bundle = tmp_path / "bundle"
     _assemble(tmp_path, bundle)
