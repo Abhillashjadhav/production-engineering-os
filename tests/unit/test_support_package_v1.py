@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import subprocess
 import sys
 import time
@@ -8,6 +9,7 @@ import urllib.request
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 
 from pmpe.support_package import (
     PackageContractError,
@@ -77,6 +79,24 @@ def test_contract_requires_approval_and_exact_known_fields(tmp_path: Path) -> No
     with pytest.raises(PackageContractError, match="unknown field"):
         load_support_package_contract(_write_contract(tmp_path, payload))
 
+
+def test_published_contract_and_manifest_schemas_validate_reference_artifacts(
+    tmp_path: Path,
+) -> None:
+    contract = _contract()
+    contract_schema = json.loads(
+        Path("src/pmpe/schemas/support_package_contract.schema.json").read_text()
+    )
+    Draft202012Validator(contract_schema).validate(contract)
+
+    bundle = tmp_path / "bundle"
+    assemble_support_package(_write_contract(tmp_path, contract), bundle)
+    manifest_schema = json.loads(
+        Path("src/pmpe/schemas/support_package_manifest.schema.json").read_text()
+    )
+    Draft202012Validator(manifest_schema).validate(
+        json.loads((bundle / "manifest.json").read_text())
+    )
 
 def test_capabilities_are_flat_exact_sets_without_graph_resolution(tmp_path: Path) -> None:
     payload = _contract()
@@ -168,7 +188,9 @@ def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -
 def test_clean_runtime_journey_uses_only_reference_adapters(tmp_path: Path) -> None:
     bundle = tmp_path / "bundle"
     assemble_support_package(_write_contract(tmp_path), bundle)
-    port = 18765
+    with socket.socket() as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        port = int(reservation.getsockname()[1])
     process = subprocess.Popen(
         [sys.executable, "app.py", "--port", str(port)],
         cwd=bundle,
