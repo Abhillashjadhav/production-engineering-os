@@ -10,7 +10,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from pmpe.cli import barebones_cmd
+from pmpe.cli import barebones_cmd, support_package_cmd
 from pmpe.domain.errors import PmpeError, SpecError
 
 _LEGACY_COMMANDS = frozenset(
@@ -100,6 +100,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
     barebones_cmd.register(sub)
+    support_package_cmd.register(sub)
     _register_legacy(sub)
     return parser
 
