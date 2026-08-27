@@ -234,3 +234,21 @@ class EvidenceRedactor:
         except Exception as exc:
             raise RedactionError("evidence redaction failed") from exc
         raise RedactionError("unsupported evidence type during redaction")
+
+
+def contains_known_credential(text: str) -> bool:
+    """Return whether text matches any central credential-redaction rule."""
+    patterns = (
+        EvidenceRedactor._token,
+        EvidenceRedactor._authorization,
+        EvidenceRedactor._cookie_header,
+        EvidenceRedactor._private_key,
+        EvidenceRedactor._private_key_header,
+        EvidenceRedactor._url_credentials,
+        EvidenceRedactor._common_access_key,
+        EvidenceRedactor._vendor_token,
+        EvidenceRedactor._modern_service_token,
+        EvidenceRedactor._sensitive_assignment,
+        EvidenceRedactor._sensitive_whitespace_assignment,
+    )
+    return any(pattern.search(text) for pattern in patterns)

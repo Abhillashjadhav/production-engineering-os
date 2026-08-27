@@ -476,6 +476,7 @@ def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -
     assert sbom["spdxVersion"] == "SPDX-2.3"
     assert sbom["creationInfo"]["created"] == "2026-08-27T00:00:00Z"
     assert sbom["packages"][0]["name"] == "customer-support-agent"
+    assert sbom["packages"][0]["filesAnalyzed"] is False
     assert sbom["packages"][0]["licenseConcluded"] == "NOASSERTION"
     assert sbom["packages"][0]["licenseDeclared"] == "NOASSERTION"
     assert sbom["packages"][0]["copyrightText"] == "NOASSERTION"
@@ -487,6 +488,9 @@ def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -
         "AWS_ACCESS_KEY_ID=AKIAABCDEFGHIJKLMNOP",
         'password = "hunter2"',
         "ghp_0123456789abcdefghijklmnop",
+        "github_pat_0123456789abcdefghijklmnop",
+        "glpat-0123456789abcdefghijklmnop",
+        "xox" + "b-0123456789-abcdefghijklmnop",
     ],
 )
 def test_secret_scan_covers_copied_release_evidence(tmp_path: Path, secret: str) -> None:
@@ -557,16 +561,39 @@ def test_committed_release_and_bundle_are_idempotently_recoverable(tmp_path: Pat
     bundle = tmp_path / "bundle"
     built = _assemble(tmp_path, bundle)
     manifest = json.loads((bundle / "manifest.json").read_text())
-    recovered = assemble_support_package(
-        tmp_path / "contract.json",
-        tmp_path / "approval-receipt.json",
-        tmp_path / "release-evidence-bundle",
-        "support-release-bundle",
-        manifest["release_candidate"]["head_event_digest"],
-        "fixture-human",
-        bundle,
-    )
+    with socket.socket() as occupied_port:
+        occupied_port.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        occupied_port.bind(("127.0.0.1", 8080))
+        recovered = assemble_support_package(
+            tmp_path / "contract.json",
+            tmp_path / "approval-receipt.json",
+            tmp_path / "release-evidence-bundle",
+            "support-release-bundle",
+            manifest["release_candidate"]["head_event_digest"],
+            "fixture-human",
+            bundle,
+        )
     assert recovered == built
+
+    (bundle / "Dockerfile").write_text('FROM busybox\nCMD ["false"]\n')
+    manifest = json.loads((bundle / "manifest.json").read_text())
+    manifest["files"]["Dockerfile"] = (
+        "sha256:" + hashlib.sha256((bundle / "Dockerfile").read_bytes()).hexdigest()
+    )
+    manifest["package_subject_digest"] = canonical_digest(manifest["files"])
+    manifest.pop("manifest_digest")
+    manifest["manifest_digest"] = canonical_digest(manifest)
+    (bundle / "manifest.json").write_text(json.dumps(manifest))
+    with pytest.raises(PackageContractError, match="requested deterministic build"):
+        assemble_support_package(
+            tmp_path / "contract.json",
+            tmp_path / "approval-receipt.json",
+            tmp_path / "release-evidence-bundle",
+            "support-release-bundle",
+            manifest["release_candidate"]["head_event_digest"],
+            "fixture-human",
+            bundle,
+        )
 
 
 def test_failed_final_verification_does_not_publish_bundle(
@@ -577,7 +604,7 @@ def test_failed_final_verification_does_not_publish_bundle(
     def fail_verification(*args: object, **kwargs: object) -> PackageResult:
         raise PackageContractError("final verification failed")
 
-    monkeypatch.setattr(support_package_module, "verify_support_package", fail_verification)
+    monkeypatch.setattr(support_package_module, "_verify_support_package", fail_verification)
     with pytest.raises(PackageContractError, match="final verification failed"):
         _assemble(tmp_path, bundle)
     assert not bundle.exists()

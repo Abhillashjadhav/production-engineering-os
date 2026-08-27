@@ -21,10 +21,17 @@ from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes, str
 from pmpe.contracts.intake import contains_prohibited_secret
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 from pmpe.quality.security_scan import contains_hardcoded_secret
+from pmpe.repository.redaction import contains_known_credential
 
 _EVIDENCE_SCHEMA_VERSION = "2.0.0-package"
 _CONTRACT_SCHEMA_VERSION = "1.0.0"
 _PACKAGE_STATE = "PACKAGE_READY"
+_REFERENCE_VERIFICATION = {
+    "forbidden_capability_tests": "PASS",
+    "runtime_compile": "PASS",
+    "runtime_dependencies": "STANDARD_LIBRARY_ONLY",
+    "vulnerability_gate": "PASS_NO_THIRD_PARTY_RUNTIME_DEPENDENCIES",
+}
 _MANIFEST_FIELDS = frozenset(
     {
         "schema_version",
@@ -876,7 +883,7 @@ def _spdx() -> dict[str, Any]:
                 "SPDXID": "SPDXRef-Package-customer-support-agent",
                 "copyrightText": "NOASSERTION",
                 "downloadLocation": "NOASSERTION",
-                "filesAnalyzed": True,
+                "filesAnalyzed": False,
                 "licenseConcluded": "NOASSERTION",
                 "licenseDeclared": "NOASSERTION",
                 "name": "customer-support-agent",
@@ -924,10 +931,13 @@ def _secret_scan(root: Path) -> None:
         if path.is_file():
             content = path.read_bytes()
             decoded = content.decode("utf-8", errors="replace")
+            copied_evidence = path.relative_to(root).parts[:1] == ("release-evidence",)
             if (
                 any(pattern.search(content) for pattern in patterns)
                 or contains_prohibited_secret(content)
                 or contains_hardcoded_secret(decoded)
+                or copied_evidence
+                and contains_known_credential(decoded)
             ):
                 raise PackageContractError(f"secret value pattern found in {path.name}")
 
@@ -1155,12 +1165,109 @@ def _run_reference_verification(
         expected_receipt = f"PMPE_PROOF_COMPLETE:{capability}".encode()
         if completed.returncode != 0 or completed.stdout != expected_receipt:
             raise PackageContractError(f"forbidden-capability proof did not execute: {capability}")
-    return {
-        "forbidden_capability_tests": "PASS",
-        "runtime_compile": "PASS",
-        "runtime_dependencies": "STANDARD_LIBRARY_ONLY",
-        "vulnerability_gate": "PASS_NO_THIRD_PARTY_RUNTIME_DEPENDENCIES",
+    return dict(_REFERENCE_VERIFICATION)
+
+
+def _populate_package(
+    root: Path,
+    contract: SupportPackageContract,
+    approval: PackageApproval,
+    candidate: ReleaseCandidate,
+) -> None:
+    for name, content in candidate.files.items():
+        _write(root / name, content)
+    _write(root / "recorded-corpus.json", canonical_json_bytes(_RECORDED_CORPUS) + b"\n")
+    _write(
+        root / "runtime-policy.json",
+        canonical_json_bytes(
+            {
+                "additional_confidence_below": contract.payload["escalation"][
+                    "additional_confidence_below"
+                ]
+            }
+        )
+        + b"\n",
+    )
+    for name, content in {
+        "config/schema.json": canonical_json_bytes(_CONFIG_SCHEMA) + b"\n",
+        "tests/test_forbidden_capabilities.py": _FORBIDDEN_TESTS.encode(),
+        "Dockerfile": _DOCKERFILE.encode(),
+        "compose.yaml": _COMPOSE.encode(),
+        "requirements.lock": b"# standard-library runtime; no packages\n",
+        "README.md": _README.encode(),
+        "sbom.spdx.json": canonical_json_bytes(_spdx()) + b"\n",
+        "contract.json": canonical_json_bytes(contract.payload) + b"\n",
+        "approval-receipt.json": canonical_json_bytes(approval.payload) + b"\n",
+    }.items():
+        _write(root / name, content)
+    _write(
+        root / "release-evidence" / ".pmpe" / "runs" / candidate.run_id / "events.jsonl",
+        candidate.events,
+    )
+    for digest, content in candidate.blobs.items():
+        _write(
+            root / "release-evidence" / ".pmpe" / "blobs" / digest.removeprefix("sha256:"),
+            content,
+        )
+
+
+def _package_manifest(
+    contract: SupportPackageContract,
+    approval: PackageApproval,
+    candidate: ReleaseCandidate,
+    files: Mapping[str, str],
+) -> dict[str, Any]:
+    forbidden = contract.payload["capabilities"]["forbidden"]
+    manifest: dict[str, Any] = {
+        "schema_version": "1.0.0",
+        "evidence_schema_version": _EVIDENCE_SCHEMA_VERSION,
+        "state": _PACKAGE_STATE,
+        "state_vocabulary": {
+            "candidate_terminal": "RELEASE_READY",
+            "package_terminal": _PACKAGE_STATE,
+        },
+        "contract_digest": contract.digest,
+        "release_candidate": {
+            "run_id": candidate.run_id,
+            "candidate_digest": candidate.candidate_digest,
+            "head_event_digest": candidate.head_event_digest,
+        },
+        "approval": {
+            "authority": approval.authority,
+            "receipt_digest": approval.receipt_digest,
+            "status": "VERIFIED",
+        },
+        "capabilities": contract.payload["capabilities"],
+        "forbidden_capability_proofs": {
+            item: _FORBIDDEN_PROOFS[item] for item in sorted(forbidden)
+        },
+        "ports": {
+            "model_gateway": {
+                "mode": "recorded",
+                "corpus_digest": files["recorded-corpus.json"],
+            },
+            "ticket_repository": {"mode": "memory"},
+            "ticket_connector": {"mode": "fixture"},
+        },
+        "files": files,
+        "source_digest": canonical_digest(
+            {name: digest for name, digest in files.items() if name.endswith(".py")}
+        ),
+        "lockfile_digest": files["requirements.lock"],
+        "sbom_digest": files["sbom.spdx.json"],
+        "verification": dict(_REFERENCE_VERIFICATION),
+        "package_subject_digest": canonical_digest(files),
+        "claims": {
+            "recorded_mode_only": True,
+            "live_model_quality": "NOT_PROVEN",
+            "injection_resistance": "NOT_PROVEN",
+            "vendor_connector": "NOT_PROVEN",
+            "production_deployment": "OUT_OF_SCOPE",
+            "container_reproducibility": "NOT_CLAIMED",
+        },
     }
+    manifest["manifest_digest"] = canonical_digest(manifest)
+    return manifest
 
 
 def assemble_support_package(
@@ -1184,131 +1291,43 @@ def assemble_support_package(
         expected_release_head_digest,
     )
     destination = Path(output)
-    if destination.exists():
-        if not destination.is_dir():
-            raise PackageContractError("package output must be absent or an empty directory")
-        if any(destination.iterdir()):
-            try:
-                existing_manifest = strict_loads((destination / "manifest.json").read_bytes())
-                if not isinstance(existing_manifest, dict):
-                    raise PackageContractError("existing package output is not reusable")
-                existing = verify_support_package(
-                    destination,
-                    expected_manifest_digest=str(existing_manifest.get("manifest_digest", "")),
-                )
-            except (OSError, UnicodeError, ValueError, PackageContractError) as exc:
-                raise PackageContractError("existing package output is not reusable") from exc
-            if (
-                existing_manifest.get("contract_digest") != contract.digest
-                or existing_manifest.get("release_candidate")
-                != {
-                    "run_id": candidate.run_id,
-                    "candidate_digest": candidate.candidate_digest,
-                    "head_event_digest": candidate.head_event_digest,
-                }
-                or existing_manifest.get("approval")
-                != {
-                    "authority": approval.authority,
-                    "receipt_digest": approval.receipt_digest,
-                    "status": "VERIFIED",
-                }
-            ):
-                raise PackageContractError("existing package output is not reusable")
-            return existing
-        destination.rmdir()
     destination.parent.mkdir(parents=True, exist_ok=True)
     staged = Path(tempfile.mkdtemp(prefix=f".{destination.name}-", dir=destination.parent))
     try:
-        for name, content in candidate.files.items():
-            _write(staged / name, content)
-        corpus_bytes = canonical_json_bytes(_RECORDED_CORPUS) + b"\n"
-        _write(staged / "recorded-corpus.json", corpus_bytes)
-        _write(
-            staged / "runtime-policy.json",
-            canonical_json_bytes(
-                {
-                    "additional_confidence_below": contract.payload["escalation"][
-                        "additional_confidence_below"
-                    ]
-                }
-            )
-            + b"\n",
-        )
-        _write(staged / "config" / "schema.json", canonical_json_bytes(_CONFIG_SCHEMA) + b"\n")
-        _write(staged / "tests" / "test_forbidden_capabilities.py", _FORBIDDEN_TESTS.encode())
-        _write(staged / "Dockerfile", _DOCKERFILE.encode())
-        _write(staged / "compose.yaml", _COMPOSE.encode())
-        _write(staged / "requirements.lock", b"# standard-library runtime; no packages\n")
-        _write(staged / "README.md", _README.encode())
-        _write(staged / "sbom.spdx.json", canonical_json_bytes(_spdx()) + b"\n")
-        _write(staged / "contract.json", canonical_json_bytes(contract.payload) + b"\n")
-        _write(
-            staged / "approval-receipt.json",
-            canonical_json_bytes(approval.payload) + b"\n",
-        )
-        _write(
-            staged / "release-evidence" / ".pmpe" / "runs" / candidate.run_id / "events.jsonl",
-            candidate.events,
-        )
-        for digest, content in candidate.blobs.items():
-            _write(
-                staged / "release-evidence" / ".pmpe" / "blobs" / digest.removeprefix("sha256:"),
-                content,
-            )
+        _populate_package(staged, contract, approval, candidate)
         _secret_scan(staged)
         forbidden = contract.payload["capabilities"]["forbidden"]
         files = _file_digests(staged)
-        verification = _run_reference_verification(staged, forbidden, files)
-        corpus_digest = files["recorded-corpus.json"]
-        manifest: dict[str, Any] = {
-            "schema_version": "1.0.0",
-            "evidence_schema_version": _EVIDENCE_SCHEMA_VERSION,
-            "state": _PACKAGE_STATE,
-            "state_vocabulary": {
-                "candidate_terminal": "RELEASE_READY",
-                "package_terminal": _PACKAGE_STATE,
-            },
-            "contract_digest": contract.digest,
-            "release_candidate": {
-                "run_id": candidate.run_id,
-                "candidate_digest": candidate.candidate_digest,
-                "head_event_digest": candidate.head_event_digest,
-            },
-            "approval": {
-                "authority": approval.authority,
-                "receipt_digest": approval.receipt_digest,
-                "status": "VERIFIED",
-            },
-            "capabilities": contract.payload["capabilities"],
-            "forbidden_capability_proofs": {
-                item: _FORBIDDEN_PROOFS[item] for item in sorted(forbidden)
-            },
-            "ports": {
-                "model_gateway": {"mode": "recorded", "corpus_digest": corpus_digest},
-                "ticket_repository": {"mode": "memory"},
-                "ticket_connector": {"mode": "fixture"},
-            },
-            "files": files,
-            "source_digest": canonical_digest(
-                {name: digest for name, digest in files.items() if name.endswith(".py")}
-            ),
-            "lockfile_digest": files["requirements.lock"],
-            "sbom_digest": files["sbom.spdx.json"],
-            "verification": verification,
-            "package_subject_digest": canonical_digest(files),
-            "claims": {
-                "recorded_mode_only": True,
-                "live_model_quality": "NOT_PROVEN",
-                "injection_resistance": "NOT_PROVEN",
-                "vendor_connector": "NOT_PROVEN",
-                "production_deployment": "OUT_OF_SCOPE",
-                "container_reproducibility": "NOT_CLAIMED",
-            },
-        }
-        manifest["manifest_digest"] = canonical_digest(manifest)
+        manifest = _package_manifest(contract, approval, candidate, files)
         _write(staged / "manifest.json", canonical_json_bytes(manifest) + b"\n")
-        verified = verify_support_package(
-            staged, expected_manifest_digest=str(manifest["manifest_digest"])
+        if destination.exists():
+            if not destination.is_dir():
+                raise PackageContractError(
+                    "package output is not the requested deterministic build"
+                )
+            if not any(destination.iterdir()):
+                destination.rmdir()
+            else:
+                expected_inventory = _file_digests(staged) | {
+                    "manifest.json": "sha256:"
+                    + hashlib.sha256((staged / "manifest.json").read_bytes()).hexdigest()
+                }
+                observed_inventory = _file_digests(destination) | {
+                    "manifest.json": "sha256:"
+                    + hashlib.sha256((destination / "manifest.json").read_bytes()).hexdigest()
+                }
+                if observed_inventory != expected_inventory:
+                    raise PackageContractError(
+                        "package output is not the requested deterministic build"
+                    )
+                return PackageResult(_PACKAGE_STATE, destination, str(manifest["manifest_digest"]))
+        verification = _run_reference_verification(staged, forbidden, files)
+        if verification != _REFERENCE_VERIFICATION:
+            raise PackageContractError("reference verification result is inconsistent")
+        verified = _verify_support_package(
+            staged,
+            expected_manifest_digest=str(manifest["manifest_digest"]),
+            run_runtime_proof=False,
         )
         os.replace(staged, destination)
     except BaseException:
@@ -1321,7 +1340,9 @@ def assemble_support_package(
     )
 
 
-def verify_support_package(bundle: Path, *, expected_manifest_digest: str) -> PackageResult:
+def _verify_support_package(
+    bundle: Path, *, expected_manifest_digest: str, run_runtime_proof: bool
+) -> PackageResult:
     """Verify exact files, structural mode/corpus binding, and manifest integrity."""
     root = Path(bundle)
     try:
@@ -1397,7 +1418,11 @@ def verify_support_package(bundle: Path, *, expected_manifest_digest: str) -> Pa
         "production_deployment": "OUT_OF_SCOPE",
         "container_reproducibility": "NOT_CLAIMED",
     }
-    expected_verification = _run_reference_verification(root, forbidden, files)
+    expected_verification = (
+        _run_reference_verification(root, forbidden, files)
+        if run_runtime_proof
+        else dict(_REFERENCE_VERIFICATION)
+    )
     expected_source_digest = canonical_digest(
         {name: digest for name, digest in files.items() if name.endswith(".py")}
     )
@@ -1439,3 +1464,12 @@ def verify_support_package(bundle: Path, *, expected_manifest_digest: str) -> Pa
         raise PackageContractError("package approval receipt binding is invalid")
     _secret_scan(root)
     return PackageResult(_PACKAGE_STATE, root, claimed_manifest_digest)
+
+
+def verify_support_package(bundle: Path, *, expected_manifest_digest: str) -> PackageResult:
+    """Independently verify a sealed package, including its runtime proof."""
+    return _verify_support_package(
+        bundle,
+        expected_manifest_digest=expected_manifest_digest,
+        run_runtime_proof=True,
+    )
