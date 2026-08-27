@@ -9,7 +9,7 @@ from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from pmpe.evidence.ledger import EvidenceLedger
 
 
-def _release_evidence(tmp_path: Path, contract: Path) -> tuple[Path, str]:
+def _release_evidence(tmp_path: Path, contract: Path) -> tuple[Path, str, str]:
     payload = json.loads(contract.read_text())
     receipt = json.loads(Path("examples/support-package/approval-receipt.json").read_text())
     root = tmp_path / "release-evidence"
@@ -43,21 +43,21 @@ def _release_evidence(tmp_path: Path, contract: Path) -> tuple[Path, str]:
             "plan_digest": "sha256:" + "1" * 64,
         },
     )
-    ledger.append(
+    terminal = ledger.append(
         event_type="release_ready",
         state="RELEASE_READY",
         subject_digest=canonical_digest(payload),
         blob_digests=(app_digest, binding_digest, candidate_digest),
         payload={"candidate_digest": candidate_digest},
     )
-    return root, run_id
+    return root, run_id, str(terminal["event_digest"])
 
 
 def test_package_support_build_and_verify_cli(tmp_path: Path) -> None:
     contract = Path("examples/support-package/contract.json")
     receipt = Path("examples/support-package/approval-receipt.json")
     bundle = tmp_path / "bundle"
-    evidence_root, run_id = _release_evidence(tmp_path, contract)
+    evidence_root, run_id, head = _release_evidence(tmp_path, contract)
 
     assert (
         main(
@@ -75,6 +75,8 @@ def test_package_support_build_and_verify_cli(tmp_path: Path) -> None:
                 str(evidence_root),
                 "--release-run-id",
                 run_id,
+                "--expected-release-head-digest",
+                head,
                 "--output",
                 str(bundle),
             ]
@@ -89,7 +91,7 @@ def test_package_support_cli_rejects_tampered_bundle(tmp_path: Path) -> None:
     contract = Path("examples/support-package/contract.json")
     receipt = Path("examples/support-package/approval-receipt.json")
     bundle = tmp_path / "bundle"
-    evidence_root, run_id = _release_evidence(tmp_path, contract)
+    evidence_root, run_id, head = _release_evidence(tmp_path, contract)
     assert (
         main(
             [
@@ -106,6 +108,8 @@ def test_package_support_cli_rejects_tampered_bundle(tmp_path: Path) -> None:
                 str(evidence_root),
                 "--release-run-id",
                 run_id,
+                "--expected-release-head-digest",
+                head,
                 "--output",
                 str(bundle),
             ]
@@ -133,6 +137,8 @@ def test_package_support_cli_requires_a_verified_release_run(tmp_path: Path) -> 
             str(tmp_path / "missing"),
             "--release-run-id",
             "missing-run",
+            "--expected-release-head-digest",
+            "sha256:" + "0" * 64,
             "--output",
             str(tmp_path / "bundle"),
         ]

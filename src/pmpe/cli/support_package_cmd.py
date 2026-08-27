@@ -21,6 +21,7 @@ def _build(args: argparse.Namespace) -> int:
             Path(args.approval_receipt),
             Path(args.release_evidence_root),
             args.release_run_id,
+            args.expected_release_head_digest,
             args.expected_approver,
             Path(args.output),
         )
@@ -70,6 +71,7 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     build.add_argument("--approval-receipt", required=True)
     build.add_argument("--release-evidence-root", required=True)
     build.add_argument("--release-run-id", required=True)
+    build.add_argument("--expected-release-head-digest", required=True)
     build.add_argument("--expected-approver", required=True)
     build.add_argument("--output", required=True)
     build.set_defaults(fn=_build)

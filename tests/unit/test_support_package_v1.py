@@ -130,7 +130,7 @@ def _assemble(
             "plan_digest": "sha256:" + "1" * 64,
         },
     )
-    ledger.append(
+    terminal = ledger.append(
         event_type="release_ready",
         state="RELEASE_READY",
         subject_digest=canonical_digest(contract),
@@ -142,6 +142,7 @@ def _assemble(
         receipt_path,
         evidence_root,
         run_id,
+        terminal["event_digest"],
         "fixture-human",
         bundle,
     )
@@ -342,6 +343,17 @@ def test_manifest_schema_version_and_unknown_fields_fail_closed(tmp_path: Path) 
         with pytest.raises(PackageContractError, match="manifest schema"):
             verify_support_package(bundle)
 
+    bundle = tmp_path / "approval-unknown"
+    _assemble(tmp_path, bundle)
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["approval"]["unknown"] = True
+    manifest.pop("manifest_digest")
+    manifest["manifest_digest"] = canonical_digest(manifest)
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(PackageContractError, match="approval binding"):
+        verify_support_package(bundle)
+
 
 def test_each_declared_forbidden_proof_selector_must_execute(tmp_path: Path) -> None:
     bundle = tmp_path / "bundle"
@@ -357,6 +369,40 @@ def test_each_declared_forbidden_proof_selector_must_execute(tmp_path: Path) -> 
     assert all(isinstance(item, str) for item in forbidden)
     with pytest.raises(PackageContractError, match="proof did not execute"):
         support_package_module._run_reference_verification(bundle, forbidden)
+
+
+def test_corpus_and_proof_implementations_are_verifier_owned(tmp_path: Path) -> None:
+    for relative, replacement, message in (
+        ("recorded-corpus.json", b"{}\n", "trusted v1 corpus"),
+        (
+            "tests/test_forbidden_capabilities.py",
+            (
+                b"import unittest\nclass ForbiddenCapabilityTests(unittest.TestCase):\n"
+                b"    def test_no_payment(self): pass\n"
+                b"    def test_no_credentials(self): pass\n"
+            ),
+            "proof implementation",
+        ),
+    ):
+        bundle = tmp_path / relative.replace("/", "-")
+        _assemble(tmp_path, bundle)
+        target = bundle / relative
+        target.write_bytes(replacement)
+        manifest_path = bundle / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        digest = "sha256:" + hashlib.sha256(replacement).hexdigest()
+        manifest["files"][relative] = digest
+        if relative == "recorded-corpus.json":
+            manifest["ports"]["model_gateway"]["corpus_digest"] = digest
+        manifest["source_digest"] = canonical_digest(
+            {name: value for name, value in manifest["files"].items() if name.endswith(".py")}
+        )
+        manifest["package_subject_digest"] = canonical_digest(manifest["files"])
+        manifest.pop("manifest_digest")
+        manifest["manifest_digest"] = canonical_digest(manifest)
+        manifest_path.write_text(json.dumps(manifest))
+        with pytest.raises(PackageContractError, match=message):
+            verify_support_package(bundle)
 
 
 def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -> None:

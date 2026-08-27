@@ -298,7 +298,10 @@ def _safe_candidate_path(value: str) -> bool:
 
 
 def _load_release_candidate(
-    evidence_root: Path, run_id: str, contract: SupportPackageContract
+    evidence_root: Path,
+    run_id: str,
+    contract: SupportPackageContract,
+    expected_head_digest: str | None = None,
 ) -> ReleaseCandidate:
     try:
         ledger = EvidenceLedger.open_existing(Path(evidence_root), run_id)
@@ -403,6 +406,8 @@ def _load_release_candidate(
     head = terminal.get("event_digest")
     if not isinstance(head, str) or not _DIGEST.fullmatch(head):
         raise PackageContractError("release evidence head is invalid")
+    if expected_head_digest is not None and head != expected_head_digest:
+        raise PackageContractError("release evidence does not match trusted expected head")
     return ReleaseCandidate(
         run_id,
         candidate_digest,
@@ -757,13 +762,21 @@ def assemble_support_package(
     approval_receipt_path: Path,
     release_evidence_root: Path,
     release_run_id: str,
+    expected_release_head_digest: str,
     expected_approver: str,
     output: Path,
 ) -> PackageResult:
     """Assemble one content-addressed, reference-adapter-only v1 package."""
     contract = load_support_package_contract(contract_path)
     approval = load_package_approval(approval_receipt_path, contract, expected_approver)
-    candidate = _load_release_candidate(release_evidence_root, release_run_id, contract)
+    if not _DIGEST.fullmatch(expected_release_head_digest):
+        raise PackageContractError("trusted expected release head is malformed")
+    candidate = _load_release_candidate(
+        release_evidence_root,
+        release_run_id,
+        contract,
+        expected_release_head_digest,
+    )
     destination = Path(output)
     if destination.exists():
         if not destination.is_dir() or any(destination.iterdir()):
@@ -902,6 +915,14 @@ def verify_support_package(
     observed = _file_digests(root)
     if observed != files:
         raise PackageContractError("package file digest inventory does not match bundle")
+    if (root / "recorded-corpus.json").read_bytes() != canonical_json_bytes(
+        _RECORDED_CORPUS
+    ) + b"\n":
+        raise PackageContractError("recorded corpus differs from the trusted v1 corpus")
+    if (root / "tests" / "test_forbidden_capabilities.py").read_bytes() != (
+        _FORBIDDEN_TESTS.encode()
+    ):
+        raise PackageContractError("forbidden proof implementation is not trusted")
     corpus_digest = files.get("recorded-corpus.json")
     expected_ports = {
         "model_gateway": {"mode": "recorded", "corpus_digest": corpus_digest},
@@ -920,7 +941,12 @@ def verify_support_package(
         or not isinstance(release.get("run_id"), str)
     ):
         raise PackageContractError("package release candidate binding is malformed")
-    candidate = _load_release_candidate(root / "release-evidence", str(release["run_id"]), contract)
+    candidate = _load_release_candidate(
+        root / "release-evidence",
+        str(release["run_id"]),
+        contract,
+        str(release["head_event_digest"]),
+    )
     forbidden = contract.payload["capabilities"]["forbidden"]
     expected_claims = {
         "recorded_mode_only": True,
@@ -958,6 +984,7 @@ def verify_support_package(
     approval = manifest.get("approval")
     if (
         not isinstance(approval, dict)
+        or set(approval) != {"authority", "receipt_digest", "status"}
         or approval.get("status") != "VERIFIED"
         or approval.get("authority") != contract.payload["approved_by"]
         or not _IDENTIFIER.fullmatch(str(approval.get("authority", "")))

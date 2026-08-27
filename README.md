@@ -128,6 +128,7 @@ pmpe barebones package build \
   --expected-approver fixture-human \
   --release-evidence-root /path/to/verified-run-evidence \
   --release-run-id customer-support-release-run \
+  --expected-release-head-digest sha256:<trusted-terminal-event-digest> \
   --output /tmp/customer-support-package
 
 pmpe barebones package verify --bundle /tmp/customer-support-package
