@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import posixpath
 import re
 from collections.abc import Iterable, Mapping
 from typing import Any, final
@@ -103,7 +104,14 @@ class EvidenceRedactor:
     @classmethod
     def _path_contains_credential(cls, hostname: str, path: str) -> bool:
         normalized = hostname.rstrip(".").lower()
-        lowered_path = unquote(path).lower()
+        decoded_path = path
+        for _ in range(3):
+            next_path = unquote(decoded_path)
+            if next_path == decoded_path:
+                break
+            decoded_path = next_path
+        decoded_path = decoded_path.replace("\\", "/")
+        lowered_path = posixpath.normpath("/" + decoded_path.lstrip("/")).lower()
         return bool(
             (normalized == "hooks.slack.com" and lowered_path.startswith("/services/"))
             or (

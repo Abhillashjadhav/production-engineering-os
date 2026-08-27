@@ -142,7 +142,7 @@ _DETERMINISTIC_ESCALATIONS = frozenset(
         "outside_policy_bounds",
     }
 )
-_PROOF_RUNNER = """import json, os, socket, subprocess, sys, tempfile, time, urllib.request
+_PROOF_RUNNER = """import json, os, subprocess, sys, tempfile, time, urllib.request
 capability = sys.argv[1]
 emit = os.write
 payload = json.loads(sys.stdin.buffer.read())
@@ -188,19 +188,25 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
         except subprocess.TimeoutExpired:
             documented.kill()
             documented.wait(timeout=2)
-    reservation = socket.socket()
-    reservation.bind(("127.0.0.1", 0))
-    reservation.listen(16)
-    reservation.set_inheritable(True)
-    port = reservation.getsockname()[1]
+    port_file = os.path.join(directory, "verified-port")
     process = subprocess.Popen(
-        [sys.executable, "-I", "app.py", "--listen-fd", str(reservation.fileno())],
+        [sys.executable, "-I", "app.py", "--port", "0", "--port-file", port_file],
         cwd=directory,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
-        pass_fds=(reservation.fileno(),),
     )
+    for _ in range(50):
+        try:
+            with open(port_file, encoding="utf-8") as handle:
+                port = int(handle.read())
+            break
+        except (FileNotFoundError, ValueError):
+            if process.poll() is not None:
+                raise SystemExit(8)
+            time.sleep(0.02)
+    else:
+        raise SystemExit(8)
     base = "http://127.0.0.1:" + str(port)
     def request(path, body=None):
         data = None if body is None else json.dumps(body).encode()
@@ -249,7 +255,6 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=2)
-        reservation.close()
 if capability == "autonomous_refund_payment":
     assert b"payment_provider" not in source and b"execute_refund" not in source
     assert result["status"] == "NEEDS_HUMAN_DECISION"
@@ -798,14 +803,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8080)
-    parser.add_argument("--listen-fd", type=int, default=None, help=argparse.SUPPRESS)
+    parser.add_argument("--port-file", default=None, help=argparse.SUPPRESS)
     args = parser.parse_args()
-    if args.listen_fd is None:
-        server = ThreadingHTTPServer((args.host, args.port), Handler)
-    else:
-        server = ThreadingHTTPServer((args.host, args.port), Handler, bind_and_activate=False)
-        server.socket = socket.socket(fileno=args.listen_fd)
-        server.server_address = server.socket.getsockname()
+    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    if args.port_file is not None:
+        Path(args.port_file).write_text(str(server.server_address[1]), encoding="utf-8")
     server.serve_forever()
 
 if __name__ == "__main__":
@@ -969,8 +971,15 @@ def _secret_scan(root: Path) -> None:
     for path in root.rglob("*"):
         if path.is_file():
             content = path.read_bytes()
-            decoded = content.decode("utf-8", errors="replace")
             copied_evidence = path.relative_to(root).parts[:1] == ("release-evidence",)
+            try:
+                decoded = content.decode("utf-8")
+            except UnicodeDecodeError as exc:
+                if copied_evidence:
+                    raise PackageContractError(
+                        f"copied evidence is not UTF-8: {path.name}"
+                    ) from exc
+                decoded = content.decode("utf-8", errors="replace")
             if (
                 any(pattern.search(content) for pattern in patterns)
                 or contains_prohibited_secret(content)

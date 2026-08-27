@@ -514,6 +514,7 @@ def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -
         "https://example.com/callback?code=abcdefghijklmnop",
         "https://example.com/callback#code=abcdefghijklmnop",
         "https://hooks.slack.com/services/T00000000/B00000000/abcdefghijklmnop",
+        "https://hooks.slack.com/foo/../services/T00000000/B00000000/abcdefghijklmnop",
         "https://canary.discord.com/api/webhooks/123456/abcdefghijklmnop",
         "https://canary.discord.com/%61pi/webhooks/123456/abcdefghijklmnop",
         "https://api.telegram.org/%62ot123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ/sendMessage",
@@ -524,6 +525,14 @@ def test_secret_scan_covers_copied_release_evidence(tmp_path: Path, secret: str)
     blob.parent.mkdir(parents=True)
     blob.write_text(secret + "\n")
     with pytest.raises(PackageContractError, match="secret value pattern"):
+        support_package_module._secret_scan(tmp_path)
+
+
+def test_secret_scan_rejects_non_utf8_copied_evidence(tmp_path: Path) -> None:
+    blob = tmp_path / "release-evidence" / ".pmpe" / "blobs" / "historical"
+    blob.parent.mkdir(parents=True)
+    blob.write_bytes("https://hooks.slack.com/services/T/B/abcdefghijklmnop".encode("utf-16"))
+    with pytest.raises(PackageContractError, match="not UTF-8"):
         support_package_module._secret_scan(tmp_path)
 
 
