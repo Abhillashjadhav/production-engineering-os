@@ -1043,16 +1043,15 @@ def _secret_scan(root: Path) -> None:
                             break
                         try:
                             record, offset = decoder.raw_decode(stream, offset)
-                        except ValueError as exc:
-                            if parsed_json and isinstance(parsed_json[0], (JsonObject, list)):
-                                raise PackageContractError(
-                                    "secret value pattern or malformed copied JSON stream "
-                                    f"found in {path.name}"
-                                ) from exc
-                            next_record = stream.find("\n", offset)
-                            if next_record < 0:
+                        except ValueError:
+                            candidates = [
+                                position
+                                for marker in ('"', "{", "[")
+                                if (position := stream.find(marker, offset + 1)) >= 0
+                            ]
+                            if not candidates:
                                 break
-                            offset = next_record + 1
+                            offset = min(candidates)
                             continue
                         parsed_json.append(record)
             if (

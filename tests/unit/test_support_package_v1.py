@@ -532,6 +532,8 @@ def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -
         'abcdefghijklmnop"\n}\n{"ok":true}',
         '{"ok":true}\nnot-json\n'
         '{"webhook":"https:\\/\\/hooks.slack.com\\/services\\/T\\/B\\/abcdefghijklmnop"}',
+        'true\njunk {"webhook":"https:\\/\\/hooks.slack.com\\/services\\/T\\/B\\/'
+        'abcdefghijklmnop"}',
         "https://hooks.slack.com/foo/../services/T00000000/B00000000/abcdefghijklmnop",
         "https://canary.discord.com/api/webhooks/123456/abcdefghijklmnop",
         "https://canary.discord.com/%61pi/webhooks/123456/abcdefghijklmnop",
