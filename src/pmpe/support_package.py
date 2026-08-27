@@ -966,6 +966,22 @@ def _file_digests(root: Path) -> dict[str, str]:
 
 
 def _secret_scan(root: Path) -> None:
+    def contains_url_credential(value: str) -> bool:
+        normalized = value.translate({ord("\t"): None, ord("\r"): None, ord("\n"): None})
+        return contains_known_credential(value) or contains_known_credential(normalized)
+
+    def json_contains_url_credential(value: Any) -> bool:
+        if isinstance(value, str):
+            return contains_url_credential(value)
+        if isinstance(value, dict):
+            return any(
+                json_contains_url_credential(key) or json_contains_url_credential(item)
+                for key, item in value.items()
+            )
+        if isinstance(value, list):
+            return any(json_contains_url_credential(item) for item in value)
+        return False
+
     patterns = (
         re.compile(rb"OPENAI_API_KEY\s*="),
         re.compile(rb"DATABASE_URL\s*="),
@@ -987,18 +1003,18 @@ def _secret_scan(root: Path) -> None:
                         f"copied evidence is not UTF-8: {path.name}"
                     ) from exc
                 decoded = content.decode("utf-8", errors="replace")
-            url_normalized = decoded.translate({ord("\t"): None, ord("\r"): None, ord("\n"): None})
-            for escaped_control in (r"\t", r"\r", r"\n"):
-                url_normalized = url_normalized.replace(escaped_control, "")
-            url_normalized = re.sub(r"(?i)\\u(?:0009|000a|000d)", "", url_normalized)
+            parsed_json: Any = None
+            if copied_evidence:
+                try:
+                    parsed_json = strict_loads(content)
+                except (UnicodeError, ValueError):
+                    parsed_json = None
             if (
                 any(pattern.search(content) for pattern in patterns)
                 or contains_prohibited_secret(content)
                 or contains_hardcoded_secret(decoded)
                 or copied_evidence
-                and (
-                    contains_known_credential(decoded) or contains_known_credential(url_normalized)
-                )
+                and (contains_url_credential(decoded) or json_contains_url_credential(parsed_json))
             ):
                 raise PackageContractError(f"secret value pattern found in {path.name}")
 
