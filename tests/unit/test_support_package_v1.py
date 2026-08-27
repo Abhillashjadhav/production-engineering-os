@@ -213,6 +213,16 @@ def test_confidence_is_additive_and_deterministic_escalation_is_mandatory(
         load_support_package_contract(_write_contract(tmp_path, payload))
 
 
+@pytest.mark.parametrize("threshold", [0.01, 0.6, 0.7, 0.9, 0.99])
+def test_every_admitted_confidence_threshold_is_provable(tmp_path: Path, threshold: float) -> None:
+    payload = _contract()
+    escalation = payload["escalation"]
+    assert isinstance(escalation, dict)
+    escalation["additional_confidence_below"] = threshold
+    result = _assemble(tmp_path, tmp_path / f"bundle-{threshold}", payload)
+    assert result.state == "PACKAGE_READY"
+
+
 def test_assembly_preserves_release_ready_and_emits_package_ready_manifest(
     tmp_path: Path,
 ) -> None:
@@ -472,6 +482,24 @@ def test_secret_scan_covers_copied_release_evidence(tmp_path: Path) -> None:
     blob.write_text("AWS_ACCESS_KEY_ID=AKIAABCDEFGHIJKLMNOP\n")
     with pytest.raises(PackageContractError, match="secret value pattern"):
         support_package_module._secret_scan(tmp_path)
+
+
+def test_failed_release_preflight_does_not_reserve_run_id(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_preflight(*args: object, **kwargs: object) -> dict[str, object]:
+        raise PackageContractError("preflight failed")
+
+    monkeypatch.setattr(support_package_module, "_run_reference_verification", fail_preflight)
+    with pytest.raises(PackageContractError, match="preflight failed"):
+        support_package_module.seal_support_release(
+            Path("examples/support-package/contract.json"),
+            Path("examples/support-package/approval-receipt.json"),
+            tmp_path,
+            "retryable-run",
+            "fixture-human",
+        )
+    assert not (tmp_path / ".pmpe" / "runs" / "retryable-run" / "events.jsonl").exists()
 
 
 def test_clean_runtime_journey_uses_only_reference_adapters(tmp_path: Path) -> None:

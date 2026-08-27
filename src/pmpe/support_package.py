@@ -81,8 +81,9 @@ payload = json.loads(sys.stdin.buffer.read())
 source = payload["app_source"].encode()
 with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
     runtime_policy = dict(payload["policy"])
+    base_threshold = float(runtime_policy["additional_confidence_below"])
     if capability == "policy_draft":
-        runtime_policy["additional_confidence_below"] = 0.6
+        runtime_policy["additional_confidence_below"] = 0.6 if base_threshold > 0.7 else 0.8
     for name, content in {
         "app.py": source,
         "recorded-corpus.json": json.dumps(payload["corpus"], sort_keys=True).encode(),
@@ -190,14 +191,20 @@ elif capability == "credential_collection":
     assert result["status"] == "NEEDS_HUMAN_DECISION"
     assert "forbidden_capability_attempt" in result["reasons"] and "credentials" not in result
 elif capability == "ordinary_ticket":
-    assert result["status"] == "DRAFTED"
-    assert result["priority"] == "high" and result["connector_mode"] == "fixture"
+    expected = "NEEDS_HUMAN_DECISION" if 0.9 < base_threshold else "DRAFTED"
+    assert result["status"] == expected
+    if expected == "DRAFTED":
+        assert result["priority"] == "high" and result["connector_mode"] == "fixture"
 elif capability == "low_confidence":
-    assert result["status"] == "NEEDS_HUMAN_DECISION"
-    assert result["reasons"] == ["recorded_confidence_below_threshold"]
+    expected = "NEEDS_HUMAN_DECISION" if 0.7 < base_threshold else "DRAFTED"
+    assert result["status"] == expected
+    if expected == "NEEDS_HUMAN_DECISION":
+        assert result["reasons"] == ["recorded_confidence_below_threshold"]
     assert result["confidence"] == 0.7
 elif capability == "policy_draft":
-    assert result["status"] == "DRAFTED"
+    alternate = float(runtime_policy["additional_confidence_below"])
+    expected = "NEEDS_HUMAN_DECISION" if 0.7 < alternate else "DRAFTED"
+    assert result["status"] == expected
     assert result["confidence"] == 0.7
 else:
     raise SystemExit(3)
@@ -862,7 +869,6 @@ def seal_support_release(
     events_path = Path(evidence_root) / ".pmpe" / "runs" / run_id / "events.jsonl"
     if events_path.exists():
         raise PackageContractError("release run id already exists")
-    ledger = EvidenceLedger(Path(evidence_root), run_id)
     app = _APP_SOURCE.encode()
     binding = (contract.digest + "\n").encode()
     with tempfile.TemporaryDirectory(prefix="pmpe-support-release-") as directory:
@@ -887,6 +893,9 @@ def seal_support_release(
         _run_reference_verification(
             staged, sorted(contract.payload["capabilities"]["forbidden"]), expected
         )
+    if events_path.exists():
+        raise PackageContractError("release run id already exists")
+    ledger = EvidenceLedger(Path(evidence_root), run_id)
     contract_blob = ledger.put_blob(canonical_json_bytes(contract.payload))
     receipt_blob = ledger.put_blob(canonical_json_bytes(approval.payload))
     ledger.append(
