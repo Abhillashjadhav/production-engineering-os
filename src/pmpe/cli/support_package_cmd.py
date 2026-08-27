@@ -52,7 +52,7 @@ def _verify(args: argparse.Namespace) -> int:
 
 def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     package = sub.add_parser(
-        "package-support",
+        "package",
         help="build or verify the portable customer-support reference package",
     )
     commands = package.add_subparsers(dest="support_package_command", required=True)
@@ -63,4 +63,3 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     verify = commands.add_parser("verify", help="verify a sealed support package")
     verify.add_argument("--bundle", required=True)
     verify.set_defaults(fn=_verify)
-

@@ -66,11 +66,11 @@ container reproducibility, or production deployment.
 ## Commands
 
 ```bash
-pmpe package-support build \
+pmpe barebones package build \
   --contract examples/support-package/contract.json \
   --output /tmp/customer-support-package
 
-pmpe package-support verify --bundle /tmp/customer-support-package
+pmpe barebones package verify --bundle /tmp/customer-support-package
 
 python /tmp/customer-support-package/app.py --port 8080
 ```
@@ -82,4 +82,3 @@ The exact end-state claim is:
 > in-memory storage, recorded model, and fixture connector adapters. Adopters supply and
 > operate their own infrastructure. Live-model behavior, vendor connectors, and
 > production deployment are outside this claim.
-

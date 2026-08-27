@@ -118,9 +118,7 @@ def load_support_package_contract(path: Path) -> SupportPackageContract:
     )
     if root["schema_version"] != _CONTRACT_SCHEMA_VERSION:
         raise PackageContractError("contract schema version is unsupported")
-    if root["contract_status"] != "APPROVED" or not _IDENTIFIER.fullmatch(
-        str(root["approved_by"])
-    ):
+    if root["contract_status"] != "APPROVED" or not _IDENTIFIER.fullmatch(str(root["approved_by"])):
         raise PackageContractError("package contract is not approved by a valid authority")
 
     product = _exact_fields(
@@ -172,9 +170,7 @@ def load_support_package_contract(path: Path) -> SupportPackageContract:
 
     limits = _exact_fields(
         root["limits"],
-        frozenset(
-            {"max_model_calls_per_ticket", "max_processing_seconds", "max_response_bytes"}
-        ),
+        frozenset({"max_model_calls_per_ticket", "max_processing_seconds", "max_response_bytes"}),
         "limits",
     )
     for name, lower, upper in (
@@ -334,10 +330,10 @@ if __name__ == "__main__":
     main()
 '''
 
-_FORBIDDEN_TESTS = '''from __future__ import annotations
+_FORBIDDEN_TESTS = """from __future__ import annotations
 
 import unittest
-import importlib.util
+import types
 from pathlib import Path
 
 
@@ -377,17 +373,17 @@ class ForbiddenCapabilityTests(unittest.TestCase):
 
     def load_app(self):
         path = Path(__file__).parents[1] / "app.py"
-        spec = importlib.util.spec_from_file_location("reference_support_app", path)
-        self.assertIsNotNone(spec)
-        self.assertIsNotNone(spec.loader)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
+        module = types.SimpleNamespace()
+        namespace = vars(module)
+        namespace["__file__"] = str(path)
+        namespace["__name__"] = "reference_support_app"
+        exec(compile(path.read_text(), str(path), "exec"), namespace)
         return module
 
 
 if __name__ == "__main__":
     unittest.main()
-'''
+"""
 
 _CONFIG_SCHEMA = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -484,7 +480,7 @@ def _run_reference_verification(root: Path) -> dict[str, Any]:
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONIOENCODING": "utf-8",
     }
-    completed = subprocess.run(
+    completed = subprocess.run(  # nosec B603 - fixed interpreter and fixed arguments
         [
             os.fspath(Path(sys.executable).resolve()),
             "-m",

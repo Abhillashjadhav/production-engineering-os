@@ -98,6 +98,7 @@ def test_published_contract_and_manifest_schemas_validate_reference_artifacts(
         json.loads((bundle / "manifest.json").read_text())
     )
 
+
 def test_capabilities_are_flat_exact_sets_without_graph_resolution(tmp_path: Path) -> None:
     payload = _contract()
     capabilities = payload["capabilities"]
@@ -174,9 +175,7 @@ def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -
     assemble_support_package(_write_contract(tmp_path), bundle)
 
     all_text = "\n".join(
-        path.read_text(errors="replace")
-        for path in bundle.rglob("*")
-        if path.is_file()
+        path.read_text(errors="replace") for path in bundle.rglob("*") if path.is_file()
     )
     assert "OPENAI_API_KEY=" not in all_text
     assert "DATABASE_URL=" not in all_text
