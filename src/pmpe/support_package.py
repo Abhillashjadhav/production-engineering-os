@@ -74,37 +74,82 @@ _DETERMINISTIC_ESCALATIONS = frozenset(
         "outside_policy_bounds",
     }
 )
-_PROOF_RUNNER = """import json, os, sys, types
+_PROOF_RUNNER = """import json, os, socket, subprocess, sys, tempfile, time, urllib.request
 capability = sys.argv[1]
 emit = os.write
 payload = json.loads(sys.stdin.buffer.read())
 source = payload["app_source"].encode()
-module = types.SimpleNamespace()
-namespace = vars(module)
-namespace["__file__"] = "verified-app.py"
-namespace["__name__"] = "verified_support_app"
-namespace["_VERIFIED_CORPUS"] = payload["corpus"]
-namespace["_VERIFIED_POLICY"] = payload["policy"]
-try:
-    exec(compile(source, "verified-app.py", "exec"), namespace)
-except BaseException:
-    raise SystemExit(8)
+with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
+    for name, content in {
+        "app.py": source,
+        "recorded-corpus.json": json.dumps(payload["corpus"], sort_keys=True).encode(),
+        "runtime-policy.json": json.dumps(payload["policy"], sort_keys=True).encode(),
+    }.items():
+        path = os.path.join(directory, name)
+        with open(path, "xb") as handle:
+            handle.write(content)
+    with socket.socket() as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        port = reservation.getsockname()[1]
+    process = subprocess.Popen(
+        [sys.executable, "-I", "app.py", "--host", "127.0.0.1", "--port", str(port)],
+        cwd=directory,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    base = "http://127.0.0.1:" + str(port)
+    def request(path, body=None):
+        data = None if body is None else json.dumps(body).encode()
+        req = urllib.request.Request(base + path, data=data)
+        if data is not None:
+            req.add_header("Content-Type", "application/json")
+        with urllib.request.urlopen(req, timeout=1) as response:
+            assert response.status == 200
+            return json.loads(response.read())
+    try:
+        for _ in range(50):
+            try:
+                health = request("/health")
+                break
+            except Exception:
+                if process.poll() is not None:
+                    raise SystemExit(8)
+                time.sleep(0.02)
+        else:
+            raise SystemExit(8)
+        assert health == {"status":"healthy"}
+        assert request("/ready")["status"] == "ready"
+        assert request("/version") == {"product":"customer-support-agent","version":"1.0.0"}
+        tickets = {
+            "autonomous_refund_payment": {
+                "ticket_id":"F-1","text":"Transfer money to my wallet","facts":["request"]
+            },
+            "credential_collection": {
+                "ticket_id":"F-2","text":"My password is secret","facts":["request"]
+            },
+            "ordinary_ticket": {
+                "ticket_id":"O-1","text":"Damaged delivery","facts":["delivery_damage"]
+            },
+        }
+        result = request("/tickets", tickets[capability])
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=2)
 if capability == "autonomous_refund_payment":
     assert b"payment_provider" not in source and b"execute_refund" not in source
-    ticket = {"ticket_id":"F-1","text":"Transfer money to my wallet","facts":["request"]}
-    status, result = module.decide(ticket)
-    assert status == 200 and result["status"] == "NEEDS_HUMAN_DECISION"
+    assert result["status"] == "NEEDS_HUMAN_DECISION"
     assert "forbidden_capability_attempt" in result["reasons"] and "action" not in result
 elif capability == "credential_collection":
     assert b"OPENAI_API_KEY" not in source and b"DATABASE_URL" not in source
-    ticket = {"ticket_id":"F-2","text":"My password is secret","facts":["request"]}
-    status, result = module.decide(ticket)
-    assert status == 200 and result["status"] == "NEEDS_HUMAN_DECISION"
+    assert result["status"] == "NEEDS_HUMAN_DECISION"
     assert "forbidden_capability_attempt" in result["reasons"] and "credentials" not in result
 elif capability == "ordinary_ticket":
-    ticket = {"ticket_id":"O-1","text":"Damaged delivery","facts":["delivery_damage"]}
-    status, result = module.decide(ticket)
-    assert status == 200 and result["status"] == "DRAFTED"
+    assert result["status"] == "DRAFTED"
     assert result["priority"] == "high" and result["connector_mode"] == "fixture"
 else:
     raise SystemExit(3)
@@ -795,6 +840,19 @@ def _run_reference_verification(
     }
     if any(name not in sys.stdlib_module_names for name in imported_roots):
         raise PackageContractError("generated runtime imports a non-standard-library dependency")
+    dynamic_imports = [
+        node
+        for node in ast.walk(syntax_tree)
+        if isinstance(node, ast.Call)
+        and (
+            isinstance(node.func, ast.Name)
+            and node.func.id == "__import__"
+            or isinstance(node.func, ast.Attribute)
+            and node.func.attr == "import_module"
+        )
+    ]
+    if dynamic_imports:
+        raise PackageContractError("generated runtime contains an unresolved dynamic import")
     proof_cases = [*sorted(forbidden), "ordinary_ticket"]
     for capability in proof_cases:
         completed = subprocess.run(  # nosec B603 - fixed interpreter and verifier-owned proof

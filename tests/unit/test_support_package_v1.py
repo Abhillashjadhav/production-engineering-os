@@ -387,11 +387,18 @@ def test_runtime_proofs_require_completion_and_standard_library_imports(tmp_path
     forbidden = capabilities["forbidden"]
     assert isinstance(forbidden, list)
     assert all(isinstance(item, str) for item in forbidden)
-    for source, message in (
-        ("raise SystemExit(0)\n", "proof did not execute"),
-        ("import third_party_only_on_main\n", "non-standard-library dependency"),
+    for index, (source, message) in enumerate(
+        (
+            ("raise SystemExit(0)\n", "proof did not execute"),
+            ("import third_party_only_on_main\n", "non-standard-library dependency"),
+            ("third_party = __import__('third_party')\n", "unresolved dynamic import"),
+            (
+                "def decide(payload):\n    return 200, {'status': 'DRAFTED'}\n",
+                "proof did not execute",
+            ),
+        )
     ):
-        bundle = tmp_path / message.replace(" ", "-")
+        bundle = tmp_path / f"{index}-{message.replace(' ', '-')}"
         _assemble(tmp_path, bundle)
         (bundle / "app.py").write_text(source)
         expected_files = {
