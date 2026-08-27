@@ -196,6 +196,14 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+    def stop_process():
+        if process.poll() is None:
+            process.terminate()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=2)
     for _ in range(50):
         try:
             with open(port_file, encoding="utf-8") as handle:
@@ -206,6 +214,7 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
                 raise SystemExit(8)
             time.sleep(0.02)
     else:
+        stop_process()
         raise SystemExit(8)
     base = "http://127.0.0.1:" + str(port)
     def request(path, body=None):
@@ -249,12 +258,7 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
         }
         result = request("/tickets", tickets[capability])
     finally:
-        process.terminate()
-        try:
-            process.wait(timeout=2)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=2)
+        stop_process()
 if capability == "autonomous_refund_payment":
     assert b"payment_provider" not in source and b"execute_refund" not in source
     assert result["status"] == "NEEDS_HUMAN_DECISION"
@@ -972,6 +976,8 @@ def _secret_scan(root: Path) -> None:
         if path.is_file():
             content = path.read_bytes()
             copied_evidence = path.relative_to(root).parts[:1] == ("release-evidence",)
+            if copied_evidence and b"\x00" in content:
+                raise PackageContractError(f"copied evidence contains NUL bytes: {path.name}")
             try:
                 decoded = content.decode("utf-8")
             except UnicodeDecodeError as exc:

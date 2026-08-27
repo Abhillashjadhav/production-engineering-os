@@ -53,7 +53,7 @@ class EvidenceRedactor:
     )
     _private_key_header = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*", re.DOTALL)
     _url_credentials = re.compile(r"(?i)([a-z][a-z0-9+.-]*://)[^/@\s]+@")
-    _embedded_url = re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s<>'\"]+")
+    _embedded_url = re.compile(r"(?i)(?:\b[a-z][a-z0-9+.-]*:)?//[^\s<>'\"]+")
     _common_access_key = re.compile(r"(?:AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,})")
     _vendor_token = re.compile(
         r"(?:AIza[0-9A-Za-z_-]{35}|sk_(?:live|test)_[0-9A-Za-z]{16,}"
@@ -173,7 +173,7 @@ class EvidenceRedactor:
         return f"{match.group('prefix')}{match.group('key')}{match.group('separator')}[REDACTED]"
 
     def _sanitize_url(self, value: str) -> str:
-        if "://" not in value:
+        if "://" not in value and not value.startswith("//"):
             return value
         try:
             parts = urlsplit(value)
@@ -200,7 +200,7 @@ class EvidenceRedactor:
 
     @classmethod
     def _url_contains_credential(cls, value: str) -> bool:
-        if "://" not in value:
+        if "://" not in value and not value.startswith("//"):
             return False
         try:
             parts = urlsplit(value)
