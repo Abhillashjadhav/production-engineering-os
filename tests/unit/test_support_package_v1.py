@@ -88,6 +88,7 @@ def _assemble(
     *,
     verified_release_approval: bool = True,
     release_approver: str = "fixture-human",
+    terminal_reference_repeats: int = 1,
 ) -> PackageResult:
     contract_path = _write_contract(tmp_path, payload)
     contract = json.loads(contract_path.read_text())
@@ -142,7 +143,7 @@ def _assemble(
         event_type="release_ready",
         state="RELEASE_READY",
         subject_digest=canonical_digest(contract),
-        blob_digests=(app_digest, binding_digest, candidate_digest),
+        blob_digests=(app_digest, binding_digest, candidate_digest) * terminal_reference_repeats,
         payload={"candidate_digest": candidate_digest},
     )
     return assemble_support_package(
@@ -792,6 +793,36 @@ def test_committed_release_and_bundle_are_idempotently_recoverable(tmp_path: Pat
             "fixture-human",
             bundle,
         )
+
+
+def test_repeated_release_blob_references_have_bounded_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    reads: dict[str, int] = {}
+    original_read_blob = EvidenceLedger.read_blob
+
+    def counted_read_blob(self: EvidenceLedger, digest: str) -> bytes:
+        reads[digest] = reads.get(digest, 0) + 1
+        return original_read_blob(self, digest)
+
+    monkeypatch.setattr(EvidenceLedger, "read_blob", counted_read_blob)
+    _assemble(tmp_path, tmp_path / "baseline-bundle")
+    baseline_reads = dict(reads)
+    reads.clear()
+    _assemble(
+        tmp_path,
+        tmp_path / "repeated-bundle",
+        terminal_reference_repeats=2_048,
+    )
+    assert reads == baseline_reads
+
+
+def test_incomplete_existing_output_is_rejected_as_contract_error(tmp_path: Path) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "partial.txt").write_text("interrupted build")
+    with pytest.raises(PackageContractError, match="requested deterministic build"):
+        _assemble(tmp_path, bundle)
 
 
 def test_failed_final_verification_does_not_publish_bundle(

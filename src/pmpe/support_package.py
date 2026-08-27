@@ -592,7 +592,8 @@ def _load_release_candidate(
     if not isinstance(candidate_digest, str) or candidate_digest not in blob_digests:
         raise PackageContractError("release event does not bind a candidate manifest")
     try:
-        candidate_manifest = strict_loads(ledger.read_blob(candidate_digest))
+        candidate_manifest_bytes = ledger.read_blob(candidate_digest)
+        candidate_manifest = strict_loads(candidate_manifest_bytes)
     except (ValueError, EvidenceIntegrityError) as exc:
         raise PackageContractError("release candidate manifest is invalid") from exc
     if set(candidate_manifest) != {"app.py", "package-contract-digest.txt"}:
@@ -613,8 +614,7 @@ def _load_release_candidate(
             raise PackageContractError("release candidate blob is invalid") from exc
         files[name] = content
         blobs[digest] = content
-    manifest_bytes = ledger.read_blob(candidate_digest)
-    blobs[candidate_digest] = manifest_bytes
+    blobs[candidate_digest] = candidate_manifest_bytes
     for event in events:
         referenced = event.get("blob_digests")
         if not isinstance(referenced, list):
@@ -622,6 +622,8 @@ def _load_release_candidate(
         for digest in referenced:
             if not isinstance(digest, str):
                 raise PackageContractError("release evidence blob digest is malformed")
+            if digest in blobs:
+                continue
             try:
                 blobs[digest] = ledger.read_blob(digest)
             except EvidenceIntegrityError as exc:
@@ -1529,14 +1531,24 @@ def assemble_support_package(
             if not any(destination.iterdir()):
                 destination.rmdir()
             else:
+                manifest_path = destination / "manifest.json"
+                if manifest_path.is_symlink() or not manifest_path.is_file():
+                    raise PackageContractError(
+                        "package output is not the requested deterministic build"
+                    )
                 expected_inventory = _file_digests(staged) | {
                     "manifest.json": "sha256:"
                     + hashlib.sha256((staged / "manifest.json").read_bytes()).hexdigest()
                 }
-                observed_inventory = _file_digests(destination) | {
-                    "manifest.json": "sha256:"
-                    + hashlib.sha256((destination / "manifest.json").read_bytes()).hexdigest()
-                }
+                try:
+                    observed_inventory = _file_digests(destination) | {
+                        "manifest.json": "sha256:"
+                        + hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+                    }
+                except OSError as exc:
+                    raise PackageContractError(
+                        "package output is not the requested deterministic build"
+                    ) from exc
                 if observed_inventory != expected_inventory:
                     raise PackageContractError(
                         "package output is not the requested deterministic build"
