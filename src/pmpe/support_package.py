@@ -992,31 +992,41 @@ def _secret_scan(root: Path) -> None:
     class JsonObject(list[tuple[str, Any]]):
         pass
 
-    def contains_url_credential(value: str) -> bool:
+    def decoded_text_views(value: str) -> tuple[str, ...]:
+        views: list[str] = []
         candidate = value
         for _ in range(4):
-            normalized = candidate.translate({ord("\t"): None, ord("\r"): None, ord("\n"): None})
-            if contains_known_credential(candidate) or contains_known_credential(normalized):
-                return True
+            views.append(candidate)
             decoded = html.unescape(candidate)
             if decoded == candidate:
-                return False
+                return tuple(views)
             candidate = decoded
         if html.unescape(candidate) != candidate:
             raise PackageContractError("copied evidence exceeds HTML entity decode depth")
+        views.append(candidate)
+        return tuple(views)
+
+    def contains_url_credential(value: str) -> bool:
+        for candidate in decoded_text_views(value):
+            normalized = candidate.translate({ord("\t"): None, ord("\r"): None, ord("\n"): None})
+            if contains_known_credential(candidate) or contains_known_credential(normalized):
+                return True
         return False
 
     def json_contains_url_credential(value: Any, decode_depth: int = 0) -> bool:
         if isinstance(value, str):
             if contains_url_credential(value):
                 return True
-            try:
-                nested = json.loads(value, object_pairs_hook=JsonObject)
-            except (TypeError, ValueError):
-                return False
-            if decode_depth >= 3:
-                raise PackageContractError("copied evidence exceeds JSON decode depth")
-            return json_contains_url_credential(nested, decode_depth + 1)
+            for candidate in decoded_text_views(value):
+                try:
+                    nested = json.loads(candidate, object_pairs_hook=JsonObject)
+                except (TypeError, ValueError):
+                    continue
+                if decode_depth >= 3:
+                    raise PackageContractError("copied evidence exceeds JSON decode depth")
+                if json_contains_url_credential(nested, decode_depth + 1):
+                    return True
+            return False
         if isinstance(value, JsonObject):
             return any(
                 (is_sensitive_credential_field(key) and not isinstance(item, bool))
@@ -1099,7 +1109,11 @@ def _secret_scan(root: Path) -> None:
                 or contains_prohibited_secret(content)
                 or contains_hardcoded_secret(decoded)
                 or copied_evidence
-                and (contains_url_credential(decoded) or json_contains_url_credential(parsed_json))
+                and (
+                    contains_url_credential(decoded)
+                    or json_contains_url_credential(decoded)
+                    or json_contains_url_credential(parsed_json)
+                )
             ):
                 raise PackageContractError(f"secret value pattern found in {path.name}")
 
