@@ -393,6 +393,10 @@ def test_runtime_proofs_require_completion_and_standard_library_imports(tmp_path
             ("import third_party_only_on_main\n", "non-standard-library dependency"),
             ("third_party = __import__('third_party')\n", "unresolved dynamic import"),
             (
+                "loader = __import__\nthird_party = loader('third_party')\n",
+                "unresolved dynamic import",
+            ),
+            (
                 "def decide(payload):\n    return 200, {'status': 'DRAFTED'}\n",
                 "proof did not execute",
             ),

@@ -88,15 +88,29 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
         path = os.path.join(directory, name)
         with open(path, "xb") as handle:
             handle.write(content)
-    with socket.socket() as reservation:
-        reservation.bind(("127.0.0.1", 0))
-        port = reservation.getsockname()[1]
-    process = subprocess.Popen(
-        [sys.executable, "-I", "app.py", "--host", "127.0.0.1", "--port", str(port)],
+    documented = subprocess.Popen(
+        [sys.executable, "-I", "app.py", "--port", "0"],
         cwd=directory,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+    )
+    time.sleep(0.1)
+    assert documented.poll() is None
+    documented.terminate()
+    documented.wait(timeout=2)
+    reservation = socket.socket()
+    reservation.bind(("127.0.0.1", 0))
+    reservation.listen(16)
+    reservation.set_inheritable(True)
+    port = reservation.getsockname()[1]
+    process = subprocess.Popen(
+        [sys.executable, "-I", "app.py", "--listen-fd", str(reservation.fileno())],
+        cwd=directory,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        pass_fds=(reservation.fileno(),),
     )
     base = "http://127.0.0.1:" + str(port)
     def request(path, body=None):
@@ -131,6 +145,9 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
             "ordinary_ticket": {
                 "ticket_id":"O-1","text":"Damaged delivery","facts":["delivery_damage"]
             },
+            "low_confidence": {
+                "ticket_id":"L-1","text":"General question","facts":["request"]
+            },
         }
         result = request("/tickets", tickets[capability])
     finally:
@@ -140,6 +157,7 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=2)
+        reservation.close()
 if capability == "autonomous_refund_payment":
     assert b"payment_provider" not in source and b"execute_refund" not in source
     assert result["status"] == "NEEDS_HUMAN_DECISION"
@@ -151,6 +169,10 @@ elif capability == "credential_collection":
 elif capability == "ordinary_ticket":
     assert result["status"] == "DRAFTED"
     assert result["priority"] == "high" and result["connector_mode"] == "fixture"
+elif capability == "low_confidence":
+    assert result["status"] == "NEEDS_HUMAN_DECISION"
+    assert result["reasons"] == ["recorded_confidence_below_threshold"]
+    assert result["confidence"] == 0.7
 else:
     raise SystemExit(3)
 emit(1, ("PMPE_PROOF_COMPLETE:" + capability).encode())
@@ -514,6 +536,7 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -635,8 +658,15 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8080)
+    parser.add_argument("--listen-fd", type=int, default=None, help=argparse.SUPPRESS)
     args = parser.parse_args()
-    ThreadingHTTPServer((args.host, args.port), Handler).serve_forever()
+    if args.listen_fd is None:
+        server = ThreadingHTTPServer((args.host, args.port), Handler)
+    else:
+        server = ThreadingHTTPServer((args.host, args.port), Handler, bind_and_activate=False)
+        server.socket = socket.socket(fileno=args.listen_fd)
+        server.server_address = server.socket.getsockname()
+    server.serve_forever()
 
 if __name__ == "__main__":
     main()
@@ -840,10 +870,14 @@ def _run_reference_verification(
     }
     if any(name not in sys.stdlib_module_names for name in imported_roots):
         raise PackageContractError("generated runtime imports a non-standard-library dependency")
-    dynamic_imports = [
+    unresolved_import_primitives = [
         node
         for node in ast.walk(syntax_tree)
-        if isinstance(node, ast.Call)
+        if isinstance(node, ast.Name)
+        and node.id in {"__import__", "__builtins__", "importlib"}
+        or isinstance(node, ast.Attribute)
+        and node.attr == "import_module"
+        or isinstance(node, ast.Call)
         and (
             isinstance(node.func, ast.Name)
             and node.func.id == "__import__"
@@ -851,9 +885,9 @@ def _run_reference_verification(
             and node.func.attr == "import_module"
         )
     ]
-    if dynamic_imports:
+    if unresolved_import_primitives:
         raise PackageContractError("generated runtime contains an unresolved dynamic import")
-    proof_cases = [*sorted(forbidden), "ordinary_ticket"]
+    proof_cases = [*sorted(forbidden), "ordinary_ticket", "low_confidence"]
     for capability in proof_cases:
         completed = subprocess.run(  # nosec B603 - fixed interpreter and verifier-owned proof
             [
