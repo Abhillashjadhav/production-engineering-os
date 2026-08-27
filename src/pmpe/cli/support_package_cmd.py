@@ -16,7 +16,12 @@ from pmpe.support_package import (
 
 def _build(args: argparse.Namespace) -> int:
     try:
-        result = assemble_support_package(Path(args.contract), Path(args.output))
+        result = assemble_support_package(
+            Path(args.contract),
+            Path(args.approval_receipt),
+            args.expected_approver,
+            Path(args.output),
+        )
     except PackageContractError as exc:
         raise SpecError(str(exc)) from exc
     print(
@@ -34,7 +39,9 @@ def _build(args: argparse.Namespace) -> int:
 
 def _verify(args: argparse.Namespace) -> int:
     try:
-        result = verify_support_package(Path(args.bundle))
+        result = verify_support_package(
+            Path(args.bundle), expected_manifest_digest=args.expected_manifest_digest
+        )
     except PackageContractError as exc:
         raise SpecError(str(exc)) from exc
     print(
@@ -58,8 +65,11 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     commands = package.add_subparsers(dest="support_package_command", required=True)
     build = commands.add_parser("build", help="assemble and seal a PACKAGE_READY bundle")
     build.add_argument("--contract", required=True)
+    build.add_argument("--approval-receipt", required=True)
+    build.add_argument("--expected-approver", required=True)
     build.add_argument("--output", required=True)
     build.set_defaults(fn=_build)
     verify = commands.add_parser("verify", help="verify a sealed support package")
     verify.add_argument("--bundle", required=True)
+    verify.add_argument("--expected-manifest-digest")
     verify.set_defaults(fn=_verify)

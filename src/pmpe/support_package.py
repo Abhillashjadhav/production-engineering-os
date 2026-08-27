@@ -69,6 +69,13 @@ class PackageResult:
     manifest_digest: str
 
 
+@dataclass(frozen=True)
+class PackageApproval:
+    authority: str
+    receipt_digest: str
+    payload: Mapping[str, Any]
+
+
 def _exact_fields(value: object, expected: frozenset[str], subject: str) -> Mapping[str, Any]:
     if not isinstance(value, dict):
         raise PackageContractError(f"{subject} must be an object")
@@ -193,6 +200,43 @@ def load_support_package_contract(path: Path) -> SupportPackageContract:
     if type(confidence) not in {int, float} or not 0 < float(confidence) < 1:
         raise PackageContractError("additional confidence trigger must be between zero and one")
     return SupportPackageContract(root, canonical_digest(root))
+
+
+def load_package_approval(
+    path: Path, contract: SupportPackageContract, expected_approver: str
+) -> PackageApproval:
+    try:
+        payload = strict_loads(Path(path).read_bytes())
+    except (OSError, UnicodeError, ValueError) as exc:
+        raise PackageContractError("package approval receipt is unreadable") from exc
+    receipt = _exact_fields(
+        payload,
+        frozenset(
+            {
+                "schema_version",
+                "decision",
+                "approved_by",
+                "approved_contract_digest",
+                "receipt_digest",
+            }
+        ),
+        "approval receipt",
+    )
+    claimed = receipt["receipt_digest"]
+    projection = dict(receipt)
+    projection.pop("receipt_digest")
+    if (
+        receipt["schema_version"] != "1.0.0"
+        or receipt["decision"] != "APPROVED"
+        or receipt["approved_by"] != expected_approver
+        or receipt["approved_by"] != contract.payload["approved_by"]
+        or receipt["approved_contract_digest"] != contract.digest
+        or type(claimed) is not str
+        or not _DIGEST.fullmatch(claimed)
+        or canonical_digest(projection) != claimed
+    ):
+        raise PackageContractError("package approval receipt is invalid or stale")
+    return PackageApproval(expected_approver, claimed, receipt)
 
 
 _RECORDED_CORPUS = {
@@ -508,9 +552,15 @@ def _run_reference_verification(root: Path) -> dict[str, Any]:
     }
 
 
-def assemble_support_package(contract_path: Path, output: Path) -> PackageResult:
+def assemble_support_package(
+    contract_path: Path,
+    approval_receipt_path: Path,
+    expected_approver: str,
+    output: Path,
+) -> PackageResult:
     """Assemble one content-addressed, reference-adapter-only v1 package."""
     contract = load_support_package_contract(contract_path)
+    approval = load_package_approval(approval_receipt_path, contract, expected_approver)
     destination = Path(output)
     if destination.exists():
         if not destination.is_dir() or any(destination.iterdir()):
@@ -530,6 +580,10 @@ def assemble_support_package(contract_path: Path, output: Path) -> PackageResult
         _write(staged / "README.md", _README.encode())
         _write(staged / "sbom.spdx.json", canonical_json_bytes(_spdx()) + b"\n")
         _write(staged / "contract.json", canonical_json_bytes(contract.payload) + b"\n")
+        _write(
+            staged / "approval-receipt.json",
+            canonical_json_bytes(approval.payload) + b"\n",
+        )
         _secret_scan(staged)
         verification = _run_reference_verification(staged)
         files = _file_digests(staged)
@@ -544,6 +598,11 @@ def assemble_support_package(contract_path: Path, output: Path) -> PackageResult
                 "package_terminal": _PACKAGE_STATE,
             },
             "contract_digest": contract.digest,
+            "approval": {
+                "authority": approval.authority,
+                "receipt_digest": approval.receipt_digest,
+                "status": "VERIFIED",
+            },
             "capabilities": contract.payload["capabilities"],
             "forbidden_capability_proofs": {
                 item: _FORBIDDEN_PROOFS[item] for item in sorted(forbidden)
@@ -579,7 +638,9 @@ def assemble_support_package(contract_path: Path, output: Path) -> PackageResult
     return verify_support_package(destination)
 
 
-def verify_support_package(bundle: Path) -> PackageResult:
+def verify_support_package(
+    bundle: Path, *, expected_manifest_digest: str | None = None
+) -> PackageResult:
     """Verify exact files, structural mode/corpus binding, and manifest integrity."""
     root = Path(bundle)
     try:
@@ -599,6 +660,8 @@ def verify_support_package(bundle: Path) -> PackageResult:
         or canonical_digest(unsigned) != claimed_manifest_digest
     ):
         raise PackageContractError("package manifest digest or state is invalid")
+    if expected_manifest_digest is not None and claimed_manifest_digest != expected_manifest_digest:
+        raise PackageContractError("package manifest does not match the trusted expected digest")
     files = manifest.get("files")
     if not isinstance(files, dict) or any(
         type(name) is not str or type(digest) is not str or not _DIGEST.fullmatch(digest)
@@ -617,5 +680,46 @@ def verify_support_package(bundle: Path) -> PackageResult:
         raise PackageContractError("recorded corpus digest or model mode binding is invalid")
     if manifest.get("package_subject_digest") != canonical_digest(files):
         raise PackageContractError("package subject digest is invalid")
+    contract = load_support_package_contract(root / "contract.json")
+    forbidden = contract.payload["capabilities"]["forbidden"]
+    expected_claims = {
+        "recorded_mode_only": True,
+        "live_model_quality": "NOT_PROVEN",
+        "injection_resistance": "NOT_PROVEN",
+        "vendor_connector": "NOT_PROVEN",
+        "production_deployment": "OUT_OF_SCOPE",
+        "container_reproducibility": "NOT_CLAIMED",
+    }
+    expected_verification = _run_reference_verification(root)
+    expected_source_digest = canonical_digest(
+        {name: digest for name, digest in files.items() if name.endswith(".py")}
+    )
+    if (
+        manifest.get("state_vocabulary")
+        != {"candidate_terminal": "RELEASE_READY", "package_terminal": _PACKAGE_STATE}
+        or manifest.get("contract_digest") != contract.digest
+        or manifest.get("capabilities") != contract.payload["capabilities"]
+        or manifest.get("forbidden_capability_proofs")
+        != {item: _FORBIDDEN_PROOFS[item] for item in sorted(forbidden)}
+        or manifest.get("source_digest") != expected_source_digest
+        or manifest.get("lockfile_digest") != files.get("requirements.lock")
+        or manifest.get("sbom_digest") != files.get("sbom.spdx.json")
+        or manifest.get("claims") != expected_claims
+        or manifest.get("verification") != expected_verification
+    ):
+        raise PackageContractError("package manifest derived claims are invalid")
+    approval = manifest.get("approval")
+    if (
+        not isinstance(approval, dict)
+        or approval.get("status") != "VERIFIED"
+        or not _IDENTIFIER.fullmatch(str(approval.get("authority", "")))
+        or not _DIGEST.fullmatch(str(approval.get("receipt_digest", "")))
+    ):
+        raise PackageContractError("package approval binding is malformed")
+    verified_approval = load_package_approval(
+        root / "approval-receipt.json", contract, str(approval["authority"])
+    )
+    if verified_approval.receipt_digest != approval["receipt_digest"]:
+        raise PackageContractError("package approval receipt binding is invalid")
     _secret_scan(root)
     return PackageResult(_PACKAGE_STATE, root, claimed_manifest_digest)

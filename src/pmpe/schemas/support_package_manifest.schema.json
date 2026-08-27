@@ -3,6 +3,27 @@
   "$id": "https://pmpe.local/schemas/support-package-manifest-1.0.0.json",
   "additionalProperties": false,
   "properties": {
+    "approval": {
+      "additionalProperties": false,
+      "properties": {
+        "authority": {
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+          "type": "string"
+        },
+        "receipt_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "status": {
+          "const": "VERIFIED"
+        }
+      },
+      "required": [
+        "authority",
+        "receipt_digest",
+        "status"
+      ],
+      "type": "object"
+    },
     "capabilities": {
       "type": "object"
     },
@@ -151,6 +172,7 @@
     "evidence_schema_version",
     "state",
     "state_vocabulary",
+    "approval",
     "contract_digest",
     "capabilities",
     "forbidden_capability_proofs",

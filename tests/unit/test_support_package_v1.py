@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import socket
 import subprocess
@@ -11,6 +12,7 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
+from pmpe.contracts.canonical import canonical_digest
 from pmpe.support_package import (
     PackageContractError,
     assemble_support_package,
@@ -68,6 +70,21 @@ def _write_contract(tmp_path: Path, payload: dict[str, object] | None = None) ->
     return path
 
 
+def _assemble(tmp_path: Path, bundle: Path, payload: dict[str, object] | None = None):
+    contract_path = _write_contract(tmp_path, payload)
+    contract = json.loads(contract_path.read_text())
+    receipt = {
+        "schema_version": "1.0.0",
+        "decision": "APPROVED",
+        "approved_by": "fixture-human",
+        "approved_contract_digest": canonical_digest(contract),
+    }
+    receipt["receipt_digest"] = canonical_digest(receipt)
+    receipt_path = tmp_path / "approval-receipt.json"
+    receipt_path.write_text(json.dumps(receipt))
+    return assemble_support_package(contract_path, receipt_path, "fixture-human", bundle)
+
+
 def test_contract_requires_approval_and_exact_known_fields(tmp_path: Path) -> None:
     payload = _contract()
     payload["contract_status"] = "DRAFT"
@@ -90,7 +107,7 @@ def test_published_contract_and_manifest_schemas_validate_reference_artifacts(
     Draft202012Validator(contract_schema).validate(contract)
 
     bundle = tmp_path / "bundle"
-    assemble_support_package(_write_contract(tmp_path, contract), bundle)
+    _assemble(tmp_path, bundle, contract)
     manifest_schema = json.loads(
         Path("src/pmpe/schemas/support_package_manifest.schema.json").read_text()
     )
@@ -132,7 +149,7 @@ def test_assembly_preserves_release_ready_and_emits_package_ready_manifest(
     tmp_path: Path,
 ) -> None:
     bundle = tmp_path / "bundle"
-    result = assemble_support_package(_write_contract(tmp_path), bundle)
+    result = _assemble(tmp_path, bundle)
     manifest = json.loads((bundle / "manifest.json").read_text())
 
     assert result.state == "PACKAGE_READY"
@@ -154,25 +171,64 @@ def test_assembly_preserves_release_ready_and_emits_package_ready_manifest(
     }
     assert "observability" not in manifest["ports"]
     assert verify_support_package(bundle).state == "PACKAGE_READY"
+    assert (
+        verify_support_package(bundle, expected_manifest_digest=result.manifest_digest).state
+        == "PACKAGE_READY"
+    )
+    with pytest.raises(PackageContractError, match="trusted expected digest"):
+        verify_support_package(bundle, expected_manifest_digest="sha256:" + "0" * 64)
 
 
 def test_bundle_verification_fails_closed_on_source_or_corpus_tampering(tmp_path: Path) -> None:
     bundle = tmp_path / "bundle"
-    assemble_support_package(_write_contract(tmp_path), bundle)
+    _assemble(tmp_path, bundle)
     (bundle / "app.py").write_text("print('tampered')\n")
     with pytest.raises(PackageContractError, match="digest"):
         verify_support_package(bundle)
 
     bundle = tmp_path / "second"
-    assemble_support_package(_write_contract(tmp_path), bundle)
+    _assemble(tmp_path, bundle)
     (bundle / "recorded-corpus.json").write_text("{}\n")
     with pytest.raises(PackageContractError, match="digest"):
         verify_support_package(bundle)
 
 
+def test_bundle_verification_rederives_manifest_claims_and_approval(tmp_path: Path) -> None:
+    bundle = tmp_path / "bundle"
+    _assemble(tmp_path, bundle)
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["claims"]["live_model_quality"] = "PROVEN"
+    manifest.pop("manifest_digest")
+    manifest["manifest_digest"] = canonical_digest(manifest)
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(PackageContractError, match="derived claims"):
+        verify_support_package(bundle)
+
+    bundle = tmp_path / "approval-tamper"
+    _assemble(tmp_path, bundle)
+    receipt_path = bundle / "approval-receipt.json"
+    receipt = json.loads(receipt_path.read_text())
+    receipt["approved_by"] = "attacker"
+    receipt.pop("receipt_digest")
+    receipt["receipt_digest"] = canonical_digest(receipt)
+    receipt_path.write_text(json.dumps(receipt))
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["files"]["approval-receipt.json"] = (
+        "sha256:" + hashlib.sha256(receipt_path.read_bytes()).hexdigest()
+    )
+    manifest["package_subject_digest"] = canonical_digest(manifest["files"])
+    manifest.pop("manifest_digest")
+    manifest["manifest_digest"] = canonical_digest(manifest)
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(PackageContractError, match="approval"):
+        verify_support_package(bundle)
+
+
 def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -> None:
     bundle = tmp_path / "bundle"
-    assemble_support_package(_write_contract(tmp_path), bundle)
+    _assemble(tmp_path, bundle)
 
     all_text = "\n".join(
         path.read_text(errors="replace") for path in bundle.rglob("*") if path.is_file()
@@ -186,7 +242,7 @@ def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -
 
 def test_clean_runtime_journey_uses_only_reference_adapters(tmp_path: Path) -> None:
     bundle = tmp_path / "bundle"
-    assemble_support_package(_write_contract(tmp_path), bundle)
+    _assemble(tmp_path, bundle)
     with socket.socket() as reservation:
         reservation.bind(("127.0.0.1", 0))
         port = int(reservation.getsockname()[1])

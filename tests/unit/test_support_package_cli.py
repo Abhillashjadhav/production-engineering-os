@@ -8,6 +8,7 @@ from pmpe.cli import main
 
 def test_package_support_build_and_verify_cli(tmp_path: Path) -> None:
     contract = Path("examples/support-package/contract.json")
+    receipt = Path("examples/support-package/approval-receipt.json")
     bundle = tmp_path / "bundle"
 
     assert (
@@ -18,6 +19,10 @@ def test_package_support_build_and_verify_cli(tmp_path: Path) -> None:
                 "build",
                 "--contract",
                 str(contract),
+                "--approval-receipt",
+                str(receipt),
+                "--expected-approver",
+                "fixture-human",
                 "--output",
                 str(bundle),
             ]
@@ -30,6 +35,7 @@ def test_package_support_build_and_verify_cli(tmp_path: Path) -> None:
 
 def test_package_support_cli_rejects_tampered_bundle(tmp_path: Path) -> None:
     contract = Path("examples/support-package/contract.json")
+    receipt = Path("examples/support-package/approval-receipt.json")
     bundle = tmp_path / "bundle"
     assert (
         main(
@@ -39,6 +45,10 @@ def test_package_support_cli_rejects_tampered_bundle(tmp_path: Path) -> None:
                 "build",
                 "--contract",
                 str(contract),
+                "--approval-receipt",
+                str(receipt),
+                "--expected-approver",
+                "fixture-human",
                 "--output",
                 str(bundle),
             ]

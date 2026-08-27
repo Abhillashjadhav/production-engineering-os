@@ -68,6 +68,8 @@ container reproducibility, or production deployment.
 ```bash
 pmpe barebones package build \
   --contract examples/support-package/contract.json \
+  --approval-receipt examples/support-package/approval-receipt.json \
+  --expected-approver fixture-human \
   --output /tmp/customer-support-package
 
 pmpe barebones package verify --bundle /tmp/customer-support-package
