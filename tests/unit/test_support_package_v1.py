@@ -516,6 +516,7 @@ def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -
         "https://hooks.slack.com/services/T00000000/B00000000/abcdefghijklmnop",
         "https://canary.discord.com/api/webhooks/123456/abcdefghijklmnop",
         "https://canary.discord.com/%61pi/webhooks/123456/abcdefghijklmnop",
+        "https://api.telegram.org/%62ot123456:ABCDEFGHIJKLMNOPQRSTUVWXYZ/sendMessage",
     ],
 )
 def test_secret_scan_covers_copied_release_evidence(tmp_path: Path, secret: str) -> None:

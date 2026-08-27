@@ -108,7 +108,7 @@ class EvidenceRedactor:
             (normalized == "hooks.slack.com" and lowered_path.startswith("/services/"))
             or (
                 normalized == "api.telegram.org"
-                and re.match(r"/bot[^/]+(?:/|$)", path, re.IGNORECASE)
+                and re.match(r"/bot[^/]+(?:/|$)", lowered_path, re.IGNORECASE)
             )
             or (
                 (
