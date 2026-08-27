@@ -646,6 +646,21 @@ def test_existing_output_manifest_hash_is_bounded(
         _assemble(tmp_path, bundle)
 
 
+def test_verify_rejects_missing_required_file_as_contract_error(tmp_path: Path) -> None:
+    bundle = tmp_path / "bundle"
+    _assemble(tmp_path, bundle)
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["files"].pop("recorded-corpus.json")
+    manifest["package_subject_digest"] = canonical_digest(manifest["files"])
+    manifest.pop("manifest_digest")
+    manifest["manifest_digest"] = canonical_digest(manifest)
+    manifest_path.write_text(json.dumps(manifest))
+    (bundle / "recorded-corpus.json").unlink()
+    with pytest.raises(PackageContractError, match="required file inventory"):
+        verify_support_package(bundle, expected_manifest_digest=manifest["manifest_digest"])
+
+
 @pytest.mark.parametrize("separator", ["", "/"])
 def test_secret_scan_rejects_special_scheme_webhook_without_authority_slashes(
     tmp_path: Path, separator: str
@@ -926,6 +941,24 @@ def test_clean_runtime_journey_uses_only_reference_adapters(tmp_path: Path) -> N
             "ticket strings must be valid Unicode"
         )
         assert process.poll() is None
+
+        for ticket_id, amount in (("DECIMAL", "$500.99"), ("COMMA", "$1,000")):
+            request = urllib.request.Request(
+                f"http://127.0.0.1:{port}/tickets",
+                data=json.dumps(
+                    {
+                        "ticket_id": ticket_id,
+                        "text": f"The damaged order cost {amount}.",
+                        "facts": ["delivery_damage"],
+                    }
+                ).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=2) as response:
+                currency_result = json.loads(response.read())
+            assert currency_result["status"] == "NEEDS_HUMAN_DECISION"
+            assert currency_result["reasons"] == ["outside_policy_bounds"]
 
         request = urllib.request.Request(
             f"http://127.0.0.1:{port}/tickets",

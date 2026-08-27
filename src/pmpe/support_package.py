@@ -34,6 +34,23 @@ _MAX_TOTAL_COPIED_EVIDENCE_BYTES = 8_388_608
 _MAX_PACKAGE_MANIFEST_BYTES = 1_048_576
 _MAX_TOTAL_PACKAGE_BYTES = 67_108_864
 _MAX_PACKAGE_ENTRIES = 4_096
+_REQUIRED_PACKAGE_FILES = frozenset(
+    {
+        "Dockerfile",
+        "README.md",
+        "app.py",
+        "approval-receipt.json",
+        "compose.yaml",
+        "config/schema.json",
+        "contract.json",
+        "package-contract-digest.txt",
+        "recorded-corpus.json",
+        "requirements.lock",
+        "runtime-policy.json",
+        "sbom.spdx.json",
+        "tests/test_forbidden_capabilities.py",
+    }
+)
 _REFERENCE_VERIFICATION = {
     "forbidden_capability_tests": "PASS",
     "runtime_compile": "PASS",
@@ -155,6 +172,7 @@ capability = sys.argv[1]
 emit = os.write
 payload = json.loads(sys.stdin.buffer.read())
 source = payload["app_source"].encode()
+proof_deadline = time.monotonic() + 25
 with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
     runtime_policy = dict(payload["policy"])
     base_threshold = float(runtime_policy["additional_confidence_below"])
@@ -187,7 +205,7 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
     try:
         documented_health = None
         documented_url = None
-        for _ in range(50):
+        while time.monotonic() < proof_deadline:
             try:
                 if documented_url is None:
                     with open(documented_port_file, encoding="utf-8") as handle:
@@ -224,7 +242,7 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=2)
-    for _ in range(50):
+    while time.monotonic() < proof_deadline:
         try:
             with open(port_file, encoding="utf-8") as handle:
                 port = int(handle.read())
@@ -246,7 +264,7 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
             assert response.status == 200
             return json.loads(response.read())
     try:
-        for _ in range(50):
+        while time.monotonic() < proof_deadline:
             try:
                 health = request("/health")
                 break
@@ -717,8 +735,12 @@ def decide(payload: object) -> tuple[int, dict[str, object]]:
     lowered = text.lower()
     if any(term in lowered for term in ("transfer money", "password", "api key")):
         reasons.append("forbidden_capability_attempt")
-    amounts = [int(item) for item in re.findall(r"\$(\d+)", text)]
-    if any(amount > 500 for amount in amounts):
+    amounts = re.findall(r"\$([0-9][0-9,]*)(?:\.([0-9]{1,2}))?", text)
+    amount_cents = [
+        int(dollars.replace(",", "")) * 100 + int((cents or "0").ljust(2, "0"))
+        for dollars, cents in amounts
+    ]
+    if any(amount > 50_000 for amount in amount_cents):
         reasons.append("outside_policy_bounds")
     if reasons:
         result = {
@@ -1653,6 +1675,8 @@ def _verify_support_package(
         for name, digest in files.items()
     ):
         raise PackageContractError("package file digest inventory is malformed")
+    if not files.keys() >= _REQUIRED_PACKAGE_FILES:
+        raise PackageContractError("package required file inventory is incomplete")
     observed = _file_digests(root)
     if observed != files:
         raise PackageContractError("package file digest inventory does not match bundle")
