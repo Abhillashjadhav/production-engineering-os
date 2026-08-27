@@ -33,6 +33,7 @@ _MAX_COPIED_EVIDENCE_BYTES = 1_048_576
 _MAX_TOTAL_COPIED_EVIDENCE_BYTES = 8_388_608
 _MAX_PACKAGE_MANIFEST_BYTES = 1_048_576
 _MAX_TOTAL_PACKAGE_BYTES = 67_108_864
+_MAX_PACKAGE_ENTRIES = 4_096
 _REFERENCE_VERIFICATION = {
     "forbidden_capability_tests": "PASS",
     "runtime_compile": "PASS",
@@ -980,12 +981,32 @@ def _write(path: Path, payload: bytes) -> None:
     path.write_bytes(payload)
 
 
+def _bounded_file_digest(path: Path, max_bytes: int, description: str) -> str:
+    digest = hashlib.sha256()
+    observed = 0
+    try:
+        with path.open("rb") as stream:
+            while chunk := stream.read(65_536):
+                observed += len(chunk)
+                if observed > max_bytes:
+                    raise PackageContractError(f"{description} exceeds size limit")
+                digest.update(chunk)
+    except OSError as exc:
+        raise PackageContractError(f"{description} cannot be read") from exc
+    return "sha256:" + digest.hexdigest()
+
+
 def _file_digests(root: Path) -> dict[str, str]:
     if root.is_symlink() or not root.is_dir():
         raise PackageContractError("package root must be a real directory")
     files: dict[str, str] = {}
     total_bytes = 0
-    for path in sorted(root.rglob("*")):
+    entries: list[Path] = []
+    for path in root.rglob("*"):
+        entries.append(path)
+        if len(entries) > _MAX_PACKAGE_ENTRIES:
+            raise PackageContractError("package exceeds filesystem entry limit")
+    for path in sorted(entries):
         if path.is_symlink():
             raise PackageContractError("package contains a symbolic link")
         if path.is_dir():
@@ -1555,18 +1576,19 @@ def assemble_support_package(
                         "package output is not the requested deterministic build"
                     )
                 expected_inventory = _file_digests(staged) | {
-                    "manifest.json": "sha256:"
-                    + hashlib.sha256((staged / "manifest.json").read_bytes()).hexdigest()
+                    "manifest.json": _bounded_file_digest(
+                        staged / "manifest.json",
+                        _MAX_PACKAGE_MANIFEST_BYTES,
+                        "package manifest",
+                    )
                 }
-                try:
-                    observed_inventory = _file_digests(destination) | {
-                        "manifest.json": "sha256:"
-                        + hashlib.sha256(manifest_path.read_bytes()).hexdigest()
-                    }
-                except OSError as exc:
-                    raise PackageContractError(
-                        "package output is not the requested deterministic build"
-                    ) from exc
+                observed_inventory = _file_digests(destination) | {
+                    "manifest.json": _bounded_file_digest(
+                        manifest_path,
+                        _MAX_PACKAGE_MANIFEST_BYTES,
+                        "package manifest",
+                    )
+                }
                 if observed_inventory != expected_inventory:
                     raise PackageContractError(
                         "package output is not the requested deterministic build"

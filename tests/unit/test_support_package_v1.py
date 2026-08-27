@@ -625,6 +625,27 @@ def test_file_inventory_streams_and_enforces_aggregate_size(
         support_package_module._file_digests(tmp_path)
 
 
+def test_file_inventory_enforces_entry_count_before_sorting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for index in range(3):
+        (tmp_path / f"empty-{index}").touch()
+    monkeypatch.setattr(support_package_module, "_MAX_PACKAGE_ENTRIES", 2)
+    with pytest.raises(PackageContractError, match="filesystem entry limit"):
+        support_package_module._file_digests(tmp_path)
+
+
+def test_existing_output_manifest_hash_is_bounded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "manifest.json").write_bytes(b"x" * 17)
+    monkeypatch.setattr(support_package_module, "_MAX_PACKAGE_MANIFEST_BYTES", 16)
+    with pytest.raises(PackageContractError, match="manifest exceeds size limit"):
+        _assemble(tmp_path, bundle)
+
+
 @pytest.mark.parametrize("separator", ["", "/"])
 def test_secret_scan_rejects_special_scheme_webhook_without_authority_slashes(
     tmp_path: Path, separator: str
