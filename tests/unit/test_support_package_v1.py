@@ -580,6 +580,20 @@ def test_secret_scan_recursively_parses_html_decoded_json(tmp_path: Path) -> Non
         support_package_module._secret_scan(tmp_path)
 
 
+@pytest.mark.parametrize(
+    "hostname",
+    ["hooks。slack。com", "ｈｏｏｋｓ．ｓｌａｃｋ．ｃｏｍ"],
+)
+def test_secret_scan_rejects_unicode_equivalent_provider_hostname(
+    tmp_path: Path, hostname: str
+) -> None:
+    blob = tmp_path / "release-evidence" / ".pmpe" / "blobs" / "historical"
+    blob.parent.mkdir(parents=True)
+    blob.write_text(f"https://{hostname}/services/T/B/abcdefghijklmnop\n")
+    with pytest.raises(PackageContractError, match="secret value pattern"):
+        support_package_module._secret_scan(tmp_path)
+
+
 @pytest.mark.parametrize("separator", ["", "/"])
 def test_secret_scan_rejects_special_scheme_webhook_without_authority_slashes(
     tmp_path: Path, separator: str

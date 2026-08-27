@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import posixpath
 import re
+import unicodedata
 from collections.abc import Iterable, Mapping
 from typing import Any, final
 from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
@@ -31,7 +32,7 @@ def assert_distinct_identities_preserved(
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
-    version = "central-redactor/2.9.0"
+    version = "central-redactor/3.0.0"
     __slots__ = ("_environment_secrets",)
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
@@ -105,8 +106,16 @@ class EvidenceRedactor:
     )
 
     @classmethod
+    def _canonical_hostname(cls, value: str) -> str:
+        normalized = unicodedata.normalize("NFKC", unquote(value)).rstrip(".").lower()
+        try:
+            return normalized.encode("idna").decode("ascii")
+        except UnicodeError as exc:
+            raise RedactionError("URL hostname cannot be canonicalized") from exc
+
+    @classmethod
     def _path_contains_credential(cls, hostname: str, path: str) -> bool:
-        normalized = hostname.rstrip(".").lower()
+        normalized = cls._canonical_hostname(hostname)
         decoded_path = path
         for _ in range(3):
             next_path = unquote(decoded_path)
@@ -184,7 +193,7 @@ class EvidenceRedactor:
             return value
         try:
             parts = urlsplit(value)
-            hostname = unquote(parts.hostname or "").rstrip(".").lower()
+            hostname = self._canonical_hostname(parts.hostname or "")
             if ":" in hostname and not hostname.startswith("["):
                 hostname = f"[{hostname}]"
             netloc = hostname
@@ -201,7 +210,7 @@ class EvidenceRedactor:
                     for key, item in parse_qsl(parts.query, keep_blank_values=True)
                 ]
             )
-        except (UnicodeError, ValueError):
+        except (RedactionError, UnicodeError, ValueError):
             return "[REDACTED_URL]"
         return urlunsplit((parts.scheme, netloc, path, query, ""))
 
@@ -215,7 +224,7 @@ class EvidenceRedactor:
             return False
         try:
             parts = urlsplit(value)
-            hostname = unquote(parts.hostname or "").rstrip(".").lower()
+            hostname = cls._canonical_hostname(parts.hostname or "")
             return bool(
                 parts.username is not None
                 or parts.password is not None
@@ -226,7 +235,7 @@ class EvidenceRedactor:
                     for key, _ in parse_qsl(component, keep_blank_values=True)
                 )
             )
-        except (UnicodeError, ValueError):
+        except (RedactionError, UnicodeError, ValueError):
             return True
 
     def _sanitize_string(self, value: str) -> str:
