@@ -990,6 +990,7 @@ def _secret_scan(root: Path) -> None:
             url_normalized = decoded.translate({ord("\t"): None, ord("\r"): None, ord("\n"): None})
             for escaped_control in (r"\t", r"\r", r"\n"):
                 url_normalized = url_normalized.replace(escaped_control, "")
+            url_normalized = re.sub(r"(?i)\\u(?:0009|000a|000d)", "", url_normalized)
             if (
                 any(pattern.search(content) for pattern in patterns)
                 or contains_prohibited_secret(content)
