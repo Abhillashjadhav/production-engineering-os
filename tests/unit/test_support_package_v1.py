@@ -381,6 +381,27 @@ def test_runtime_proofs_execute_only_digest_pinned_application_bytes(tmp_path: P
         )
 
 
+def test_runtime_proofs_require_completion_and_standard_library_imports(tmp_path: Path) -> None:
+    capabilities = _contract()["capabilities"]
+    assert isinstance(capabilities, dict)
+    forbidden = capabilities["forbidden"]
+    assert isinstance(forbidden, list)
+    assert all(isinstance(item, str) for item in forbidden)
+    for source, message in (
+        ("raise SystemExit(0)\n", "proof did not execute"),
+        ("import third_party_only_on_main\n", "non-standard-library dependency"),
+    ):
+        bundle = tmp_path / message.replace(" ", "-")
+        _assemble(tmp_path, bundle)
+        (bundle / "app.py").write_text(source)
+        expected_files = {
+            name: "sha256:" + hashlib.sha256((bundle / name).read_bytes()).hexdigest()
+            for name in ("app.py", "recorded-corpus.json", "runtime-policy.json")
+        }
+        with pytest.raises(PackageContractError, match=message):
+            support_package_module._run_reference_verification(bundle, forbidden, expected_files)
+
+
 def test_corpus_and_proof_implementations_are_verifier_owned(tmp_path: Path) -> None:
     for relative, replacement, message in (
         ("recorded-corpus.json", b"{}\n", "trusted v1 corpus"),

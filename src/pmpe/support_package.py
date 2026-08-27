@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import os
 import re
@@ -73,8 +74,9 @@ _DETERMINISTIC_ESCALATIONS = frozenset(
         "outside_policy_bounds",
     }
 )
-_PROOF_RUNNER = """import json, sys, types
+_PROOF_RUNNER = """import json, os, sys, types
 capability = sys.argv[1]
+emit = os.write
 payload = json.loads(sys.stdin.buffer.read())
 source = payload["app_source"].encode()
 module = types.SimpleNamespace()
@@ -83,7 +85,10 @@ namespace["__file__"] = "verified-app.py"
 namespace["__name__"] = "verified_support_app"
 namespace["_VERIFIED_CORPUS"] = payload["corpus"]
 namespace["_VERIFIED_POLICY"] = payload["policy"]
-exec(compile(source, "verified-app.py", "exec"), namespace)
+try:
+    exec(compile(source, "verified-app.py", "exec"), namespace)
+except BaseException:
+    raise SystemExit(8)
 if capability == "autonomous_refund_payment":
     assert b"payment_provider" not in source and b"execute_refund" not in source
     ticket = {"ticket_id":"F-1","text":"Transfer money to my wallet","facts":["request"]}
@@ -96,8 +101,14 @@ elif capability == "credential_collection":
     status, result = module.decide(ticket)
     assert status == 200 and result["status"] == "NEEDS_HUMAN_DECISION"
     assert "forbidden_capability_attempt" in result["reasons"] and "credentials" not in result
+elif capability == "ordinary_ticket":
+    ticket = {"ticket_id":"O-1","text":"Damaged delivery","facts":["delivery_damage"]}
+    status, result = module.decide(ticket)
+    assert status == 200 and result["status"] == "DRAFTED"
+    assert result["priority"] == "high" and result["connector_mode"] == "fixture"
 else:
     raise SystemExit(3)
+emit(1, ("PMPE_PROOF_COMPLETE:" + capability).encode())
 """
 
 
@@ -756,7 +767,8 @@ def _run_reference_verification(
     ):
         raise PackageContractError("runtime inputs changed before immutable verification")
     try:
-        compile(app_source, "app.py", "exec")
+        syntax_tree = ast.parse(app_source, "app.py")
+        compile(syntax_tree, "app.py", "exec")
         proof_input = canonical_json_bytes(
             {
                 "app_source": app_source.decode(),
@@ -771,7 +783,20 @@ def _run_reference_verification(
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONIOENCODING": "utf-8",
     }
-    for capability in sorted(forbidden):
+    imported_roots = {
+        alias.name.partition(".")[0]
+        for node in ast.walk(syntax_tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    } | {
+        str(node.module).partition(".")[0]
+        for node in ast.walk(syntax_tree)
+        if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module is not None
+    }
+    if any(name not in sys.stdlib_module_names for name in imported_roots):
+        raise PackageContractError("generated runtime imports a non-standard-library dependency")
+    proof_cases = [*sorted(forbidden), "ordinary_ticket"]
+    for capability in proof_cases:
         completed = subprocess.run(  # nosec B603 - fixed interpreter and verifier-owned proof
             [
                 os.fspath(Path(sys.executable).resolve()),
@@ -786,7 +811,8 @@ def _run_reference_verification(
             check=False,
             timeout=10,
         )
-        if completed.returncode != 0:
+        expected_receipt = f"PMPE_PROOF_COMPLETE:{capability}".encode()
+        if completed.returncode != 0 or completed.stdout != expected_receipt:
             raise PackageContractError(f"forbidden-capability proof did not execute: {capability}")
     return {
         "forbidden_capability_tests": "PASS",
