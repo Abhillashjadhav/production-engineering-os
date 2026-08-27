@@ -1,6 +1,6 @@
 # Production Engineering OS (`pmpe`)
 
-> **ALPHA — evidence status:** one tiny approved PM Agent OS contract has completed the frozen bare-bones path with a ChatGPT-authenticated Codex CLI provider and reached `RELEASE_READY`; its [complete evidence chain is published](docs/evidence/e1-real-provider-20260826/README.md). This proves that one bounded run, not repeatability, materially different contracts, arbitrary product generation, production readiness, deployment, or platform validation.
+> **ALPHA — evidence status:** a seven-run, ChatGPT-authenticated Codex CLI matrix is [published and independently verified](docs/evidence/real-behavior-drift-20260827/README.md). It proves repeatable compilation, sealed evidence chains, visible model-output variation, attributed planted prompt drift, and bounded transfer across two repository-owned contracts. It does not prove arbitrary external product generation, a different product type, production readiness, deployment, or platform validation.
 
 An open-source, local-first reference implementation that compiles a machine-checkable product contract into executable assertions, drives one bounded Coder through a command adapter, executes generated candidate code inside an OS sandbox, and records a tamper-evident evidence chain.
 
@@ -14,20 +14,20 @@ An open-source, local-first reference implementation that compiles a machine-che
 | Candidate execution with real Bubblewrap, no network, a read-only host view, bounded resources, symlink containment, and fail-closed composition | Proven by the [isolation tests](tests/unit/test_candidate_sandbox.py) in the dedicated Linux `candidate-isolation` matrix of [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
 | End-to-end scripted-provider `RELEASE_READY` engine path through real Bubblewrap | Proven by the [E1 fixture](tests/e2e/test_barebones_e1.py), with the local sandbox fixture disabled under `PMPE_TEST_REAL_SANDBOX=true`, in [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
 | Canonical PMOS contract and digest-bound approval receipt accepted by the boundary | Proven by the [PMOS executable compatibility gate](https://github.com/Abhillashjadhav/PM-agent-OS/blob/5fa7af8207143194eb242f2edd9f7edfca8bb969/tests/decision-to-contract/validate_contract.py), including a planted post-approval tampering rejection |
-| One tiny approved contract built with a real model provider | [Proven once by the published E1 run](docs/evidence/e1-real-provider-20260826/README.md) |
+| One tiny approved contract built with a real model provider | [Proven once by the published E1 run](docs/evidence/e1-real-provider-20260826/README.md) and repeated in the [seven-run matrix](docs/evidence/real-behavior-drift-20260827/README.md) |
+| Repeated real-provider behavioural drift evidence | [Proven for the bounded seven-run matrix](docs/evidence/real-behavior-drift-20260827/README.md) |
+| Reuse across multiple distinct product contracts | Proven only across two repository-owned fixtures; external products and different product types remain unproven |
 | Customer-support portable package assembly with recorded/memory/fixture reference adapters | Implemented and verified by the package contract, manifest, tamper, negative-capability, and local HTTP journey tests; this proves no live model or vendor connector |
-| Repeated real-provider behavioural drift evidence | **Not yet proven** |
-| Reuse across multiple distinct product contracts | **Not yet proven** |
 | macOS or Windows native execution | **Not supported** |
 | Cloud deployment, GitHub mutation, or automatic release | **Out of scope** |
 
 The current classification is **reference implementation**. A reusable product or platform remains a hypothesis until multiple real contracts complete the path with a real provider and recorded evidence.
 
 The bounded #146 evidence runner is available as
-`python examples/barebones/run_real_behavior_drift_eval.py`. Its existence proves the
-experiment is reproducible. The launcher imports PMPE from that exact checkout, even when
-a different installation is present; this table remains unchanged until the resulting real
-ledgers are published and independently verified.
+`python examples/barebones/run_real_behavior_drift_eval.py`. The launcher imports PMPE
+from that exact checkout even when a different installation is present. Its complete
+seven-run archive and independent replay are now
+[published](docs/evidence/real-behavior-drift-20260827/README.md).
 
 ## Frozen core
 
@@ -164,7 +164,7 @@ one digest-bound UTF-8 candidate file as escaped JSON before the human release d
 
 The example provider returns scripted responses. It proves compiler-to-engine plumbing; it does not prove that an LLM can build the requested software.
 
-For a real-model run, use the documented [Codex CLI provider](docs/real-model-provider.md) with saved ChatGPT subscription authentication. It does not require an API key. The optional Responses API example is not the promotion path. One live E1 run and its complete evidence bundle are now published; repeated-run and materially-different-contract reliability remain unproven.
+For a real-model run, use the documented [Codex CLI provider](docs/real-model-provider.md) with saved ChatGPT subscription authentication. It does not require an API key. The optional Responses API example is not the promotion path. One live E1 run and a separate seven-run matrix are published. The matrix proves bounded repeated behavior and transfer across two repository fixtures; external products, different product types, and arbitrary-app reliability remain unproven.
 
 A provider receives one JSON object on standard input:
 
@@ -184,7 +184,7 @@ claiming a zero-dollar API cost.
 
 ## Current evidence gap
 
-PMOS publishes a compiler-shaped health contract plus an approval receipt bound to the exact contract digest; its pinned compatibility gate verifies the receipt, accepts the valid contract, rejects a post-approval edit, and rejects prose-only criteria. The published E1 run exercised that approved boundary with a real provider once. It does not prove live-model contract-authoring reliability, repeated behavior, or transfer to materially different contracts.
+PMOS publishes a compiler-shaped health contract plus an approval receipt bound to the exact contract digest; its pinned compatibility gate verifies the receipt, accepts the valid contract, rejects a post-approval edit, and rejects prose-only criteria. The published matrix repeatedly exercised two repository-owned contracts with a real provider. It does not prove live-model contract-authoring reliability, external product transfer, a different product type, or arbitrary application generation.
 
 The completed E1 promotion gate recorded one real PMOS-authored contract reaching `RELEASE_READY` through a real provider with:
 

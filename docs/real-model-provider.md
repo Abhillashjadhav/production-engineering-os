@@ -181,8 +181,9 @@ preserved, otherwise input and output fall back to zero.
 
 Successful responses with complete non-secret provider metadata also emit normalized
 `provider_behavior` observations into hash-chained events. Those observations enable
-cross-run drift comparison; repeated real-provider drift remains unproven until
-comparable real runs are published.
+cross-run drift comparison. The bounded seven-run real-provider matrix and its
+independent replay are [published](evidence/real-behavior-drift-20260827/README.md);
+external-product and different-product-type transfer remain unproven.
 
 ## Evidence rule
 
