@@ -315,6 +315,24 @@ def test_bundle_verification_rederives_manifest_claims_and_approval(tmp_path: Pa
         _trusted_verify(bundle)
 
 
+def test_bundle_verification_binds_runtime_policy_to_contract(tmp_path: Path) -> None:
+    bundle = tmp_path / "bundle"
+    _assemble(tmp_path, bundle)
+    policy_path = bundle / "runtime-policy.json"
+    policy_path.write_text('{"additional_confidence_below":0.8}\n')
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["files"]["runtime-policy.json"] = (
+        "sha256:" + hashlib.sha256(policy_path.read_bytes()).hexdigest()
+    )
+    manifest["package_subject_digest"] = canonical_digest(manifest["files"])
+    manifest.pop("manifest_digest")
+    manifest["manifest_digest"] = canonical_digest(manifest)
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(PackageContractError, match="runtime policy"):
+        _trusted_verify(bundle)
+
+
 def test_package_rejects_unapproved_release_run(tmp_path: Path) -> None:
     with pytest.raises(PackageContractError, match="verified release approval"):
         _assemble(tmp_path, tmp_path / "bundle", verified_release_approval=False)
@@ -501,6 +519,20 @@ def test_secret_scan_covers_copied_release_evidence(tmp_path: Path, secret: str)
     blob.write_text(secret + "\n")
     with pytest.raises(PackageContractError, match="secret value pattern"):
         support_package_module._secret_scan(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://example.com/docs#install",
+        "https://example.com/search?q=hello%20world",
+    ],
+)
+def test_secret_scan_allows_ordinary_url_normalization(tmp_path: Path, url: str) -> None:
+    blob = tmp_path / "release-evidence" / ".pmpe" / "blobs" / "historical"
+    blob.parent.mkdir(parents=True)
+    blob.write_text(url + "\n")
+    support_package_module._secret_scan(tmp_path)
 
 
 def test_failed_release_preflight_does_not_reserve_run_id(

@@ -1401,6 +1401,18 @@ def _verify_support_package(
     if manifest.get("package_subject_digest") != canonical_digest(files):
         raise PackageContractError("package subject digest is invalid")
     contract = load_support_package_contract(root / "contract.json")
+    expected_policy = (
+        canonical_json_bytes(
+            {
+                "additional_confidence_below": contract.payload["escalation"][
+                    "additional_confidence_below"
+                ]
+            }
+        )
+        + b"\n"
+    )
+    if (root / "runtime-policy.json").read_bytes() != expected_policy:
+        raise PackageContractError("runtime policy differs from the approved contract")
     release = manifest.get("release_candidate")
     if (
         not isinstance(release, dict)

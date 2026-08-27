@@ -186,6 +186,25 @@ class EvidenceRedactor:
             return "[REDACTED_URL]"
         return urlunsplit((parts.scheme, netloc, path, query, ""))
 
+    @classmethod
+    def _url_contains_credential(cls, value: str) -> bool:
+        if "://" not in value:
+            return False
+        try:
+            parts = urlsplit(value)
+            hostname = (parts.hostname or "").rstrip(".").lower()
+            return bool(
+                parts.username is not None
+                or parts.password is not None
+                or (cls._host_has_secret_path(hostname) and parts.path not in {"", "/"})
+                or any(
+                    cls._sensitive_query.search(key)
+                    for key, _ in parse_qsl(parts.query, keep_blank_values=True)
+                )
+            )
+        except (UnicodeError, ValueError):
+            return True
+
     def _sanitize_string(self, value: str) -> str:
         sanitized = value
         for secret in self._environment_secrets:
@@ -253,8 +272,7 @@ def contains_known_credential(text: str) -> bool:
     )
     if any(pattern.search(text) for pattern in patterns):
         return True
-    redactor = EvidenceRedactor(environment={})
     return any(
-        redactor._sanitize_url(match.group(0)) != match.group(0)
+        EvidenceRedactor._url_contains_credential(match.group(0))
         for match in EvidenceRedactor._embedded_url.finditer(text)
     )
