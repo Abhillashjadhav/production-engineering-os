@@ -1290,6 +1290,11 @@ def assemble_support_package(
         contract,
         expected_release_head_digest,
     )
+    if candidate.files != {
+        "app.py": _APP_SOURCE.encode(),
+        "package-contract-digest.txt": (contract.digest + "\n").encode(),
+    }:
+        raise PackageContractError("RELEASE_READY candidate is not the canonical v1 runtime")
     destination = Path(output)
     destination.parent.mkdir(parents=True, exist_ok=True)
     staged = Path(tempfile.mkdtemp(prefix=f".{destination.name}-", dir=destination.parent))

@@ -251,4 +251,10 @@ def contains_known_credential(text: str) -> bool:
         EvidenceRedactor._sensitive_assignment,
         EvidenceRedactor._sensitive_whitespace_assignment,
     )
-    return any(pattern.search(text) for pattern in patterns)
+    if any(pattern.search(text) for pattern in patterns):
+        return True
+    redactor = EvidenceRedactor(environment={})
+    return any(
+        redactor._sanitize_url(match.group(0)) != match.group(0)
+        for match in EvidenceRedactor._embedded_url.finditer(text)
+    )

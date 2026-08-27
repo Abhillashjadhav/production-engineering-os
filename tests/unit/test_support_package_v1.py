@@ -491,6 +491,8 @@ def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -
         "github_pat_0123456789abcdefghijklmnop",
         "glpat-0123456789abcdefghijklmnop",
         "xox" + "b-0123456789-abcdefghijklmnop",
+        "https://example.com/callback?code=abcdefghijklmnop",
+        "https://hooks.slack.com/services/T00000000/B00000000/abcdefghijklmnop",
     ],
 )
 def test_secret_scan_covers_copied_release_evidence(tmp_path: Path, secret: str) -> None:
