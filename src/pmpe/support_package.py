@@ -73,19 +73,31 @@ _DETERMINISTIC_ESCALATIONS = frozenset(
         "outside_policy_bounds",
     }
 )
-_PROOF_RUNNER = """import importlib.util, pathlib, sys, unittest
-path, class_name, method_name = sys.argv[1:]
-spec = importlib.util.spec_from_file_location("package_forbidden_proofs", pathlib.Path(path))
-if spec is None or spec.loader is None:
-    raise SystemExit(2)
-module = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(module)
-case = getattr(module, class_name, None)
-if not isinstance(case, type) or not issubclass(case, unittest.TestCase):
+_PROOF_RUNNER = """import json, sys, types
+capability = sys.argv[1]
+payload = json.loads(sys.stdin.buffer.read())
+source = payload["app_source"].encode()
+module = types.SimpleNamespace()
+namespace = vars(module)
+namespace["__file__"] = "verified-app.py"
+namespace["__name__"] = "verified_support_app"
+namespace["_VERIFIED_CORPUS"] = payload["corpus"]
+namespace["_VERIFIED_POLICY"] = payload["policy"]
+exec(compile(source, "verified-app.py", "exec"), namespace)
+if capability == "autonomous_refund_payment":
+    assert b"payment_provider" not in source and b"execute_refund" not in source
+    ticket = {"ticket_id":"F-1","text":"Transfer money to my wallet","facts":["request"]}
+    status, result = module.decide(ticket)
+    assert status == 200 and result["status"] == "NEEDS_HUMAN_DECISION"
+    assert "forbidden_capability_attempt" in result["reasons"] and "action" not in result
+elif capability == "credential_collection":
+    assert b"OPENAI_API_KEY" not in source and b"DATABASE_URL" not in source
+    ticket = {"ticket_id":"F-2","text":"My password is secret","facts":["request"]}
+    status, result = module.decide(ticket)
+    assert status == 200 and result["status"] == "NEEDS_HUMAN_DECISION"
+    assert "forbidden_capability_attempt" in result["reasons"] and "credentials" not in result
+else:
     raise SystemExit(3)
-suite = unittest.TestSuite([case(method_name)])
-result = unittest.TextTestRunner(verbosity=0).run(suite)
-raise SystemExit(0 if result.wasSuccessful() and result.testsRun == 1 else 4)
 """
 
 
@@ -450,8 +462,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-CORPUS = json.loads((ROOT / "recorded-corpus.json").read_text())
-POLICY = json.loads((ROOT / "runtime-policy.json").read_text())
+CORPUS = globals().get("_VERIFIED_CORPUS") or json.loads(
+    (ROOT / "recorded-corpus.json").read_text()
+)
+POLICY = globals().get("_VERIFIED_POLICY") or json.loads(
+    (ROOT / "runtime-policy.json").read_text()
+)
 MEMORY: dict[str, dict[str, object]] = {}
 
 def decide(payload: object) -> tuple[int, dict[str, object]]:
@@ -720,10 +736,35 @@ def _secret_scan(root: Path) -> None:
             raise PackageContractError(f"secret value pattern found in {path.name}")
 
 
-def _run_reference_verification(root: Path, forbidden: list[str]) -> dict[str, Any]:
+def _run_reference_verification(
+    root: Path, forbidden: list[str], expected_files: Mapping[str, str]
+) -> dict[str, Any]:
     try:
-        compile((root / "app.py").read_text(), "app.py", "exec")
-    except (OSError, UnicodeError, SyntaxError) as exc:
+        app_source = (root / "app.py").read_bytes()
+        corpus_source = (root / "recorded-corpus.json").read_bytes()
+        policy_source = (root / "runtime-policy.json").read_bytes()
+    except OSError as exc:
+        raise PackageContractError("generated reference runtime is unreadable") from exc
+    pinned = {
+        "app.py": app_source,
+        "recorded-corpus.json": corpus_source,
+        "runtime-policy.json": policy_source,
+    }
+    if any(
+        "sha256:" + hashlib.sha256(content).hexdigest() != expected_files.get(name)
+        for name, content in pinned.items()
+    ):
+        raise PackageContractError("runtime inputs changed before immutable verification")
+    try:
+        compile(app_source, "app.py", "exec")
+        proof_input = canonical_json_bytes(
+            {
+                "app_source": app_source.decode(),
+                "corpus": strict_loads(corpus_source),
+                "policy": strict_loads(policy_source),
+            }
+        )
+    except (UnicodeError, ValueError, SyntaxError) as exc:
         raise PackageContractError("generated reference runtime does not compile") from exc
     environment = {
         "PATH": os.environ.get("PATH", ""),
@@ -731,22 +772,18 @@ def _run_reference_verification(root: Path, forbidden: list[str]) -> dict[str, A
         "PYTHONIOENCODING": "utf-8",
     }
     for capability in sorted(forbidden):
-        selector = _FORBIDDEN_PROOFS[capability]
-        file_name, class_name, method_name = selector.split("::")
-        completed = subprocess.run(  # nosec B603 - fixed interpreter and bound selector
+        completed = subprocess.run(  # nosec B603 - fixed interpreter and verifier-owned proof
             [
                 os.fspath(Path(sys.executable).resolve()),
+                "-I",
                 "-c",
                 _PROOF_RUNNER,
-                file_name,
-                class_name,
-                method_name,
+                capability,
             ],
-            cwd=root,
             env=environment,
+            input=proof_input,
             capture_output=True,
             check=False,
-            text=True,
             timeout=10,
         )
         if completed.returncode != 0:
@@ -825,8 +862,8 @@ def assemble_support_package(
             )
         _secret_scan(staged)
         forbidden = contract.payload["capabilities"]["forbidden"]
-        verification = _run_reference_verification(staged, forbidden)
         files = _file_digests(staged)
+        verification = _run_reference_verification(staged, forbidden, files)
         corpus_digest = files["recorded-corpus.json"]
         manifest: dict[str, Any] = {
             "schema_version": "1.0.0",
@@ -960,7 +997,7 @@ def verify_support_package(bundle: Path, *, expected_manifest_digest: str) -> Pa
         "production_deployment": "OUT_OF_SCOPE",
         "container_reproducibility": "NOT_CLAIMED",
     }
-    expected_verification = _run_reference_verification(root, forbidden)
+    expected_verification = _run_reference_verification(root, forbidden, files)
     expected_source_digest = canonical_digest(
         {name: digest for name, digest in files.items() if name.endswith(".py")}
     )

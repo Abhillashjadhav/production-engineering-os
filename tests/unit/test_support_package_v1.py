@@ -360,20 +360,25 @@ def test_manifest_schema_version_and_unknown_fields_fail_closed(tmp_path: Path) 
         _trusted_verify(bundle)
 
 
-def test_each_declared_forbidden_proof_selector_must_execute(tmp_path: Path) -> None:
+def test_runtime_proofs_execute_only_digest_pinned_application_bytes(tmp_path: Path) -> None:
     bundle = tmp_path / "bundle"
     _assemble(tmp_path, bundle)
-    (bundle / "tests" / "test_forbidden_capabilities.py").write_text(
-        "import unittest\nclass Unrelated(unittest.TestCase):\n"
-        "    def test_passes(self): self.assertTrue(True)\n"
-    )
     capabilities = _contract()["capabilities"]
     assert isinstance(capabilities, dict)
     forbidden = capabilities["forbidden"]
     assert isinstance(forbidden, list)
     assert all(isinstance(item, str) for item in forbidden)
-    with pytest.raises(PackageContractError, match="proof did not execute"):
-        support_package_module._run_reference_verification(bundle, forbidden)
+    expected_files = {
+        name: "sha256:" + hashlib.sha256((bundle / name).read_bytes()).hexdigest()
+        for name in ("app.py", "recorded-corpus.json", "runtime-policy.json")
+    }
+    (bundle / "app.py").write_text("raise RuntimeError('must never execute')\n")
+    with pytest.raises(PackageContractError, match="inputs changed before immutable verification"):
+        support_package_module._run_reference_verification(
+            bundle,
+            forbidden,
+            expected_files,
+        )
 
 
 def test_corpus_and_proof_implementations_are_verifier_owned(tmp_path: Path) -> None:
