@@ -11,10 +11,11 @@ import sys
 import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes, strict_loads
+from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 
 _EVIDENCE_SCHEMA_VERSION = "2.0.0-package"
 _CONTRACT_SCHEMA_VERSION = "1.0.0"
@@ -74,6 +75,16 @@ class PackageApproval:
     authority: str
     receipt_digest: str
     payload: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class ReleaseCandidate:
+    run_id: str
+    candidate_digest: str
+    head_event_digest: str
+    files: Mapping[str, bytes]
+    events: bytes
+    blobs: Mapping[str, bytes]
 
 
 def _exact_fields(value: object, expected: frozenset[str], subject: str) -> Mapping[str, Any]:
@@ -239,6 +250,90 @@ def load_package_approval(
     return PackageApproval(expected_approver, claimed, receipt)
 
 
+def _safe_candidate_path(value: str) -> bool:
+    path = PurePosixPath(value)
+    return (
+        bool(value)
+        and "\\" not in value
+        and not path.is_absolute()
+        and path.as_posix() == value
+        and all(part not in {"", ".", ".."} for part in path.parts)
+    )
+
+
+def _load_release_candidate(
+    evidence_root: Path, run_id: str, contract: SupportPackageContract
+) -> ReleaseCandidate:
+    try:
+        ledger = EvidenceLedger.open_existing(Path(evidence_root), run_id)
+        events = tuple(ledger.verify())
+    except (ValueError, EvidenceIntegrityError) as exc:
+        raise PackageContractError("RELEASE_READY evidence is invalid") from exc
+    if not events:
+        raise PackageContractError("RELEASE_READY evidence is empty")
+    terminal = events[-1]
+    payload = terminal.get("payload")
+    blob_digests = terminal.get("blob_digests")
+    if (
+        terminal.get("event_type") != "release_ready"
+        or terminal.get("state") != "RELEASE_READY"
+        or not isinstance(payload, dict)
+        or not isinstance(blob_digests, list)
+    ):
+        raise PackageContractError("run has no sealed RELEASE_READY candidate")
+    candidate_digest = payload.get("candidate_digest")
+    if not isinstance(candidate_digest, str) or candidate_digest not in blob_digests:
+        raise PackageContractError("release event does not bind a candidate manifest")
+    try:
+        candidate_manifest = strict_loads(ledger.read_blob(candidate_digest))
+    except (ValueError, EvidenceIntegrityError) as exc:
+        raise PackageContractError("release candidate manifest is invalid") from exc
+    if set(candidate_manifest) != {"app.py", "package-contract-digest.txt"}:
+        raise PackageContractError("v1 release candidate has an unsupported file surface")
+    files: dict[str, bytes] = {}
+    blobs: dict[str, bytes] = {}
+    for name, digest in candidate_manifest.items():
+        if (
+            not isinstance(name, str)
+            or not _safe_candidate_path(name)
+            or not isinstance(digest, str)
+            or digest not in blob_digests
+        ):
+            raise PackageContractError("release candidate file binding is invalid")
+        try:
+            content = ledger.read_blob(digest)
+        except EvidenceIntegrityError as exc:
+            raise PackageContractError("release candidate blob is invalid") from exc
+        files[name] = content
+        blobs[digest] = content
+    manifest_bytes = ledger.read_blob(candidate_digest)
+    blobs[candidate_digest] = manifest_bytes
+    for event in events:
+        referenced = event.get("blob_digests")
+        if not isinstance(referenced, list):
+            raise PackageContractError("release evidence blob inventory is malformed")
+        for digest in referenced:
+            if not isinstance(digest, str):
+                raise PackageContractError("release evidence blob digest is malformed")
+            try:
+                blobs[digest] = ledger.read_blob(digest)
+            except EvidenceIntegrityError as exc:
+                raise PackageContractError("release evidence references an invalid blob") from exc
+    if files["package-contract-digest.txt"] != (contract.digest + "\n").encode():
+        raise PackageContractError("RELEASE_READY candidate is not bound to package contract")
+    head = terminal.get("event_digest")
+    if not isinstance(head, str) or not _DIGEST.fullmatch(head):
+        raise PackageContractError("release evidence head is invalid")
+    return ReleaseCandidate(
+        run_id,
+        candidate_digest,
+        head,
+        files,
+        ledger.events_path.read_bytes(),
+        blobs,
+    )
+
+
 _RECORDED_CORPUS = {
     "schema_version": "1.0.0",
     "mode": "recorded",
@@ -248,10 +343,12 @@ _RECORDED_CORPUS = {
                 "I’m sorry the item arrived damaged. "
                 "A support specialist will review the replacement evidence."
             ),
+            "confidence": 0.9,
             "priority": "high",
         },
         "general": {
             "draft": "Thank you for contacting support. A specialist will review your request.",
+            "confidence": 0.7,
             "priority": "normal",
         },
     },
@@ -268,6 +365,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 CORPUS = json.loads((ROOT / "recorded-corpus.json").read_text())
+POLICY = json.loads((ROOT / "runtime-policy.json").read_text())
 MEMORY: dict[str, dict[str, object]] = {}
 
 def decide(payload: object) -> tuple[int, dict[str, object]]:
@@ -305,14 +403,26 @@ def decide(payload: object) -> tuple[int, dict[str, object]]:
     else:
         key = "delivery_damage" if "delivery_damage" in fact_set else "general"
         response = CORPUS["responses"][key]
-        result = {
-            "ticket_id": ticket_id,
-            "status": "DRAFTED",
-            "priority": response["priority"],
-            "draft": response["draft"],
-            "model_mode": "recorded",
-            "connector_mode": "fixture",
-        }
+        confidence = float(response["confidence"])
+        if confidence < float(POLICY["additional_confidence_below"]):
+            result = {
+                "ticket_id": ticket_id,
+                "status": "NEEDS_HUMAN_DECISION",
+                "reasons": ["recorded_confidence_below_threshold"],
+                "confidence": confidence,
+                "model_mode": "recorded",
+                "connector_mode": "fixture",
+            }
+        else:
+            result = {
+                "ticket_id": ticket_id,
+                "status": "DRAFTED",
+                "priority": response["priority"],
+                "draft": response["draft"],
+                "confidence": confidence,
+                "model_mode": "recorded",
+                "connector_mode": "fixture",
+            }
     MEMORY[ticket_id] = result
     return 200, result
 
@@ -443,7 +553,7 @@ _CONFIG_SCHEMA = {
 
 _DOCKERFILE = """FROM python:3.12.13-slim
 WORKDIR /app
-COPY app.py recorded-corpus.json ./
+COPY app.py recorded-corpus.json runtime-policy.json ./
 USER 65532:65532
 EXPOSE 8080
 CMD ["python", "app.py", "--host", "0.0.0.0", "--port", "8080"]
@@ -555,12 +665,15 @@ def _run_reference_verification(root: Path) -> dict[str, Any]:
 def assemble_support_package(
     contract_path: Path,
     approval_receipt_path: Path,
+    release_evidence_root: Path,
+    release_run_id: str,
     expected_approver: str,
     output: Path,
 ) -> PackageResult:
     """Assemble one content-addressed, reference-adapter-only v1 package."""
     contract = load_support_package_contract(contract_path)
     approval = load_package_approval(approval_receipt_path, contract, expected_approver)
+    candidate = _load_release_candidate(release_evidence_root, release_run_id, contract)
     destination = Path(output)
     if destination.exists():
         if not destination.is_dir() or any(destination.iterdir()):
@@ -569,9 +682,21 @@ def assemble_support_package(
     destination.parent.mkdir(parents=True, exist_ok=True)
     staged = Path(tempfile.mkdtemp(prefix=f".{destination.name}-", dir=destination.parent))
     try:
-        _write(staged / "app.py", _APP_SOURCE.encode())
+        for name, content in candidate.files.items():
+            _write(staged / name, content)
         corpus_bytes = canonical_json_bytes(_RECORDED_CORPUS) + b"\n"
         _write(staged / "recorded-corpus.json", corpus_bytes)
+        _write(
+            staged / "runtime-policy.json",
+            canonical_json_bytes(
+                {
+                    "additional_confidence_below": contract.payload["escalation"][
+                        "additional_confidence_below"
+                    ]
+                }
+            )
+            + b"\n",
+        )
         _write(staged / "config" / "schema.json", canonical_json_bytes(_CONFIG_SCHEMA) + b"\n")
         _write(staged / "tests" / "test_forbidden_capabilities.py", _FORBIDDEN_TESTS.encode())
         _write(staged / "Dockerfile", _DOCKERFILE.encode())
@@ -584,6 +709,15 @@ def assemble_support_package(
             staged / "approval-receipt.json",
             canonical_json_bytes(approval.payload) + b"\n",
         )
+        _write(
+            staged / "release-evidence" / ".pmpe" / "runs" / candidate.run_id / "events.jsonl",
+            candidate.events,
+        )
+        for digest, content in candidate.blobs.items():
+            _write(
+                staged / "release-evidence" / ".pmpe" / "blobs" / digest.removeprefix("sha256:"),
+                content,
+            )
         _secret_scan(staged)
         verification = _run_reference_verification(staged)
         files = _file_digests(staged)
@@ -598,6 +732,11 @@ def assemble_support_package(
                 "package_terminal": _PACKAGE_STATE,
             },
             "contract_digest": contract.digest,
+            "release_candidate": {
+                "run_id": candidate.run_id,
+                "candidate_digest": candidate.candidate_digest,
+                "head_event_digest": candidate.head_event_digest,
+            },
             "approval": {
                 "authority": approval.authority,
                 "receipt_digest": approval.receipt_digest,
@@ -681,6 +820,14 @@ def verify_support_package(
     if manifest.get("package_subject_digest") != canonical_digest(files):
         raise PackageContractError("package subject digest is invalid")
     contract = load_support_package_contract(root / "contract.json")
+    release = manifest.get("release_candidate")
+    if (
+        not isinstance(release, dict)
+        or set(release) != {"run_id", "candidate_digest", "head_event_digest"}
+        or not isinstance(release.get("run_id"), str)
+    ):
+        raise PackageContractError("package release candidate binding is malformed")
+    candidate = _load_release_candidate(root / "release-evidence", str(release["run_id"]), contract)
     forbidden = contract.payload["capabilities"]["forbidden"]
     expected_claims = {
         "recorded_mode_only": True,
@@ -698,6 +845,13 @@ def verify_support_package(
         manifest.get("state_vocabulary")
         != {"candidate_terminal": "RELEASE_READY", "package_terminal": _PACKAGE_STATE}
         or manifest.get("contract_digest") != contract.digest
+        or release
+        != {
+            "run_id": candidate.run_id,
+            "candidate_digest": candidate.candidate_digest,
+            "head_event_digest": candidate.head_event_digest,
+        }
+        or any((root / name).read_bytes() != content for name, content in candidate.files.items())
         or manifest.get("capabilities") != contract.payload["capabilities"]
         or manifest.get("forbidden_capability_proofs")
         != {item: _FORBIDDEN_PROOFS[item] for item in sorted(forbidden)}

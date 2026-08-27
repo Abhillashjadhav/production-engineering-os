@@ -12,7 +12,9 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
-from pmpe.contracts.canonical import canonical_digest
+import pmpe.support_package as support_package_module
+from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
+from pmpe.evidence.ledger import EvidenceLedger
 from pmpe.support_package import (
     PackageContractError,
     assemble_support_package,
@@ -82,7 +84,33 @@ def _assemble(tmp_path: Path, bundle: Path, payload: dict[str, object] | None = 
     receipt["receipt_digest"] = canonical_digest(receipt)
     receipt_path = tmp_path / "approval-receipt.json"
     receipt_path.write_text(json.dumps(receipt))
-    return assemble_support_package(contract_path, receipt_path, "fixture-human", bundle)
+    run_id = f"support-release-{bundle.name}"
+    evidence_root = tmp_path / f"release-evidence-{bundle.name}"
+    ledger = EvidenceLedger(evidence_root, run_id)
+    app = support_package_module._APP_SOURCE.encode()
+    binding = (canonical_digest(contract) + "\n").encode()
+    app_digest = ledger.put_blob(app)
+    binding_digest = ledger.put_blob(binding)
+    candidate_manifest = {
+        "app.py": app_digest,
+        "package-contract-digest.txt": binding_digest,
+    }
+    candidate_digest = ledger.put_blob(canonical_json_bytes(candidate_manifest))
+    ledger.append(
+        event_type="release_ready",
+        state="RELEASE_READY",
+        subject_digest=canonical_digest(contract),
+        blob_digests=(app_digest, binding_digest, candidate_digest),
+        payload={"candidate_digest": candidate_digest},
+    )
+    return assemble_support_package(
+        contract_path,
+        receipt_path,
+        evidence_root,
+        run_id,
+        "fixture-human",
+        bundle,
+    )
 
 
 def test_contract_requires_approval_and_exact_known_fields(tmp_path: Path) -> None:
@@ -282,6 +310,24 @@ def test_clean_runtime_journey_uses_only_reference_adapters(tmp_path: Path) -> N
         assert result["priority"] == "high"
         assert result["model_mode"] == "recorded"
         assert result["connector_mode"] == "fixture"
+
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{port}/tickets",
+            data=json.dumps(
+                {
+                    "ticket_id": "TICKET-LOW-CONFIDENCE",
+                    "text": "I need help with my order.",
+                    "facts": ["general_request"],
+                }
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, timeout=2) as response:
+            result = json.loads(response.read())
+        assert result["status"] == "NEEDS_HUMAN_DECISION"
+        assert result["reasons"] == ["recorded_confidence_below_threshold"]
+        assert result["confidence"] == 0.7
     finally:
         process.terminate()
         process.wait(timeout=5)

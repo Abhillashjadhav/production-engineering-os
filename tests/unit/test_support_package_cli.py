@@ -3,13 +3,42 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pmpe.support_package as support_package_module
 from pmpe.cli import main
+from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
+from pmpe.evidence.ledger import EvidenceLedger
+
+
+def _release_evidence(tmp_path: Path, contract: Path) -> tuple[Path, str]:
+    payload = json.loads(contract.read_text())
+    root = tmp_path / "release-evidence"
+    run_id = "support-release"
+    ledger = EvidenceLedger(root, run_id)
+    app_digest = ledger.put_blob(support_package_module._APP_SOURCE.encode())
+    binding_digest = ledger.put_blob((canonical_digest(payload) + "\n").encode())
+    candidate_digest = ledger.put_blob(
+        canonical_json_bytes(
+            {
+                "app.py": app_digest,
+                "package-contract-digest.txt": binding_digest,
+            }
+        )
+    )
+    ledger.append(
+        event_type="release_ready",
+        state="RELEASE_READY",
+        subject_digest=canonical_digest(payload),
+        blob_digests=(app_digest, binding_digest, candidate_digest),
+        payload={"candidate_digest": candidate_digest},
+    )
+    return root, run_id
 
 
 def test_package_support_build_and_verify_cli(tmp_path: Path) -> None:
     contract = Path("examples/support-package/contract.json")
     receipt = Path("examples/support-package/approval-receipt.json")
     bundle = tmp_path / "bundle"
+    evidence_root, run_id = _release_evidence(tmp_path, contract)
 
     assert (
         main(
@@ -23,6 +52,10 @@ def test_package_support_build_and_verify_cli(tmp_path: Path) -> None:
                 str(receipt),
                 "--expected-approver",
                 "fixture-human",
+                "--release-evidence-root",
+                str(evidence_root),
+                "--release-run-id",
+                run_id,
                 "--output",
                 str(bundle),
             ]
@@ -37,6 +70,7 @@ def test_package_support_cli_rejects_tampered_bundle(tmp_path: Path) -> None:
     contract = Path("examples/support-package/contract.json")
     receipt = Path("examples/support-package/approval-receipt.json")
     bundle = tmp_path / "bundle"
+    evidence_root, run_id = _release_evidence(tmp_path, contract)
     assert (
         main(
             [
@@ -49,6 +83,10 @@ def test_package_support_cli_rejects_tampered_bundle(tmp_path: Path) -> None:
                 str(receipt),
                 "--expected-approver",
                 "fixture-human",
+                "--release-evidence-root",
+                str(evidence_root),
+                "--release-run-id",
+                run_id,
                 "--output",
                 str(bundle),
             ]
@@ -58,3 +96,27 @@ def test_package_support_cli_rejects_tampered_bundle(tmp_path: Path) -> None:
     (bundle / "app.py").write_text("tampered\n")
 
     assert main(["barebones", "package", "verify", "--bundle", str(bundle)]) == 2
+
+
+def test_package_support_cli_requires_a_verified_release_run(tmp_path: Path) -> None:
+    result = main(
+        [
+            "barebones",
+            "package",
+            "build",
+            "--contract",
+            "examples/support-package/contract.json",
+            "--approval-receipt",
+            "examples/support-package/approval-receipt.json",
+            "--expected-approver",
+            "fixture-human",
+            "--release-evidence-root",
+            str(tmp_path / "missing"),
+            "--release-run-id",
+            "missing-run",
+            "--output",
+            str(tmp_path / "bundle"),
+        ]
+    )
+
+    assert result == 2

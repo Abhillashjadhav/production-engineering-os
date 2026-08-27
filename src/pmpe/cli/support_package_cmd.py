@@ -19,6 +19,8 @@ def _build(args: argparse.Namespace) -> int:
         result = assemble_support_package(
             Path(args.contract),
             Path(args.approval_receipt),
+            Path(args.release_evidence_root),
+            args.release_run_id,
             args.expected_approver,
             Path(args.output),
         )
@@ -66,6 +68,8 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     build = commands.add_parser("build", help="assemble and seal a PACKAGE_READY bundle")
     build.add_argument("--contract", required=True)
     build.add_argument("--approval-receipt", required=True)
+    build.add_argument("--release-evidence-root", required=True)
+    build.add_argument("--release-run-id", required=True)
     build.add_argument("--expected-approver", required=True)
     build.add_argument("--output", required=True)
     build.set_defaults(fn=_build)
