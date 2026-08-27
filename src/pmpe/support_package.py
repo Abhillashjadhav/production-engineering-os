@@ -34,6 +34,8 @@ _MAX_TOTAL_COPIED_EVIDENCE_BYTES = 8_388_608
 _MAX_PACKAGE_MANIFEST_BYTES = 1_048_576
 _MAX_TOTAL_PACKAGE_BYTES = 67_108_864
 _MAX_PACKAGE_ENTRIES = 4_096
+_PROOF_CHILD_STARTUP_TIMEOUT_SECONDS = 25.0
+_PROOF_PROCESS_TIMEOUT_SECONDS = 60.0
 _REQUIRED_PACKAGE_FILES = frozenset(
     {
         "Dockerfile",
@@ -172,7 +174,7 @@ capability = sys.argv[1]
 emit = os.write
 payload = json.loads(sys.stdin.buffer.read())
 source = payload["app_source"].encode()
-proof_deadline = time.monotonic() + 25
+startup_timeout = float(payload["startup_timeout_seconds"])
 with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
     runtime_policy = dict(payload["policy"])
     base_threshold = float(runtime_policy["additional_confidence_below"])
@@ -205,7 +207,8 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
     try:
         documented_health = None
         documented_url = None
-        while time.monotonic() < proof_deadline:
+        documented_deadline = time.monotonic() + startup_timeout
+        while time.monotonic() < documented_deadline:
             try:
                 if documented_url is None:
                     with open(documented_port_file, encoding="utf-8") as handle:
@@ -242,7 +245,8 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=2)
-    while time.monotonic() < proof_deadline:
+    verified_deadline = time.monotonic() + startup_timeout
+    while time.monotonic() < verified_deadline:
         try:
             with open(port_file, encoding="utf-8") as handle:
                 port = int(handle.read())
@@ -264,7 +268,7 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
             assert response.status == 200
             return json.loads(response.read())
     try:
-        while time.monotonic() < proof_deadline:
+        while time.monotonic() < verified_deadline:
             try:
                 health = request("/health")
                 break
@@ -1360,6 +1364,7 @@ def _run_reference_verification(
                 "app_source": app_source.decode(),
                 "corpus": strict_loads(corpus_source),
                 "policy": strict_loads(policy_source),
+                "startup_timeout_seconds": _PROOF_CHILD_STARTUP_TIMEOUT_SECONDS,
             }
         )
     except (UnicodeError, ValueError, SyntaxError) as exc:
@@ -1424,7 +1429,7 @@ def _run_reference_verification(
             ),
         )
         try:
-            stdout, _ = proof.communicate(proof_input, timeout=30)
+            stdout, _ = proof.communicate(proof_input, timeout=_PROOF_PROCESS_TIMEOUT_SECONDS)
         except subprocess.TimeoutExpired as exc:
             if os.name == "nt":
                 subprocess.run(  # nosec B603 - fixed Windows process-tree terminator
