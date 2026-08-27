@@ -31,6 +31,7 @@ _CONTRACT_SCHEMA_VERSION = "1.0.0"
 _PACKAGE_STATE = "PACKAGE_READY"
 _MAX_COPIED_EVIDENCE_BYTES = 1_048_576
 _MAX_TOTAL_COPIED_EVIDENCE_BYTES = 8_388_608
+_MAX_PACKAGE_MANIFEST_BYTES = 1_048_576
 _REFERENCE_VERIFICATION = {
     "forbidden_capability_tests": "PASS",
     "runtime_compile": "PASS",
@@ -1013,19 +1014,52 @@ def _secret_scan(root: Path) -> None:
                 return True
         return False
 
-    def json_contains_url_credential(value: Any, decode_depth: int = 0) -> bool:
+    def decoded_json_records(value: str, source_name: str) -> list[Any]:
+        try:
+            return [json.loads(value, object_pairs_hook=JsonObject)]
+        except (TypeError, ValueError):
+            records: list[Any] = []
+            decoder = json.JSONDecoder(object_pairs_hook=JsonObject)
+            stream = value.lstrip("\ufeff")
+            offset = 0
+            recovery_attempts = 0
+            while offset < len(stream):
+                while offset < len(stream) and stream[offset].isspace():
+                    offset += 1
+                if offset == len(stream):
+                    break
+                recovery_attempts += 1
+                if recovery_attempts > max_json_recovery_attempts:
+                    raise PackageContractError(
+                        f"copied JSON stream exceeds scan limit: {source_name}"
+                    ) from None
+                try:
+                    record, offset = decoder.raw_decode(stream, offset)
+                except ValueError:
+                    candidates = [
+                        position
+                        for marker in ('"', "{", "[")
+                        if (position := stream.find(marker, offset + 1)) >= 0
+                    ]
+                    if not candidates:
+                        break
+                    offset = min(candidates)
+                    continue
+                records.append(record)
+            return records
+
+    def json_contains_url_credential(
+        value: Any, decode_depth: int = 0, source_name: str = "evidence"
+    ) -> bool:
         if isinstance(value, str):
             if contains_url_credential(value):
                 return True
             for candidate in decoded_text_views(value):
-                try:
-                    nested = json.loads(candidate, object_pairs_hook=JsonObject)
-                except (TypeError, ValueError):
-                    continue
-                if decode_depth >= 3:
-                    raise PackageContractError("copied evidence exceeds JSON decode depth")
-                if json_contains_url_credential(nested, decode_depth + 1):
-                    return True
+                for nested in decoded_json_records(candidate, source_name):
+                    if decode_depth >= 3:
+                        raise PackageContractError("copied evidence exceeds JSON decode depth")
+                    if json_contains_url_credential(nested, decode_depth + 1, source_name):
+                        return True
             return False
         if isinstance(value, JsonObject):
             return any(
@@ -1036,12 +1070,14 @@ def _secret_scan(root: Path) -> None:
                 or contains_known_credential(
                     json.dumps({key: item}, ensure_ascii=False, default=str)
                 )
-                or json_contains_url_credential(key, decode_depth)
-                or json_contains_url_credential(item, decode_depth)
+                or json_contains_url_credential(key, decode_depth, source_name)
+                or json_contains_url_credential(item, decode_depth, source_name)
                 for key, item in value
             )
         if isinstance(value, list):
-            return any(json_contains_url_credential(item, decode_depth) for item in value)
+            return any(
+                json_contains_url_credential(item, decode_depth, source_name) for item in value
+            )
         return False
 
     patterns = (
@@ -1071,39 +1107,7 @@ def _secret_scan(root: Path) -> None:
                         f"copied evidence is not UTF-8: {path.name}"
                     ) from exc
                 decoded = content.decode("utf-8", errors="replace")
-            parsed_json: Any = None
-            if copied_evidence:
-                try:
-                    parsed_json = json.loads(content, object_pairs_hook=JsonObject)
-                except (TypeError, ValueError):
-                    parsed_json = []
-                    decoder = json.JSONDecoder(object_pairs_hook=JsonObject)
-                    stream = decoded.lstrip("\ufeff")
-                    offset = 0
-                    recovery_attempts = 0
-                    while offset < len(stream):
-                        while offset < len(stream) and stream[offset].isspace():
-                            offset += 1
-                        if offset == len(stream):
-                            break
-                        recovery_attempts += 1
-                        if recovery_attempts > max_json_recovery_attempts:
-                            raise PackageContractError(
-                                f"copied JSON stream exceeds scan limit: {path.name}"
-                            ) from None
-                        try:
-                            record, offset = decoder.raw_decode(stream, offset)
-                        except ValueError:
-                            candidates = [
-                                position
-                                for marker in ('"', "{", "[")
-                                if (position := stream.find(marker, offset + 1)) >= 0
-                            ]
-                            if not candidates:
-                                break
-                            offset = min(candidates)
-                            continue
-                        parsed_json.append(record)
+            parsed_json = decoded_json_records(decoded, path.name) if copied_evidence else []
             if (
                 any(pattern.search(content) for pattern in patterns)
                 or contains_prohibited_secret(content)
@@ -1111,8 +1115,8 @@ def _secret_scan(root: Path) -> None:
                 or copied_evidence
                 and (
                     contains_url_credential(decoded)
-                    or json_contains_url_credential(decoded)
-                    or json_contains_url_credential(parsed_json)
+                    or json_contains_url_credential(decoded, source_name=path.name)
+                    or json_contains_url_credential(parsed_json, source_name=path.name)
                 )
             ):
                 raise PackageContractError(f"secret value pattern found in {path.name}")
@@ -1551,7 +1555,13 @@ def _verify_support_package(
     """Verify exact files, structural mode/corpus binding, and manifest integrity."""
     root = Path(bundle)
     try:
-        manifest = strict_loads((root / "manifest.json").read_bytes())
+        with (root / "manifest.json").open("rb") as manifest_stream:
+            manifest_bytes = manifest_stream.read(_MAX_PACKAGE_MANIFEST_BYTES + 1)
+        if len(manifest_bytes) > _MAX_PACKAGE_MANIFEST_BYTES:
+            raise PackageContractError("package manifest exceeds size limit")
+        manifest = strict_loads(manifest_bytes)
+    except PackageContractError:
+        raise
     except (OSError, UnicodeError, ValueError) as exc:
         raise PackageContractError("package manifest is unreadable") from exc
     if not isinstance(manifest, dict):

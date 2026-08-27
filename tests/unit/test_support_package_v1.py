@@ -594,6 +594,26 @@ def test_secret_scan_rejects_unicode_equivalent_provider_hostname(
         support_package_module._secret_scan(tmp_path)
 
 
+def test_secret_scan_parses_each_html_decoded_json_stream_record(tmp_path: Path) -> None:
+    blob = tmp_path / "release-evidence" / ".pmpe" / "blobs" / "historical"
+    blob.parent.mkdir(parents=True)
+    blob.write_text(
+        "{&quot;ok&quot;:true}\n"
+        "{&quot;webhook&quot;:&quot;https:\\u002f\\u002fhooks.slack.com"
+        "\\u002fservices\\u002fT\\u002fB\\u002fabcdefghijklmnop&quot;}\n"
+    )
+    with pytest.raises(PackageContractError, match="secret value pattern"):
+        support_package_module._secret_scan(tmp_path)
+
+
+def test_verify_rejects_oversized_manifest_before_parsing(tmp_path: Path) -> None:
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "manifest.json").write_bytes(b"{" + b" " * 1_048_576)
+    with pytest.raises(PackageContractError, match="manifest exceeds size limit"):
+        verify_support_package(bundle, expected_manifest_digest="sha256:" + "0" * 64)
+
+
 @pytest.mark.parametrize("separator", ["", "/"])
 def test_secret_scan_rejects_special_scheme_webhook_without_authority_slashes(
     tmp_path: Path, separator: str
