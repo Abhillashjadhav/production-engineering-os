@@ -667,6 +667,14 @@ def test_secret_scan_fails_closed_at_nested_json_depth_limit(tmp_path: Path) -> 
         support_package_module._secret_scan(tmp_path)
 
 
+def test_secret_scan_translates_json_recursion_exhaustion(tmp_path: Path) -> None:
+    blob = tmp_path / "release-evidence" / ".pmpe" / "blobs" / "historical"
+    blob.parent.mkdir(parents=True)
+    blob.write_text("[" * 2_000 + "]" * 2_000)
+    with pytest.raises(PackageContractError, match="JSON exceeds nesting limit"):
+        support_package_module._secret_scan(tmp_path)
+
+
 def test_secret_scan_enforces_malformed_json_recovery_limit(tmp_path: Path) -> None:
     blob = tmp_path / "release-evidence" / ".pmpe" / "blobs" / "historical"
     blob.parent.mkdir(parents=True)

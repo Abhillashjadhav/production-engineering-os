@@ -1017,6 +1017,8 @@ def _secret_scan(root: Path) -> None:
     def decoded_json_records(value: str, source_name: str) -> list[Any]:
         try:
             return [json.loads(value, object_pairs_hook=JsonObject)]
+        except RecursionError as exc:
+            raise PackageContractError(f"copied JSON exceeds nesting limit: {source_name}") from exc
         except (TypeError, ValueError):
             records: list[Any] = []
             decoder = json.JSONDecoder(object_pairs_hook=JsonObject)
@@ -1035,6 +1037,10 @@ def _secret_scan(root: Path) -> None:
                     ) from None
                 try:
                     record, offset = decoder.raw_decode(stream, offset)
+                except RecursionError as exc:
+                    raise PackageContractError(
+                        f"copied JSON exceeds nesting limit: {source_name}"
+                    ) from exc
                 except ValueError:
                     candidates = [
                         position
@@ -1080,6 +1086,12 @@ def _secret_scan(root: Path) -> None:
             )
         return False
 
+    def copied_json_contains_url_credential(value: Any, source_name: str) -> bool:
+        try:
+            return json_contains_url_credential(value, source_name=source_name)
+        except RecursionError as exc:
+            raise PackageContractError(f"copied JSON exceeds nesting limit: {source_name}") from exc
+
     patterns = (
         re.compile(rb"OPENAI_API_KEY\s*="),
         re.compile(rb"DATABASE_URL\s*="),
@@ -1115,8 +1127,8 @@ def _secret_scan(root: Path) -> None:
                 or copied_evidence
                 and (
                     contains_url_credential(decoded)
-                    or json_contains_url_credential(decoded, source_name=path.name)
-                    or json_contains_url_credential(parsed_json, source_name=path.name)
+                    or copied_json_contains_url_credential(decoded, path.name)
+                    or copied_json_contains_url_credential(parsed_json, path.name)
                 )
             ):
                 raise PackageContractError(f"secret value pattern found in {path.name}")
