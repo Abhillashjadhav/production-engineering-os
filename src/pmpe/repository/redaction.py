@@ -6,7 +6,7 @@ import os
 import re
 from collections.abc import Iterable, Mapping
 from typing import Any, final
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 
 class RedactionError(RuntimeError):
@@ -103,7 +103,7 @@ class EvidenceRedactor:
     @classmethod
     def _path_contains_credential(cls, hostname: str, path: str) -> bool:
         normalized = hostname.rstrip(".").lower()
-        lowered_path = path.lower()
+        lowered_path = unquote(path).lower()
         return bool(
             (normalized == "hooks.slack.com" and lowered_path.startswith("/services/"))
             or (

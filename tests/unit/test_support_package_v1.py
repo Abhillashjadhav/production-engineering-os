@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 from collections.abc import Mapping
 from pathlib import Path
@@ -514,6 +515,7 @@ def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -
         "https://example.com/callback#code=abcdefghijklmnop",
         "https://hooks.slack.com/services/T00000000/B00000000/abcdefghijklmnop",
         "https://canary.discord.com/api/webhooks/123456/abcdefghijklmnop",
+        "https://canary.discord.com/%61pi/webhooks/123456/abcdefghijklmnop",
     ],
 )
 def test_secret_scan_covers_copied_release_evidence(tmp_path: Path, secret: str) -> None:
@@ -731,6 +733,7 @@ def test_runtime_enforces_approved_request_deadline(tmp_path: Path) -> None:
         stderr=subprocess.PIPE,
         text=True,
     )
+    stdout = ""
     try:
         for _ in range(50):
             try:
@@ -764,8 +767,36 @@ def test_runtime_enforces_approved_request_deadline(tmp_path: Path) -> None:
             response = client.recv(4096)
             elapsed = time.monotonic() - started
             sender.join(timeout=3)
-        assert b" 400 " in response
+        assert response == b"" or b" 400 " in response
         assert elapsed < 2.5
+
+        with socket.create_connection(("127.0.0.1", port), timeout=3) as client:
+            client.sendall(b"POST /tickets HTTP/1.1\r\nX-Slow: ")
+
+            def drip_header() -> None:
+                for _ in range(6):
+                    time.sleep(0.4)
+                    try:
+                        client.sendall(b"x")
+                    except OSError:
+                        return
+
+            sender = threading.Thread(target=drip_header)
+            started = time.monotonic()
+            sender.start()
+            client.recv(4096)
+            elapsed = time.monotonic() - started
+            sender.join(timeout=3)
+        assert elapsed < 2.5
+
+        try:
+            urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/missing?access_token=live-secret",
+                timeout=2,
+            )
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 404
     finally:
         process.terminate()
-        process.wait(timeout=5)
+        stdout, _ = process.communicate(timeout=5)
+    assert "live-secret" not in stdout

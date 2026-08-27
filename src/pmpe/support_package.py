@@ -638,6 +638,7 @@ import argparse
 import json
 import re
 import socket
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -710,11 +711,31 @@ def decide(payload: object) -> tuple[int, dict[str, object]]:
     return 200, result
 
 class Handler(BaseHTTPRequestHandler):
+    def handle_one_request(self) -> None:
+        self._request_deadline = time.monotonic() + float(
+            POLICY["max_processing_seconds"]
+        )
+
+        def expire_request() -> None:
+            try:
+                self.connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+
+        watchdog = threading.Timer(
+            float(POLICY["max_processing_seconds"]), expire_request
+        )
+        watchdog.daemon = True
+        watchdog.start()
+        try:
+            super().handle_one_request()
+        finally:
+            watchdog.cancel()
+
     def _read_body(self, length: int) -> bytes:
-        deadline = time.monotonic() + float(POLICY["max_processing_seconds"])
         body = bytearray()
         while len(body) < length:
-            remaining_seconds = deadline - time.monotonic()
+            remaining_seconds = self._request_deadline - time.monotonic()
             if remaining_seconds <= 0:
                 raise TimeoutError
             self.connection.settimeout(remaining_seconds)
@@ -768,7 +789,10 @@ class Handler(BaseHTTPRequestHandler):
         self._json(status, result)
 
     def log_message(self, format: str, *args: object) -> None:
-        print(json.dumps({"event": "http", "message": format % args}, sort_keys=True), flush=True)
+        print(
+            json.dumps({"event": "http", "message": "request completed"}, sort_keys=True),
+            flush=True,
+        )
 
 def main() -> None:
     parser = argparse.ArgumentParser()
