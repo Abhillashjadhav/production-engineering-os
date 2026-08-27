@@ -745,8 +745,9 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
             if not 0 < length <= 16384:
                 raise ValueError
+            self.connection.settimeout(float(POLICY["max_processing_seconds"]))
             payload = json.loads(self.rfile.read(length))
-        except (ValueError, json.JSONDecodeError):
+        except (ValueError, json.JSONDecodeError, TimeoutError):
             self._json(400, {"error": "invalid bounded JSON"})
             return
         status, result = decide(payload)
@@ -986,7 +987,8 @@ def seal_support_release(
                 {
                     "additional_confidence_below": contract.payload["escalation"][
                         "additional_confidence_below"
-                    ]
+                    ],
+                    "max_processing_seconds": contract.payload["limits"]["max_processing_seconds"],
                 }
             ),
         }
@@ -1183,7 +1185,8 @@ def _populate_package(
             {
                 "additional_confidence_below": contract.payload["escalation"][
                     "additional_confidence_below"
-                ]
+                ],
+                "max_processing_seconds": contract.payload["limits"]["max_processing_seconds"],
             }
         )
         + b"\n",
@@ -1406,7 +1409,8 @@ def _verify_support_package(
             {
                 "additional_confidence_below": contract.payload["escalation"][
                     "additional_confidence_below"
-                ]
+                ],
+                "max_processing_seconds": contract.payload["limits"]["max_processing_seconds"],
             }
         )
         + b"\n"

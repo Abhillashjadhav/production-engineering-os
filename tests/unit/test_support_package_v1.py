@@ -319,7 +319,7 @@ def test_bundle_verification_binds_runtime_policy_to_contract(tmp_path: Path) ->
     bundle = tmp_path / "bundle"
     _assemble(tmp_path, bundle)
     policy_path = bundle / "runtime-policy.json"
-    policy_path.write_text('{"additional_confidence_below":0.8}\n')
+    policy_path.write_text('{"additional_confidence_below":0.8,"max_processing_seconds":30}\n')
     manifest_path = bundle / "manifest.json"
     manifest = json.loads(manifest_path.read_text())
     manifest["files"]["runtime-policy.json"] = (
@@ -510,6 +510,7 @@ def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -
         "glpat-0123456789abcdefghijklmnop",
         "xox" + "b-0123456789-abcdefghijklmnop",
         "https://example.com/callback?code=abcdefghijklmnop",
+        "https://example.com/callback#code=abcdefghijklmnop",
         "https://hooks.slack.com/services/T00000000/B00000000/abcdefghijklmnop",
     ],
 )
@@ -526,6 +527,8 @@ def test_secret_scan_covers_copied_release_evidence(tmp_path: Path, secret: str)
     [
         "https://example.com/docs#install",
         "https://example.com/search?q=hello%20world",
+        "https://discord.com/developers/docs/intro",
+        "https://support.discord.com/hc/en-us",
     ],
 )
 def test_secret_scan_allows_ordinary_url_normalization(tmp_path: Path, url: str) -> None:
@@ -704,6 +707,51 @@ def test_clean_runtime_journey_uses_only_reference_adapters(tmp_path: Path) -> N
         assert result["status"] == "NEEDS_HUMAN_DECISION"
         assert result["reasons"] == ["recorded_confidence_below_threshold"]
         assert result["confidence"] == 0.7
+    finally:
+        process.terminate()
+        process.wait(timeout=5)
+
+
+def test_runtime_enforces_approved_request_deadline(tmp_path: Path) -> None:
+    payload = _contract()
+    limits = payload["limits"]
+    assert isinstance(limits, dict)
+    limits["max_processing_seconds"] = 1
+    bundle = tmp_path / "deadline-bundle"
+    _assemble(tmp_path, bundle, payload)
+    with socket.socket() as reservation:
+        reservation.bind(("127.0.0.1", 0))
+        port = int(reservation.getsockname()[1])
+    process = subprocess.Popen(
+        [sys.executable, "app.py", "--port", str(port)],
+        cwd=bundle,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        for _ in range(50):
+            try:
+                with urllib.request.urlopen(
+                    f"http://127.0.0.1:{port}/ready", timeout=0.2
+                ) as response:
+                    assert response.status == 200
+                    break
+            except OSError:
+                time.sleep(0.05)
+        else:
+            raise AssertionError("reference package did not become ready")
+
+        with socket.create_connection(("127.0.0.1", port), timeout=3) as client:
+            client.sendall(
+                b"POST /tickets HTTP/1.1\r\nHost: localhost\r\n"
+                b"Content-Length: 100\r\nContent-Type: application/json\r\n\r\n{"
+            )
+            started = time.monotonic()
+            response = client.recv(4096)
+            elapsed = time.monotonic() - started
+        assert b" 400 " in response
+        assert elapsed < 2.5
     finally:
         process.terminate()
         process.wait(timeout=5)

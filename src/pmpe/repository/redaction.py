@@ -99,21 +99,21 @@ class EvidenceRedactor:
         r"(?<![A-Za-z0-9_])(?:(?:/Users|/home|/usr/home)/[^/\s]+|/var/root|/root)"
         r"(?=/|\s|$)"
     )
-    _path_secret_hosts = frozenset(
-        {
-            "api.telegram.org",
-            "discord.com",
-            "discordapp.com",
-            "hooks.slack.com",
-        }
-    )
 
     @classmethod
-    def _host_has_secret_path(cls, hostname: str) -> bool:
+    def _path_contains_credential(cls, hostname: str, path: str) -> bool:
         normalized = hostname.rstrip(".").lower()
-        return any(
-            normalized == protected or normalized.endswith(f".{protected}")
-            for protected in cls._path_secret_hosts
+        lowered_path = path.lower()
+        return bool(
+            (normalized == "hooks.slack.com" and lowered_path.startswith("/services/"))
+            or (
+                normalized == "api.telegram.org"
+                and re.match(r"/bot[^/]+(?:/|$)", path, re.IGNORECASE)
+            )
+            or (
+                normalized in {"discord.com", "discordapp.com"}
+                and lowered_path.startswith("/api/webhooks/")
+            )
         )
 
     def __init__(self, *, environment: Mapping[str, str] | None = None) -> None:
@@ -173,7 +173,7 @@ class EvidenceRedactor:
                 netloc = f"{netloc}:{parts.port}"
             path = (
                 "/[REDACTED_PATH]"
-                if self._host_has_secret_path(hostname) and parts.path not in {"", "/"}
+                if self._path_contains_credential(hostname, parts.path)
                 else parts.path
             )
             query = urlencode(
@@ -196,10 +196,11 @@ class EvidenceRedactor:
             return bool(
                 parts.username is not None
                 or parts.password is not None
-                or (cls._host_has_secret_path(hostname) and parts.path not in {"", "/"})
+                or cls._path_contains_credential(hostname, parts.path)
                 or any(
                     cls._sensitive_query.search(key)
-                    for key, _ in parse_qsl(parts.query, keep_blank_values=True)
+                    for component in (parts.query, parts.fragment)
+                    for key, _ in parse_qsl(component, keep_blank_values=True)
                 )
             )
         except (UnicodeError, ValueError):
