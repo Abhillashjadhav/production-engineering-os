@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import html
 import json
 import os
 import re
@@ -992,8 +993,18 @@ def _secret_scan(root: Path) -> None:
         pass
 
     def contains_url_credential(value: str) -> bool:
-        normalized = value.translate({ord("\t"): None, ord("\r"): None, ord("\n"): None})
-        return contains_known_credential(value) or contains_known_credential(normalized)
+        candidate = value
+        for _ in range(4):
+            normalized = candidate.translate({ord("\t"): None, ord("\r"): None, ord("\n"): None})
+            if contains_known_credential(candidate) or contains_known_credential(normalized):
+                return True
+            decoded = html.unescape(candidate)
+            if decoded == candidate:
+                return False
+            candidate = decoded
+        if html.unescape(candidate) != candidate:
+            raise PackageContractError("copied evidence exceeds HTML entity decode depth")
+        return False
 
     def json_contains_url_credential(value: Any, decode_depth: int = 0) -> bool:
         if isinstance(value, str):

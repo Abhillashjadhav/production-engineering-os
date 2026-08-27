@@ -558,6 +558,17 @@ def test_secret_scan_rejects_redundant_scheme_slash_webhook(tmp_path: Path) -> N
         support_package_module._secret_scan(tmp_path)
 
 
+def test_secret_scan_rejects_html_entity_encoded_webhook(tmp_path: Path) -> None:
+    blob = tmp_path / "release-evidence" / ".pmpe" / "blobs" / "historical"
+    blob.parent.mkdir(parents=True)
+    blob.write_text(
+        '<a href="https:&#x2f;&#x2f;hooks.slack.com&#x2f;services&#x2f;T&#x2f;B'
+        '&#x2f;abcdefghijklmnop">support</a>\n'
+    )
+    with pytest.raises(PackageContractError, match="secret value pattern"):
+        support_package_module._secret_scan(tmp_path)
+
+
 @pytest.mark.parametrize("separator", ["", "/"])
 def test_secret_scan_rejects_special_scheme_webhook_without_authority_slashes(
     tmp_path: Path, separator: str
