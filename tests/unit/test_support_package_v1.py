@@ -124,8 +124,12 @@ def test_assembly_preserves_release_ready_and_emits_package_ready_manifest(
     assert manifest["ports"]["model_gateway"]["mode"] == "recorded"
     assert manifest["ports"]["model_gateway"]["corpus_digest"].startswith("sha256:")
     assert manifest["forbidden_capability_proofs"] == {
-        "autonomous_refund_payment": "tests/test_forbidden_capabilities.py::test_no_payment",
-        "credential_collection": "tests/test_forbidden_capabilities.py::test_no_credentials",
+        "autonomous_refund_payment": (
+            "tests/test_forbidden_capabilities.py::ForbiddenCapabilityTests::test_no_payment"
+        ),
+        "credential_collection": (
+            "tests/test_forbidden_capabilities.py::ForbiddenCapabilityTests::test_no_credentials"
+        ),
     }
     assert "observability" not in manifest["ports"]
     assert verify_support_package(bundle).state == "PACKAGE_READY"
@@ -204,4 +208,3 @@ def test_clean_runtime_journey_uses_only_reference_adapters(tmp_path: Path) -> N
     finally:
         process.terminate()
         process.wait(timeout=5)
-
