@@ -15,8 +15,11 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from jsonschema import Draft7Validator
+
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes, strict_loads
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
+from pmpe.quality.security_scan import contains_hardcoded_secret
 
 _EVIDENCE_SCHEMA_VERSION = "2.0.0-package"
 _CONTRACT_SCHEMA_VERSION = "1.0.0"
@@ -45,6 +48,36 @@ _MANIFEST_FIELDS = frozenset(
 )
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
+_SPDX_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": [
+        "SPDXID",
+        "creationInfo",
+        "dataLicense",
+        "documentNamespace",
+        "name",
+        "packages",
+        "spdxVersion",
+    ],
+    "properties": {
+        "SPDXID": {"const": "SPDXRef-DOCUMENT"},
+        "creationInfo": {
+            "type": "object",
+            "required": ["created", "creators"],
+            "properties": {
+                "created": {"type": "string", "format": "date-time"},
+                "creators": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+            },
+            "additionalProperties": False,
+        },
+        "dataLicense": {"const": "CC0-1.0"},
+        "documentNamespace": {"type": "string"},
+        "name": {"type": "string"},
+        "packages": {"type": "array", "minItems": 1},
+        "spdxVersion": {"const": "SPDX-2.3"},
+    },
+    "additionalProperties": False,
+}
 
 _REQUIRED_CAPABILITIES = frozenset(
     {
@@ -801,9 +834,12 @@ Endpoints: `GET /health`, `GET /ready`, `GET /version`, and `POST /tickets`.
 
 
 def _spdx() -> dict[str, Any]:
-    return {
+    document = {
         "SPDXID": "SPDXRef-DOCUMENT",
-        "creationInfo": {"creators": ["Tool: pmpe-support-package-v1"]},
+        "creationInfo": {
+            "created": "2026-08-27T00:00:00Z",
+            "creators": ["Tool: pmpe-support-package-v1"],
+        },
         "dataLicense": "CC0-1.0",
         "documentNamespace": "https://pmpe.local/spdx/customer-support-agent/1.0.0",
         "name": "customer-support-agent-sbom",
@@ -818,6 +854,8 @@ def _spdx() -> dict[str, Any]:
         ],
         "spdxVersion": "SPDX-2.3",
     }
+    Draft7Validator(_SPDX_SCHEMA, format_checker=Draft7Validator.FORMAT_CHECKER).validate(document)
+    return document
 
 
 def _write(path: Path, payload: bytes) -> None:
@@ -852,8 +890,13 @@ def _secret_scan(root: Path) -> None:
         re.compile(rb"sk-[A-Za-z0-9_-]{20,}"),
     )
     for path in root.rglob("*"):
-        if path.is_file() and any(pattern.search(path.read_bytes()) for pattern in patterns):
-            raise PackageContractError(f"secret value pattern found in {path.name}")
+        if path.is_file():
+            content = path.read_bytes()
+            decoded = content.decode("utf-8", errors="replace")
+            if any(pattern.search(content) for pattern in patterns) or contains_hardcoded_secret(
+                decoded
+            ):
+                raise PackageContractError(f"secret value pattern found in {path.name}")
 
 
 def seal_support_release(
@@ -866,8 +909,13 @@ def seal_support_release(
     """Produce the canonical v1 RELEASE_READY evidence consumed by package build."""
     contract = load_support_package_contract(contract_path)
     approval = load_package_approval(approval_receipt_path, contract, expected_approver)
-    events_path = Path(evidence_root) / ".pmpe" / "runs" / run_id / "events.jsonl"
-    if events_path.exists():
+    try:
+        EvidenceLedger.validate_run_id(run_id)
+    except ValueError as exc:
+        raise PackageContractError("release run id is invalid") from exc
+    target_root = Path(evidence_root)
+    target_run = target_root / ".pmpe" / "runs" / run_id
+    if target_run.exists():
         raise PackageContractError("release run id already exists")
     app = _APP_SOURCE.encode()
     binding = (contract.digest + "\n").encode()
@@ -893,41 +941,72 @@ def seal_support_release(
         _run_reference_verification(
             staged, sorted(contract.payload["capabilities"]["forbidden"]), expected
         )
-    if events_path.exists():
+    if target_run.exists():
         raise PackageContractError("release run id already exists")
-    ledger = EvidenceLedger(Path(evidence_root), run_id)
-    contract_blob = ledger.put_blob(canonical_json_bytes(contract.payload))
-    receipt_blob = ledger.put_blob(canonical_json_bytes(approval.payload))
-    ledger.append(
-        event_type="contract_validated",
-        state="VALIDATED",
-        subject_digest=contract.digest,
-        blob_digests=(contract_blob, receipt_blob),
-        payload={
-            "approval": {
-                "status": "VERIFIED",
-                "authority": approval.authority,
-                "receipt_digest": approval.receipt_digest,
-                "receipt_blob_digest": receipt_blob,
+    target_root.parent.mkdir(parents=True, exist_ok=True)
+    temporary_root = Path(tempfile.mkdtemp(prefix=".pmpe-support-ledger-", dir=target_root.parent))
+    try:
+        ledger = EvidenceLedger(temporary_root, run_id)
+        contract_blob = ledger.put_blob(canonical_json_bytes(contract.payload))
+        receipt_blob = ledger.put_blob(canonical_json_bytes(approval.payload))
+        ledger.append(
+            event_type="contract_validated",
+            state="VALIDATED",
+            subject_digest=contract.digest,
+            blob_digests=(contract_blob, receipt_blob),
+            payload={
+                "approval": {
+                    "status": "VERIFIED",
+                    "authority": approval.authority,
+                    "receipt_digest": approval.receipt_digest,
+                    "receipt_blob_digest": receipt_blob,
+                },
+                "contract_digest": contract_blob,
+                "plan_digest": canonical_digest({"producer": "support-package-v1"}),
             },
-            "contract_digest": contract_blob,
-            "plan_digest": canonical_digest({"producer": "support-package-v1"}),
-        },
-    )
-    app_digest = ledger.put_blob(app)
-    binding_digest = ledger.put_blob(binding)
-    candidate_manifest = {
-        "app.py": app_digest,
-        "package-contract-digest.txt": binding_digest,
-    }
-    candidate_digest = ledger.put_blob(canonical_json_bytes(candidate_manifest))
-    terminal = ledger.append(
-        event_type="release_ready",
-        state="RELEASE_READY",
-        subject_digest=contract.digest,
-        blob_digests=(app_digest, binding_digest, candidate_digest),
-        payload={"candidate_digest": candidate_digest},
-    )
+        )
+        app_digest = ledger.put_blob(app)
+        binding_digest = ledger.put_blob(binding)
+        candidate_manifest = {
+            "app.py": app_digest,
+            "package-contract-digest.txt": binding_digest,
+        }
+        candidate_digest = ledger.put_blob(canonical_json_bytes(candidate_manifest))
+        terminal = ledger.append(
+            event_type="release_ready",
+            state="RELEASE_READY",
+            subject_digest=contract.digest,
+            blob_digests=(app_digest, binding_digest, candidate_digest),
+            payload={"candidate_digest": candidate_digest},
+        )
+        tuple(ledger.verify())
+        target_blobs = target_root / ".pmpe" / "blobs"
+        target_runs = target_root / ".pmpe" / "runs"
+        target_blobs.mkdir(parents=True, exist_ok=True)
+        target_runs.mkdir(parents=True, exist_ok=True)
+        for source in sorted(ledger.blobs_directory.iterdir()):
+            destination = target_blobs / source.name
+            if destination.exists():
+                if destination.read_bytes() != source.read_bytes():
+                    raise PackageContractError("release blob collision is invalid")
+                continue
+            descriptor, temporary_name = tempfile.mkstemp(
+                prefix=f".{source.name}-", dir=target_blobs
+            )
+            os.close(descriptor)
+            temporary_blob = Path(temporary_name)
+            try:
+                shutil.copyfile(source, temporary_blob)
+                os.replace(temporary_blob, destination)
+            finally:
+                temporary_blob.unlink(missing_ok=True)
+        if target_run.exists():
+            raise PackageContractError("release run id already exists")
+        os.rename(ledger.run_directory, target_run)
+    except (OSError, EvidenceIntegrityError) as exc:
+        raise PackageContractError("release ledger publication failed") from exc
+    finally:
+        shutil.rmtree(temporary_root, ignore_errors=True)
     return {
         "candidate_digest": candidate_digest,
         "head_event_digest": str(terminal["event_digest"]),
@@ -1148,12 +1227,17 @@ def assemble_support_package(
         }
         manifest["manifest_digest"] = canonical_digest(manifest)
         _write(staged / "manifest.json", canonical_json_bytes(manifest) + b"\n")
+        verified = verify_support_package(
+            staged, expected_manifest_digest=str(manifest["manifest_digest"])
+        )
         os.replace(staged, destination)
     except BaseException:
         shutil.rmtree(staged, ignore_errors=True)
         raise
-    return verify_support_package(
-        destination, expected_manifest_digest=str(manifest["manifest_digest"])
+    return PackageResult(
+        state=verified.state,
+        bundle=destination,
+        manifest_digest=verified.manifest_digest,
     )
 
 

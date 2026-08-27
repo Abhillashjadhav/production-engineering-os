@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+from collections.abc import Mapping
 from pathlib import Path
 
 import pytest
@@ -473,13 +474,18 @@ def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -
     assert "DATABASE_URL=" not in all_text
     sbom = json.loads((bundle / "sbom.spdx.json").read_text())
     assert sbom["spdxVersion"] == "SPDX-2.3"
+    assert sbom["creationInfo"]["created"] == "2026-08-27T00:00:00Z"
     assert sbom["packages"][0]["name"] == "customer-support-agent"
 
 
-def test_secret_scan_covers_copied_release_evidence(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "secret",
+    ["AWS_ACCESS_KEY_ID=AKIAABCDEFGHIJKLMNOP", 'password = "hunter2"'],
+)
+def test_secret_scan_covers_copied_release_evidence(tmp_path: Path, secret: str) -> None:
     blob = tmp_path / "release-evidence" / ".pmpe" / "blobs" / "historical"
     blob.parent.mkdir(parents=True)
-    blob.write_text("AWS_ACCESS_KEY_ID=AKIAABCDEFGHIJKLMNOP\n")
+    blob.write_text(secret + "\n")
     with pytest.raises(PackageContractError, match="secret value pattern"):
         support_package_module._secret_scan(tmp_path)
 
@@ -500,6 +506,42 @@ def test_failed_release_preflight_does_not_reserve_run_id(
             "fixture-human",
         )
     assert not (tmp_path / ".pmpe" / "runs" / "retryable-run" / "events.jsonl").exists()
+
+
+def test_interrupted_release_ledger_is_not_published(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    original_append = EvidenceLedger.append
+
+    def interrupt_terminal(self: EvidenceLedger, **kwargs: object) -> Mapping[str, object]:
+        if kwargs.get("event_type") == "release_ready":
+            raise OSError("interrupted")
+        return original_append(self, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(EvidenceLedger, "append", interrupt_terminal)
+    with pytest.raises(PackageContractError, match="ledger publication failed"):
+        support_package_module.seal_support_release(
+            Path("examples/support-package/contract.json"),
+            Path("examples/support-package/approval-receipt.json"),
+            tmp_path,
+            "interrupted-run",
+            "fixture-human",
+        )
+    assert not (tmp_path / ".pmpe" / "runs" / "interrupted-run").exists()
+
+
+def test_failed_final_verification_does_not_publish_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bundle = tmp_path / "bundle"
+
+    def fail_verification(*args: object, **kwargs: object) -> PackageResult:
+        raise PackageContractError("final verification failed")
+
+    monkeypatch.setattr(support_package_module, "verify_support_package", fail_verification)
+    with pytest.raises(PackageContractError, match="final verification failed"):
+        _assemble(tmp_path, bundle)
+    assert not bundle.exists()
 
 
 def test_clean_runtime_journey_uses_only_reference_adapters(tmp_path: Path) -> None:

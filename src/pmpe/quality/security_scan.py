@@ -23,10 +23,13 @@ class _Rule:
     skip_tests: bool = False  # test files legitimately contain fake credentials
 
 
+_HARDCODED_SECRET = re.compile(
+    r"""(?i)\b(password|passwd|secret|api_key|apikey|token)\s*=\s*["'][^"']+["']"""
+)
 _RULES: tuple[_Rule, ...] = (
     _Rule(
         "SEC_HARDCODED_SECRET",
-        re.compile(r"""(?i)\b(password|passwd|secret|api_key|apikey|token)\s*=\s*["'][^"']+["']"""),
+        _HARDCODED_SECRET,
         "possible hardcoded secret — inject via environment instead",
         skip_tests=True,
     ),
@@ -59,6 +62,11 @@ _RULES: tuple[_Rule, ...] = (
 
 _SKIP_DIRS = {".git", "__pycache__", ".venv", ".ruff_cache", ".pytest_cache"}
 _SHELL_SEPARATORS = {";", "&&", "||", "|"}
+
+
+def contains_hardcoded_secret(text: str) -> bool:
+    """Expose the canonical hardcoded-credential rule to artifact scanners."""
+    return bool(_HARDCODED_SECRET.search(text))
 
 
 def _shell_logical_lines(text: str) -> list[tuple[int, str]]:
