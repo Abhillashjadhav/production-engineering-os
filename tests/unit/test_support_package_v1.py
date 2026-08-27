@@ -451,6 +451,10 @@ def test_runtime_proofs_require_completion_and_standard_library_imports(tmp_path
 
 
 def test_proof_runner_gives_each_child_its_own_startup_deadline() -> None:
+    runner = support_package_module._PROOF_RUNNER
+    assert "proof_deadline = time.monotonic() + 25" not in runner
+    assert "documented_deadline = time.monotonic() + startup_timeout" in runner
+    assert "verified_deadline = time.monotonic() + startup_timeout" in runner
     delayed_source = support_package_module._APP_SOURCE.replace(
         "MEMORY: dict[str, dict[str, object]] = {}\n",
         "MEMORY: dict[str, dict[str, object]] = {}\ntime.sleep(0.6)\n",
@@ -466,12 +470,29 @@ def test_proof_runner_gives_each_child_its_own_startup_deadline() -> None:
             "startup_timeout_seconds": 1.0,
         }
     )
+    shared_deadline_runner = runner.replace(
+        "documented_deadline = time.monotonic() + startup_timeout",
+        "proof_deadline = time.monotonic() + startup_timeout",
+    ).replace("documented_deadline", "proof_deadline")
+    shared_deadline_runner = shared_deadline_runner.replace(
+        "    verified_deadline = time.monotonic() + startup_timeout\n",
+        "",
+    ).replace("verified_deadline", "proof_deadline")
+    shared = subprocess.run(
+        [sys.executable, "-I", "-c", shared_deadline_runner, "ordinary_ticket"],
+        input=proof_input,
+        capture_output=True,
+        check=False,
+        timeout=5,
+    )
+    assert shared.returncode != 0
+
     completed = subprocess.run(
         [
             sys.executable,
             "-I",
             "-c",
-            support_package_module._PROOF_RUNNER,
+            runner,
             "ordinary_ticket",
         ],
         input=proof_input,
