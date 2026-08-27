@@ -11,6 +11,7 @@ from pmpe.evidence.ledger import EvidenceLedger
 
 def _release_evidence(tmp_path: Path, contract: Path) -> tuple[Path, str]:
     payload = json.loads(contract.read_text())
+    receipt = json.loads(Path("examples/support-package/approval-receipt.json").read_text())
     root = tmp_path / "release-evidence"
     run_id = "support-release"
     ledger = EvidenceLedger(root, run_id)
@@ -23,6 +24,24 @@ def _release_evidence(tmp_path: Path, contract: Path) -> tuple[Path, str]:
                 "package-contract-digest.txt": binding_digest,
             }
         )
+    )
+    contract_digest = ledger.put_blob(canonical_json_bytes(payload))
+    receipt_blob = ledger.put_blob(canonical_json_bytes(receipt))
+    ledger.append(
+        event_type="contract_validated",
+        state="VALIDATED",
+        subject_digest=contract_digest,
+        blob_digests=(contract_digest, receipt_blob),
+        payload={
+            "approval": {
+                "status": "VERIFIED",
+                "authority": "fixture-human",
+                "receipt_digest": receipt["receipt_digest"],
+                "receipt_blob_digest": receipt_blob,
+            },
+            "contract_digest": contract_digest,
+            "plan_digest": "sha256:" + "1" * 64,
+        },
     )
     ledger.append(
         event_type="release_ready",

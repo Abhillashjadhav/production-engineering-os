@@ -17,6 +17,7 @@ from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from pmpe.evidence.ledger import EvidenceLedger
 from pmpe.support_package import (
     PackageContractError,
+    PackageResult,
     assemble_support_package,
     load_support_package_contract,
     verify_support_package,
@@ -72,7 +73,13 @@ def _write_contract(tmp_path: Path, payload: dict[str, object] | None = None) ->
     return path
 
 
-def _assemble(tmp_path: Path, bundle: Path, payload: dict[str, object] | None = None):
+def _assemble(
+    tmp_path: Path,
+    bundle: Path,
+    payload: dict[str, object] | None = None,
+    *,
+    verified_release_approval: bool = True,
+) -> PackageResult:
     contract_path = _write_contract(tmp_path, payload)
     contract = json.loads(contract_path.read_text())
     receipt = {
@@ -96,6 +103,28 @@ def _assemble(tmp_path: Path, bundle: Path, payload: dict[str, object] | None = 
         "package-contract-digest.txt": binding_digest,
     }
     candidate_digest = ledger.put_blob(canonical_json_bytes(candidate_manifest))
+    contract_blob = ledger.put_blob(canonical_json_bytes(contract))
+    receipt_blob = ledger.put_blob(canonical_json_bytes(receipt))
+    ledger.append(
+        event_type="contract_validated",
+        state="VALIDATED",
+        subject_digest=canonical_digest(contract),
+        blob_digests=(contract_blob, receipt_blob),
+        payload={
+            "approval": (
+                {
+                    "status": "VERIFIED",
+                    "authority": "fixture-human",
+                    "receipt_digest": receipt["receipt_digest"],
+                    "receipt_blob_digest": receipt_blob,
+                }
+                if verified_release_approval
+                else {"status": "UNVERIFIED_DIRECT_CALL"}
+            ),
+            "contract_digest": contract_blob,
+            "plan_digest": "sha256:" + "1" * 64,
+        },
+    )
     ledger.append(
         event_type="release_ready",
         state="RELEASE_READY",
@@ -261,6 +290,34 @@ def test_bundle_verification_rederives_manifest_claims_and_approval(tmp_path: Pa
     manifest["manifest_digest"] = canonical_digest(manifest)
     manifest_path.write_text(json.dumps(manifest))
     with pytest.raises(PackageContractError, match="approval"):
+        verify_support_package(bundle)
+
+
+def test_package_rejects_unapproved_release_run(tmp_path: Path) -> None:
+    with pytest.raises(PackageContractError, match="verified release approval"):
+        _assemble(tmp_path, tmp_path / "bundle", verified_release_approval=False)
+
+
+def test_package_verification_rederives_every_port(tmp_path: Path) -> None:
+    bundle = tmp_path / "bundle"
+    _assemble(tmp_path, bundle)
+    manifest_path = bundle / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["ports"]["ticket_connector"]["mode"] = "live"
+    manifest.pop("manifest_digest")
+    manifest["manifest_digest"] = canonical_digest(manifest)
+    manifest_path.write_text(json.dumps(manifest))
+    with pytest.raises(PackageContractError, match="port binding"):
+        verify_support_package(bundle)
+
+
+def test_nested_manifest_is_not_excluded_from_inventory(tmp_path: Path) -> None:
+    bundle = tmp_path / "bundle"
+    _assemble(tmp_path, bundle)
+    nested = bundle / "config" / "manifest.json"
+    nested.parent.mkdir(exist_ok=True)
+    nested.write_text("{}\n")
+    with pytest.raises(PackageContractError, match="inventory"):
         verify_support_package(bundle)
 
 

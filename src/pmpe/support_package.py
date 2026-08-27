@@ -271,6 +271,48 @@ def _load_release_candidate(
         raise PackageContractError("RELEASE_READY evidence is invalid") from exc
     if not events:
         raise PackageContractError("RELEASE_READY evidence is empty")
+    validation_events = [
+        event for event in events if event.get("event_type") == "contract_validated"
+    ]
+    if len(validation_events) != 1:
+        raise PackageContractError("run has no verified release approval")
+    validation = validation_events[0]
+    validation_payload = validation.get("payload")
+    validation_blobs = validation.get("blob_digests")
+    if not isinstance(validation_payload, dict) or not isinstance(validation_blobs, list):
+        raise PackageContractError("run has no verified release approval")
+    approval = validation_payload.get("approval")
+    contract_digest = validation_payload.get("contract_digest")
+    if (
+        not isinstance(approval, dict)
+        or approval.get("status") != "VERIFIED"
+        or not isinstance(approval.get("authority"), str)
+        or not isinstance(approval.get("receipt_digest"), str)
+        or not isinstance(approval.get("receipt_blob_digest"), str)
+        or not isinstance(contract_digest, str)
+        or validation.get("subject_digest") != contract_digest
+        or contract_digest not in validation_blobs
+        or approval["receipt_blob_digest"] not in validation_blobs
+    ):
+        raise PackageContractError("run has no verified release approval")
+    try:
+        release_contract = strict_loads(ledger.read_blob(contract_digest))
+        release_receipt = strict_loads(ledger.read_blob(approval["receipt_blob_digest"]))
+    except (ValueError, EvidenceIntegrityError) as exc:
+        raise PackageContractError("run has no verified release approval") from exc
+    if not isinstance(release_contract, dict) or not isinstance(release_receipt, dict):
+        raise PackageContractError("run has no verified release approval")
+    unsigned_receipt = dict(release_receipt)
+    claimed_receipt_digest = unsigned_receipt.pop("receipt_digest", None)
+    if (
+        claimed_receipt_digest != approval["receipt_digest"]
+        or canonical_digest(unsigned_receipt) != claimed_receipt_digest
+        or release_receipt.get("decision") != "APPROVED"
+        or release_receipt.get("approved_by") != approval["authority"]
+        or release_receipt.get("approved_contract_digest") != contract_digest
+        or canonical_digest(release_contract) != contract_digest
+    ):
+        raise PackageContractError("run has no verified release approval")
     terminal = events[-1]
     payload = terminal.get("payload")
     blob_digests = terminal.get("blob_digests")
@@ -615,7 +657,7 @@ def _file_digests(root: Path) -> dict[str, str]:
             continue
         if not path.is_file():
             raise PackageContractError("package contains an unsupported filesystem entry")
-        if path.name != "manifest.json":
+        if path.relative_to(root).as_posix() != "manifest.json":
             files[path.relative_to(root).as_posix()] = (
                 "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
             )
@@ -820,13 +862,14 @@ def verify_support_package(
     observed = _file_digests(root)
     if observed != files:
         raise PackageContractError("package file digest inventory does not match bundle")
-    ports = manifest.get("ports")
     corpus_digest = files.get("recorded-corpus.json")
-    if not isinstance(ports, dict) or ports.get("model_gateway") != {
-        "mode": "recorded",
-        "corpus_digest": corpus_digest,
-    }:
-        raise PackageContractError("recorded corpus digest or model mode binding is invalid")
+    expected_ports = {
+        "model_gateway": {"mode": "recorded", "corpus_digest": corpus_digest},
+        "ticket_repository": {"mode": "memory"},
+        "ticket_connector": {"mode": "fixture"},
+    }
+    if manifest.get("ports") != expected_ports:
+        raise PackageContractError("runtime port binding is invalid")
     if manifest.get("package_subject_digest") != canonical_digest(files):
         raise PackageContractError("package subject digest is invalid")
     contract = load_support_package_contract(root / "contract.json")
