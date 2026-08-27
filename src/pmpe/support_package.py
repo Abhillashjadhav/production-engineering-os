@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
 import os
 import re
 import shutil
@@ -966,6 +967,9 @@ def _file_digests(root: Path) -> dict[str, str]:
 
 
 def _secret_scan(root: Path) -> None:
+    class JsonObject(list[tuple[str, Any]]):
+        pass
+
     def contains_url_credential(value: str) -> bool:
         normalized = value.translate({ord("\t"): None, ord("\r"): None, ord("\n"): None})
         return contains_known_credential(value) or contains_known_credential(normalized)
@@ -973,10 +977,15 @@ def _secret_scan(root: Path) -> None:
     def json_contains_url_credential(value: Any) -> bool:
         if isinstance(value, str):
             return contains_url_credential(value)
-        if isinstance(value, dict):
+        if isinstance(value, JsonObject):
             return any(
-                json_contains_url_credential(key) or json_contains_url_credential(item)
-                for key, item in value.items()
+                contains_hardcoded_secret(json.dumps({key: item}, ensure_ascii=False, default=str))
+                or contains_known_credential(
+                    json.dumps({key: item}, ensure_ascii=False, default=str)
+                )
+                or json_contains_url_credential(key)
+                or json_contains_url_credential(item)
+                for key, item in value
             )
         if isinstance(value, list):
             return any(json_contains_url_credential(item) for item in value)
@@ -1006,8 +1015,8 @@ def _secret_scan(root: Path) -> None:
             parsed_json: Any = None
             if copied_evidence:
                 try:
-                    parsed_json = strict_loads(content)
-                except (UnicodeError, ValueError):
+                    parsed_json = json.loads(decoded, object_pairs_hook=JsonObject)
+                except (TypeError, ValueError):
                     parsed_json = None
             if (
                 any(pattern.search(content) for pattern in patterns)
