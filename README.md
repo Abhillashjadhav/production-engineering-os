@@ -17,6 +17,7 @@ An open-source, local-first reference implementation that compiles a machine-che
 | One tiny approved contract built with a real model provider | [Proven once by the published E1 run](docs/evidence/e1-real-provider-20260826/README.md) and repeated in the [seven-run matrix](docs/evidence/real-behavior-drift-20260827/README.md) |
 | Repeated real-provider behavioural drift evidence | [Proven for the bounded seven-run matrix](docs/evidence/real-behavior-drift-20260827/README.md) |
 | Reuse across multiple distinct product contracts | Proven only across two repository-owned fixtures; external products and different product types remain unproven |
+| Customer-support portable package assembly with recorded/memory/fixture reference adapters | Implemented and verified by the package contract, manifest, tamper, negative-capability, and local HTTP journey tests; this proves no live model or vendor connector |
 | macOS or Windows native execution | **Not supported** |
 | Cloud deployment, GitHub mutation, or automatic release | **Out of scope** |
 
@@ -113,6 +114,43 @@ pmpe barebones inspect e1 \
   --repository-root /tmp/pmpe-e1-evidence \
   --workspace /tmp/pmpe-e1-candidate
 ```
+
+## Build the portable customer-support reference package
+
+The customer-support package is a separate post-candidate result. It does not redefine
+the frozen engine's `RELEASE_READY` state. A successfully assembled and independently
+verified bundle reports `PACKAGE_READY` under evidence schema `2.0.0-package`.
+
+```bash
+pmpe barebones package release \
+  --contract examples/support-package/contract.json \
+  --approval-receipt examples/support-package/approval-receipt.json \
+  --expected-approver fixture-human \
+  --evidence-root /tmp/customer-support-release-evidence \
+  --run-id customer-support-release-run
+
+pmpe barebones package build \
+  --contract examples/support-package/contract.json \
+  --approval-receipt examples/support-package/approval-receipt.json \
+  --expected-approver fixture-human \
+  --release-evidence-root /tmp/customer-support-release-evidence \
+  --release-run-id customer-support-release-run \
+  --expected-release-head-digest sha256:<trusted-terminal-event-digest> \
+  --output /tmp/customer-support-package
+
+pmpe barebones package verify \
+  --bundle /tmp/customer-support-package \
+  --expected-manifest-digest sha256:<trusted-build-output-digest>
+
+python /tmp/customer-support-package/app.py --port 8080
+```
+
+The reference runtime uses only in-memory storage, a recorded response corpus, and a
+fixture connector. Adopters provide their own compute, persistent storage, credentials,
+live model and help-desk adapters, and production environment. The base package does not
+claim live-model quality, prompt-injection resistance, vendor integration, reproducible
+container digests, hosting, or production deployment. See the
+[v1 architecture](docs/customer-support-package-v1.md).
 
 `compile` reports `COMPILES` and the contract's recorded status; it does not imply
 human approval or release eligibility. `status`, `evidence`, and `inspect` surface the

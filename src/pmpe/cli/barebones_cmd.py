@@ -848,6 +848,8 @@ def _inspect(args: argparse.Namespace) -> int:
 
 
 def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
+    from pmpe.cli import support_package_cmd
+
     parser = sub.add_parser(
         "barebones",
         help="compile, run, and inspect the six-state contract-to-RELEASE_READY journey",
@@ -897,6 +899,8 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     inspect_parser.add_argument("--workspace")
     inspect_parser.add_argument("--file")
     inspect_parser.set_defaults(fn=_inspect)
+
+    support_package_cmd.register(commands)
 
     compare_parser = commands.add_parser(
         "compare", help="compare two verified RELEASE_READY provider runs"

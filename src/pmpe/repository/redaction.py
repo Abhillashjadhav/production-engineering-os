@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import os
+import posixpath
 import re
+import unicodedata
 from collections.abc import Iterable, Mapping
 from typing import Any, final
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, unquote, urlencode, urlsplit, urlunsplit
 
 
 class RedactionError(RuntimeError):
@@ -30,7 +32,7 @@ def assert_distinct_identities_preserved(
 class EvidenceRedactor:
     """Sanitize all strings before they enter an artifact or diagnostic."""
 
-    version = "central-redactor/2.7.0"
+    version = "central-redactor/3.0.0"
     __slots__ = ("_environment_secrets",)
     _token = re.compile(
         r"(?i)(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}"
@@ -52,7 +54,10 @@ class EvidenceRedactor:
     )
     _private_key_header = re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----.*", re.DOTALL)
     _url_credentials = re.compile(r"(?i)([a-z][a-z0-9+.-]*://)[^/@\s]+@")
-    _embedded_url = re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s<>'\"]+")
+    _embedded_url = re.compile(
+        r"(?i)(?:\b(?:https?|wss?):[\\/]*|(?:\b[a-z][a-z0-9+.-]*:)?[\\/]{2,})"
+        r"[^\s<>'\"]+"
+    )
     _common_access_key = re.compile(r"(?:AKIA[0-9A-Z]{16}|xox[baprs]-[A-Za-z0-9-]{10,})")
     _vendor_token = re.compile(
         r"(?:AIza[0-9A-Za-z_-]{35}|sk_(?:live|test)_[0-9A-Za-z]{16,}"
@@ -99,21 +104,40 @@ class EvidenceRedactor:
         r"(?<![A-Za-z0-9_])(?:(?:/Users|/home|/usr/home)/[^/\s]+|/var/root|/root)"
         r"(?=/|\s|$)"
     )
-    _path_secret_hosts = frozenset(
-        {
-            "api.telegram.org",
-            "discord.com",
-            "discordapp.com",
-            "hooks.slack.com",
-        }
-    )
 
     @classmethod
-    def _host_has_secret_path(cls, hostname: str) -> bool:
-        normalized = hostname.rstrip(".").lower()
-        return any(
-            normalized == protected or normalized.endswith(f".{protected}")
-            for protected in cls._path_secret_hosts
+    def _canonical_hostname(cls, value: str) -> str:
+        normalized = unicodedata.normalize("NFKC", unquote(value)).rstrip(".").lower()
+        try:
+            return normalized.encode("idna").decode("ascii")
+        except UnicodeError as exc:
+            raise RedactionError("URL hostname cannot be canonicalized") from exc
+
+    @classmethod
+    def _path_contains_credential(cls, hostname: str, path: str) -> bool:
+        normalized = cls._canonical_hostname(hostname)
+        decoded_path = path
+        for _ in range(3):
+            next_path = unquote(decoded_path)
+            if next_path == decoded_path:
+                break
+            decoded_path = next_path
+        decoded_path = decoded_path.replace("\\", "/")
+        lowered_path = posixpath.normpath("/" + decoded_path.lstrip("/")).lower()
+        return bool(
+            (normalized == "hooks.slack.com" and lowered_path.startswith("/services/"))
+            or (
+                normalized == "api.telegram.org"
+                and re.match(r"/bot[^/]+(?:/|$)", lowered_path, re.IGNORECASE)
+            )
+            or (
+                (
+                    normalized in {"discord.com", "discordapp.com"}
+                    or normalized.endswith(".discord.com")
+                    or normalized.endswith(".discordapp.com")
+                )
+                and lowered_path.startswith("/api/webhooks/")
+            )
         )
 
     def __init__(self, *, environment: Mapping[str, str] | None = None) -> None:
@@ -161,11 +185,15 @@ class EvidenceRedactor:
         return f"{match.group('prefix')}{match.group('key')}{match.group('separator')}[REDACTED]"
 
     def _sanitize_url(self, value: str) -> str:
+        value = value.replace("\\", "/")
+        value = re.sub(r"^((?:https?|wss?):)/*", r"\1//", value, flags=re.IGNORECASE)
         if "://" not in value:
+            value = "//" + value.lstrip("/")
+        if "://" not in value and not value.startswith("//"):
             return value
         try:
             parts = urlsplit(value)
-            hostname = (parts.hostname or "").rstrip(".").lower()
+            hostname = self._canonical_hostname(parts.hostname or "")
             if ":" in hostname and not hostname.startswith("["):
                 hostname = f"[{hostname}]"
             netloc = hostname
@@ -173,7 +201,7 @@ class EvidenceRedactor:
                 netloc = f"{netloc}:{parts.port}"
             path = (
                 "/[REDACTED_PATH]"
-                if self._host_has_secret_path(hostname) and parts.path not in {"", "/"}
+                if self._path_contains_credential(hostname, parts.path)
                 else parts.path
             )
             query = urlencode(
@@ -182,9 +210,33 @@ class EvidenceRedactor:
                     for key, item in parse_qsl(parts.query, keep_blank_values=True)
                 ]
             )
-        except (UnicodeError, ValueError):
+        except (RedactionError, UnicodeError, ValueError):
             return "[REDACTED_URL]"
         return urlunsplit((parts.scheme, netloc, path, query, ""))
+
+    @classmethod
+    def _url_contains_credential(cls, value: str) -> bool:
+        value = value.replace("\\", "/")
+        value = re.sub(r"^((?:https?|wss?):)/*", r"\1//", value, flags=re.IGNORECASE)
+        if "://" not in value:
+            value = "//" + value.lstrip("/")
+        if "://" not in value and not value.startswith("//"):
+            return False
+        try:
+            parts = urlsplit(value)
+            hostname = cls._canonical_hostname(parts.hostname or "")
+            return bool(
+                parts.username is not None
+                or parts.password is not None
+                or cls._path_contains_credential(hostname, parts.path)
+                or any(
+                    cls._sensitive_query.search(key)
+                    for component in (parts.query, parts.fragment)
+                    for key, _ in parse_qsl(component, keep_blank_values=True)
+                )
+            )
+        except (RedactionError, UnicodeError, ValueError):
+            return True
 
     def _sanitize_string(self, value: str) -> str:
         sanitized = value
@@ -234,3 +286,31 @@ class EvidenceRedactor:
         except Exception as exc:
             raise RedactionError("evidence redaction failed") from exc
         raise RedactionError("unsupported evidence type during redaction")
+
+
+def contains_known_credential(text: str) -> bool:
+    """Return whether text matches any central credential-redaction rule."""
+    patterns = (
+        EvidenceRedactor._token,
+        EvidenceRedactor._authorization,
+        EvidenceRedactor._cookie_header,
+        EvidenceRedactor._private_key,
+        EvidenceRedactor._private_key_header,
+        EvidenceRedactor._url_credentials,
+        EvidenceRedactor._common_access_key,
+        EvidenceRedactor._vendor_token,
+        EvidenceRedactor._modern_service_token,
+        EvidenceRedactor._sensitive_assignment,
+        EvidenceRedactor._sensitive_whitespace_assignment,
+    )
+    if any(pattern.search(text) for pattern in patterns):
+        return True
+    return any(
+        EvidenceRedactor._url_contains_credential(match.group(0))
+        for match in EvidenceRedactor._embedded_url.finditer(text)
+    )
+
+
+def is_sensitive_credential_field(name: str) -> bool:
+    """Return whether the central mapping redactor treats a field as sensitive."""
+    return EvidenceRedactor._sensitive_field.search(name) is not None

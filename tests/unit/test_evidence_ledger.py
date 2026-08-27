@@ -55,6 +55,72 @@ def test_completed_run_id_cannot_be_reused_or_resumed(tmp_path: Path) -> None:
         inspection.put_blob(b"changed")
 
 
+def test_open_existing_rejects_oversized_blob_before_materializing_it(tmp_path: Path) -> None:
+    ledger = EvidenceLedger(tmp_path, "bounded")
+    digest = ledger.put_blob(b"x" * 1_025)
+    ledger.append(
+        event_type="validated",
+        state="VALIDATED",
+        subject_digest=canonical_digest({"candidate": 1}),
+        blob_digests=(digest,),
+    )
+
+    with pytest.raises(EvidenceIntegrityError, match="event references an invalid blob") as exc:
+        EvidenceLedger.open_existing(tmp_path, "bounded", max_read_bytes=1_024)
+    assert exc.value.__cause__ is not None
+    assert "blob exceeds size limit" in str(exc.value.__cause__)
+
+
+def test_open_existing_enforces_aggregate_blob_budget(tmp_path: Path) -> None:
+    ledger = EvidenceLedger(tmp_path, "aggregate")
+    digests = tuple(ledger.put_blob(bytes([index]) * 600) for index in range(2))
+    ledger.append(
+        event_type="validated",
+        state="VALIDATED",
+        subject_digest=canonical_digest({"candidate": 1}),
+        blob_digests=digests,
+    )
+
+    with pytest.raises(EvidenceIntegrityError, match="aggregate size limit"):
+        EvidenceLedger.open_existing(
+            tmp_path,
+            "aggregate",
+            max_read_bytes=1_024,
+            max_total_read_bytes=1_500,
+        )
+
+
+def test_verify_reads_a_repeated_blob_digest_only_once(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ledger = EvidenceLedger(tmp_path, "repeated")
+    digest = ledger.put_blob(b"shared")
+    subject = canonical_digest({"candidate": 1})
+    ledger.append(
+        event_type="validated",
+        state="VALIDATED",
+        subject_digest=subject,
+        blob_digests=(digest,),
+    )
+    ledger.append(
+        event_type="building",
+        state="BUILDING",
+        subject_digest=subject,
+        blob_digests=(digest,),
+    )
+    original_read_blob = EvidenceLedger.read_blob
+    reads = 0
+
+    def count_read(self: EvidenceLedger, value: str) -> bytes:
+        nonlocal reads
+        reads += 1
+        return original_read_blob(self, value)
+
+    monkeypatch.setattr(EvidenceLedger, "read_blob", count_read)
+    tuple(ledger.verify())
+    assert reads == 1
+
+
 def test_event_tampering_is_detected(tmp_path: Path) -> None:
     ledger = EvidenceLedger(tmp_path, "run-001")
     ledger.append(
