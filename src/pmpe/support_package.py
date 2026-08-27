@@ -351,6 +351,7 @@ def _load_release_candidate(
         or approval["authority"] != contract.payload["approved_by"]
         or release_receipt.get("approved_contract_digest") != contract_digest
         or canonical_digest(release_contract) != contract_digest
+        or contract_digest != contract.digest
     ):
         raise PackageContractError("run has no verified release approval")
     terminal = events[-1]
@@ -359,6 +360,7 @@ def _load_release_candidate(
     if (
         terminal.get("event_type") != "release_ready"
         or terminal.get("state") != "RELEASE_READY"
+        or terminal.get("subject_digest") != contract.digest
         or not isinstance(payload, dict)
         or not isinstance(blob_digests, list)
     ):
@@ -877,12 +879,12 @@ def assemble_support_package(
     except BaseException:
         shutil.rmtree(staged, ignore_errors=True)
         raise
-    return verify_support_package(destination)
+    return verify_support_package(
+        destination, expected_manifest_digest=str(manifest["manifest_digest"])
+    )
 
 
-def verify_support_package(
-    bundle: Path, *, expected_manifest_digest: str | None = None
-) -> PackageResult:
+def verify_support_package(bundle: Path, *, expected_manifest_digest: str) -> PackageResult:
     """Verify exact files, structural mode/corpus binding, and manifest integrity."""
     root = Path(bundle)
     try:
@@ -904,7 +906,9 @@ def verify_support_package(
         or canonical_digest(unsigned) != claimed_manifest_digest
     ):
         raise PackageContractError("package manifest digest or state is invalid")
-    if expected_manifest_digest is not None and claimed_manifest_digest != expected_manifest_digest:
+    if not _DIGEST.fullmatch(expected_manifest_digest):
+        raise PackageContractError("trusted expected manifest digest is malformed")
+    if claimed_manifest_digest != expected_manifest_digest:
         raise PackageContractError("package manifest does not match the trusted expected digest")
     files = manifest.get("files")
     if not isinstance(files, dict) or any(

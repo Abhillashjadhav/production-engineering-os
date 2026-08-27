@@ -73,6 +73,11 @@ def _write_contract(tmp_path: Path, payload: dict[str, object] | None = None) ->
     return path
 
 
+def _trusted_verify(bundle: Path) -> PackageResult:
+    manifest = json.loads((bundle / "manifest.json").read_text())
+    return verify_support_package(bundle, expected_manifest_digest=str(manifest["manifest_digest"]))
+
+
 def _assemble(
     tmp_path: Path,
     bundle: Path,
@@ -233,7 +238,7 @@ def test_assembly_preserves_release_ready_and_emits_package_ready_manifest(
         ),
     }
     assert "observability" not in manifest["ports"]
-    assert verify_support_package(bundle).state == "PACKAGE_READY"
+    assert _trusted_verify(bundle).state == "PACKAGE_READY"
     assert (
         verify_support_package(bundle, expected_manifest_digest=result.manifest_digest).state
         == "PACKAGE_READY"
@@ -247,13 +252,13 @@ def test_bundle_verification_fails_closed_on_source_or_corpus_tampering(tmp_path
     _assemble(tmp_path, bundle)
     (bundle / "app.py").write_text("print('tampered')\n")
     with pytest.raises(PackageContractError, match="digest"):
-        verify_support_package(bundle)
+        _trusted_verify(bundle)
 
     bundle = tmp_path / "second"
     _assemble(tmp_path, bundle)
     (bundle / "recorded-corpus.json").write_text("{}\n")
     with pytest.raises(PackageContractError, match="digest"):
-        verify_support_package(bundle)
+        _trusted_verify(bundle)
 
     bundle = tmp_path / "symlink-bundle"
     _assemble(tmp_path, bundle)
@@ -263,7 +268,7 @@ def test_bundle_verification_fails_closed_on_source_or_corpus_tampering(tmp_path
     source.unlink()
     source.symlink_to(target)
     with pytest.raises(PackageContractError, match="symbolic link"):
-        verify_support_package(bundle)
+        _trusted_verify(bundle)
 
 
 def test_bundle_verification_rederives_manifest_claims_and_approval(tmp_path: Path) -> None:
@@ -276,7 +281,7 @@ def test_bundle_verification_rederives_manifest_claims_and_approval(tmp_path: Pa
     manifest["manifest_digest"] = canonical_digest(manifest)
     manifest_path.write_text(json.dumps(manifest))
     with pytest.raises(PackageContractError, match="derived claims"):
-        verify_support_package(bundle)
+        _trusted_verify(bundle)
 
     bundle = tmp_path / "approval-tamper"
     _assemble(tmp_path, bundle)
@@ -296,7 +301,7 @@ def test_bundle_verification_rederives_manifest_claims_and_approval(tmp_path: Pa
     manifest["manifest_digest"] = canonical_digest(manifest)
     manifest_path.write_text(json.dumps(manifest))
     with pytest.raises(PackageContractError, match="approval"):
-        verify_support_package(bundle)
+        _trusted_verify(bundle)
 
 
 def test_package_rejects_unapproved_release_run(tmp_path: Path) -> None:
@@ -317,7 +322,7 @@ def test_package_verification_rederives_every_port(tmp_path: Path) -> None:
     manifest["manifest_digest"] = canonical_digest(manifest)
     manifest_path.write_text(json.dumps(manifest))
     with pytest.raises(PackageContractError, match="port binding"):
-        verify_support_package(bundle)
+        _trusted_verify(bundle)
 
 
 def test_nested_manifest_is_not_excluded_from_inventory(tmp_path: Path) -> None:
@@ -327,7 +332,7 @@ def test_nested_manifest_is_not_excluded_from_inventory(tmp_path: Path) -> None:
     nested.parent.mkdir(exist_ok=True)
     nested.write_text("{}\n")
     with pytest.raises(PackageContractError, match="inventory"):
-        verify_support_package(bundle)
+        _trusted_verify(bundle)
 
 
 def test_manifest_schema_version_and_unknown_fields_fail_closed(tmp_path: Path) -> None:
@@ -341,7 +346,7 @@ def test_manifest_schema_version_and_unknown_fields_fail_closed(tmp_path: Path) 
         manifest["manifest_digest"] = canonical_digest(manifest)
         manifest_path.write_text(json.dumps(manifest))
         with pytest.raises(PackageContractError, match="manifest schema"):
-            verify_support_package(bundle)
+            _trusted_verify(bundle)
 
     bundle = tmp_path / "approval-unknown"
     _assemble(tmp_path, bundle)
@@ -352,7 +357,7 @@ def test_manifest_schema_version_and_unknown_fields_fail_closed(tmp_path: Path) 
     manifest["manifest_digest"] = canonical_digest(manifest)
     manifest_path.write_text(json.dumps(manifest))
     with pytest.raises(PackageContractError, match="approval binding"):
-        verify_support_package(bundle)
+        _trusted_verify(bundle)
 
 
 def test_each_declared_forbidden_proof_selector_must_execute(tmp_path: Path) -> None:
@@ -402,7 +407,7 @@ def test_corpus_and_proof_implementations_are_verifier_owned(tmp_path: Path) -> 
         manifest["manifest_digest"] = canonical_digest(manifest)
         manifest_path.write_text(json.dumps(manifest))
         with pytest.raises(PackageContractError, match=message):
-            verify_support_package(bundle)
+            _trusted_verify(bundle)
 
 
 def test_package_contains_no_secret_values_and_records_an_sbom(tmp_path: Path) -> None:

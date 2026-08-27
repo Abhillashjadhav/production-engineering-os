@@ -83,7 +83,21 @@ def test_package_support_build_and_verify_cli(tmp_path: Path) -> None:
         )
         == 0
     )
-    assert main(["barebones", "package", "verify", "--bundle", str(bundle)]) == 0
+    manifest_digest = json.loads((bundle / "manifest.json").read_text())["manifest_digest"]
+    assert (
+        main(
+            [
+                "barebones",
+                "package",
+                "verify",
+                "--bundle",
+                str(bundle),
+                "--expected-manifest-digest",
+                manifest_digest,
+            ]
+        )
+        == 0
+    )
     assert json.loads((bundle / "manifest.json").read_text())["state"] == "PACKAGE_READY"
 
 
@@ -116,9 +130,23 @@ def test_package_support_cli_rejects_tampered_bundle(tmp_path: Path) -> None:
         )
         == 0
     )
+    manifest_digest = json.loads((bundle / "manifest.json").read_text())["manifest_digest"]
     (bundle / "app.py").write_text("tampered\n")
 
-    assert main(["barebones", "package", "verify", "--bundle", str(bundle)]) == 2
+    assert (
+        main(
+            [
+                "barebones",
+                "package",
+                "verify",
+                "--bundle",
+                str(bundle),
+                "--expected-manifest-digest",
+                manifest_digest,
+            ]
+        )
+        == 2
+    )
 
 
 def test_package_support_cli_requires_a_verified_release_run(tmp_path: Path) -> None:

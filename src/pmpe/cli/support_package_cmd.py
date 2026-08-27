@@ -77,5 +77,5 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     build.set_defaults(fn=_build)
     verify = commands.add_parser("verify", help="verify a sealed support package")
     verify.add_argument("--bundle", required=True)
-    verify.add_argument("--expected-manifest-digest")
+    verify.add_argument("--expected-manifest-digest", required=True)
     verify.set_defaults(fn=_verify)

@@ -131,7 +131,9 @@ pmpe barebones package build \
   --expected-release-head-digest sha256:<trusted-terminal-event-digest> \
   --output /tmp/customer-support-package
 
-pmpe barebones package verify --bundle /tmp/customer-support-package
+pmpe barebones package verify \
+  --bundle /tmp/customer-support-package \
+  --expected-manifest-digest sha256:<trusted-build-output-digest>
 
 python /tmp/customer-support-package/app.py --port 8080
 ```
