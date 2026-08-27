@@ -295,3 +295,8 @@ def contains_known_credential(text: str) -> bool:
         EvidenceRedactor._url_contains_credential(match.group(0))
         for match in EvidenceRedactor._embedded_url.finditer(text)
     )
+
+
+def is_sensitive_credential_field(name: str) -> bool:
+    """Return whether the central mapping redactor treats a field as sensitive."""
+    return EvidenceRedactor._sensitive_field.search(name) is not None

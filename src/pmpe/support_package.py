@@ -23,7 +23,7 @@ from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes, str
 from pmpe.contracts.intake import contains_prohibited_secret
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 from pmpe.quality.security_scan import contains_hardcoded_secret
-from pmpe.repository.redaction import contains_known_credential
+from pmpe.repository.redaction import contains_known_credential, is_sensitive_credential_field
 
 _EVIDENCE_SCHEMA_VERSION = "2.0.0-package"
 _CONTRACT_SCHEMA_VERSION = "1.0.0"
@@ -979,7 +979,10 @@ def _secret_scan(root: Path) -> None:
             return contains_url_credential(value)
         if isinstance(value, JsonObject):
             return any(
-                contains_hardcoded_secret(json.dumps({key: item}, ensure_ascii=False, default=str))
+                (is_sensitive_credential_field(key) and not isinstance(item, bool))
+                or contains_hardcoded_secret(
+                    json.dumps({key: item}, ensure_ascii=False, default=str)
+                )
                 or contains_known_credential(
                     json.dumps({key: item}, ensure_ascii=False, default=str)
                 )
@@ -1015,7 +1018,7 @@ def _secret_scan(root: Path) -> None:
             parsed_json: Any = None
             if copied_evidence:
                 try:
-                    parsed_json = json.loads(decoded, object_pairs_hook=JsonObject)
+                    parsed_json = json.loads(content, object_pairs_hook=JsonObject)
                 except (TypeError, ValueError):
                     parsed_json = None
             if (
