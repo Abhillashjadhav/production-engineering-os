@@ -245,7 +245,7 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                     and not (
                         isinstance(attribute, ast.Constant) and isinstance(attribute.value, str)
                     )
-                    ):
+                ):
                     raise ValueError(
                         f"telemetry emitter uses reflective access: {source_path}:{node.lineno}"
                     )
@@ -275,9 +275,7 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                         if identity not in aliases:
                             aliases.add(identity)
                             changed = True
-            parents = {
-                child: parent for parent in nodes for child in ast.iter_child_nodes(parent)
-            }
+            parents = {child: parent for parent in nodes for child in ast.iter_child_nodes(parent)}
             for node in nodes:
                 if not isinstance(node, (ast.Name, ast.Attribute)) or not isinstance(
                     node.ctx, ast.Load
