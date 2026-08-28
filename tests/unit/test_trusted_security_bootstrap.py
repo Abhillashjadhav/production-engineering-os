@@ -56,6 +56,7 @@ def _manifest(candidate: Path) -> dict[str, object]:
     }
     shell: dict[str, object] = {
         "approved_by": "repository-owner",
+        "approved_candidate_sha": _git(candidate, "rev-parse", "HEAD"),
         "approved_pr_number": 133,
         "expires_at": "2026-09-30T00:00:00Z",
         "files": files,
@@ -259,9 +260,15 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert "deploy" not in workflow.lower()
     assert "  trusted-security-runner:\n    name: trusted-security-runner\n" in workflow
     assert '"/repos/$GITHUB_REPOSITORY/check-runs"' in workflow
+    assert '"/repos/$GITHUB_REPOSITORY/check-runs/$CHECK_RUN_ID"' in workflow
     assert "-f name=security" in workflow
     assert '-f head_sha="$CANDIDATE_SHA"' in workflow
-    assert "-f conclusion=success" in workflow
+    assert "-f status=in_progress" in workflow
+    assert "--jq .id" in workflow
+    assert "if: always()" in workflow
+    assert "job.status == 'success'" in workflow
+    assert "-f status=completed" in workflow
+    assert '-f conclusion="$CHECK_CONCLUSION"' in workflow
     assert "  security:\n    name: security\n" not in workflow
     assert "  security:\n" not in legacy_workflow
     assert "  security-static:\n    name: security-static\n" in legacy_workflow

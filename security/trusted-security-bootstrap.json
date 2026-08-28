@@ -1,5 +1,6 @@
 {
   "approved_by": "repository-owner",
+  "approved_candidate_sha": "ce4cfff1fd09f2a2e6d76f5f9cc174cdc32aaa35",
   "approved_pr_number": 133,
   "expires_at": "2026-09-30T00:00:00Z",
   "files": {
@@ -209,6 +210,6 @@
     "src/pmpe/workflows/support_discovery.py": "sha256:8bf77e08e5cc167713b3e907b099510bb83385091ad003c48a27e904808c1752"
   },
   "justification": "One-time exact verifier bootstrap for PR #133.",
-  "manifest_digest": "sha256:dd4b2ecbc098fb59d1e931e893ae6c4aee0c69ba093abc6b3a659e80531d4277",
+  "manifest_digest": "sha256:0a7fa6af241ab9ff290bef9c520cc966ba236184cbde4824b1492b45cecb1554",
   "schema_version": "trusted-security-bootstrap/v1"
 }

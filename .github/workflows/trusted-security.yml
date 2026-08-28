@@ -25,6 +25,25 @@ jobs:
       CANDIDATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
       SUBJECT_NUMBER: ${{ github.event.pull_request.number || 0 }}
     steps:
+      - name: Start candidate-bound required check
+        id: required-check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          check_run_id="$(
+            gh api --method POST \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/$GITHUB_REPOSITORY/check-runs" \
+              -f name=security \
+              -f head_sha="$CANDIDATE_SHA" \
+              -f status=in_progress \
+              -f details_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              -f "output[title]=Trusted security running" \
+              -f "output[summary]=Verifying exact candidate $CANDIDATE_SHA against base $TRUSTED_BASE_SHA." \
+              --jq .id
+          )"
+          test "$check_run_id" -gt 0
+          echo "check_run_id=$check_run_id" >> "$GITHUB_OUTPUT"
       - name: Check out exact protected base
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -107,17 +126,18 @@ jobs:
           path: ${{ runner.temp }}/trusted-security
           retention-days: 7
           if-no-files-found: error
-      - name: Publish required check on verified candidate
+      - name: Complete candidate-bound required check
+        if: always() && steps.required-check.outputs.check_run_id != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          CHECK_CONCLUSION: ${{ job.status == 'success' && 'success' || 'failure' }}
+          CHECK_RUN_ID: ${{ steps.required-check.outputs.check_run_id }}
         run: |
-          gh api --method POST \
+          gh api --method PATCH \
             -H "Accept: application/vnd.github+json" \
-            "/repos/$GITHUB_REPOSITORY/check-runs" \
-            -f name=security \
-            -f head_sha="$CANDIDATE_SHA" \
+            "/repos/$GITHUB_REPOSITORY/check-runs/$CHECK_RUN_ID" \
             -f status=completed \
-            -f conclusion=success \
+            -f conclusion="$CHECK_CONCLUSION" \
             -f details_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            -f "output[title]=Trusted security passed" \
-            -f "output[summary]=Protected verifier admitted exact candidate $CANDIDATE_SHA against base $TRUSTED_BASE_SHA."
+            -f "output[title]=Trusted security $CHECK_CONCLUSION" \
+            -f "output[summary]=Protected verifier completed for exact candidate $CANDIDATE_SHA against base $TRUSTED_BASE_SHA with outcome $CHECK_CONCLUSION."

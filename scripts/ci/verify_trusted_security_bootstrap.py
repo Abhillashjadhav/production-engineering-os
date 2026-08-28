@@ -27,6 +27,7 @@ _TOOLCHAIN_FILES = ("pyproject.toml", "requirements.lock")
 _SOURCE_ROOT = "src"
 _MANIFEST_FIELDS = {
     "approved_by",
+    "approved_candidate_sha",
     "approved_pr_number",
     "expires_at",
     "files",
@@ -112,6 +113,7 @@ def _manifest_files(value: object) -> dict[str, str]:
 def _load_manifest(
     path: Path,
     *,
+    candidate_sha: str,
     pr_number: int,
     now: datetime,
 ) -> tuple[dict[str, str], str]:
@@ -133,6 +135,7 @@ def _load_manifest(
     if (
         value.get("schema_version") != _SCHEMA
         or value.get("approved_pr_number") != _BOOTSTRAP_PR
+        or value.get("approved_candidate_sha") != candidate_sha
         or pr_number != _BOOTSTRAP_PR
     ):
         raise BootstrapVerificationError("bootstrap manifest is not authorized for this PR")
@@ -225,6 +228,7 @@ def verify_trusted_security(
             )
         expected, manifest_digest = _load_manifest(
             resolved_manifest,
+            candidate_sha=candidate_sha,
             pr_number=pr_number,
             now=now,
         )
