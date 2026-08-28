@@ -358,7 +358,7 @@ def create_app(
             },
         },
     )
-    async def ingest_monitoring_run(
+    def ingest_monitoring_run(
         run: RunEnvelope,
         credentials: Annotated[
             HTTPAuthorizationCredentials | None,
@@ -386,7 +386,7 @@ def create_app(
         return IngestResponse(stored=stored, duplicate=not stored, diagnosis=diagnose_run(run))
 
     @app.get("/api/monitoring/overview", response_model=MonitoringOverview)
-    async def monitoring_overview() -> MonitoringOverview:
+    def monitoring_overview() -> MonitoringOverview:
         runs = monitoring_store.list_runs_for_overview() if monitoring_store else []
         return build_overview(runs, mode="LIVE") if runs else build_demo_overview()
 
