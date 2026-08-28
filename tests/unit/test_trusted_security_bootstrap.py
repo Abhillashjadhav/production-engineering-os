@@ -293,12 +293,24 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert "--verify-dependency-coverage" in workflow
     assert "--ignore-installed" in workflow
     assert "python -m pip check" in workflow
-    assert 'python-version: "3.11"' in workflow
-    assert 'python-version: "3.12"' in workflow
-    assert "steps.python311.outputs.python-path" in workflow
-    assert "steps.python312.outputs.python-path" in workflow
-    assert "candidate-closure-$version" in workflow
-    assert "-r candidate/requirements.lock" in workflow
+    assert 'python-version: "3.12.14"' in workflow
+    assert "docker.io/library/python@sha256:" in workflow
+    assert "docker run --rm" in workflow
+    assert "--platform linux/amd64" in workflow
+    assert "--read-only" in workflow
+    assert "--cap-drop=ALL" in workflow
+    assert "--security-opt=no-new-privileges" in workflow
+    assert "--user 65532:65532" in workflow
+    assert "--pids-limit 256" in workflow
+    assert "--memory-swap 2g" in workflow
+    assert "--network bridge" in workflow
+    assert "--only-binary=:all:" in workflow
+    assert "dst=/input/requirements.lock,readonly" in workflow
+    assert "-r /input/requirements.lock" in workflow
+    assert (
+        'container_name="candidate-closure-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$version"'
+        in workflow
+    )
     assert "candidate-pip-check-$version.txt" in workflow
     assert "missing_conclusion=failure" in finalizer
     assert '-f conclusion="$missing_conclusion"' in finalizer
