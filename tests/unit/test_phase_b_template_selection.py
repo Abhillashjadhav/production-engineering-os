@@ -373,6 +373,11 @@ def test_legacy_fixture_id_and_step_count_digest_is_rejected() -> None:
             "requirement_refs": ["FR-001", "FR-001"],
             "verification_method": "acceptance.given_when_then/v1",
         },
+        {
+            "criterion": "Exercise E1.",
+            "requirement_refs": ["FR-001"],
+            "verification_method": "manual.review/v1",
+        },
     ],
 )
 def test_referenced_acceptance_criterion_must_have_complete_valid_shape(

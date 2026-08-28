@@ -511,6 +511,7 @@ def _validate_capabilities(
                 or not str(criterion["criterion"]).strip()
                 or not isinstance(criterion.get("verification_method"), str)
                 or not str(criterion["verification_method"]).strip()
+                or criterion.get("verification_method") != verifier
                 or not isinstance(requirement_refs, list)
                 or not requirement_refs
                 or not all(
