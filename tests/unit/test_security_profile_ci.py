@@ -225,6 +225,52 @@ def test_architecture_observer_resolves_relative_builtins_imports(tmp_path: Path
     assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
 
 
+def test_architecture_observer_resolves_literal_builtins_fromlist(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "fromlist.py").write_text('__import__("pmpe", globals(), locals(), ("guided",), 0)\n')
+
+    assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
+
+
+def test_architecture_observer_fails_closed_on_dynamic_builtins_fromlist(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "fromlist.py").write_text(
+        '__import__("pmpe", globals(), locals(), requested_names, 0)\n'
+    )
+
+    assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    [
+        "from importlib import import_module\n"
+        'def load(import_module):\n    import_module("pmpe.guided.api")\n',
+        'import importlib\ndef load(importlib):\n    importlib.import_module("pmpe.guided.api")\n',
+        'def load(__import__):\n    __import__("pmpe.guided.api")\n',
+        "import importlib\n"
+        "def bind():\n    loader = importlib.import_module\n"
+        'def load(loader):\n    loader("pmpe.guided.api")\n',
+    ],
+)
+def test_architecture_observer_respects_lexically_shadowed_loader_names(
+    tmp_path: Path,
+    source_text: str,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "shadowed.py").write_text(source_text)
+
+    edges = _observed_architecture_edges(tmp_path)
+
+    assert ("orchestration", "interfaces") not in edges
+    assert ("orchestration", "unresolved_dynamic") not in edges
+
+
 def test_architecture_observer_fails_closed_on_unknown_builtins_import_level(
     tmp_path: Path,
 ) -> None:

@@ -8,6 +8,7 @@ import ast
 import hashlib
 import importlib.util
 import json
+import re
 import subprocess  # nosec B404 - fixed git argv authenticates the local checkout
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, replace
@@ -492,6 +493,196 @@ def _builtins_import_level(node: ast.Call) -> int | None:
     return raw.value
 
 
+def _builtins_import_fromlist(node: ast.Call) -> tuple[str, ...] | None:
+    """Return literal __import__ fromlist entries, or None when unresolved."""
+
+    if len(node.args) > 5 or any(keyword.arg is None for keyword in node.keywords):
+        return None
+    positional = node.args[3] if len(node.args) >= 4 else None
+    keyword_values = [keyword.value for keyword in node.keywords if keyword.arg == "fromlist"]
+    if positional is not None and keyword_values or len(keyword_values) > 1:
+        return None
+    raw = positional if positional is not None else (keyword_values[0] if keyword_values else None)
+    if raw is None:
+        return ()
+    if not isinstance(raw, (ast.List, ast.Set, ast.Tuple)):
+        return None
+    entries: list[str] = []
+    for item in raw.elts:
+        if (
+            not isinstance(item, ast.Constant)
+            or not isinstance(item.value, str)
+            or not re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*", item.value)
+        ):
+            return None
+        entries.append(item.value)
+    return tuple(entries)
+
+
+_LEXICAL_SCOPES = (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef, ast.Lambda, ast.Module)
+_LoaderAliases = tuple[set[str], set[str], set[str], set[str]]
+
+
+def _lexical_import_aliases(
+    tree: ast.Module,
+    *,
+    source_layer: str,
+    edges: set[tuple[str, str]],
+) -> tuple[dict[ast.AST, ast.AST], dict[ast.AST, _LoaderAliases]]:
+    """Resolve loader identities per Python lexical scope, including shadowing."""
+
+    node_scope: dict[ast.AST, ast.AST] = {}
+    scope_parent: dict[ast.AST, ast.AST] = {}
+    scopes: list[ast.AST] = [tree]
+
+    def visit(node: ast.AST, scope: ast.AST) -> None:
+        current = scope
+        if node is not tree and isinstance(node, _LEXICAL_SCOPES):
+            current = node
+            scope_parent[current] = scope
+            scopes.append(current)
+        node_scope[node] = current
+        for child in ast.iter_child_nodes(node):
+            visit(child, current)
+
+    visit(tree, tree)
+    nodes_by_scope: dict[ast.AST, list[ast.AST]] = {scope: [] for scope in scopes}
+    for node, scope in node_scope.items():
+        nodes_by_scope[scope].append(node)
+
+    aliases_by_scope: dict[ast.AST, _LoaderAliases] = {}
+    for scope in scopes:
+        nodes = nodes_by_scope[scope]
+        global_names = {
+            name
+            for node in nodes
+            if isinstance(node, (ast.Global, ast.Nonlocal))
+            for name in node.names
+        }
+        local_names = {
+            node.id
+            for node in nodes
+            if isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Del, ast.Store))
+        }
+        local_names.update(node.arg for node in nodes if isinstance(node, ast.arg))
+        for node in nodes:
+            if isinstance(node, ast.Import):
+                local_names.update(
+                    alias.asname or alias.name.split(".", 1)[0] for alias in node.names
+                )
+            elif isinstance(node, ast.ImportFrom):
+                local_names.update(
+                    alias.asname or alias.name for alias in node.names if alias.name != "*"
+                )
+            elif isinstance(node, (ast.ExceptHandler, ast.MatchAs)) and node.name:
+                local_names.add(node.name)
+        local_names.update(
+            child.name
+            for child, parent in scope_parent.items()
+            if parent is scope
+            and isinstance(child, (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef))
+        )
+        local_names.difference_update(global_names)
+
+        if scope is tree:
+            builtins_aliases: set[str] = set()
+            builtin_import_aliases = {"__import__"}
+            importlib_aliases: set[str] = set()
+            import_module_aliases: set[str] = set()
+        else:
+            parent_aliases = aliases_by_scope[scope_parent[scope]]
+            builtins_aliases = parent_aliases[0] - local_names
+            builtin_import_aliases = parent_aliases[1] - local_names
+            importlib_aliases = parent_aliases[2] - local_names
+            import_module_aliases = parent_aliases[3] - local_names
+
+        for node in nodes:
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    bound = alias.asname or alias.name.split(".", 1)[0]
+                    if alias.name == "importlib" or (
+                        alias.name.startswith("importlib.") and alias.asname is None
+                    ):
+                        importlib_aliases.add(bound)
+                    elif alias.name == "builtins":
+                        builtins_aliases.add(bound)
+            elif isinstance(node, ast.ImportFrom) and node.module == "importlib":
+                for alias in node.names:
+                    if alias.name == "import_module":
+                        import_module_aliases.add(alias.asname or alias.name)
+            elif isinstance(node, ast.ImportFrom) and node.module == "builtins":
+                for alias in node.names:
+                    if alias.name == "__import__":
+                        builtin_import_aliases.add(alias.asname or alias.name)
+
+        changed = True
+        while changed:
+            changed = False
+            for node in nodes:
+                if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                    continue
+                value = node.value
+                if value is None:
+                    continue
+                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                references = (
+                    (
+                        _importlib_module_reference(value, importlib_aliases),
+                        importlib_aliases,
+                    ),
+                    (
+                        _importlib_module_reference(value, builtins_aliases),
+                        builtins_aliases,
+                    ),
+                    (
+                        _importlib_loader_reference(
+                            value,
+                            importlib_aliases=importlib_aliases,
+                            import_module_aliases=import_module_aliases,
+                        ),
+                        import_module_aliases,
+                    ),
+                    (
+                        _builtins_loader_reference(
+                            value,
+                            builtins_aliases=builtins_aliases,
+                            builtin_import_aliases=builtin_import_aliases,
+                        ),
+                        builtin_import_aliases,
+                    ),
+                )
+                admitted = False
+                for matches, destination in references:
+                    if not matches:
+                        continue
+                    admitted = True
+                    for target in targets:
+                        if isinstance(target, ast.Name):
+                            if target.id not in destination:
+                                destination.add(target.id)
+                                changed = True
+                        else:
+                            edges.add((source_layer, "unresolved_dynamic"))
+                    break
+                if admitted:
+                    continue
+                if _stores_import_capability(
+                    value,
+                    builtins_aliases=builtins_aliases,
+                    builtin_import_aliases=builtin_import_aliases,
+                    importlib_aliases=importlib_aliases,
+                    import_module_aliases=import_module_aliases,
+                ):
+                    edges.add((source_layer, "unresolved_dynamic"))
+        aliases_by_scope[scope] = (
+            builtins_aliases,
+            builtin_import_aliases,
+            importlib_aliases,
+            import_module_aliases,
+        )
+    return node_scope, aliases_by_scope
+
+
 def _collect_architecture_edges(
     root: Path,
     path: Path,
@@ -504,26 +695,19 @@ def _collect_architecture_edges(
 ) -> None:
     source_lines = path.read_text().splitlines()
     tree = ast.parse("\n".join(source_lines) + "\n", filename=str(path))
-    builtins_aliases = {"builtins"}
-    builtin_import_aliases = {"__import__"}
-    importlib_aliases = {"importlib"}
-    import_module_aliases = {"import_module"}
+    node_scope, aliases_by_scope = _lexical_import_aliases(
+        tree,
+        source_layer=source_layer,
+        edges=edges,
+    )
     for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            for alias in node.names:
-                if alias.name == "importlib":
-                    importlib_aliases.add(alias.asname or alias.name)
-                elif alias.name == "builtins":
-                    builtins_aliases.add(alias.asname or alias.name)
-        elif isinstance(node, ast.ImportFrom) and node.module == "importlib":
-            for alias in node.names:
-                if alias.name == "import_module":
-                    import_module_aliases.add(alias.asname or alias.name)
-        elif isinstance(node, ast.ImportFrom) and node.module == "builtins":
-            for alias in node.names:
-                if alias.name == "__import__":
-                    builtin_import_aliases.add(alias.asname or alias.name)
-        elif (
+        (
+            builtins_aliases,
+            _,
+            importlib_aliases,
+            _,
+        ) = aliases_by_scope[node_scope[node]]
+        if (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
             and node.func.id == "getattr"
@@ -533,71 +717,13 @@ def _collect_architecture_edges(
             and not (isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str))
         ):
             edges.add((source_layer, "unresolved_dynamic"))
-    changed = True
-    while changed:
-        changed = False
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.Assign, ast.AnnAssign)):
-                continue
-            value = node.value
-            if value is None:
-                continue
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            is_importlib_module = _importlib_module_reference(value, importlib_aliases)
-            if is_importlib_module:
-                for target in targets:
-                    if isinstance(target, ast.Name) and target.id not in importlib_aliases:
-                        importlib_aliases.add(target.id)
-                        changed = True
-                    elif not isinstance(target, ast.Name):
-                        edges.add((source_layer, "unresolved_dynamic"))
-            is_builtins_module = _importlib_module_reference(value, builtins_aliases)
-            if is_builtins_module:
-                for target in targets:
-                    if isinstance(target, ast.Name) and target.id not in builtins_aliases:
-                        builtins_aliases.add(target.id)
-                        changed = True
-                    elif not isinstance(target, ast.Name):
-                        edges.add((source_layer, "unresolved_dynamic"))
-            is_importlib_loader = _importlib_loader_reference(
-                value,
-                importlib_aliases=importlib_aliases,
-                import_module_aliases=import_module_aliases,
-            )
-            if is_importlib_loader:
-                for target in targets:
-                    if isinstance(target, ast.Name) and target.id not in import_module_aliases:
-                        import_module_aliases.add(target.id)
-                        changed = True
-                    elif not isinstance(target, ast.Name):
-                        edges.add((source_layer, "unresolved_dynamic"))
-                continue
-            is_builtins_loader = _builtins_loader_reference(
-                value,
-                builtins_aliases=builtins_aliases,
-                builtin_import_aliases=builtin_import_aliases,
-            )
-            if is_builtins_loader:
-                for target in targets:
-                    if isinstance(target, ast.Name) and target.id not in builtin_import_aliases:
-                        builtin_import_aliases.add(target.id)
-                        changed = True
-                    elif not isinstance(target, ast.Name):
-                        edges.add((source_layer, "unresolved_dynamic"))
-                continue
-            if (
-                not is_importlib_module
-                and not is_builtins_module
-                and _stores_import_capability(
-                    value,
-                    builtins_aliases=builtins_aliases,
-                    builtin_import_aliases=builtin_import_aliases,
-                    importlib_aliases=importlib_aliases,
-                    import_module_aliases=import_module_aliases,
-                )
-            ):
-                edges.add((source_layer, "unresolved_dynamic"))
     for node in ast.walk(tree):
+        (
+            builtins_aliases,
+            builtin_import_aliases,
+            importlib_aliases,
+            import_module_aliases,
+        ) = aliases_by_scope[node_scope[node]]
         modules: list[str] = []
         if isinstance(node, ast.Import):
             modules = [alias.name for alias in node.names]
@@ -658,6 +784,12 @@ def _collect_architecture_edges(
                         continue
                     dynamic_target = importlib.util.resolve_name(dynamic_target, package)
                 modules = [dynamic_target]
+                if is_builtins_call:
+                    fromlist = _builtins_import_fromlist(node)
+                    if fromlist is None:
+                        edges.add((source_layer, "unresolved_dynamic"))
+                    else:
+                        modules.extend(f"{dynamic_target}.{item}" for item in fromlist)
             else:
                 relative_path = path.relative_to(root).as_posix()
                 source_line = source_lines[node.lineno - 1]

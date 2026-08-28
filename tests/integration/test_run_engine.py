@@ -333,6 +333,38 @@ def test_resume_authenticates_and_binds_pre_retention_run_before_release(
     assert terminal["output_digests"]["terminal_retention"].startswith("sha256:")
 
 
+def test_resume_recovers_an_interrupted_legacy_retention_state_write(
+    run: EngineeringRun,
+) -> None:
+    from pmpe.contracts.digest import canonical_digest
+    from pmpe.privacy.retention import retention_policy_digest
+
+    state_path = run.run_dir / "run-state.json"
+    state = json.loads(state_path.read_text())
+    state.pop("retention_days")
+    state_path.write_text(json.dumps(state))
+    events = run.ledger.read_all()
+    first = events[0]
+    first["output_digests"].pop("retention_policy")
+    identity = {key: value for key, value in first.items() if key not in {"event_id", "ts"}}
+    first["event_id"] = canonical_digest({**identity, "ts": first["ts"]})
+    run.ledger.path.write_text("".join(json.dumps(event) + "\n" for event in events))
+    run.ledger.record(
+        stage="contract_lock",
+        agent="pmpe-core",
+        action="bind_legacy_retention_policy",
+        input_digests={"contract": run.contract_digest},
+        output_digests={"retention_policy": retention_policy_digest(30)},
+        idempotency_key="legacy-retention-policy/v1",
+    )
+    before = run.ledger.read_all()
+
+    resumed = EngineeringRun.load(run.run_dir)
+
+    assert json.loads(state_path.read_text())["retention_days"] == 30
+    assert resumed.ledger.read_all() == before
+
+
 def test_resume_fails_closed_on_contract_mutation(run: EngineeringRun) -> None:
     contract_copy = run.run_dir / "contract.json"
     mutated = contract_copy.read_text().replace("Pinger", "Pinger-mutated")

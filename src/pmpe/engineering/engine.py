@@ -137,15 +137,39 @@ def _authenticate_legacy_retention_state(
             raise PmpeError("legacy retention ledger cannot be authenticated")
     first = events[0]
     outputs = first.get("output_digests")
+    bindings = [event for event in events if event.get("action") == "bind_legacy_retention_policy"]
     if (
         first.get("stage") != "contract_lock"
         or first.get("action") != "lock"
         or not isinstance(outputs, dict)
         or outputs.get("contract") != contract.get("digest")
         or "retention_policy" in outputs
-        or any(event.get("action") == "bind_legacy_retention_policy" for event in events)
+        or len(bindings) > 1
     ):
         raise PmpeError("legacy retention policy binding is invalid")
+    if bindings:
+        binding = bindings[0]
+        if (
+            binding is not events[-1]
+            or binding.get("stage") != "contract_lock"
+            or binding.get("agent") != _CORE
+            or binding.get("input_digests") != {"contract": contract.get("digest")}
+            or binding.get("output_digests")
+            != {"retention_policy": retention_policy_digest(DEFAULT_RETENTION_DAYS)}
+            or binding.get("idempotency_key") != "legacy-retention-policy/v1"
+            or binding.get("cost") is not None
+            or any(
+                binding.get(field) != ""
+                for field in (
+                    "detail",
+                    "escalation",
+                    "next_state",
+                    "tool",
+                    "verdict",
+                )
+            )
+        ):
+            raise PmpeError("legacy retention policy binding is invalid")
 
 
 class SubmissionRejected(SpecError):  # noqa: N818 — named for the admission outcome
