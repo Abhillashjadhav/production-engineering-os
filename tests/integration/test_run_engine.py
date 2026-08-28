@@ -20,7 +20,6 @@ from pmpe.agents.router import ALL_PROFILES
 from pmpe.assurance.findings import FindingsStore
 from pmpe.assurance.reconcile import OwnerDecision
 from pmpe.contracts.change_request import ChangeRequestStore
-from pmpe.contracts.digest import canonical_digest
 from pmpe.domain.errors import ContractViolation, PmpeError
 from pmpe.engineering.candidate import CandidateViolation
 from pmpe.engineering.engine import (
@@ -301,6 +300,8 @@ def test_resume_preserves_state_and_appends_nothing(run: EngineeringRun) -> None
 def test_resume_authenticates_and_binds_pre_retention_run_before_release(
     run: EngineeringRun,
 ) -> None:
+    from pmpe.contracts.digest import canonical_digest
+
     state_path = run.run_dir / "run-state.json"
     state = json.loads(state_path.read_text())
     state.pop("retention_days")
