@@ -141,13 +141,14 @@ function ProductCard({
 }
 
 function IncidentCard({ incident }: { incident: Incident }) {
+  const isDegraded = incident.attribution === "DEGRADED_CHECK";
   return (
     <article className="incident-card">
       <div className="incident-rail" aria-hidden="true" />
       <div className="incident-content">
         <div className="incident-heading">
           <div>
-            <p className="eyebrow">Likely starting failure</p>
+            <p className="eyebrow">{isDegraded ? "Degraded check" : "Likely starting failure"}</p>
             <h3>{incident.case.display_name}</h3>
             <code className="case-id">Case {incident.case.case_id}</code>
           </div>
@@ -188,7 +189,9 @@ function IncidentCard({ incident }: { incident: Incident }) {
 
         <div className="diagnosis-columns">
           <section className="diagnosis-box" aria-labelledby={`${incident.incident_id}-cause`}>
-            <p className="step-label">1 · Why this likely happened</p>
+            <p className="step-label">
+              {isDegraded ? "1 · Why this likely changed" : "1 · Why this likely happened"}
+            </p>
             <h4 id={`${incident.incident_id}-cause`}>{humanize(incident.cause_category)}</h4>
             <p>{incident.cause_reason}</p>
             <div className="evidence-level">
@@ -208,7 +211,7 @@ function IncidentCard({ incident }: { incident: Incident }) {
           </section>
 
           <section className="diagnosis-box fix-box" aria-labelledby={`${incident.incident_id}-fix`}>
-            <p className="step-label">2 · Go here first</p>
+            <p className="step-label">{isDegraded ? "2 · Inspect this check" : "2 · Go here first"}</p>
             <h4 id={`${incident.incident_id}-fix`}>{incident.fix_location}</h4>
             <dl className="fix-details">
               <div><dt>Owner</dt><dd>{incident.owner_id}</dd></div>
@@ -233,9 +236,13 @@ function IncidentCard({ incident }: { incident: Incident }) {
         </section>
 
         <div className="incident-footer">
-          <span>
-            <strong>{incident.downstream_observation_ids.length}</strong> downstream symptoms hidden from the starting-failure count
-          </span>
+          {isDegraded ? (
+            <span>This check still passes, but moved beyond its allowed tolerance.</span>
+          ) : (
+            <span>
+              <strong>{incident.downstream_observation_ids.length}</strong> downstream symptoms hidden from the starting-failure count
+            </span>
+          )}
           <details className="evidence-disclosure">
             <summary>Show evidence references</summary>
             {incident.evidence_refs.map((evidence) => (
@@ -360,7 +367,7 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
     (product) => product.health !== "HEALTHY",
   );
   const exactCases = new Set(
-    overview.incidents.map(
+    filteredIncidents.map(
       (incident) => JSON.stringify([
         incident.product_id,
         incident.environment,
@@ -411,7 +418,7 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
 
       <div className="metric-strip" aria-label="Monitoring metrics">
         <div><span>Product health</span><strong>{healthyProducts}/{overview.products.length}</strong><small>healthy now</small></div>
-        <div><span>Failed cases</span><strong>{exactCases}</strong><small>exact cases to inspect</small></div>
+        <div><span>Localized cases</span><strong>{exactCases}</strong><small>starting failures or degradations</small></div>
         <div><span>Correct localization</span><strong>{pct(metrics.correctly_localized_rate)}</strong><small>{metrics.known_cause_sample_size} known-cause sample</small></div>
         <div className="guardrail-metric"><span>False attribution</span><strong>{pct(metrics.false_attribution_rate)}</strong><small>target &lt;2% · not proven</small></div>
       </div>

@@ -187,6 +187,57 @@ def test_missing_parallel_branch_overrides_known_failed_dependency() -> None:
     assert by_id["eligible-job-coverage"].root_observation_ids == []
 
 
+def test_missing_evidence_propagates_through_a_passing_intermediate() -> None:
+    run = _failed_dream_job_run().model_copy(deep=True)
+    source = next(
+        item for item in run.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    source.status = "BLOCKED"
+    source.current_value = None
+    intermediate = next(
+        item for item in run.observations if item.observation_id == "eligible-job-coverage"
+    )
+    intermediate.status = "PASS"
+    intermediate.current_value = intermediate.expected_value
+
+    diagnosis = diagnose_run(run)
+    by_id = {item.observation_id: item for item in diagnosis.diagnoses}
+
+    assert "eligible-job-coverage" not in by_id
+    assert by_id["enrichment-completeness"].attribution == "UNCONFIRMED"
+    assert by_id["enrichment-completeness"].cause_confidence == "UNCONFIRMED"
+    assert "enrichment-completeness" not in diagnosis.likely_starting_observation_ids
+
+
+def test_degraded_passing_check_is_projected_as_an_exact_case() -> None:
+    baseline = next(item for item in build_demo_runs() if item.run_id == "dream-job-2026-08-24")
+    current = baseline.model_copy(deep=True)
+    current.run_id = "dream-job-2026-08-25-degraded"
+    current.comparison.run_id = baseline.run_id
+    current.observed_at = baseline.observed_at + timedelta(days=1)
+    regressed = next(
+        item for item in current.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    regressed.current_value = 0.85
+
+    diagnosis = diagnose_run(current)
+    overview = build_overview([baseline, current], mode="LIVE")
+
+    assert diagnosis.health == "DEGRADED"
+    assert diagnosis.fail_count == 0
+    degraded = next(
+        item for item in diagnosis.diagnoses if item.observation_id == regressed.observation_id
+    )
+    assert degraded.attribution == "DEGRADED_CHECK"
+    assert degraded.regression_magnitude == pytest.approx(0.06)
+    assert diagnosis.likely_starting_observation_ids == []
+    assert overview.products[0].health == "DEGRADED"
+    assert len(overview.incidents) == 1
+    assert overview.incidents[0].attribution == "DEGRADED_CHECK"
+    assert overview.incidents[0].case.case_id == regressed.case.case_id
+    assert overview.incidents[0].regression_magnitude == pytest.approx(0.06)
+
+
 def test_required_not_evaluated_observation_blocks_run_health() -> None:
     run = next(
         item for item in build_demo_runs() if item.run_id == "dream-job-2026-08-24"

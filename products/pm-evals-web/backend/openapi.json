@@ -947,6 +947,14 @@
       "Incident": {
         "additionalProperties": false,
         "properties": {
+          "attribution": {
+            "enum": [
+              "LIKELY_STARTING_FAILURE",
+              "DEGRADED_CHECK"
+            ],
+            "title": "Attribution",
+            "type": "string"
+          },
           "case": {
             "$ref": "#/components/schemas/CaseRef"
           },
@@ -1159,6 +1167,7 @@
         },
         "required": [
           "incident_id",
+          "attribution",
           "product_id",
           "product_name",
           "environment",
@@ -1527,7 +1536,8 @@
             "enum": [
               "LIKELY_STARTING_FAILURE",
               "DOWNSTREAM_SYMPTOM",
-              "UNCONFIRMED"
+              "UNCONFIRMED",
+              "DEGRADED_CHECK"
             ],
             "title": "Attribution",
             "type": "string"

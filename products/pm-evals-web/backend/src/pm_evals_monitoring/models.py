@@ -14,7 +14,13 @@ from typing import Any, Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
 ObservationStatus = Literal["PASS", "FAIL", "BLOCKED", "NOT_EVALUATED"]
-Attribution = Literal["LIKELY_STARTING_FAILURE", "DOWNSTREAM_SYMPTOM", "UNCONFIRMED"]
+Attribution = Literal[
+    "LIKELY_STARTING_FAILURE",
+    "DOWNSTREAM_SYMPTOM",
+    "UNCONFIRMED",
+    "DEGRADED_CHECK",
+]
+IncidentAttribution = Literal["LIKELY_STARTING_FAILURE", "DEGRADED_CHECK"]
 RunHealth = Literal["HEALTHY", "DEGRADED", "FAILING", "BLOCKED"]
 EvalLayer = Literal[
     "INPUT",
@@ -373,6 +379,7 @@ class MaintenanceAssessment(StrictModel):
 
 class Incident(StrictModel):
     incident_id: str
+    attribution: IncidentAttribution
     product_id: str
     product_name: str
     environment: str

@@ -532,6 +532,10 @@ export type HealthResponse = {
  * Incident
  */
 export type Incident = {
+    /**
+     * Attribution
+     */
+    attribution: 'LIKELY_STARTING_FAILURE' | 'DEGRADED_CHECK';
     case: CaseRef;
     /**
      * Cause Category
@@ -852,7 +856,7 @@ export type ObservationDiagnosis = {
     /**
      * Attribution
      */
-    attribution: 'LIKELY_STARTING_FAILURE' | 'DOWNSTREAM_SYMPTOM' | 'UNCONFIRMED';
+    attribution: 'LIKELY_STARTING_FAILURE' | 'DOWNSTREAM_SYMPTOM' | 'UNCONFIRMED' | 'DEGRADED_CHECK';
     /**
      * Cause Category
      */

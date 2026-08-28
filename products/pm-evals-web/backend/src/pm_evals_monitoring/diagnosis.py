@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 
 from .models import (
     OVERVIEW_TREND_RUNS_PER_PRODUCT,
+    Attribution,
     AttributionMetrics,
     CauseCategory,
     CauseConfidence,
@@ -130,7 +131,7 @@ def _cause_assessment(
             "UNCONFIRMED",
             "UNCONFIRMED",
             "DEPENDENCY_ONLY",
-            "No controlled comparison or human decision identifies why this case failed.",
+            "No controlled comparison or human decision identifies why this result changed.",
         )
 
     strongest_rank = max(_EVIDENCE_RANK[item.evidence_level] for item in supported)
@@ -177,6 +178,8 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
 
     by_id = {item.observation_id: item for item in run.observations}
     failed = {item.observation_id for item in run.observations if item.status == "FAIL"}
+    degraded = {item.observation_id for item in run.observations if _is_degraded(item)}
+    diagnosable = failed | degraded
     missing_evidence = {
         item.observation_id
         for item in run.observations
@@ -205,71 +208,89 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
     if len(topological_order) != len(by_id):
         raise ValueError("observation dependency graph contains a cycle")
 
-    classifications: dict[str, tuple[str, tuple[str, ...], str]] = {}
+    classifications: dict[str, tuple[Attribution, tuple[str, ...], str]] = {}
+    unresolved_ancestry: dict[str, bool] = {}
     for observation_id in topological_order:
-        if observation_id not in failed:
-            continue
         observation = by_id[observation_id]
-        failed_dependencies = [item for item in observation.depends_on if item in failed]
-        missing_dependencies = [
-            item for item in observation.depends_on if item in missing_evidence
-        ]
-        unresolved_failed_dependencies = [
-            item for item in failed_dependencies if classifications[item][0] == "UNCONFIRMED"
-        ]
-        result: tuple[str, tuple[str, ...], str]
-        if missing_dependencies or unresolved_failed_dependencies:
+        upstream_is_unresolved = any(
+            unresolved_ancestry[dependency_id] for dependency_id in observation.depends_on
+        )
+        unresolved_ancestry[observation_id] = (
+            observation_id in missing_evidence or upstream_is_unresolved
+        )
+        if observation_id not in diagnosable:
+            continue
+        regressed_dependencies = [item for item in observation.depends_on if item in diagnosable]
+        result: tuple[Attribution, tuple[str, ...], str]
+        if upstream_is_unresolved:
             result = (
                 "UNCONFIRMED",
                 (),
                 (
-                    "At least one required upstream branch is blocked, not evaluated, or "
-                    "unresolved, so the starting path is unknown."
+                    "At least one earlier branch in the declared dependency path is blocked "
+                    "or not evaluated, so the starting point is unknown."
                 ),
             )
-        elif failed_dependencies:
+        elif regressed_dependencies:
             roots: set[str] = set()
-            for dependency_id in failed_dependencies:
+            for dependency_id in regressed_dependencies:
                 attribution, dependency_roots, _ = classifications[dependency_id]
-                if attribution == "LIKELY_STARTING_FAILURE":
+                if attribution in {"LIKELY_STARTING_FAILURE", "DEGRADED_CHECK"}:
                     roots.add(dependency_id)
                 else:
                     roots.update(dependency_roots)
             result = (
                 "DOWNSTREAM_SYMPTOM",
                 tuple(sorted(roots)),
-                "A failed upstream check can explain this later failure.",
+                "A regressed upstream check can explain this later result.",
             )
-        else:
+        elif observation_id in failed:
             result = (
                 "LIKELY_STARTING_FAILURE",
                 (observation_id,),
                 "This is the earliest observed failure in the declared dependency path.",
             )
+        else:
+            result = (
+                "DEGRADED_CHECK",
+                (observation_id,),
+                "This check still passes, but its result regressed beyond the allowed tolerance.",
+            )
         classifications[observation_id] = result
 
     diagnoses: list[ObservationDiagnosis] = []
     for observation in sorted(
-        (item for item in run.observations if item.status == "FAIL"),
+        (
+            item
+            for item in run.observations
+            if item.status == "FAIL" or item.observation_id in degraded
+        ),
         key=lambda item: (item.location.stage_index, item.observation_id),
     ):
         attribution, classified_roots, localization_reason = classifications[
             observation.observation_id
         ]
         delta = _signed_delta(observation)
-        if attribution == "LIKELY_STARTING_FAILURE":
+        if attribution in {"LIKELY_STARTING_FAILURE", "DEGRADED_CHECK"}:
             cause = _cause_assessment(observation)
-        else:
+        elif attribution == "DOWNSTREAM_SYMPTOM":
             cause = (
                 "UNCONFIRMED",
                 "UNCONFIRMED",
                 "DEPENDENCY_ONLY",
                 "Treat this as a symptom until its upstream failure is resolved.",
             )
+        else:
+            cause = (
+                "UNCONFIRMED",
+                "UNCONFIRMED",
+                "DEPENDENCY_ONLY",
+                "Do not assign a cause until blocked or unevaluated upstream evidence is resolved.",
+            )
         diagnoses.append(
             ObservationDiagnosis(
                 observation_id=observation.observation_id,
-                attribution=attribution,  # type: ignore[arg-type]
+                attribution=attribution,
                 root_observation_ids=list(classified_roots),
                 signed_delta=delta,
                 regression_magnitude=(None if delta is None else abs(delta) if delta < 0 else 0.0),
@@ -451,15 +472,20 @@ def build_overview(
             )
         )
         by_id = {item.observation_id: item for item in run.observations}
-        diagnosis_by_id = {item.observation_id: item for item in diagnosis.diagnoses}
         comparison_identity = (product_id, environment, run.comparison.run_id)
         comparison = runs_by_identity.get(comparison_identity)
         comparison_health = (
             diagnoses[comparison_identity].health if comparison is not None else None
         )
         run_changes = _changes(run, comparison)
-        for starting_id in diagnosis.likely_starting_observation_ids:
-            observation = by_id[starting_id]
+        projected_diagnoses = [
+            item
+            for item in diagnosis.diagnoses
+            if item.attribution in {"LIKELY_STARTING_FAILURE", "DEGRADED_CHECK"}
+        ]
+        for item_diagnosis in projected_diagnoses:
+            projected_id = item_diagnosis.observation_id
+            observation = by_id[projected_id]
             comparison_observation = _verified_comparison_observation(
                 run,
                 observation,
@@ -467,12 +493,11 @@ def build_overview(
                 comparison_health,
             )
             comparison_available = comparison_observation is not None
-            item_diagnosis = diagnosis_by_id[starting_id]
             downstream_ids = sorted(
                 item.observation_id
                 for item in diagnosis.diagnoses
                 if item.attribution == "DOWNSTREAM_SYMPTOM"
-                and starting_id in item.root_observation_ids
+                and projected_id in item.root_observation_ids
             )
             evidence = list(observation.evidence_refs)
             for signal in observation.cause_signals:
@@ -484,8 +509,9 @@ def build_overview(
                         product_id,
                         environment,
                         run.run_id,
-                        starting_id,
+                        projected_id,
                     ),
+                    attribution=item_diagnosis.attribution,  # type: ignore[arg-type]
                     product_id=product_id,
                     product_name=run.product.display_name,
                     environment=environment,
@@ -495,7 +521,7 @@ def build_overview(
                         run.comparison.label if comparison_available else "Comparison unavailable"
                     ),
                     observed_at=run.observed_at,
-                    observation_id=starting_id,
+                    observation_id=projected_id,
                     case=observation.case,
                     component_id=observation.location.component_id,
                     stage_id=observation.location.stage_id,

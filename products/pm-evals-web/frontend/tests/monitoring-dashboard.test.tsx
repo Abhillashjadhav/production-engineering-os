@@ -50,6 +50,7 @@ const OVERVIEW: MonitoringOverview = {
   incidents: [
     {
       incident_id: "dream-run:source-linkedin-coverage",
+      attribution: "LIKELY_STARTING_FAILURE",
       product_id: "dream-job-agent",
       product_name: "Dream Job Agent",
       environment: "production",
@@ -157,6 +158,44 @@ describe("MonitoringDashboard", () => {
     expect(await screen.findByText("Difference unavailable")).toBeInTheDocument();
     expect(screen.getByText(/expectation is not verified/i)).toBeInTheDocument();
     expect(screen.getByText(/comparison unavailable: dream-approved/i)).toBeInTheDocument();
+  });
+
+  it("labels a passing regression as a degraded check, not a failed check", async () => {
+    const degraded: MonitoringOverview = {
+      ...OVERVIEW,
+      mode: "LIVE",
+      products: [{
+        ...OVERVIEW.products[0],
+        health: "DEGRADED",
+        fail_count: 0,
+      }],
+      incidents: [{
+        ...OVERVIEW.incidents[0],
+        attribution: "DEGRADED_CHECK",
+        downstream_observation_ids: [],
+      }],
+      trend: OVERVIEW.trend.filter((point) => point.product_id === "dream-job-agent"),
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(degraded)} />);
+
+    expect(await screen.findByText("Degraded check")).toBeInTheDocument();
+    expect(screen.getByText(/still passes, but moved beyond/i)).toBeInTheDocument();
+    expect(screen.queryByText("Likely starting failure")).not.toBeInTheDocument();
+  });
+
+  it("does not call localized incidents the total failed-case count", async () => {
+    const unresolved: MonitoringOverview = {
+      ...OVERVIEW,
+      mode: "LIVE",
+      incidents: [],
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(unresolved)} />);
+
+    const label = await screen.findByText("Localized cases");
+    expect(within(label.closest("div")!).getByText("0")).toBeInTheDocument();
+    expect(screen.queryByText("Failed cases")).not.toBeInTheDocument();
   });
 
   it("filters failed cases by product", async () => {

@@ -21,6 +21,10 @@ For every incident, an operator can see:
 - **Current result**: what happened now.
 - **Expected result**: the approved comparison value or behaviour.
 - **Difference**: how far the current result moved from expected.
+- **Degraded check**: a check that still passes but moved beyond its allowed
+  tolerance; it is not labelled as a failed check.
+- **Localized cases**: unique cases with a localized starting failure or a
+  degraded check. This is not presented as the total number of failed cases.
 - **Comparison run**: the approved good run supplying the expectation.
 - **Likely starting failure**: the earliest observed failure in the declared
   dependency path. This is localization, not proof of cause.
@@ -66,6 +70,11 @@ why that failure occurred. Cause confidence is bounded by evidence:
 - controlled replay with relevant variables held fixed: `SUPPORTED`;
 - human adjudication: `CONFIRMED`;
 - missing, contradictory, or equally strong competing evidence: `UNCONFIRMED`.
+
+Blocked or unevaluated evidence remains unresolved through the full dependency
+path, including passing intermediate checks, so a later failure cannot be shown
+as the starting point. Passing checks that regress beyond tolerance receive a
+separate `DEGRADED_CHECK` diagnosis and exact-case incident.
 
 A controlled replay must classify every change dimension as either intentionally
 varied or held constant, with no overlap or omission. Its asserted cause must
