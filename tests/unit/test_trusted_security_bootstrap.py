@@ -237,6 +237,7 @@ def test_exact_checkout_rejects_untracked_candidate_files(tmp_path: Path) -> Non
 
 def test_trusted_workflow_has_no_candidate_authority() -> None:
     workflow = Path(".github/workflows/trusted-security.yml").read_text()
+    finalizer = Path(".github/workflows/trusted-security-finalizer.yml").read_text()
     legacy_workflow = Path(".github/workflows/ci.yml").read_text()
 
     assert "pull_request_target:" in workflow
@@ -263,6 +264,7 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert '"/repos/$GITHUB_REPOSITORY/check-runs/$CHECK_RUN_ID"' in workflow
     assert "-f name=security" in workflow
     assert '-f head_sha="$CANDIDATE_SHA"' in workflow
+    assert '-f external_id="$GITHUB_RUN_ID"' in workflow
     assert "-f status=in_progress" in workflow
     assert "--jq .id" in workflow
     assert "if: always()" in workflow
@@ -272,3 +274,18 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert "  security:\n    name: security\n" not in workflow
     assert "  security:\n" not in legacy_workflow
     assert "  security-static:\n    name: security-static\n" in legacy_workflow
+    assert "workflow_run:" in finalizer
+    assert 'workflows: ["Trusted Security"]' in finalizer
+    assert "types: [completed]" in finalizer
+    assert "checks: write" in finalizer
+    assert "github.event.workflow_run.event == 'pull_request_target'" in finalizer
+    assert "github.event.workflow_run.pull_requests[0].head.sha" in finalizer
+    assert "github.event.workflow_run.head_sha" in finalizer
+    assert 'select(.external_id == \\"$SOURCE_RUN_ID\\")' in finalizer
+    assert "missing_conclusion=failure" in finalizer
+    assert '-f conclusion="$missing_conclusion"' in finalizer
+    assert "--method PATCH" in finalizer
+    assert "actions/checkout" not in finalizer
+    assert "candidate/" not in finalizer
+    assert "pip install" not in finalizer
+    assert "python " not in finalizer
