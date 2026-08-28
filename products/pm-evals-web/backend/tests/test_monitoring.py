@@ -64,6 +64,22 @@ def test_dependency_only_localization_does_not_claim_a_cause() -> None:
     assert start.cause_confidence == "UNCONFIRMED"
 
 
+def test_missing_expected_value_preserves_unknown_regression_magnitude() -> None:
+    run = _failed_dream_job_run().model_copy(deep=True)
+    source = next(
+        item for item in run.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    source.expected_value = None
+
+    diagnosis = diagnose_run(run)
+    start = next(
+        item for item in diagnosis.diagnoses if item.observation_id == source.observation_id
+    )
+
+    assert start.signed_delta is None
+    assert start.regression_magnitude is None
+
+
 def test_controlled_replay_requires_a_real_control_and_fixed_dimensions() -> None:
     run = _failed_dream_job_run()
     source = next(
@@ -284,6 +300,63 @@ def test_missing_comparison_is_never_presented_as_verified_evidence() -> None:
     assert incident.regression_magnitude is None
     assert "not verified" in incident.expected_summary
     assert incident.changes_since_comparison == []
+
+
+def test_comparison_requires_a_matching_passing_observation_and_value() -> None:
+    runs = build_demo_runs()
+    baseline = next(run for run in runs if run.run_id == "dream-job-2026-08-24")
+    current = _failed_dream_job_run()
+
+    missing_observation = baseline.model_copy(deep=True)
+    missing_observation.observations = [
+        item
+        for item in missing_observation.observations
+        if item.observation_id == "pii-disclosure-rate"
+    ]
+    missing_incident = build_overview(
+        [missing_observation, current],
+        mode="LIVE",
+    ).incidents[0]
+
+    different_value = baseline.model_copy(deep=True)
+    comparison_source = next(
+        item
+        for item in different_value.observations
+        if item.observation_id == "source-linkedin-coverage"
+    )
+    comparison_source.current_value = 0.90
+    mismatched_incident = build_overview(
+        [different_value, current],
+        mode="LIVE",
+    ).incidents[0]
+
+    unhealthy = baseline.model_copy(deep=True)
+    unrelated = next(
+        item for item in unhealthy.observations if item.observation_id == "pii-disclosure-rate"
+    )
+    unrelated.status = "FAIL"
+    unhealthy_incident = build_overview(
+        [unhealthy, current],
+        mode="LIVE",
+    ).incidents[0]
+
+    not_earlier = baseline.model_copy(deep=True)
+    not_earlier.observed_at = current.observed_at
+    not_earlier_incident = build_overview(
+        [not_earlier, current],
+        mode="LIVE",
+    ).incidents[0]
+
+    for incident in (
+        missing_incident,
+        mismatched_incident,
+        unhealthy_incident,
+        not_earlier_incident,
+    ):
+        assert incident.comparison_label == "Comparison unavailable"
+        assert incident.expected_value is None
+        assert incident.regression_magnitude is None
+        assert incident.changes_since_comparison == []
 
 
 def test_demo_overview_points_to_case_cause_and_fix_without_asset_churn() -> None:

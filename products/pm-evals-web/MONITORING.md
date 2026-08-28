@@ -51,6 +51,12 @@ these human-readable versions.
 Raw private inputs and outputs must not enter the monitoring contract. Store
 redacted summaries, opaque identifiers, hashes, and approved evidence URIs.
 
+The dashboard shows an expected value, difference, and comparison changes only
+when the referenced earlier run is healthy and contains the same passing case
+and check with exactly that expected value. Missing or mismatched comparison
+evidence is labelled **Comparison unavailable** instead of being inferred from
+the current run's self-reported expectation.
+
 ## Diagnosis rules
 
 Dependency analysis can identify a **likely starting failure**. It cannot prove

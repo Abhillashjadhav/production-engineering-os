@@ -49,6 +49,56 @@ def _signed_delta(observation: Observation) -> float | None:
     return raw if observation.higher_is_better else -raw
 
 
+def _verified_comparison_observation(
+    run: RunEnvelope,
+    observation: Observation,
+    comparison: RunEnvelope | None,
+    comparison_health: RunHealth | None,
+) -> Observation | None:
+    """Return the exact approved observation only when its value is comparable."""
+
+    if (
+        comparison is None
+        or comparison_health != "HEALTHY"
+        or comparison.observed_at >= run.observed_at
+        or observation.expected_value is None
+    ):
+        return None
+    candidate = next(
+        (
+            item
+            for item in comparison.observations
+            if item.observation_id == observation.observation_id
+        ),
+        None,
+    )
+    if candidate is None or candidate.status != "PASS" or candidate.current_value is None:
+        return None
+    same_case = (
+        candidate.case.case_id == observation.case.case_id
+        and candidate.case.use_case_id == observation.case.use_case_id
+        and candidate.case.segment == observation.case.segment
+        and candidate.case.input_fingerprint == observation.case.input_fingerprint
+    )
+    same_check = (
+        candidate.evaluation.layer == observation.evaluation.layer
+        and candidate.evaluation.concern == observation.evaluation.concern
+        and candidate.evaluation.suite_id == observation.evaluation.suite_id
+        and candidate.evaluation.suite_version == observation.evaluation.suite_version
+        and candidate.evaluation.method == observation.evaluation.method
+        and candidate.location.component_id == observation.location.component_id
+        and candidate.location.stage_id == observation.location.stage_id
+        and candidate.location.parameter_id == observation.location.parameter_id
+        and candidate.unit == observation.unit
+        and candidate.higher_is_better == observation.higher_is_better
+    )
+    if not same_case or not same_check:
+        return None
+    if candidate.current_value != observation.expected_value:
+        return None
+    return candidate
+
+
 def _is_degraded(observation: Observation) -> bool:
     delta = _signed_delta(observation)
     return observation.status == "PASS" and delta is not None and delta < -observation.tolerance
@@ -222,7 +272,7 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
                 attribution=attribution,  # type: ignore[arg-type]
                 root_observation_ids=list(classified_roots),
                 signed_delta=delta,
-                regression_magnitude=abs(delta) if delta is not None and delta < 0 else 0.0,
+                regression_magnitude=(None if delta is None else abs(delta) if delta < 0 else 0.0),
                 localization_reason=localization_reason,
                 cause_category=cause[0],
                 cause_confidence=cause[1],
@@ -402,11 +452,21 @@ def build_overview(
         )
         by_id = {item.observation_id: item for item in run.observations}
         diagnosis_by_id = {item.observation_id: item for item in diagnosis.diagnoses}
-        comparison = runs_by_identity.get((product_id, environment, run.comparison.run_id))
-        comparison_available = comparison is not None
-        changes = _changes(run, comparison)
+        comparison_identity = (product_id, environment, run.comparison.run_id)
+        comparison = runs_by_identity.get(comparison_identity)
+        comparison_health = (
+            diagnoses[comparison_identity].health if comparison is not None else None
+        )
+        run_changes = _changes(run, comparison)
         for starting_id in diagnosis.likely_starting_observation_ids:
             observation = by_id[starting_id]
+            comparison_observation = _verified_comparison_observation(
+                run,
+                observation,
+                comparison,
+                comparison_health,
+            )
+            comparison_available = comparison_observation is not None
             item_diagnosis = diagnosis_by_id[starting_id]
             downstream_ids = sorted(
                 item.observation_id
@@ -445,13 +505,17 @@ def build_overview(
                     layer=observation.evaluation.layer,
                     concern=observation.evaluation.concern,
                     current_value=observation.current_value,
-                    expected_value=(observation.expected_value if comparison_available else None),
+                    expected_value=(
+                        comparison_observation.current_value
+                        if comparison_observation is not None
+                        else None
+                    ),
                     current_summary=observation.current_summary,
                     expected_summary=(
-                        observation.expected_summary
-                        if comparison_available
-                        else "The referenced comparison run is not stored, so this expectation "
-                        "is not verified."
+                        comparison_observation.current_summary
+                        if comparison_observation is not None
+                        else "The referenced comparison does not contain a matching passing "
+                        "observation with this expected value, so the expectation is not verified."
                     ),
                     threshold=observation.threshold,
                     unit=observation.unit,
@@ -464,7 +528,7 @@ def build_overview(
                     cause_confidence=item_diagnosis.cause_confidence,
                     evidence_level=item_diagnosis.evidence_level,
                     cause_reason=item_diagnosis.cause_reason,
-                    changes_since_comparison=changes,
+                    changes_since_comparison=(run_changes if comparison_available else []),
                     maintenance=_maintenance(item_diagnosis.cause_category),
                     remediation=observation.remediation,
                     evidence_refs=list(unique_evidence.values()),
