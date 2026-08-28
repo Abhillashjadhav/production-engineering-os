@@ -382,7 +382,7 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
       <header className="monitoring-header">
         <div>
           <p className="brand-kicker"><span className="brand-mark">E</span> PM EVALS / PRODUCTION</p>
-          <h1 id="monitoring-heading">See the exact failure.<br />Start in the right place.</h1>
+          <h1 id="monitoring-heading">See the exact issue.<br />Start in the right place.</h1>
           <p className="monitoring-subtitle">
             Case-level health from input to outcome, with quality and risk checks at every layer.
           </p>

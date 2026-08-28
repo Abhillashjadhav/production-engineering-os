@@ -122,7 +122,7 @@ describe("MonitoringDashboard", () => {
   it("shows the exact case, earned cause, and fix location in plain language", async () => {
     render(<MonitoringDashboard fetcher={fetchOverview()} />);
 
-    expect(await screen.findByRole("heading", { name: /see the exact failure/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /see the exact issue/i })).toBeInTheDocument();
     expect(screen.getByText(/simulation, not production/i)).toBeInTheDocument();
     const diagnosis = screen.getByRole("heading", { name: /where to start/i }).closest("section");
     expect(diagnosis).not.toBeNull();
