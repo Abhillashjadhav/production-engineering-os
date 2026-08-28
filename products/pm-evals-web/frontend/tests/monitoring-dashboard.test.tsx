@@ -341,6 +341,32 @@ describe("MonitoringDashboard", () => {
     expect(within(comparison).queryByText(/^0\.0+ score$/)).not.toBeInTheDocument();
   });
 
+  it("formats large finite ratios without overflowing to infinity", async () => {
+    const largeOverview: MonitoringOverview = {
+      ...OVERVIEW,
+      products: [OVERVIEW.products[0]],
+      incidents: [
+        {
+          ...OVERVIEW.incidents[0],
+          current_value: 1e308,
+          expected_value: 5e307,
+          threshold: 0,
+          regression_magnitude: 5e307,
+          unit: "ratio",
+        },
+      ],
+      trend: OVERVIEW.trend.filter((point) => point.product_id === "dream-job-agent"),
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(largeOverview)} />);
+    const comparison = await screen.findByLabelText("Current and expected result");
+
+    expect(within(comparison).getByText("1.0e+310%")).toBeInTheDocument();
+    expect(within(comparison).getAllByText("5.0e+309%")).toHaveLength(1);
+    expect(within(comparison).getByText("5.0e+309 percentage points")).toBeInTheDocument();
+    expect(within(comparison).queryByText(/infinity/i)).not.toBeInTheDocument();
+  });
+
   it("shows contract categories that no product currently covers", async () => {
     render(<MonitoringDashboard fetcher={fetchOverview()} />);
     const policyRow = await screen.findByRole("row", { name: /policy compliance/i });

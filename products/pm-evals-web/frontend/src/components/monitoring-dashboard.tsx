@@ -79,26 +79,32 @@ function incidentNumberFormat(incident: Incident): IncidentNumberFormat {
       ),
     )
     .filter((value): value is number => value !== null && value > 0 && Number.isFinite(value));
+  const displayScale = incident.unit === "ratio" ? 100 : 1;
+  const wouldOverflowDisplayScale =
+    incident.unit === "ratio" &&
+    [...values, ...differences].some(
+      (value) => Math.abs(value) > Number.MAX_VALUE / displayScale,
+    );
   if (differences.length === 0) {
+    if (wouldOverflowDisplayScale) return { notation: "scientific", precision: 3 };
     return { notation: "fixed", precision: incident.unit === "ratio" ? 1 : 2 };
   }
-  const displayScale = incident.unit === "ratio" ? 100 : 1;
-  const smallestDisplayedDifference = Math.min(...differences) * displayScale;
+  const smallestDifference = Math.min(...differences);
+  const displayedDifferenceLog10 = Math.log10(smallestDifference) + Math.log10(displayScale);
   const minimumPrecision = incident.unit === "ratio" ? 0 : 2;
   const fixedPrecision = Math.max(
     minimumPrecision,
-    Math.ceil(-Math.log10(smallestDisplayedDifference)),
+    Math.ceil(-displayedDifferenceLog10),
   );
-  if (fixedPrecision <= 15) return { notation: "fixed", precision: fixedPrecision };
+  if (fixedPrecision <= 15 && !wouldOverflowDisplayScale) {
+    return { notation: "fixed", precision: fixedPrecision };
+  }
 
-  const displayedMagnitudes = [...values, incident.regression_magnitude]
+  const magnitudes = [...values, incident.regression_magnitude]
     .filter((value): value is number => value !== null && Number.isFinite(value))
-    .map((value) => Math.abs(value * displayScale));
-  const largestDisplayedMagnitude = Math.max(
-    smallestDisplayedDifference,
-    ...displayedMagnitudes,
-  );
-  const relativeDifference = smallestDisplayedDifference / largestDisplayedMagnitude;
+    .map((value) => Math.abs(value));
+  const largestMagnitude = Math.max(smallestDifference, ...magnitudes);
+  const relativeDifference = smallestDifference / largestMagnitude;
   const significantDigits = Math.min(
     17,
     Math.max(2, Math.ceil(-Math.log10(relativeDifference)) + 1),
@@ -106,10 +112,16 @@ function incidentNumberFormat(incident: Incident): IncidentNumberFormat {
   return { notation: "scientific", precision: significantDigits - 1 };
 }
 
-function formattedNumber(value: number, format: IncidentNumberFormat): string {
-  return format.notation === "fixed"
-    ? value.toFixed(format.precision)
-    : value.toExponential(format.precision);
+function formattedNumber(
+  value: number,
+  format: IncidentNumberFormat,
+  scale = 1,
+): string {
+  if (format.notation === "fixed") return (value * scale).toFixed(format.precision);
+  if (value === 0) return value.toExponential(format.precision);
+  const [coefficient, exponentText] = value.toExponential(format.precision).split("e");
+  const exponent = Number(exponentText) + Math.log10(scale);
+  return `${coefficient}e${exponent >= 0 ? "+" : ""}${exponent}`;
 }
 
 function resultValue(
@@ -118,14 +130,14 @@ function resultValue(
   format: IncidentNumberFormat,
 ): string {
   if (value === null) return "Unavailable";
-  if (unit === "ratio") return `${formattedNumber(value * 100, format)}%`;
+  if (unit === "ratio") return `${formattedNumber(value, format, 100)}%`;
   return `${formattedNumber(value, format)}${unit ? ` ${unit}` : ""}`;
 }
 
 function magnitude(incident: Incident, format: IncidentNumberFormat): string {
   if (incident.regression_magnitude === null) return "Difference unavailable";
   if (incident.unit === "ratio") {
-    return `${formattedNumber(incident.regression_magnitude * 100, format)} percentage points`;
+    return `${formattedNumber(incident.regression_magnitude, format, 100)} percentage points`;
   }
   return `${formattedNumber(incident.regression_magnitude, format)}${incident.unit ? ` ${incident.unit}` : ""}`;
 }
