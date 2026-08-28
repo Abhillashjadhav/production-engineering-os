@@ -265,6 +265,31 @@ describe("MonitoringDashboard", () => {
     }
   });
 
+  it("preserves precision for small but significant ratio regressions", async () => {
+    const preciseOverview: MonitoringOverview = {
+      ...OVERVIEW,
+      products: [OVERVIEW.products[0]],
+      incidents: [
+        {
+          ...OVERVIEW.incidents[0],
+          current_value: 0.8004,
+          expected_value: 0.8009,
+          threshold: 0.8,
+          regression_magnitude: 0.0005,
+        },
+      ],
+      trend: OVERVIEW.trend.filter((point) => point.product_id === "dream-job-agent"),
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(preciseOverview)} />);
+    const comparison = await screen.findByLabelText("Current and expected result");
+
+    expect(within(comparison).getByText("80.04%")).toBeInTheDocument();
+    expect(within(comparison).getByText("80.09%")).toBeInTheDocument();
+    expect(within(comparison).getByText("80.00%")).toBeInTheDocument();
+    expect(within(comparison).getByText("0.05 percentage points")).toBeInTheDocument();
+  });
+
   it("keeps production incidents out of the staging product view", async () => {
     const stagingProduct = {
       ...OVERVIEW.products[0],

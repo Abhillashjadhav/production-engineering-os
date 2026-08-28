@@ -307,7 +307,7 @@ class RunEnvelope(StrictModel):
     def reject_implausibly_future_observations(cls, value: datetime) -> datetime:
         if value > datetime.now(UTC) + MAX_FUTURE_CLOCK_SKEW:
             raise ValueError("observed_at exceeds the allowed five-minute clock skew")
-        return value
+        return value.astimezone(UTC)
 
     @model_validator(mode="after")
     def validate_graph(self) -> RunEnvelope:

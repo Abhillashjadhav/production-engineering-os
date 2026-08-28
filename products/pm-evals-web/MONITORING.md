@@ -118,7 +118,9 @@ coverage. A falling score alone changes neither asset.
 
 Canonical history is append-only JSONL with a rebuildable SQLite index. The
 same run is idempotent only when its canonical bytes match; conflicting evidence
-under the same product/environment/run identity is rejected. A filesystem lock
+under the same product/environment/run identity is rejected. Observation times
+are normalized to UTC before canonical hashing, so equivalent legal offsets are
+the same retry. A filesystem lock
 serializes the duplicate check, log append, and index commit across application
 workers. Startup truncates only an unterminated final record left by an
 interrupted append; corruption in any completed record still fails closed. If

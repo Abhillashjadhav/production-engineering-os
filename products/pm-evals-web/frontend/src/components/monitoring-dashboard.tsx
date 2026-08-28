@@ -40,16 +40,35 @@ function currentTime(value: string): string {
   }).format(new Date(value));
 }
 
-function resultValue(value: number | null, unit: string): string {
+function incidentRatioPrecision(incident: Incident): number {
+  const values = [incident.current_value, incident.expected_value, incident.threshold].filter(
+    (value): value is number => value !== null,
+  );
+  const differences = [incident.regression_magnitude]
+    .concat(
+      values.flatMap((value, index) =>
+        values.slice(index + 1).map((other) => Math.abs(value - other)),
+      ),
+    )
+    .filter((value): value is number => value !== null && value > 0 && Number.isFinite(value));
+  if (differences.length === 0) return 1;
+  const smallestPercentagePointDifference = Math.min(...differences) * 100;
+  return Math.min(
+    15,
+    Math.max(0, Math.ceil(-Math.log10(smallestPercentagePointDifference))),
+  );
+}
+
+function resultValue(value: number | null, unit: string, ratioPrecision = 1): string {
   if (value === null) return "Unavailable";
-  if (unit === "ratio") return `${(value * 100).toFixed(0)}%`;
+  if (unit === "ratio") return `${(value * 100).toFixed(ratioPrecision)}%`;
   return `${value.toFixed(2)}${unit ? ` ${unit}` : ""}`;
 }
 
-function magnitude(incident: Incident): string {
+function magnitude(incident: Incident, ratioPrecision: number): string {
   if (incident.regression_magnitude === null) return "Difference unavailable";
   if (incident.unit === "ratio") {
-    return `${(incident.regression_magnitude * 100).toFixed(0)} percentage points`;
+    return `${(incident.regression_magnitude * 100).toFixed(ratioPrecision)} percentage points`;
   }
   return `${incident.regression_magnitude.toFixed(2)}${incident.unit ? ` ${incident.unit}` : ""}`;
 }
@@ -144,6 +163,7 @@ function ProductCard({
 
 function IncidentCard({ incident }: { incident: Incident }) {
   const isDegraded = incident.attribution === "DEGRADED_CHECK";
+  const ratioPrecision = incidentRatioPrecision(incident);
   return (
     <article className="incident-card">
       <div className="incident-rail" aria-hidden="true" />
@@ -169,22 +189,22 @@ function IncidentCard({ incident }: { incident: Incident }) {
         <div className="result-comparison" aria-label="Current and expected result">
           <div className="current-result">
             <span>Current result</span>
-            <strong>{resultValue(incident.current_value, incident.unit)}</strong>
+            <strong>{resultValue(incident.current_value, incident.unit, ratioPrecision)}</strong>
             <small>{incident.current_summary}</small>
           </div>
           <div>
             <span>Expected result</span>
-            <strong>{resultValue(incident.expected_value, incident.unit)}</strong>
+            <strong>{resultValue(incident.expected_value, incident.unit, ratioPrecision)}</strong>
             <small>{incident.expected_summary}</small>
           </div>
           <div>
             <span>Pass bar</span>
-            <strong>{resultValue(incident.threshold, incident.unit)}</strong>
+            <strong>{resultValue(incident.threshold, incident.unit, ratioPrecision)}</strong>
             <small>The acceptable boundary for this check.</small>
           </div>
           <div>
             <span>Difference</span>
-            <strong>{magnitude(incident)}</strong>
+            <strong>{magnitude(incident, ratioPrecision)}</strong>
             <small>{incident.comparison_label}: {incident.comparison_run_id}</small>
           </div>
         </div>

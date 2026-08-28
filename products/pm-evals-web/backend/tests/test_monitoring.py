@@ -6,7 +6,7 @@ import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -621,6 +621,20 @@ def test_store_is_append_only_deduplicated_and_digest_checked(tmp_path: Path) ->
         assert "different evidence" in str(exc)
     else:  # pragma: no cover - protects the immutable-history guarantee
         raise AssertionError("a conflicting run identity was accepted")
+
+
+def test_store_normalizes_equivalent_timestamp_offsets_for_idempotency(
+    tmp_path: Path,
+) -> None:
+    run = _failed_dream_job_run()
+    payload = run.model_dump(mode="json")
+    payload["observed_at"] = run.observed_at.astimezone(timezone(timedelta(hours=2))).isoformat()
+    equivalent_retry = RunEnvelope.model_validate(payload)
+    store = MonitoringStore(tmp_path)
+
+    assert equivalent_retry.observed_at.utcoffset() == timedelta(0)
+    assert store.append(run) is True
+    assert store.append(equivalent_retry) is False
 
 
 def test_store_rolls_back_log_when_indexing_fails(tmp_path: Path) -> None:
