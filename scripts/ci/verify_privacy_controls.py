@@ -137,12 +137,26 @@ def _is_supported_alias_assignment(parent: ast.AST | None, node: ast.expr) -> bo
     )
 
 
-def _event_owner_reference(node: ast.AST) -> bool:
+def _event_owner_reference(node: ast.AST, known_owners: set[str] | None = None) -> bool:
     identity = _emitter_identity(node) if isinstance(node, ast.expr) else None
-    return identity == "events" or bool(identity and identity.endswith(".events"))
+    if identity is None:
+        return False
+    if known_owners is not None and identity in known_owners:
+        return True
+    parts = identity.split(".")
+    return (
+        len(parts) >= 2
+        and parts[-1] == "events"
+        and parts[-2]
+        in {
+            "context",
+            "ctx",
+            "run_context",
+        }
+    )
 
 
-def _reflective_emitter_dictionary_access(node: ast.AST) -> bool:
+def _reflective_emitter_dictionary_access(node: ast.AST, known_owners: set[str]) -> bool:
     """Reject namespace reflection that can recover an emitter outside the alias model."""
 
     if (
@@ -151,13 +165,13 @@ def _reflective_emitter_dictionary_access(node: ast.AST) -> bool:
         and node.func.id == "vars"
         and len(node.args) == 1
         and not node.keywords
-        and _event_owner_reference(node.args[0])
+        and _event_owner_reference(node.args[0], known_owners)
     ):
         return True
     if (
         isinstance(node, ast.Attribute)
         and node.attr == "__dict__"
-        and _event_owner_reference(node.value)
+        and _event_owner_reference(node.value, known_owners)
     ):
         return True
     if not isinstance(node, ast.Subscript):
@@ -175,10 +189,14 @@ def _reflective_emitter_dictionary_access(node: ast.AST) -> bool:
     )
 
 
-def _event_owner_escapes(node: ast.AST, parent: ast.AST | None) -> bool:
+def _event_owner_escapes(
+    node: ast.AST,
+    parent: ast.AST | None,
+    known_owners: set[str],
+) -> bool:
     """Allow an event namespace only as the owner of the governed ``emit`` method."""
 
-    return _event_owner_reference(node) and not (
+    return _event_owner_reference(node, known_owners) and not (
         isinstance(parent, ast.Attribute) and parent.value is node and parent.attr == "emit"
     )
 
@@ -286,9 +304,19 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                 alias for alias in inherited_aliases if alias.split(".", 1)[0] not in locals_
             }
             parents = {child: parent for parent in nodes for child in ast.iter_child_nodes(parent)}
+            event_owners = {
+                identity
+                for node in nodes
+                if isinstance(node, ast.Attribute) and node.attr == "emit"
+                if (identity := _emitter_identity(node.value)) is not None
+            }
             for node in nodes:
-                if _reflective_emitter_dictionary_access(node) or _event_owner_escapes(
-                    node, parents.get(node)
+                if _reflective_emitter_dictionary_access(
+                    node, event_owners
+                ) or _event_owner_escapes(
+                    node,
+                    parents.get(node),
+                    event_owners,
                 ):
                     raise ValueError(
                         "telemetry emitter uses reflective access: "
@@ -303,13 +331,10 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                 ):
                     continue
                 attribute = node.args[1]
-                owner = _emitter_identity(node.args[0])
-                if (
+                if _event_owner_reference(node.args[0], event_owners) and (
                     isinstance(attribute, ast.Constant)
                     and attribute.value == "emit"
-                    or owner is not None
-                    and owner.endswith(".events")
-                    and not (
+                    or not (
                         isinstance(attribute, ast.Constant) and isinstance(attribute.value, str)
                     )
                 ):

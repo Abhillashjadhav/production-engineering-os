@@ -431,24 +431,42 @@ def _module_dictionary_reference(node: ast.AST, aliases: set[str]) -> bool:
     )
 
 
-def _passes_tracked_module_to_unresolved_call(node: ast.AST, aliases: set[str]) -> bool:
+def _passes_tracked_module_to_unresolved_call(
+    node: ast.AST,
+    *,
+    builtins_aliases: set[str],
+    builtin_import_aliases: set[str],
+    importlib_aliases: set[str],
+    import_module_aliases: set[str],
+) -> bool:
     """Fail closed when an unknown callable receives importlib or builtins authority."""
 
     if not isinstance(node, ast.Call):
         return False
+    tracked_modules = importlib_aliases | builtins_aliases
+
+    def contains_unconsumed_authority(value: ast.AST) -> bool:
+        if isinstance(value, ast.Call) and _dynamic_import_call(
+            value,
+            builtins_aliases=builtins_aliases,
+            builtin_import_aliases=builtin_import_aliases,
+            importlib_aliases=importlib_aliases,
+            import_module_aliases=import_module_aliases,
+        ):
+            return False
+        if _importlib_module_reference(value, tracked_modules):
+            return True
+        return any(contains_unconsumed_authority(child) for child in ast.iter_child_nodes(value))
+
     arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
-    if not any(
-        _importlib_module_reference(nested, aliases)
-        for argument in arguments
-        for nested in ast.walk(argument)
-    ):
+    if not any(contains_unconsumed_authority(argument) for argument in arguments):
         return False
     exact_getattr = bool(
         isinstance(node.func, ast.Name)
         and node.func.id == "getattr"
         and len(node.args) == 2
         and not node.keywords
-        and _importlib_module_reference(node.args[0], aliases)
+        and _importlib_module_reference(node.args[0], tracked_modules)
         and isinstance(node.args[1], ast.Constant)
         and node.args[1].value in {"__import__", "import_module"}
     )
@@ -457,7 +475,7 @@ def _passes_tracked_module_to_unresolved_call(node: ast.AST, aliases: set[str]) 
         and node.func.id == "vars"
         and len(node.args) == 1
         and not node.keywords
-        and _importlib_module_reference(node.args[0], aliases)
+        and _importlib_module_reference(node.args[0], tracked_modules)
     )
     return not (exact_getattr or exact_vars)
 
@@ -750,14 +768,20 @@ def _collect_architecture_edges(
     for node in ast.walk(tree):
         (
             builtins_aliases,
-            _,
+            builtin_import_aliases,
             importlib_aliases,
-            _,
+            import_module_aliases,
         ) = aliases_by_scope[node_scope[node]]
         tracked_modules = importlib_aliases | builtins_aliases
         if (
             _module_dictionary_reference(node, tracked_modules)
-            or _passes_tracked_module_to_unresolved_call(node, tracked_modules)
+            or _passes_tracked_module_to_unresolved_call(
+                node,
+                builtins_aliases=builtins_aliases,
+                builtin_import_aliases=builtin_import_aliases,
+                importlib_aliases=importlib_aliases,
+                import_module_aliases=import_module_aliases,
+            )
             or (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Name)

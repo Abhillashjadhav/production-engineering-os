@@ -178,6 +178,21 @@ def test_architecture_observer_accounts_for_dynamic_imports(tmp_path: Path) -> N
     assert ("orchestration", "unresolved_dynamic") in edges
 
 
+def test_architecture_observer_does_not_escape_a_resolved_import_result(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "resolved_result.py").write_text(
+        "import importlib\n"
+        "def inspect(value):\n    return value\n"
+        'inspect(importlib.import_module("pmpe.guided.api"))\n'
+    )
+
+    edges = _observed_architecture_edges(tmp_path)
+
+    assert ("orchestration", "interfaces") in edges
+    assert ("orchestration", "unresolved_dynamic") not in edges
+
+
 @pytest.mark.parametrize(
     "source_text",
     [
@@ -773,6 +788,22 @@ def test_privacy_verifier_scopes_emitter_aliases_to_lexical_bindings(tmp_path: P
         '    emit("result", run_id="run-1")\n\n'
         "def unrelated(emit):\n"
         '    emit("mail", email="not-telemetry")\n'
+    )
+
+    assert _inventory_telemetry_fields(tmp_path) == ("run_id",)
+
+
+def test_privacy_verifier_does_not_treat_ordinary_events_values_as_emitters(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "context.py").write_text(
+        "def telemetry(ctx):\n"
+        '    ctx.events.emit("result", run_id="run-1")\n\n'
+        "def read_records():\n"
+        "    events = []\n"
+        "    return events\n"
     )
 
     assert _inventory_telemetry_fields(tmp_path) == ("run_id",)
