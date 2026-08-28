@@ -214,10 +214,12 @@ def _declared_dependencies(payload: Mapping[str, Any]) -> set[tuple[str, str]]:
     return declared
 
 
-def _locked_dependencies(payload: str) -> set[tuple[str, str]]:
+def _locked_dependencies(payload: str) -> tuple[set[tuple[str, str]], set[str]]:
     locked: set[tuple[str, str]] = set()
+    via_references: set[str] = set()
     current: tuple[str, str] | None = None
     hashed = False
+    in_via_block = False
 
     def finish() -> None:
         nonlocal current, hashed
@@ -229,6 +231,21 @@ def _locked_dependencies(payload: str) -> set[tuple[str, str]]:
         hashed = False
 
     for line in payload.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("# via "):
+            reference = stripped.removeprefix("# via ").strip()
+            in_via_block = not reference
+            if reference and not reference.endswith("(pyproject.toml)"):
+                via_references.add(_normalized_lock_reference(reference))
+            continue
+        if in_via_block and stripped.startswith("#"):
+            reference = stripped.removeprefix("#").strip()
+            if reference and not reference.endswith("(pyproject.toml)"):
+                via_references.add(_normalized_lock_reference(reference))
+            elif not reference:
+                in_via_block = False
+            continue
+        in_via_block = False
         if line and not line[0].isspace() and not line.startswith("#"):
             finish()
             match = _LOCKED_REQUIREMENT.fullmatch(line)
@@ -243,7 +260,16 @@ def _locked_dependencies(payload: str) -> set[tuple[str, str]]:
     finish()
     if not locked:
         raise BootstrapVerificationError("requirements lock has no authenticated entries")
-    return locked
+    locked_names = {name for name, _ in locked}
+    if not via_references <= locked_names:
+        raise BootstrapVerificationError("requirements lock has a dangling transitive reference")
+    return locked, via_references
+
+
+def _normalized_lock_reference(value: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", value):
+        raise BootstrapVerificationError("requirements lock dependency graph is malformed")
+    return re.sub(r"[-_.]+", "-", value).lower()
 
 
 def verify_locked_dependency_coverage(
@@ -268,7 +294,7 @@ def verify_locked_dependency_coverage(
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
         raise BootstrapVerificationError("candidate dependency metadata is malformed") from exc
     declared = _declared_dependencies(pyproject)
-    locked = _locked_dependencies(lock_text)
+    locked, via_references = _locked_dependencies(lock_text)
     if not declared <= locked:
         raise BootstrapVerificationError("a declared dependency is absent from the hash lock")
     shell: dict[str, Any] = {
@@ -278,6 +304,7 @@ def verify_locked_dependency_coverage(
         "lock_digest": _digest_bytes(lock_bytes),
         "pyproject_digest": _digest_bytes(pyproject_bytes),
         "schema_version": "trusted-dependency-coverage/v1",
+        "transitive_reference_count": len(via_references),
     }
     return {**shell, "report_digest": _report_digest(shell)}
 

@@ -86,7 +86,12 @@ jobs:
             --candidate-sha "$CANDIDATE_SHA" \
             --output "$RUNNER_TEMP/trusted-security/dependency-coverage.json"
       - name: Install authenticated locked verifier toolchain
-        run: pip install --require-hashes -r "${{ steps.admission.outputs.requirements_path }}"
+        run: |
+          python -m pip install \
+            --ignore-installed \
+            --require-hashes \
+            -r "${{ steps.admission.outputs.requirements_path }}"
+          python -m pip check
       - name: Bandit candidate input
         run: bandit -r candidate/src candidate/scripts/ci -q --severity-level high
       - name: Audit candidate dependency lock

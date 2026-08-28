@@ -291,6 +291,8 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert '-f external_id="$source_external_id"' in finalizer
     assert "github.run_attempt" in workflow
     assert "--verify-dependency-coverage" in workflow
+    assert "--ignore-installed" in workflow
+    assert "python -m pip check" in workflow
     assert "missing_conclusion=failure" in finalizer
     assert '-f conclusion="$missing_conclusion"' in finalizer
     assert "--method PATCH" in finalizer
@@ -351,4 +353,13 @@ def test_dependency_coverage_rejects_unpinned_declaration(tmp_path: Path) -> Non
     pyproject.write_text(pyproject.read_text().replace("PyYAML==6.0.3", "PyYAML>=6.0"))
 
     with pytest.raises(BootstrapVerificationError, match="exact version pins"):
+        verify_locked_dependency_coverage(candidate_root=tmp_path, candidate_sha="a" * 40)
+
+
+def test_dependency_coverage_rejects_dangling_transitive_reference(tmp_path: Path) -> None:
+    _write_dependency_metadata(tmp_path)
+    lock = tmp_path / "requirements.lock"
+    lock.write_text(lock.read_text() + "    # via missing-parent\n")
+
+    with pytest.raises(BootstrapVerificationError, match="dangling transitive"):
         verify_locked_dependency_coverage(candidate_root=tmp_path, candidate_sha="a" * 40)
