@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { MonitoringDashboard } from "@/components/monitoring-dashboard";
 import type { MonitoringOverview } from "@/lib/api";
@@ -183,5 +183,29 @@ describe("MonitoringDashboard", () => {
     expect(await screen.findByText(/no confirmed starting point yet/i)).toBeInTheDocument();
     expect(screen.getByText(/evidence is blocked, incomplete/i)).toBeInTheDocument();
     expect(screen.queryByText(/within their approved bars/i)).not.toBeInTheDocument();
+  });
+
+  it("refreshes the overview without reloading the page", async () => {
+    const refreshed: MonitoringOverview = {
+      ...OVERVIEW,
+      generated_at: "2026-08-28T12:05:00Z",
+      products: OVERVIEW.products.map((product) => ({
+        ...product,
+        health: "HEALTHY" as const,
+        fail_count: 0,
+      })),
+      incidents: [],
+    };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify(OVERVIEW), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(refreshed), { status: 200 }));
+
+    render(<MonitoringDashboard fetcher={fetcher} />);
+    await screen.findByText("1/2");
+    fireEvent.click(screen.getByRole("button", { name: /refresh data/i }));
+
+    expect(await screen.findByText("2/2")).toBeInTheDocument();
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 });

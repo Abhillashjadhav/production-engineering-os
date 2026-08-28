@@ -303,14 +303,17 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
   const [error, setError] = useState<string | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<string>("all");
   const [requestKey, setRequestKey] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     let active = true;
     setError(null);
+    setRefreshing(true);
     void monitoringOverview(fetcher).then((result) => {
       if (!active) return;
       if (result.kind === "ok") setOverview(result.value);
       else setError(result.kind === "error" ? result.message : "Monitoring could not load.");
+      setRefreshing(false);
     });
     return () => { active = false; };
   }, [fetcher, requestKey]);
@@ -370,6 +373,14 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
             {overview.mode === "PLANTED_DEMO" ? "Planted demo run" : "Live observations"}
           </span>
           <span>Updated {currentTime(overview.generated_at)}</span>
+          <button
+            type="button"
+            className="refresh-overview"
+            onClick={() => setRequestKey((key) => key + 1)}
+            disabled={refreshing}
+          >
+            {refreshing ? "Refreshing…" : "Refresh data"}
+          </button>
         </div>
       </header>
 

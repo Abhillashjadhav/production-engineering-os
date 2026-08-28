@@ -175,6 +175,7 @@ def _dream_job_run(day: int, *, planted_failure: bool) -> RunEnvelope:
                     "RUBRIC",
                     "GOLDEN_DATASET",
                 ],
+                varied_dimensions=["TOOLSET"],
                 summary=(
                     "Connector v1 passed this same case and connector v2 failed while the "
                     "model, prompt, evaluator, and approved case stayed fixed."

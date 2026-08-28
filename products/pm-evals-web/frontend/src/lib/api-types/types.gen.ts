@@ -152,6 +152,10 @@ export type CauseSignal = {
      * Supports
      */
     supports?: boolean;
+    /**
+     * Varied Dimensions
+     */
+    varied_dimensions?: Array<'USE_CASE' | 'DEPLOYMENT' | 'MODEL' | 'PROMPT' | 'CONFIGURATION' | 'TOOLSET' | 'EVALUATOR' | 'RUBRIC' | 'GOLDEN_DATASET' | 'PRODUCTION_COHORT'>;
 };
 
 /**
@@ -1366,6 +1370,10 @@ export type IngestMonitoringRunApiMonitoringRunsPostData = {
 
 export type IngestMonitoringRunApiMonitoringRunsPostErrors = {
     /**
+     * A valid monitoring ingestion credential is required.
+     */
+    401: unknown;
+    /**
      * The run identity already exists with different evidence.
      */
     409: unknown;
@@ -1374,7 +1382,7 @@ export type IngestMonitoringRunApiMonitoringRunsPostErrors = {
      */
     422: HttpValidationError;
     /**
-     * Monitoring persistence is not configured.
+     * Monitoring persistence or its ingestion credential is not configured.
      */
     503: unknown;
 };

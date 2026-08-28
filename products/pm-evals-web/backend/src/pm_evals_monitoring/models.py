@@ -64,6 +64,16 @@ ChangeDimension = Literal[
     "PRODUCTION_COHORT",
 ]
 
+_CAUSE_CHANGE_DIMENSIONS: dict[CauseCategory, frozenset[ChangeDimension]] = {
+    "PRODUCT_REGRESSION": frozenset({"DEPLOYMENT"}),
+    "MODEL_REGRESSION": frozenset({"MODEL"}),
+    "PROMPT_CONFIG_TOOL_CHANGE": frozenset({"PROMPT", "CONFIGURATION", "TOOLSET"}),
+    "USE_CASE_DRIFT": frozenset({"USE_CASE", "PRODUCTION_COHORT"}),
+    "EVAL_DETERIORATION": frozenset({"EVALUATOR", "RUBRIC"}),
+    "GOLDEN_DATASET_GAP": frozenset({"GOLDEN_DATASET"}),
+    "UNCONFIRMED": frozenset(),
+}
+
 OVERVIEW_TREND_RUNS_PER_PRODUCT = 30
 
 
@@ -150,6 +160,7 @@ class CauseSignal(StrictModel):
     control_status: ObservationStatus | None = None
     candidate_status: ObservationStatus | None = None
     held_constant: list[ChangeDimension] = Field(default_factory=list)
+    varied_dimensions: list[ChangeDimension] = Field(default_factory=list)
     evidence_refs: list[EvidenceRef] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -170,6 +181,18 @@ class CauseSignal(StrictModel):
             raise ValueError("a supporting controlled replay must move from PASS to FAIL")
         if not self.held_constant:
             raise ValueError("controlled replay must declare what was held constant")
+        if not self.varied_dimensions:
+            raise ValueError("controlled replay must declare what was intentionally varied")
+        if set(self.held_constant) & set(self.varied_dimensions):
+            raise ValueError("a replay dimension cannot be both held constant and varied")
+        expected_dimensions = _CAUSE_CHANGE_DIMENSIONS[self.category]
+        varied_dimensions = set(self.varied_dimensions)
+        if self.supports and (
+            not expected_dimensions or not varied_dimensions.issubset(expected_dimensions)
+        ):
+            raise ValueError(
+                "the asserted cause does not match the intentionally varied dimensions"
+            )
         return self
 
 

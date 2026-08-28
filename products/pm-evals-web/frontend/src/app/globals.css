@@ -190,6 +190,18 @@ button:disabled { background: var(--muted); border-color: var(--muted); cursor: 
   text-align: right;
 }
 
+.refresh-overview {
+  padding: 0.45rem 0.7rem;
+  border: 1px solid #707b70;
+  border-radius: 6px;
+  color: #f5f5ed;
+  background: rgb(255 255 255 / 6%);
+  font: inherit;
+  cursor: pointer;
+}
+.refresh-overview:hover { border-color: var(--lime); }
+.refresh-overview:disabled { color: #aeb5ab; cursor: wait; opacity: 0.75; }
+
 .mode-pill,
 .health-pill,
 .family-status {

@@ -16,12 +16,14 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, Security, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -53,7 +55,13 @@ MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # per file; capped at read-back (T3)
 # files plus multipart framing and any form fields fit comfortably under it.
 MAX_REQUEST_BYTES = 2 * MAX_UPLOAD_BYTES + 1024 * 1024
 
-API_VERSION = "1.2.0"
+API_VERSION = "1.3.0"
+
+_monitoring_ingestion_bearer = HTTPBearer(
+    auto_error=False,
+    scheme_name="MonitoringIngestionBearer",
+    description="Bearer credential for trusted production-eval run producers.",
+)
 
 
 class SizeLimitResponse(BaseModel):
@@ -212,7 +220,11 @@ def _config(min_matched_traces: int | None) -> CompareConfig:
     return CompareConfig(min_matched_traces=min_matched_traces)
 
 
-def create_app(*, monitoring_data_dir: Path | None = None) -> FastAPI:
+def create_app(
+    *,
+    monitoring_data_dir: Path | None = None,
+    monitoring_ingest_token: str | None = None,
+) -> FastAPI:
     monitoring_store = MonitoringStore(monitoring_data_dir) if monitoring_data_dir else None
     app = FastAPI(
         title="pm-evals Web API",
@@ -334,13 +346,34 @@ def create_app(*, monitoring_data_dir: Path | None = None) -> FastAPI:
         "/api/monitoring/runs",
         response_model=IngestResponse,
         responses={
+            401: {"description": "A valid monitoring ingestion credential is required."},
             409: {"description": "The run identity already exists with different evidence."},
-            503: {"description": "Monitoring persistence is not configured."},
+            503: {
+                "description": "Monitoring persistence or its ingestion credential is not configured."
+            },
         },
     )
-    async def ingest_monitoring_run(run: RunEnvelope) -> IngestResponse:
+    async def ingest_monitoring_run(
+        run: RunEnvelope,
+        credentials: Annotated[
+            HTTPAuthorizationCredentials | None,
+            Security(_monitoring_ingestion_bearer),
+        ],
+    ) -> IngestResponse:
         if monitoring_store is None:
             raise HTTPException(status_code=503, detail="Monitoring persistence is not configured")
+        if not monitoring_ingest_token:
+            raise HTTPException(
+                status_code=503,
+                detail="Monitoring ingestion credential is not configured",
+            )
+        supplied = credentials.credentials if credentials is not None else ""
+        if not secrets.compare_digest(supplied, monitoring_ingest_token):
+            raise HTTPException(
+                status_code=401,
+                detail="Valid monitoring ingestion credentials are required",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         try:
             stored = monitoring_store.append(run)
         except ValueError as exc:
@@ -362,4 +395,7 @@ def create_app(*, monitoring_data_dir: Path | None = None) -> FastAPI:
 
 
 _monitoring_dir = Path(os.environ.get("PM_EVALS_MONITORING_DATA_DIR", "/tmp/pm-evals-monitoring"))
-app = create_app(monitoring_data_dir=_monitoring_dir)
+app = create_app(
+    monitoring_data_dir=_monitoring_dir,
+    monitoring_ingest_token=os.environ.get("PM_EVALS_INGEST_TOKEN"),
+)

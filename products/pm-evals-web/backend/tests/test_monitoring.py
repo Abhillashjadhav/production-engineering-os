@@ -20,6 +20,12 @@ from pm_evals_monitoring import (
 )
 from pm_evals_monitoring.models import CauseSignal, RunEnvelope
 
+INGEST_TOKEN = "test-monitoring-ingest-token"
+
+
+def _ingest_headers(token: str = INGEST_TOKEN) -> dict[str, str]:
+    return {"Authorization": f"Bearer {token}"}
+
 
 def _failed_dream_job_run():
     return next(run for run in reversed(build_demo_runs()) if run.product.id == "dream-job-agent")
@@ -78,6 +84,21 @@ def test_controlled_replay_requires_distinct_artifacts() -> None:
     signal["candidate_ref"] = signal["control_ref"]
 
     with pytest.raises(ValidationError, match="distinct control and candidate"):
+        CauseSignal.model_validate(signal)
+
+
+def test_controlled_replay_requires_varied_dimension_to_match_cause() -> None:
+    run = _failed_dream_job_run()
+    source = next(
+        item for item in run.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    signal = source.cause_signals[0].model_dump()
+    signal["held_constant"] = [
+        dimension for dimension in signal["held_constant"] if dimension != "MODEL"
+    ]
+    signal["varied_dimensions"] = ["MODEL"]
+
+    with pytest.raises(ValidationError, match="asserted cause does not match"):
         CauseSignal.model_validate(signal)
 
 
@@ -322,14 +343,20 @@ def test_monitoring_api_bounds_live_trend_history(tmp_path: Path) -> None:
 
 
 def test_monitoring_api_runs_planted_demo_and_persists_live_run(tmp_path: Path) -> None:
-    client = TestClient(create_app(monitoring_data_dir=tmp_path))
+    client = TestClient(
+        create_app(monitoring_data_dir=tmp_path, monitoring_ingest_token=INGEST_TOKEN)
+    )
 
     demo = client.get("/api/monitoring/overview")
     assert demo.status_code == 200
     assert demo.json()["mode"] == "PLANTED_DEMO"
 
     run = _failed_dream_job_run()
-    ingested = client.post("/api/monitoring/runs", json=run.model_dump(mode="json"))
+    ingested = client.post(
+        "/api/monitoring/runs",
+        json=run.model_dump(mode="json"),
+        headers=_ingest_headers(),
+    )
     assert ingested.status_code == 200
     assert ingested.json()["diagnosis"]["likely_starting_observation_ids"] == [
         "source-linkedin-coverage"
@@ -341,6 +368,44 @@ def test_monitoring_api_runs_planted_demo_and_persists_live_run(tmp_path: Path) 
     assert live.json()["products"][0]["health"] == "FAILING"
     assert live.json()["incidents"][0]["case"]["case_id"] == "dj-linkedin-pm-bengaluru-042"
 
-    duplicate = client.post("/api/monitoring/runs", json=run.model_dump(mode="json"))
+    duplicate = client.post(
+        "/api/monitoring/runs",
+        json=run.model_dump(mode="json"),
+        headers=_ingest_headers(),
+    )
     assert duplicate.status_code == 200
     assert duplicate.json()["duplicate"] is True
+
+
+def test_monitoring_ingestion_rejects_missing_or_wrong_credentials(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(monitoring_data_dir=tmp_path, monitoring_ingest_token=INGEST_TOKEN)
+    )
+    payload = _failed_dream_job_run().model_dump(mode="json")
+
+    missing = client.post("/api/monitoring/runs", json=payload)
+    wrong = client.post(
+        "/api/monitoring/runs",
+        json=payload,
+        headers=_ingest_headers("wrong-token"),
+    )
+
+    assert missing.status_code == 401
+    assert missing.headers["www-authenticate"] == "Bearer"
+    assert wrong.status_code == 401
+    assert client.get("/api/monitoring/overview").json()["mode"] == "PLANTED_DEMO"
+
+
+def test_monitoring_ingestion_fails_closed_without_configured_credential(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(create_app(monitoring_data_dir=tmp_path))
+
+    response = client.post(
+        "/api/monitoring/runs",
+        json=_failed_dream_job_run().model_dump(mode="json"),
+        headers=_ingest_headers(),
+    )
+
+    assert response.status_code == 503
+    assert client.get("/api/monitoring/overview").json()["mode"] == "PLANTED_DEMO"

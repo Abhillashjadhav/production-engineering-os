@@ -61,6 +61,10 @@ why that failure occurred. Cause confidence is bounded by evidence:
 - human adjudication: `CONFIRMED`;
 - missing, contradictory, or equally strong competing evidence: `UNCONFIRMED`.
 
+A controlled replay must name both the dimensions intentionally varied and the
+relevant dimensions held constant. Its asserted cause must match a varied
+dimension; otherwise the contract rejects it before diagnosis.
+
 The supported cause categories are product regression, model regression,
 prompt/config/tool change, use-case drift, eval deterioration, approved-dataset
 gap, and unconfirmed.
@@ -74,6 +78,8 @@ coverage. A falling score alone changes neither asset.
 
 - `POST /api/monitoring/evaluate` diagnoses an envelope without storing it.
 - `POST /api/monitoring/runs` appends an envelope to immutable local history.
+  It requires `Authorization: Bearer <token>` matching the server-side
+  `PM_EVALS_INGEST_TOKEN`; writes fail closed when no credential is configured.
 - `GET /api/monitoring/overview` returns product health, exact-case incidents,
   trends, two-axis coverage, and attribution calibration.
 
