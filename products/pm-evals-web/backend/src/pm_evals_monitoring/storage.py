@@ -58,7 +58,13 @@ class MonitoringStore:
 
     @staticmethod
     def _run_key(run: RunEnvelope) -> str:
-        return f"{run.product.id}\x1f{run.product.environment}\x1f{run.run_id}"
+        # JSON string escaping makes this tuple encoding injective even when an
+        # identity component contains a control character or delimiter.
+        return json.dumps(
+            [run.product.id, run.product.environment, run.run_id],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
 
     @staticmethod
     def _canonical_line(run: RunEnvelope) -> bytes:
@@ -77,7 +83,9 @@ class MonitoringStore:
         run_key = self._run_key(run)
         with self._lock, self._connect() as connection:
             existing = connection.execute(
-                "SELECT sha256 FROM runs WHERE run_key = ?", (run_key,)
+                """SELECT sha256 FROM runs
+                   WHERE product_id = ? AND environment = ? AND run_id = ?""",
+                (run.product.id, run.product.environment, run.run_id),
             ).fetchone()
             if existing:
                 if existing[0] != digest:

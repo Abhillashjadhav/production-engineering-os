@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sqlite3
 from copy import deepcopy
 from datetime import timedelta
 from pathlib import Path
@@ -147,6 +148,27 @@ def test_not_evaluated_upstream_prevents_false_starting_failure() -> None:
     assert by_id["eligible-job-coverage"].attribution == "UNCONFIRMED"
 
 
+def test_missing_parallel_branch_overrides_known_failed_dependency() -> None:
+    run = _failed_dream_job_run().model_copy(deep=True)
+    blocked = next(
+        item for item in run.observations if item.observation_id == "pii-disclosure-rate"
+    )
+    blocked.status = "BLOCKED"
+    blocked.current_value = None
+    eligible = next(
+        item for item in run.observations if item.observation_id == "eligible-job-coverage"
+    )
+    eligible.depends_on.append(blocked.observation_id)
+
+    diagnosis = diagnose_run(run)
+    by_id = {item.observation_id: item for item in diagnosis.diagnoses}
+
+    assert by_id["source-linkedin-coverage"].attribution == "LIKELY_STARTING_FAILURE"
+    assert by_id["eligible-job-coverage"].attribution == "UNCONFIRMED"
+    assert by_id["enrichment-completeness"].attribution == "UNCONFIRMED"
+    assert by_id["eligible-job-coverage"].root_observation_ids == []
+
+
 def test_required_not_evaluated_observation_blocks_run_health() -> None:
     run = next(
         item for item in build_demo_runs() if item.run_id == "dream-job-2026-08-24"
@@ -273,6 +295,29 @@ def test_demo_overview_points_to_case_cause_and_fix_without_asset_churn() -> Non
     assert overview.attribution_metrics.guardrail_proven is False
 
 
+def test_overview_incident_ids_are_collision_free_for_legal_delimiters() -> None:
+    template = _failed_dream_job_run().model_dump(mode="json")
+    first_payload = deepcopy(template)
+    first_payload["product"]["id"] = "a"
+    first_payload["product"]["environment"] = "b:c"
+    first_payload["run_id"] = "d"
+    second_payload = deepcopy(template)
+    second_payload["product"]["id"] = "a:b"
+    second_payload["product"]["environment"] = "c"
+    second_payload["run_id"] = "d"
+
+    overview = build_overview(
+        [
+            RunEnvelope.model_validate(first_payload),
+            RunEnvelope.model_validate(second_payload),
+        ],
+        mode="LIVE",
+    )
+
+    assert len(overview.incidents) == 2
+    assert len({incident.incident_id for incident in overview.incidents}) == 2
+
+
 def test_eval_taxonomy_separates_layers_from_concerns() -> None:
     overview = build_demo_overview()
     dream = next(item for item in overview.products if item.product_id == "dream-job-agent")
@@ -297,6 +342,41 @@ def test_store_is_append_only_deduplicated_and_digest_checked(tmp_path: Path) ->
         assert "different evidence" in str(exc)
     else:  # pragma: no cover - protects the immutable-history guarantee
         raise AssertionError("a conflicting run identity was accepted")
+
+
+def test_store_identity_is_collision_free_for_legal_control_characters(
+    tmp_path: Path,
+) -> None:
+    template = _failed_dream_job_run().model_dump(mode="json")
+    first_payload = deepcopy(template)
+    first_payload["product"]["id"] = "a"
+    first_payload["product"]["environment"] = "b\x1fc"
+    first_payload["run_id"] = "d"
+    second_payload = deepcopy(template)
+    second_payload["product"]["id"] = "a\x1fb"
+    second_payload["product"]["environment"] = "c"
+    second_payload["run_id"] = "d"
+    first = RunEnvelope.model_validate(first_payload)
+    second = RunEnvelope.model_validate(second_payload)
+    store = MonitoringStore(tmp_path)
+
+    assert store.append(first) is True
+    assert store.append(second) is True
+    assert {
+        (run.product.id, run.product.environment, run.run_id) for run in store.list_runs()
+    } == {("a", "b\x1fc", "d"), ("a\x1fb", "c", "d")}
+
+
+def test_store_deduplicates_an_identity_from_a_legacy_index_key(tmp_path: Path) -> None:
+    store = MonitoringStore(tmp_path)
+    run = _failed_dream_job_run()
+    assert store.append(run) is True
+    legacy_key = f"{run.product.id}\x1f{run.product.environment}\x1f{run.run_id}"
+    with sqlite3.connect(store.index_path) as connection:
+        connection.execute("UPDATE runs SET run_key = ?", (legacy_key,))
+
+    assert store.append(run) is False
+    assert store.list_runs() == [run]
 
 
 def test_store_recovers_from_an_unterminated_final_append(tmp_path: Path) -> None:

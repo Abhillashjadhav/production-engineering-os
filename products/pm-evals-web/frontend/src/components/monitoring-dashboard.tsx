@@ -65,7 +65,7 @@ function actionLabel(action: Incident["maintenance"]["eval_action"]): string {
 }
 
 function productIdentity(product: Pick<ProductHealth, "product_id" | "environment">): string {
-  return `${product.product_id}\u001f${product.environment}`;
+  return JSON.stringify([product.product_id, product.environment]);
 }
 
 function Sparkline({ points }: { points: TrendPoint[] }) {
@@ -361,7 +361,11 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
   );
   const exactCases = new Set(
     overview.incidents.map(
-      (incident) => `${productIdentity(incident)}\u001f${incident.case.case_id}`,
+      (incident) => JSON.stringify([
+        incident.product_id,
+        incident.environment,
+        incident.case.case_id,
+      ]),
     ),
   ).size;
   const metrics = overview.attribution_metrics;

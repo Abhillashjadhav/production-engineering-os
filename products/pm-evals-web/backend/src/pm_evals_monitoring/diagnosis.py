@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 from collections import Counter, defaultdict, deque
 from datetime import UTC, datetime
 
@@ -32,6 +34,12 @@ _EVIDENCE_RANK: dict[str, int] = {
     "CONTROLLED_REPLAY": 2,
     "HUMAN_ADJUDICATION": 3,
 }
+
+
+def _incident_id(*parts: str) -> str:
+    payload = json.dumps(parts, ensure_ascii=False, separators=(",", ":")).encode()
+    token = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+    return f"incident-{token}"
 
 
 def _signed_delta(observation: Observation) -> float | None:
@@ -156,7 +164,20 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
         missing_dependencies = [
             item for item in observation.depends_on if item in missing_evidence
         ]
-        if failed_dependencies:
+        unresolved_failed_dependencies = [
+            item for item in failed_dependencies if classifications[item][0] == "UNCONFIRMED"
+        ]
+        result: tuple[str, tuple[str, ...], str]
+        if missing_dependencies or unresolved_failed_dependencies:
+            result = (
+                "UNCONFIRMED",
+                (),
+                (
+                    "At least one required upstream branch is blocked, not evaluated, or "
+                    "unresolved, so the starting path is unknown."
+                ),
+            )
+        elif failed_dependencies:
             roots: set[str] = set()
             for dependency_id in failed_dependencies:
                 attribution, dependency_roots, _ = classifications[dependency_id]
@@ -168,12 +189,6 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
                 "DOWNSTREAM_SYMPTOM",
                 tuple(sorted(roots)),
                 "A failed upstream check can explain this later failure.",
-            )
-        elif missing_dependencies:
-            result = (
-                "UNCONFIRMED",
-                (),
-                "Required upstream evidence is blocked or not evaluated, so the starting point is unknown.",
             )
         else:
             result = (
@@ -404,7 +419,12 @@ def build_overview(
             unique_evidence = {item.sha256: item for item in evidence}
             incidents.append(
                 Incident(
-                    incident_id=f"{product_id}:{environment}:{run.run_id}:{starting_id}",
+                    incident_id=_incident_id(
+                        product_id,
+                        environment,
+                        run.run_id,
+                        starting_id,
+                    ),
                     product_id=product_id,
                     product_name=run.product.display_name,
                     environment=environment,

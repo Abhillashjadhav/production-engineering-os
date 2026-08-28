@@ -172,6 +172,41 @@ describe("MonitoringDashboard", () => {
     expect(screen.getByText(/no starting failure found/i)).toBeInTheDocument();
   });
 
+  it("keeps legal control characters from colliding product filters", async () => {
+    const first = {
+      ...OVERVIEW.products[0],
+      product_id: "a",
+      environment: "b\u001fc",
+      display_name: "First product",
+    };
+    const second = {
+      ...OVERVIEW.products[1],
+      product_id: "a\u001fb",
+      environment: "c",
+      display_name: "Second product",
+    };
+    const collisionOverview: MonitoringOverview = {
+      ...OVERVIEW,
+      products: [first, second],
+      incidents: [{
+        ...OVERVIEW.incidents[0],
+        product_id: first.product_id,
+        product_name: first.display_name,
+        environment: first.environment,
+      }],
+      trend: [
+        { ...OVERVIEW.trend[0], product_id: first.product_id, environment: first.environment },
+        { ...OVERVIEW.trend[2], product_id: second.product_id, environment: second.environment },
+      ],
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(collisionOverview)} />);
+    fireEvent.click(await screen.findByRole("button", { name: /second product/i }));
+
+    expect(screen.getByText(/no starting failure found/i)).toBeInTheDocument();
+    expect(screen.queryByText(/dj-linkedin-pm-bengaluru-042/i)).not.toBeInTheDocument();
+  });
+
   it("does not describe blocked evidence as within approved bars", async () => {
     const blockedOverview: MonitoringOverview = {
       ...OVERVIEW,
