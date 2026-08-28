@@ -58,6 +58,7 @@ jobs:
           pip-audit \
             --cache-dir "$RUNNER_TEMP/pip-audit" \
             --require-hashes -r candidate/requirements.lock \
+            --no-deps --disable-pip \
             --strict --format json \
             --output "$RUNNER_TEMP/trusted-security/pip-audit.json"
       - name: Scan candidate repository secrets

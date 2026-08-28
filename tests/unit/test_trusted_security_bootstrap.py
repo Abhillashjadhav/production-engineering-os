@@ -243,6 +243,7 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert "github.event.pull_request.base.sha" in workflow
     assert "github.event.pull_request.head.sha" in workflow
     assert "trusted/scripts/ci/verify_trusted_security_bootstrap.py" in workflow
+    assert "--no-deps --disable-pip" in workflow
     assert "${{ secrets." not in workflow
     assert "pull_request:" not in workflow.replace("pull_request_target:", "")
     assert "merge" not in workflow.lower()
