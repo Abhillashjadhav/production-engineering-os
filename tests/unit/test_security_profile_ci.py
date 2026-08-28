@@ -435,6 +435,34 @@ def test_architecture_observer_rejects_import_authority_in_method_defaults(
     assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
 
 
+def test_architecture_observer_uses_parent_binding_for_function_default_import(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "shadowed_default.py").write_text(
+        "import importlib\n"
+        "def load(value=importlib.import_module('pmpe.guided.api'), importlib=None):\n"
+        "    return value\n"
+    )
+
+    assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
+
+
+def test_architecture_observer_rejects_loader_captured_by_lambda_default(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "lambda_default.py").write_text(
+        "import importlib\n"
+        "def factory():\n"
+        "    return lambda name, loader=importlib.import_module: loader(name)\n"
+    )
+
+    assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
+
+
 def test_dynamic_import_exception_binds_the_complete_target_file(tmp_path: Path) -> None:
     source = tmp_path / "src" / "pmpe" / "evidence"
     source.mkdir(parents=True)

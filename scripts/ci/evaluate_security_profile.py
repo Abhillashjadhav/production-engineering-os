@@ -589,10 +589,15 @@ _LoaderAliases = tuple[set[str], set[str], set[str], set[str]]
 
 
 def _function_definition_expressions(
-    node: ast.AsyncFunctionDef | ast.FunctionDef,
+    node: ast.AsyncFunctionDef | ast.FunctionDef | ast.Lambda,
 ) -> tuple[ast.AST, ...]:
     """Expressions evaluated while a function object is bound in its parent scope."""
 
+    if isinstance(node, ast.Lambda):
+        return (
+            *node.args.defaults,
+            *(item for item in node.args.kw_defaults if item is not None),
+        )
     annotations: list[ast.AST] = [
         argument.annotation
         for argument in (
@@ -640,6 +645,17 @@ def _lexical_import_aliases(
             visit(child, current)
 
     visit(tree, tree)
+    # Defaults, decorators, annotations, and type parameters are evaluated in the
+    # defining scope, before the function's parameters can shadow loader aliases.
+    # Rebind those expression subtrees to the parent so the later import walk uses
+    # Python's actual definition-time name resolution. Lambda defaults follow the
+    # same rule.
+    for child, parent in scope_parent.items():
+        if not isinstance(child, (ast.AsyncFunctionDef, ast.FunctionDef, ast.Lambda)):
+            continue
+        for expression in _function_definition_expressions(child):
+            for expression_node in ast.walk(expression):
+                node_scope[expression_node] = parent
     nodes_by_scope: dict[ast.AST, list[ast.AST]] = {scope: [] for scope in scopes}
     for node, scope in node_scope.items():
         nodes_by_scope[scope].append(node)
@@ -781,7 +797,7 @@ def _lexical_import_aliases(
                     edges.add((source_layer, "unresolved_dynamic"))
         for child, parent in scope_parent.items():
             if parent is not scope or not isinstance(
-                child, (ast.AsyncFunctionDef, ast.FunctionDef)
+                child, (ast.AsyncFunctionDef, ast.FunctionDef, ast.Lambda)
             ):
                 continue
             if any(

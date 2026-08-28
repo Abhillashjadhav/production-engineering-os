@@ -1,0 +1,11 @@
+{
+  "$fixture_base": "valid_bundle.json",
+  "$mutations": [
+    {
+      "op": "remove",
+      "path": [
+        "source_identity_mappings"
+      ]
+    }
+  ]
+}

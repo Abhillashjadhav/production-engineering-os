@@ -1,0 +1,27 @@
+agent: v2-integration-engineer
+stage: integrate
+cases:
+- id: integration-valid
+  kind: valid_output
+  expect: valid
+  hard_gate: true
+  context: {}
+  output:
+    integrated_branches:
+    - specialist/T-001
+    conflicts_resolved: []
+    checks_run:
+    - pytest
+    results: all green
+    candidate_digest: sha256:demo-candidate
+- id: integration-planted-self-approval
+  kind: planted_failure
+  expect: invalid
+  context: {}
+  output:
+    integrated_branches:
+    - specialist/T-001
+    checks_run:
+    - pytest
+    candidate_digest: sha256:demo-candidate
+    recommendation: MERGE

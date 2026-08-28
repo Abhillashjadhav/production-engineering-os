@@ -1,0 +1,15 @@
+{
+  "$fixture_base": "valid_bundle.json",
+  "$mutations": [
+    {
+      "op": "replace",
+      "path": [
+        "metrics",
+        "maturity_policies",
+        "POLICY-METRIC-EADPR",
+        "metric_ref"
+      ],
+      "value": "METRIC-UNKNOWN"
+    }
+  ]
+}

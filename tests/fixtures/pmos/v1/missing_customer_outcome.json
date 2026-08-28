@@ -1,0 +1,13 @@
+{
+  "$fixture_base": "valid_bundle.json",
+  "$mutations": [
+    {
+      "op": "remove",
+      "path": [
+        "product",
+        "outcome",
+        "customer_outcome"
+      ]
+    }
+  ]
+}

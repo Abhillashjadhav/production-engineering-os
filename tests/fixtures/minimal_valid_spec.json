@@ -1,0 +1,38 @@
+{
+  "spec_version": "1.0",
+  "product_name": "Pinger",
+  "problem_statement": "Operators need a verifiable heartbeat endpoint for uptime checks.",
+  "target_user": "Operators monitoring small self-hosted services.",
+  "user_outcome": "An operator can verify the service is alive with one unauthenticated call.",
+  "business_outcome": "Uptime evidence for support conversations.",
+  "scope": ["Health endpoint"],
+  "non_goals": ["Metrics dashboards"],
+  "user_stories": [
+    {
+      "id": "US-001",
+      "as_a": "operator",
+      "i_want": "to call a health endpoint",
+      "so_that": "I can verify the service is alive"
+    }
+  ],
+  "functional_requirements": [
+    {
+      "id": "FR-001",
+      "title": "Health endpoint",
+      "capability": "health.check",
+      "description": "GET /health returns 200 with service status."
+    }
+  ],
+  "acceptance_criteria": [
+    {
+      "id": "AC-001",
+      "requirement": "FR-001",
+      "criterion": "Given the service is running, when GET /health is called, then the response status is 200 and the body reports status \"ok\"."
+    }
+  ],
+  "north_star_metric": "Percentage of monitored services whose outages are detected before a user reports them.",
+  "priority": "P2",
+  "target_platform": "api",
+  "preferred_stack": "python-stdlib",
+  "deployment_target": "local"
+}

@@ -1,0 +1,15 @@
+{
+  "$fixture_base": "valid_bundle.json",
+  "$mutations": [
+    {
+      "op": "replace",
+      "path": [
+        "approvals",
+        "APR-CONTRACT-001",
+        "subject",
+        "id"
+      ],
+      "value": "FR-001"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "$fixture_base": "valid_bundle.json",
+  "$mutations": [
+    {
+      "op": "replace",
+      "path": [
+        "metrics",
+        "leading",
+        "METRIC-LEAD-001"
+      ],
+      "value": {
+        "definition": "Share of received bundles that pass structural validation on first submission.",
+        "direction": "INCREASE",
+        "maturity_policy_ref": "POLICY-METRIC-FIRST-PASS",
+        "metric_id": "METRIC-LEAD-DIFFERENT",
+        "name": "First-pass contract validation rate"
+      }
+    }
+  ]
+}

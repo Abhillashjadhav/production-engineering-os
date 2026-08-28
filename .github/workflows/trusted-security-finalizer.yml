@@ -1,0 +1,79 @@
+name: Trusted Security Finalizer
+
+on:
+  workflow_run:
+    workflows: ["Trusted Security"]
+    types: [completed]
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  finalize-candidate-check:
+    name: finalize-candidate-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SOURCE_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+      SOURCE_DISPLAY_TITLE: ${{ github.event.workflow_run.display_title }}
+      SOURCE_EVENT: ${{ github.event.workflow_run.event }}
+      SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+      SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+    steps:
+      - name: Complete the source run's candidate-bound check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          case "$SOURCE_CONCLUSION" in
+            success) conclusion=success ;;
+            cancelled) conclusion=cancelled ;;
+            timed_out) conclusion=timed_out ;;
+            action_required) conclusion=action_required ;;
+            skipped) conclusion=skipped ;;
+            *) conclusion=failure ;;
+          esac
+          case "$SOURCE_EVENT" in
+            pull_request_target|merge_group) ;;
+            *) exit 1 ;;
+          esac
+          case "$SOURCE_DISPLAY_TITLE" in
+            trusted-security:*) subject_sha="${SOURCE_DISPLAY_TITLE#trusted-security:}" ;;
+            *) exit 1 ;;
+          esac
+          test "${#subject_sha}" -eq 40
+          case "$subject_sha" in *[!0-9a-f]*) exit 1 ;; esac
+          source_external_id="$SOURCE_RUN_ID:$SOURCE_RUN_ATTEMPT"
+          check_run_id="$(
+            gh api \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/$GITHUB_REPOSITORY/commits/$subject_sha/check-runs?check_name=security&filter=all&per_page=100" \
+              --jq ".check_runs[] | select(.external_id == \"$source_external_id\") | .id" \
+              | tail -n 1
+          )"
+          if test -z "$check_run_id"; then
+            missing_conclusion="$conclusion"
+            if test "$missing_conclusion" = success; then
+              missing_conclusion=failure
+            fi
+            gh api --method POST \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/$GITHUB_REPOSITORY/check-runs" \
+              -f name=security \
+              -f head_sha="$subject_sha" \
+              -f external_id="$source_external_id" \
+              -f status=completed \
+              -f conclusion="$missing_conclusion" \
+              -f details_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" \
+              -f "output[title]=Trusted security finalization failed" \
+              -f "output[summary]=The source run ended without a recoverable candidate check; admission fails closed."
+            exit 0
+          fi
+          gh api --method PATCH \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$GITHUB_REPOSITORY/check-runs/$check_run_id" \
+            -f status=completed \
+            -f conclusion="$conclusion" \
+            -f details_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$SOURCE_RUN_ID" \
+            -f "output[title]=Trusted security $conclusion" \
+            -f "output[summary]=The protected finalizer recorded source run $SOURCE_RUN_ID as $conclusion."

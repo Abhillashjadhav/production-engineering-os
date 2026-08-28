@@ -1,0 +1,74 @@
+{
+  "synthetic": true,
+  "note": "PLANTED drift fixture: new axe violations",
+  "created_at": "2026-07-16T00:00:00Z",
+  "agent_results": {
+    "pass_rate_by_agent": {
+      "v2-system-architect": 1.0,
+      "v2-implementation-planner": 1.0,
+      "v2-engineer-router": 1.0,
+      "v2-backend-engineer": 1.0,
+      "v2-test-engineer": 1.0,
+      "v2-integration-engineer": 1.0,
+      "v2-code-reviewer": 1.0,
+      "v2-product-conformance-reviewer": 1.0,
+      "v2-architecture-simplicity-reviewer": 1.0,
+      "v2-eval-integrity-auditor": 1.0,
+      "v2-approved-findings-fixer": 1.0
+    },
+    "hard_gate_failures": [],
+    "routing_mistakes": [],
+    "escalation_mistakes": [],
+    "tool_permission_violations": []
+  },
+  "trajectory_violations": [],
+  "coverage": {
+    "requirements_total": 1,
+    "not_proven": 0,
+    "failure_clusters": [],
+    "golden_cases": [
+      "golden/health-basic.json"
+    ]
+  },
+  "judge": {
+    "pairs": [
+      {
+        "case_id": "G-1",
+        "judge": "pass",
+        "human": "pass"
+      },
+      {
+        "case_id": "G-2",
+        "judge": "fail",
+        "human": "fail"
+      },
+      {
+        "case_id": "G-3",
+        "judge": "pass",
+        "human": "pass"
+      },
+      {
+        "case_id": "G-4",
+        "judge": "pass",
+        "human": "pass"
+      }
+    ]
+  },
+  "engineering_output": {
+    "files": 12,
+    "loc": 600,
+    "runtime_dependencies": 1,
+    "duration_seconds": 120,
+    "iterations": 1
+  },
+  "web_surface": {
+    "browser_tests": 14,
+    "axe_violations": 2,
+    "suites": [
+      "a11y",
+      "keyboard",
+      "responsive",
+      "journeys"
+    ]
+  }
+}

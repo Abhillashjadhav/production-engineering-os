@@ -1,0 +1,19 @@
+# pipeline run outputs (each run is a throwaway workspace + audit trail)
+runs/
+!docs/evidence/e1-real-provider-20260826/evidence/.pmpe/runs/
+!docs/evidence/e1-real-provider-20260826/evidence/.pmpe/runs/**
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# javascript workspaces (each has its own lockfile-driven install)
+node_modules/

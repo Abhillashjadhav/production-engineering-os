@@ -1,0 +1,21 @@
+{
+  "$fixture_base": "valid_bundle.json",
+  "$mutations": [
+    {
+      "op": "replace",
+      "path": [
+        "metrics",
+        "maturity_policies",
+        "POLICY-METRIC-VAPDR",
+        "target"
+      ],
+      "value": {
+        "baseline_plan": "A numeric threshold is not approved yet.",
+        "operator": "AT_LEAST",
+        "status": "BASELINE_REQUIRED",
+        "unit": "ratio",
+        "value": 0.8
+      }
+    }
+  ]
+}

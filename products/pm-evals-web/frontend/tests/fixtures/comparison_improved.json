@@ -1,0 +1,281 @@
+{
+  "baseline_digest": "sha256:e45e22f6507e2ffb491285b75a4becf7c5712c10a93f5c65583b04596f5028ba",
+  "baseline_only_traces": [],
+  "baseline_pass_rate": 0.84375,
+  "baseline_run_id": "baseline-2026-07-01",
+  "candidate_digest": "sha256:6a308b0a29880a47aa04617fe0cd193c6ec53ccf895082d7168773efd5976eeb",
+  "candidate_only_traces": [],
+  "candidate_pass_rate": 0.9375,
+  "candidate_run_id": "candidate-2026-07-15-improved",
+  "criteria": [
+    {
+      "baseline_pass_rate": 0.875,
+      "candidate_pass_rate": 1.0,
+      "covered_traces": 8,
+      "criterion_id": "C-ACCURACY",
+      "delta": 0.125,
+      "description": "The answer is factually accurate for the customer's plan",
+      "guardrail": {
+        "baseline_threshold": 0.0,
+        "candidate_effect": "unset",
+        "candidate_threshold": null,
+        "effective_threshold": 0.0,
+        "policy": "baseline-authoritative"
+      },
+      "hard_gate": true,
+      "newly_failing": [],
+      "newly_passing": [
+        "T-003"
+      ]
+    },
+    {
+      "baseline_pass_rate": 0.875,
+      "candidate_pass_rate": 1.0,
+      "covered_traces": 8,
+      "criterion_id": "C-GROUNDED",
+      "delta": 0.125,
+      "description": "Every claim is grounded in the retrieved policy documents",
+      "guardrail": {
+        "baseline_threshold": 0.0,
+        "candidate_effect": "unset",
+        "candidate_threshold": null,
+        "effective_threshold": 0.0,
+        "policy": "baseline-authoritative"
+      },
+      "hard_gate": true,
+      "newly_failing": [],
+      "newly_passing": [
+        "T-005"
+      ]
+    },
+    {
+      "baseline_pass_rate": 0.875,
+      "candidate_pass_rate": 1.0,
+      "covered_traces": 8,
+      "criterion_id": "C-TONE",
+      "delta": 0.125,
+      "description": "Tone is professional and empathetic",
+      "guardrail": {
+        "baseline_threshold": 0.75,
+        "candidate_effect": "matched",
+        "candidate_threshold": 0.75,
+        "effective_threshold": 0.75,
+        "policy": "baseline-authoritative"
+      },
+      "hard_gate": false,
+      "newly_failing": [],
+      "newly_passing": [
+        "T-004"
+      ]
+    },
+    {
+      "baseline_pass_rate": 0.75,
+      "candidate_pass_rate": 0.75,
+      "covered_traces": 8,
+      "criterion_id": "C-BREVITY",
+      "delta": 0.0,
+      "description": "Reply fits in four sentences or fewer",
+      "guardrail": {
+        "baseline_threshold": 0.0,
+        "candidate_effect": "unset",
+        "candidate_threshold": null,
+        "effective_threshold": 0.0,
+        "policy": "baseline-authoritative"
+      },
+      "hard_gate": false,
+      "newly_failing": [],
+      "newly_passing": []
+    }
+  ],
+  "hard_gate_regressions": [],
+  "matched_traces": 8,
+  "net_change": 0.09375,
+  "newly_failing_traces": [],
+  "newly_passing_traces": [
+    "T-003",
+    "T-004",
+    "T-005"
+  ],
+  "reasons": [],
+  "suite": "support-copilot-v2",
+  "trace_details": [
+    {
+      "baseline_label": "duplicate charge dispute with two invoices attached",
+      "baseline_notes": "SYNTHETIC fixture trace \u2014 generated for pm-evals Web tests",
+      "candidate_label": "duplicate charge dispute with two invoices attached",
+      "candidate_notes": "SYNTHETIC fixture trace \u2014 generated for pm-evals Web tests",
+      "changed": true,
+      "criteria": [
+        {
+          "baseline_result": "fail",
+          "candidate_result": "pass",
+          "changed": true,
+          "criterion_id": "C-ACCURACY",
+          "hard_gate": true,
+          "name": "The answer is factually accurate for the customer's plan",
+          "provenance": "both",
+          "rationale": "Baseline failed and the candidate passes.",
+          "state": "improved",
+          "verdict": "Improved"
+        },
+        {
+          "baseline_result": "pass",
+          "candidate_result": "pass",
+          "changed": false,
+          "criterion_id": "C-GROUNDED",
+          "hard_gate": true,
+          "name": "Every claim is grounded in the retrieved policy documents",
+          "provenance": "both",
+          "rationale": "Both runs pass this criterion.",
+          "state": "unchanged",
+          "verdict": "Unchanged \u2014 passing"
+        },
+        {
+          "baseline_result": "pass",
+          "candidate_result": "pass",
+          "changed": false,
+          "criterion_id": "C-TONE",
+          "hard_gate": false,
+          "name": "Tone is professional and empathetic",
+          "provenance": "both",
+          "rationale": "Both runs pass this criterion.",
+          "state": "unchanged",
+          "verdict": "Unchanged \u2014 passing"
+        },
+        {
+          "baseline_result": "pass",
+          "candidate_result": "pass",
+          "changed": false,
+          "criterion_id": "C-BREVITY",
+          "hard_gate": false,
+          "name": "Reply fits in four sentences or fewer",
+          "provenance": "both",
+          "rationale": "Both runs pass this criterion.",
+          "state": "unchanged",
+          "verdict": "Unchanged \u2014 passing"
+        }
+      ],
+      "direction": "improved",
+      "trace_id": "T-003"
+    },
+    {
+      "baseline_label": "cancellation request citing a competitor discount",
+      "baseline_notes": "SYNTHETIC fixture trace \u2014 generated for pm-evals Web tests",
+      "candidate_label": "cancellation request citing a competitor discount",
+      "candidate_notes": "SYNTHETIC fixture trace \u2014 generated for pm-evals Web tests",
+      "changed": true,
+      "criteria": [
+        {
+          "baseline_result": "pass",
+          "candidate_result": "pass",
+          "changed": false,
+          "criterion_id": "C-ACCURACY",
+          "hard_gate": true,
+          "name": "The answer is factually accurate for the customer's plan",
+          "provenance": "both",
+          "rationale": "Both runs pass this criterion.",
+          "state": "unchanged",
+          "verdict": "Unchanged \u2014 passing"
+        },
+        {
+          "baseline_result": "pass",
+          "candidate_result": "pass",
+          "changed": false,
+          "criterion_id": "C-GROUNDED",
+          "hard_gate": true,
+          "name": "Every claim is grounded in the retrieved policy documents",
+          "provenance": "both",
+          "rationale": "Both runs pass this criterion.",
+          "state": "unchanged",
+          "verdict": "Unchanged \u2014 passing"
+        },
+        {
+          "baseline_result": "fail",
+          "candidate_result": "pass",
+          "changed": true,
+          "criterion_id": "C-TONE",
+          "hard_gate": false,
+          "name": "Tone is professional and empathetic",
+          "provenance": "both",
+          "rationale": "Baseline failed and the candidate passes.",
+          "state": "improved",
+          "verdict": "Improved"
+        },
+        {
+          "baseline_result": "pass",
+          "candidate_result": "pass",
+          "changed": false,
+          "criterion_id": "C-BREVITY",
+          "hard_gate": false,
+          "name": "Reply fits in four sentences or fewer",
+          "provenance": "both",
+          "rationale": "Both runs pass this criterion.",
+          "state": "unchanged",
+          "verdict": "Unchanged \u2014 passing"
+        }
+      ],
+      "direction": "improved",
+      "trace_id": "T-004"
+    },
+    {
+      "baseline_label": "enterprise seat expansion pricing question",
+      "baseline_notes": "SYNTHETIC fixture trace \u2014 generated for pm-evals Web tests",
+      "candidate_label": "enterprise seat expansion pricing question",
+      "candidate_notes": "SYNTHETIC fixture trace \u2014 generated for pm-evals Web tests",
+      "changed": true,
+      "criteria": [
+        {
+          "baseline_result": "pass",
+          "candidate_result": "pass",
+          "changed": false,
+          "criterion_id": "C-ACCURACY",
+          "hard_gate": true,
+          "name": "The answer is factually accurate for the customer's plan",
+          "provenance": "both",
+          "rationale": "Both runs pass this criterion.",
+          "state": "unchanged",
+          "verdict": "Unchanged \u2014 passing"
+        },
+        {
+          "baseline_result": "fail",
+          "candidate_result": "pass",
+          "changed": true,
+          "criterion_id": "C-GROUNDED",
+          "hard_gate": true,
+          "name": "Every claim is grounded in the retrieved policy documents",
+          "provenance": "both",
+          "rationale": "Baseline failed and the candidate passes.",
+          "state": "improved",
+          "verdict": "Improved"
+        },
+        {
+          "baseline_result": "pass",
+          "candidate_result": "pass",
+          "changed": false,
+          "criterion_id": "C-TONE",
+          "hard_gate": false,
+          "name": "Tone is professional and empathetic",
+          "provenance": "both",
+          "rationale": "Both runs pass this criterion.",
+          "state": "unchanged",
+          "verdict": "Unchanged \u2014 passing"
+        },
+        {
+          "baseline_result": "pass",
+          "candidate_result": "pass",
+          "changed": false,
+          "criterion_id": "C-BREVITY",
+          "hard_gate": false,
+          "name": "Reply fits in four sentences or fewer",
+          "provenance": "both",
+          "rationale": "Both runs pass this criterion.",
+          "state": "unchanged",
+          "verdict": "Unchanged \u2014 passing"
+        }
+      ],
+      "direction": "improved",
+      "trace_id": "T-005"
+    }
+  ],
+  "verdict": "PROCEED"
+}

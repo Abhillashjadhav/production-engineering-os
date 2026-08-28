@@ -1,0 +1,18 @@
+# Containerized preview (PD-V3-14): built and exercised in CI, where a Docker
+# daemon exists; locally the equivalent built-artifact preview runs as
+# processes via scripts/preview.sh — the honest, documented seam.
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        BACKEND_URL: http://backend:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      backend:
+        condition: service_healthy
