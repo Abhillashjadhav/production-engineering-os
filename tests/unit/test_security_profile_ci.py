@@ -408,6 +408,33 @@ def test_architecture_observer_rejects_class_bound_import_authority(
     assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
 
 
+@pytest.mark.parametrize(
+    "source_text",
+    [
+        "import importlib\nclass Loaders:\n"
+        "    @staticmethod\n"
+        "    def load(name, loader=importlib.import_module):\n"
+        "        return loader(name)\n"
+        'Loaders.load("pmpe.guided.api")\n',
+        "from builtins import __import__ as load\nclass Loaders:\n"
+        "    def resolve(self, name, *, loader=load):\n"
+        "        return loader(name)\n",
+        "import importlib\nclass Loaders:\n"
+        "    def resolve(self, name, loaders=(importlib.import_module,)):\n"
+        "        return loaders[0](name)\n",
+    ],
+)
+def test_architecture_observer_rejects_import_authority_in_method_defaults(
+    tmp_path: Path,
+    source_text: str,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "method_default.py").write_text(source_text)
+
+    assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
+
+
 def test_dynamic_import_exception_binds_the_complete_target_file(tmp_path: Path) -> None:
     source = tmp_path / "src" / "pmpe" / "evidence"
     source.mkdir(parents=True)

@@ -1,7 +1,0 @@
-{
-  "candidate_id": "CAND-001",
-  "commit": "243eddf72005f6f23ed70142053adbd27f7ae3c3",
-  "contract_digest": "sha256:f01af9c278d32e5c3c953f151662958c8580f109938e44016ac802dc563bad6f",
-  "frozen_at": "2026-07-17T12:03:14.031023Z",
-  "tree_digest": "sha256:3af7832792afa78c12aa88efab6030ebfeafdd45eb75f45c3d9a943470c03bcb"
-}

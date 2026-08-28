@@ -588,6 +588,35 @@ _LEXICAL_SCOPES = (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef, ast.Lamb
 _LoaderAliases = tuple[set[str], set[str], set[str], set[str]]
 
 
+def _function_definition_expressions(
+    node: ast.AsyncFunctionDef | ast.FunctionDef,
+) -> tuple[ast.AST, ...]:
+    """Expressions evaluated while a function object is bound in its parent scope."""
+
+    annotations: list[ast.AST] = [
+        argument.annotation
+        for argument in (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+        )
+        if argument.annotation is not None
+    ]
+    for argument in (node.args.vararg, node.args.kwarg):
+        if argument is not None and argument.annotation is not None:
+            annotations.append(argument.annotation)
+    if node.returns is not None:
+        annotations.append(node.returns)
+    type_parameters = tuple(getattr(node, "type_params", ()))
+    return (
+        *node.decorator_list,
+        *node.args.defaults,
+        *(item for item in node.args.kw_defaults if item is not None),
+        *annotations,
+        *type_parameters,
+    )
+
+
 def _lexical_import_aliases(
     tree: ast.Module,
     *,
@@ -750,6 +779,22 @@ def _lexical_import_aliases(
                     import_module_aliases=import_module_aliases,
                 ):
                     edges.add((source_layer, "unresolved_dynamic"))
+        for child, parent in scope_parent.items():
+            if parent is not scope or not isinstance(
+                child, (ast.AsyncFunctionDef, ast.FunctionDef)
+            ):
+                continue
+            if any(
+                _stores_import_capability(
+                    expression,
+                    builtins_aliases=builtins_aliases,
+                    builtin_import_aliases=builtin_import_aliases,
+                    importlib_aliases=importlib_aliases,
+                    import_module_aliases=import_module_aliases,
+                )
+                for expression in _function_definition_expressions(child)
+            ):
+                edges.add((source_layer, "unresolved_dynamic"))
         aliases_by_scope[scope] = (
             builtins_aliases,
             builtin_import_aliases,
