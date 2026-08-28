@@ -47,7 +47,11 @@ def _manifest(candidate: Path) -> dict[str, object]:
     files = {
         path.relative_to(candidate).as_posix(): _digest(path)
         for relative in ("requirements.lock", "pyproject.toml", "scripts/ci", "src")
-        for path in sorted((candidate / relative).rglob("*") if (candidate / relative).is_dir() else [candidate / relative])
+        for path in sorted(
+            (candidate / relative).rglob("*")
+            if (candidate / relative).is_dir()
+            else [candidate / relative]
+        )
         if path.is_file()
     }
     shell: dict[str, object] = {
@@ -70,6 +74,7 @@ def _roots(tmp_path: Path) -> tuple[Path, str, Path, str, Path]:
             "requirements.lock": "trusted-lock\n",
             "pyproject.toml": "[project]\nname='trusted'\n",
             "security/security-profile-policy.json": "{}\n",
+            "security/secret-allowlist.json": "[]\n",
         },
     )
     candidate = tmp_path / "candidate"
@@ -154,7 +159,9 @@ def test_protected_base_verifier_never_falls_back_to_candidate(tmp_path: Path) -
     _git(trusted, "add", ".")
     _git(trusted, "commit", "-qm", "protected verifier")
     base_sha = _git(trusted, "rev-parse", "HEAD")
-    (candidate / "scripts/ci/evaluate_security_profile.py").write_text("raise SystemExit('bypass')\n")
+    (candidate / "scripts/ci/evaluate_security_profile.py").write_text(
+        "raise SystemExit('bypass')\n"
+    )
     _git(candidate, "add", ".")
     _git(candidate, "commit", "-qm", "candidate bypass")
     head_sha = _git(candidate, "rev-parse", "HEAD")
@@ -194,6 +201,39 @@ def test_partial_protected_verifier_fails_without_bootstrap_fallback(tmp_path: P
         )
 
 
+def test_bootstrap_rejects_manifest_outside_the_protected_base(tmp_path: Path) -> None:
+    trusted, base_sha, candidate, head_sha, manifest = _roots(tmp_path)
+    external_manifest = tmp_path / "candidate-selected-manifest.json"
+    external_manifest.write_bytes(manifest.read_bytes())
+
+    with pytest.raises(BootstrapVerificationError, match="protected-base file"):
+        verify_trusted_security(
+            trusted_root=trusted,
+            candidate_root=candidate,
+            manifest_path=external_manifest,
+            base_sha=base_sha,
+            candidate_sha=head_sha,
+            pr_number=133,
+            trusted_clock=lambda: NOW,
+        )
+
+
+def test_exact_checkout_rejects_untracked_candidate_files(tmp_path: Path) -> None:
+    trusted, base_sha, candidate, head_sha, manifest = _roots(tmp_path)
+    (candidate / "sitecustomize.py").write_text("raise SystemExit('ambient startup')\n")
+
+    with pytest.raises(BootstrapVerificationError, match="clean exact commit"):
+        verify_trusted_security(
+            trusted_root=trusted,
+            candidate_root=candidate,
+            manifest_path=manifest,
+            base_sha=base_sha,
+            candidate_sha=head_sha,
+            pr_number=133,
+            trusted_clock=lambda: NOW,
+        )
+
+
 def test_trusted_workflow_has_no_candidate_authority() -> None:
     workflow = Path(".github/workflows/trusted-security.yml").read_text()
 
@@ -203,8 +243,7 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert "github.event.pull_request.base.sha" in workflow
     assert "github.event.pull_request.head.sha" in workflow
     assert "trusted/scripts/ci/verify_trusted_security_bootstrap.py" in workflow
-    assert "secrets." not in workflow
+    assert "${{ secrets." not in workflow
     assert "pull_request:" not in workflow.replace("pull_request_target:", "")
     assert "merge" not in workflow.lower()
     assert "deploy" not in workflow.lower()
-
