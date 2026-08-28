@@ -588,15 +588,37 @@ _LEXICAL_SCOPES = (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef, ast.Lamb
 _LoaderAliases = tuple[set[str], set[str], set[str], set[str]]
 
 
+def _inherited_aliases(
+    parent: set[str],
+    module: set[str],
+    *,
+    local_names: set[str],
+    global_names: set[str],
+) -> set[str]:
+    inherited = parent - local_names
+    for name in global_names:
+        inherited.discard(name)
+        if name in module:
+            inherited.add(name)
+    return inherited
+
+
 def _function_definition_expressions(
-    node: ast.AsyncFunctionDef | ast.FunctionDef | ast.Lambda,
+    node: ast.AsyncFunctionDef | ast.ClassDef | ast.FunctionDef | ast.Lambda,
 ) -> tuple[ast.AST, ...]:
-    """Expressions evaluated while a function object is bound in its parent scope."""
+    """Expressions evaluated while a function or class is bound in its parent scope."""
 
     if isinstance(node, ast.Lambda):
         return (
             *node.args.defaults,
             *(item for item in node.args.kw_defaults if item is not None),
+        )
+    if isinstance(node, ast.ClassDef):
+        return (
+            *node.decorator_list,
+            *node.bases,
+            *(keyword.value for keyword in node.keywords),
+            *tuple(getattr(node, "type_params", ())),
         )
     annotations: list[ast.AST] = [
         argument.annotation
@@ -651,7 +673,9 @@ def _lexical_import_aliases(
     # Python's actual definition-time name resolution. Lambda defaults follow the
     # same rule.
     for child, parent in scope_parent.items():
-        if not isinstance(child, (ast.AsyncFunctionDef, ast.FunctionDef, ast.Lambda)):
+        if not isinstance(
+            child, (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef, ast.Lambda)
+        ):
             continue
         for expression in _function_definition_expressions(child):
             for expression_node in ast.walk(expression):
@@ -666,7 +690,13 @@ def _lexical_import_aliases(
         global_names = {
             name
             for node in nodes
-            if isinstance(node, (ast.Global, ast.Nonlocal))
+            if isinstance(node, ast.Global)
+            for name in node.names
+        }
+        nonlocal_names = {
+            name
+            for node in nodes
+            if isinstance(node, ast.Nonlocal)
             for name in node.names
         }
         local_names = {
@@ -692,7 +722,7 @@ def _lexical_import_aliases(
             if parent is scope
             and isinstance(child, (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef))
         )
-        local_names.difference_update(global_names)
+        local_names.difference_update(global_names | nonlocal_names)
 
         if scope is tree:
             builtins_aliases: set[str] = set()
@@ -701,10 +731,31 @@ def _lexical_import_aliases(
             import_module_aliases: set[str] = set()
         else:
             parent_aliases = aliases_by_scope[scope_parent[scope]]
-            builtins_aliases = parent_aliases[0] - local_names
-            builtin_import_aliases = parent_aliases[1] - local_names
-            importlib_aliases = parent_aliases[2] - local_names
-            import_module_aliases = parent_aliases[3] - local_names
+            module_aliases = aliases_by_scope[tree]
+            builtins_aliases = _inherited_aliases(
+                parent_aliases[0],
+                module_aliases[0],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            builtin_import_aliases = _inherited_aliases(
+                parent_aliases[1],
+                module_aliases[1],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            importlib_aliases = _inherited_aliases(
+                parent_aliases[2],
+                module_aliases[2],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            import_module_aliases = _inherited_aliases(
+                parent_aliases[3],
+                module_aliases[3],
+                local_names=local_names,
+                global_names=global_names,
+            )
 
         for node in nodes:
             if isinstance(node, ast.Import):
@@ -797,7 +848,7 @@ def _lexical_import_aliases(
                     edges.add((source_layer, "unresolved_dynamic"))
         for child, parent in scope_parent.items():
             if parent is not scope or not isinstance(
-                child, (ast.AsyncFunctionDef, ast.FunctionDef, ast.Lambda)
+                child, (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef, ast.Lambda)
             ):
                 continue
             if any(
