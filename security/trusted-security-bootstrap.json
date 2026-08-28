@@ -1,13 +1,13 @@
 {
   "approved_by": "repository-owner",
-  "approved_candidate_sha": "fd75e0f12fc8686df271ed43b768d98513072aa9",
+  "approved_candidate_sha": "88cdc543fdd64382b84c03942ce29fe19e475ab0",
   "approved_pr_number": 133,
   "expires_at": "2026-09-30T00:00:00Z",
   "files": {
     "pyproject.toml": "sha256:074b2485f5bbb191e18e9ec86e2b074fcbb54a45487ad45359078928dfedb245",
     "requirements.lock": "sha256:7a0ddd392a4cad6ce4d17585e368c0403f556870b2c3d7bc49f16dccebd5f944",
-    "scripts/ci/evaluate_security_profile.py": "sha256:2cba5cd175e67c8e9b85be1c4a0c623b72c389a719893910ddbd52cc7191fbad",
-    "scripts/ci/verify_privacy_controls.py": "sha256:a51a4807dc9e545e1904292ab7f572d7341e15dc98b04fc2ea240ea8aff49e4d",
+    "scripts/ci/evaluate_security_profile.py": "sha256:74fc1f9f4ab8a76ba23483972d7d65bd8ecff7605b36b3a6721957f36dcb809b",
+    "scripts/ci/verify_privacy_controls.py": "sha256:021133c2582763d851d800393b5e5deff07a07538bda8bb97653ea5758de7bcd",
     "scripts/ci/verify_repository_secrets.py": "sha256:3a20d9568bb60646a319c28e45b0626262d035e7e3d5de241c857bcf9123523d",
     "src/pmpe/__init__.py": "sha256:8d7b53dfcbc8261b03ba44e17d07ebbf5ed1e5cb0f63692e0e5c4e040f7de717",
     "src/pmpe/admission/__init__.py": "sha256:879ae04c633c598fb62b2e78d50b23438d194c4683d866978d8cd203f2dffb6c",
@@ -210,6 +210,6 @@
     "src/pmpe/workflows/support_discovery.py": "sha256:8bf77e08e5cc167713b3e907b099510bb83385091ad003c48a27e904808c1752"
   },
   "justification": "One-time exact verifier bootstrap for PR #133.",
-  "manifest_digest": "sha256:0dbb5d94f39eaadb1d51be2810b43027a833a25690079e9a26baf4df9f7eb740",
+  "manifest_digest": "sha256:f163e8c66b26c6fd5caf1faa153fb39e1031e5778d5f26e7df31df09c27ca5d0",
   "schema_version": "trusted-security-bootstrap/v1"
 }
