@@ -14,6 +14,7 @@ from pmpe.orchestration.lifecycle import BudgetPolicy, LifecycleControlPlane, Li
 from pmpe.privacy.retention import RetentionController
 from pmpe.telemetry.events import EventLog
 from scripts.ci.evaluate_security_profile import (
+    _file_digest,
     _observed_architecture_edges,
     _privacy_evidence_from_artifact,
 )
@@ -109,6 +110,38 @@ def test_architecture_observer_resolves_relative_dynamic_imports(tmp_path: Path)
     )
 
     assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
+
+
+def test_dynamic_import_exception_binds_the_complete_target_file(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "pmpe" / "evidence"
+    source.mkdir(parents=True)
+    module = source / "__init__.py"
+    module.write_text(
+        "from importlib import import_module\n"
+        '_EXPORT_MODULES = {"Gate": "pmpe.evidence.gate"}\n'
+        "def load(name):\n"
+        "    module_name = _EXPORT_MODULES[name]\n"
+        "    return import_module(module_name)\n"
+    )
+    call_line = module.read_text().splitlines()[4]
+    allowlist = (
+        (
+            "src/pmpe/evidence/__init__.py",
+            5,
+            canonical_digest({"source_line": call_line}),
+            _file_digest(module),
+        ),
+    )
+
+    assert ("verification", "unresolved_dynamic") not in _observed_architecture_edges(
+        tmp_path, dynamic_import_allowlist=allowlist
+    )
+
+    module.write_text(module.read_text().replace("pmpe.evidence.gate", "pmpe.guided.api"))
+
+    assert ("verification", "unresolved_dynamic") in _observed_architecture_edges(
+        tmp_path, dynamic_import_allowlist=allowlist
+    )
 
 
 def test_retention_controller_atomically_deletes_only_expired_completed_runs(
@@ -277,6 +310,29 @@ def test_privacy_verifier_tracks_aliased_event_emitters(tmp_path: Path) -> None:
     )
 
     assert _inventory_telemetry_fields(tmp_path) == ("email",)
+
+
+def test_privacy_verifier_tracks_attribute_aliased_event_emitters(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "context.py").write_text(
+        'holder.send = ctx.events.emit\nholder.send("result", email="synthetic@example.invalid")\n'
+    )
+
+    assert _inventory_telemetry_fields(tmp_path) == ("email",)
+
+
+def test_privacy_verifier_fails_when_emitter_escapes_into_a_container(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "context.py").write_text(
+        'emitters = [ctx.events.emit]\nemitters[0]("result", email="hidden")\n'
+    )
+
+    with pytest.raises(ValueError, match="emitter escapes"):
+        _inventory_telemetry_fields(tmp_path)
 
 
 def test_privacy_evidence_requires_executed_exact_candidate_artifact(tmp_path: Path) -> None:

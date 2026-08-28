@@ -127,7 +127,7 @@ def _layer(package: str) -> str:
 def _observed_architecture_edges(
     root: Path,
     *,
-    dynamic_import_allowlist: tuple[tuple[str, int, str], ...] = (),
+    dynamic_import_allowlist: tuple[tuple[str, int, str, str], ...] = (),
 ) -> tuple[tuple[str, str], ...]:
     edges: set[tuple[str, str]] = set()
     product_root = root / "products" / "pm-evals-web" / "backend" / "src"
@@ -205,7 +205,7 @@ def _collect_architecture_edges(
     current_package: str,
     source_layer: str,
     product_packages: frozenset[str],
-    dynamic_import_allowlist: tuple[tuple[str, int, str], ...],
+    dynamic_import_allowlist: tuple[tuple[str, int, str, str], ...],
     edges: set[tuple[str, str]],
 ) -> None:
     source_lines = path.read_text().splitlines()
@@ -287,7 +287,12 @@ def _collect_architecture_edges(
                 relative_path = path.relative_to(root).as_posix()
                 source_line = source_lines[node.lineno - 1]
                 fingerprint = canonical_digest({"source_line": source_line})
-                identity = (relative_path, node.lineno, fingerprint)
+                identity = (
+                    relative_path,
+                    node.lineno,
+                    fingerprint,
+                    _file_digest(path),
+                )
                 if identity not in dynamic_import_allowlist:
                     edges.add((source_layer, "unresolved_dynamic"))
                 continue
@@ -545,7 +550,12 @@ def _evaluate(
 
     allowed_edges = policy.trusted_architecture_allowed_edges
     dynamic_import_allowlist = tuple(
-        (str(item["path"]), int(item["line"]), str(item["line_fingerprint"]))
+        (
+            str(item["path"]),
+            int(item["line"]),
+            str(item["line_fingerprint"]),
+            str(item["file_digest"]),
+        )
         for item in config["dynamic_import_allowlist"]
     )
     architecture_shell = ArchitectureBoundaryObservation(

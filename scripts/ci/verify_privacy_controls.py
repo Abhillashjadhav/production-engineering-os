@@ -52,6 +52,28 @@ def _load_policy(path: Path) -> dict[str, Any]:
     return dict(value["privacy"])
 
 
+def _emitter_identity(node: ast.expr) -> str | None:
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parent = _emitter_identity(node.value)
+        if parent is not None:
+            return f"{parent}.{node.attr}"
+    return None
+
+
+def _assignment_targets(node: ast.Assign | ast.AnnAssign) -> list[ast.expr]:
+    return list(node.targets) if isinstance(node, ast.Assign) else [node.target]
+
+
+def _is_supported_alias_assignment(parent: ast.AST | None, node: ast.expr) -> bool:
+    return bool(
+        isinstance(parent, (ast.Assign, ast.AnnAssign))
+        and parent.value is node
+        and all(_emitter_identity(target) is not None for target in _assignment_targets(parent))
+    )
+
+
 def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
     fields: set[str] = set()
     for path in sorted((root / "src" / "pmpe").rglob("*.py")):
@@ -64,27 +86,55 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                 if not isinstance(node, (ast.Assign, ast.AnnAssign)):
                     continue
                 value = node.value
+                if value is None:
+                    continue
                 is_emitter = bool(
                     isinstance(value, ast.Attribute)
                     and value.attr == "emit"
-                    or isinstance(value, ast.Name)
-                    and value.id in aliases
+                    or _emitter_identity(value) in aliases
                 )
                 if not is_emitter:
                     continue
-                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                for target in targets:
-                    if isinstance(target, ast.Name) and target.id not in aliases:
-                        aliases.add(target.id)
+                for target in _assignment_targets(node):
+                    identity = _emitter_identity(target)
+                    if identity is None:
+                        raise ValueError(
+                            "telemetry emitter escapes supported name/attribute alias: "
+                            f"{path}:{node.lineno}"
+                        )
+                    if identity not in aliases:
+                        aliases.add(identity)
                         changed = True
+        parents = {
+            child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)
+        }
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.Name, ast.Attribute)) or not isinstance(
+                node.ctx, ast.Load
+            ):
+                continue
+            identity = _emitter_identity(node)
+            is_emitter_reference = bool(
+                isinstance(node, ast.Attribute) and node.attr == "emit" or identity in aliases
+            )
+            if not is_emitter_reference:
+                continue
+            parent = parents.get(node)
+            called_directly = isinstance(parent, ast.Call) and parent.func is node
+            if called_directly:
+                continue
+            if _is_supported_alias_assignment(parent, node):
+                continue
+            raise ValueError(
+                f"telemetry emitter escapes supported alias binding: {path}:{node.lineno}"
+            )
         for node in ast.walk(tree):
             if not (
                 isinstance(node, ast.Call)
                 and (
                     isinstance(node.func, ast.Attribute)
                     and node.func.attr == "emit"
-                    or isinstance(node.func, ast.Name)
-                    and node.func.id in aliases
+                    or _emitter_identity(node.func) in aliases
                 )
             ):
                 continue
