@@ -293,9 +293,13 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert "--verify-dependency-coverage" in workflow
     assert "--ignore-installed" in workflow
     assert "python -m pip check" in workflow
-    assert "candidate-closure-venv" in workflow
+    assert 'python-version: "3.11"' in workflow
+    assert 'python-version: "3.12"' in workflow
+    assert "steps.python311.outputs.python-path" in workflow
+    assert "steps.python312.outputs.python-path" in workflow
+    assert "candidate-closure-$version" in workflow
     assert "-r candidate/requirements.lock" in workflow
-    assert "candidate-pip-check.txt" in workflow
+    assert "candidate-pip-check-$version.txt" in workflow
     assert "missing_conclusion=failure" in finalizer
     assert '-f conclusion="$missing_conclusion"' in finalizer
     assert "--method PATCH" in finalizer
