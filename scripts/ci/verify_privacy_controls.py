@@ -357,6 +357,11 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                     )
                     if not is_emitter:
                         continue
+                    if isinstance(scope, ast.ClassDef):
+                        raise ValueError(
+                            "telemetry emitter escapes into a class namespace: "
+                            f"{source_path}:{node.lineno}"
+                        )
                     for target in _assignment_targets(node):
                         identity = _emitter_identity(target)
                         if identity is None:

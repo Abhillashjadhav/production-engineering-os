@@ -388,6 +388,26 @@ def test_architecture_observer_fails_closed_on_aliased_module_reflection(
     assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
 
 
+@pytest.mark.parametrize(
+    "source_text",
+    [
+        "import importlib\nclass Loaders:\n    load = importlib.import_module\n"
+        'Loaders.load("pmpe.guided.api")\n',
+        "class Loaders:\n    import importlib\n"
+        'Loaders.importlib.import_module("pmpe.guided.api")\n',
+    ],
+)
+def test_architecture_observer_rejects_class_bound_import_authority(
+    tmp_path: Path,
+    source_text: str,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "class_loader.py").write_text(source_text)
+
+    assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
+
+
 def test_dynamic_import_exception_binds_the_complete_target_file(tmp_path: Path) -> None:
     source = tmp_path / "src" / "pmpe" / "evidence"
     source.mkdir(parents=True)
@@ -819,6 +839,20 @@ def test_privacy_verifier_fails_when_emitter_escapes_into_a_container(
     )
 
     with pytest.raises(ValueError, match="emitter escapes"):
+        _inventory_telemetry_fields(tmp_path)
+
+
+def test_privacy_verifier_rejects_class_bound_emitter_alias(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "context.py").write_text(
+        "class Reporters:\n"
+        "    report = ctx.events.emit\n\n"
+        "def telemetry(ctx):\n"
+        '    ctx.events.emit("result", run_id="run-1")\n'
+    )
+
+    with pytest.raises(ValueError, match="class namespace"):
         _inventory_telemetry_fields(tmp_path)
 
 

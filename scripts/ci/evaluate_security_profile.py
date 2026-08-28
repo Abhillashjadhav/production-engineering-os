@@ -668,16 +668,24 @@ def _lexical_import_aliases(
                     if alias.name == "importlib" or (
                         alias.name.startswith("importlib.") and alias.asname is None
                     ):
+                        if isinstance(scope, ast.ClassDef):
+                            edges.add((source_layer, "unresolved_dynamic"))
                         importlib_aliases.add(bound)
                     elif alias.name == "builtins":
+                        if isinstance(scope, ast.ClassDef):
+                            edges.add((source_layer, "unresolved_dynamic"))
                         builtins_aliases.add(bound)
             elif isinstance(node, ast.ImportFrom) and node.module == "importlib":
                 for alias in node.names:
                     if alias.name == "import_module":
+                        if isinstance(scope, ast.ClassDef):
+                            edges.add((source_layer, "unresolved_dynamic"))
                         import_module_aliases.add(alias.asname or alias.name)
             elif isinstance(node, ast.ImportFrom) and node.module == "builtins":
                 for alias in node.names:
                     if alias.name == "__import__":
+                        if isinstance(scope, ast.ClassDef):
+                            edges.add((source_layer, "unresolved_dynamic"))
                         builtin_import_aliases.add(alias.asname or alias.name)
 
         changed = True
@@ -721,6 +729,9 @@ def _lexical_import_aliases(
                     if not matches:
                         continue
                     admitted = True
+                    if isinstance(scope, ast.ClassDef):
+                        edges.add((source_layer, "unresolved_dynamic"))
+                        break
                     for target in targets:
                         if isinstance(target, ast.Name):
                             if target.id not in destination:
