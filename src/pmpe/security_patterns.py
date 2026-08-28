@@ -52,7 +52,11 @@ _CREDENTIAL_MATERIAL_PATTERNS = PROHIBITED_SECRET_PATTERNS + (
 
 _EMBEDDED_URL = re.compile(
     r"(?i)(?<![A-Za-z0-9+.-])"
-    r"(?:[a-z][a-z0-9+.-]*:[/\\]{2,}|[/\\]{2})[^\s<>\"']+"
+    r"(?:"
+    r"[a-z][a-z0-9+.-]*:[/\\]{2,}[^\s<>\"']+"
+    r"|[/\\]{2}(?:[^/@\s<>\"']+@)?"
+    r"(?:[A-Za-z0-9-]+\.)+[A-Za-z0-9-]+[^\s<>\"']*"
+    r")"
 )
 _SENSITIVE_QUERY_KEY = re.compile(
     r"(?i)(?:^|[-_])(?:access[-_]?token|refresh[-_]?token|api[-_]?key|token|key"
