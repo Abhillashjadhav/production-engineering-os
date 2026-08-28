@@ -515,16 +515,6 @@ export type GuardrailGovernance = {
 };
 
 /**
- * HTTPValidationError
- */
-export type HttpValidationError = {
-    /**
-     * Detail
-     */
-    detail?: Array<ValidationError>;
-};
-
-/**
  * HealthResponse
  */
 export type HealthResponse = {
@@ -1188,34 +1178,6 @@ export type TrendPoint = {
 };
 
 /**
- * ValidationError
- */
-export type ValidationError = {
-    /**
-     * Context
-     */
-    ctx?: {
-        [key: string]: unknown;
-    };
-    /**
-     * Input
-     */
-    input?: unknown;
-    /**
-     * Location
-     */
-    loc: Array<string | number>;
-    /**
-     * Message
-     */
-    msg: string;
-    /**
-     * Error Type
-     */
-    type: string;
-};
-
-/**
  * ValidationErrorResponse
  *
  * The single 422 envelope: every validation failure — malformed upload,
@@ -1329,9 +1291,13 @@ export type EvaluateMonitoringRunApiMonitoringEvaluatePostData = {
 
 export type EvaluateMonitoringRunApiMonitoringEvaluatePostErrors = {
     /**
-     * Validation Error
+     * The request exceeds a size limit — the whole-request cap (enforced before parsing) or an individual file's cap.
      */
-    422: HttpValidationError;
+    413: SizeLimitResponse;
+    /**
+     * A validation failure: one or more named per-source problems.
+     */
+    422: ValidationErrorResponse;
 };
 
 export type EvaluateMonitoringRunApiMonitoringEvaluatePostError = EvaluateMonitoringRunApiMonitoringEvaluatePostErrors[keyof EvaluateMonitoringRunApiMonitoringEvaluatePostErrors];
@@ -1378,9 +1344,13 @@ export type IngestMonitoringRunApiMonitoringRunsPostErrors = {
      */
     409: unknown;
     /**
-     * Validation Error
+     * The request exceeds a size limit — the whole-request cap (enforced before parsing) or an individual file's cap.
      */
-    422: HttpValidationError;
+    413: SizeLimitResponse;
+    /**
+     * A validation failure: one or more named per-source problems.
+     */
+    422: ValidationErrorResponse;
     /**
      * Monitoring persistence or its ingestion credential is not configured.
      */

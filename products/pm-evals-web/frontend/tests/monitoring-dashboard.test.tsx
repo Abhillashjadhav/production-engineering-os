@@ -208,4 +208,43 @@ describe("MonitoringDashboard", () => {
     expect(await screen.findByText("2/2")).toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
+
+  it("keeps stale data visible but warns when refresh fails", async () => {
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify(OVERVIEW), { status: 200 }))
+      .mockRejectedValueOnce(new Error("offline"));
+
+    render(<MonitoringDashboard fetcher={fetcher} />);
+    await screen.findByText("1/2");
+    fireEvent.click(screen.getByRole("button", { name: /refresh data/i }));
+
+    const warning = await screen.findByRole("alert");
+    expect(warning).toHaveTextContent(/refresh failed.*may be stale/i);
+    expect(warning).toHaveTextContent(/monitoring service is unreachable/i);
+    expect(screen.getByText(/dj-linkedin-pm-bengaluru-042/i)).toBeInTheDocument();
+  });
+
+  it("resets a product filter that disappears after refresh", async () => {
+    const refreshed: MonitoringOverview = {
+      ...OVERVIEW,
+      products: [OVERVIEW.products[0]],
+      trend: OVERVIEW.trend.filter((point) => point.product_id === "dream-job-agent"),
+    };
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(JSON.stringify(OVERVIEW), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(refreshed), { status: 200 }));
+
+    render(<MonitoringDashboard fetcher={fetcher} />);
+    fireEvent.click(await screen.findByRole("button", { name: /linkedin research os/i }));
+    expect(screen.queryByText(/dj-linkedin-pm-bengaluru-042/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /refresh data/i }));
+
+    expect(await screen.findByText(/dj-linkedin-pm-bengaluru-042/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /all products/i })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
 });

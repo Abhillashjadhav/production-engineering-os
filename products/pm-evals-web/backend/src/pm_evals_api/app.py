@@ -337,7 +337,11 @@ def create_app(
             headers={"Content-Disposition": 'attachment; filename="eval-comparison.json"'},
         )
 
-    @app.post("/api/monitoring/evaluate", response_model=RunDiagnosis)
+    @app.post(
+        "/api/monitoring/evaluate",
+        response_model=RunDiagnosis,
+        responses=validation_responses,
+    )
     async def evaluate_monitoring_run(run: RunEnvelope) -> RunDiagnosis:
         """Replay diagnosis without mutating monitoring history."""
         return diagnose_run(run)
@@ -346,6 +350,7 @@ def create_app(
         "/api/monitoring/runs",
         response_model=IngestResponse,
         responses={
+            **validation_responses,
             401: {"description": "A valid monitoring ingestion credential is required."},
             409: {"description": "The run identity already exists with different evidence."},
             503: {

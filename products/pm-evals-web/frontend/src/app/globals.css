@@ -227,6 +227,17 @@ button:disabled { background: var(--muted); border-color: var(--muted); cursor: 
   font-size: 0.86rem;
 }
 
+.refresh-error {
+  display: flex;
+  gap: 0.5rem 1rem;
+  padding: 0.75rem 2.5rem;
+  border-bottom: 1px solid #d69080;
+  color: #64281d;
+  background: #fff0ec;
+  font-size: 0.86rem;
+}
+.refresh-error span { color: #7b453b; }
+
 .metric-strip {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -451,6 +462,7 @@ button:disabled { background: var(--muted); border-color: var(--muted); cursor: 
   .monitoring-header { flex-direction: column; padding: 1.5rem; }
   .run-context { min-width: 0; align-items: flex-start; text-align: left; }
   .demo-banner { padding: 0.75rem 1.5rem; }
+  .refresh-error { padding: 0.75rem 1.5rem; flex-direction: column; }
   .metric-strip { grid-template-columns: repeat(2, 1fr); }
   .metric-strip > div:nth-child(2) { border-right: 0; }
   .metric-strip > div:nth-child(-n+2) { border-bottom: 1px solid var(--border); }

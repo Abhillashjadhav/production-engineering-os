@@ -311,8 +311,16 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
     setRefreshing(true);
     void monitoringOverview(fetcher).then((result) => {
       if (!active) return;
-      if (result.kind === "ok") setOverview(result.value);
-      else setError(result.kind === "error" ? result.message : "Monitoring could not load.");
+      if (result.kind === "ok") {
+        setOverview(result.value);
+        setSelectedProduct((current) => (
+          current === "all" || result.value.products.some(
+            (product) => productIdentity(product) === current,
+          ) ? current : "all"
+        ));
+      } else {
+        setError(result.kind === "error" ? result.message : "Monitoring could not load.");
+      }
       setRefreshing(false);
     });
     return () => { active = false; };
@@ -387,6 +395,13 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
       {overview.mode === "PLANTED_DEMO" && (
         <div className="demo-banner" role="note">
           <strong>Simulation, not production.</strong> One known Dream Job connector failure is planted to prove exact-case localization, controlled-replay attribution, and downstream suppression.
+        </div>
+      )}
+
+      {error && (
+        <div className="refresh-error" role="alert">
+          <strong>Refresh failed. The dashboard may be stale.</strong>
+          <span>{error} Showing data last updated {currentTime(overview.generated_at)}.</span>
         </div>
       )}
 

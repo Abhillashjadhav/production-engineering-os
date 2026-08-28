@@ -925,19 +925,6 @@
         "title": "GuardrailGovernance",
         "type": "object"
       },
-      "HTTPValidationError": {
-        "properties": {
-          "detail": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationError"
-            },
-            "title": "Detail",
-            "type": "array"
-          }
-        },
-        "title": "HTTPValidationError",
-        "type": "object"
-      },
       "HealthResponse": {
         "properties": {
           "api_version": {
@@ -2065,46 +2052,6 @@
         "title": "TrendPoint",
         "type": "object"
       },
-      "ValidationError": {
-        "properties": {
-          "ctx": {
-            "title": "Context",
-            "type": "object"
-          },
-          "input": {
-            "title": "Input"
-          },
-          "loc": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "integer"
-                }
-              ]
-            },
-            "title": "Location",
-            "type": "array"
-          },
-          "msg": {
-            "title": "Message",
-            "type": "string"
-          },
-          "type": {
-            "title": "Error Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "loc",
-          "msg",
-          "type"
-        ],
-        "title": "ValidationError",
-        "type": "object"
-      },
       "ValidationErrorResponse": {
         "description": "The single 422 envelope: every validation failure \u2014 malformed upload,\nout-of-range config, or a native transport type error \u2014 is reported as\n``{\"detail\": [ValidationProblem, ...]}`` so one committed schema matches\nthe wire for all of them (P-4).",
         "properties": {
@@ -2290,15 +2237,25 @@
             },
             "description": "Successful Response"
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SizeLimitResponse"
+                }
+              }
+            },
+            "description": "The request exceeds a size limit \u2014 the whole-request cap (enforced before parsing) or an individual file's cap."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A validation failure: one or more named per-source problems."
           }
         },
         "summary": "Evaluate Monitoring Run"
@@ -2352,15 +2309,25 @@
           "409": {
             "description": "The run identity already exists with different evidence."
           },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SizeLimitResponse"
+                }
+              }
+            },
+            "description": "The request exceeds a size limit \u2014 the whole-request cap (enforced before parsing) or an individual file's cap."
+          },
           "422": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
                 }
               }
             },
-            "description": "Validation Error"
+            "description": "A validation failure: one or more named per-source problems."
           },
           "503": {
             "description": "Monitoring persistence or its ingestion credential is not configured."

@@ -409,3 +409,26 @@ def test_monitoring_ingestion_fails_closed_without_configured_credential(
 
     assert response.status_code == 503
     assert client.get("/api/monitoring/overview").json()["mode"] == "PLANTED_DEMO"
+
+
+def test_monitoring_body_routes_document_and_return_custom_validation_shape(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(
+        create_app(monitoring_data_dir=tmp_path, monitoring_ingest_token=INGEST_TOKEN)
+    )
+    schema = client.app.openapi()  # type: ignore[attr-defined]
+
+    for path, headers in (
+        ("/api/monitoring/evaluate", {}),
+        ("/api/monitoring/runs", _ingest_headers()),
+    ):
+        validation_schema = schema["paths"][path]["post"]["responses"]["422"]["content"][
+            "application/json"
+        ]["schema"]
+        assert validation_schema == {"$ref": "#/components/schemas/ValidationErrorResponse"}
+
+        response = client.post(path, json={}, headers=headers)
+        assert response.status_code == 422
+        problem = response.json()["detail"][0]
+        assert set(problem) == {"source", "issues"}
