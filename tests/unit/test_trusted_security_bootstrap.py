@@ -264,7 +264,7 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert '"/repos/$GITHUB_REPOSITORY/check-runs/$CHECK_RUN_ID"' in workflow
     assert "-f name=security" in workflow
     assert '-f head_sha="$CANDIDATE_SHA"' in workflow
-    assert '-f external_id="$GITHUB_RUN_ID"' in workflow
+    assert '-f external_id="$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT"' in workflow
     assert "-f status=in_progress" in workflow
     assert "--jq .id" in workflow
     assert "if: always()" in workflow
@@ -281,7 +281,10 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert "github.event.workflow_run.event == 'pull_request_target'" in finalizer
     assert "github.event.workflow_run.pull_requests[0].head.sha" in finalizer
     assert "github.event.workflow_run.head_sha" in finalizer
-    assert 'select(.external_id == \\"$SOURCE_RUN_ID\\")' in finalizer
+    assert "github.event.workflow_run.run_attempt" in finalizer
+    assert 'source_external_id="$SOURCE_RUN_ID:$SOURCE_RUN_ATTEMPT"' in finalizer
+    assert 'select(.external_id == \\"$source_external_id\\")' in finalizer
+    assert '-f external_id="$source_external_id"' in finalizer
     assert "missing_conclusion=failure" in finalizer
     assert '-f conclusion="$missing_conclusion"' in finalizer
     assert "--method PATCH" in finalizer

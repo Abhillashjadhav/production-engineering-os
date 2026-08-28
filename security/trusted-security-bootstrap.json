@@ -1,13 +1,13 @@
 {
   "approved_by": "repository-owner",
-  "approved_candidate_sha": "f00f0cb75cf8aa4b1231bc6389179d92a9c2b924",
+  "approved_candidate_sha": "9ab7596cc35c3c353c9911781bdbc7deec521da0",
   "approved_pr_number": 133,
   "expires_at": "2026-09-30T00:00:00Z",
   "files": {
     "pyproject.toml": "sha256:074b2485f5bbb191e18e9ec86e2b074fcbb54a45487ad45359078928dfedb245",
     "requirements.lock": "sha256:7a0ddd392a4cad6ce4d17585e368c0403f556870b2c3d7bc49f16dccebd5f944",
-    "scripts/ci/evaluate_security_profile.py": "sha256:e451631748611b1b5cec37d317985307a69f0ef4ecd13757c094ec887ed9bfb7",
-    "scripts/ci/verify_privacy_controls.py": "sha256:1b07331bea7021fc0a4a94df138c3819d6b0c72b33b20c287d5166e861fed846",
+    "scripts/ci/evaluate_security_profile.py": "sha256:922764df6fd1954a3cd953bddb01e8a98a79ce19a827b355d875227101b88e46",
+    "scripts/ci/verify_privacy_controls.py": "sha256:9788e01ef0962ce4043d2a2f81db2b830beca3a452470b6475999c6ee665f2cc",
     "scripts/ci/verify_repository_secrets.py": "sha256:3a20d9568bb60646a319c28e45b0626262d035e7e3d5de241c857bcf9123523d",
     "src/pmpe/__init__.py": "sha256:8d7b53dfcbc8261b03ba44e17d07ebbf5ed1e5cb0f63692e0e5c4e040f7de717",
     "src/pmpe/admission/__init__.py": "sha256:879ae04c633c598fb62b2e78d50b23438d194c4683d866978d8cd203f2dffb6c",
@@ -155,7 +155,7 @@
     "src/pmpe/policies/__init__.py": "sha256:8ef8f0d37c5182e7d7d32b9cf5c148254644349d7cf4999521542aa4f349d738",
     "src/pmpe/policies/engine.py": "sha256:50337f8ff3cba7fb643968c7376346842ef4e6765d9da4d0d5f45a30f37d557b",
     "src/pmpe/privacy/__init__.py": "sha256:9a1dc0f758764bce96202e3a22d81db4637abd6b17a8423928edfc17abf46aa4",
-    "src/pmpe/privacy/retention.py": "sha256:e52c42d16a32d66edd3065327bd7e36ef12a74c52ede6a8102338ed154686602",
+    "src/pmpe/privacy/retention.py": "sha256:0109d57efb49458d93637a9dd652641c9bcdc091e53a80ac20dee525da3e4451",
     "src/pmpe/py.typed": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "src/pmpe/quality/__init__.py": "sha256:8eff0a6762ced5a67594d73e6c7f17092daaff2869ddfed7b4b8cb7470654957",
     "src/pmpe/quality/evidence_gate.py": "sha256:7054df85b123fc786d65d75ff774c5c532642733e36e13eaf7ca148a57310ea1",
@@ -210,6 +210,6 @@
     "src/pmpe/workflows/support_discovery.py": "sha256:8bf77e08e5cc167713b3e907b099510bb83385091ad003c48a27e904808c1752"
   },
   "justification": "One-time exact verifier bootstrap for PR #133.",
-  "manifest_digest": "sha256:f8a6542c99941976dc32eac7e60a76e73dedcd7cc1b08ea2ccdd223f6653d3c1",
+  "manifest_digest": "sha256:0699332e80e4a4ef2f838cd226dcaa07281e53e67296b0daf0c45bfb511f74c1",
   "schema_version": "trusted-security-bootstrap/v1"
 }

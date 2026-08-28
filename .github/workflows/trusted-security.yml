@@ -36,7 +36,7 @@ jobs:
               "/repos/$GITHUB_REPOSITORY/check-runs" \
               -f name=security \
               -f head_sha="$CANDIDATE_SHA" \
-              -f external_id="$GITHUB_RUN_ID" \
+              -f external_id="$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT" \
               -f status=in_progress \
               -f details_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
               -f "output[title]=Trusted security running" \
