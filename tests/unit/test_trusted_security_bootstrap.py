@@ -245,6 +245,7 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert "github.event.merge_group.base_sha" in workflow
     assert "github.event.merge_group.head_sha" in workflow
     assert "contents: read" in workflow
+    assert "checks: write" in workflow
     assert "persist-credentials: false" in workflow
     assert "github.event.pull_request.base.sha" in workflow
     assert "github.event.pull_request.head.sha" in workflow
@@ -256,6 +257,11 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert "gh pr merge" not in workflow.lower()
     assert "merge-pull-request" not in workflow.lower()
     assert "deploy" not in workflow.lower()
-    assert "  security:\n    name: security\n" in workflow
+    assert "  trusted-security-runner:\n    name: trusted-security-runner\n" in workflow
+    assert '"/repos/$GITHUB_REPOSITORY/check-runs"' in workflow
+    assert "-f name=security" in workflow
+    assert '-f head_sha="$CANDIDATE_SHA"' in workflow
+    assert "-f conclusion=success" in workflow
+    assert "  security:\n    name: security\n" not in workflow
     assert "  security:\n" not in legacy_workflow
     assert "  security-static:\n    name: security-static\n" in legacy_workflow
