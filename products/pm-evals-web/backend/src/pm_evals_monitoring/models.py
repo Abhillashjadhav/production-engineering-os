@@ -304,9 +304,7 @@ class RunEnvelope(StrictModel):
 
     @field_validator("observed_at")
     @classmethod
-    def reject_implausibly_future_observations(cls, value: datetime) -> datetime:
-        if value > datetime.now(UTC) + MAX_FUTURE_CLOCK_SKEW:
-            raise ValueError("observed_at exceeds the allowed five-minute clock skew")
+    def normalize_observation_time(cls, value: datetime) -> datetime:
         return value.astimezone(UTC)
 
     @model_validator(mode="after")

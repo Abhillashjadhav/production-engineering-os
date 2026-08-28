@@ -10,10 +10,18 @@ import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC
+from datetime import UTC, datetime
 from pathlib import Path
 
-from .models import OVERVIEW_TREND_RUNS_PER_PRODUCT, RunEnvelope
+from .models import (
+    MAX_FUTURE_CLOCK_SKEW,
+    OVERVIEW_TREND_RUNS_PER_PRODUCT,
+    RunEnvelope,
+)
+
+
+class FutureObservationError(ValueError):
+    """New evidence is too far ahead of the server's current clock."""
 
 
 class MonitoringStore:
@@ -130,6 +138,10 @@ class MonitoringStore:
                         if existing[0] != digest:
                             raise ValueError("run identity already exists with different evidence")
                         return False
+                    if run.observed_at > datetime.now(UTC) + MAX_FUTURE_CLOCK_SKEW:
+                        raise FutureObservationError(
+                            "observed_at exceeds the allowed five-minute clock skew"
+                        )
                     with self.log_path.open("ab") as handle:
                         rollback_offset = handle.tell()
                         handle.write(line)

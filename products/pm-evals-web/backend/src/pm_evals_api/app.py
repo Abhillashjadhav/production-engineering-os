@@ -39,6 +39,7 @@ from pm_evals_compare import (
     render_markdown,
 )
 from pm_evals_monitoring import (
+    FutureObservationError,
     MonitoringOverview,
     MonitoringStore,
     RunDiagnosis,
@@ -391,6 +392,8 @@ def create_app(
             )
         try:
             stored = monitoring_store.append(run)
+        except FutureObservationError as exc:
+            raise _validation_error("observed_at", str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return IngestResponse(

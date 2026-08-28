@@ -50,7 +50,8 @@ use-case, case, segment, and input-fingerprint identity rather than `case_id`
 alone. Each product declares a freshness SLA (26 hours by default); once its
 latest observation exceeds that window, product and coverage health are blocked
 as **Data stale** and old incidents are not presented as current. Observations
-more than five minutes in the future are rejected.
+more than five minutes in the future are rejected when new evidence is ingested;
+stored evidence remains readable after a server clock correction.
 
 Layers describe where evaluation happens: input, system, retrieval/tool,
 tool trajectory, output, and outcome. Concerns describe what is protected:
@@ -78,7 +79,8 @@ never rounded to zero or scaled to infinity, switching to exponent-safe
 scientific notation when necessary.
 
 Coverage matrices always list the complete layer and concern taxonomies. A
-category omitted by every product is shown as **Not covered**, not hidden.
+category omitted by every product is shown as **Not covered**, not hidden. A
+present category whose checks are all unevaluated is **Blocked**, never healthy.
 
 ## Diagnosis rules
 

@@ -385,11 +385,14 @@ def _coverage_health(
     result: list[CoverageHealth] = []
     for name, observations in sorted(grouped.items()):
         counts = Counter(item.status for item in observations)
+        entirely_not_evaluated = all(item.status == "NOT_EVALUATED" for item in observations)
         result.append(
             CoverageHealth(
                 name=name,
                 health=(
-                    "BLOCKED" if force_blocked else _health(observations, degraded_observation_ids)
+                    "BLOCKED"
+                    if force_blocked or entirely_not_evaluated
+                    else _health(observations, degraded_observation_ids)
                 ),
                 pass_count=counts["PASS"],
                 fail_count=counts["FAIL"],

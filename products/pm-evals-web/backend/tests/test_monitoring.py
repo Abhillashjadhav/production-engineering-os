@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from pm_evals_api.app import create_app
 from pm_evals_monitoring import (
+    FutureObservationError,
     MonitoringStore,
     build_demo_overview,
     build_demo_runs,
@@ -113,13 +114,35 @@ def test_implausibly_future_observation_time_is_rejected(tmp_path: Path) -> None
     payload = _failed_dream_job_run().model_dump(mode="json")
     payload["observed_at"] = future_time.isoformat()
 
-    with pytest.raises(ValidationError, match="five-minute clock skew"):
-        RunEnvelope.model_validate(payload)
+    accepted_before_clock_correction = RunEnvelope.model_validate(payload)
+    rollback_dir = tmp_path / "clock-rollback"
+    rollback_dir.mkdir()
+    (rollback_dir / "observations.jsonl").write_bytes(
+        MonitoringStore._canonical_line(accepted_before_clock_correction)
+    )
+    restored = MonitoringStore(rollback_dir)
+
+    assert restored.list_runs() == [accepted_before_clock_correction]
+    assert restored.append(accepted_before_clock_correction) is False
 
     mutated = _failed_dream_job_run().model_copy(deep=True)
     mutated.observed_at = future_time
-    with pytest.raises(ValidationError, match="five-minute clock skew"):
-        MonitoringStore(tmp_path).append(mutated)
+    with pytest.raises(FutureObservationError, match="five-minute clock skew"):
+        MonitoringStore(tmp_path / "new-evidence").append(mutated)
+
+    client = TestClient(
+        create_app(
+            monitoring_data_dir=tmp_path / "api",
+            monitoring_ingest_token=INGEST_TOKEN,
+        )
+    )
+    response = client.post(
+        "/api/monitoring/runs",
+        json=payload,
+        headers=_ingest_headers(),
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["source"] == "observed_at"
 
 
 def test_overflowing_delta_is_unavailable_without_poisoning_history(tmp_path: Path) -> None:
@@ -381,6 +404,28 @@ def test_required_not_evaluated_observation_blocks_run_health() -> None:
         item for item in overview.products[0].layers if item.name == required.evaluation.layer
     )
     assert affected_layer.health == "BLOCKED"
+
+
+def test_entirely_optional_unevaluated_coverage_is_not_healthy() -> None:
+    run = next(
+        item for item in build_demo_runs() if item.run_id == "dream-job-2026-08-24"
+    ).model_copy(deep=True)
+    optional = next(
+        item for item in run.observations if item.observation_id == "pii-disclosure-rate"
+    )
+    optional.required = False
+    optional.status = "NOT_EVALUATED"
+    optional.current_value = None
+    optional.depends_on = []
+    run.observations = [optional]
+
+    diagnosis = diagnose_run(run)
+    overview = build_overview([run], mode="LIVE", generated_at=run.observed_at)
+
+    assert diagnosis.health == "HEALTHY"
+    assert overview.products[0].health == "HEALTHY"
+    assert overview.products[0].layers[0].health == "BLOCKED"
+    assert overview.products[0].concerns[0].health == "BLOCKED"
 
 
 def test_stale_healthy_run_is_blocked_and_not_projected_as_current() -> None:
