@@ -72,7 +72,9 @@ the current run's self-reported expectation.
 
 All submitted numbers must be finite. If arithmetic on two valid extreme values
 would overflow, the difference is shown as unavailable instead of breaking
-ingestion or poisoning stored history.
+ingestion or poisoning stored history. Incident values use adaptive display
+precision for both ratios and native units so a real localized difference is
+never rounded to zero.
 
 ## Diagnosis rules
 

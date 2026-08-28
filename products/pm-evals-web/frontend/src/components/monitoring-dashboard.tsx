@@ -40,7 +40,7 @@ function currentTime(value: string): string {
   }).format(new Date(value));
 }
 
-function incidentRatioPrecision(incident: Incident): number {
+function incidentValuePrecision(incident: Incident): number {
   const values = [incident.current_value, incident.expected_value, incident.threshold].filter(
     (value): value is number => value !== null,
   );
@@ -51,26 +51,28 @@ function incidentRatioPrecision(incident: Incident): number {
       ),
     )
     .filter((value): value is number => value !== null && value > 0 && Number.isFinite(value));
-  if (differences.length === 0) return 1;
-  const smallestPercentagePointDifference = Math.min(...differences) * 100;
+  if (differences.length === 0) return incident.unit === "ratio" ? 1 : 2;
+  const displayScale = incident.unit === "ratio" ? 100 : 1;
+  const smallestDisplayedDifference = Math.min(...differences) * displayScale;
+  const minimumPrecision = incident.unit === "ratio" ? 0 : 2;
   return Math.min(
     15,
-    Math.max(0, Math.ceil(-Math.log10(smallestPercentagePointDifference))),
+    Math.max(minimumPrecision, Math.ceil(-Math.log10(smallestDisplayedDifference))),
   );
 }
 
-function resultValue(value: number | null, unit: string, ratioPrecision = 1): string {
+function resultValue(value: number | null, unit: string, precision: number): string {
   if (value === null) return "Unavailable";
-  if (unit === "ratio") return `${(value * 100).toFixed(ratioPrecision)}%`;
-  return `${value.toFixed(2)}${unit ? ` ${unit}` : ""}`;
+  if (unit === "ratio") return `${(value * 100).toFixed(precision)}%`;
+  return `${value.toFixed(precision)}${unit ? ` ${unit}` : ""}`;
 }
 
-function magnitude(incident: Incident, ratioPrecision: number): string {
+function magnitude(incident: Incident, precision: number): string {
   if (incident.regression_magnitude === null) return "Difference unavailable";
   if (incident.unit === "ratio") {
-    return `${(incident.regression_magnitude * 100).toFixed(ratioPrecision)} percentage points`;
+    return `${(incident.regression_magnitude * 100).toFixed(precision)} percentage points`;
   }
-  return `${incident.regression_magnitude.toFixed(2)}${incident.unit ? ` ${incident.unit}` : ""}`;
+  return `${incident.regression_magnitude.toFixed(precision)}${incident.unit ? ` ${incident.unit}` : ""}`;
 }
 
 function healthClass(health: ProductHealth["health"]): string {
@@ -163,7 +165,7 @@ function ProductCard({
 
 function IncidentCard({ incident }: { incident: Incident }) {
   const isDegraded = incident.attribution === "DEGRADED_CHECK";
-  const ratioPrecision = incidentRatioPrecision(incident);
+  const valuePrecision = incidentValuePrecision(incident);
   return (
     <article className="incident-card">
       <div className="incident-rail" aria-hidden="true" />
@@ -189,22 +191,22 @@ function IncidentCard({ incident }: { incident: Incident }) {
         <div className="result-comparison" aria-label="Current and expected result">
           <div className="current-result">
             <span>Current result</span>
-            <strong>{resultValue(incident.current_value, incident.unit, ratioPrecision)}</strong>
+            <strong>{resultValue(incident.current_value, incident.unit, valuePrecision)}</strong>
             <small>{incident.current_summary}</small>
           </div>
           <div>
             <span>Expected result</span>
-            <strong>{resultValue(incident.expected_value, incident.unit, ratioPrecision)}</strong>
+            <strong>{resultValue(incident.expected_value, incident.unit, valuePrecision)}</strong>
             <small>{incident.expected_summary}</small>
           </div>
           <div>
             <span>Pass bar</span>
-            <strong>{resultValue(incident.threshold, incident.unit, ratioPrecision)}</strong>
+            <strong>{resultValue(incident.threshold, incident.unit, valuePrecision)}</strong>
             <small>The acceptable boundary for this check.</small>
           </div>
           <div>
             <span>Difference</span>
-            <strong>{magnitude(incident, ratioPrecision)}</strong>
+            <strong>{magnitude(incident, valuePrecision)}</strong>
             <small>{incident.comparison_label}: {incident.comparison_run_id}</small>
           </div>
         </div>

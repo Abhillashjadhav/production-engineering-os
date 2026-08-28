@@ -290,6 +290,32 @@ describe("MonitoringDashboard", () => {
     expect(within(comparison).getByText("0.05 percentage points")).toBeInTheDocument();
   });
 
+  it("preserves precision for small regressions in native units", async () => {
+    const preciseOverview: MonitoringOverview = {
+      ...OVERVIEW,
+      products: [OVERVIEW.products[0]],
+      incidents: [
+        {
+          ...OVERVIEW.incidents[0],
+          current_value: 0.8004,
+          expected_value: 0.8009,
+          threshold: 0.8,
+          regression_magnitude: 0.0005,
+          unit: "score",
+        },
+      ],
+      trend: OVERVIEW.trend.filter((point) => point.product_id === "dream-job-agent"),
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(preciseOverview)} />);
+    const comparison = await screen.findByLabelText("Current and expected result");
+
+    expect(within(comparison).getByText("0.8004 score")).toBeInTheDocument();
+    expect(within(comparison).getByText("0.8009 score")).toBeInTheDocument();
+    expect(within(comparison).getByText("0.8000 score")).toBeInTheDocument();
+    expect(within(comparison).getByText("0.0005 score")).toBeInTheDocument();
+  });
+
   it("keeps production incidents out of the staging product view", async () => {
     const stagingProduct = {
       ...OVERVIEW.products[0],
