@@ -204,14 +204,64 @@ def _event_owner_escapes(
 _LEXICAL_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
 
 
+def _definition_expressions(scope: ast.AST) -> tuple[ast.AST, ...]:
+    if isinstance(scope, ast.Lambda):
+        return (
+            *scope.args.defaults,
+            *(item for item in scope.args.kw_defaults if item is not None),
+        )
+    if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        annotations = tuple(
+            argument.annotation
+            for argument in (
+                *scope.args.posonlyargs,
+                *scope.args.args,
+                *scope.args.kwonlyargs,
+            )
+            if argument.annotation is not None
+        )
+        optional_annotations = tuple(
+            argument.annotation
+            for argument in (scope.args.vararg, scope.args.kwarg)
+            if argument is not None and argument.annotation is not None
+        )
+        returns = (scope.returns,) if scope.returns is not None else ()
+        return (
+            *scope.decorator_list,
+            *scope.args.defaults,
+            *(item for item in scope.args.kw_defaults if item is not None),
+            *annotations,
+            *optional_annotations,
+            *returns,
+            *tuple(getattr(scope, "type_params", ())),
+        )
+    if isinstance(scope, ast.ClassDef):
+        return (
+            *scope.decorator_list,
+            *scope.bases,
+            *(keyword.value for keyword in scope.keywords),
+            *tuple(getattr(scope, "type_params", ())),
+        )
+    return ()
+
+
 def _scope_nodes(scope: ast.AST) -> tuple[ast.AST, ...]:
     """Return nodes owned by one lexical scope, excluding nested scope bodies."""
 
     owned: list[ast.AST] = []
+    own_definition_nodes = {
+        expression_node
+        for expression in _definition_expressions(scope)
+        for expression_node in ast.walk(expression)
+    }
     pending = list(ast.iter_child_nodes(scope))
     while pending:
         node = pending.pop()
+        if node in own_definition_nodes:
+            continue
         if isinstance(node, _LEXICAL_SCOPES):
+            for expression in _definition_expressions(node):
+                owned.extend(ast.walk(expression))
             continue
         owned.append(node)
         pending.extend(ast.iter_child_nodes(node))

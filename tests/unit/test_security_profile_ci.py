@@ -463,6 +463,37 @@ def test_architecture_observer_rejects_loader_captured_by_lambda_default(
     assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
 
 
+def test_architecture_observer_uses_parent_binding_for_class_base_import(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "class_base.py").write_text(
+        "import importlib\n"
+        "class Loaded(importlib.import_module('pmpe.guided.api').Base):\n"
+        "    importlib = None\n"
+    )
+
+    assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
+
+
+def test_architecture_observer_resolves_global_loader_from_module_scope(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "global_loader.py").write_text(
+        "import importlib\n"
+        "def outer(importlib):\n"
+        "    def inner():\n"
+        "        global importlib\n"
+        "        return importlib.import_module('pmpe.guided.api')\n"
+        "    return inner\n"
+    )
+
+    assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
+
+
 def test_dynamic_import_exception_binds_the_complete_target_file(tmp_path: Path) -> None:
     source = tmp_path / "src" / "pmpe" / "evidence"
     source.mkdir(parents=True)
@@ -866,6 +897,21 @@ def test_privacy_verifier_scopes_emitter_aliases_to_lexical_bindings(tmp_path: P
     )
 
     assert _inventory_telemetry_fields(tmp_path) == ("run_id",)
+
+
+def test_privacy_verifier_uses_parent_emitter_binding_for_function_default(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "context.py").write_text(
+        "emit = ctx.events.emit\n"
+        "def record(value=emit('default', email='synthetic@example.invalid'), emit=None):\n"
+        "    return value\n"
+        "ctx.events.emit('direct', run_id='run-1')\n"
+    )
+
+    assert _inventory_telemetry_fields(tmp_path) == ("email", "run_id")
 
 
 def test_privacy_verifier_does_not_treat_ordinary_events_values_as_emitters(
