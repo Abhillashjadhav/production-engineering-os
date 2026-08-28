@@ -20,7 +20,7 @@ permissions:
 jobs:
   review:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Refuse skipped review admission
         env:
@@ -57,5 +57,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          CODEX_EVIDENCE_WAIT_SECONDS: 300
+          CODEX_EVIDENCE_WAIT_SECONDS: 900
+          CODEX_EVIDENCE_STABILITY_SECONDS: 60
+          CODEX_EVIDENCE_POLL_SECONDS: 10
+          CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS: 180
         run: python scripts/verify_codex_review.py

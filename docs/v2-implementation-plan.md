@@ -1,5 +1,9 @@
 # V2 implementation plan
 
+> **Historical / superseded.** This completed V2 plan is retained for provenance only.
+> See [README.md](../README.md) for the authoritative frozen alpha and current claim
+> boundary.
+
 ## The two-plane design (PD-11)
 
 ```

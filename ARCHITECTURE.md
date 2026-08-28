@@ -1,8 +1,8 @@
 # PM Production Engineering OS — Architecture
 
-Phase Zero is the sole admissible shipped lifecycle authority. The architecture below
-documents the historical V1 fixture retained under `tests.legacy_v1`; it is not an
-installed execution path.
+> **Historical / superseded.** This file documents the retained V1 fixture, not the
+> shipped alpha. The authoritative current architecture and claim boundary are in
+> [README.md](README.md). Do not use this file to infer current runtime capabilities.
 
 Principles, in priority order: **extensibility → reliability → simplicity → speed →
 low cost**. Extensibility comes from interfaces and adapters, not frameworks.

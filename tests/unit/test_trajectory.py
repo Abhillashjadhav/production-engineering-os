@@ -96,3 +96,33 @@ def test_unrelated_change_request_does_not_satisfy_traj_11() -> None:
 
 def test_draft_pr_before_assurance_is_caught() -> None:
     assert "TRAJ-13" in _checks("planted_draft_pr_before_assurance.jsonl")
+
+
+def test_unapproved_external_destination_is_caught_even_with_ready_final_verdict() -> None:
+    events = _load("planted_unapproved_external_destination.jsonl")
+    assert events[-1]["verdict"] == "READY_FOR_PRODUCTION_APPROVAL"
+    violations = [v for v in evaluate_trajectory(events) if v.check_id == "TRAJ-15"]
+    assert violations
+    assert "external-provider.example" in violations[0].evidence
+
+
+def test_allowed_external_destination_does_not_trigger_traj_15() -> None:
+    events = _load("planted_unapproved_external_destination.jsonl")
+    allowed_digest = "sha256:9c3a1c9eebddce686d1015b2bb26bfea00119ce16f5e4a0787fc1b98887d04de"
+    events[0]["detail"] = "allowed=approved.example,external-provider.example"
+    events[0]["output_digests"]["egress_policy"] = allowed_digest
+    events[1]["input_digests"]["egress_policy"] = allowed_digest
+    assert "TRAJ-15" not in {v.check_id for v in evaluate_trajectory(events)}
+
+
+def test_external_destination_without_bound_policy_fails_closed() -> None:
+    events = _load("planted_unapproved_external_destination.jsonl")[1:]
+    assert "TRAJ-15" in {v.check_id for v in evaluate_trajectory(events)}
+
+
+def test_external_destination_with_mismatched_policy_digest_fails_closed() -> None:
+    events = _load("planted_unapproved_external_destination.jsonl")
+    events[1]["input_digests"]["egress_policy"] = (
+        "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+    )
+    assert "TRAJ-15" in {v.check_id for v in evaluate_trajectory(events)}

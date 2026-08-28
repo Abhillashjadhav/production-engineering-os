@@ -75,6 +75,12 @@
       "line": 1710,
       "line_fingerprint": "sha256:8d6e37089262b9f1869a0cc524e5040170aecf5536095980f55e79e820aa6783",
       "path": "src/pmpe/repository/scanner.py"
+    },
+    {
+      "justification": "Evidence exports lazily resolve a module from the closed export-to-module map.",
+      "line": 37,
+      "line_fingerprint": "sha256:d3c9396d26178fd712075444c957f95fe8efe6eb747827d27939f3f60a416055",
+      "path": "src/pmpe/evidence/__init__.py"
     }
   ],
   "license_fallbacks": {
@@ -157,7 +163,7 @@
       "approved_by": "repository-security-owner",
       "expires_at": "2027-08-21T00:00:00Z",
       "justification": "Scanner rule definition contains the literal pattern it detects.",
-      "line": 36,
+      "line": 39,
       "line_fingerprint": "sha256:6e54ea53f1fdf70640a5d2ecbb0fc5a4b1146076b3f88f5c39acc9a849b2f898",
       "path": "src/pmpe/quality/security_scan.py",
       "rule_id": "SEC_EVAL"
@@ -166,7 +172,7 @@
       "approved_by": "repository-security-owner",
       "expires_at": "2027-08-21T00:00:00Z",
       "justification": "Scanner rule definition contains the literal pattern it detects.",
-      "line": 41,
+      "line": 44,
       "line_fingerprint": "sha256:51d71fc43fd8a16964fbfaf7036e594b8c7b01d17e21d4798d9b29c03638df38",
       "path": "src/pmpe/quality/security_scan.py",
       "rule_id": "SEC_EXEC"
@@ -175,7 +181,7 @@
       "approved_by": "repository-security-owner",
       "expires_at": "2027-08-21T00:00:00Z",
       "justification": "Scanner rule definition contains the literal pattern it detects.",
-      "line": 46,
+      "line": 49,
       "line_fingerprint": "sha256:41043d0a8bbbc293451dd80bab99950e4161538b03fc4f7f20d897ac741d1ea2",
       "path": "src/pmpe/quality/security_scan.py",
       "rule_id": "SEC_SHELL_TRUE"
@@ -340,6 +346,15 @@
       "line": 178,
       "line_fingerprint": "sha256:502c1872470db496074e479046e30c21fbece59820174ee74e74116cce5a589e",
       "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_EXEC"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z",
+      "justification": "Generated portable-package test loader executes only its copied reference app fixture.",
+      "line": 929,
+      "line_fingerprint": "sha256:1714d129931e9e1cf29113ea4ee8f3669e60e0fad3806bfeff0548a87298c0b2",
+      "path": "src/pmpe/support_package.py",
       "rule_id": "SEC_EXEC"
     }
   ],

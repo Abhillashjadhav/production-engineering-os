@@ -328,4 +328,9 @@ def test_ci_keeps_editable_builds_inside_the_hash_lock() -> None:
 
     assert 'requires = ["setuptools==' in pyproject
     assert "setuptools==" in lockfile
-    assert workflow.count("pip install --no-deps --no-build-isolation -e .") == 3
+    locked_editable_install = "pip install --no-deps --no-build-isolation -e ."
+    assert workflow.count(locked_editable_install) == 4
+    candidate_isolation = workflow[
+        workflow.index("candidate-isolation:") : workflow.index("security:")
+    ]
+    assert locked_editable_install in candidate_isolation
