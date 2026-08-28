@@ -221,6 +221,8 @@ class RetentionController:
             initial.get("kind") != "STATE_CREATED"
             or not isinstance(evidence_refs, dict)
             or evidence_refs.get("metadata_digest") != _canonical_digest(metadata)
+            or events[-1].get("kind") != "COMPLETION_CLAIMED"
+            or events[-1].get("outcome") != "APPLIED"
             or events[-1].get("target") != "COMPLETED"
         ):
             return None
@@ -266,11 +268,32 @@ class RetentionController:
         terminal = events[-1]
         first_outputs = first.get("output_digests")
         terminal_outputs = terminal.get("output_digests")
+        modern_policy_binding = bool(
+            first.get("stage") == "contract_lock"
+            and first.get("action") == "lock"
+            and isinstance(first_outputs, dict)
+            and first_outputs.get("retention_policy") == retention_policy_digest(retention_days)
+        )
+        legacy_bindings = [
+            event
+            for event in events
+            if event.get("stage") == "contract_lock"
+            and event.get("action") == "bind_legacy_retention_policy"
+        ]
+        legacy_policy_binding = False
+        contract = state.get("contract")
+        if len(legacy_bindings) == 1 and isinstance(contract, dict):
+            binding = legacy_bindings[0]
+            inputs = binding.get("input_digests")
+            outputs = binding.get("output_digests")
+            legacy_policy_binding = bool(
+                isinstance(inputs, dict)
+                and inputs.get("contract") == contract.get("digest")
+                and isinstance(outputs, dict)
+                and outputs.get("retention_policy") == retention_policy_digest(retention_days)
+            )
         if (
-            first.get("stage") != "contract_lock"
-            or first.get("action") != "lock"
-            or not isinstance(first_outputs, dict)
-            or first_outputs.get("retention_policy") != retention_policy_digest(retention_days)
+            modern_policy_binding == legacy_policy_binding
             or terminal.get("stage") != "release_report"
             or terminal.get("action") != "report"
             or not isinstance(terminal_outputs, dict)

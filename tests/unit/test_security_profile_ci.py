@@ -51,7 +51,8 @@ def _write_authenticated_lifecycle_run(
     if target != "CONTRACT_RECEIVED":
         terminal = {
             "evidence_refs": {},
-            "kind": "STATE_TRANSITION",
+            "kind": "COMPLETION_CLAIMED" if target == "COMPLETED" else "TRANSITION",
+            "outcome": "APPLIED",
             "previous_digest": initial["event_digest"],
             "sequence": 2,
             "target": target,
@@ -216,6 +217,26 @@ def test_architecture_observer_resolves_relative_dynamic_imports(tmp_path: Path)
     assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
 
 
+def test_architecture_observer_resolves_relative_builtins_imports(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "relative.py").write_text('__import__("guided.api", globals(), locals(), (), 2)\n')
+
+    assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
+
+
+def test_architecture_observer_fails_closed_on_unknown_builtins_import_level(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "relative.py").write_text(
+        '__import__("guided.api", globals(), locals(), (), level)\n'
+    )
+
+    assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
+
+
 @pytest.mark.parametrize(
     "source_text",
     [
@@ -375,6 +396,27 @@ def test_retention_controller_fails_closed_on_malformed_bound_policy(tmp_path: P
 
     assert result.deleted == ()
     assert result.retained == ("tampered-policy",)
+    assert run_dir.exists()
+
+
+def test_retention_controller_rejects_a_denied_completion_target(tmp_path: Path) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    run_dir = tmp_path / "denied-completion"
+    ledger = _write_authenticated_lifecycle_run(run_dir, target="COMPLETED")
+    events = [json.loads(line) for line in ledger.read_text().splitlines()]
+    denied = events[-1]
+    denied["kind"] = "TRANSITION"
+    denied["outcome"] = "DENIED"
+    denied.pop("event_digest")
+    denied["event_digest"] = canonical_digest(denied)
+    ledger.write_text("".join(json.dumps(event) + "\n" for event in events))
+    old = (now - timedelta(days=31)).timestamp()
+    os.utime(ledger, (old, old))
+
+    result = purge_retained_runs(tmp_path, trusted_clock=lambda: now)
+
+    assert result.deleted == ()
+    assert result.retained == (run_dir.name,)
     assert run_dir.exists()
 
 

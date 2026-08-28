@@ -343,50 +343,9 @@ def _target_layer(module: str, product_packages: frozenset[str]) -> str | None:
     return None
 
 
-def _dynamic_import_call(
-    node: ast.Call,
-    *,
-    builtins_aliases: set[str],
-    importlib_aliases: set[str],
-    import_module_aliases: set[str],
-) -> bool:
-    reflective_loader = bool(
-        isinstance(node.func, ast.Call)
-        and isinstance(node.func.func, ast.Name)
-        and node.func.func.id == "getattr"
-        and len(node.func.args) >= 2
-        and isinstance(node.func.args[0], ast.Name)
-        and node.func.args[0].id in importlib_aliases | builtins_aliases
-        and isinstance(node.func.args[1], ast.Constant)
-        and node.func.args[1].value
-        == ("import_module" if node.func.args[0].id in importlib_aliases else "__import__")
-    )
-    return bool(
-        (
-            isinstance(node.func, ast.Attribute)
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id in importlib_aliases
-            and node.func.attr == "import_module"
-        )
-        or (isinstance(node.func, ast.Name) and node.func.id in import_module_aliases)
-        or (
-            isinstance(node.func, ast.Attribute)
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id in builtins_aliases
-            and node.func.attr == "__import__"
-        )
-        or reflective_loader
-    )
-
-
-def _importlib_module_reference(node: ast.AST, importlib_aliases: set[str]) -> bool:
-    return isinstance(node, ast.Name) and node.id in importlib_aliases
-
-
-def _import_loader_reference(
+def _importlib_loader_reference(
     node: ast.AST,
     *,
-    builtins_aliases: set[str],
     importlib_aliases: set[str],
     import_module_aliases: set[str],
 ) -> bool:
@@ -397,6 +356,26 @@ def _import_loader_reference(
         and isinstance(node.value, ast.Name)
         and node.value.id in importlib_aliases
         and node.attr == "import_module"
+        or isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) >= 2
+        and isinstance(node.args[0], ast.Name)
+        and node.args[0].id in importlib_aliases
+        and isinstance(node.args[1], ast.Constant)
+        and node.args[1].value == "import_module"
+    )
+
+
+def _builtins_loader_reference(
+    node: ast.AST,
+    *,
+    builtins_aliases: set[str],
+    builtin_import_aliases: set[str],
+) -> bool:
+    return bool(
+        isinstance(node, ast.Name)
+        and node.id in builtin_import_aliases
         or isinstance(node, ast.Attribute)
         and isinstance(node.value, ast.Name)
         and node.value.id in builtins_aliases
@@ -406,10 +385,51 @@ def _import_loader_reference(
         and node.func.id == "getattr"
         and len(node.args) >= 2
         and isinstance(node.args[0], ast.Name)
-        and node.args[0].id in importlib_aliases | builtins_aliases
+        and node.args[0].id in builtins_aliases
         and isinstance(node.args[1], ast.Constant)
-        and node.args[1].value
-        == ("import_module" if node.args[0].id in importlib_aliases else "__import__")
+        and node.args[1].value == "__import__"
+    )
+
+
+def _dynamic_import_call(
+    node: ast.Call,
+    *,
+    builtins_aliases: set[str],
+    builtin_import_aliases: set[str],
+    importlib_aliases: set[str],
+    import_module_aliases: set[str],
+) -> bool:
+    return _importlib_loader_reference(
+        node.func,
+        importlib_aliases=importlib_aliases,
+        import_module_aliases=import_module_aliases,
+    ) or _builtins_loader_reference(
+        node.func,
+        builtins_aliases=builtins_aliases,
+        builtin_import_aliases=builtin_import_aliases,
+    )
+
+
+def _importlib_module_reference(node: ast.AST, aliases: set[str]) -> bool:
+    return isinstance(node, ast.Name) and node.id in aliases
+
+
+def _import_loader_reference(
+    node: ast.AST,
+    *,
+    builtins_aliases: set[str],
+    builtin_import_aliases: set[str],
+    importlib_aliases: set[str],
+    import_module_aliases: set[str],
+) -> bool:
+    return _importlib_loader_reference(
+        node,
+        importlib_aliases=importlib_aliases,
+        import_module_aliases=import_module_aliases,
+    ) or _builtins_loader_reference(
+        node,
+        builtins_aliases=builtins_aliases,
+        builtin_import_aliases=builtin_import_aliases,
     )
 
 
@@ -417,6 +437,7 @@ def _stores_import_capability(
     node: ast.AST,
     *,
     builtins_aliases: set[str],
+    builtin_import_aliases: set[str],
     importlib_aliases: set[str],
     import_module_aliases: set[str],
 ) -> bool:
@@ -428,6 +449,7 @@ def _stores_import_capability(
         or _import_loader_reference(
             node,
             builtins_aliases=builtins_aliases,
+            builtin_import_aliases=builtin_import_aliases,
             importlib_aliases=importlib_aliases,
             import_module_aliases=import_module_aliases,
         )
@@ -436,6 +458,7 @@ def _stores_import_capability(
     if isinstance(node, ast.Call) and _dynamic_import_call(
         node,
         builtins_aliases=builtins_aliases,
+        builtin_import_aliases=builtin_import_aliases,
         importlib_aliases=importlib_aliases,
         import_module_aliases=import_module_aliases,
     ):
@@ -444,11 +467,29 @@ def _stores_import_capability(
         _stores_import_capability(
             child,
             builtins_aliases=builtins_aliases,
+            builtin_import_aliases=builtin_import_aliases,
             importlib_aliases=importlib_aliases,
             import_module_aliases=import_module_aliases,
         )
         for child in ast.iter_child_nodes(node)
     )
+
+
+def _builtins_import_level(node: ast.Call) -> int | None:
+    """Return the exact __import__ level, or None when it cannot be resolved."""
+
+    if len(node.args) > 5 or any(keyword.arg is None for keyword in node.keywords):
+        return None
+    positional = node.args[4] if len(node.args) == 5 else None
+    keyword_values = [keyword.value for keyword in node.keywords if keyword.arg == "level"]
+    if positional is not None and keyword_values or len(keyword_values) > 1:
+        return None
+    raw = positional if positional is not None else (keyword_values[0] if keyword_values else None)
+    if raw is None:
+        return 0
+    if not isinstance(raw, ast.Constant) or type(raw.value) is not int or raw.value < 0:
+        return None
+    return raw.value
 
 
 def _collect_architecture_edges(
@@ -464,8 +505,9 @@ def _collect_architecture_edges(
     source_lines = path.read_text().splitlines()
     tree = ast.parse("\n".join(source_lines) + "\n", filename=str(path))
     builtins_aliases = {"builtins"}
+    builtin_import_aliases = {"__import__"}
     importlib_aliases = {"importlib"}
-    import_module_aliases = {"import_module", "__import__"}
+    import_module_aliases = {"import_module"}
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
@@ -480,7 +522,7 @@ def _collect_architecture_edges(
         elif isinstance(node, ast.ImportFrom) and node.module == "builtins":
             for alias in node.names:
                 if alias.name == "__import__":
-                    import_module_aliases.add(alias.asname or alias.name)
+                    builtin_import_aliases.add(alias.asname or alias.name)
         elif (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
@@ -517,16 +559,28 @@ def _collect_architecture_edges(
                         changed = True
                     elif not isinstance(target, ast.Name):
                         edges.add((source_layer, "unresolved_dynamic"))
-            is_loader = _import_loader_reference(
+            is_importlib_loader = _importlib_loader_reference(
                 value,
-                builtins_aliases=builtins_aliases,
                 importlib_aliases=importlib_aliases,
                 import_module_aliases=import_module_aliases,
             )
-            if is_loader:
+            if is_importlib_loader:
                 for target in targets:
                     if isinstance(target, ast.Name) and target.id not in import_module_aliases:
                         import_module_aliases.add(target.id)
+                        changed = True
+                    elif not isinstance(target, ast.Name):
+                        edges.add((source_layer, "unresolved_dynamic"))
+                continue
+            is_builtins_loader = _builtins_loader_reference(
+                value,
+                builtins_aliases=builtins_aliases,
+                builtin_import_aliases=builtin_import_aliases,
+            )
+            if is_builtins_loader:
+                for target in targets:
+                    if isinstance(target, ast.Name) and target.id not in builtin_import_aliases:
+                        builtin_import_aliases.add(target.id)
                         changed = True
                     elif not isinstance(target, ast.Name):
                         edges.add((source_layer, "unresolved_dynamic"))
@@ -537,6 +591,7 @@ def _collect_architecture_edges(
                 and _stores_import_capability(
                     value,
                     builtins_aliases=builtins_aliases,
+                    builtin_import_aliases=builtin_import_aliases,
                     importlib_aliases=importlib_aliases,
                     import_module_aliases=import_module_aliases,
                 )
@@ -559,16 +614,36 @@ def _collect_architecture_edges(
         elif isinstance(node, ast.Call) and _dynamic_import_call(
             node,
             builtins_aliases=builtins_aliases,
+            builtin_import_aliases=builtin_import_aliases,
             importlib_aliases=importlib_aliases,
             import_module_aliases=import_module_aliases,
         ):
+            is_builtins_call = _builtins_loader_reference(
+                node.func,
+                builtins_aliases=builtins_aliases,
+                builtin_import_aliases=builtin_import_aliases,
+            )
             if (
                 node.args
                 and isinstance(node.args[0], ast.Constant)
                 and isinstance(node.args[0].value, str)
             ):
                 dynamic_target = node.args[0].value
-                if dynamic_target.startswith("."):
+                if is_builtins_call:
+                    level = _builtins_import_level(node)
+                    if level is None or (level == 0 and dynamic_target.startswith(".")):
+                        edges.add((source_layer, "unresolved_dynamic"))
+                        continue
+                    if level:
+                        try:
+                            dynamic_target = importlib.util.resolve_name(
+                                "." * level + dynamic_target,
+                                current_package,
+                            )
+                        except ImportError:
+                            edges.add((source_layer, "unresolved_dynamic"))
+                            continue
+                elif dynamic_target.startswith("."):
                     package: str | None = None
                     if len(node.args) > 1:
                         package_node = node.args[1]

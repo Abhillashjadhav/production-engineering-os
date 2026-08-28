@@ -20,6 +20,7 @@ from pmpe.agents.router import ALL_PROFILES
 from pmpe.assurance.findings import FindingsStore
 from pmpe.assurance.reconcile import OwnerDecision
 from pmpe.contracts.change_request import ChangeRequestStore
+from pmpe.contracts.digest import canonical_digest
 from pmpe.domain.errors import ContractViolation, PmpeError
 from pmpe.engineering.candidate import CandidateViolation
 from pmpe.engineering.engine import (
@@ -295,6 +296,40 @@ def test_resume_preserves_state_and_appends_nothing(run: EngineeringRun) -> None
     # the resumed run continues exactly where the interrupted one stopped
     resumed.submit("v2-implementation-planner", _plan(resumed.contract_digest))
     assert resumed.stage == "route"
+
+
+def test_resume_authenticates_and_binds_pre_retention_run_before_release(
+    run: EngineeringRun,
+) -> None:
+    state_path = run.run_dir / "run-state.json"
+    state = json.loads(state_path.read_text())
+    state.pop("retention_days")
+    state["stage"] = "deploy"
+    state_path.write_text(json.dumps(state))
+    events = run.ledger.read_all()
+    first = events[0]
+    first["output_digests"].pop("retention_policy")
+    identity = {key: value for key, value in first.items() if key not in {"event_id", "ts"}}
+    first["event_id"] = canonical_digest({**identity, "ts": first["ts"]})
+    run.ledger.path.write_text("".join(json.dumps(event) + "\n" for event in events))
+
+    resumed = EngineeringRun.load(run.run_dir)
+
+    migrated_state = json.loads(state_path.read_text())
+    assert migrated_state["retention_days"] == 30
+    migration = next(
+        event
+        for event in resumed.ledger.read_all()
+        if event["action"] == "bind_legacy_retention_policy"
+    )
+    assert migration["input_digests"]["contract"] == resumed.contract_digest
+    resumed.record_release_report(
+        "READY_FOR_PRODUCTION_APPROVAL",
+        gate_results={"GATE-001": True, "GATE-002": True},
+    )
+    assert resumed.stage == "complete"
+    terminal = resumed.ledger.read_all()[-1]
+    assert terminal["output_digests"]["terminal_retention"].startswith("sha256:")
 
 
 def test_resume_fails_closed_on_contract_mutation(run: EngineeringRun) -> None:
