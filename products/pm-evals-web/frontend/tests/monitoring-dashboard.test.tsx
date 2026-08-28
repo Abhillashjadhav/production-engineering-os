@@ -316,6 +316,40 @@ describe("MonitoringDashboard", () => {
     expect(within(comparison).getByText("0.0005 score")).toBeInTheDocument();
   });
 
+  it("uses scientific notation instead of rounding tiny values to zero", async () => {
+    const tinyOverview: MonitoringOverview = {
+      ...OVERVIEW,
+      products: [OVERVIEW.products[0]],
+      incidents: [
+        {
+          ...OVERVIEW.incidents[0],
+          current_value: 2e-20,
+          expected_value: 1e-20,
+          threshold: 0,
+          regression_magnitude: 1e-20,
+          unit: "score",
+        },
+      ],
+      trend: OVERVIEW.trend.filter((point) => point.product_id === "dream-job-agent"),
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(tinyOverview)} />);
+    const comparison = await screen.findByLabelText("Current and expected result");
+
+    expect(within(comparison).getByText("2.0e-20 score")).toBeInTheDocument();
+    expect(within(comparison).getAllByText("1.0e-20 score")).toHaveLength(2);
+    expect(within(comparison).queryByText(/^0\.0+ score$/)).not.toBeInTheDocument();
+  });
+
+  it("shows contract categories that no product currently covers", async () => {
+    render(<MonitoringDashboard fetcher={fetchOverview()} />);
+    const policyRow = await screen.findByRole("row", { name: /policy compliance/i });
+    const systemRow = screen.getByRole("row", { name: /^system /i });
+
+    expect(within(policyRow).getAllByText("Not covered")).toHaveLength(2);
+    expect(within(systemRow).getAllByText("Not covered")).toHaveLength(2);
+  });
+
   it("keeps production incidents out of the staging product view", async () => {
     const stagingProduct = {
       ...OVERVIEW.products[0],

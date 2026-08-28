@@ -74,7 +74,10 @@ All submitted numbers must be finite. If arithmetic on two valid extreme values
 would overflow, the difference is shown as unavailable instead of breaking
 ingestion or poisoning stored history. Incident values use adaptive display
 precision for both ratios and native units so a real localized difference is
-never rounded to zero.
+never rounded to zero, switching to scientific notation when necessary.
+
+Coverage matrices always list the complete layer and concern taxonomies. A
+category omitted by every product is shown as **Not covered**, not hidden.
 
 ## Diagnosis rules
 

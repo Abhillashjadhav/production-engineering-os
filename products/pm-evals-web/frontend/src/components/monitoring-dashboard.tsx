@@ -14,6 +14,30 @@ interface MonitoringDashboardProps {
   fetcher?: typeof fetch;
 }
 
+const EVAL_LAYERS: Record<Incident["layer"], true> = {
+  INPUT: true,
+  SYSTEM: true,
+  RETRIEVAL_TOOL: true,
+  TOOL_TRAJECTORY: true,
+  OUTPUT: true,
+  OUTCOME: true,
+};
+
+const EVAL_CONCERNS: Record<Incident["concern"], true> = {
+  INVARIANT: true,
+  CAPABILITY: true,
+  QUALITY: true,
+  PRIVACY: true,
+  SAFETY: true,
+  TOXICITY: true,
+  POLICY_COMPLIANCE: true,
+};
+
+const COVERAGE_TAXONOMY = {
+  layers: Object.keys(EVAL_LAYERS),
+  concerns: Object.keys(EVAL_CONCERNS),
+};
+
 function pct(value: number | null): string {
   return value === null ? "—" : `${(value * 100).toFixed(1)}%`;
 }
@@ -40,7 +64,11 @@ function currentTime(value: string): string {
   }).format(new Date(value));
 }
 
-function incidentValuePrecision(incident: Incident): number {
+type IncidentNumberFormat =
+  | { notation: "fixed"; precision: number }
+  | { notation: "scientific"; precision: number };
+
+function incidentNumberFormat(incident: Incident): IncidentNumberFormat {
   const values = [incident.current_value, incident.expected_value, incident.threshold].filter(
     (value): value is number => value !== null,
   );
@@ -51,28 +79,55 @@ function incidentValuePrecision(incident: Incident): number {
       ),
     )
     .filter((value): value is number => value !== null && value > 0 && Number.isFinite(value));
-  if (differences.length === 0) return incident.unit === "ratio" ? 1 : 2;
+  if (differences.length === 0) {
+    return { notation: "fixed", precision: incident.unit === "ratio" ? 1 : 2 };
+  }
   const displayScale = incident.unit === "ratio" ? 100 : 1;
   const smallestDisplayedDifference = Math.min(...differences) * displayScale;
   const minimumPrecision = incident.unit === "ratio" ? 0 : 2;
-  return Math.min(
-    15,
-    Math.max(minimumPrecision, Math.ceil(-Math.log10(smallestDisplayedDifference))),
+  const fixedPrecision = Math.max(
+    minimumPrecision,
+    Math.ceil(-Math.log10(smallestDisplayedDifference)),
   );
+  if (fixedPrecision <= 15) return { notation: "fixed", precision: fixedPrecision };
+
+  const displayedMagnitudes = [...values, incident.regression_magnitude]
+    .filter((value): value is number => value !== null && Number.isFinite(value))
+    .map((value) => Math.abs(value * displayScale));
+  const largestDisplayedMagnitude = Math.max(
+    smallestDisplayedDifference,
+    ...displayedMagnitudes,
+  );
+  const relativeDifference = smallestDisplayedDifference / largestDisplayedMagnitude;
+  const significantDigits = Math.min(
+    17,
+    Math.max(2, Math.ceil(-Math.log10(relativeDifference)) + 1),
+  );
+  return { notation: "scientific", precision: significantDigits - 1 };
 }
 
-function resultValue(value: number | null, unit: string, precision: number): string {
+function formattedNumber(value: number, format: IncidentNumberFormat): string {
+  return format.notation === "fixed"
+    ? value.toFixed(format.precision)
+    : value.toExponential(format.precision);
+}
+
+function resultValue(
+  value: number | null,
+  unit: string,
+  format: IncidentNumberFormat,
+): string {
   if (value === null) return "Unavailable";
-  if (unit === "ratio") return `${(value * 100).toFixed(precision)}%`;
-  return `${value.toFixed(precision)}${unit ? ` ${unit}` : ""}`;
+  if (unit === "ratio") return `${formattedNumber(value * 100, format)}%`;
+  return `${formattedNumber(value, format)}${unit ? ` ${unit}` : ""}`;
 }
 
-function magnitude(incident: Incident, precision: number): string {
+function magnitude(incident: Incident, format: IncidentNumberFormat): string {
   if (incident.regression_magnitude === null) return "Difference unavailable";
   if (incident.unit === "ratio") {
-    return `${(incident.regression_magnitude * 100).toFixed(precision)} percentage points`;
+    return `${formattedNumber(incident.regression_magnitude * 100, format)} percentage points`;
   }
-  return `${incident.regression_magnitude.toFixed(precision)}${incident.unit ? ` ${incident.unit}` : ""}`;
+  return `${formattedNumber(incident.regression_magnitude, format)}${incident.unit ? ` ${incident.unit}` : ""}`;
 }
 
 function healthClass(health: ProductHealth["health"]): string {
@@ -165,7 +220,7 @@ function ProductCard({
 
 function IncidentCard({ incident }: { incident: Incident }) {
   const isDegraded = incident.attribution === "DEGRADED_CHECK";
-  const valuePrecision = incidentValuePrecision(incident);
+  const numberFormat = incidentNumberFormat(incident);
   return (
     <article className="incident-card">
       <div className="incident-rail" aria-hidden="true" />
@@ -191,22 +246,22 @@ function IncidentCard({ incident }: { incident: Incident }) {
         <div className="result-comparison" aria-label="Current and expected result">
           <div className="current-result">
             <span>Current result</span>
-            <strong>{resultValue(incident.current_value, incident.unit, valuePrecision)}</strong>
+            <strong>{resultValue(incident.current_value, incident.unit, numberFormat)}</strong>
             <small>{incident.current_summary}</small>
           </div>
           <div>
             <span>Expected result</span>
-            <strong>{resultValue(incident.expected_value, incident.unit, valuePrecision)}</strong>
+            <strong>{resultValue(incident.expected_value, incident.unit, numberFormat)}</strong>
             <small>{incident.expected_summary}</small>
           </div>
           <div>
             <span>Pass bar</span>
-            <strong>{resultValue(incident.threshold, incident.unit, valuePrecision)}</strong>
+            <strong>{resultValue(incident.threshold, incident.unit, numberFormat)}</strong>
             <small>The acceptable boundary for this check.</small>
           </div>
           <div>
             <span>Difference</span>
-            <strong>{magnitude(incident, valuePrecision)}</strong>
+            <strong>{magnitude(incident, numberFormat)}</strong>
             <small>{incident.comparison_label}: {incident.comparison_run_id}</small>
           </div>
         </div>
@@ -289,9 +344,7 @@ function CoverageMatrix({
   products: ProductHealth[];
   axis: "layers" | "concerns";
 }) {
-  const names = Array.from(
-    new Set(products.flatMap((product) => product[axis].map((item) => item.name))),
-  );
+  const names = COVERAGE_TAXONOMY[axis];
   return (
     <div className="coverage-matrix table-scroll">
       <table>
