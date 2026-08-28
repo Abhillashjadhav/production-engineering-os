@@ -109,7 +109,7 @@ def _tool_agent_selection() -> dict[str, object]:
             {"resource_scopes": [], "tool_id": "pure.transform/v1"},
         ],
         "budgets": {
-            "max_attempts": 2,
+            "max_attempts": 3,
             "max_bytes": 262_144,
             "max_steps": 12,
             "max_tool_calls": 6,
@@ -366,6 +366,14 @@ def test_recorded_tool_agent_budget_covers_every_fixture_tool_call() -> None:
     selection["budgets"]["max_tool_calls"] = 1
 
     with pytest.raises(TemplateSelectionError, match="recorded tool calls"):
+        _compile(selection)
+
+
+def test_recorded_tool_agent_budget_covers_every_fixture_model_attempt() -> None:
+    selection = _tool_agent_selection()
+    selection["budgets"]["max_attempts"] = 2
+
+    with pytest.raises(TemplateSelectionError, match="recorded model attempts"):
         _compile(selection)
 
 
