@@ -10,8 +10,6 @@ grammar by construction, not by coincidence.
 from __future__ import annotations
 
 import json
-import os
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -261,6 +259,9 @@ def test_start_reserves_the_retention_tombstone_namespace(tmp_path: Path) -> Non
 
 
 def test_start_retry_preserves_an_expired_completed_run(run: EngineeringRun) -> None:
+    import os
+    from datetime import UTC, datetime
+
     state = run.run_dir / "run-state.json"
     payload = json.loads(state.read_text())
     payload["stage"] = "complete"
