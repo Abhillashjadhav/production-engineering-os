@@ -355,6 +355,11 @@ def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
         'import importlib\nget = getattr\nget(importlib, "import_module")("pmpe.guided.api")\n',
         'import builtins\nget = getattr\nget(builtins, "__import__")("pmpe.guided.api")\n',
         "import importlib\ninspect = vars\ninspect(importlib)\n",
+        'import importlib\nget = getattr\nget(*(importlib, "import_module"))("pmpe.guided.api")\n',
+        'import importlib\nget = getattr\nget([importlib][0], "import_module")('
+        '"pmpe.guided.api")\n',
+        'import builtins\nget = getattr\nget(**{"object": builtins, "name": "__import__"})('
+        '"pmpe.guided.api")\n',
     ],
 )
 def test_architecture_observer_fails_closed_on_aliased_module_reflection(
@@ -797,6 +802,10 @@ def test_privacy_verifier_fails_when_emitter_escapes_into_a_container(
         'vars(ctx.events)[field_name]("result", email="hidden")\n',
         'get = getattr\nget(ctx.events, "emit")("result", email="hidden")\n',
         'inspect = vars\ninspect(ctx.events)["emit"]("result", email="hidden")\n',
+        'get = getattr\nget(*(ctx.events, "emit"))("result", email="hidden")\n',
+        'get = getattr\nget([ctx.events][0], "emit")("result", email="hidden")\n',
+        'get = getattr\nget(**{"object": ctx.events, "name": "emit"})("result", email="hidden")\n',
+        'owners = [ctx.events]\nowners[0].emit("result", email="hidden")\n',
     ],
 )
 def test_privacy_verifier_rejects_reflective_emitter_access(

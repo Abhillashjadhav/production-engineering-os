@@ -175,15 +175,12 @@ def _reflective_emitter_dictionary_access(node: ast.AST) -> bool:
     )
 
 
-def _passes_event_owner_to_unresolved_call(node: ast.AST) -> bool:
-    """Reject unknown callables that receive an event namespace as authority."""
+def _event_owner_escapes(node: ast.AST, parent: ast.AST | None) -> bool:
+    """Allow an event namespace only as the owner of the governed ``emit`` method."""
 
-    if not isinstance(node, ast.Call):
-        return False
-    arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
-    if not any(_event_owner_reference(argument) for argument in arguments):
-        return False
-    return not (isinstance(node.func, ast.Name) and node.func.id in {"getattr", "vars"})
+    return _event_owner_reference(node) and not (
+        isinstance(parent, ast.Attribute) and parent.value is node and parent.attr == "emit"
+    )
 
 
 _LEXICAL_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
@@ -288,10 +285,11 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
             aliases = {
                 alias for alias in inherited_aliases if alias.split(".", 1)[0] not in locals_
             }
+            parents = {child: parent for parent in nodes for child in ast.iter_child_nodes(parent)}
             for node in nodes:
-                if _reflective_emitter_dictionary_access(
-                    node
-                ) or _passes_event_owner_to_unresolved_call(node):
+                if _reflective_emitter_dictionary_access(node) or _event_owner_escapes(
+                    node, parents.get(node)
+                ):
                     raise ValueError(
                         "telemetry emitter uses reflective access: "
                         f"{source_path}:{getattr(node, 'lineno', 0)}"
@@ -344,7 +342,6 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                         if identity not in aliases:
                             aliases.add(identity)
                             changed = True
-            parents = {child: parent for parent in nodes for child in ast.iter_child_nodes(parent)}
             for node in nodes:
                 if not isinstance(node, (ast.Name, ast.Attribute)) or not isinstance(
                     node.ctx, ast.Load

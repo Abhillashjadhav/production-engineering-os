@@ -437,9 +437,29 @@ def _passes_tracked_module_to_unresolved_call(node: ast.AST, aliases: set[str]) 
     if not isinstance(node, ast.Call):
         return False
     arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
-    if not any(_importlib_module_reference(argument, aliases) for argument in arguments):
+    if not any(
+        _importlib_module_reference(nested, aliases)
+        for argument in arguments
+        for nested in ast.walk(argument)
+    ):
         return False
-    return not (isinstance(node.func, ast.Name) and node.func.id in {"getattr", "vars"})
+    exact_getattr = bool(
+        isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) == 2
+        and not node.keywords
+        and _importlib_module_reference(node.args[0], aliases)
+        and isinstance(node.args[1], ast.Constant)
+        and node.args[1].value in {"__import__", "import_module"}
+    )
+    exact_vars = bool(
+        isinstance(node.func, ast.Name)
+        and node.func.id == "vars"
+        and len(node.args) == 1
+        and not node.keywords
+        and _importlib_module_reference(node.args[0], aliases)
+    )
+    return not (exact_getattr or exact_vars)
 
 
 def _import_loader_reference(
