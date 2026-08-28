@@ -40,6 +40,12 @@ class RetentionResult:
     retained: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class _AuthenticatedRetention:
+    retention_days: int
+    completed_at: datetime
+
+
 def validate_retention_days(retention_days: int) -> int:
     """Validate one immutable, run-bound retention policy."""
 
@@ -148,15 +154,13 @@ class RetentionController:
                     retained.append(run_dir.name)
                     continue
                 try:
-                    retention_days = self._authenticated_retention_days(
+                    retention = self._authenticated_retention(
                         marker_path,
                         policy_path,
                     )
-                    modified = datetime.fromtimestamp(
-                        marker_path.stat(follow_symlinks=False).st_mtime,
-                        UTC,
-                    )
-                    if retention_days is None or modified > now - timedelta(days=retention_days):
+                    if retention is None or retention.completed_at > now - timedelta(
+                        days=retention.retention_days
+                    ):
                         retained.append(run_dir.name)
                         continue
                     tombstone = root / (f"{_TOMBSTONE_PREFIX}{run_dir.name}-{uuid.uuid4().hex}")
@@ -184,11 +188,11 @@ class RetentionController:
         return None
 
     @classmethod
-    def _authenticated_retention_days(
+    def _authenticated_retention(
         cls,
         marker_path: Path,
         policy_path: Path,
-    ) -> int | None:
+    ) -> _AuthenticatedRetention | None:
         if marker_path.name == "lifecycle-events.jsonl":
             return cls._authenticated_lifecycle_retention(marker_path, policy_path)
         return cls._authenticated_engineering_retention(marker_path)
@@ -198,7 +202,7 @@ class RetentionController:
         cls,
         ledger_path: Path,
         metadata_path: Path,
-    ) -> int | None:
+    ) -> _AuthenticatedRetention | None:
         metadata = cls._read_record(metadata_path)
         events = cls._read_records(ledger_path)
         if not metadata or not events:
@@ -216,20 +220,27 @@ class RetentionController:
                 return None
             previous = supplied
         initial = events[0]
+        terminal = events[-1]
         evidence_refs = initial.get("evidence_refs")
         if (
             initial.get("kind") != "STATE_CREATED"
             or not isinstance(evidence_refs, dict)
             or evidence_refs.get("metadata_digest") != _canonical_digest(metadata)
-            or events[-1].get("kind") != "COMPLETION_CLAIMED"
-            or events[-1].get("outcome") != "APPLIED"
-            or events[-1].get("target") != "COMPLETED"
+            or terminal.get("kind") != "COMPLETION_CLAIMED"
+            or terminal.get("outcome") != "APPLIED"
+            or terminal.get("target") != "COMPLETED"
         ):
             return None
-        return cls._validated_retention_days(metadata)
+        retention_days = cls._validated_retention_days(metadata)
+        completed_at = cls._authenticated_timestamp(terminal.get("observed_at"))
+        if retention_days is None or completed_at is None:
+            return None
+        return _AuthenticatedRetention(retention_days, completed_at)
 
     @classmethod
-    def _authenticated_engineering_retention(cls, state_path: Path) -> int | None:
+    def _authenticated_engineering_retention(
+        cls, state_path: Path
+    ) -> _AuthenticatedRetention | None:
         state = cls._read_record(state_path)
         events = cls._read_records(state_path.parent / "ledger.jsonl")
         if not state or not events or state.get("stage") != "complete":
@@ -296,12 +307,29 @@ class RetentionController:
             modern_policy_binding == legacy_policy_binding
             or terminal.get("stage") != "release_report"
             or terminal.get("action") != "report"
+            or terminal.get("idempotency_key")
             or not isinstance(terminal_outputs, dict)
             or terminal_outputs.get("terminal_retention")
             != terminal_retention_digest(retention_days, stage="complete")
         ):
             return None
-        return retention_days
+        completed_at = cls._authenticated_timestamp(terminal.get("ts"))
+        if completed_at is None:
+            return None
+        return _AuthenticatedRetention(retention_days, completed_at)
+
+    @staticmethod
+    def _authenticated_timestamp(value: object) -> datetime | None:
+        if not isinstance(value, str) or not value:
+            return None
+        normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
+        try:
+            parsed = datetime.fromisoformat(normalized)
+        except (OverflowError, ValueError):
+            return None
+        if parsed.tzinfo is None:
+            return None
+        return parsed.astimezone(UTC)
 
     @staticmethod
     def _validated_retention_days(policy: dict[str, Any]) -> int | None:

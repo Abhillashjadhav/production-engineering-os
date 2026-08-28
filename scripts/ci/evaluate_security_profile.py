@@ -415,6 +415,22 @@ def _importlib_module_reference(node: ast.AST, aliases: set[str]) -> bool:
     return isinstance(node, ast.Name) and node.id in aliases
 
 
+def _module_dictionary_reference(node: ast.AST, aliases: set[str]) -> bool:
+    """Recognize reflective access to a tracked module's complete namespace."""
+
+    return bool(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "vars"
+        and len(node.args) == 1
+        and not node.keywords
+        and _importlib_module_reference(node.args[0], aliases)
+        or isinstance(node, ast.Attribute)
+        and node.attr == "__dict__"
+        and _importlib_module_reference(node.value, aliases)
+    )
+
+
 def _import_loader_reference(
     node: ast.AST,
     *,
@@ -707,7 +723,7 @@ def _collect_architecture_edges(
             importlib_aliases,
             _,
         ) = aliases_by_scope[node_scope[node]]
-        if (
+        if _module_dictionary_reference(node, importlib_aliases | builtins_aliases) or (
             isinstance(node, ast.Call)
             and isinstance(node.func, ast.Name)
             and node.func.id == "getattr"

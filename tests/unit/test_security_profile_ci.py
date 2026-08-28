@@ -35,13 +35,17 @@ def _write_authenticated_lifecycle_run(
     *,
     target: str,
     retention_days: int = 30,
+    completed_at: datetime | None = None,
 ) -> Path:
     run_dir.mkdir(parents=True)
+    completion_time = completed_at or datetime(2030, 1, 1, tzinfo=UTC)
+    observed_at = completion_time.isoformat()
     metadata = {"retention_days": retention_days}
     (run_dir / "lifecycle-metadata.json").write_text(json.dumps(metadata))
     initial = {
         "evidence_refs": {"metadata_digest": canonical_digest(metadata)},
         "kind": "STATE_CREATED",
+        "observed_at": observed_at,
         "previous_digest": "",
         "sequence": 1,
         "target": "CONTRACT_RECEIVED",
@@ -52,6 +56,7 @@ def _write_authenticated_lifecycle_run(
         terminal = {
             "evidence_refs": {},
             "kind": "COMPLETION_CLAIMED" if target == "COMPLETED" else "TRANSITION",
+            "observed_at": observed_at,
             "outcome": "APPLIED",
             "previous_digest": initial["event_digest"],
             "sequence": 2,
@@ -69,6 +74,7 @@ def _write_authenticated_engineering_run(
     *,
     stage: str = "complete",
     retention_days: int = 30,
+    completed_at: datetime | None = None,
 ) -> Path:
     run_dir.mkdir(parents=True)
     run_id = f"eng-{run_dir.name}"
@@ -101,6 +107,15 @@ def _write_authenticated_engineering_run(
                 )
             },
         )
+        events_path = run_dir / "ledger.jsonl"
+        events = [json.loads(line) for line in events_path.read_text().splitlines()]
+        terminal = events[-1]
+        terminal["ts"] = (completed_at or datetime(2030, 1, 1, tzinfo=UTC)).isoformat()
+        identity = {key: value for key, value in terminal.items() if key not in {"event_id", "ts"}}
+        terminal["event_id"] = canonical_digest(
+            identity if terminal["idempotency_key"] else {**identity, "ts": terminal["ts"]}
+        )
+        events_path.write_text("".join(json.dumps(event) + "\n" for event in events))
     return state
 
 
@@ -314,6 +329,26 @@ def test_architecture_observer_fails_closed_on_unknown_reflective_importlib_acce
     assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
 
 
+@pytest.mark.parametrize(
+    "source_text",
+    [
+        'import importlib\nvars(importlib)["import_module"]("pmpe.guided.api")\n',
+        'import importlib\nimportlib.__dict__["import_module"]("pmpe.guided.api")\n',
+        'import builtins\nvars(builtins)["__import__"]("pmpe.guided.api")\n',
+        'import builtins\nbuiltins.__dict__["__import__"]("pmpe.guided.api")\n',
+    ],
+)
+def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
+    tmp_path: Path,
+    source_text: str,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "dictionary_loader.py").write_text(source_text)
+
+    assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
+
+
 def test_dynamic_import_exception_binds_the_complete_target_file(tmp_path: Path) -> None:
     source = tmp_path / "src" / "pmpe" / "evidence"
     source.mkdir(parents=True)
@@ -407,6 +442,47 @@ def test_retention_controller_deletes_expired_completed_engineering_runs(
 
     assert result.deleted == ("completed-engineering-run",)
     assert not completed.exists()
+
+
+@pytest.mark.parametrize("run_kind", ["lifecycle", "engineering"])
+def test_retention_controller_uses_authenticated_completion_time_not_marker_mtime(
+    tmp_path: Path,
+    run_kind: str,
+) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    expired = tmp_path / f"expired-{run_kind}"
+    recent = tmp_path / f"recent-{run_kind}"
+    if run_kind == "lifecycle":
+        expired_marker = _write_authenticated_lifecycle_run(
+            expired,
+            target="COMPLETED",
+            completed_at=now - timedelta(days=31),
+        )
+        recent_marker = _write_authenticated_lifecycle_run(
+            recent,
+            target="COMPLETED",
+            completed_at=now - timedelta(days=29),
+        )
+    else:
+        expired_marker = _write_authenticated_engineering_run(
+            expired,
+            completed_at=now - timedelta(days=31),
+        )
+        recent_marker = _write_authenticated_engineering_run(
+            recent,
+            completed_at=now - timedelta(days=29),
+        )
+    fresh_mtime = now.timestamp()
+    old_mtime = (now - timedelta(days=500)).timestamp()
+    os.utime(expired_marker, (fresh_mtime, fresh_mtime))
+    os.utime(recent_marker, (old_mtime, old_mtime))
+
+    result = RetentionController().purge(tmp_path, now=now)
+
+    assert result.deleted == (f"expired-{run_kind}",)
+    assert result.retained == (f"recent-{run_kind}",)
+    assert not expired.exists()
+    assert recent.exists()
 
 
 def test_retention_controller_uses_each_runs_immutable_policy(tmp_path: Path) -> None:
@@ -697,6 +773,9 @@ def test_privacy_verifier_fails_when_emitter_escapes_into_a_container(
         'getattr(ctx.events, "emit")("result", email="hidden")\n',
         'emit = getattr(ctx.events, "emit")\nemit("result", email="hidden")\n',
         'getattr(ctx.events, field_name)("result", email="hidden")\n',
+        'vars(ctx.events)["emit"]("result", email="hidden")\n',
+        'ctx.events.__dict__["emit"]("result", email="hidden")\n',
+        'vars(ctx.events)[field_name]("result", email="hidden")\n',
     ],
 )
 def test_privacy_verifier_rejects_reflective_emitter_access(

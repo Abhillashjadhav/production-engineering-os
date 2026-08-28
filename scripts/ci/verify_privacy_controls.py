@@ -137,6 +137,44 @@ def _is_supported_alias_assignment(parent: ast.AST | None, node: ast.expr) -> bo
     )
 
 
+def _event_owner_reference(node: ast.AST) -> bool:
+    identity = _emitter_identity(node) if isinstance(node, ast.expr) else None
+    return identity == "events" or bool(identity and identity.endswith(".events"))
+
+
+def _reflective_emitter_dictionary_access(node: ast.AST) -> bool:
+    """Reject namespace reflection that can recover an emitter outside the alias model."""
+
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "vars"
+        and len(node.args) == 1
+        and not node.keywords
+        and _event_owner_reference(node.args[0])
+    ):
+        return True
+    if (
+        isinstance(node, ast.Attribute)
+        and node.attr == "__dict__"
+        and _event_owner_reference(node.value)
+    ):
+        return True
+    if not isinstance(node, ast.Subscript):
+        return False
+    key = node.slice
+    if not (isinstance(key, ast.Constant) and key.value == "emit"):
+        return False
+    namespace = node.value
+    return bool(
+        isinstance(namespace, ast.Call)
+        and isinstance(namespace.func, ast.Name)
+        and namespace.func.id == "vars"
+        or isinstance(namespace, ast.Attribute)
+        and namespace.attr == "__dict__"
+    )
+
+
 _LEXICAL_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
 
 
@@ -239,6 +277,12 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
             aliases = {
                 alias for alias in inherited_aliases if alias.split(".", 1)[0] not in locals_
             }
+            for node in nodes:
+                if _reflective_emitter_dictionary_access(node):
+                    raise ValueError(
+                        "telemetry emitter uses reflective access: "
+                        f"{source_path}:{getattr(node, 'lineno', 0)}"
+                    )
             for node in nodes:
                 if not (
                     isinstance(node, ast.Call)
@@ -395,9 +439,21 @@ def _verify(
                 )
             },
         )
+        expired_events = expired_ledger.read_all()
+        expired_terminal = expired_events[-1]
+        expired_terminal["ts"] = (now - timedelta(days=retention_days + 1)).isoformat()
+        expired_identity = {
+            key: value for key, value in expired_terminal.items() if key not in {"event_id", "ts"}
+        }
+        expired_terminal["event_id"] = canonical_digest(
+            expired_identity
+            if expired_terminal["idempotency_key"]
+            else {**expired_identity, "ts": expired_terminal["ts"]}
+        )
+        expired_ledger.path.write_text(
+            "".join(json.dumps(event, sort_keys=True) + "\n" for event in expired_events)
+        )
         current_run = runs_root / "current-run"
-        old_time = (now - timedelta(days=retention_days + 1)).timestamp()
-        os.utime(expired, (old_time, old_time))
         budget = BudgetPolicy(
             version="privacy-verifier/v1",
             limits={
