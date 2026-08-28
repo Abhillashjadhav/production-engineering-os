@@ -213,17 +213,23 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
 
     classifications: dict[str, tuple[Attribution, tuple[str, ...], str]] = {}
     unresolved_ancestry: dict[str, bool] = {}
+    regressed_ancestry: dict[str, set[str]] = {}
     for observation_id in topological_order:
         observation = by_id[observation_id]
         upstream_is_unresolved = any(
             unresolved_ancestry[dependency_id] for dependency_id in observation.depends_on
         )
+        upstream_regressed_roots = {
+            root_id
+            for dependency_id in observation.depends_on
+            for root_id in regressed_ancestry[dependency_id]
+        }
         unresolved_ancestry[observation_id] = (
             observation_id in missing_evidence or upstream_is_unresolved
         )
         if observation_id not in diagnosable:
+            regressed_ancestry[observation_id] = upstream_regressed_roots
             continue
-        regressed_dependencies = [item for item in observation.depends_on if item in diagnosable]
         result: tuple[Attribution, tuple[str, ...], str]
         if upstream_is_unresolved:
             result = (
@@ -234,31 +240,28 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
                     "or not evaluated, so the starting point is unknown."
                 ),
             )
-        elif regressed_dependencies:
-            roots: set[str] = set()
-            for dependency_id in regressed_dependencies:
-                attribution, dependency_roots, _ = classifications[dependency_id]
-                if attribution in {"LIKELY_STARTING_FAILURE", "DEGRADED_CHECK"}:
-                    roots.add(dependency_id)
-                else:
-                    roots.update(dependency_roots)
+            regressed_ancestry[observation_id] = upstream_regressed_roots
+        elif upstream_regressed_roots:
             result = (
                 "DOWNSTREAM_SYMPTOM",
-                tuple(sorted(roots)),
+                tuple(sorted(upstream_regressed_roots)),
                 "A regressed upstream check can explain this later result.",
             )
+            regressed_ancestry[observation_id] = upstream_regressed_roots
         elif observation_id in failed:
             result = (
                 "LIKELY_STARTING_FAILURE",
                 (observation_id,),
                 "This is the earliest observed failure in the declared dependency path.",
             )
+            regressed_ancestry[observation_id] = {observation_id}
         else:
             result = (
                 "DEGRADED_CHECK",
                 (observation_id,),
                 "This check still passes, but its result regressed beyond the allowed tolerance.",
             )
+            regressed_ancestry[observation_id] = {observation_id}
         classifications[observation_id] = result
 
     diagnoses: list[ObservationDiagnosis] = []

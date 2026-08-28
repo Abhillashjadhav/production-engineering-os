@@ -271,6 +271,25 @@ def test_missing_evidence_propagates_through_a_passing_intermediate() -> None:
     assert "enrichment-completeness" not in diagnosis.likely_starting_observation_ids
 
 
+def test_regressed_root_propagates_through_a_passing_intermediate() -> None:
+    run = _failed_dream_job_run().model_copy(deep=True)
+    intermediate = next(
+        item for item in run.observations if item.observation_id == "eligible-job-coverage"
+    )
+    intermediate.status = "PASS"
+    intermediate.current_value = intermediate.expected_value
+
+    diagnosis = diagnose_run(run)
+    by_id = {item.observation_id: item for item in diagnosis.diagnoses}
+
+    assert "eligible-job-coverage" not in by_id
+    downstream = by_id["enrichment-completeness"]
+    assert downstream.attribution == "DOWNSTREAM_SYMPTOM"
+    assert downstream.root_observation_ids == ["source-linkedin-coverage"]
+    assert downstream.cause_confidence == "UNCONFIRMED"
+    assert diagnosis.likely_starting_observation_ids == ["source-linkedin-coverage"]
+
+
 def test_degraded_passing_check_is_projected_as_an_exact_case() -> None:
     baseline = next(item for item in build_demo_runs() if item.run_id == "dream-job-2026-08-24")
     current = baseline.model_copy(deep=True)
