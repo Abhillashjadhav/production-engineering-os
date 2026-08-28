@@ -304,7 +304,6 @@ def test_degraded_passing_check_is_projected_as_an_exact_case() -> None:
     diagnosis = diagnose_run(
         current,
         comparison=baseline,
-        comparison_health="HEALTHY",
     )
     overview = build_overview([baseline, current], mode="LIVE", generated_at=current.observed_at)
 
@@ -793,6 +792,56 @@ def test_overview_history_query_is_bounded_and_keeps_latest_comparisons(
     assert ("linkedin-research-os", "linkedin-os-2026-08-26") not in identities
 
 
+def test_missing_comparison_ancestry_cannot_certify_a_degraded_baseline(
+    tmp_path: Path,
+) -> None:
+    approved = next(
+        run for run in build_demo_runs() if run.run_id == "dream-job-2026-08-24"
+    ).model_copy(deep=True)
+    approved.run_id = "approved-root"
+    degraded = approved.model_copy(deep=True)
+    degraded.run_id = "passing-but-degraded"
+    degraded.comparison.run_id = approved.run_id
+    degraded.observed_at = approved.observed_at + timedelta(days=1)
+    degraded_source = next(
+        item for item in degraded.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    degraded_source.current_value = 0.85
+
+    current = degraded.model_copy(deep=True)
+    current.run_id = "latest-failure"
+    current.comparison.run_id = degraded.run_id
+    current.observed_at = degraded.observed_at + timedelta(days=1)
+    current_source = next(
+        item
+        for item in current.observations
+        if item.observation_id == degraded_source.observation_id
+    )
+    current_source.status = "FAIL"
+    current_source.current_value = 0.42
+    current_source.expected_value = degraded_source.current_value
+
+    store = MonitoringStore(tmp_path)
+    for run in (approved, degraded, current):
+        assert store.append(run) is True
+
+    verified_degradation = build_overview(
+        [approved, degraded],
+        mode="LIVE",
+        generated_at=degraded.observed_at,
+    )
+    assert verified_degradation.products[0].health == "DEGRADED"
+
+    bounded = store.list_runs_for_overview(trend_limit_per_product=1)
+    assert {run.run_id for run in bounded} == {degraded.run_id, current.run_id}
+    overview = build_overview(bounded, mode="LIVE", generated_at=current.observed_at)
+    incident = overview.incidents[0]
+    assert incident.comparison_label == "Comparison unavailable"
+    assert incident.expected_value is None
+    assert incident.regression_magnitude is None
+    assert incident.changes_since_comparison == []
+
+
 def test_equal_observation_times_use_server_arrival_order(tmp_path: Path) -> None:
     first = _failed_dream_job_run().model_copy(deep=True)
     first.run_id = "z-arrived-first"
@@ -867,6 +916,45 @@ def test_monitoring_api_runs_planted_demo_and_persists_live_run(tmp_path: Path) 
     )
     assert duplicate.status_code == 200
     assert duplicate.json()["duplicate"] is True
+
+
+def test_ingest_diagnosis_uses_the_exact_stored_comparison(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(monitoring_data_dir=tmp_path, monitoring_ingest_token=INGEST_TOKEN)
+    )
+    observed_at = datetime.now(UTC)
+    baseline = next(
+        run for run in build_demo_runs() if run.run_id == "dream-job-2026-08-24"
+    ).model_copy(deep=True)
+    baseline.run_id = "ingest-verified-baseline"
+    baseline.observed_at = observed_at - timedelta(minutes=1)
+    current = baseline.model_copy(deep=True)
+    current.run_id = "ingest-degraded-current"
+    current.comparison.run_id = baseline.run_id
+    current.observed_at = observed_at
+    regressed = next(
+        item for item in current.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    regressed.current_value = 0.85
+
+    baseline_response = client.post(
+        "/api/monitoring/runs",
+        json=baseline.model_dump(mode="json"),
+        headers=_ingest_headers(),
+    )
+    current_response = client.post(
+        "/api/monitoring/runs",
+        json=current.model_dump(mode="json"),
+        headers=_ingest_headers(),
+    )
+    live_response = client.get("/api/monitoring/overview")
+
+    assert baseline_response.status_code == 200
+    assert current_response.status_code == 200
+    assert current_response.json()["diagnosis"]["health"] == "DEGRADED"
+    assert current_response.json()["diagnosis"]["diagnoses"][0]["attribution"] == "DEGRADED_CHECK"
+    assert live_response.status_code == 200
+    assert live_response.json()["products"][0]["health"] == "DEGRADED"
 
 
 def test_monitoring_ingestion_rejects_missing_or_wrong_credentials(tmp_path: Path) -> None:

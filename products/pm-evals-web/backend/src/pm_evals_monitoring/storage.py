@@ -238,6 +238,28 @@ class MonitoringStore:
                 ).fetchall()
             return self._read_rows(rows)
 
+    def get_run(
+        self,
+        *,
+        product_id: str,
+        environment: str,
+        run_id: str,
+    ) -> RunEnvelope | None:
+        """Load one exact stored identity after reconciling and checking its evidence."""
+
+        with self._exclusive_store_lock():
+            self._reconcile_index_unlocked()
+            with self._connect() as connection:
+                row = connection.execute(
+                    """
+                    SELECT byte_offset, byte_length, sha256
+                    FROM runs
+                    WHERE product_id = ? AND environment = ? AND run_id = ?
+                    """,
+                    (product_id, environment, run_id),
+                ).fetchone()
+            return self._read_rows([row])[0] if row is not None else None
+
     def list_runs_for_overview(
         self,
         *,

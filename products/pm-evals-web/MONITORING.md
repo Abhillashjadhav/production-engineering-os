@@ -88,7 +88,9 @@ Blocked or unevaluated evidence remains unresolved through the full dependency
 path, including passing intermediate checks, so a later failure cannot be shown
 as the starting point. Passing checks that regress beyond tolerance receive a
 separate `DEGRADED_CHECK` diagnosis and exact-case incident only when the exact
-earlier healthy comparison verifies the expected value.
+earlier healthy comparison verifies the expected value. A comparison with a
+possible but unverified degradation cannot certify a later baseline; missing
+comparison ancestry therefore fails closed as unavailable.
 
 A controlled replay must classify every change dimension as either intentionally
 varied or held constant, with no overlap or omission. Its asserted cause must
@@ -105,10 +107,12 @@ coverage. A falling score alone changes neither asset.
 
 ## API and storage
 
-- `POST /api/monitoring/evaluate` diagnoses an envelope without storing it.
+- `POST /api/monitoring/evaluate` diagnoses an envelope without storing it,
+  resolving its exact stored comparison when available.
 - `POST /api/monitoring/runs` appends an envelope to immutable local history.
   It requires `Authorization: Bearer <token>` matching the server-side
-  `PM_EVALS_INGEST_TOKEN`; writes fail closed when no credential is configured.
+  `PM_EVALS_INGEST_TOKEN`; writes fail closed when no credential is configured,
+  and the response diagnosis uses the exact stored comparison.
 - `GET /api/monitoring/overview` returns product health, exact-case incidents,
   trends, two-axis coverage, and attribution calibration.
 

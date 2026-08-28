@@ -145,6 +145,19 @@ def _health(
     return "HEALTHY"
 
 
+def _certified_comparison_health(comparison: RunEnvelope | None) -> RunHealth | None:
+    """Return HEALTHY only when no missing ancestry could hide degradation."""
+
+    if comparison is None:
+        return None
+    status_health = _health(comparison.observations)
+    if status_health != "HEALTHY":
+        return status_health
+    if any(_exceeds_degradation_tolerance(item) for item in comparison.observations):
+        return None
+    return "HEALTHY"
+
+
 def _cause_assessment(
     observation: Observation,
 ) -> tuple[CauseCategory, CauseConfidence, EvidenceLevel, str]:
@@ -204,13 +217,16 @@ def diagnose_run(
     run: RunEnvelope,
     *,
     comparison: RunEnvelope | None = None,
-    comparison_health: RunHealth | None = None,
 ) -> RunDiagnosis:
     """Localize the first observable break without claiming unearned causality."""
 
     by_id = {item.observation_id: item for item in run.observations}
     failed = {item.observation_id for item in run.observations if item.status == "FAIL"}
-    degraded = _verified_degraded_observation_ids(run, comparison, comparison_health)
+    degraded = _verified_degraded_observation_ids(
+        run,
+        comparison,
+        _certified_comparison_health(comparison),
+    )
     diagnosable = failed | degraded
     missing_evidence = {
         item.observation_id
@@ -483,13 +499,9 @@ def build_overview(
             run.comparison.run_id,
         )
         comparison = runs_by_identity.get(comparison_identity)
-        comparison_diagnosis = diagnoses.get(comparison_identity)
         diagnosis = diagnose_run(
             run,
             comparison=comparison,
-            comparison_health=(
-                comparison_diagnosis.health if comparison_diagnosis is not None else None
-            ),
         )
         diagnoses[run_identity] = diagnosis
         latest[(run.product.id, run.product.environment)] = run
@@ -559,9 +571,7 @@ def build_overview(
             continue
         comparison_identity = (product_id, environment, run.comparison.run_id)
         comparison = runs_by_identity.get(comparison_identity)
-        comparison_health = (
-            diagnoses[comparison_identity].health if comparison is not None else None
-        )
+        comparison_health = _certified_comparison_health(comparison)
         run_changes = _changes(run, comparison)
         projected_diagnoses = [
             item
