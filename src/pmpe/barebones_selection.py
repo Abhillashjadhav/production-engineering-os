@@ -517,54 +517,49 @@ def _validate_criterion_closure(
     expected_verifier: str | None,
     visited: set[str],
 ) -> None:
-    criterion = criteria.get(criterion_id)
-    if not isinstance(criterion, Mapping) or set(criterion) != {
-        "criterion",
-        "requirement_refs",
-        "verification_method",
-    }:
-        raise TemplateSelectionError("capability references a malformed acceptance criterion")
-    verification_method = criterion.get("verification_method")
-    if (
-        not isinstance(criterion.get("criterion"), str)
-        or not str(criterion["criterion"]).strip()
-        or not isinstance(verification_method, str)
-        or not verification_method.strip()
-        or expected_verifier is not None
-        and verification_method != expected_verifier
-    ):
-        raise TemplateSelectionError("capability references a malformed acceptance criterion")
-    if criterion_id in visited:
-        return
-    visited.add(criterion_id)
-    requirement_refs = criterion.get("requirement_refs")
-    if (
-        not isinstance(requirement_refs, list)
-        or not requirement_refs
-        or not all(
-            isinstance(reference, str) and reference in requirements
-            for reference in requirement_refs
-        )
-        or len(requirement_refs) != len(set(requirement_refs))
-    ):
-        raise TemplateSelectionError("capability references a malformed acceptance criterion")
-    for requirement_id in requirement_refs:
-        criterion_refs = _validate_functional_requirement(
-            requirement_id,
-            requirements[requirement_id],
-            criterion_id=criterion_id,
-            criteria=criteria,
-            entities=entities,
-        )
-        for referenced_criterion_id in criterion_refs:
-            _validate_criterion_closure(
-                referenced_criterion_id,
-                criteria=criteria,
-                requirements=requirements,
-                entities=entities,
-                expected_verifier=None,
-                visited=visited,
+    pending: list[tuple[str, str | None]] = [(criterion_id, expected_verifier)]
+    while pending:
+        current_id, required_verifier = pending.pop()
+        criterion = criteria.get(current_id)
+        if not isinstance(criterion, Mapping) or set(criterion) != {
+            "criterion",
+            "requirement_refs",
+            "verification_method",
+        }:
+            raise TemplateSelectionError("capability references a malformed acceptance criterion")
+        verification_method = criterion.get("verification_method")
+        if (
+            not isinstance(criterion.get("criterion"), str)
+            or not str(criterion["criterion"]).strip()
+            or not isinstance(verification_method, str)
+            or not verification_method.strip()
+            or required_verifier is not None
+            and verification_method != required_verifier
+        ):
+            raise TemplateSelectionError("capability references a malformed acceptance criterion")
+        if current_id in visited:
+            continue
+        visited.add(current_id)
+        requirement_refs = criterion.get("requirement_refs")
+        if (
+            not isinstance(requirement_refs, list)
+            or not requirement_refs
+            or not all(
+                isinstance(reference, str) and reference in requirements
+                for reference in requirement_refs
             )
+            or len(requirement_refs) != len(set(requirement_refs))
+        ):
+            raise TemplateSelectionError("capability references a malformed acceptance criterion")
+        for requirement_id in requirement_refs:
+            criterion_refs = _validate_functional_requirement(
+                requirement_id,
+                requirements[requirement_id],
+                criterion_id=current_id,
+                criteria=criteria,
+                entities=entities,
+            )
+            pending.extend((reference, None) for reference in reversed(criterion_refs))
 
 
 def _validate_capabilities(

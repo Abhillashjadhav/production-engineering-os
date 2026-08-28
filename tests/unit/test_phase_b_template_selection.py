@@ -538,6 +538,38 @@ def test_valid_referenced_criterion_closure_is_admitted() -> None:
     assert compiled.as_dict()["template_type"] == "barebones_e1"
 
 
+def test_long_finite_criterion_closure_is_traversed_without_recursion() -> None:
+    contract = _contract(_e1_selection())
+    criteria = contract["acceptance_criteria"]
+    requirements = contract["functional_requirements"]
+    previous_requirement = "FR-001"
+    for index in range(2, 1_102):
+        criterion_id = f"AC-{index:04d}"
+        requirement_id = f"FR-{index:04d}"
+        requirements[previous_requirement]["acceptance_criterion_refs"].append(criterion_id)
+        criteria[criterion_id] = {
+            "criterion": f"Exercise closure step {index}.",
+            "requirement_refs": [requirement_id],
+            "verification_method": "manual.review/v1",
+        }
+        requirements[requirement_id] = {
+            "acceptance_criterion_refs": [criterion_id],
+            "priority": "SHOULD",
+            "statement": f"Exercise closure step {index}.",
+            "title": f"Exercise closure step {index}",
+        }
+        previous_requirement = requirement_id
+
+    compiled = compile_phase_b_selection(
+        contract,
+        _approval(contract),
+        expected_approver="fixture-human",
+        trusted_clock=lambda: NOW,
+    )
+
+    assert compiled.as_dict()["template_type"] == "barebones_e1"
+
+
 def test_referenced_functional_requirement_rejects_missing_entity() -> None:
     contract = _contract(_e1_selection())
     contract["functional_requirements"]["FR-001"]["entity_ref"] = "ENTITY-MISSING"
