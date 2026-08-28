@@ -13,14 +13,10 @@ from typing import Any
 from jsonschema import Draft202012Validator, ValidationError
 
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes, strict_loads
-from pmpe.security_patterns import contains_prohibited_secret
+from pmpe.security_patterns import contains_credential_material
 
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _SAFE_SCOPE = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\Z")
-_CREDENTIAL = re.compile(
-    r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|"
-    r"AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}"
-)
 _SECRET_NAME = re.compile(r"api_?key|credential|password|secret|token", re.IGNORECASE)
 _ACCEPTANCE_CRITERION_ID = re.compile(r"AC-[A-Z0-9]+(?:-[A-Z0-9]+)*\Z")
 _FUNCTIONAL_REQUIREMENT_ID = re.compile(r"FR-[A-Z0-9]+(?:-[A-Z0-9]+)*\Z")
@@ -179,6 +175,7 @@ _TOOL_FIXTURE_DIGEST = RECORDED_TOOL_AGENT_FIXTURE_DIGEST
 _TOOL_FIXTURE_CALL_COUNT = sum(
     event["kind"] == "tool_result" for event in RECORDED_TOOL_AGENT_FIXTURE["events"]
 )
+_TOOL_FIXTURE_STEP_COUNT = len(RECORDED_TOOL_AGENT_FIXTURE["events"])
 
 
 def _utc_now() -> datetime:
@@ -367,9 +364,7 @@ def _validate_configuration(identity: str, raw: object) -> dict[str, str | int |
             raise TemplateSelectionError("configuration contains a secret name")
         if not isinstance(value, (str, int, bool)) or isinstance(value, (dict, list)):
             raise TemplateSelectionError("configuration values must be flat JSON scalars")
-        if isinstance(value, str) and (
-            _CREDENTIAL.search(value) or contains_prohibited_secret(value.encode())
-        ):
+        if isinstance(value, str) and contains_credential_material(value.encode()):
             raise TemplateSelectionError("configuration contains a credential-shaped value")
     if identity == "tool-agent" and configuration["dataset_id"] != "support-kb-v1":
         raise TemplateSelectionError("configuration dataset is not bound to the tool scope")
@@ -440,6 +435,10 @@ def _validate_budgets(identity: str, raw: object) -> dict[str, int]:
         raise TemplateSelectionError(
             "tool-agent execution budget cannot cover the recorded tool calls"
         )
+    if identity == "tool-agent" and budgets["max_steps"] < _TOOL_FIXTURE_STEP_COUNT:
+        raise TemplateSelectionError(
+            "tool-agent execution budget cannot cover the recorded replay steps"
+        )
     return budgets
 
 
@@ -456,6 +455,41 @@ def _validate_fixture(identity: str, raw: object) -> dict[str, str]:
     if (fixture_id, fixture_digest) != expected:
         raise TemplateSelectionError("fixture identity or digest is not admitted")
     return {"fixture_digest": str(fixture_digest), "fixture_id": str(fixture_id)}
+
+
+def _validate_entity(entity_id: str, raw: object) -> None:
+    required = {"fields", "name"}
+    if (
+        not isinstance(raw, Mapping)
+        or not required <= set(raw) <= required | {"persistence"}
+        or not isinstance(raw.get("name"), str)
+        or not str(raw["name"]).strip()
+        or "persistence" in raw
+        and raw["persistence"] not in {"EPHEMERAL_SESSION", "NONE", "PERMANENT"}
+    ):
+        raise TemplateSelectionError(
+            f"functional requirement references a malformed entity: {entity_id}"
+        )
+    fields = raw.get("fields")
+    if not isinstance(fields, Mapping):
+        raise TemplateSelectionError(
+            f"functional requirement references a malformed entity: {entity_id}"
+        )
+    for field_name, field in fields.items():
+        if (
+            not isinstance(field_name, str)
+            or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*", field_name)
+            or not isinstance(field, Mapping)
+            or not {"required", "type"} <= set(field) <= {"default", "required", "type"}
+            or type(field.get("required")) is not bool
+            or not isinstance(field.get("type"), str)
+            or not str(field["type"]).strip()
+            or "default" in field
+            and not (field["default"] is None or type(field["default"]) in {bool, int, str})
+        ):
+            raise TemplateSelectionError(
+                f"functional requirement references a malformed entity: {entity_id}"
+            )
 
 
 def _validate_functional_requirement(
@@ -505,6 +539,9 @@ def _validate_functional_requirement(
         raise TemplateSelectionError(
             "acceptance criterion references a malformed functional requirement"
         )
+    if "entity_ref" in raw:
+        entity_id = str(raw["entity_ref"])
+        _validate_entity(entity_id, entities[entity_id])
     return tuple(criterion_refs)
 
 

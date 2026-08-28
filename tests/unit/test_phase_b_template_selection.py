@@ -284,9 +284,21 @@ def test_secret_values_and_unregistered_configuration_fail_closed(
         _compile(selection)
 
 
-def test_all_canonical_credential_formats_fail_closed() -> None:
+@pytest.mark.parametrize(
+    "credential",
+    [
+        "gh" + "p_" + "a" * 36,
+        "gl" + "pat-" + "a" * 24,
+        "Bearer " + "a" * 26,
+        "xox" + "b-" + "1" * 24,
+        "sk_" + "live_" + "a" * 24,
+        "npm_" + "a" * 24,
+        "hf_" + "a" * 24,
+    ],
+)
+def test_all_canonical_credential_formats_fail_closed(credential: str) -> None:
     selection = _e1_selection()
-    selection["configuration"] = {"service_name": "gh" + "p_" + "a" * 36}
+    selection["configuration"] = {"service_name": credential}
 
     with pytest.raises(TemplateSelectionError, match="credential"):
         _compile(selection)
@@ -339,6 +351,14 @@ def test_recorded_tool_agent_budget_covers_every_fixture_tool_call() -> None:
     selection["budgets"]["max_tool_calls"] = 1
 
     with pytest.raises(TemplateSelectionError, match="recorded tool calls"):
+        _compile(selection)
+
+
+def test_recorded_tool_agent_budget_covers_every_fixture_replay_step() -> None:
+    selection = _tool_agent_selection()
+    selection["budgets"]["max_steps"] = len(RECORDED_TOOL_AGENT_FIXTURE["events"]) - 1
+
+    with pytest.raises(TemplateSelectionError, match="recorded replay steps"):
         _compile(selection)
 
 
@@ -585,7 +605,7 @@ def test_referenced_functional_requirement_rejects_missing_entity() -> None:
 
 def test_referenced_functional_requirement_resolves_existing_entity() -> None:
     contract = _contract(_e1_selection())
-    contract["data"] = {"entities": {"ENTITY-CUSTOMER": {}}}
+    contract["data"] = {"entities": {"ENTITY-CUSTOMER": {"fields": {}, "name": "Customer"}}}
     contract["functional_requirements"]["FR-001"]["entity_ref"] = "ENTITY-CUSTOMER"
 
     compiled = compile_phase_b_selection(
@@ -596,6 +616,34 @@ def test_referenced_functional_requirement_resolves_existing_entity() -> None:
     )
 
     assert compiled.as_dict()["template_type"] == "barebones_e1"
+
+
+@pytest.mark.parametrize(
+    "entity",
+    [
+        None,
+        {},
+        {"fields": {}, "name": ""},
+        {"fields": [], "name": "Customer"},
+        {"fields": {"bad-field": {"required": True, "type": "string"}}, "name": "Customer"},
+        {"fields": {"email": {"required": "yes", "type": "string"}}, "name": "Customer"},
+        {"fields": {}, "name": "Customer", "unknown": True},
+    ],
+)
+def test_referenced_functional_requirement_rejects_malformed_entity_record(
+    entity: object,
+) -> None:
+    contract = _contract(_e1_selection())
+    contract["data"] = {"entities": {"ENTITY-CUSTOMER": entity}}
+    contract["functional_requirements"]["FR-001"]["entity_ref"] = "ENTITY-CUSTOMER"
+
+    with pytest.raises(TemplateSelectionError, match="malformed entity"):
+        compile_phase_b_selection(
+            contract,
+            _approval(contract),
+            expected_approver="fixture-human",
+            trusted_clock=lambda: NOW,
+        )
 
 
 def test_capability_binding_rejects_noncanonical_acceptance_identifier() -> None:
