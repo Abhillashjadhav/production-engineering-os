@@ -22,6 +22,7 @@ _CREDENTIAL = re.compile(
     r"AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}"
 )
 _SECRET_NAME = re.compile(r"api_?key|credential|password|secret|token", re.IGNORECASE)
+_ACCEPTANCE_CRITERION_ID = re.compile(r"AC-[A-Z0-9]+(?:-[A-Z0-9]+)*\Z")
 _FUNCTIONAL_REQUIREMENT_ID = re.compile(r"FR-[A-Z0-9]+(?:-[A-Z0-9]+)*\Z")
 
 _SELECTION_FIELDS = {
@@ -457,6 +458,7 @@ def _validate_functional_requirement(
     raw: object,
     *,
     criterion_id: str,
+    criteria: Mapping[str, Any],
 ) -> None:
     required = {"acceptance_criterion_refs", "priority", "statement", "title"}
     admitted = required | {"capability", "entity_ref"}
@@ -473,7 +475,12 @@ def _validate_functional_requirement(
         not isinstance(criterion_refs, list)
         or not criterion_refs
         or criterion_id not in criterion_refs
-        or not all(isinstance(reference, str) and reference for reference in criterion_refs)
+        or not all(
+            isinstance(reference, str)
+            and _ACCEPTANCE_CRITERION_ID.fullmatch(reference)
+            and reference in criteria
+            for reference in criterion_refs
+        )
         or len(criterion_refs) != len(set(criterion_refs))
         or raw.get("priority") not in {"MUST", "SHOULD", "COULD"}
         or any(
@@ -534,7 +541,12 @@ def _validate_capabilities(
         if (
             not isinstance(criterion_ids, list)
             or not criterion_ids
-            or not all(isinstance(item, str) and item in criteria for item in criterion_ids)
+            or not all(
+                isinstance(item, str)
+                and _ACCEPTANCE_CRITERION_ID.fullmatch(item)
+                and item in criteria
+                for item in criterion_ids
+            )
             or len(criterion_ids) != len(set(criterion_ids))
         ):
             raise TemplateSelectionError(
@@ -573,6 +585,7 @@ def _validate_capabilities(
                     requirement_id,
                     requirements[requirement_id],
                     criterion_id=criterion_id,
+                    criteria=criteria,
                 )
         seen.add(capability)
         bindings.append(

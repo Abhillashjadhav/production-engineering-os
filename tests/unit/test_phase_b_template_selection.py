@@ -463,6 +463,37 @@ def test_referenced_functional_requirement_must_have_complete_valid_shape(
         )
 
 
+def test_referenced_functional_requirement_rejects_dangling_acceptance_reference() -> None:
+    contract = _contract(_e1_selection())
+    contract["functional_requirements"]["FR-001"]["acceptance_criterion_refs"].append("AC-MISSING")
+
+    with pytest.raises(TemplateSelectionError, match="malformed functional requirement"):
+        compile_phase_b_selection(
+            contract,
+            _approval(contract),
+            expected_approver="fixture-human",
+            trusted_clock=lambda: NOW,
+        )
+
+
+def test_capability_binding_rejects_noncanonical_acceptance_identifier() -> None:
+    contract = _contract(_e1_selection())
+    criterion = contract["acceptance_criteria"].pop("AC-001")
+    contract["acceptance_criteria"]["ZZZ"] = criterion
+    contract["functional_requirements"]["FR-001"]["acceptance_criterion_refs"] = ["ZZZ"]
+    contract["implementation_selection"]["capability_bindings"][0]["acceptance_criterion_ids"] = [
+        "ZZZ"
+    ]
+
+    with pytest.raises(TemplateSelectionError, match="unavailable acceptance criterion"):
+        compile_phase_b_selection(
+            contract,
+            _approval(contract),
+            expected_approver="fixture-human",
+            trusted_clock=lambda: NOW,
+        )
+
+
 def test_unknown_selection_field_cannot_be_ignored() -> None:
     selection = _e1_selection()
     selection["deployment_provider"] = "aws"
