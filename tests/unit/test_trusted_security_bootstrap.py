@@ -293,6 +293,9 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert "--verify-dependency-coverage" in workflow
     assert "--ignore-installed" in workflow
     assert "python -m pip check" in workflow
+    assert "candidate-closure-venv" in workflow
+    assert "-r candidate/requirements.lock" in workflow
+    assert "candidate-pip-check.txt" in workflow
     assert "missing_conclusion=failure" in finalizer
     assert '-f conclusion="$missing_conclusion"' in finalizer
     assert "--method PATCH" in finalizer
@@ -362,4 +365,25 @@ def test_dependency_coverage_rejects_dangling_transitive_reference(tmp_path: Pat
     lock.write_text(lock.read_text() + "    # via missing-parent\n")
 
     with pytest.raises(BootstrapVerificationError, match="dangling transitive"):
+        verify_locked_dependency_coverage(candidate_root=tmp_path, candidate_sha="a" * 40)
+
+
+@pytest.mark.parametrize(
+    "continuation",
+    [
+        "    --index-url https://example.invalid/simple\n",
+        "    --hash=sha256:not-a-digest\n",
+    ],
+)
+def test_dependency_coverage_rejects_untrusted_lock_options(
+    tmp_path: Path,
+    continuation: str,
+) -> None:
+    _write_dependency_metadata(tmp_path)
+    lock = tmp_path / "requirements.lock"
+    lock.write_text(
+        lock.read_text().replace("    --hash=sha256:", continuation + "    --hash=sha256:", 1)
+    )
+
+    with pytest.raises(BootstrapVerificationError, match="continuation"):
         verify_locked_dependency_coverage(candidate_root=tmp_path, candidate_sha="a" * 40)

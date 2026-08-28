@@ -24,6 +24,7 @@ _LOCKED_REQUIREMENT = re.compile(
     r"(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)"
     r"==(?P<version>[A-Za-z0-9][A-Za-z0-9.!+_-]*)\s*\\?\Z"
 )
+_LOCK_HASH = re.compile(r"--hash=sha256:[0-9a-f]{64}\s*\\?\Z")
 _SCHEMA = "trusted-security-bootstrap/v1"
 _BOOTSTRAP_PR = 133
 _ENTRYPOINTS = (
@@ -226,14 +227,18 @@ def _locked_dependencies(payload: str) -> tuple[set[tuple[str, str]], set[str]]:
         if current is not None:
             if not hashed:
                 raise BootstrapVerificationError("requirements lock contains an unhashed entry")
+            if current in locked:
+                raise BootstrapVerificationError("requirements lock contains a duplicate entry")
             locked.add(current)
         current = None
         hashed = False
 
     for line in payload.splitlines():
         stripped = line.strip()
-        if stripped.startswith("# via "):
-            reference = stripped.removeprefix("# via ").strip()
+        if stripped == "# via" or stripped.startswith("# via "):
+            if current is None:
+                raise BootstrapVerificationError("requirements lock dependency graph is malformed")
+            reference = stripped.removeprefix("# via").strip()
             in_via_block = not reference
             if reference and not reference.endswith("(pyproject.toml)"):
                 via_references.add(_normalized_lock_reference(reference))
@@ -255,7 +260,9 @@ def _locked_dependencies(payload: str) -> tuple[set[tuple[str, str]], set[str]]:
                 re.sub(r"[-_.]+", "-", match.group("name")).lower(),
                 match.group("version"),
             )
-        elif current is not None and "--hash=sha256:" in line:
+        elif current is not None and stripped:
+            if _LOCK_HASH.fullmatch(stripped) is None:
+                raise BootstrapVerificationError("requirements lock continuation is malformed")
             hashed = True
     finish()
     if not locked:

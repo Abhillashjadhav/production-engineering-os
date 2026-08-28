@@ -85,6 +85,15 @@ jobs:
             --candidate-root candidate \
             --candidate-sha "$CANDIDATE_SHA" \
             --output "$RUNNER_TEMP/trusted-security/dependency-coverage.json"
+      - name: Resolve candidate dependency closure in an isolated environment
+        run: |
+          python -m venv "$RUNNER_TEMP/candidate-closure-venv"
+          "$RUNNER_TEMP/candidate-closure-venv/bin/python" -m pip install \
+            --ignore-installed \
+            --require-hashes \
+            -r candidate/requirements.lock
+          "$RUNNER_TEMP/candidate-closure-venv/bin/python" -m pip check \
+            | tee "$RUNNER_TEMP/trusted-security/candidate-pip-check.txt"
       - name: Install authenticated locked verifier toolchain
         run: |
           python -m pip install \
