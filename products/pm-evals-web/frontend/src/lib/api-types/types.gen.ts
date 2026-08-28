@@ -5,6 +5,44 @@ export type ClientOptions = {
 };
 
 /**
+ * AttributionMetrics
+ */
+export type AttributionMetrics = {
+    /**
+     * Attribution Coverage
+     */
+    attribution_coverage: number | null;
+    /**
+     * Correctly Localized Rate
+     */
+    correctly_localized_rate: number | null;
+    /**
+     * False Attribution Rate
+     */
+    false_attribution_rate: number | null;
+    /**
+     * False Attribution Target
+     */
+    false_attribution_target?: number;
+    /**
+     * Guardrail Proven
+     */
+    guardrail_proven?: boolean;
+    /**
+     * Known Cause Sample Size
+     */
+    known_cause_sample_size: number;
+    /**
+     * Label
+     */
+    label: string;
+    /**
+     * Production Adjudicated Sample Size
+     */
+    production_adjudicated_sample_size: number;
+};
+
+/**
  * Body_compare_api_compare_post
  */
 export type BodyCompareApiComparePost = {
@@ -42,6 +80,141 @@ export type BodyReportApiReportPost = {
      * Min Matched Traces
      */
     min_matched_traces?: number | null;
+};
+
+/**
+ * CaseRef
+ */
+export type CaseRef = {
+    /**
+     * Case Id
+     */
+    case_id: string;
+    /**
+     * Display Name
+     */
+    display_name: string;
+    /**
+     * Input Fingerprint
+     */
+    input_fingerprint?: string | null;
+    /**
+     * Segment
+     */
+    segment: string;
+    /**
+     * Use Case Id
+     */
+    use_case_id: string;
+};
+
+/**
+ * CauseSignal
+ */
+export type CauseSignal = {
+    /**
+     * Candidate Ref
+     */
+    candidate_ref?: string | null;
+    /**
+     * Candidate Status
+     */
+    candidate_status?: 'PASS' | 'FAIL' | 'BLOCKED' | 'NOT_EVALUATED' | null;
+    /**
+     * Category
+     */
+    category: 'PRODUCT_REGRESSION' | 'MODEL_REGRESSION' | 'PROMPT_CONFIG_TOOL_CHANGE' | 'USE_CASE_DRIFT' | 'EVAL_DETERIORATION' | 'GOLDEN_DATASET_GAP' | 'UNCONFIRMED';
+    /**
+     * Control Ref
+     */
+    control_ref?: string | null;
+    /**
+     * Control Status
+     */
+    control_status?: 'PASS' | 'FAIL' | 'BLOCKED' | 'NOT_EVALUATED' | null;
+    /**
+     * Evidence Level
+     */
+    evidence_level: 'DEPENDENCY_ONLY' | 'CHANGE_CORRELATION' | 'CONTROLLED_REPLAY' | 'HUMAN_ADJUDICATION';
+    /**
+     * Evidence Refs
+     */
+    evidence_refs: Array<EvidenceRef>;
+    /**
+     * Held Constant
+     */
+    held_constant?: Array<'USE_CASE' | 'DEPLOYMENT' | 'MODEL' | 'PROMPT' | 'CONFIGURATION' | 'TOOLSET' | 'EVALUATOR' | 'RUBRIC' | 'GOLDEN_DATASET' | 'PRODUCTION_COHORT'>;
+    /**
+     * Summary
+     */
+    summary: string;
+    /**
+     * Supports
+     */
+    supports?: boolean;
+};
+
+/**
+ * ChangeItem
+ */
+export type ChangeItem = {
+    /**
+     * Current
+     */
+    current: string;
+    /**
+     * Dimension
+     */
+    dimension: 'USE_CASE' | 'DEPLOYMENT' | 'MODEL' | 'PROMPT' | 'CONFIGURATION' | 'TOOLSET' | 'EVALUATOR' | 'RUBRIC' | 'GOLDEN_DATASET' | 'PRODUCTION_COHORT';
+    /**
+     * Previous
+     */
+    previous: string;
+};
+
+/**
+ * ChangeManifest
+ *
+ * Human-readable versions needed to explain what changed between runs.
+ */
+export type ChangeManifest = {
+    /**
+     * Config Version
+     */
+    config_version: string;
+    /**
+     * Deployment Id
+     */
+    deployment_id: string;
+    /**
+     * Evaluator Version
+     */
+    evaluator_version: string;
+    /**
+     * Golden Dataset Version
+     */
+    golden_dataset_version: string;
+    model: ModelRef;
+    /**
+     * Production Cohort
+     */
+    production_cohort: string;
+    /**
+     * Prompt Version
+     */
+    prompt_version: string;
+    /**
+     * Rubric Version
+     */
+    rubric_version: string;
+    /**
+     * Toolset Version
+     */
+    toolset_version: string;
+    /**
+     * Use Case Version
+     */
+    use_case_version: string;
 };
 
 /**
@@ -127,6 +300,46 @@ export type Comparison = {
      * Verdict
      */
     verdict: string;
+};
+
+/**
+ * ComparisonRef
+ */
+export type ComparisonRef = {
+    /**
+     * Label
+     */
+    label?: string;
+    /**
+     * Run Id
+     */
+    run_id: string;
+};
+
+/**
+ * CoverageHealth
+ */
+export type CoverageHealth = {
+    /**
+     * Blocked Count
+     */
+    blocked_count: number;
+    /**
+     * Fail Count
+     */
+    fail_count: number;
+    /**
+     * Health
+     */
+    health: 'HEALTHY' | 'DEGRADED' | 'FAILING' | 'BLOCKED';
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Pass Count
+     */
+    pass_count: number;
 };
 
 /**
@@ -224,6 +437,46 @@ export type CriterionDelta = {
 };
 
 /**
+ * EvaluationRef
+ */
+export type EvaluationRef = {
+    /**
+     * Concern
+     */
+    concern: 'INVARIANT' | 'CAPABILITY' | 'QUALITY' | 'PRIVACY' | 'SAFETY' | 'TOXICITY' | 'POLICY_COMPLIANCE';
+    /**
+     * Layer
+     */
+    layer: 'INPUT' | 'SYSTEM' | 'RETRIEVAL_TOOL' | 'TOOL_TRAJECTORY' | 'OUTPUT' | 'OUTCOME';
+    /**
+     * Method
+     */
+    method: 'DETERMINISTIC' | 'MODEL_JUDGE' | 'HUMAN' | 'HYBRID';
+    /**
+     * Suite Id
+     */
+    suite_id: string;
+    /**
+     * Suite Version
+     */
+    suite_version: string;
+};
+
+/**
+ * EvidenceRef
+ */
+export type EvidenceRef = {
+    /**
+     * Sha256
+     */
+    sha256: string;
+    /**
+     * Uri
+     */
+    uri: string;
+};
+
+/**
  * GuardrailGovernance
  *
  * Baseline-authoritative provenance for one criterion's min_pass_rate
@@ -258,6 +511,16 @@ export type GuardrailGovernance = {
 };
 
 /**
+ * HTTPValidationError
+ */
+export type HttpValidationError = {
+    /**
+     * Detail
+     */
+    detail?: Array<ValidationError>;
+};
+
+/**
  * HealthResponse
  */
 export type HealthResponse = {
@@ -269,6 +532,365 @@ export type HealthResponse = {
      * Status
      */
     status: 'ok';
+};
+
+/**
+ * Incident
+ */
+export type Incident = {
+    case: CaseRef;
+    /**
+     * Cause Category
+     */
+    cause_category: 'PRODUCT_REGRESSION' | 'MODEL_REGRESSION' | 'PROMPT_CONFIG_TOOL_CHANGE' | 'USE_CASE_DRIFT' | 'EVAL_DETERIORATION' | 'GOLDEN_DATASET_GAP' | 'UNCONFIRMED';
+    /**
+     * Cause Confidence
+     */
+    cause_confidence: 'UNCONFIRMED' | 'CANDIDATE' | 'SUPPORTED' | 'CONFIRMED';
+    /**
+     * Cause Reason
+     */
+    cause_reason: string;
+    /**
+     * Changes Since Comparison
+     */
+    changes_since_comparison: Array<ChangeItem>;
+    /**
+     * Comparison Label
+     */
+    comparison_label: string;
+    /**
+     * Comparison Run Id
+     */
+    comparison_run_id: string;
+    /**
+     * Component Id
+     */
+    component_id: string;
+    /**
+     * Concern
+     */
+    concern: 'INVARIANT' | 'CAPABILITY' | 'QUALITY' | 'PRIVACY' | 'SAFETY' | 'TOXICITY' | 'POLICY_COMPLIANCE';
+    /**
+     * Current Summary
+     */
+    current_summary: string;
+    /**
+     * Current Value
+     */
+    current_value: number | null;
+    /**
+     * Downstream Observation Ids
+     */
+    downstream_observation_ids: Array<string>;
+    /**
+     * Evidence Level
+     */
+    evidence_level: 'DEPENDENCY_ONLY' | 'CHANGE_CORRELATION' | 'CONTROLLED_REPLAY' | 'HUMAN_ADJUDICATION';
+    /**
+     * Evidence Refs
+     */
+    evidence_refs: Array<EvidenceRef>;
+    /**
+     * Expected Summary
+     */
+    expected_summary: string;
+    /**
+     * Expected Value
+     */
+    expected_value: number | null;
+    /**
+     * Fix Location
+     */
+    fix_location: string;
+    /**
+     * Incident Id
+     */
+    incident_id: string;
+    /**
+     * Layer
+     */
+    layer: 'INPUT' | 'SYSTEM' | 'RETRIEVAL_TOOL' | 'TOOL_TRAJECTORY' | 'OUTPUT' | 'OUTCOME';
+    maintenance: MaintenanceAssessment;
+    /**
+     * Observation Id
+     */
+    observation_id: string;
+    /**
+     * Observed At
+     */
+    observed_at: string;
+    /**
+     * Owner Id
+     */
+    owner_id: string;
+    /**
+     * Parameter Id
+     */
+    parameter_id: string;
+    /**
+     * Product Id
+     */
+    product_id: string;
+    /**
+     * Product Name
+     */
+    product_name: string;
+    /**
+     * Reason Code
+     */
+    reason_code: string;
+    /**
+     * Regression Magnitude
+     */
+    regression_magnitude: number | null;
+    remediation: Remediation;
+    /**
+     * Run Id
+     */
+    run_id: string;
+    /**
+     * Stage Id
+     */
+    stage_id: string;
+    /**
+     * Threshold
+     */
+    threshold: number | null;
+    /**
+     * Unit
+     */
+    unit: string;
+};
+
+/**
+ * IngestResponse
+ */
+export type IngestResponse = {
+    diagnosis: RunDiagnosis;
+    /**
+     * Duplicate
+     */
+    duplicate: boolean;
+    /**
+     * Stored
+     */
+    stored: boolean;
+};
+
+/**
+ * Location
+ */
+export type Location = {
+    /**
+     * Component Id
+     */
+    component_id: string;
+    /**
+     * Fix Location
+     */
+    fix_location: string;
+    /**
+     * Owner Id
+     */
+    owner_id: string;
+    /**
+     * Parameter Id
+     */
+    parameter_id: string;
+    /**
+     * Stage Id
+     */
+    stage_id: string;
+    /**
+     * Stage Index
+     */
+    stage_index: number;
+};
+
+/**
+ * MaintenanceAssessment
+ */
+export type MaintenanceAssessment = {
+    /**
+     * Eval Action
+     */
+    eval_action: 'KEEP' | 'INVESTIGATE' | 'REVIEW_AFTER_ADJUDICATION';
+    /**
+     * Golden Dataset Action
+     */
+    golden_dataset_action: 'KEEP' | 'INVESTIGATE' | 'REVIEW_AFTER_ADJUDICATION';
+    /**
+     * Reason
+     */
+    reason: string;
+};
+
+/**
+ * ModelRef
+ */
+export type ModelRef = {
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Provider
+     */
+    provider: string;
+    /**
+     * Snapshot
+     */
+    snapshot: string;
+};
+
+/**
+ * MonitoringOverview
+ */
+export type MonitoringOverview = {
+    attribution_metrics: AttributionMetrics;
+    /**
+     * Generated At
+     */
+    generated_at: string;
+    /**
+     * Incidents
+     */
+    incidents: Array<Incident>;
+    /**
+     * Mode
+     */
+    mode: 'PLANTED_DEMO' | 'LIVE';
+    /**
+     * Products
+     */
+    products: Array<ProductHealth>;
+    /**
+     * Trend
+     */
+    trend: Array<TrendPoint>;
+};
+
+/**
+ * Observation
+ */
+export type Observation = {
+    case: CaseRef;
+    /**
+     * Cause Signals
+     */
+    cause_signals?: Array<CauseSignal>;
+    /**
+     * Current Summary
+     */
+    current_summary: string;
+    /**
+     * Current Value
+     */
+    current_value?: number | null;
+    /**
+     * Depends On
+     */
+    depends_on?: Array<string>;
+    evaluation: EvaluationRef;
+    /**
+     * Evidence Refs
+     */
+    evidence_refs?: Array<EvidenceRef>;
+    /**
+     * Expected Summary
+     */
+    expected_summary: string;
+    /**
+     * Expected Value
+     */
+    expected_value?: number | null;
+    /**
+     * Extensions
+     */
+    extensions?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Higher Is Better
+     */
+    higher_is_better?: boolean;
+    location: Location;
+    /**
+     * Observation Id
+     */
+    observation_id: string;
+    /**
+     * Reason Code
+     */
+    reason_code: string;
+    remediation: Remediation;
+    /**
+     * Required
+     */
+    required?: boolean;
+    /**
+     * Status
+     */
+    status: 'PASS' | 'FAIL' | 'BLOCKED' | 'NOT_EVALUATED';
+    /**
+     * Threshold
+     */
+    threshold?: number | null;
+    /**
+     * Tolerance
+     */
+    tolerance?: number;
+    /**
+     * Unit
+     */
+    unit?: string;
+};
+
+/**
+ * ObservationDiagnosis
+ */
+export type ObservationDiagnosis = {
+    /**
+     * Attribution
+     */
+    attribution: 'LIKELY_STARTING_FAILURE' | 'DOWNSTREAM_SYMPTOM' | 'UNCONFIRMED';
+    /**
+     * Cause Category
+     */
+    cause_category: 'PRODUCT_REGRESSION' | 'MODEL_REGRESSION' | 'PROMPT_CONFIG_TOOL_CHANGE' | 'USE_CASE_DRIFT' | 'EVAL_DETERIORATION' | 'GOLDEN_DATASET_GAP' | 'UNCONFIRMED';
+    /**
+     * Cause Confidence
+     */
+    cause_confidence: 'UNCONFIRMED' | 'CANDIDATE' | 'SUPPORTED' | 'CONFIRMED';
+    /**
+     * Cause Reason
+     */
+    cause_reason: string;
+    /**
+     * Evidence Level
+     */
+    evidence_level: 'DEPENDENCY_ONLY' | 'CHANGE_CORRELATION' | 'CONTROLLED_REPLAY' | 'HUMAN_ADJUDICATION';
+    /**
+     * Localization Reason
+     */
+    localization_reason: string;
+    /**
+     * Observation Id
+     */
+    observation_id: string;
+    /**
+     * Regression Magnitude
+     */
+    regression_magnitude?: number | null;
+    /**
+     * Root Observation Ids
+     */
+    root_observation_ids?: Array<string>;
+    /**
+     * Signed Delta
+     */
+    signed_delta?: number | null;
 };
 
 /**
@@ -285,6 +907,196 @@ export type ParseIssue = {
      * Message
      */
     message: string;
+};
+
+/**
+ * ProductHealth
+ */
+export type ProductHealth = {
+    /**
+     * Blocked Count
+     */
+    blocked_count: number;
+    /**
+     * Concerns
+     */
+    concerns: Array<CoverageHealth>;
+    /**
+     * Display Name
+     */
+    display_name: string;
+    /**
+     * Environment
+     */
+    environment: string;
+    /**
+     * Fail Count
+     */
+    fail_count: number;
+    /**
+     * Health
+     */
+    health: 'HEALTHY' | 'DEGRADED' | 'FAILING' | 'BLOCKED';
+    /**
+     * Latest Run Id
+     */
+    latest_run_id: string;
+    /**
+     * Layers
+     */
+    layers: Array<CoverageHealth>;
+    /**
+     * Observed At
+     */
+    observed_at: string;
+    /**
+     * Pass Count
+     */
+    pass_count: number;
+    /**
+     * Product Id
+     */
+    product_id: string;
+    /**
+     * Version
+     */
+    version: string;
+};
+
+/**
+ * ProductRef
+ */
+export type ProductRef = {
+    /**
+     * Display Name
+     */
+    display_name: string;
+    /**
+     * Environment
+     */
+    environment: string;
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Version
+     */
+    version: string;
+};
+
+/**
+ * Provenance
+ *
+ * Tamper-evident identifiers; no raw private case content belongs here.
+ */
+export type Provenance = {
+    /**
+     * Config Digest
+     */
+    config_digest: string;
+    /**
+     * Contract Digest
+     */
+    contract_digest: string;
+    /**
+     * Golden Dataset Digest
+     */
+    golden_dataset_digest: string;
+    /**
+     * Production Data Digest
+     */
+    production_data_digest: string;
+    /**
+     * Prompt Digest
+     */
+    prompt_digest: string;
+    /**
+     * Toolset Digest
+     */
+    toolset_digest: string;
+};
+
+/**
+ * Remediation
+ */
+export type Remediation = {
+    /**
+     * Action
+     */
+    action: string;
+};
+
+/**
+ * RunDiagnosis
+ */
+export type RunDiagnosis = {
+    /**
+     * Blocked Count
+     */
+    blocked_count: number;
+    /**
+     * Diagnoses
+     */
+    diagnoses: Array<ObservationDiagnosis>;
+    /**
+     * Diagnosis Version
+     */
+    diagnosis_version?: '0.2';
+    /**
+     * Fail Count
+     */
+    fail_count: number;
+    /**
+     * Health
+     */
+    health: 'HEALTHY' | 'DEGRADED' | 'FAILING' | 'BLOCKED';
+    /**
+     * Likely Starting Observation Ids
+     */
+    likely_starting_observation_ids: Array<string>;
+    /**
+     * Not Evaluated Count
+     */
+    not_evaluated_count: number;
+    /**
+     * Pass Count
+     */
+    pass_count: number;
+    /**
+     * Product Id
+     */
+    product_id: string;
+    /**
+     * Run Id
+     */
+    run_id: string;
+};
+
+/**
+ * RunEnvelope
+ */
+export type RunEnvelope = {
+    change_manifest: ChangeManifest;
+    comparison: ComparisonRef;
+    /**
+     * Contract Version
+     */
+    contract_version?: '0.2';
+    /**
+     * Observations
+     */
+    observations: Array<Observation>;
+    /**
+     * Observed At
+     */
+    observed_at: string;
+    product: ProductRef;
+    provenance: Provenance;
+    /**
+     * Run Id
+     */
+    run_id: string;
 };
 
 /**
@@ -339,6 +1151,56 @@ export type TraceComparison = {
      * Trace Id
      */
     trace_id: string;
+};
+
+/**
+ * TrendPoint
+ */
+export type TrendPoint = {
+    /**
+     * Health
+     */
+    health: 'HEALTHY' | 'DEGRADED' | 'FAILING' | 'BLOCKED';
+    /**
+     * Observed At
+     */
+    observed_at: string;
+    /**
+     * Pass Rate
+     */
+    pass_rate: number;
+    /**
+     * Product Id
+     */
+    product_id: string;
+};
+
+/**
+ * ValidationError
+ */
+export type ValidationError = {
+    /**
+     * Context
+     */
+    ctx?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Input
+     */
+    input?: unknown;
+    /**
+     * Location
+     */
+    loc: Array<string | number>;
+    /**
+     * Message
+     */
+    msg: string;
+    /**
+     * Error Type
+     */
+    type: string;
 };
 
 /**
@@ -445,6 +1307,80 @@ export type HealthApiHealthGetResponses = {
 };
 
 export type HealthApiHealthGetResponse = HealthApiHealthGetResponses[keyof HealthApiHealthGetResponses];
+
+export type EvaluateMonitoringRunApiMonitoringEvaluatePostData = {
+    body: RunEnvelope;
+    path?: never;
+    query?: never;
+    url: '/api/monitoring/evaluate';
+};
+
+export type EvaluateMonitoringRunApiMonitoringEvaluatePostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type EvaluateMonitoringRunApiMonitoringEvaluatePostError = EvaluateMonitoringRunApiMonitoringEvaluatePostErrors[keyof EvaluateMonitoringRunApiMonitoringEvaluatePostErrors];
+
+export type EvaluateMonitoringRunApiMonitoringEvaluatePostResponses = {
+    /**
+     * Successful Response
+     */
+    200: RunDiagnosis;
+};
+
+export type EvaluateMonitoringRunApiMonitoringEvaluatePostResponse = EvaluateMonitoringRunApiMonitoringEvaluatePostResponses[keyof EvaluateMonitoringRunApiMonitoringEvaluatePostResponses];
+
+export type MonitoringOverviewApiMonitoringOverviewGetData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/monitoring/overview';
+};
+
+export type MonitoringOverviewApiMonitoringOverviewGetResponses = {
+    /**
+     * Successful Response
+     */
+    200: MonitoringOverview;
+};
+
+export type MonitoringOverviewApiMonitoringOverviewGetResponse = MonitoringOverviewApiMonitoringOverviewGetResponses[keyof MonitoringOverviewApiMonitoringOverviewGetResponses];
+
+export type IngestMonitoringRunApiMonitoringRunsPostData = {
+    body: RunEnvelope;
+    path?: never;
+    query?: never;
+    url: '/api/monitoring/runs';
+};
+
+export type IngestMonitoringRunApiMonitoringRunsPostErrors = {
+    /**
+     * The run identity already exists with different evidence.
+     */
+    409: unknown;
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+    /**
+     * Monitoring persistence is not configured.
+     */
+    503: unknown;
+};
+
+export type IngestMonitoringRunApiMonitoringRunsPostError = IngestMonitoringRunApiMonitoringRunsPostErrors[keyof IngestMonitoringRunApiMonitoringRunsPostErrors];
+
+export type IngestMonitoringRunApiMonitoringRunsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: IngestResponse;
+};
+
+export type IngestMonitoringRunApiMonitoringRunsPostResponse = IngestMonitoringRunApiMonitoringRunsPostResponses[keyof IngestMonitoringRunApiMonitoringRunsPostResponses];
 
 export type ReportApiReportPostData = {
     body: BodyReportApiReportPost;

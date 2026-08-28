@@ -16,6 +16,7 @@ import {
   IMPROVED_FIXTURE,
   REGRESSION_FIXTURE,
   compareFixtures,
+  openComparisonWorkbench,
 } from "./helpers";
 
 const SPECIALS = path.resolve(__dirname, "fixtures");
@@ -60,6 +61,7 @@ test("INSUFFICIENT_EVIDENCE journey: thin pair gets the honest verdict and guida
   page,
 }) => {
   await page.goto("/");
+  await openComparisonWorkbench(page);
   await page.getByLabel(/baseline/i).setInputFiles(path.join(SPECIALS, "thin_baseline.json"));
   await page.getByLabel(/candidate/i).setInputFiles(path.join(SPECIALS, "thin_candidate.json"));
   await page.getByRole("button", { name: /compare runs/i }).click();
@@ -72,6 +74,7 @@ test("server-only validation: duplicate trace ids pass the client mirror, the se
   page,
 }) => {
   await page.goto("/");
+  await openComparisonWorkbench(page);
   await page.getByLabel(/baseline/i).setInputFiles(BASELINE_FIXTURE);
   await page.getByLabel(/candidate/i).setInputFiles(path.join(SPECIALS, "duplicate_trace.json"));
   const button = page.getByRole("button", { name: /compare runs/i });
@@ -85,6 +88,7 @@ test("advisory journey: a browser-unparseable file submits and the server's fiel
   page,
 }) => {
   await page.goto("/");
+  await openComparisonWorkbench(page);
   await page.getByLabel(/baseline/i).setInputFiles(path.join(SPECIALS, "nan_threshold.json"));
   await expect(page.getByText(/not valid JSON in this browser's reading/)).toBeVisible();
   await page.getByLabel(/candidate/i).setInputFiles(IMPROVED_FIXTURE);
@@ -101,6 +105,7 @@ test("advisory journey: UTF-16 bytes the browser cannot read reach the server's 
   page,
 }) => {
   await page.goto("/");
+  await openComparisonWorkbench(page);
   await page.getByLabel(/baseline/i).setInputFiles(BASELINE_FIXTURE);
   await page.getByLabel(/candidate/i).setInputFiles(path.join(SPECIALS, "utf16_candidate.json"));
   await expect(page.getByText(/not valid JSON in this browser's reading/)).toBeVisible();

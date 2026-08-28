@@ -4,7 +4,7 @@
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
 
-import { BASELINE_FIXTURE, REGRESSION_FIXTURE } from "./helpers";
+import { BASELINE_FIXTURE, REGRESSION_FIXTURE, openComparisonWorkbench } from "./helpers";
 
 // Tab (or Shift+Tab) until the focused element matches, bounded so a broken
 // tab order fails loudly instead of looping forever.
@@ -27,6 +27,7 @@ async function tabTo(
 
 test("the journey completes keyboard-only with visible focus (J-2..J-9)", async ({ page }) => {
   await page.goto("/");
+  await openComparisonWorkbench(page);
   await page.getByLabel(/baseline/i).setInputFiles(BASELINE_FIXTURE);
   await page.getByLabel(/candidate/i).setInputFiles(REGRESSION_FIXTURE);
   await expect(page.getByRole("button", { name: /compare runs/i })).toBeEnabled();
@@ -66,6 +67,7 @@ test("the journey completes keyboard-only with visible focus (J-2..J-9)", async 
 
 test("status changes are exposed to assistive technology", async ({ page }) => {
   await page.goto("/");
+  await openComparisonWorkbench(page);
   await page.getByLabel(/baseline/i).setInputFiles(BASELINE_FIXTURE);
   await page.getByLabel(/candidate/i).setInputFiles(REGRESSION_FIXTURE);
   await page.getByRole("button", { name: /compare runs/i }).click();
