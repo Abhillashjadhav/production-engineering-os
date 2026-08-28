@@ -130,7 +130,49 @@ RECORDED_TOOL_AGENT_CONTENT_DIGEST = canonical_digest(_RECORDED_TOOL_AGENT_MANIF
 _E1_FIXTURE_ID = "e1-no-model-fixture/v1"
 _E1_FIXTURE_DIGEST = canonical_digest({"steps": []})
 _TOOL_FIXTURE_ID = "recorded-tool-agent-happy/v1"
-_TOOL_FIXTURE_DIGEST = canonical_digest({"fixture_id": "recorded-tool-agent-happy/v1", "steps": 4})
+
+
+def _load_recorded_tool_agent_fixture() -> dict[str, Any]:
+    fixture_path = Path(__file__).parent / "fixtures" / "recorded_tool_agent_happy_v1.json"
+    fixture = strict_loads(fixture_path.read_bytes(), "application/json")
+    if not isinstance(fixture, Mapping) or set(fixture) != {
+        "events",
+        "fixture_id",
+        "schema_version",
+    }:
+        raise RuntimeError("recorded tool-agent fixture has an unexpected shape")
+    if (
+        fixture.get("fixture_id") != _TOOL_FIXTURE_ID
+        or fixture.get("schema_version") != "recorded-tool-agent-fixture/v1"
+    ):
+        raise RuntimeError("recorded tool-agent fixture identity is not admitted")
+    events = fixture.get("events")
+    if not isinstance(events, list) or not events:
+        raise RuntimeError("recorded tool-agent fixture must contain replay events")
+    for expected_sequence, event in enumerate(events, start=1):
+        if not isinstance(event, Mapping) or set(event) != {
+            "kind",
+            "request",
+            "response",
+            "sequence",
+        }:
+            raise RuntimeError("recorded tool-agent event has an unexpected shape")
+        if event.get("sequence") != expected_sequence or event.get("kind") not in {
+            "recorded_model_response",
+            "tool_result",
+        }:
+            raise RuntimeError("recorded tool-agent event order or kind is invalid")
+        if not isinstance(event.get("request"), Mapping) or not isinstance(
+            event.get("response"), Mapping
+        ):
+            raise RuntimeError("recorded tool-agent event payload is malformed")
+    canonical_json_bytes(fixture)
+    return copy.deepcopy(dict(fixture))
+
+
+RECORDED_TOOL_AGENT_FIXTURE = _load_recorded_tool_agent_fixture()
+RECORDED_TOOL_AGENT_FIXTURE_DIGEST = canonical_digest(RECORDED_TOOL_AGENT_FIXTURE)
+_TOOL_FIXTURE_DIGEST = RECORDED_TOOL_AGENT_FIXTURE_DIGEST
 
 
 def _utc_now() -> datetime:
@@ -425,6 +467,9 @@ def _validate_capabilities(
     criteria = contract.get("acceptance_criteria")
     if not isinstance(criteria, Mapping):
         raise TemplateSelectionError("capability bindings require acceptance criteria")
+    requirements = contract.get("functional_requirements")
+    if not isinstance(requirements, Mapping):
+        raise TemplateSelectionError("acceptance criteria require functional requirements")
     bindings: list[dict[str, Any]] = []
     seen: set[str] = set()
     for item in raw_bindings:
@@ -450,6 +495,33 @@ def _validate_capabilities(
             raise TemplateSelectionError(
                 "capability references an unavailable acceptance criterion"
             )
+        for criterion_id in criterion_ids:
+            criterion = criteria[criterion_id]
+            if not isinstance(criterion, Mapping) or set(criterion) != {
+                "criterion",
+                "requirement_refs",
+                "verification_method",
+            }:
+                raise TemplateSelectionError(
+                    "capability references a malformed acceptance criterion"
+                )
+            requirement_refs = criterion.get("requirement_refs")
+            if (
+                not isinstance(criterion.get("criterion"), str)
+                or not str(criterion["criterion"]).strip()
+                or not isinstance(criterion.get("verification_method"), str)
+                or not str(criterion["verification_method"]).strip()
+                or not isinstance(requirement_refs, list)
+                or not requirement_refs
+                or not all(
+                    isinstance(reference, str) and reference in requirements
+                    for reference in requirement_refs
+                )
+                or len(requirement_refs) != len(set(requirement_refs))
+            ):
+                raise TemplateSelectionError(
+                    "capability references a malformed acceptance criterion"
+                )
         seen.add(capability)
         bindings.append(
             {
@@ -541,6 +613,8 @@ def compile_phase_b_selection(
 __all__ = [
     "BAREBONES_E1_CONTENT_DIGEST",
     "RECORDED_TOOL_AGENT_CONTENT_DIGEST",
+    "RECORDED_TOOL_AGENT_FIXTURE",
+    "RECORDED_TOOL_AGENT_FIXTURE_DIGEST",
     "CompiledTemplateSelection",
     "TemplateSelectionError",
     "compile_phase_b_selection",

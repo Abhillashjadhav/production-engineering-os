@@ -11,12 +11,14 @@ from jsonschema import Draft202012Validator
 from pmpe.barebones_selection import (
     BAREBONES_E1_CONTENT_DIGEST,
     RECORDED_TOOL_AGENT_CONTENT_DIGEST,
+    RECORDED_TOOL_AGENT_FIXTURE,
+    RECORDED_TOOL_AGENT_FIXTURE_DIGEST,
     TemplateSelectionError,
     compile_phase_b_selection,
     load_phase_b_contract,
     phase_b_approval_subject,
 )
-from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
+from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes, strict_loads
 
 NOW = datetime(2026, 8, 28, 18, 0, tzinfo=UTC)
 
@@ -112,9 +114,7 @@ def _tool_agent_selection() -> dict[str, object]:
         },
         "fixture": {
             "fixture_id": "recorded-tool-agent-happy/v1",
-            "fixture_digest": canonical_digest(
-                {"fixture_id": "recorded-tool-agent-happy/v1", "steps": 4}
-            ),
+            "fixture_digest": RECORDED_TOOL_AGENT_FIXTURE_DIGEST,
         },
     }
 
@@ -122,7 +122,9 @@ def _tool_agent_selection() -> dict[str, object]:
 def _contract(selection: dict[str, object]) -> dict[str, object]:
     criteria = {
         binding["acceptance_criterion_ids"][0]: {
+            "criterion": f"Exercise {binding['capability_id']}.",
             "requirement_refs": [f"FR-{index:03d}"],
+            "verification_method": str(binding["verifier_id"]),
         }
         for index, binding in enumerate(selection["capability_bindings"], start=1)
     }
@@ -323,6 +325,69 @@ def test_fixture_identity_and_digest_are_required() -> None:
 
     with pytest.raises(TemplateSelectionError, match="fixture"):
         _compile(selection)
+
+
+def test_recorded_tool_agent_fixture_digest_binds_complete_replay_payload() -> None:
+    fixture_path = Path("src/pmpe/fixtures/recorded_tool_agent_happy_v1.json")
+    fixture = strict_loads(fixture_path.read_bytes(), "application/json")
+
+    assert fixture == RECORDED_TOOL_AGENT_FIXTURE
+    assert canonical_digest(fixture) == RECORDED_TOOL_AGENT_FIXTURE_DIGEST
+    mutated = copy.deepcopy(fixture)
+    mutated["events"][1]["response"]["matches"][0]["text"] = "Changed replay output."
+    assert canonical_digest(mutated) != RECORDED_TOOL_AGENT_FIXTURE_DIGEST
+
+
+def test_legacy_fixture_id_and_step_count_digest_is_rejected() -> None:
+    selection = _tool_agent_selection()
+    selection["fixture"]["fixture_digest"] = canonical_digest(
+        {"fixture_id": "recorded-tool-agent-happy/v1", "steps": 4}
+    )
+
+    with pytest.raises(TemplateSelectionError, match="fixture"):
+        _compile(selection)
+
+
+@pytest.mark.parametrize(
+    "criterion",
+    [
+        None,
+        {"criterion": "Exercise E1.", "requirement_refs": ["FR-001"]},
+        {
+            "criterion": "",
+            "requirement_refs": ["FR-001"],
+            "verification_method": "acceptance.given_when_then/v1",
+        },
+        {
+            "criterion": "Exercise E1.",
+            "requirement_refs": [],
+            "verification_method": "acceptance.given_when_then/v1",
+        },
+        {
+            "criterion": "Exercise E1.",
+            "requirement_refs": ["FR-MISSING"],
+            "verification_method": "acceptance.given_when_then/v1",
+        },
+        {
+            "criterion": "Exercise E1.",
+            "requirement_refs": ["FR-001", "FR-001"],
+            "verification_method": "acceptance.given_when_then/v1",
+        },
+    ],
+)
+def test_referenced_acceptance_criterion_must_have_complete_valid_shape(
+    criterion: object,
+) -> None:
+    contract = _contract(_e1_selection())
+    contract["acceptance_criteria"]["AC-001"] = criterion
+
+    with pytest.raises(TemplateSelectionError, match="malformed acceptance criterion"):
+        compile_phase_b_selection(
+            contract,
+            _approval(contract),
+            expected_approver="fixture-human",
+            trusted_clock=lambda: NOW,
+        )
 
 
 def test_unknown_selection_field_cannot_be_ignored() -> None:

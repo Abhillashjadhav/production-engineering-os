@@ -28,7 +28,7 @@ pmpe = "pmpe.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-pmpe = ["py.typed", "schemas/*.json", "guided/static/*"]
+pmpe = ["py.typed", "schemas/*.json", "fixtures/*.json", "guided/static/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/unit", "tests/integration", "tests/e2e"]
