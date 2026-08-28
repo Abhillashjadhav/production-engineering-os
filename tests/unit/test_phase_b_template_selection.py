@@ -129,7 +129,14 @@ def _contract(selection: dict[str, object]) -> dict[str, object]:
         for index, binding in enumerate(selection["capability_bindings"], start=1)
     }
     requirements = {
-        f"FR-{index:03d}": {"statement": f"Exercise {capability}."}
+        f"FR-{index:03d}": {
+            "acceptance_criterion_refs": [
+                selection["capability_bindings"][index - 1]["acceptance_criterion_ids"][0]
+            ],
+            "priority": "MUST",
+            "statement": f"Exercise {capability}.",
+            "title": f"Exercise {capability}",
+        }
         for index, capability in enumerate(selection["capability_ids"], start=1)
     }
     return {
@@ -277,6 +284,14 @@ def test_secret_values_and_unregistered_configuration_fail_closed(
         _compile(selection)
 
 
+def test_all_canonical_credential_formats_fail_closed() -> None:
+    selection = _e1_selection()
+    selection["configuration"] = {"service_name": "gh" + "p_" + "a" * 36}
+
+    with pytest.raises(TemplateSelectionError, match="credential"):
+        _compile(selection)
+
+
 @pytest.mark.parametrize(
     "mutation",
     [
@@ -387,6 +402,59 @@ def test_referenced_acceptance_criterion_must_have_complete_valid_shape(
     contract["acceptance_criteria"]["AC-001"] = criterion
 
     with pytest.raises(TemplateSelectionError, match="malformed acceptance criterion"):
+        compile_phase_b_selection(
+            contract,
+            _approval(contract),
+            expected_approver="fixture-human",
+            trusted_clock=lambda: NOW,
+        )
+
+
+@pytest.mark.parametrize(
+    "requirement",
+    [
+        None,
+        {"statement": "Exercise E1."},
+        {
+            "acceptance_criterion_refs": [],
+            "priority": "MUST",
+            "statement": "Exercise E1.",
+            "title": "Exercise E1",
+        },
+        {
+            "acceptance_criterion_refs": ["AC-OTHER"],
+            "priority": "MUST",
+            "statement": "Exercise E1.",
+            "title": "Exercise E1",
+        },
+        {
+            "acceptance_criterion_refs": ["AC-001"],
+            "priority": "UNRANKED",
+            "statement": "Exercise E1.",
+            "title": "Exercise E1",
+        },
+        {
+            "acceptance_criterion_refs": ["AC-001"],
+            "priority": "MUST",
+            "statement": "",
+            "title": "Exercise E1",
+        },
+        {
+            "acceptance_criterion_refs": ["AC-001"],
+            "priority": "MUST",
+            "statement": "Exercise E1.",
+            "title": "Exercise E1",
+            "unknown": "not admitted",
+        },
+    ],
+)
+def test_referenced_functional_requirement_must_have_complete_valid_shape(
+    requirement: object,
+) -> None:
+    contract = _contract(_e1_selection())
+    contract["functional_requirements"]["FR-001"] = requirement
+
+    with pytest.raises(TemplateSelectionError, match="malformed functional requirement"):
         compile_phase_b_selection(
             contract,
             _approval(contract),

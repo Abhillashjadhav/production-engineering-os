@@ -13,6 +13,7 @@ from typing import Any
 from jsonschema import Draft202012Validator, ValidationError
 
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes, strict_loads
+from pmpe.security_patterns import contains_prohibited_secret
 
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _SAFE_SCOPE = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\Z")
@@ -21,6 +22,7 @@ _CREDENTIAL = re.compile(
     r"AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}"
 )
 _SECRET_NAME = re.compile(r"api_?key|credential|password|secret|token", re.IGNORECASE)
+_FUNCTIONAL_REQUIREMENT_ID = re.compile(r"FR-[A-Z0-9]+(?:-[A-Z0-9]+)*\Z")
 
 _SELECTION_FIELDS = {
     "budgets",
@@ -361,7 +363,9 @@ def _validate_configuration(identity: str, raw: object) -> dict[str, str | int |
             raise TemplateSelectionError("configuration contains a secret name")
         if not isinstance(value, (str, int, bool)) or isinstance(value, (dict, list)):
             raise TemplateSelectionError("configuration values must be flat JSON scalars")
-        if isinstance(value, str) and _CREDENTIAL.search(value):
+        if isinstance(value, str) and (
+            _CREDENTIAL.search(value) or contains_prohibited_secret(value.encode())
+        ):
             raise TemplateSelectionError("configuration contains a credential-shaped value")
     if identity == "tool-agent" and configuration["dataset_id"] != "support-kb-v1":
         raise TemplateSelectionError("configuration dataset is not bound to the tool scope")
@@ -448,6 +452,47 @@ def _validate_fixture(identity: str, raw: object) -> dict[str, str]:
     return {"fixture_digest": str(fixture_digest), "fixture_id": str(fixture_id)}
 
 
+def _validate_functional_requirement(
+    requirement_id: str,
+    raw: object,
+    *,
+    criterion_id: str,
+) -> None:
+    required = {"acceptance_criterion_refs", "priority", "statement", "title"}
+    admitted = required | {"capability", "entity_ref"}
+    if (
+        not _FUNCTIONAL_REQUIREMENT_ID.fullmatch(requirement_id)
+        or not isinstance(raw, Mapping)
+        or not required <= set(raw) <= admitted
+    ):
+        raise TemplateSelectionError(
+            "acceptance criterion references a malformed functional requirement"
+        )
+    criterion_refs = raw.get("acceptance_criterion_refs")
+    if (
+        not isinstance(criterion_refs, list)
+        or not criterion_refs
+        or criterion_id not in criterion_refs
+        or not all(isinstance(reference, str) and reference for reference in criterion_refs)
+        or len(criterion_refs) != len(set(criterion_refs))
+        or raw.get("priority") not in {"MUST", "SHOULD", "COULD"}
+        or any(
+            not isinstance(raw.get(field), str) or not str(raw[field]).strip()
+            for field in ("statement", "title")
+        )
+        or "capability" in raw
+        and (not isinstance(raw["capability"], str) or not str(raw["capability"]).strip())
+        or "entity_ref" in raw
+        and (
+            not isinstance(raw["entity_ref"], str)
+            or not re.fullmatch(r"ENTITY-[A-Z0-9]+(?:-[A-Z0-9]+)*", raw["entity_ref"])
+        )
+    ):
+        raise TemplateSelectionError(
+            "acceptance criterion references a malformed functional requirement"
+        )
+
+
 def _validate_capabilities(
     identity: str,
     selection: Mapping[str, Any],
@@ -522,6 +567,12 @@ def _validate_capabilities(
             ):
                 raise TemplateSelectionError(
                     "capability references a malformed acceptance criterion"
+                )
+            for requirement_id in requirement_refs:
+                _validate_functional_requirement(
+                    requirement_id,
+                    requirements[requirement_id],
+                    criterion_id=criterion_id,
                 )
         seen.add(capability)
         bindings.append(
