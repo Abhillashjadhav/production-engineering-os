@@ -178,7 +178,7 @@ function IncidentCard({ incident }: { incident: Incident }) {
           <div>
             <span>Pass bar</span>
             <strong>{resultValue(incident.threshold, incident.unit)}</strong>
-            <small>The minimum acceptable result for this check.</small>
+            <small>The acceptable boundary for this check.</small>
           </div>
           <div>
             <span>Difference</span>
@@ -371,7 +371,10 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
       (incident) => JSON.stringify([
         incident.product_id,
         incident.environment,
+        incident.case.use_case_id,
         incident.case.case_id,
+        incident.case.segment,
+        incident.case.input_fingerprint,
       ]),
     ),
   ).size;

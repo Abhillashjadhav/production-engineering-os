@@ -130,6 +130,8 @@ describe("MonitoringDashboard", () => {
     expect(within(diagnosis!).getByText("Current result")).toBeInTheDocument();
     expect(within(diagnosis!).getByText("Expected result")).toBeInTheDocument();
     expect(within(diagnosis!).getByText("Pass bar")).toBeInTheDocument();
+    expect(within(diagnosis!).getByText(/acceptable boundary/i)).toBeInTheDocument();
+    expect(within(diagnosis!).queryByText(/minimum acceptable/i)).not.toBeInTheDocument();
     expect(within(diagnosis!).getByText("49 percentage points")).toBeInTheDocument();
     expect(within(diagnosis!).getByText("LinkedIn source adapter / connector-v2 mapping")).toBeInTheDocument();
     expect(within(diagnosis!).getByText("Supported cause")).toBeInTheDocument();
@@ -196,6 +198,26 @@ describe("MonitoringDashboard", () => {
     const label = await screen.findByText("Localized cases");
     expect(within(label.closest("div")!).getByText("0")).toBeInTheDocument();
     expect(screen.queryByText("Failed cases")).not.toBeInTheDocument();
+  });
+
+  it("keeps reused case IDs separate across use cases", async () => {
+    const secondUseCase = {
+      ...OVERVIEW.incidents[0],
+      incident_id: "dream-run:source-linkedin-coverage:second-use-case",
+      case: {
+        ...OVERVIEW.incidents[0].case,
+        use_case_id: "career-transition-search",
+      },
+    };
+    const multipleUseCases: MonitoringOverview = {
+      ...OVERVIEW,
+      incidents: [OVERVIEW.incidents[0], secondUseCase],
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(multipleUseCases)} />);
+
+    const label = await screen.findByText("Localized cases");
+    expect(within(label.closest("div")!).getByText("2")).toBeInTheDocument();
   });
 
   it("filters failed cases by product", async () => {

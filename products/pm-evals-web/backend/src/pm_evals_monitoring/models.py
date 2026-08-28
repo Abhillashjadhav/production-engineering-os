@@ -257,6 +257,22 @@ class Observation(StrictModel):
     def validate_measurement(self) -> Observation:
         if self.status in ("PASS", "FAIL") and self.current_value is None:
             raise ValueError("PASS and FAIL observations require current_value")
+        if (
+            self.status in ("PASS", "FAIL")
+            and self.current_value is not None
+            and self.threshold is not None
+        ):
+            meets_bar = (
+                self.current_value >= self.threshold
+                if self.higher_is_better
+                else self.current_value <= self.threshold
+            )
+            if (self.status == "PASS") != meets_bar:
+                direction = "at least" if self.higher_is_better else "at most"
+                raise ValueError(
+                    f"status {self.status} contradicts the numeric pass bar; "
+                    f"current_value must be {direction} threshold to pass"
+                )
         if self.observation_id in self.depends_on:
             raise ValueError("an observation cannot depend on itself")
         if len(self.depends_on) != len(set(self.depends_on)):

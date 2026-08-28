@@ -82,6 +82,32 @@ def test_missing_expected_value_preserves_unknown_regression_magnitude() -> None
     assert start.regression_magnitude is None
 
 
+@pytest.mark.parametrize(
+    ("status", "current_value", "threshold", "higher_is_better"),
+    [
+        ("PASS", 0.5, 0.8, True),
+        ("FAIL", 0.9, 0.8, True),
+        ("PASS", 0.5, 0.2, False),
+        ("FAIL", 0.1, 0.2, False),
+    ],
+)
+def test_numeric_status_must_match_the_directional_pass_bar(
+    status: str,
+    current_value: float,
+    threshold: float,
+    higher_is_better: bool,
+) -> None:
+    payload = _failed_dream_job_run().model_dump(mode="json")
+    observation = payload["observations"][0]
+    observation["status"] = status
+    observation["current_value"] = current_value
+    observation["threshold"] = threshold
+    observation["higher_is_better"] = higher_is_better
+
+    with pytest.raises(ValidationError, match="contradicts the numeric pass bar"):
+        RunEnvelope.model_validate(payload)
+
+
 def test_controlled_replay_requires_a_real_control_and_fixed_dimensions() -> None:
     run = _failed_dream_job_run()
     source = next(

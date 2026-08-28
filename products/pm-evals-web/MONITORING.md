@@ -43,6 +43,12 @@ A product adapter emits a strict `RunEnvelope` V0.2. Each observation contains:
 - optional causal signals with an explicit evidence level; and
 - a bounded remediation hint owned by the product adapter.
 
+When a numeric threshold is present, `PASS` and `FAIL` must agree with that
+threshold and with whether higher or lower values are better; contradictory
+envelopes are rejected. Dashboard case counts use the full product, environment,
+use-case, case, segment, and input-fingerprint identity rather than `case_id`
+alone.
+
 Layers describe where evaluation happens: input, system, retrieval/tool,
 tool trajectory, output, and outcome. Concerns describe what is protected:
 invariants, capability, quality, privacy, safety, toxicity, and policy.
