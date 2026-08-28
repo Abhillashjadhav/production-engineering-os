@@ -2067,11 +2067,16 @@
           "product_id": {
             "title": "Product Id",
             "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
           }
         },
         "required": [
           "product_id",
           "environment",
+          "run_id",
           "observed_at",
           "health",
           "pass_rate"

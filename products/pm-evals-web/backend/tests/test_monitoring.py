@@ -301,7 +301,11 @@ def test_degraded_passing_check_is_projected_as_an_exact_case() -> None:
     )
     regressed.current_value = 0.85
 
-    diagnosis = diagnose_run(current)
+    diagnosis = diagnose_run(
+        current,
+        comparison=baseline,
+        comparison_health="HEALTHY",
+    )
     overview = build_overview([baseline, current], mode="LIVE", generated_at=current.observed_at)
 
     assert diagnosis.health == "DEGRADED"
@@ -317,6 +321,48 @@ def test_degraded_passing_check_is_projected_as_an_exact_case() -> None:
     assert overview.incidents[0].attribution == "DEGRADED_CHECK"
     assert overview.incidents[0].case.case_id == regressed.case.case_id
     assert overview.incidents[0].regression_magnitude == pytest.approx(0.06)
+
+
+def test_passing_regression_requires_a_verified_healthy_comparison() -> None:
+    baseline = next(item for item in build_demo_runs() if item.run_id == "dream-job-2026-08-24")
+    current = baseline.model_copy(deep=True)
+    current.run_id = "dream-job-unverified-degradation"
+    current.comparison.run_id = baseline.run_id
+    current.observed_at = baseline.observed_at + timedelta(days=1)
+    regressed = next(
+        item for item in current.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    regressed.current_value = 0.85
+
+    mismatched = baseline.model_copy(deep=True)
+    mismatched_source = next(
+        item for item in mismatched.observations if item.observation_id == regressed.observation_id
+    )
+    mismatched_source.current_value = 0.90
+
+    unhealthy = baseline.model_copy(deep=True)
+    unrelated = next(
+        item for item in unhealthy.observations if item.observation_id == "pii-disclosure-rate"
+    )
+    unrelated.status = "FAIL"
+    unrelated.current_value = 0.1
+
+    assert diagnose_run(current).health == "HEALTHY"
+    for overview in (
+        build_overview([current], mode="LIVE", generated_at=current.observed_at),
+        build_overview(
+            [mismatched, current],
+            mode="LIVE",
+            generated_at=current.observed_at,
+        ),
+        build_overview(
+            [unhealthy, current],
+            mode="LIVE",
+            generated_at=current.observed_at,
+        ),
+    ):
+        assert overview.products[0].health == "HEALTHY"
+        assert overview.incidents == []
 
 
 def test_required_not_evaluated_observation_blocks_run_health() -> None:

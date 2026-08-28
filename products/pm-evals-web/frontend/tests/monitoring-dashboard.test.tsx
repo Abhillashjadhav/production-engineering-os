@@ -108,10 +108,10 @@ const OVERVIEW: MonitoringOverview = {
     },
   ],
   trend: [
-    { product_id: "dream-job-agent", environment: "production", observed_at: "2026-08-27T12:00:00Z", health: "HEALTHY", pass_rate: 1 },
-    { product_id: "dream-job-agent", environment: "production", observed_at: "2026-08-28T12:00:00Z", health: "FAILING", pass_rate: 0.6 },
-    { product_id: "linkedin-research-os", environment: "production", observed_at: "2026-08-27T10:00:00Z", health: "HEALTHY", pass_rate: 1 },
-    { product_id: "linkedin-research-os", environment: "production", observed_at: "2026-08-28T10:00:00Z", health: "HEALTHY", pass_rate: 1 },
+    { product_id: "dream-job-agent", environment: "production", run_id: "dream-approved", observed_at: "2026-08-27T12:00:00Z", health: "HEALTHY", pass_rate: 1 },
+    { product_id: "dream-job-agent", environment: "production", run_id: "dream-run", observed_at: "2026-08-28T12:00:00Z", health: "FAILING", pass_rate: 0.6 },
+    { product_id: "linkedin-research-os", environment: "production", run_id: "linkedin-approved", observed_at: "2026-08-27T10:00:00Z", health: "HEALTHY", pass_rate: 1 },
+    { product_id: "linkedin-research-os", environment: "production", run_id: "linkedin-run", observed_at: "2026-08-28T10:00:00Z", health: "HEALTHY", pass_rate: 1 },
   ],
 };
 
@@ -230,6 +230,41 @@ describe("MonitoringDashboard", () => {
     expect(screen.getByText(/no starting failure found/i)).toBeInTheDocument();
   });
 
+  it("keeps equal-time trend points distinct by run identity", async () => {
+    const tiedOverview: MonitoringOverview = {
+      ...OVERVIEW,
+      products: [OVERVIEW.products[0]],
+      incidents: [],
+      trend: [
+        {
+          ...OVERVIEW.trend[0],
+          run_id: "z-arrived-first",
+          observed_at: "2026-08-28T12:00:00Z",
+          health: "HEALTHY",
+          pass_rate: 1,
+        },
+        {
+          ...OVERVIEW.trend[1],
+          run_id: "a-arrived-second",
+          observed_at: "2026-08-28T12:00:00Z",
+          health: "FAILING",
+          pass_rate: 0.5,
+        },
+      ],
+    };
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      render(<MonitoringDashboard fetcher={fetchOverview(tiedOverview)} />);
+      const chart = await screen.findByRole("img", { name: /pass-rate trend/i });
+
+      expect(chart.querySelectorAll("circle")).toHaveLength(2);
+      expect(consoleError.mock.calls.flat().join(" ")).not.toMatch(/same key/i);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("keeps production incidents out of the staging product view", async () => {
     const stagingProduct = {
       ...OVERVIEW.products[0],
@@ -246,6 +281,7 @@ describe("MonitoringDashboard", () => {
         {
           product_id: "dream-job-agent",
           environment: "staging",
+          run_id: "dream-staging-run",
           observed_at: "2026-08-28T12:05:00Z",
           health: "HEALTHY",
           pass_rate: 1,

@@ -87,7 +87,8 @@ why that failure occurred. Cause confidence is bounded by evidence:
 Blocked or unevaluated evidence remains unresolved through the full dependency
 path, including passing intermediate checks, so a later failure cannot be shown
 as the starting point. Passing checks that regress beyond tolerance receive a
-separate `DEGRADED_CHECK` diagnosis and exact-case incident.
+separate `DEGRADED_CHECK` diagnosis and exact-case incident only when the exact
+earlier healthy comparison verifies the expected value.
 
 A controlled replay must classify every change dimension as either intentionally
 varied or held constant, with no overlap or omission. Its asserted cause must

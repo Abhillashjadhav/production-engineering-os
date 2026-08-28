@@ -92,7 +92,7 @@ function Sparkline({ points }: { points: TrendPoint[] }) {
       <polyline points={path} className="sparkline-line" />
       {coordinates.map((point) => (
         <circle
-          key={point.observed_at}
+          key={JSON.stringify([point.product_id, point.environment, point.run_id])}
           cx={point.x}
           cy={point.y}
           r="4"

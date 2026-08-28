@@ -450,6 +450,7 @@ class Incident(StrictModel):
 class TrendPoint(StrictModel):
     product_id: str
     environment: str
+    run_id: str
     observed_at: datetime
     health: RunHealth
     pass_rate: float

@@ -1191,6 +1191,10 @@ export type TrendPoint = {
      * Product Id
      */
     product_id: string;
+    /**
+     * Run Id
+     */
+    run_id: string;
 };
 
 /**

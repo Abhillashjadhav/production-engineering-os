@@ -103,12 +103,34 @@ def _verified_comparison_observation(
     return candidate
 
 
-def _is_degraded(observation: Observation) -> bool:
+def _exceeds_degradation_tolerance(observation: Observation) -> bool:
     delta = _signed_delta(observation)
     return observation.status == "PASS" and delta is not None and delta < -observation.tolerance
 
 
-def _health(observations: list[Observation]) -> RunHealth:
+def _verified_degraded_observation_ids(
+    run: RunEnvelope,
+    comparison: RunEnvelope | None,
+    comparison_health: RunHealth | None,
+) -> set[str]:
+    return {
+        observation.observation_id
+        for observation in run.observations
+        if _exceeds_degradation_tolerance(observation)
+        and _verified_comparison_observation(
+            run,
+            observation,
+            comparison,
+            comparison_health,
+        )
+        is not None
+    }
+
+
+def _health(
+    observations: list[Observation],
+    degraded_observation_ids: set[str] | None = None,
+) -> RunHealth:
     if any(item.status == "FAIL" for item in observations):
         return "FAILING"
     if any(
@@ -116,7 +138,9 @@ def _health(observations: list[Observation]) -> RunHealth:
         for item in observations
     ):
         return "BLOCKED"
-    if any(_is_degraded(item) for item in observations):
+    if degraded_observation_ids and any(
+        item.observation_id in degraded_observation_ids for item in observations
+    ):
         return "DEGRADED"
     return "HEALTHY"
 
@@ -176,12 +200,17 @@ def _cause_assessment(
     return category, confidence, level, " ".join(item.summary for item in strongest)
 
 
-def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
+def diagnose_run(
+    run: RunEnvelope,
+    *,
+    comparison: RunEnvelope | None = None,
+    comparison_health: RunHealth | None = None,
+) -> RunDiagnosis:
     """Localize the first observable break without claiming unearned causality."""
 
     by_id = {item.observation_id: item for item in run.observations}
     failed = {item.observation_id for item in run.observations if item.status == "FAIL"}
-    degraded = {item.observation_id for item in run.observations if _is_degraded(item)}
+    degraded = _verified_degraded_observation_ids(run, comparison, comparison_health)
     diagnosable = failed | degraded
     missing_evidence = {
         item.observation_id
@@ -312,7 +341,7 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
     return RunDiagnosis(
         run_id=run.run_id,
         product_id=run.product.id,
-        health=_health(run.observations),
+        health=_health(run.observations, degraded),
         pass_count=counts["PASS"],
         fail_count=counts["FAIL"],
         blocked_count=counts["BLOCKED"],
@@ -331,6 +360,7 @@ def _coverage_health(
     *,
     axis: str,
     force_blocked: bool = False,
+    degraded_observation_ids: set[str] | None = None,
 ) -> list[CoverageHealth]:
     grouped: dict[str, list[Observation]] = defaultdict(list)
     for item in run.observations:
@@ -342,7 +372,9 @@ def _coverage_health(
         result.append(
             CoverageHealth(
                 name=name,
-                health=("BLOCKED" if force_blocked else _health(observations)),
+                health=(
+                    "BLOCKED" if force_blocked else _health(observations, degraded_observation_ids)
+                ),
                 pass_count=counts["PASS"],
                 fail_count=counts["FAIL"],
                 blocked_count=counts["BLOCKED"],
@@ -444,8 +476,21 @@ def build_overview(
     diagnoses: dict[tuple[str, str, str], RunDiagnosis] = {}
     trend_by_product: dict[tuple[str, str], list[TrendPoint]] = defaultdict(list)
     for run in ordered:
-        diagnosis = diagnose_run(run)
         run_identity = (run.product.id, run.product.environment, run.run_id)
+        comparison_identity = (
+            run.product.id,
+            run.product.environment,
+            run.comparison.run_id,
+        )
+        comparison = runs_by_identity.get(comparison_identity)
+        comparison_diagnosis = diagnoses.get(comparison_identity)
+        diagnosis = diagnose_run(
+            run,
+            comparison=comparison,
+            comparison_health=(
+                comparison_diagnosis.health if comparison_diagnosis is not None else None
+            ),
+        )
         diagnoses[run_identity] = diagnosis
         latest[(run.product.id, run.product.environment)] = run
         evaluated = diagnosis.pass_count + diagnosis.fail_count
@@ -453,6 +498,7 @@ def build_overview(
             TrendPoint(
                 product_id=run.product.id,
                 environment=run.product.environment,
+                run_id=run.run_id,
                 observed_at=run.observed_at,
                 health=diagnosis.health,
                 pass_rate=(diagnosis.pass_count / evaluated) if evaluated else 0.0,
@@ -472,6 +518,12 @@ def build_overview(
     for (product_id, environment), run in sorted(latest.items()):
         run_identity = (product_id, environment, run.run_id)
         diagnosis = diagnoses[run_identity]
+        by_id = {item.observation_id: item for item in run.observations}
+        degraded_observation_ids = {
+            item.observation_id
+            for item in diagnosis.diagnoses
+            if by_id[item.observation_id].status == "PASS"
+        }
         is_stale = (
             reference_time - run.observed_at
         ).total_seconds() > run.product.freshness_sla_seconds
@@ -489,13 +541,22 @@ def build_overview(
                 pass_count=diagnosis.pass_count,
                 fail_count=diagnosis.fail_count,
                 blocked_count=diagnosis.blocked_count,
-                layers=_coverage_health(run, axis="layer", force_blocked=is_stale),
-                concerns=_coverage_health(run, axis="concern", force_blocked=is_stale),
+                layers=_coverage_health(
+                    run,
+                    axis="layer",
+                    force_blocked=is_stale,
+                    degraded_observation_ids=degraded_observation_ids,
+                ),
+                concerns=_coverage_health(
+                    run,
+                    axis="concern",
+                    force_blocked=is_stale,
+                    degraded_observation_ids=degraded_observation_ids,
+                ),
             )
         )
         if is_stale:
             continue
-        by_id = {item.observation_id: item for item in run.observations}
         comparison_identity = (product_id, environment, run.comparison.run_id)
         comparison = runs_by_identity.get(comparison_identity)
         comparison_health = (
