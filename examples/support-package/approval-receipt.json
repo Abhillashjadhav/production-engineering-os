@@ -1,7 +1,0 @@
-{
-  "approved_by": "fixture-human",
-  "approved_contract_digest": "sha256:ccd5a4a45ddd7db13d6ffcc707bf57ba2f5bfac0e5ff539e9287eeff4bae07c6",
-  "decision": "APPROVED",
-  "receipt_digest": "sha256:95faeea89560e7d1d4b99a84587bc1ddf9b4a1a859e9f86a2b730e63c48008aa",
-  "schema_version": "1.0.0"
-}

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import parse_qsl, urlsplit
 
 PROHIBITED_SECRET_PATTERNS = (
     re.compile(rb"\bgh[pousr]_[A-Za-z0-9_]{20,}\b"),
@@ -32,7 +33,8 @@ _CREDENTIAL_MATERIAL_PATTERNS = PROHIBITED_SECRET_PATTERNS + (
     re.compile(rb"(?i)\b[a-z][a-z0-9+.-]*://[^/@\s]+@"),
     re.compile(
         rb"(?i)[\"']?\b(?:accountkey|sharedaccesskey|sharedaccesssignature|pwd|password"
-        rb"|passwd|cookie|set-cookie|aws_access_key_id|aws_secret_access_key"
+        rb"|passwd|authorization|proxy-authorization|cookie|set-cookie"
+        rb"|aws_access_key_id|aws_secret_access_key"
         rb"|aws_session_token|client_secret|private_key|api[-_]?key|access[-_]?token"
         rb"|refresh[-_]?token|token|secret|signature|sig|credential)[\"']?"
         rb"\s*[=:]\s*(?:\"[^\"]+\"|'[^']+'|[^\s,;]+)"
@@ -46,6 +48,12 @@ _CREDENTIAL_MATERIAL_PATTERNS = PROHIBITED_SECRET_PATTERNS + (
     ),
 )
 
+_EMBEDDED_URL = re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://[^\s<>\"']+")
+_SENSITIVE_QUERY_KEY = re.compile(
+    r"(?i)(?:^|[-_])(?:access[-_]?token|refresh[-_]?token|api[-_]?key|token|key"
+    r"|secret|password|passwd|signature|sig|credential|code)(?:$|[-_])"
+)
+
 
 def contains_prohibited_secret(payload: bytes) -> bool:
     """Return whether bytes match the canonical prohibited-secret patterns."""
@@ -55,4 +63,18 @@ def contains_prohibited_secret(payload: bytes) -> bool:
 def contains_credential_material(payload: bytes) -> bool:
     """Return whether one scalar contains any credential format the platform redacts."""
 
-    return any(pattern.search(payload) for pattern in _CREDENTIAL_MATERIAL_PATTERNS)
+    if any(pattern.search(payload) for pattern in _CREDENTIAL_MATERIAL_PATTERNS):
+        return True
+    text = payload.decode("utf-8", errors="replace")
+    for match in _EMBEDDED_URL.finditer(text):
+        try:
+            parts = urlsplit(match.group(0))
+            if any(
+                _SENSITIVE_QUERY_KEY.search(key)
+                for component in (parts.query, parts.fragment)
+                for key, _ in parse_qsl(component, keep_blank_values=True)
+            ):
+                return True
+        except (UnicodeError, ValueError):
+            return True
+    return False
