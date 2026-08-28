@@ -3,12 +3,14 @@ name: Trusted Security
 on:
   pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review, edited]
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
 
 concurrency:
-  group: trusted-security-${{ github.event.pull_request.number }}-${{ github.event.pull_request.head.sha }}
+  group: trusted-security-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.merge_group.head_ref }}-${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
   cancel-in-progress: true
 
 jobs:
@@ -16,19 +18,24 @@ jobs:
     name: security
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      TRUSTED_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+      CANDIDATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+      SUBJECT_NUMBER: ${{ github.event.pull_request.number || 0 }}
     steps:
       - name: Check out exact protected base
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ github.event.pull_request.base.sha }}
+          ref: ${{ env.TRUSTED_BASE_SHA }}
           path: trusted
           persist-credentials: false
           fetch-depth: 1
       - name: Check out exact candidate as untrusted input
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.sha }}
+          repository: ${{ env.CANDIDATE_REPOSITORY }}
+          ref: ${{ env.CANDIDATE_SHA }}
           path: candidate
           persist-credentials: false
           fetch-depth: 0
@@ -44,9 +51,9 @@ jobs:
             --trusted-root trusted \
             --candidate-root candidate \
             --manifest trusted/security/trusted-security-bootstrap.json \
-            --base-sha "${{ github.event.pull_request.base.sha }}" \
-            --candidate-sha "${{ github.event.pull_request.head.sha }}" \
-            --pr-number "${{ github.event.pull_request.number }}" \
+            --base-sha "$TRUSTED_BASE_SHA" \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --pr-number "$SUBJECT_NUMBER" \
             --output "$RUNNER_TEMP/trusted-security/admission.json" \
             --github-output "$GITHUB_OUTPUT"
       - name: Install authenticated locked verifier toolchain
@@ -66,7 +73,7 @@ jobs:
           python -I trusted/scripts/ci/run_trusted_security_entrypoint.py \
             --admission-report "$RUNNER_TEMP/trusted-security/admission.json" \
             --entrypoint scripts/ci/verify_repository_secrets.py -- \
-            --candidate-sha "${{ github.event.pull_request.head.sha }}" \
+            --candidate-sha "$CANDIDATE_SHA" \
             --root candidate \
             --allowlist trusted/security/secret-allowlist.json \
             --output "$RUNNER_TEMP/trusted-security/secret-report.json"
@@ -75,7 +82,7 @@ jobs:
           python -I trusted/scripts/ci/run_trusted_security_entrypoint.py \
             --admission-report "$RUNNER_TEMP/trusted-security/admission.json" \
             --entrypoint scripts/ci/verify_privacy_controls.py -- \
-            --candidate-sha "${{ github.event.pull_request.head.sha }}" \
+            --candidate-sha "$CANDIDATE_SHA" \
             --root candidate \
             --policy trusted/security/security-profile-policy.json \
             --output "$RUNNER_TEMP/trusted-security/privacy-evidence.json"
@@ -85,7 +92,7 @@ jobs:
           python -I ../trusted/scripts/ci/run_trusted_security_entrypoint.py \
             --admission-report "$RUNNER_TEMP/trusted-security/admission.json" \
             --entrypoint scripts/ci/evaluate_security_profile.py -- \
-            --candidate-sha "${{ github.event.pull_request.head.sha }}" \
+            --candidate-sha "$CANDIDATE_SHA" \
             --audit-evidence "$RUNNER_TEMP/trusted-security/pip-audit.json" \
             --privacy-evidence "$RUNNER_TEMP/trusted-security/privacy-evidence.json" \
             --policy ../trusted/security/security-profile-policy.json \
@@ -95,7 +102,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: trusted-security-${{ github.event.pull_request.head.sha }}
+          name: trusted-security-${{ env.CANDIDATE_SHA }}
           path: ${{ runner.temp }}/trusted-security
           retention-days: 7
           if-no-files-found: error
