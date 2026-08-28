@@ -9,7 +9,11 @@ from pathlib import Path
 from typing import Any
 
 from pmpe.domain.serialize import jsonable
-from pmpe.privacy.retention import RetentionController, validate_retention_run_directory
+from pmpe.privacy.retention import (
+    purge_retained_runs,
+    validate_retention_days,
+    validate_retention_run_directory,
+)
 
 
 def utc_now() -> str:
@@ -32,10 +36,11 @@ class EventLog:
     ) -> None:
         run_dir = validate_retention_run_directory(run_dir)
         if retention_days is not None:
+            validate_retention_days(retention_days)
             run_dir.parent.mkdir(parents=True, exist_ok=True)
-            RetentionController(retention_days=retention_days).purge(
+            purge_retained_runs(
                 run_dir.parent,
-                now=trusted_clock(),
+                trusted_clock=trusted_clock,
                 exclude_run_dir=run_dir,
             )
         self.path = run_dir / "events.jsonl"

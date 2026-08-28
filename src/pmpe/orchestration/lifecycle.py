@@ -25,7 +25,12 @@ from types import MappingProxyType
 from typing import Any, NoReturn
 
 from pmpe.domain.serialize import atomic_write_json
-from pmpe.privacy.retention import RetentionController, validate_retention_run_directory
+from pmpe.privacy.retention import (
+    DEFAULT_RETENTION_DAYS,
+    purge_retained_runs,
+    validate_retention_days,
+    validate_retention_run_directory,
+)
 
 EvidenceVerifier = Callable[[str, str, Mapping[str, Any], str], bool]
 BundleVerifier = Callable[[str, Mapping[str, str]], bool]
@@ -3290,10 +3295,11 @@ class LifecycleControlPlane:
                 "use the explicit migration admission path"
             )
         path = validate_retention_run_directory(run_dir)
+        retention_days = validate_retention_days(retention_days)
         path.parent.mkdir(parents=True, exist_ok=True)
-        RetentionController(retention_days=retention_days).purge(
+        purge_retained_runs(
             path.parent,
-            now=trusted_clock(),
+            trusted_clock=trusted_clock,
             exclude_run_dir=path,
         )
         path.mkdir(parents=True, exist_ok=True)
@@ -3326,7 +3332,13 @@ class LifecycleControlPlane:
             metadata_path = path / cls._META_NAME
             if metadata_path.exists():
                 persisted_metadata = json.loads(metadata_path.read_text())
-                if persisted_metadata != metadata:
+                legacy_metadata = dict(metadata)
+                legacy_metadata.pop("retention_days")
+                authenticated_legacy_retry = (
+                    retention_days == DEFAULT_RETENTION_DAYS
+                    and persisted_metadata == legacy_metadata
+                )
+                if persisted_metadata != metadata and not authenticated_legacy_retry:
                     raise ValueError("lifecycle run already exists with different metadata")
                 if ledger.exists():
                     return cls.load(
@@ -5461,6 +5473,10 @@ class LifecycleControlPlane:
             self._consumed_mutation_result_keys.add(consumed_key)
         if kind == "COMPLETION_CLAIMED":
             self._completion_claim_active = True
+            purge_retained_runs(
+                self.run_dir.parent,
+                exclude_run_dir=self.run_dir,
+            )
         elif kind == "COMPLETION_REVOKED":
             self._completion_claim_active = False
         return event

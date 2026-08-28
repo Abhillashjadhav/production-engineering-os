@@ -371,6 +371,64 @@ def _dynamic_import_call(
     )
 
 
+def _importlib_module_reference(node: ast.AST, importlib_aliases: set[str]) -> bool:
+    return isinstance(node, ast.Name) and node.id in importlib_aliases
+
+
+def _import_loader_reference(
+    node: ast.AST,
+    *,
+    importlib_aliases: set[str],
+    import_module_aliases: set[str],
+) -> bool:
+    return bool(
+        isinstance(node, ast.Name)
+        and node.id in import_module_aliases
+        or isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id in importlib_aliases
+        and node.attr == "import_module"
+        or isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) >= 2
+        and isinstance(node.args[0], ast.Name)
+        and node.args[0].id in importlib_aliases
+        and isinstance(node.args[1], ast.Constant)
+        and node.args[1].value == "import_module"
+    )
+
+
+def _stores_import_capability(
+    node: ast.AST,
+    *,
+    importlib_aliases: set[str],
+    import_module_aliases: set[str],
+) -> bool:
+    """Detect loader/module capabilities escaping the supported simple alias model."""
+
+    if _importlib_module_reference(node, importlib_aliases) or _import_loader_reference(
+        node,
+        importlib_aliases=importlib_aliases,
+        import_module_aliases=import_module_aliases,
+    ):
+        return True
+    if isinstance(node, ast.Call) and _dynamic_import_call(
+        node,
+        importlib_aliases=importlib_aliases,
+        import_module_aliases=import_module_aliases,
+    ):
+        return False
+    return any(
+        _stores_import_capability(
+            child,
+            importlib_aliases=importlib_aliases,
+            import_module_aliases=import_module_aliases,
+        )
+        for child in ast.iter_child_nodes(node)
+    )
+
+
 def _collect_architecture_edges(
     root: Path,
     path: Path,
@@ -411,34 +469,36 @@ def _collect_architecture_edges(
             if not isinstance(node, (ast.Assign, ast.AnnAssign)):
                 continue
             value = node.value
+            if value is None:
+                continue
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-            if isinstance(value, ast.Name) and value.id in importlib_aliases:
+            is_importlib_module = _importlib_module_reference(value, importlib_aliases)
+            if is_importlib_module:
                 for target in targets:
                     if isinstance(target, ast.Name) and target.id not in importlib_aliases:
                         importlib_aliases.add(target.id)
                         changed = True
-            is_loader = bool(
-                isinstance(value, ast.Name)
-                and value.id in import_module_aliases
-                or isinstance(value, ast.Attribute)
-                and isinstance(value.value, ast.Name)
-                and value.value.id in importlib_aliases
-                and value.attr == "import_module"
-                or isinstance(value, ast.Call)
-                and isinstance(value.func, ast.Name)
-                and value.func.id == "getattr"
-                and len(value.args) >= 2
-                and isinstance(value.args[0], ast.Name)
-                and value.args[0].id in importlib_aliases
-                and isinstance(value.args[1], ast.Constant)
-                and value.args[1].value == "import_module"
+                    elif not isinstance(target, ast.Name):
+                        edges.add((source_layer, "unresolved_dynamic"))
+            is_loader = _import_loader_reference(
+                value,
+                importlib_aliases=importlib_aliases,
+                import_module_aliases=import_module_aliases,
             )
-            if not is_loader:
+            if is_loader:
+                for target in targets:
+                    if isinstance(target, ast.Name) and target.id not in import_module_aliases:
+                        import_module_aliases.add(target.id)
+                        changed = True
+                    elif not isinstance(target, ast.Name):
+                        edges.add((source_layer, "unresolved_dynamic"))
                 continue
-            for target in targets:
-                if isinstance(target, ast.Name) and target.id not in import_module_aliases:
-                    import_module_aliases.add(target.id)
-                    changed = True
+            if not is_importlib_module and _stores_import_capability(
+                value,
+                importlib_aliases=importlib_aliases,
+                import_module_aliases=import_module_aliases,
+            ):
+                edges.add((source_layer, "unresolved_dynamic"))
     for node in ast.walk(tree):
         modules: list[str] = []
         if isinstance(node, ast.Import):

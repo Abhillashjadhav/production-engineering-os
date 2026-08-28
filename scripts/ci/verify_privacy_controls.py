@@ -135,94 +135,191 @@ def _is_supported_alias_assignment(parent: ast.AST | None, node: ast.expr) -> bo
     )
 
 
+_LEXICAL_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+
+
+def _scope_nodes(scope: ast.AST) -> tuple[ast.AST, ...]:
+    """Return nodes owned by one lexical scope, excluding nested scope bodies."""
+
+    owned: list[ast.AST] = []
+    pending = list(ast.iter_child_nodes(scope))
+    while pending:
+        node = pending.pop()
+        if isinstance(node, _LEXICAL_SCOPES):
+            continue
+        owned.append(node)
+        pending.extend(ast.iter_child_nodes(node))
+    return tuple(owned)
+
+
+def _nested_scopes(scope: ast.AST) -> tuple[ast.AST, ...]:
+    nested: list[ast.AST] = []
+    pending = list(ast.iter_child_nodes(scope))
+    while pending:
+        node = pending.pop()
+        if isinstance(node, _LEXICAL_SCOPES):
+            nested.append(node)
+            continue
+        pending.extend(ast.iter_child_nodes(node))
+    return tuple(nested)
+
+
+def _target_names(target: ast.AST) -> set[str]:
+    if isinstance(target, ast.Name):
+        return {target.id}
+    if isinstance(target, (ast.Tuple, ast.List)):
+        return set().union(*(_target_names(item) for item in target.elts), set())
+    return set()
+
+
+def _local_names(scope: ast.AST, nodes: tuple[ast.AST, ...]) -> set[str]:
+    names: set[str] = set()
+    if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+        arguments = scope.args
+        names.update(
+            argument.arg
+            for argument in (*arguments.posonlyargs, *arguments.args, *arguments.kwonlyargs)
+        )
+        if arguments.vararg is not None:
+            names.add(arguments.vararg.arg)
+        if arguments.kwarg is not None:
+            names.add(arguments.kwarg.arg)
+    for node in nodes:
+        if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            for target in _assignment_targets(node):
+                names.update(_target_names(target))
+        elif isinstance(node, (ast.NamedExpr, ast.For, ast.AsyncFor)):
+            names.update(_target_names(node.target))
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            for item in node.items:
+                if item.optional_vars is not None:
+                    names.update(_target_names(item.optional_vars))
+        elif isinstance(node, ast.ExceptHandler) and node.name:
+            names.add(node.name)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            names.update(alias.asname or alias.name.split(".", 1)[0] for alias in node.names)
+    names.update(
+        nested.name
+        for nested in _nested_scopes(scope)
+        if isinstance(nested, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+    )
+    global_names = {
+        name
+        for node in nodes
+        if isinstance(node, (ast.Global, ast.Nonlocal))
+        for name in node.names
+    }
+    return names - global_names
+
+
 def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
     fields: set[str] = set()
     for path in sorted((root / "src" / "pmpe").rglob("*.py")):
         tree = ast.parse(path.read_text(), filename=str(path))
-        for node in ast.walk(tree):
-            if not (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id == "getattr"
-                and len(node.args) >= 2
-            ):
-                continue
-            attribute = node.args[1]
-            owner = _emitter_identity(node.args[0])
-            if (
-                isinstance(attribute, ast.Constant)
-                and attribute.value == "emit"
-                or owner is not None
-                and owner.endswith(".events")
-                and not (isinstance(attribute, ast.Constant) and isinstance(attribute.value, str))
-            ):
-                raise ValueError(f"telemetry emitter uses reflective access: {path}:{node.lineno}")
-        aliases: set[str] = set()
-        changed = True
-        while changed:
-            changed = False
-            for node in ast.walk(tree):
-                if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+
+        def analyze_scope(
+            scope: ast.AST,
+            inherited_aliases: set[str],
+            source_path: Path = path,
+        ) -> None:
+            nodes = _scope_nodes(scope)
+            locals_ = _local_names(scope, nodes)
+            aliases = {
+                alias for alias in inherited_aliases if alias.split(".", 1)[0] not in locals_
+            }
+            for node in nodes:
+                if not (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == "getattr"
+                    and len(node.args) >= 2
+                ):
                     continue
-                value = node.value
-                if value is None:
-                    continue
-                is_emitter = bool(
-                    isinstance(value, ast.Attribute)
-                    and value.attr == "emit"
-                    or _emitter_identity(value) in aliases
-                )
-                if not is_emitter:
-                    continue
-                for target in _assignment_targets(node):
-                    identity = _emitter_identity(target)
-                    if identity is None:
-                        raise ValueError(
-                            "telemetry emitter escapes supported name/attribute alias: "
-                            f"{path}:{node.lineno}"
-                        )
-                    if identity not in aliases:
-                        aliases.add(identity)
-                        changed = True
-        parents = {
-            child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)
-        }
-        for node in ast.walk(tree):
-            if not isinstance(node, (ast.Name, ast.Attribute)) or not isinstance(
-                node.ctx, ast.Load
-            ):
-                continue
-            identity = _emitter_identity(node)
-            is_emitter_reference = bool(
-                isinstance(node, ast.Attribute) and node.attr == "emit" or identity in aliases
-            )
-            if not is_emitter_reference:
-                continue
-            parent = parents.get(node)
-            called_directly = isinstance(parent, ast.Call) and parent.func is node
-            if called_directly:
-                continue
-            if _is_supported_alias_assignment(parent, node):
-                continue
-            raise ValueError(
-                f"telemetry emitter escapes supported alias binding: {path}:{node.lineno}"
-            )
-        for node in ast.walk(tree):
-            if not (
-                isinstance(node, ast.Call)
-                and (
-                    isinstance(node.func, ast.Attribute)
-                    and node.func.attr == "emit"
-                    or _emitter_identity(node.func) in aliases
-                )
-            ):
-                continue
-            for keyword in node.keywords:
-                if keyword.arg is None:
-                    raise ValueError(
-                        f"telemetry emission uses unresolved field expansion: {path}:{node.lineno}"
+                attribute = node.args[1]
+                owner = _emitter_identity(node.args[0])
+                if (
+                    isinstance(attribute, ast.Constant)
+                    and attribute.value == "emit"
+                    or owner is not None
+                    and owner.endswith(".events")
+                    and not (
+                        isinstance(attribute, ast.Constant) and isinstance(attribute.value, str)
                     )
-                fields.add(keyword.arg)
+                    ):
+                    raise ValueError(
+                        f"telemetry emitter uses reflective access: {source_path}:{node.lineno}"
+                    )
+            changed = True
+            while changed:
+                changed = False
+                for node in nodes:
+                    if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                        continue
+                    value = node.value
+                    if value is None:
+                        continue
+                    is_emitter = bool(
+                        isinstance(value, ast.Attribute)
+                        and value.attr == "emit"
+                        or _emitter_identity(value) in aliases
+                    )
+                    if not is_emitter:
+                        continue
+                    for target in _assignment_targets(node):
+                        identity = _emitter_identity(target)
+                        if identity is None:
+                            raise ValueError(
+                                "telemetry emitter escapes supported name/attribute alias: "
+                                f"{source_path}:{node.lineno}"
+                            )
+                        if identity not in aliases:
+                            aliases.add(identity)
+                            changed = True
+            parents = {
+                child: parent for parent in nodes for child in ast.iter_child_nodes(parent)
+            }
+            for node in nodes:
+                if not isinstance(node, (ast.Name, ast.Attribute)) or not isinstance(
+                    node.ctx, ast.Load
+                ):
+                    continue
+                identity = _emitter_identity(node)
+                is_emitter_reference = bool(
+                    isinstance(node, ast.Attribute) and node.attr == "emit" or identity in aliases
+                )
+                if not is_emitter_reference:
+                    continue
+                parent = parents.get(node)
+                called_directly = isinstance(parent, ast.Call) and parent.func is node
+                if called_directly:
+                    continue
+                if _is_supported_alias_assignment(parent, node):
+                    continue
+                raise ValueError(
+                    "telemetry emitter escapes supported alias binding: "
+                    f"{source_path}:{node.lineno}"
+                )
+            for node in nodes:
+                if not (
+                    isinstance(node, ast.Call)
+                    and (
+                        isinstance(node.func, ast.Attribute)
+                        and node.func.attr == "emit"
+                        or _emitter_identity(node.func) in aliases
+                    )
+                ):
+                    continue
+                for keyword in node.keywords:
+                    if keyword.arg is None:
+                        raise ValueError(
+                            "telemetry emission uses unresolved field expansion: "
+                            f"{source_path}:{node.lineno}"
+                        )
+                    fields.add(keyword.arg)
+            for nested in _nested_scopes(scope):
+                analyze_scope(nested, aliases)
+
+        analyze_scope(tree, set())
     if not fields:
         raise ValueError("no product telemetry emissions were observed")
     return tuple(sorted(fields))

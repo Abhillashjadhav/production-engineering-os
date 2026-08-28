@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import uuid
+from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -14,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 _TOMBSTONE_PREFIX = ".retention-delete-"
+DEFAULT_RETENTION_DAYS = 30
 
 
 def validate_retention_run_directory(run_dir: Path) -> Path:
@@ -31,11 +33,34 @@ class RetentionResult:
     retained: tuple[str, ...]
 
 
+def validate_retention_days(retention_days: int) -> int:
+    """Validate one immutable, run-bound retention policy."""
+
+    if isinstance(retention_days, bool) or not isinstance(retention_days, int):
+        raise ValueError("retention days must be an integer")
+    if retention_days < 0:
+        raise ValueError("retention days cannot be negative")
+    return retention_days
+
+
+def purge_retained_runs(
+    root: Path,
+    *,
+    trusted_clock: Callable[[], datetime] | None = None,
+    exclude_run_dir: Path | None = None,
+) -> RetentionResult:
+    """Run one scheduler-safe retention sweep without creating another run."""
+
+    clock = trusted_clock or (lambda: datetime.now(UTC))
+    return RetentionController().purge(
+        root,
+        now=clock(),
+        exclude_run_dir=exclude_run_dir,
+    )
+
+
 class RetentionController:
-    def __init__(self, *, retention_days: int) -> None:
-        if retention_days < 0:
-            raise ValueError("retention days cannot be negative")
-        self.retention_days = retention_days
+    """Delete terminal runs according to each run's own persisted policy."""
 
     def purge(
         self,
@@ -54,12 +79,15 @@ class RetentionController:
             excluded = Path(exclude_run_dir).resolve()
             if excluded.parent != root:
                 raise ValueError("excluded retention run must be a direct child of the root")
-        cutoff = now.astimezone(UTC) - timedelta(days=self.retention_days)
         root_lock_path = root / ".retention.lock"
         with root_lock_path.open("a+") as root_lock:
             fcntl.flock(root_lock.fileno(), fcntl.LOCK_EX)
             try:
-                return self._purge_locked(root, cutoff=cutoff, excluded=excluded)
+                return self._purge_locked(
+                    root,
+                    now=now.astimezone(UTC),
+                    excluded=excluded,
+                )
             finally:
                 fcntl.flock(root_lock.fileno(), fcntl.LOCK_UN)
 
@@ -67,7 +95,7 @@ class RetentionController:
         self,
         root: Path,
         *,
-        cutoff: datetime,
+        now: datetime,
         excluded: Path | None,
     ) -> RetentionResult:
         deleted: list[str] = []
@@ -86,7 +114,7 @@ class RetentionController:
             if marker is None:
                 retained.append(run_dir.name)
                 continue
-            marker_path, lock_path, terminal_key, terminal_value = marker
+            marker_path, policy_path, lock_path, terminal_key, terminal_value = marker
             lock_path.parent.mkdir(parents=True, exist_ok=True)
             tombstone: Path | None = None
             with lock_path.open("a+") as lock:
@@ -97,11 +125,16 @@ class RetentionController:
                     continue
                 try:
                     record = self._read_record(marker_path)
+                    retention_days = self._bound_retention_days(policy_path)
                     modified = datetime.fromtimestamp(
                         marker_path.stat(follow_symlinks=False).st_mtime,
                         UTC,
                     )
-                    if record.get(terminal_key) != terminal_value or modified > cutoff:
+                    if (
+                        retention_days is None
+                        or record.get(terminal_key) != terminal_value
+                        or modified > now - timedelta(days=retention_days)
+                    ):
                         retained.append(run_dir.name)
                         continue
                     tombstone = root / (f"{_TOMBSTONE_PREFIX}{run_dir.name}-{uuid.uuid4().hex}")
@@ -115,14 +148,30 @@ class RetentionController:
         return RetentionResult(deleted=tuple(deleted), retained=tuple(retained))
 
     @staticmethod
-    def _completion_marker(run_dir: Path) -> tuple[Path, Path, str, str] | None:
+    def _completion_marker(run_dir: Path) -> tuple[Path, Path, Path, str, str] | None:
         lifecycle = run_dir / "lifecycle-events.jsonl"
         if lifecycle.is_file():
-            return lifecycle, run_dir / "lifecycle.lock", "target", "COMPLETED"
+            return (
+                lifecycle,
+                run_dir / "lifecycle-metadata.json",
+                run_dir / "lifecycle.lock",
+                "target",
+                "COMPLETED",
+            )
         engineering = run_dir / "run-state.json"
         if engineering.is_file():
-            return engineering, run_dir / "ledger.lock", "stage", "complete"
+            return engineering, engineering, run_dir / "ledger.lock", "stage", "complete"
         return None
+
+    @classmethod
+    def _bound_retention_days(cls, policy_path: Path) -> int | None:
+        policy = cls._read_record(policy_path)
+        value = policy.get("retention_days", DEFAULT_RETENTION_DAYS)
+        try:
+            return validate_retention_days(value)
+        except ValueError:
+            # Malformed/tampered policy must never authorize deletion.
+            return None
 
     @staticmethod
     def _read_record(path: Path) -> dict[str, Any]:

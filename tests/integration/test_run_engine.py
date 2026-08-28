@@ -611,7 +611,9 @@ def test_verifier_must_be_a_reviewer_and_not_the_fixer(run: EngineeringRun, repo
 
 
 def test_deploy_ladder_blocks_production_until_named_approval(
-    run: EngineeringRun, repo: Path
+    run: EngineeringRun,
+    repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     drive_to_deploy(run, repo)
     assert run.stage == "deploy"
@@ -627,12 +629,26 @@ def test_deploy_ladder_blocks_production_until_named_approval(
     outcome = run.deploy("production", repo=repo, health_verified=True, journey_verified=True)
     assert "FIXTURE MODE" in outcome.report_line
     assert "no real environment" in outcome.report_line
+    import pmpe.engineering.engine as engine_module
+
+    sweeps: list[tuple[Path, Path | None]] = []
+
+    def record_sweep(
+        root: Path,
+        *,
+        trusted_clock: object,
+        exclude_run_dir: Path | None = None,
+    ) -> None:
+        sweeps.append((root, exclude_run_dir))
+
+    monkeypatch.setattr(engine_module, "purge_retained_runs", record_sweep)
 
     run.record_release_report(
         "READY_FOR_PRODUCTION_APPROVAL",
         gate_results={"GATE-001": True, "GATE-002": True},
     )
     assert run.stage == "complete"
+    assert sweeps == [(run.run_dir.parent, run.run_dir)]
 
 
 def test_every_deployment_path_verifies_candidate_integrity(

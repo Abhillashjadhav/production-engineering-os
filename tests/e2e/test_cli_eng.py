@@ -154,3 +154,24 @@ def test_production_mutation_is_retired_via_cli(
     captured = capsys.readouterr()
     assert rc == 3
     assert "retired" in (captured.err + captured.out)
+
+
+def test_retention_purge_runs_without_creating_a_new_run(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    import os
+    from datetime import UTC, datetime, timedelta
+
+    expired = tmp_path / "expired"
+    expired.mkdir()
+    state = expired / "run-state.json"
+    state.write_text('{"stage":"complete","retention_days":30}\n')
+    old = (datetime.now(UTC) - timedelta(days=31)).timestamp()
+    os.utime(state, (old, old))
+
+    assert main(["retention", "purge", "--runs-root", str(tmp_path)]) == 0
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["deleted"] == ["expired"]
+    assert not expired.exists()

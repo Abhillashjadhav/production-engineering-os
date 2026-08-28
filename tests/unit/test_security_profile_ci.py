@@ -11,7 +11,7 @@ import pytest
 import pmpe.privacy.retention as retention_module
 from pmpe.contracts.digest import canonical_digest
 from pmpe.orchestration.lifecycle import BudgetPolicy, LifecycleControlPlane, LifecycleState
-from pmpe.privacy.retention import RetentionController
+from pmpe.privacy.retention import RetentionController, purge_retained_runs
 from pmpe.telemetry.events import EventLog
 from scripts.ci.evaluate_security_profile import (
     _file_digest,
@@ -103,6 +103,25 @@ def test_architecture_observer_resolves_dynamic_import_function_aliases(
     (source / "dynamic_alias.py").write_text(source_text)
 
     assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    [
+        "import importlib\nloaders = [importlib.import_module]\nloaders[0](module_name)\n",
+        "from importlib import import_module\nloaders = {'load': import_module}\n",
+        "import importlib\nholder.loader = importlib.import_module\n",
+    ],
+)
+def test_architecture_observer_fails_closed_when_loader_escapes_simple_aliases(
+    tmp_path: Path,
+    source_text: str,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "escaped_loader.py").write_text(source_text)
+
+    assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
 
 
 def test_architecture_observer_resolves_relative_dynamic_imports(tmp_path: Path) -> None:
@@ -201,7 +220,7 @@ def test_retention_controller_atomically_deletes_only_expired_completed_runs(
     os.utime(active_ledger, (old, old))
     os.utime(active_artifact, (old, old))
 
-    result = RetentionController(retention_days=30).purge(tmp_path, now=now)
+    result = RetentionController().purge(tmp_path, now=now)
 
     assert result.deleted == ("completed-run",)
     assert result.retained == ("active-run",)
@@ -221,7 +240,7 @@ def test_retention_controller_preserves_a_locked_completed_run(tmp_path: Path) -
 
     with (completed / "lifecycle.lock").open("a+") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        result = RetentionController(retention_days=30).purge(tmp_path, now=now)
+        result = RetentionController().purge(tmp_path, now=now)
 
     assert result.deleted == ()
     assert result.retained == ("completed-run",)
@@ -240,10 +259,49 @@ def test_retention_controller_deletes_expired_completed_engineering_runs(
     old = (now - timedelta(days=31)).timestamp()
     os.utime(state, (old, old))
 
-    result = RetentionController(retention_days=30).purge(tmp_path, now=now)
+    result = RetentionController().purge(tmp_path, now=now)
 
     assert result.deleted == ("completed-engineering-run",)
     assert not completed.exists()
+
+
+def test_retention_controller_uses_each_runs_immutable_policy(tmp_path: Path) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    short = tmp_path / "short-policy"
+    long = tmp_path / "long-policy"
+    for run_dir, retention_days in ((short, 30), (long, 365)):
+        run_dir.mkdir()
+        ledger = run_dir / "lifecycle-events.jsonl"
+        ledger.write_text('{"target":"COMPLETED"}\n')
+        (run_dir / "lifecycle-metadata.json").write_text(
+            json.dumps({"retention_days": retention_days})
+        )
+        old = (now - timedelta(days=31)).timestamp()
+        os.utime(ledger, (old, old))
+
+    result = purge_retained_runs(tmp_path, trusted_clock=lambda: now)
+
+    assert result.deleted == ("short-policy",)
+    assert result.retained == ("long-policy",)
+    assert not short.exists()
+    assert long.exists()
+
+
+def test_retention_controller_fails_closed_on_malformed_bound_policy(tmp_path: Path) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    run_dir = tmp_path / "tampered-policy"
+    run_dir.mkdir()
+    ledger = run_dir / "lifecycle-events.jsonl"
+    ledger.write_text('{"target":"COMPLETED"}\n')
+    (run_dir / "lifecycle-metadata.json").write_text('{"retention_days":false}\n')
+    old = (now - timedelta(days=500)).timestamp()
+    os.utime(ledger, (old, old))
+
+    result = purge_retained_runs(tmp_path, trusted_clock=lambda: now)
+
+    assert result.deleted == ()
+    assert result.retained == ("tampered-policy",)
+    assert run_dir.exists()
 
 
 def test_retention_controller_never_deletes_the_requested_active_run(
@@ -257,7 +315,7 @@ def test_retention_controller_never_deletes_the_requested_active_run(
     old = (now - timedelta(days=31)).timestamp()
     os.utime(state, (old, old))
 
-    result = RetentionController(retention_days=30).purge(
+    result = RetentionController().purge(
         tmp_path,
         now=now,
         exclude_run_dir=requested,
@@ -282,7 +340,7 @@ def test_retention_controller_tolerates_a_concurrently_removed_tombstone(
 
     monkeypatch.setattr(retention_module.shutil, "rmtree", raced_rmtree)
 
-    result = RetentionController(retention_days=30).purge(
+    result = RetentionController().purge(
         tmp_path,
         now=datetime(2030, 1, 31, tzinfo=UTC),
     )
@@ -408,6 +466,20 @@ def test_privacy_verifier_tracks_attribute_aliased_event_emitters(tmp_path: Path
     )
 
     assert _inventory_telemetry_fields(tmp_path) == ("email",)
+
+
+def test_privacy_verifier_scopes_emitter_aliases_to_lexical_bindings(tmp_path: Path) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "context.py").write_text(
+        "def telemetry(ctx):\n"
+        "    emit = ctx.events.emit\n"
+        '    emit("result", run_id="run-1")\n\n'
+        "def unrelated(emit):\n"
+        '    emit("mail", email="not-telemetry")\n'
+    )
+
+    assert _inventory_telemetry_fields(tmp_path) == ("run_id",)
 
 
 def test_privacy_verifier_fails_when_emitter_escapes_into_a_container(

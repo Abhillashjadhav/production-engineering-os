@@ -57,7 +57,11 @@ from pmpe.engineering.candidate import (
 from pmpe.engineering.ledger import EvidenceLedger
 from pmpe.engineering.submissions import VALIDATORS, validate_routing_submission
 from pmpe.evals.registry import stage_of
-from pmpe.privacy.retention import RetentionController, validate_retention_run_directory
+from pmpe.privacy.retention import (
+    purge_retained_runs,
+    validate_retention_days,
+    validate_retention_run_directory,
+)
 from pmpe.telemetry.events import utc_now
 
 STAGES = (
@@ -118,10 +122,11 @@ class EngineeringRun:
         trusted_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> EngineeringRun:
         run_dir = validate_retention_run_directory(run_dir)
+        retention_days = validate_retention_days(retention_days)
         run_dir.parent.mkdir(parents=True, exist_ok=True)
-        RetentionController(retention_days=retention_days).purge(
+        purge_retained_runs(
             run_dir.parent,
-            now=trusted_clock(),
+            trusted_clock=trusted_clock,
             exclude_run_dir=run_dir,
         )
         if (run_dir / _STATE_FILE).exists():
@@ -527,7 +532,11 @@ class EngineeringRun:
         return decision
 
     def record_release_report(
-        self, verdict: str, *, gate_results: dict[str, bool] | None = None
+        self,
+        verdict: str,
+        *,
+        gate_results: dict[str, bool] | None = None,
+        trusted_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         """Binary release gates are product intent (PD-01): every gate in the locked
         contract must be evaluated and pass before any release verdict is recorded.
@@ -566,6 +575,11 @@ class EngineeringRun:
         )
         self._state["release_verdict"] = verdict
         self._advance("complete")
+        purge_retained_runs(
+            self.run_dir.parent,
+            trusted_clock=trusted_clock,
+            exclude_run_dir=self.run_dir,
+        )
 
     # --- agent artifact admission -----------------------------------------------------
 
