@@ -3,7 +3,7 @@
   --bg: #e9ebe6;
   --surface: #f8f8f4;
   --muted: #626860;
-  --accent: #cf4b36;
+  --accent: #b63d2d;
   --border: #cfd3cb;
   --error: #b63d2d;
   --ok: #24734b;
@@ -405,7 +405,7 @@ button:disabled { background: var(--muted); border-color: var(--muted); cursor: 
 .family-matrix tr:last-child td { border-bottom: 0; }
 .family-matrix thead th { color: var(--muted); background: #f2f3ef; font-size: 0.68rem; text-transform: uppercase; letter-spacing: 0.04em; }
 .family-status { padding: 0.25rem 0.45rem; }
-.not-covered { color: #8d938b; font-size: 0.7rem; }
+.not-covered { color: #596159; font-size: 0.7rem; }
 
 .comparison-workbench {
   margin-top: 1rem;

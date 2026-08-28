@@ -30,7 +30,8 @@ test("PROCEED journey: improved candidate with payload-true numbers (J-1..J-6)",
   await expect(panel).toContainText("PROCEED");
   await expect(page.getByText("+9.4%")).toBeVisible(); // net change from the engine
   await expect(page.getByText("93.8%")).toBeVisible(); // candidate pass rate
-  await expect(page.getByText(/^sha256:/).first()).toBeVisible(); // provenance
+  const workbench = page.locator("details.comparison-workbench");
+  await expect(workbench.getByText(/^sha256:/).first()).toBeVisible(); // provenance
 });
 
 test("HOLD journey: hard-gate regression with trace-level evidence (J-6/J-7)", async ({
