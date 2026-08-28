@@ -1,0 +1,64 @@
+name: PR Review Agent
+
+on:
+  # This event always evaluates this workflow from the protected base branch.
+  # Candidate code is evidence data, never executable review control-plane code.
+  pull_request_target:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  # A new head supersedes every older review for this PR.
+  group: pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  # An independent reviewer may not mutate the candidate it reviews.
+  contents: read
+  pull-requests: read
+  issues: read
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Refuse skipped review admission
+        env:
+          IS_DRAFT: ${{ github.event.pull_request.draft }}
+          HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          test "$IS_DRAFT" = "false" || { echo "::error::draft PR is not review-admitted"; exit 1; }
+          test "$HEAD_REPOSITORY" = "$GITHUB_REPOSITORY" || { echo "::error::fork PR requires an explicitly supported trusted review path"; exit 1; }
+
+      - name: Checkout trusted verifier revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # Never execute files supplied by the candidate being admitted.
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+
+      - name: Bind review to trusted verifier revision
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" != "$EXPECTED_HEAD"
+
+      - name: Verify current PR head before review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          CURRENT_HEAD="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .head.sha)"
+          test "$CURRENT_HEAD" = "$EXPECTED_HEAD"
+
+      - name: Verify Codex exact-head evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          CODEX_EVIDENCE_WAIT_SECONDS: 900
+          CODEX_EVIDENCE_STABILITY_SECONDS: 60
+          CODEX_EVIDENCE_POLL_SECONDS: 10
+          CODEX_EVIDENCE_STABILITY_TIMEOUT_SECONDS: 180
+        run: python scripts/verify_codex_review.py

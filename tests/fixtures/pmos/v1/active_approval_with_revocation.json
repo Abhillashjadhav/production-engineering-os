@@ -1,0 +1,14 @@
+{
+  "$fixture_base": "valid_bundle.json",
+  "$mutations": [
+    {
+      "op": "replace",
+      "path": [
+        "approvals",
+        "APR-CONTRACT-001",
+        "revoked_at"
+      ],
+      "value": "2026-07-31T00:00:00Z"
+    }
+  ]
+}

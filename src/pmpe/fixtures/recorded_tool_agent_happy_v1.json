@@ -1,0 +1,191 @@
+{
+  "events": [
+    {
+      "kind": "recorded_model_response",
+      "request": {
+        "messages": [
+          {
+            "content": "Use only the admitted repository lookup and pure transform tools. Never use network, filesystem writes, subprocesses, credentials, dynamic code, or recursive agents.",
+            "role": "system"
+          },
+          {
+            "content": "What is the refund window in the support knowledge base? Answer in one sentence.",
+            "role": "user"
+          }
+        ],
+        "model": "recorded/fixture-v1",
+        "tool_schema_digest": "sha256:2db98ef5923b8a9481a2a3c3ebe839a99ceec407aedc068ed067ff5d2969f0e9"
+      },
+      "response": {
+        "finish_reason": "tool_call",
+        "response_id": "recorded-response-001",
+        "tool_call": {
+          "arguments": {
+            "dataset_id": "support-kb-v1",
+            "query": "refund window"
+          },
+          "call_id": "lookup-call-001",
+          "tool_id": "repository.lookup/v1"
+        }
+      },
+      "sequence": 1
+    },
+    {
+      "kind": "tool_result",
+      "request": {
+        "arguments": {
+          "dataset_id": "support-kb-v1",
+          "query": "refund window"
+        },
+        "call_id": "lookup-call-001",
+        "tool_id": "repository.lookup/v1"
+      },
+      "response": {
+        "matches": [
+          {
+            "document_id": "returns-policy",
+            "text": "Customers may request a refund within 30 calendar days of purchase."
+          }
+        ]
+      },
+      "sequence": 2
+    },
+    {
+      "kind": "recorded_model_response",
+      "request": {
+        "messages": [
+          {
+            "content": "Use only the admitted repository lookup and pure transform tools. Never use network, filesystem writes, subprocesses, credentials, dynamic code, or recursive agents.",
+            "role": "system"
+          },
+          {
+            "content": "What is the refund window in the support knowledge base? Answer in one sentence.",
+            "role": "user"
+          },
+          {
+            "content": {
+              "arguments": {
+                "dataset_id": "support-kb-v1",
+                "query": "refund window"
+              },
+              "call_id": "lookup-call-001",
+              "tool_id": "repository.lookup/v1"
+            },
+            "role": "assistant_tool_call"
+          },
+          {
+            "content": {
+              "matches": [
+                {
+                  "document_id": "returns-policy",
+                  "text": "Customers may request a refund within 30 calendar days of purchase."
+                }
+              ]
+            },
+            "role": "tool",
+            "tool_call_id": "lookup-call-001"
+          }
+        ],
+        "model": "recorded/fixture-v1",
+        "tool_schema_digest": "sha256:2db98ef5923b8a9481a2a3c3ebe839a99ceec407aedc068ed067ff5d2969f0e9"
+      },
+      "response": {
+        "finish_reason": "tool_call",
+        "response_id": "recorded-response-002",
+        "tool_call": {
+          "arguments": {
+            "operation": "single_sentence",
+            "text": "Customers may request a refund within 30 calendar days of purchase."
+          },
+          "call_id": "transform-call-001",
+          "tool_id": "pure.transform/v1"
+        }
+      },
+      "sequence": 3
+    },
+    {
+      "kind": "tool_result",
+      "request": {
+        "arguments": {
+          "operation": "single_sentence",
+          "text": "Customers may request a refund within 30 calendar days of purchase."
+        },
+        "call_id": "transform-call-001",
+        "tool_id": "pure.transform/v1"
+      },
+      "response": {
+        "text": "Customers can request a refund within 30 calendar days of purchase."
+      },
+      "sequence": 4
+    },
+    {
+      "kind": "recorded_model_response",
+      "request": {
+        "messages": [
+          {
+            "content": "Use only the admitted repository lookup and pure transform tools. Never use network, filesystem writes, subprocesses, credentials, dynamic code, or recursive agents.",
+            "role": "system"
+          },
+          {
+            "content": "What is the refund window in the support knowledge base? Answer in one sentence.",
+            "role": "user"
+          },
+          {
+            "content": {
+              "arguments": {
+                "dataset_id": "support-kb-v1",
+                "query": "refund window"
+              },
+              "call_id": "lookup-call-001",
+              "tool_id": "repository.lookup/v1"
+            },
+            "role": "assistant_tool_call"
+          },
+          {
+            "content": {
+              "matches": [
+                {
+                  "document_id": "returns-policy",
+                  "text": "Customers may request a refund within 30 calendar days of purchase."
+                }
+              ]
+            },
+            "role": "tool",
+            "tool_call_id": "lookup-call-001"
+          },
+          {
+            "content": {
+              "arguments": {
+                "operation": "single_sentence",
+                "text": "Customers may request a refund within 30 calendar days of purchase."
+              },
+              "call_id": "transform-call-001",
+              "tool_id": "pure.transform/v1"
+            },
+            "role": "assistant_tool_call"
+          },
+          {
+            "content": {
+              "text": "Customers can request a refund within 30 calendar days of purchase."
+            },
+            "role": "tool",
+            "tool_call_id": "transform-call-001"
+          }
+        ],
+        "model": "recorded/fixture-v1",
+        "tool_schema_digest": "sha256:2db98ef5923b8a9481a2a3c3ebe839a99ceec407aedc068ed067ff5d2969f0e9"
+      },
+      "response": {
+        "finish_reason": "stop",
+        "message": {
+          "content": "Customers can request a refund within 30 calendar days of purchase.",
+          "role": "assistant"
+        },
+        "response_id": "recorded-response-003"
+      },
+      "sequence": 5
+    }
+  ],
+  "fixture_id": "recorded-tool-agent-happy/v1",
+  "schema_version": "recorded-tool-agent-fixture/v1"
+}

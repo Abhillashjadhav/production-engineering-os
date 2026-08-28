@@ -1,0 +1,13 @@
+{
+  "name": "pm-evals-web-e2e",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Browser-level verification for pm-evals Web: accessibility, keyboard, responsive (PD-V3-09/10)",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.10.1",
+    "@playwright/test": "^1.61.1"
+  }
+}

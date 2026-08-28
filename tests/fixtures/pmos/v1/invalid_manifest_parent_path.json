@@ -1,0 +1,13 @@
+{
+  "$fixture_base": "valid_manifest.json",
+  "$mutations": [
+    {
+      "op": "replace",
+      "path": [
+        "bundle",
+        "path"
+      ],
+      "value": "../secret.json"
+    }
+  ]
+}
