@@ -18,7 +18,6 @@ from pmpe.barebones_selection import (
 )
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 
-
 NOW = datetime(2026, 8, 28, 18, 0, tzinfo=UTC)
 
 
@@ -181,9 +180,7 @@ def test_each_exact_pair_compiles_byte_identically_three_times(
 
 
 def test_published_schema_accepts_both_exact_positive_fixtures() -> None:
-    schema = json.loads(
-        Path("schemas/phase_b_template_selection.schema.json").read_text()
-    )
+    schema = json.loads(Path("schemas/phase_b_template_selection.schema.json").read_text())
     Draft202012Validator.check_schema(schema)
 
     for selection in (_e1_selection(), _tool_agent_selection()):
@@ -237,9 +234,7 @@ def test_duplicate_json_identity_member_fails_before_selection() -> None:
                 "tool_dispatch.closed/v1",
             )
         ),
-        lambda selection: selection["capability_bindings"][0].update(
-            {"verifier_id": "unknown/v1"}
-        ),
+        lambda selection: selection["capability_bindings"][0].update({"verifier_id": "unknown/v1"}),
         lambda selection: selection["capability_bindings"][0].update(
             {"acceptance_criterion_ids": ["AC-MISSING"]}
         ),
@@ -248,11 +243,16 @@ def test_duplicate_json_identity_member_fails_before_selection() -> None:
 def test_unsupported_undeclared_or_unverifiable_capabilities_fail_closed(
     mutation,  # type: ignore[no-untyped-def]
 ) -> None:
-    selection = _e1_selection()
-    mutation(selection)
+    contract = _contract(_e1_selection())
+    mutation(contract["implementation_selection"])
 
     with pytest.raises(TemplateSelectionError):
-        _compile(selection)
+        compile_phase_b_selection(
+            contract,
+            _approval(contract),
+            expected_approver="fixture-human",
+            trusted_clock=lambda: NOW,
+        )
 
 
 @pytest.mark.parametrize(
@@ -284,9 +284,9 @@ def test_secret_values_and_unregistered_configuration_fail_closed(
         lambda selection: selection["tools"].append(
             {"resource_scopes": ["../secret"], "tool_id": "shell/v1"}
         ),
-        lambda selection: selection["tools"][0]["resource_scopes"].append("*")
-        if selection["tools"]
-        else None,
+        lambda selection: (
+            selection["tools"][0]["resource_scopes"].append("*") if selection["tools"] else None
+        ),
     ],
 )
 def test_tool_identity_and_resource_scope_are_exact(
@@ -336,20 +336,14 @@ def test_unknown_selection_field_cannot_be_ignored() -> None:
 @pytest.mark.parametrize(
     "mutation",
     [
-        lambda contract, approval: contract["implementation_selection"][
-            "configuration"
-        ].update(
+        lambda contract, approval: contract["implementation_selection"]["configuration"].update(
             {"service_name": "mutated-e1"}
         ),
         lambda contract, approval: contract["implementation_selection"]["budgets"].update(
             {"max_steps": 7}
         ),
-        lambda contract, approval: approval["subject"].update(
-            {"template_version": "2.0.0"}
-        ),
-        lambda contract, approval: approval.update(
-            {"expires_at": "2026-08-28T17:59:59Z"}
-        ),
+        lambda contract, approval: approval["subject"].update({"template_version": "2.0.0"}),
+        lambda contract, approval: approval.update({"expires_at": "2026-08-28T17:59:59Z"}),
     ],
 )
 def test_approval_subject_mutation_or_expiry_fails_closed(
