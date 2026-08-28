@@ -96,9 +96,26 @@ def test_controlled_replay_requires_varied_dimension_to_match_cause() -> None:
     signal["held_constant"] = [
         dimension for dimension in signal["held_constant"] if dimension != "MODEL"
     ]
+    signal["held_constant"].append("TOOLSET")
     signal["varied_dimensions"] = ["MODEL"]
 
     with pytest.raises(ValidationError, match="asserted cause does not match"):
+        CauseSignal.model_validate(signal)
+
+    signal["supports"] = False
+    with pytest.raises(ValidationError, match="asserted cause does not match"):
+        CauseSignal.model_validate(signal)
+
+
+def test_controlled_replay_requires_every_dimension_to_be_accounted_for() -> None:
+    run = _failed_dream_job_run()
+    source = next(
+        item for item in run.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    signal = source.cause_signals[0].model_dump()
+    signal["held_constant"].remove("PRODUCTION_COHORT")
+
+    with pytest.raises(ValidationError, match="classify every change dimension"):
         CauseSignal.model_validate(signal)
 
 

@@ -168,12 +168,14 @@ def _dream_job_run(day: int, *, planted_failure: bool) -> RunEnvelope:
                 candidate_status="FAIL",
                 held_constant=[
                     "USE_CASE",
+                    "DEPLOYMENT",
                     "MODEL",
                     "PROMPT",
                     "CONFIGURATION",
                     "EVALUATOR",
                     "RUBRIC",
                     "GOLDEN_DATASET",
+                    "PRODUCTION_COHORT",
                 ],
                 varied_dimensions=["TOOLSET"],
                 summary=(

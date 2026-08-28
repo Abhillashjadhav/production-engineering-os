@@ -61,9 +61,9 @@ why that failure occurred. Cause confidence is bounded by evidence:
 - human adjudication: `CONFIRMED`;
 - missing, contradictory, or equally strong competing evidence: `UNCONFIRMED`.
 
-A controlled replay must name both the dimensions intentionally varied and the
-relevant dimensions held constant. Its asserted cause must match a varied
-dimension; otherwise the contract rejects it before diagnosis.
+A controlled replay must classify every change dimension as either intentionally
+varied or held constant, with no overlap or omission. Its asserted cause must
+match the varied dimensions; otherwise the contract rejects it before diagnosis.
 
 The supported cause categories are product regression, model regression,
 prompt/config/tool change, use-case drift, eval deterioration, approved-dataset

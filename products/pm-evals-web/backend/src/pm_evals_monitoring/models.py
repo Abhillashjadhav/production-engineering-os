@@ -64,6 +64,21 @@ ChangeDimension = Literal[
     "PRODUCTION_COHORT",
 ]
 
+_ALL_CHANGE_DIMENSIONS: frozenset[ChangeDimension] = frozenset(
+    {
+        "USE_CASE",
+        "DEPLOYMENT",
+        "MODEL",
+        "PROMPT",
+        "CONFIGURATION",
+        "TOOLSET",
+        "EVALUATOR",
+        "RUBRIC",
+        "GOLDEN_DATASET",
+        "PRODUCTION_COHORT",
+    }
+)
+
 _CAUSE_CHANGE_DIMENSIONS: dict[CauseCategory, frozenset[ChangeDimension]] = {
     "PRODUCT_REGRESSION": frozenset({"DEPLOYMENT"}),
     "MODEL_REGRESSION": frozenset({"MODEL"}),
@@ -183,13 +198,23 @@ class CauseSignal(StrictModel):
             raise ValueError("controlled replay must declare what was held constant")
         if not self.varied_dimensions:
             raise ValueError("controlled replay must declare what was intentionally varied")
-        if set(self.held_constant) & set(self.varied_dimensions):
-            raise ValueError("a replay dimension cannot be both held constant and varied")
-        expected_dimensions = _CAUSE_CHANGE_DIMENSIONS[self.category]
+        held_constant = set(self.held_constant)
         varied_dimensions = set(self.varied_dimensions)
-        if self.supports and (
-            not expected_dimensions or not varied_dimensions.issubset(expected_dimensions)
-        ):
+        if len(held_constant) != len(self.held_constant):
+            raise ValueError("held_constant contains duplicate dimensions")
+        if len(varied_dimensions) != len(self.varied_dimensions):
+            raise ValueError("varied_dimensions contains duplicate dimensions")
+        if held_constant & varied_dimensions:
+            raise ValueError("a replay dimension cannot be both held constant and varied")
+        unaccounted_dimensions = _ALL_CHANGE_DIMENSIONS - held_constant - varied_dimensions
+        if unaccounted_dimensions:
+            missing = ", ".join(sorted(unaccounted_dimensions))
+            raise ValueError(
+                "controlled replay must classify every change dimension as held constant "
+                f"or varied; missing: {missing}"
+            )
+        expected_dimensions = _CAUSE_CHANGE_DIMENSIONS[self.category]
+        if not expected_dimensions or not varied_dimensions.issubset(expected_dimensions):
             raise ValueError(
                 "the asserted cause does not match the intentionally varied dimensions"
             )
