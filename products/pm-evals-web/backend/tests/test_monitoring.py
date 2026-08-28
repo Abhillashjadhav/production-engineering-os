@@ -842,6 +842,54 @@ def test_missing_comparison_ancestry_cannot_certify_a_degraded_baseline(
     assert incident.changes_since_comparison == []
 
 
+def test_bounded_history_loads_comparisons_for_every_retained_trend_run(
+    tmp_path: Path,
+) -> None:
+    first_baseline = next(
+        run for run in build_demo_runs() if run.run_id == "dream-job-2026-08-24"
+    ).model_copy(deep=True)
+    first_baseline.run_id = "first-trend-baseline"
+    latest_baseline = first_baseline.model_copy(deep=True)
+    latest_baseline.run_id = "latest-trend-baseline"
+    latest_baseline.observed_at = first_baseline.observed_at + timedelta(hours=1)
+
+    historical = first_baseline.model_copy(deep=True)
+    historical.run_id = "retained-degraded-history"
+    historical.comparison.run_id = first_baseline.run_id
+    historical.observed_at = first_baseline.observed_at + timedelta(days=1)
+    historical_source = next(
+        item
+        for item in historical.observations
+        if item.observation_id == "source-linkedin-coverage"
+    )
+    historical_source.current_value = 0.85
+
+    latest = latest_baseline.model_copy(deep=True)
+    latest.run_id = "latest-healthy-run"
+    latest.comparison.run_id = latest_baseline.run_id
+    latest.observed_at = first_baseline.observed_at + timedelta(days=2)
+
+    store = MonitoringStore(tmp_path)
+    for run in (first_baseline, latest_baseline, historical, latest):
+        assert store.append(run) is True
+
+    bounded = store.list_runs_for_overview(trend_limit_per_product=2)
+    assert {run.run_id for run in bounded} == {
+        first_baseline.run_id,
+        latest_baseline.run_id,
+        historical.run_id,
+        latest.run_id,
+    }
+    overview = build_overview(
+        bounded,
+        mode="LIVE",
+        generated_at=latest.observed_at,
+        trend_limit_per_product=2,
+    )
+    historical_point = next(point for point in overview.trend if point.run_id == historical.run_id)
+    assert historical_point.health == "DEGRADED"
+
+
 def test_equal_observation_times_use_server_arrival_order(tmp_path: Path) -> None:
     first = _failed_dream_job_run().model_copy(deep=True)
     first.run_id = "z-arrived-first"

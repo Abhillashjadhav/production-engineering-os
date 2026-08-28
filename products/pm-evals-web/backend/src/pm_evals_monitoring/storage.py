@@ -297,18 +297,16 @@ class MonitoringStore:
                 (trend_limit_per_product,),
             ).fetchall()
         trend_runs = self._read_rows(trend_rows)
-        latest: dict[tuple[str, str], RunEnvelope] = {}
         selected_identities: set[tuple[str, str, str]] = set()
         for run in trend_runs:
             product_identity = (run.product.id, run.product.environment)
             run_identity = (*product_identity, run.run_id)
             selected_identities.add(run_identity)
-            latest[product_identity] = run
 
         comparison_rows: list[tuple[int, int, str]] = []
         seen_comparisons: set[tuple[str, str, str]] = set()
         with self._connect() as connection:
-            for run in latest.values():
+            for run in trend_runs:
                 identity = (
                     run.product.id,
                     run.product.environment,

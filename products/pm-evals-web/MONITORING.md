@@ -125,9 +125,10 @@ interrupted append; corruption in any completed record still fails closed. If
 indexing an append fails, the new log record is durably rolled back. If rollback
 also fails, the next operation reconciles the log and index before proceeding.
 Overview reads are bounded to the most recent 30 runs per product/environment
-plus the latest run's referenced comparison, while the canonical history
-remains complete. When producer observation times tie, the server's append
-order determines recency; opaque run IDs never decide which result is current.
+plus each retained run's direct comparison, so trend health has its required
+evidence while canonical history remains complete. When producer observation
+times tie, the server's append order determines recency; opaque run IDs never
+decide which result is current.
 
 ## First run
 
