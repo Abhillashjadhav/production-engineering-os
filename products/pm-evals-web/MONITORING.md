@@ -47,7 +47,10 @@ When a numeric threshold is present, `PASS` and `FAIL` must agree with that
 threshold and with whether higher or lower values are better; contradictory
 envelopes are rejected. Dashboard case counts use the full product, environment,
 use-case, case, segment, and input-fingerprint identity rather than `case_id`
-alone.
+alone. Each product declares a freshness SLA (26 hours by default); once its
+latest observation exceeds that window, product and coverage health are blocked
+as **Data stale** and old incidents are not presented as current. Observations
+more than five minutes in the future are rejected.
 
 Layers describe where evaluation happens: input, system, retrieval/tool,
 tool trajectory, output, and outcome. Concerns describe what is protected:
@@ -66,6 +69,10 @@ when the referenced earlier run is healthy and contains the same passing case
 and check with exactly that expected value. Missing or mismatched comparison
 evidence is labelled **Comparison unavailable** instead of being inferred from
 the current run's self-reported expectation.
+
+All submitted numbers must be finite. If arithmetic on two valid extreme values
+would overflow, the difference is shown as unavailable instead of breaking
+ingestion or poisoning stored history.
 
 ## Diagnosis rules
 

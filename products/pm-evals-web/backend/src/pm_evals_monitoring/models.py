@@ -8,10 +8,10 @@ failure happened.
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 ObservationStatus = Literal["PASS", "FAIL", "BLOCKED", "NOT_EVALUATED"]
 Attribution = Literal[
@@ -96,6 +96,8 @@ _CAUSE_CHANGE_DIMENSIONS: dict[CauseCategory, frozenset[ChangeDimension]] = {
 }
 
 OVERVIEW_TREND_RUNS_PER_PRODUCT = 30
+DEFAULT_FRESHNESS_SLA_SECONDS = 26 * 60 * 60
+MAX_FUTURE_CLOCK_SKEW = timedelta(minutes=5)
 
 
 class StrictModel(BaseModel):
@@ -107,6 +109,11 @@ class ProductRef(StrictModel):
     display_name: str = Field(min_length=1)
     version: str = Field(min_length=1)
     environment: str = Field(min_length=1)
+    freshness_sla_seconds: int = Field(
+        default=DEFAULT_FRESHNESS_SLA_SECONDS,
+        ge=60,
+        le=31 * 24 * 60 * 60,
+    )
 
 
 class ModelRef(StrictModel):
@@ -295,6 +302,13 @@ class RunEnvelope(StrictModel):
     provenance: Provenance
     observations: list[Observation] = Field(min_length=1, max_length=2000)
 
+    @field_validator("observed_at")
+    @classmethod
+    def reject_implausibly_future_observations(cls, value: datetime) -> datetime:
+        if value > datetime.now(UTC) + MAX_FUTURE_CLOCK_SKEW:
+            raise ValueError("observed_at exceeds the allowed five-minute clock skew")
+        return value
+
     @model_validator(mode="after")
     def validate_graph(self) -> RunEnvelope:
         by_id = {item.observation_id: item for item in self.observations}
@@ -374,6 +388,8 @@ class ProductHealth(StrictModel):
     latest_run_id: str
     observed_at: datetime
     health: RunHealth
+    is_stale: bool
+    freshness_sla_seconds: int
     pass_count: int
     fail_count: int
     blocked_count: int

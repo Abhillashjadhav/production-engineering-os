@@ -6,6 +6,7 @@ import base64
 import json
 from collections import Counter, defaultdict, deque
 from datetime import UTC, datetime
+from math import isfinite
 
 from .models import (
     OVERVIEW_TREND_RUNS_PER_PRODUCT,
@@ -47,6 +48,8 @@ def _signed_delta(observation: Observation) -> float | None:
     if observation.current_value is None or observation.expected_value is None:
         return None
     raw = observation.current_value - observation.expected_value
+    if not isfinite(raw):
+        return None
     return raw if observation.higher_is_better else -raw
 
 
@@ -320,7 +323,12 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
     )
 
 
-def _coverage_health(run: RunEnvelope, *, axis: str) -> list[CoverageHealth]:
+def _coverage_health(
+    run: RunEnvelope,
+    *,
+    axis: str,
+    force_blocked: bool = False,
+) -> list[CoverageHealth]:
     grouped: dict[str, list[Observation]] = defaultdict(list)
     for item in run.observations:
         key = item.evaluation.layer if axis == "layer" else item.evaluation.concern
@@ -331,7 +339,7 @@ def _coverage_health(run: RunEnvelope, *, axis: str) -> list[CoverageHealth]:
         result.append(
             CoverageHealth(
                 name=name,
-                health=_health(observations),
+                health=("BLOCKED" if force_blocked else _health(observations)),
                 pass_count=counts["PASS"],
                 fail_count=counts["FAIL"],
                 blocked_count=counts["BLOCKED"],
@@ -411,6 +419,7 @@ def build_overview(
         raise ValueError("at least one run is required")
     if trend_limit_per_product < 1:
         raise ValueError("trend_limit_per_product must be at least one")
+    reference_time = generated_at or datetime.now(UTC)
     ordered = sorted(
         runs,
         key=lambda item: (
@@ -455,6 +464,9 @@ def build_overview(
     for (product_id, environment), run in sorted(latest.items()):
         run_identity = (product_id, environment, run.run_id)
         diagnosis = diagnoses[run_identity]
+        is_stale = (
+            reference_time - run.observed_at
+        ).total_seconds() > run.product.freshness_sla_seconds
         products.append(
             ProductHealth(
                 product_id=product_id,
@@ -463,14 +475,18 @@ def build_overview(
                 environment=environment,
                 latest_run_id=run.run_id,
                 observed_at=run.observed_at,
-                health=diagnosis.health,
+                health=("BLOCKED" if is_stale else diagnosis.health),
+                is_stale=is_stale,
+                freshness_sla_seconds=run.product.freshness_sla_seconds,
                 pass_count=diagnosis.pass_count,
                 fail_count=diagnosis.fail_count,
                 blocked_count=diagnosis.blocked_count,
-                layers=_coverage_health(run, axis="layer"),
-                concerns=_coverage_health(run, axis="concern"),
+                layers=_coverage_health(run, axis="layer", force_blocked=is_stale),
+                concerns=_coverage_health(run, axis="concern", force_blocked=is_stale),
             )
         )
+        if is_stale:
+            continue
         by_id = {item.observation_id: item for item in run.observations}
         comparison_identity = (product_id, environment, run.comparison.run_id)
         comparison = runs_by_identity.get(comparison_identity)
@@ -571,7 +587,7 @@ def build_overview(
         label="No adjudicated production incidents yet",
     )
     return MonitoringOverview(
-        generated_at=generated_at or datetime.now(UTC),
+        generated_at=reference_time,
         mode=mode,  # type: ignore[arg-type]
         products=products,
         incidents=sorted(incidents, key=lambda item: item.observed_at, reverse=True),

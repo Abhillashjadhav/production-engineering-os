@@ -128,7 +128,9 @@ function ProductCard({
           <span className="product-name">{product.display_name}</span>
           <span className="product-meta">{product.environment} · {product.version}</span>
         </span>
-        <span className={`health-pill ${healthClass(product.health)}`}>{product.health}</span>
+        <span className={`health-pill ${healthClass(product.health)}`}>
+          {product.is_stale ? "DATA STALE" : product.health}
+        </span>
       </span>
       <Sparkline points={trend} />
       <span className="product-card-footer">
@@ -360,6 +362,7 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
   }
 
   const healthyProducts = overview.products.filter((product) => product.health === "HEALTHY").length;
+  const staleProducts = overview.products.filter((product) => product.is_stale).length;
   const selectedProducts = overview.products.filter(
     (product) => selectedProduct === "all" || productIdentity(product) === selectedProduct,
   );
@@ -416,6 +419,13 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
         <div className="refresh-error" role="alert">
           <strong>Refresh failed. The dashboard may be stale.</strong>
           <span>{error} Showing data last updated {currentTime(overview.generated_at)}.</span>
+        </div>
+      )}
+
+      {staleProducts > 0 && (
+        <div className="refresh-error" role="alert">
+          <strong>Production data unavailable for {staleProducts} {staleProducts === 1 ? "product" : "products"}.</strong>
+          <span>The latest observation exceeded its product freshness window.</span>
         </div>
       )}
 

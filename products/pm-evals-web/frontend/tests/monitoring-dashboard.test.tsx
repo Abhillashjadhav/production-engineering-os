@@ -26,6 +26,8 @@ const OVERVIEW: MonitoringOverview = {
       latest_run_id: "dream-run",
       observed_at: "2026-08-28T12:00:00Z",
       health: "FAILING",
+      is_stale: false,
+      freshness_sla_seconds: 93600,
       pass_count: 3,
       fail_count: 2,
       blocked_count: 0,
@@ -40,6 +42,8 @@ const OVERVIEW: MonitoringOverview = {
       latest_run_id: "linkedin-run",
       observed_at: "2026-08-28T10:00:00Z",
       health: "HEALTHY",
+      is_stale: false,
+      freshness_sla_seconds: 93600,
       pass_count: 5,
       fail_count: 0,
       blocked_count: 0,
@@ -300,6 +304,26 @@ describe("MonitoringDashboard", () => {
     expect(await screen.findByText(/no confirmed starting point yet/i)).toBeInTheDocument();
     expect(screen.getByText(/evidence is blocked, incomplete/i)).toBeInTheDocument();
     expect(screen.queryByText(/within their approved bars/i)).not.toBeInTheDocument();
+  });
+
+  it("marks stale product observations as unavailable, not healthy now", async () => {
+    const staleOverview: MonitoringOverview = {
+      ...OVERVIEW,
+      mode: "LIVE",
+      products: [{
+        ...OVERVIEW.products[1],
+        health: "BLOCKED",
+        is_stale: true,
+      }],
+      incidents: [],
+      trend: OVERVIEW.trend.filter((point) => point.product_id === "linkedin-research-os"),
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(staleOverview)} />);
+
+    expect(await screen.findByText("DATA STALE")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/production data unavailable for 1 product/i);
+    expect(screen.getByText("0/1")).toBeInTheDocument();
   });
 
   it("refreshes the overview without reloading the page", async () => {

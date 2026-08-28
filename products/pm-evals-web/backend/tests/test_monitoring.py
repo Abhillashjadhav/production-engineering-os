@@ -6,7 +6,7 @@ import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -106,6 +106,42 @@ def test_numeric_status_must_match_the_directional_pass_bar(
 
     with pytest.raises(ValidationError, match="contradicts the numeric pass bar"):
         RunEnvelope.model_validate(payload)
+
+
+def test_implausibly_future_observation_time_is_rejected(tmp_path: Path) -> None:
+    future_time = datetime.now(UTC) + timedelta(minutes=6)
+    payload = _failed_dream_job_run().model_dump(mode="json")
+    payload["observed_at"] = future_time.isoformat()
+
+    with pytest.raises(ValidationError, match="five-minute clock skew"):
+        RunEnvelope.model_validate(payload)
+
+    mutated = _failed_dream_job_run().model_copy(deep=True)
+    mutated.observed_at = future_time
+    with pytest.raises(ValidationError, match="five-minute clock skew"):
+        MonitoringStore(tmp_path).append(mutated)
+
+
+def test_overflowing_delta_is_unavailable_without_poisoning_history(tmp_path: Path) -> None:
+    run = _failed_dream_job_run().model_copy(deep=True)
+    source = next(
+        item for item in run.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    source.current_value = 1e308
+    source.expected_value = -1e308
+    source.threshold = 1.5e308
+
+    diagnosis = diagnose_run(run)
+    source_diagnosis = next(
+        item for item in diagnosis.diagnoses if item.observation_id == source.observation_id
+    )
+    store = MonitoringStore(tmp_path)
+
+    assert source_diagnosis.signed_delta is None
+    assert source_diagnosis.regression_magnitude is None
+    assert store.append(run) is True
+    assert store.list_runs() == [run]
+    assert build_overview(store.list_runs(), mode="LIVE").products[0].health == "FAILING"
 
 
 def test_controlled_replay_requires_a_real_control_and_fixed_dimensions() -> None:
@@ -247,7 +283,7 @@ def test_degraded_passing_check_is_projected_as_an_exact_case() -> None:
     regressed.current_value = 0.85
 
     diagnosis = diagnose_run(current)
-    overview = build_overview([baseline, current], mode="LIVE")
+    overview = build_overview([baseline, current], mode="LIVE", generated_at=current.observed_at)
 
     assert diagnosis.health == "DEGRADED"
     assert diagnosis.fail_count == 0
@@ -281,6 +317,19 @@ def test_required_not_evaluated_observation_blocks_run_health() -> None:
         item for item in overview.products[0].layers if item.name == required.evaluation.layer
     )
     assert affected_layer.health == "BLOCKED"
+
+
+def test_stale_healthy_run_is_blocked_and_not_projected_as_current() -> None:
+    run = next(item for item in build_demo_runs() if item.run_id == "dream-job-2026-08-24")
+    generated_at = run.observed_at + timedelta(seconds=run.product.freshness_sla_seconds + 1)
+
+    overview = build_overview([run], mode="LIVE", generated_at=generated_at)
+    product = overview.products[0]
+
+    assert product.is_stale is True
+    assert product.health == "BLOCKED"
+    assert all(item.health == "BLOCKED" for item in [*product.layers, *product.concerns])
+    assert overview.incidents == []
 
 
 def test_dependency_validation_and_diagnosis_support_contract_maximum_depth() -> None:
@@ -501,7 +550,7 @@ def test_store_is_append_only_deduplicated_and_digest_checked(tmp_path: Path) ->
     assert store.list_runs() == [run]
 
     conflicting = run.model_copy(deep=True)
-    conflicting.observations[0].current_value = 0.5
+    conflicting.observations[0].current_value = 1.1
     try:
         store.append(conflicting)
     except ValueError as exc:
@@ -682,11 +731,12 @@ def test_overview_history_query_is_bounded_and_keeps_latest_comparisons(
 def test_monitoring_api_bounds_live_trend_history(tmp_path: Path) -> None:
     store = MonitoringStore(tmp_path)
     template = next(run for run in build_demo_runs() if run.run_id == "dream-job-2026-08-24")
+    history_start = template.observed_at - timedelta(days=34)
     for index in range(35):
         run = template.model_copy(deep=True)
         run.run_id = f"dream-history-{index:02d}"
         run.comparison.run_id = "dream-history-00"
-        run.observed_at = template.observed_at + timedelta(days=index)
+        run.observed_at = history_start + timedelta(days=index)
         assert store.append(run) is True
 
     client = TestClient(create_app(monitoring_data_dir=tmp_path))

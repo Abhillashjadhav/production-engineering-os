@@ -107,6 +107,9 @@ class MonitoringStore:
         silently replacing history.
         """
 
+        # Revalidate model instances so callers cannot persist values introduced
+        # through Pydantic's non-validating assignment/model-copy escape hatches.
+        run = RunEnvelope.model_validate(run.model_dump(mode="python"))
         line = self._canonical_line(run)
         digest = hashlib.sha256(line).hexdigest()
         run_key = self._run_key(run)

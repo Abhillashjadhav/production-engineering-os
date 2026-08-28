@@ -936,9 +936,17 @@ export type ProductHealth = {
      */
     fail_count: number;
     /**
+     * Freshness Sla Seconds
+     */
+    freshness_sla_seconds: number;
+    /**
      * Health
      */
     health: 'HEALTHY' | 'DEGRADED' | 'FAILING' | 'BLOCKED';
+    /**
+     * Is Stale
+     */
+    is_stale: boolean;
     /**
      * Latest Run Id
      */
@@ -977,6 +985,10 @@ export type ProductRef = {
      * Environment
      */
     environment: string;
+    /**
+     * Freshness Sla Seconds
+     */
+    freshness_sla_seconds?: number;
     /**
      * Id
      */

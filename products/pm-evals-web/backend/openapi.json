@@ -1674,6 +1674,10 @@
             "title": "Fail Count",
             "type": "integer"
           },
+          "freshness_sla_seconds": {
+            "title": "Freshness Sla Seconds",
+            "type": "integer"
+          },
           "health": {
             "enum": [
               "HEALTHY",
@@ -1683,6 +1687,10 @@
             ],
             "title": "Health",
             "type": "string"
+          },
+          "is_stale": {
+            "title": "Is Stale",
+            "type": "boolean"
           },
           "latest_run_id": {
             "title": "Latest Run Id",
@@ -1721,6 +1729,8 @@
           "latest_run_id",
           "observed_at",
           "health",
+          "is_stale",
+          "freshness_sla_seconds",
           "pass_count",
           "fail_count",
           "blocked_count",
@@ -1742,6 +1752,13 @@
             "minLength": 1,
             "title": "Environment",
             "type": "string"
+          },
+          "freshness_sla_seconds": {
+            "default": 93600,
+            "maximum": 2678400.0,
+            "minimum": 60.0,
+            "title": "Freshness Sla Seconds",
+            "type": "integer"
           },
           "id": {
             "minLength": 1,
