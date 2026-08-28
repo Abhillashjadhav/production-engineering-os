@@ -1,5 +1,9 @@
 # V3 implementation plan — atomic PR partition
 
+> **Historical / superseded.** This completed V3 plan is retained for provenance only.
+> See [README.md](../../README.md) for the authoritative frozen alpha and current claim
+> boundary.
+
 Seventeen atomic PRs. Every PR: one independently meaningful capability,
 acceptance tests before implementation, fresh-context read-only review with a
 scope charter, green CI, squash-merge, ledger row. Existing 338 V1/V2 tests

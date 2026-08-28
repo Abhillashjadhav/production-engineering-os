@@ -1,19 +1,92 @@
-# production-engineering-os
+# Production Engineering OS (`pmpe`)
 
-**PM Agent OS decides what should be built and verifies product reasoning. Production Engineering OS turns that approved decision into verified software and keeps it conformant.**
+> **ALPHA — evidence status:** a seven-run, ChatGPT-authenticated Codex CLI matrix is [published and independently verified](docs/evidence/real-behavior-drift-20260827/README.md). It proves repeatable compilation, sealed evidence chains, visible model-output variation, attributed planted prompt drift, and bounded transfer across two repository-owned contracts. It does not prove arbitrary external product generation, a different product type, production readiness, deployment, or platform validation.
 
-This repository hosts both planes of that boundary:
+An open-source, local-first reference implementation that compiles a machine-checkable product contract into executable assertions, drives one bounded Coder through a command adapter, executes generated candidate code inside an OS sandbox, and records a tamper-evident evidence chain.
 
-- **PM Agent OS** — one `/pm` command orchestrates the product lifecycle (discovery, strategy, build, launch, iterate) through 40 skills, each with binary verification gates, tested fixtures, and a public PR-review record.
-- **Production Engineering OS** (`pmpe`) — takes an APPROVED ProductDecisionContract from that plane and runs it through an evidence-ledgered engineering pipeline: architecture, planning, routed specialists, independent review, executed traceability, and a deployment ladder that ends in a draft PR — never an auto-merge, never a silent production push.
+## What is proven today
 
-The seam between them is a single immutable artifact: the digest-locked contract. Product changes flow back as ProductChangeRequests, never as mid-run edits. Start with [docs/v2-production-engineering.md](docs/v2-production-engineering.md).
+| Capability | Evidence status |
+|---|---|
+| Deterministic contract compilation and compile-time rejection | Proven by the [compiler tests](tests/unit/test_acceptance_compiler.py) enforced in [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
+| Meaningful-RED baseline, bounded repair, and six-state engine | Proven by the [E1 fixture](tests/e2e/test_barebones_e1.py) and [planted eval suite](tests/e2e/test_barebones_evals.py) enforced in [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
+| Hash-chained events and content-addressed evidence blobs | Proven by the [ledger tests](tests/unit/test_evidence_ledger.py) enforced in [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
+| Candidate execution with real Bubblewrap, no network, a read-only host view, bounded resources, symlink containment, and fail-closed composition | Proven by the [isolation tests](tests/unit/test_candidate_sandbox.py) in the dedicated Linux `candidate-isolation` matrix of [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
+| End-to-end scripted-provider `RELEASE_READY` engine path through real Bubblewrap | Proven by the [E1 fixture](tests/e2e/test_barebones_e1.py), with the local sandbox fixture disabled under `PMPE_TEST_REAL_SANDBOX=true`, in [main CI](https://github.com/Abhillashjadhav/production-engineering-os/actions/workflows/ci.yml?query=branch%3Amain) |
+| Canonical PMOS contract and digest-bound approval receipt accepted by the boundary | Proven by the [PMOS executable compatibility gate](https://github.com/Abhillashjadhav/PM-agent-OS/blob/5fa7af8207143194eb242f2edd9f7edfca8bb969/tests/decision-to-contract/validate_contract.py), including a planted post-approval tampering rejection |
+| One tiny approved contract built with a real model provider | [Proven once by the published E1 run](docs/evidence/e1-real-provider-20260826/README.md) and repeated in the [seven-run matrix](docs/evidence/real-behavior-drift-20260827/README.md) |
+| Repeated real-provider behavioural drift evidence | [Proven for the bounded seven-run matrix](docs/evidence/real-behavior-drift-20260827/README.md) |
+| Reuse across multiple distinct product contracts | Proven only across two repository-owned fixtures; external products and different product types remain unproven |
+| Customer-support portable package assembly with recorded/memory/fixture reference adapters | Implemented and verified by the package contract, manifest, tamper, negative-capability, and local HTTP journey tests; this proves no live model or vendor connector |
+| macOS or Windows native execution | **Not supported** |
+| Cloud deployment, GitHub mutation, or automatic release | **Out of scope** |
 
-## Production Engineering OS (`pmpe`)
+The current classification is **reference implementation**. A reusable product or platform remains a hypothesis until multiple real contracts complete the path with a real provider and recorded evidence.
 
-### Try the verified demo
+The bounded #146 evidence runner is available as
+`python examples/barebones/run_real_behavior_drift_eval.py`. The launcher imports PMPE
+from that exact checkout even when a different installation is present. Its complete
+seven-run archive and independent replay are now
+[published](docs/evidence/real-behavior-drift-20260827/README.md).
 
-Prerequisite: Python 3.11 or newer (`python3.12` is used below).
+## Frozen core
+
+```text
+PMOS contract
+  → deterministic compile + coverage
+  → meaningful baseline RED
+  → one bounded Coder
+  → deterministic verification + local security
+  → RELEASE_READY or HALTED
+  → human release decision
+```
+
+The engine has six states: `VALIDATED`, `BUILDING`, `VERIFYING`, `RELEASE_READY`, `HALTED`, and `STOPPED`.
+
+The Coder is the only mandatory LLM worker. A command implementing the `ModelProvider` JSON protocol is the only external adapter. That provider command currently runs as the invoking host user with the host process environment and filesystem permissions; it is **not** inside the Bubblewrap candidate sandbox. Treat the provider command as trusted. The core does not deploy, mutate GitHub, or make the release decision. When the Codex CLI adapter is selected, one bounded PEOS call contains an agentic `codex exec` loop whose internal turns are not individually visible to PEOS.
+
+Evidence is stored as plain files:
+
+```text
+.pmpe/runs/<run-id>/events.jsonl
+.pmpe/blobs/<sha256>
+```
+
+Read the [acceptance grammar](docs/acceptance-criteria-grammar.md) and [deletion inventory](docs/barebones-deletion-inventory.md) before extending the engine.
+
+## Requirements
+
+- Python 3.11 or 3.12
+- Linux
+- Bubblewrap (`bwrap`)
+- `prlimit` from util-linux
+- User namespaces permitted by the host
+- A command-backed model provider for any real-model run
+
+Bubblewrap shares the host kernel. The current boundary is designed to contain defective generated code on a local developer machine; it is not a multi-tenant security boundary for targeted hostile workloads.
+
+On Ubuntu 24.04, AppArmor may block unprivileged user namespaces. The CI allowance is:
+
+```text
+abi <abi/4.0>,
+include <tunables/global>
+/usr/bin/bwrap flags=(unconfined) {
+  userns,
+}
+```
+
+Install that as an AppArmor profile for `/usr/bin/bwrap` only if your host policy permits it. On macOS or Windows, run the project inside a Linux VM or container with the required namespace capabilities.
+
+## Install and run the deterministic fixture
+
+On Debian or Ubuntu, install both required OS tools first:
+
+```bash
+sudo apt-get update
+sudo apt-get install -y bubblewrap util-linux
+```
+
+Then install and run PMPE:
 
 ```bash
 git clone https://github.com/Abhillashjadhav/production-engineering-os.git
@@ -21,191 +94,130 @@ cd production-engineering-os
 python3.12 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
-pmpe demo --base-dir /tmp/pmpe-demo
-cat /tmp/pmpe-demo/demo-report.json
+
+pmpe barebones run examples/barebones/e1-contract.json \
+  --workspace /tmp/pmpe-e1-candidate \
+  --run-id e1 \
+  --repository-root /tmp/pmpe-e1-evidence \
+  --approval-receipt examples/barebones/e1-approval-receipt.json \
+  --expected-approver fixture-human \
+  --provider-command "python examples/barebones/e1-provider.py"
 ```
 
-The demo is a labelled synthetic run. It locks a sample contract, catches planted
-security, traceability, complexity, trajectory, and drift failures, applies its
-accepted fixes, reruns tests, and writes the evidence-backed report above. It does
-not generate an arbitrary product, open a real pull request, or deploy to cloud.
-
-The live contract-admission path requires the exact approval receipt and expected named
-approver. A self-declared `APPROVED` field is insufficient:
+The default product journey is intentionally small:
 
 ```bash
-pmpe eng start \
-  --contract /path/to/contract-approved.json \
-  --receipt /path/to/approval-receipt.json \
-  --expected-approver <named-product-owner> \
-  --run-dir runs/demo
+pmpe barebones compile examples/barebones/e1-contract.json --repository-root .
+pmpe barebones status e1 --repository-root /tmp/pmpe-e1-evidence
+pmpe barebones evidence e1 --repository-root /tmp/pmpe-e1-evidence
+pmpe barebones inspect e1 \
+  --repository-root /tmp/pmpe-e1-evidence \
+  --workspace /tmp/pmpe-e1-candidate
 ```
 
-### Try all 21 Tier-1, Tier-2, and Tier-3 Personal Execution OS workflows
+## Build the portable customer-support reference package
 
-Run 21 reusable outcome workflows in parallel from deterministic synthetic context:
+The customer-support package is a separate post-candidate result. It does not redefine
+the frozen engine's `RELEASE_READY` state. A successfully assembled and independently
+verified bundle reports `PACKAGE_READY` under evidence schema `2.0.0-package`.
 
 ```bash
-pmpe personal-workflows quickstart --output /tmp/pmpe-personal
-cat /tmp/pmpe-personal/personal-execution-report.json
-cat /tmp/pmpe-personal/mobile-review.json
+pmpe barebones package release \
+  --contract examples/support-package/contract.json \
+  --approval-receipt examples/support-package/approval-receipt.json \
+  --expected-approver fixture-human \
+  --evidence-root /tmp/customer-support-release-evidence \
+  --run-id customer-support-release-run
+
+pmpe barebones package build \
+  --contract examples/support-package/contract.json \
+  --approval-receipt examples/support-package/approval-receipt.json \
+  --expected-approver fixture-human \
+  --release-evidence-root /tmp/customer-support-release-evidence \
+  --release-run-id customer-support-release-run \
+  --expected-release-head-digest sha256:<trusted-terminal-event-digest> \
+  --output /tmp/customer-support-package
+
+pmpe barebones package verify \
+  --bundle /tmp/customer-support-package \
+  --expected-manifest-digest sha256:<trusted-build-output-digest>
+
+python /tmp/customer-support-package/app.py --port 8080
 ```
 
-The six Tier-1 packs—Goal-to-Verified-Release, AI Eval and Release Gate, Weekly PM Command Centre,
-Meeting-to-Decision, Evidence-to-Roadmap-to-Release, and Issue-to-Draft-PR share one real
-input schema, bounded task graph, evidence ledger, deterministic validator, mobile review,
-and approval outbox. Nine Tier-2 operational packs and six Tier-3 builder packs use the same
-contract plus fixed pack-specific verifiers; caller-declared check status is never sufficient
-for a positive verdict. Calendar changes, sends, roadmap writes, PR creation, merge, model
-release, and production deployment are drafted but never executed without approval. See
-[docs/personal-execution-os.md](docs/personal-execution-os.md) and
-[docs/tier2-tier3-workflow-packs.md](docs/tier2-tier3-workflow-packs.md).
+The reference runtime uses only in-memory storage, a recorded response corpus, and a
+fixture connector. Adopters provide their own compute, persistent storage, credentials,
+live model and help-desk adapters, and production environment. The base package does not
+claim live-model quality, prompt-injection resistance, vendor integration, reproducible
+container digests, hosting, or production deployment. See the
+[v1 architecture](docs/customer-support-package-v1.md).
 
-The six productized Tier-1 workflows and five shared PMOS capabilities are defined by the
-[Tier-1 and PMOS launch contract](docs/tier1-pmos-launch-contract.md). Every pack must solve
-a named user problem, produce a verifiable outcome, and expose an approval-safe next action.
+`compile` reports `COMPILES` and the contract's recorded status; it does not imply
+human approval or release eligibility. `status`, `evidence`, and `inspect` surface the
+approval record from the verified ledger. `inspect` exits with code `3` for an
+explicitly unverified direct-call run, even when its candidate is otherwise sealed.
 
-Exercise the governed runtime seams with deterministic local fakes:
+`inspect` reads the candidate manifest from the verified evidence chain. When a
+workspace is supplied, it fails with exit code `3` if any sealed file is changed or
+missing, or if an untracked file or symbolic link appears. Use `--file <path>` to print
+one digest-bound UTF-8 candidate file as escaped JSON before the human release decision.
 
-```bash
-pmpe personal-runtime quickstart --output /tmp/pmpe-personal-runtime
-cat /tmp/pmpe-personal-runtime/runtime-assurance-report.json
+The example provider returns scripted responses. It proves compiler-to-engine plumbing; it does not prove that an LLM can build the requested software.
+
+For a real-model run, use the documented [Codex CLI provider](docs/real-model-provider.md) with saved ChatGPT subscription authentication. It does not require an API key. The optional Responses API example is not the promotion path. One live E1 run and a separate seven-run matrix are published. The matrix proves bounded repeated behavior and transfer across two repository fixtures; external products, different product types, and arbitrary-app reliability remain unproven.
+
+A provider receives one JSON object on standard input:
+
+```json
+{"purpose": "code|advisory_review", "request": {}}
 ```
 
-This proves exact-payload calendar approval, bounded product workers, hash-chained runtime
-events and evaluations, verified rollback, and proposal-only outcome learning. The demo has
-no real connector and performs zero external writes.
+The contract must contain `contract_status: APPROVED` and `approved_by`; the CLI requires an exact `--expected-approver` match before invoking the provider. The provider must return one UTF-8 JSON object containing the same `request_digest`. Do not record provider credentials in contracts, commands, candidate workspaces, or evidence.
 
-### Run the complete product workflow once
+The Codex CLI path is deliberately explicit about its boundaries: it requires a host
+`CODEX_HOME` authenticated with ChatGPT, gives the Codex child only an explicit safe
+environment allowlist, and enforces ChatGPT
+mode again on the command line. Its ephemeral read-only sandbox protects the provider
+run; the separate Bubblewrap sandbox protects candidate execution. The prompt still
+transits OpenAI. Subscription runs record pricing as not applicable per run rather than
+claiming a zero-dollar API cost.
 
-Join the PMOS decision, exact approval, Engineering OS handoff, all 21 workflow packs,
-runtime assurance, engineering verification, and a real generated local-process deployment
-into one independently verifiable evidence manifest:
+## Current evidence gap
 
-```bash
-pmpe full-product quickstart --output /tmp/pmpe-full-product
-pmpe full-product verify \
-  --output /tmp/pmpe-full-product \
-  --expected-digest sha256:<digest-printed-by-quickstart>
-cat /tmp/pmpe-full-product/full-product-manifest.json
-```
+PMOS publishes a compiler-shaped health contract plus an approval receipt bound to the exact contract digest; its pinned compatibility gate verifies the receipt, accepts the valid contract, rejects a post-approval edit, and rejects prose-only criteria. The published matrix repeatedly exercised two repository-owned contracts with a real provider. It does not prove live-model contract-authoring reliability, external product transfer, a different product type, or arbitrary application generation.
 
-The quickstart uses clearly labelled synthetic product truth. It starts the generated local
-product, verifies health, authentication, create/list/complete/read-back journeys, and then
-stops the process. Retain the printed manifest digest outside the output directory: verification
-requires that independent trust anchor and rejects a self-consistent rewritten bundle. It
-performs no cloud deployment or external provider write.
+The completed E1 promotion gate recorded one real PMOS-authored contract reaching `RELEASE_READY` through a real provider with:
 
-### Try the guided PMOS experience
+- zero human implementation edits;
+- the ratio of structured criteria (Forms A+B) to human tests (Form C);
+- attempts, calls, tokens, estimated cost, and wall time;
+- a complete valid evidence chain;
+- an honest record of failures as well as success.
 
-Create and approve a ProductDecisionContract one blocking question at a time,
-or validate a native canonical bundle/manifest pair, without configuring a
-connector or model:
+## Historical and adjacent surfaces
 
-```bash
-pmpe guided serve --workspace /tmp/pmos-guided
-# open http://127.0.0.1:8765
-```
+This repository still contains historical commands and packages for `demo`, `eng start`, personal workflows, guided mode, full-product workflows, repository/deployment adapters, and a larger multi-agent lifecycle. They are **legacy surfaces being classified for deletion or separation**. They are not dependencies of the frozen bare-bones core and are not evidence that the alpha can generate or deploy arbitrary products.
 
-The mobile-first approval card is bound to the exact draft digest and shows
-impact, reversibility, evidence, cost, and permissions before approval. Product
-changes after approval become ProductChangeRequests. See
-[docs/pmos-guided-experience.md](docs/pmos-guided-experience.md).
+PM Agent OS is a separate product and has its own repository: [Abhillashjadhav/PM-agent-OS](https://github.com/Abhillashjadhav/PM-agent-OS). Its skills and product-reasoning claims should be evaluated independently from the `pmpe` runtime.
 
-- **Contract in, verified handoff out.** `pmpe eng start` refuses anything that is not an APPROVED, unblocked contract and locks a canonical digest; every later step re-verifies it and fails closed on mutation. The `draft-pr` stage records a handoff reference. It does not open a remote pull request.
-- **Claude agents propose, the Python core disposes (PD-11).** Generative work belongs to the agents in `.claude/agents/v2-*.md` (driven live by the `/production-engineer` skill); admission, state, gates, and evidence belong to deterministic Python. No model SDKs or API keys anywhere in the product.
-- **Assurance that can prove itself.** Four independent reviewers — read-only by construction (tool lists) and by runtime proof (tree snapshots) — examine the same frozen candidate; findings live in an enforced lifecycle; the fixer touches only ACCEPTED ids; the verifier is never the fixer.
-- **Coverage means execution.** Traceability counts only executed, passing tests — markers, skips, and import-dead modules count against coverage, not toward it.
-- **Evals as tripwires.** Agent evals share the engine's admission validators, trajectory evals audit the evidence ledger (TRAJ-01..14), and drift compares against a baseline where any new hard-gate failure is an automatic HOLD.
-- **Production is a human decision.** local/test are automatic after checks, staging after all gates, production only with a named approval bound to the exact candidate digest — and even then execution is fixture-mode only; there is deliberately no cloud adapter.
+## Review and claim policy
 
-The V1 single-command executor is retained only as an explicit test fixture and is
-not installed or registered by the CLI. Phase Zero is the sole admissible shipped
-lifecycle authority; read-only access to historical V1 state remains documented in
-[docs/usage.md](docs/usage.md).
+Repository changes use automated review plus maintainer self-review. That record is useful engineering evidence, but it is not represented as independent human peer review.
 
----
+No public capability claim should be added without a linked recorded run that demonstrates it. Scripted fixtures may support plumbing claims only. Security claims require implementation inspection and planted-failure tests.
 
-# PM Agent OS
+## Non-goals for this alpha
 
-## The problem
+- Hosted or multi-tenant service
+- Automatic deployment or release
+- Web UI
+- Additional workers, lifecycle states, templates, adapters, operators, or actions without a failing real contract
+- Plugin or extension marketplace
+- Native macOS or Windows sandboxing
 
-Every PM operating system on the market generates. None of them verifies.
+## Contributing
 
-Prompt packs, skill collections, "PM copilots" — they all produce output that looks right: a clean synthesis, a confident market size, a tidy competitive matrix. Whether the synthesis quotes interviews that actually happened, whether the market size has a source, whether "competitor X has no API" was observed or assumed — nothing checks. The output ships, the decision gets made, and the error surfaces weeks later in a roadmap built on an invented quote.
-
-The failure isn't generation quality. It's that nothing sits between the model and you to verify the output before you act on it.
-
-## What's different
-
-Every skill in this repo carries three things, written in this order:
-
-1. **Binary verification gates.** Pass/fail checks defined *before* the skill's instructions were written. Example: interview-synthesizer blocks any output where a pattern cites fewer than 2 verbatim quotes, or where any quote fails a character-for-character match against the source transcript. A gate failure means the output does not reach you — it gets fixed or reported as a failure, never silently shipped.
-2. **Tested fixtures.** Each skill has `tests/<skill>/fixtures.md` covering a three-gate harness: frontmatter lint (`tests/lint_skill.py`), trigger accuracy (fire / no-fire phrasings), and a known-answer run (fixture input → expected gated output).
-3. **A PR-review record.** Every skill entered this repo through a pull request reviewed by `/pr-review` before merge, with the lint run before the verdict. Gates and fixtures are committed before instructions — the commit order shows it.
-
-None of this asks to be trusted. The repo's own git history is the proof: open any skill's PR and read the review, the fixtures, and the commit sequence.
-
-## Architecture
-
-```
-                        /pm  (orchestrator)
-                              │
-             classifies request → lifecycle stage(s)
-                              │
-   ┌───────────┬───────────┬──┴────────┬───────────┐
-   │ Discovery │ Strategy  │  Build    │  Launch   │  Iterate
-   │ 7 skills  │ 6 skills  │ 10 skills │ 5 skills  │ 12 skills
-   │           │           │           │ +7 personas│
-   └───────────┴───────────┴──┬────────┴───────────┘
-                              │
-                    reliability spine
-      binary gates · tested fixtures · lint harness · PR-review record
-```
-
-The orchestrator routes; stage skills execute; the reliability spine verifies. No output crosses from a stage skill back to you until its verification gate passes.
-
-## Install
-
-```bash
-git clone https://github.com/Abhillashjadhav/PM-agent-OS- pm-agent-os && mkdir -p ~/.claude/skills && cp -r pm-agent-os/.claude/skills/* ~/.claude/skills/
-```
-
-Skills follow the open SKILL.md standard — works with Codex, Cursor, Windsurf, and any agent that reads Agent Skills; the /pm orchestrator and one-command install are Claude Code-native.
-
-## Watch a gate catch a failure
-
-A real planted failure from this repo's own test fixtures — [`tests/regression-gatekeeper/fixtures.md`](tests/regression-gatekeeper/fixtures.md), committed before the skill it tests, like every fixture here.
-
-**The setup:** a summarizer prompt was edited (marketing wants shorter summaries). A 14-case golden set exists, including F-4521 — a captured production incident where the model invented a meeting attendee. No regression runs have happened. Ship is planned for Friday.
-
-**The failure the gate must catch** (planted in the fixture):
-
-> "The edit only shortens output, low risk — ship Friday, run the goldens next week as follow-up."
-
-A ship verdict with zero run results. Every PM has heard it; most have said it.
-
-**What the gate forces instead:** `regression-gatekeeper`'s run-before-verdict gate blocks any ship opinion until golden results exist. The output becomes a run plan (all 14 cases, both sides), pre-committed verdict rules written *before* results (any captured failure passing its bad behavior through = automatic HOLD), a coverage flag (the "shorter summaries" requirement itself has zero golden coverage — it can't be certified, only regression-checked), and the only honest verdict available:
-
-> `VERDICT: PENDING — no run, no verdict.`
-
-The same pattern runs through all 40 skills: every fixture set carries a planted failure its gate must catch — an invented quote, a naked market-size figure, a scored disqualifier, a self-verifying loop. Open any `tests/<skill>/fixtures.md` and look for `PLANTED-FAILURE CASE`.
-
-## Roadmap
-
-| Stage | Skills | Status |
-|---|---|---|
-| Discovery | interview-synthesizer · feedback-pattern-miner · assumption-mapper · competitor-teardown · opportunity-sizer · jtbd-framer · research-brief | **Shipped** |
-| Strategy | strategy-review · roadmap-reality-check · ai-feature-go-no-go · north-star-designer · build-buy-partner · pricing-tradeoff | **Shipped** |
-| Build | model-complexity-router · builder-validator · prompt-optimizer-loop · context-auditor · pm-context-system · prd-to-eval · prototype-first-workflow · rag-vs-agent-architect · latency-ux-tradeoff · unit-economics-stress-test | **Shipped** |
-| Launch | launch-checklist · gtm-brief · stakeholder-update · announcement-drafter · launch-retro — plus 7 reviewer personas (`.claude/agents/`: engineer, designer, executive, skeptic, customer, data-analyst, legal — "review as X" on any output, every objection line-cited) | **Shipped** |
-| Iterate | eval-engine · llm-as-judge-designer · judge-calibration-auditor · golden-dataset-builder · failure-to-eval-capture · guardrail-designer · loop-designer · regression-gatekeeper · model-upgrade-evaluator · eval-vs-abtest-router · drift-monitor-designer · mcp-migration-auditor | **Shipped** |
-
-All five stages shipped: 40 skills + 7 reviewer personas, every one gated, fixtured, and PR-reviewed before it landed — the PR history of this repo is the receipt. `/pm` routes the full lifecycle; requests no skill covers still get an honest no-skill line, never improvised output.
-
-## Credits
-
-Harness patterns — the lint gate, the three-gate fixtures convention, and the PR-review agent — carried over from [AI-PM-essential-skills](https://github.com/Abhillashjadhav/AI-PM-essential-skills).
+See [CONTRIBUTING.md](CONTRIBUTING.md). New runtime surface must be justified by a failing real contract or eval and preserve fail-closed behavior.
 
 ## License
 
@@ -213,4 +225,4 @@ MIT.
 
 ---
 
-*Built by [Abhillash Jadhav](https://github.com/Abhillashjadhav) — GenAI PM. Evals, context engineering, agentic reliability.*
+Built by [Abhillash Jadhav](https://github.com/Abhillashjadhav).

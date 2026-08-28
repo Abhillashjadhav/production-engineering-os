@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import subprocess
+import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -48,6 +51,67 @@ def golden_spec_dict() -> dict[str, Any]:
 @pytest.fixture()
 def fixtures_dir() -> Path:
     return FIXTURES_DIR
+
+
+class _LocalCandidateTestSandbox:
+    """Test-only runner; production defaults are exercised by dedicated boundary tests."""
+
+    def run(
+        self,
+        workspace: Path,
+        argv: list[str] | tuple[str, ...],
+        *,
+        timeout_seconds: float,
+        environment: dict[str, str],
+    ) -> subprocess.CompletedProcess[str]:
+        translated: list[str] = []
+        for index, argument in enumerate(argv):
+            if index == 0 and argument == sys.executable:
+                translated.append(argument)
+                continue
+            rewritten = argument.replace("'/workspace'", repr(str(workspace)))
+            if rewritten == "/workspace" or rewritten.startswith("/workspace/"):
+                rewritten = str(workspace) + rewritten.removeprefix("/workspace")
+            elif rewritten.startswith("--rootdir=/workspace"):
+                rewritten = "--rootdir=" + str(workspace)
+            translated.append(rewritten)
+        try:
+            return subprocess.run(
+                translated,
+                cwd=workspace,
+                text=True,
+                capture_output=True,
+                timeout=timeout_seconds,
+                check=False,
+                env={
+                    **environment,
+                    "PATH": os.environ.get("PATH", environment.get("PATH", "")),
+                },
+            )
+        except subprocess.TimeoutExpired as exc:
+            from pmpe.barebones import ContractInvalidError
+
+            raise ContractInvalidError("candidate execution timed out") from exc
+
+
+@pytest.fixture(autouse=True)
+def local_candidate_sandbox_for_barebones_tests(
+    request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if request.path.name not in {
+        "test_barebones_cli.py",
+        "test_barebones_e1.py",
+        "test_barebones_evals.py",
+    }:
+        return
+    if (
+        request.path.name == "test_barebones_e1.py"
+        and os.environ.get("PMPE_TEST_REAL_SANDBOX") == "true"
+    ):
+        return
+    from pmpe import barebones
+
+    monkeypatch.setattr(barebones, "BubblewrapCandidateSandbox", _LocalCandidateTestSandbox)
 
 
 @pytest.fixture()

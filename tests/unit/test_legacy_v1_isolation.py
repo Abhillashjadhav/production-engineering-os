@@ -25,8 +25,8 @@ def _top_level_commands() -> set[str]:
 def test_shipped_cli_does_not_register_v1_execution_commands() -> None:
     commands = _top_level_commands()
 
+    assert commands == {"barebones", "legacy"}
     assert FORBIDDEN_COMMANDS.isdisjoint(commands)
-    assert {"validate", "status", "report"} <= commands
 
 
 def test_shipped_package_does_not_export_or_contain_v1_workflow_engine() -> None:

@@ -1,5 +1,9 @@
 # Target architecture
 
+> **Historical / superseded.** This is an unimplemented design study, not the shipped
+> product architecture. See [README.md](../README.md) for the authoritative frozen alpha
+> and its evidence-backed claim boundary.
+
 ## Architecture goals
 
 Production Engineering OS (PEOS) consumes an approved PM Agent OS (PMOS) contract

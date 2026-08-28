@@ -1,5 +1,9 @@
 # Roadmap — PM Production Engineering OS
 
+> **Historical / superseded.** This roadmap predates the frozen alpha and is not a
+> shipped-capability claim. See [README.md](README.md) for the authoritative current
+> architecture, evidence, non-goals, and promotion gates.
+
 ## V1 (shipped) — one honest vertical slice
 
 Spec → validate → plan → architecture → tests-first → implement → gates → PR record →

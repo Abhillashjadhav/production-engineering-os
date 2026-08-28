@@ -21,9 +21,16 @@ jobs:
           python-version: "3.11"
       - run: pip install ruff
       - name: ruff format
-        run: ruff format --check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py
+        run: |
+          ruff format --check \
+            src tests/unit tests/integration tests/e2e tests/conftest.py \
+            scripts/ci/classify_frontend_ci.py \
+            examples/barebones/codex-cli-provider.py
       - name: ruff lint
-        run: ruff check src tests/unit tests/integration tests/e2e tests/conftest.py scripts/ci/classify_frontend_ci.py
+        run: |
+          ruff check \
+            src tests/unit tests/integration tests/e2e tests/conftest.py \
+            scripts/ci/classify_frontend_ci.py examples/barebones/*.py
 
   types:
     runs-on: ubuntu-latest
@@ -34,7 +41,9 @@ jobs:
           python-version: "3.11"
       - run: pip install -e ".[dev]"
       - name: mypy --strict
-        run: mypy --strict src/pmpe scripts/ci/classify_frontend_ci.py
+        run: |
+          mypy --strict \
+            src/pmpe scripts/ci/classify_frontend_ci.py examples/barebones/*.py
 
   tests:
     runs-on: ubuntu-latest
@@ -53,6 +62,41 @@ jobs:
         run: pytest tests/integration -q
       - name: end-to-end tests
         run: pytest tests/e2e -q
+
+  candidate-isolation:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: install candidate isolation runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          sudo tee /etc/apparmor.d/pmpe-bwrap >/dev/null <<'EOF'
+          abi <abi/4.0>,
+          include <tunables/global>
+          /usr/bin/bwrap flags=(unconfined) {
+            userns,
+          }
+          EOF
+          sudo apparmor_parser -r /etc/apparmor.d/pmpe-bwrap
+      - run: pip install -e ".[dev]"
+      - name: prove candidate isolation and engine composition
+        env:
+          PMPE_TEST_REAL_SANDBOX: "true"
+        run: |
+          pytest \
+            tests/unit/test_candidate_sandbox.py::test_real_candidate_sandbox_has_no_host_credentials_network_or_write_access \
+            tests/unit/test_candidate_sandbox.py::test_real_candidate_sandbox_applies_resource_limits \
+            tests/unit/test_candidate_sandbox.py::test_engine_fails_closed_when_candidate_sandbox_is_unavailable \
+            tests/unit/test_candidate_sandbox.py::test_model_file_path_cannot_escape_through_symlink \
+            tests/e2e/test_barebones_e1.py::test_e1_real_contract_reaches_release_ready \
+            -q
 
   security:
     runs-on: ubuntu-latest
@@ -271,8 +315,8 @@ jobs:
       - name: install wheel and smoke the CLI
         run: |
           pip install dist/*.whl ruff pytest
-          pmpe validate examples/taskflow_mvp_spec.yaml
-          pmpe contract validate examples/v2-demo/contract.json
+          pmpe legacy validate examples/taskflow_mvp_spec.yaml
+          pmpe legacy contract validate examples/v2-demo/contract.json
           python -c 'import importlib.util; assert importlib.util.find_spec("pmpe.orchestration.workflow") is None'
       - name: explicit legacy fixture smoke (not shipped)
         run: |
@@ -281,15 +325,15 @@ jobs:
           python -m pytest -q tests/e2e/test_full_pipeline.py
       - name: eval suites (agents + planted trajectory fixture)
         run: |
-          pmpe evals run --suite all --ledger evals/fixtures/trajectory/good_run.jsonl
+          pmpe legacy evals run --suite all --ledger evals/fixtures/trajectory/good_run.jsonl
       - name: drift gate holds on a planted regression
         run: |
           set +e
-          pmpe drift compare --baseline evals/baselines/synthetic-baseline.json \
+          pmpe legacy drift compare --baseline evals/baselines/synthetic-baseline.json \
               --current evals/fixtures/drift/current_hard_gate_failure.json
           status=$?
           set -e
           test "$status" -eq 3 || { echo "expected HOLD (exit 3), got $status"; exit 1; }
       - name: synthetic end-to-end demo
         run: |
-          pmpe demo --base-dir /tmp/ci-demo
+          pmpe legacy demo --base-dir /tmp/ci-demo
