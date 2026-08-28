@@ -3294,6 +3294,7 @@ class LifecycleControlPlane:
         RetentionController(retention_days=retention_days).purge(
             path.parent,
             now=trusted_clock(),
+            exclude_run_dir=path,
         )
         path.mkdir(parents=True, exist_ok=True)
         cp = cls(

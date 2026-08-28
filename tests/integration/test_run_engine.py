@@ -10,6 +10,8 @@ grammar by construction, not by coincidence.
 from __future__ import annotations
 
 import json
+import os
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -256,6 +258,27 @@ def test_start_reserves_the_retention_tombstone_namespace(tmp_path: Path) -> Non
             agents_dir=AGENTS_DIR,
             fixture_mode=True,
         )
+
+
+def test_start_retry_preserves_an_expired_completed_run(run: EngineeringRun) -> None:
+    state = run.run_dir / "run-state.json"
+    payload = json.loads(state.read_text())
+    payload["stage"] = "complete"
+    state.write_text(json.dumps(payload))
+    old = datetime(2020, 1, 1, tzinfo=UTC).timestamp()
+    os.utime(state, (old, old))
+
+    with pytest.raises(PmpeError, match="resume"):
+        EngineeringRun.start(
+            CONTRACT,
+            run.run_dir,
+            agents_dir=AGENTS_DIR,
+            fixture_mode=True,
+            retention_days=30,
+            trusted_clock=lambda: datetime(2030, 1, 31, tzinfo=UTC),
+        )
+
+    assert state.exists()
 
 
 def test_resume_preserves_state_and_appends_nothing(run: EngineeringRun) -> None:

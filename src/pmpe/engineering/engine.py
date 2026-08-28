@@ -122,6 +122,7 @@ class EngineeringRun:
         RetentionController(retention_days=retention_days).purge(
             run_dir.parent,
             now=trusted_clock(),
+            exclude_run_dir=run_dir,
         )
         if (run_dir / _STATE_FILE).exists():
             raise PmpeError(

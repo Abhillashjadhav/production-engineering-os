@@ -246,6 +246,28 @@ def test_retention_controller_deletes_expired_completed_engineering_runs(
     assert not completed.exists()
 
 
+def test_retention_controller_never_deletes_the_requested_active_run(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    requested = tmp_path / "requested-run"
+    requested.mkdir()
+    state = requested / "run-state.json"
+    state.write_text('{"stage":"complete"}\n')
+    old = (now - timedelta(days=31)).timestamp()
+    os.utime(state, (old, old))
+
+    result = RetentionController(retention_days=30).purge(
+        tmp_path,
+        now=now,
+        exclude_run_dir=requested,
+    )
+
+    assert result.deleted == ()
+    assert result.retained == ("requested-run",)
+    assert state.exists()
+
+
 def test_retention_controller_tolerates_a_concurrently_removed_tombstone(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

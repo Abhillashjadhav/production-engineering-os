@@ -36,6 +36,7 @@ class EventLog:
             RetentionController(retention_days=retention_days).purge(
                 run_dir.parent,
                 now=trusted_clock(),
+                exclude_run_dir=run_dir,
             )
         self.path = run_dir / "events.jsonl"
         self.path.parent.mkdir(parents=True, exist_ok=True)

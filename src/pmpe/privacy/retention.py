@@ -37,26 +37,46 @@ class RetentionController:
             raise ValueError("retention days cannot be negative")
         self.retention_days = retention_days
 
-    def purge(self, root: Path, *, now: datetime) -> RetentionResult:
+    def purge(
+        self,
+        root: Path,
+        *,
+        now: datetime,
+        exclude_run_dir: Path | None = None,
+    ) -> RetentionResult:
         root = root.resolve()
         if not root.is_dir():
             raise ValueError("retention root is unavailable")
         if now.tzinfo is None:
             raise ValueError("retention clock must carry a timezone")
+        excluded: Path | None = None
+        if exclude_run_dir is not None:
+            excluded = Path(exclude_run_dir).resolve()
+            if excluded.parent != root:
+                raise ValueError("excluded retention run must be a direct child of the root")
         cutoff = now.astimezone(UTC) - timedelta(days=self.retention_days)
         root_lock_path = root / ".retention.lock"
         with root_lock_path.open("a+") as root_lock:
             fcntl.flock(root_lock.fileno(), fcntl.LOCK_EX)
             try:
-                return self._purge_locked(root, cutoff=cutoff)
+                return self._purge_locked(root, cutoff=cutoff, excluded=excluded)
             finally:
                 fcntl.flock(root_lock.fileno(), fcntl.LOCK_UN)
 
-    def _purge_locked(self, root: Path, *, cutoff: datetime) -> RetentionResult:
+    def _purge_locked(
+        self,
+        root: Path,
+        *,
+        cutoff: datetime,
+        excluded: Path | None,
+    ) -> RetentionResult:
         deleted: list[str] = []
         retained: list[str] = []
         for run_dir in sorted(root.iterdir()):
             if run_dir.is_symlink() or not run_dir.is_dir():
+                continue
+            if excluded is not None and run_dir.resolve() == excluded:
+                retained.append(run_dir.name)
                 continue
             if run_dir.name.startswith(_TOMBSTONE_PREFIX):
                 with suppress(FileNotFoundError):

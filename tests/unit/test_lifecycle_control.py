@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import threading
 import time
 from collections.abc import Mapping
@@ -5062,6 +5063,30 @@ def test_creation_recovers_the_exact_metadata_only_crash_window(
     )
     assert recovered.run_id == "recoverable-run"
     assert LifecycleControlPlane.load(tmp_path).events == recovered.events
+
+
+def test_creation_retry_preserves_an_expired_completed_lifecycle_run(tmp_path: Path) -> None:
+    run_dir = tmp_path / "requested-run"
+    existing = control_plane(run_dir, state=LifecycleState.COMPLETED)
+    old = datetime(2020, 1, 1, tzinfo=UTC).timestamp()
+    os.utime(existing.ledger_path, (old, old))
+    policy, _ = budgets()
+
+    recovered = LifecycleControlPlane.create(
+        run_dir,
+        run_id="run-65",
+        subject_digest=SHA,
+        initial_state=LifecycleState.CONTRACT_RECEIVED,
+        budget_policy=policy,
+        lifecycle_policy=PHASE_ZERO_POLICY,
+        trust_policy=TRUST_POLICY,
+        evidence_verifier=verify_external_proof,
+        retention_days=30,
+        trusted_clock=lambda: datetime(2030, 1, 31, tzinfo=UTC),
+    )
+
+    assert recovered.state is LifecycleState.COMPLETED
+    assert existing.ledger_path.exists()
 
 
 def test_budget_policy_limits_cannot_be_mutated_without_admission() -> None:
