@@ -1228,6 +1228,7 @@
         "title": "IngestResponse",
         "type": "object"
       },
+      "JsonValue": {},
       "Location": {
         "additionalProperties": false,
         "properties": {
@@ -1452,7 +1453,9 @@
             "title": "Expected Value"
           },
           "extensions": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
             "title": "Extensions",
             "type": "object"
           },

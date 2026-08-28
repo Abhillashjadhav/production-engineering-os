@@ -167,6 +167,119 @@ def test_overflowing_delta_is_unavailable_without_poisoning_history(tmp_path: Pa
     assert build_overview(store.list_runs(), mode="LIVE").products[0].health == "FAILING"
 
 
+@pytest.mark.parametrize(
+    ("higher_is_better", "approved_value", "current_value", "threshold", "failed_value"),
+    [
+        (True, 1e308, -1e308, -1e308, -1.5e308),
+        (False, -1e308, 1e308, 1e308, 1.5e308),
+    ],
+)
+def test_overflowing_passing_regression_fails_closed(
+    higher_is_better: bool,
+    approved_value: float,
+    current_value: float,
+    threshold: float,
+    failed_value: float,
+) -> None:
+    baseline = next(
+        run for run in build_demo_runs() if run.run_id == "dream-job-2026-08-24"
+    ).model_copy(deep=True)
+    baseline.run_id = f"overflow-approved-{higher_is_better}"
+    baseline_source = next(
+        item for item in baseline.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    baseline_source.current_value = approved_value
+    baseline_source.expected_value = approved_value
+    baseline_source.threshold = threshold
+    baseline_source.higher_is_better = higher_is_better
+
+    current = baseline.model_copy(deep=True)
+    current.run_id = f"overflow-degraded-{higher_is_better}"
+    current.comparison.run_id = baseline.run_id
+    current.observed_at = baseline.observed_at + timedelta(days=1)
+    current_source = next(
+        item
+        for item in current.observations
+        if item.observation_id == baseline_source.observation_id
+    )
+    current_source.current_value = current_value
+    current_source.expected_value = approved_value
+
+    baseline = RunEnvelope.model_validate(baseline.model_dump(mode="python"))
+    current = RunEnvelope.model_validate(current.model_dump(mode="python"))
+    diagnosis = diagnose_run(current, comparison=baseline)
+    degraded = next(
+        item
+        for item in diagnosis.diagnoses
+        if item.observation_id == current_source.observation_id
+    )
+    overview = build_overview(
+        [baseline, current],
+        mode="LIVE",
+        generated_at=current.observed_at,
+    )
+
+    assert diagnosis.health == "DEGRADED"
+    assert degraded.attribution == "DEGRADED_CHECK"
+    assert degraded.signed_delta is None
+    assert degraded.regression_magnitude is None
+    assert overview.products[0].health == "DEGRADED"
+    assert overview.incidents[0].regression_magnitude is None
+
+    latest = current.model_copy(deep=True)
+    latest.run_id = f"after-overflow-{higher_is_better}"
+    latest.comparison.run_id = current.run_id
+    latest.observed_at = current.observed_at + timedelta(days=1)
+    latest_source = next(
+        item
+        for item in latest.observations
+        if item.observation_id == current_source.observation_id
+    )
+    latest_source.status = "FAIL"
+    latest_source.current_value = failed_value
+    latest_source.expected_value = current_value
+    latest = RunEnvelope.model_validate(latest.model_dump(mode="python"))
+
+    latest_overview = build_overview(
+        [baseline, current, latest],
+        mode="LIVE",
+        generated_at=latest.observed_at,
+    )
+    latest_incident = next(
+        item
+        for item in latest_overview.incidents
+        if item.observation_id == latest_source.observation_id
+    )
+    assert latest_incident.comparison_label == "Comparison unavailable"
+    assert latest_incident.expected_value is None
+
+
+def test_observation_extensions_require_finite_json_values(tmp_path: Path) -> None:
+    run = _failed_dream_job_run()
+    overflowing_json = run.model_dump_json().replace(
+        '"extensions":{}',
+        '"extensions":{"nested":{"score":1e400}}',
+        1,
+    )
+
+    with pytest.raises(ValidationError, match="finite JSON numbers"):
+        RunEnvelope.model_validate_json(overflowing_json)
+
+    client = TestClient(
+        create_app(
+            monitoring_data_dir=tmp_path,
+            monitoring_ingest_token=INGEST_TOKEN,
+        )
+    )
+    response = client.post(
+        "/api/monitoring/runs",
+        content=overflowing_json,
+        headers={**_ingest_headers(), "content-type": "application/json"},
+    )
+    assert response.status_code == 422
+    assert "finite JSON numbers" in str(response.json())
+
+
 def test_controlled_replay_requires_a_real_control_and_fixed_dimensions() -> None:
     run = _failed_dream_job_run()
     source = next(

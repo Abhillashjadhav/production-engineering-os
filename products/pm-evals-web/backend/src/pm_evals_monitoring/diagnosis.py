@@ -104,8 +104,24 @@ def _verified_comparison_observation(
 
 
 def _exceeds_degradation_tolerance(observation: Observation) -> bool:
-    delta = _signed_delta(observation)
-    return observation.status == "PASS" and delta is not None and delta < -observation.tolerance
+    if (
+        observation.status != "PASS"
+        or observation.current_value is None
+        or observation.expected_value is None
+    ):
+        return False
+    if observation.higher_is_better:
+        if observation.current_value >= observation.expected_value:
+            return False
+        regression_gap = observation.expected_value - observation.current_value
+    else:
+        if observation.current_value <= observation.expected_value:
+            return False
+        regression_gap = observation.current_value - observation.expected_value
+    # Both operands are finite. A positive overflow therefore represents a real
+    # regression beyond every finite tolerance, even though its magnitude cannot
+    # be represented for display.
+    return not isfinite(regression_gap) or regression_gap > observation.tolerance
 
 
 def _verified_degraded_observation_ids(

@@ -71,9 +71,11 @@ and check with exactly that expected value. Missing or mismatched comparison
 evidence is labelled **Comparison unavailable** instead of being inferred from
 the current run's self-reported expectation.
 
-All submitted numbers must be finite. If arithmetic on two valid extreme values
-would overflow, the difference is shown as unavailable instead of breaking
-ingestion or poisoning stored history. Incident values use adaptive display
+All submitted numbers, including values nested inside extensions, must be
+finite. If arithmetic on two valid extreme values would overflow, endpoint
+ordering still marks the regression as degraded while the difference is shown
+as unavailable instead of breaking ingestion or poisoning stored history.
+Incident values use adaptive display
 precision for both ratios and native units so a real localized difference is
 never rounded to zero or scaled to infinity, switching to exponent-safe
 scientific notation when necessary.

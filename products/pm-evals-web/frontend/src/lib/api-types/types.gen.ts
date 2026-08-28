@@ -680,6 +680,8 @@ export type IngestResponse = {
     stored: boolean;
 };
 
+export type JsonValue = unknown;
+
 /**
  * Location
  */
@@ -811,7 +813,7 @@ export type Observation = {
      * Extensions
      */
     extensions?: {
-        [key: string]: unknown;
+        [key: string]: JsonValue;
     };
     /**
      * Higher Is Better

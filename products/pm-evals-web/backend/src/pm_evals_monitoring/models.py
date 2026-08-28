@@ -9,9 +9,18 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from math import isfinite
+from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    field_validator,
+    model_validator,
+)
 
 ObservationStatus = Literal["PASS", "FAIL", "BLOCKED", "NOT_EVALUATED"]
 Attribution = Literal[
@@ -258,7 +267,24 @@ class Observation(StrictModel):
     evidence_refs: list[EvidenceRef] = Field(default_factory=list)
     cause_signals: list[CauseSignal] = Field(default_factory=list)
     remediation: Remediation
-    extensions: dict[str, Any] = Field(default_factory=dict)
+    extensions: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @field_validator("extensions")
+    @classmethod
+    def validate_extensions(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        # JsonValue rejects non-JSON Python objects. Pydantic trusts numbers parsed
+        # from JSON, however, so retain an explicit recursive finite-number check
+        # for overflowing literals such as 1e400 as well.
+        pending: list[JsonValue] = list(value.values())
+        while pending:
+            item = pending.pop()
+            if isinstance(item, float) and not isfinite(item):
+                raise ValueError("extensions must contain only finite JSON numbers")
+            if isinstance(item, list):
+                pending.extend(item)
+            elif isinstance(item, dict):
+                pending.extend(item.values())
+        return value
 
     @model_validator(mode="after")
     def validate_measurement(self) -> Observation:
