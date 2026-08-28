@@ -334,6 +334,14 @@ def test_every_budget_is_positive_and_bounded(field: str, value: int) -> None:
         _compile(selection)
 
 
+def test_recorded_tool_agent_budget_covers_every_fixture_tool_call() -> None:
+    selection = _tool_agent_selection()
+    selection["budgets"]["max_tool_calls"] = 1
+
+    with pytest.raises(TemplateSelectionError, match="recorded tool calls"):
+        _compile(selection)
+
+
 def test_fixture_identity_and_digest_are_required() -> None:
     selection = _e1_selection()
     selection["fixture"]["fixture_digest"] = "sha256:" + "3" * 64
@@ -474,6 +482,88 @@ def test_referenced_functional_requirement_rejects_dangling_acceptance_reference
             expected_approver="fixture-human",
             trusted_clock=lambda: NOW,
         )
+
+
+@pytest.mark.parametrize(
+    "secondary",
+    [
+        None,
+        {
+            "criterion": "Exercise secondary behavior.",
+            "requirement_refs": ["FR-MISSING"],
+            "verification_method": "manual.review/v1",
+        },
+    ],
+)
+def test_bound_requirement_validates_referenced_criterion_closure(secondary: object) -> None:
+    contract = _contract(_e1_selection())
+    contract["acceptance_criteria"]["AC-SECONDARY"] = secondary
+    contract["functional_requirements"]["FR-001"]["acceptance_criterion_refs"].append(
+        "AC-SECONDARY"
+    )
+
+    with pytest.raises(TemplateSelectionError, match="malformed acceptance criterion"):
+        compile_phase_b_selection(
+            contract,
+            _approval(contract),
+            expected_approver="fixture-human",
+            trusted_clock=lambda: NOW,
+        )
+
+
+def test_valid_referenced_criterion_closure_is_admitted() -> None:
+    contract = _contract(_e1_selection())
+    contract["acceptance_criteria"]["AC-SECONDARY"] = {
+        "criterion": "Exercise secondary behavior.",
+        "requirement_refs": ["FR-002"],
+        "verification_method": "manual.review/v1",
+    }
+    contract["functional_requirements"]["FR-001"]["acceptance_criterion_refs"].append(
+        "AC-SECONDARY"
+    )
+    contract["functional_requirements"]["FR-002"] = {
+        "acceptance_criterion_refs": ["AC-SECONDARY"],
+        "priority": "SHOULD",
+        "statement": "Exercise secondary behavior.",
+        "title": "Exercise secondary behavior",
+    }
+
+    compiled = compile_phase_b_selection(
+        contract,
+        _approval(contract),
+        expected_approver="fixture-human",
+        trusted_clock=lambda: NOW,
+    )
+
+    assert compiled.as_dict()["template_type"] == "barebones_e1"
+
+
+def test_referenced_functional_requirement_rejects_missing_entity() -> None:
+    contract = _contract(_e1_selection())
+    contract["functional_requirements"]["FR-001"]["entity_ref"] = "ENTITY-MISSING"
+
+    with pytest.raises(TemplateSelectionError, match="malformed functional requirement"):
+        compile_phase_b_selection(
+            contract,
+            _approval(contract),
+            expected_approver="fixture-human",
+            trusted_clock=lambda: NOW,
+        )
+
+
+def test_referenced_functional_requirement_resolves_existing_entity() -> None:
+    contract = _contract(_e1_selection())
+    contract["data"] = {"entities": {"ENTITY-CUSTOMER": {}}}
+    contract["functional_requirements"]["FR-001"]["entity_ref"] = "ENTITY-CUSTOMER"
+
+    compiled = compile_phase_b_selection(
+        contract,
+        _approval(contract),
+        expected_approver="fixture-human",
+        trusted_clock=lambda: NOW,
+    )
+
+    assert compiled.as_dict()["template_type"] == "barebones_e1"
 
 
 def test_capability_binding_rejects_noncanonical_acceptance_identifier() -> None:

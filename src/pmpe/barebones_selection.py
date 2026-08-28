@@ -176,6 +176,9 @@ def _load_recorded_tool_agent_fixture() -> dict[str, Any]:
 RECORDED_TOOL_AGENT_FIXTURE = _load_recorded_tool_agent_fixture()
 RECORDED_TOOL_AGENT_FIXTURE_DIGEST = canonical_digest(RECORDED_TOOL_AGENT_FIXTURE)
 _TOOL_FIXTURE_DIGEST = RECORDED_TOOL_AGENT_FIXTURE_DIGEST
+_TOOL_FIXTURE_CALL_COUNT = sum(
+    event["kind"] == "tool_result" for event in RECORDED_TOOL_AGENT_FIXTURE["events"]
+)
 
 
 def _utc_now() -> datetime:
@@ -433,8 +436,10 @@ def _validate_budgets(identity: str, raw: object) -> dict[str, int]:
         raise TemplateSelectionError("execution budget is outside its bound")
     if identity == "e1" and budgets["max_tool_calls"] != 0:
         raise TemplateSelectionError("E1 execution budget cannot authorize tool calls")
-    if identity == "tool-agent" and budgets["max_tool_calls"] == 0:
-        raise TemplateSelectionError("tool-agent execution budget must bound tool calls")
+    if identity == "tool-agent" and budgets["max_tool_calls"] < _TOOL_FIXTURE_CALL_COUNT:
+        raise TemplateSelectionError(
+            "tool-agent execution budget cannot cover the recorded tool calls"
+        )
     return budgets
 
 
@@ -459,7 +464,8 @@ def _validate_functional_requirement(
     *,
     criterion_id: str,
     criteria: Mapping[str, Any],
-) -> None:
+    entities: Mapping[str, Any],
+) -> tuple[str, ...]:
     required = {"acceptance_criterion_refs", "priority", "statement", "title"}
     admitted = required | {"capability", "entity_ref"}
     if (
@@ -493,11 +499,72 @@ def _validate_functional_requirement(
         and (
             not isinstance(raw["entity_ref"], str)
             or not re.fullmatch(r"ENTITY-[A-Z0-9]+(?:-[A-Z0-9]+)*", raw["entity_ref"])
+            or raw["entity_ref"] not in entities
         )
     ):
         raise TemplateSelectionError(
             "acceptance criterion references a malformed functional requirement"
         )
+    return tuple(criterion_refs)
+
+
+def _validate_criterion_closure(
+    criterion_id: str,
+    *,
+    criteria: Mapping[str, Any],
+    requirements: Mapping[str, Any],
+    entities: Mapping[str, Any],
+    expected_verifier: str | None,
+    visited: set[str],
+) -> None:
+    criterion = criteria.get(criterion_id)
+    if not isinstance(criterion, Mapping) or set(criterion) != {
+        "criterion",
+        "requirement_refs",
+        "verification_method",
+    }:
+        raise TemplateSelectionError("capability references a malformed acceptance criterion")
+    verification_method = criterion.get("verification_method")
+    if (
+        not isinstance(criterion.get("criterion"), str)
+        or not str(criterion["criterion"]).strip()
+        or not isinstance(verification_method, str)
+        or not verification_method.strip()
+        or expected_verifier is not None
+        and verification_method != expected_verifier
+    ):
+        raise TemplateSelectionError("capability references a malformed acceptance criterion")
+    if criterion_id in visited:
+        return
+    visited.add(criterion_id)
+    requirement_refs = criterion.get("requirement_refs")
+    if (
+        not isinstance(requirement_refs, list)
+        or not requirement_refs
+        or not all(
+            isinstance(reference, str) and reference in requirements
+            for reference in requirement_refs
+        )
+        or len(requirement_refs) != len(set(requirement_refs))
+    ):
+        raise TemplateSelectionError("capability references a malformed acceptance criterion")
+    for requirement_id in requirement_refs:
+        criterion_refs = _validate_functional_requirement(
+            requirement_id,
+            requirements[requirement_id],
+            criterion_id=criterion_id,
+            criteria=criteria,
+            entities=entities,
+        )
+        for referenced_criterion_id in criterion_refs:
+            _validate_criterion_closure(
+                referenced_criterion_id,
+                criteria=criteria,
+                requirements=requirements,
+                entities=entities,
+                expected_verifier=None,
+                visited=visited,
+            )
 
 
 def _validate_capabilities(
@@ -522,8 +589,12 @@ def _validate_capabilities(
     requirements = contract.get("functional_requirements")
     if not isinstance(requirements, Mapping):
         raise TemplateSelectionError("acceptance criteria require functional requirements")
+    raw_data = contract.get("data")
+    raw_entities = raw_data.get("entities") if isinstance(raw_data, Mapping) else None
+    entities: Mapping[str, Any] = raw_entities if isinstance(raw_entities, Mapping) else {}
     bindings: list[dict[str, Any]] = []
     seen: set[str] = set()
+    visited_criteria: set[str] = set()
     for item in raw_bindings:
         if not isinstance(item, Mapping) or set(item) != {
             "acceptance_criterion_ids",
@@ -553,40 +624,14 @@ def _validate_capabilities(
                 "capability references an unavailable acceptance criterion"
             )
         for criterion_id in criterion_ids:
-            criterion = criteria[criterion_id]
-            if not isinstance(criterion, Mapping) or set(criterion) != {
-                "criterion",
-                "requirement_refs",
-                "verification_method",
-            }:
-                raise TemplateSelectionError(
-                    "capability references a malformed acceptance criterion"
-                )
-            requirement_refs = criterion.get("requirement_refs")
-            if (
-                not isinstance(criterion.get("criterion"), str)
-                or not str(criterion["criterion"]).strip()
-                or not isinstance(criterion.get("verification_method"), str)
-                or not str(criterion["verification_method"]).strip()
-                or criterion.get("verification_method") != verifier
-                or not isinstance(requirement_refs, list)
-                or not requirement_refs
-                or not all(
-                    isinstance(reference, str) and reference in requirements
-                    for reference in requirement_refs
-                )
-                or len(requirement_refs) != len(set(requirement_refs))
-            ):
-                raise TemplateSelectionError(
-                    "capability references a malformed acceptance criterion"
-                )
-            for requirement_id in requirement_refs:
-                _validate_functional_requirement(
-                    requirement_id,
-                    requirements[requirement_id],
-                    criterion_id=criterion_id,
-                    criteria=criteria,
-                )
+            _validate_criterion_closure(
+                criterion_id,
+                criteria=criteria,
+                requirements=requirements,
+                entities=entities,
+                expected_verifier=verifier,
+                visited=visited_criteria,
+            )
         seen.add(capability)
         bindings.append(
             {
