@@ -64,6 +64,10 @@ function actionLabel(action: Incident["maintenance"]["eval_action"]): string {
   return "Investigate first";
 }
 
+function productIdentity(product: Pick<ProductHealth, "product_id" | "environment">): string {
+  return `${product.product_id}\u001f${product.environment}`;
+}
+
 function Sparkline({ points }: { points: TrendPoint[] }) {
   const width = 260;
   const height = 72;
@@ -153,6 +157,7 @@ function IncidentCard({ incident }: { incident: Incident }) {
         </div>
 
         <p className="case-context">
+          <span><strong>Environment:</strong> {incident.environment}</span>
           <span><strong>Use case:</strong> {incident.case.use_case_id}</span>
           <span><strong>Segment:</strong> {incident.case.segment}</span>
           <span><strong>Check:</strong> {humanize(incident.layer)} · {humanize(incident.concern)}</span>
@@ -262,7 +267,11 @@ function CoverageMatrix({
         <thead>
           <tr>
             <th scope="col">{axis === "layers" ? "Evaluation layer" : "What it protects"}</th>
-            {products.map((product) => <th scope="col" key={product.product_id}>{product.display_name}</th>)}
+            {products.map((product) => (
+              <th scope="col" key={productIdentity(product)}>
+                {product.display_name} · {product.environment}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
@@ -272,7 +281,7 @@ function CoverageMatrix({
               {products.map((product) => {
                 const result = product[axis].find((item) => item.name === name);
                 return (
-                  <td key={product.product_id}>
+                  <td key={productIdentity(product)}>
                     {result ? (
                       <span className={`coverage-status ${healthClass(result.health)}`}>
                         {humanize(result.health)}
@@ -308,7 +317,7 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
 
   const filteredIncidents = useMemo(
     () => overview?.incidents.filter(
-      (incident) => selectedProduct === "all" || incident.product_id === selectedProduct,
+      (incident) => selectedProduct === "all" || productIdentity(incident) === selectedProduct,
     ) ?? [],
     [overview, selectedProduct],
   );
@@ -333,7 +342,11 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
   }
 
   const healthyProducts = overview.products.filter((product) => product.health === "HEALTHY").length;
-  const exactCases = new Set(overview.incidents.map((incident) => incident.case.case_id)).size;
+  const exactCases = new Set(
+    overview.incidents.map(
+      (incident) => `${productIdentity(incident)}\u001f${incident.case.case_id}`,
+    ),
+  ).size;
   const metrics = overview.attribution_metrics;
 
   return (
@@ -379,11 +392,13 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
       <div className="product-grid">
         {overview.products.map((product) => (
           <ProductCard
-            key={product.product_id}
+            key={productIdentity(product)}
             product={product}
-            trend={overview.trend.filter((point) => point.product_id === product.product_id)}
-            selected={selectedProduct === product.product_id}
-            onSelect={() => setSelectedProduct(product.product_id)}
+            trend={overview.trend.filter(
+              (point) => productIdentity(point) === productIdentity(product),
+            )}
+            selected={selectedProduct === productIdentity(product)}
+            onSelect={() => setSelectedProduct(productIdentity(product))}
           />
         ))}
       </div>

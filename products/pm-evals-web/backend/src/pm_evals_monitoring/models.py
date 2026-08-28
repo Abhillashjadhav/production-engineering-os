@@ -314,6 +314,7 @@ class Incident(StrictModel):
     incident_id: str
     product_id: str
     product_name: str
+    environment: str
     run_id: str
     comparison_run_id: str
     comparison_label: str
@@ -348,6 +349,7 @@ class Incident(StrictModel):
 
 class TrendPoint(StrictModel):
     product_id: str
+    environment: str
     observed_at: datetime
     health: RunHealth
     pass_rate: float

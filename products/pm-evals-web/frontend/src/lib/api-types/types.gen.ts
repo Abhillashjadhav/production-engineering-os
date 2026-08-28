@@ -584,6 +584,10 @@ export type Incident = {
      */
     downstream_observation_ids: Array<string>;
     /**
+     * Environment
+     */
+    environment: string;
+    /**
      * Evidence Level
      */
     evidence_level: 'DEPENDENCY_ONLY' | 'CHANGE_CORRELATION' | 'CONTROLLED_REPLAY' | 'HUMAN_ADJUDICATION';
@@ -1157,6 +1161,10 @@ export type TraceComparison = {
  * TrendPoint
  */
 export type TrendPoint = {
+    /**
+     * Environment
+     */
+    environment: string;
     /**
      * Health
      */

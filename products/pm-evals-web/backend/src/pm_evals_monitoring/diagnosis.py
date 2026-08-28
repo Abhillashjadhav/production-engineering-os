@@ -115,7 +115,11 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
 
     by_id = {item.observation_id: item for item in run.observations}
     failed = {item.observation_id for item in run.observations if item.status == "FAIL"}
-    blocked = {item.observation_id for item in run.observations if item.status == "BLOCKED"}
+    missing_evidence = {
+        item.observation_id
+        for item in run.observations
+        if item.status in {"BLOCKED", "NOT_EVALUATED"}
+    }
     memo: dict[str, tuple[str, tuple[str, ...], str]] = {}
 
     def classify(observation_id: str) -> tuple[str, tuple[str, ...], str]:
@@ -123,7 +127,9 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
             return memo[observation_id]
         observation = by_id[observation_id]
         failed_dependencies = [item for item in observation.depends_on if item in failed]
-        blocked_dependencies = [item for item in observation.depends_on if item in blocked]
+        missing_dependencies = [
+            item for item in observation.depends_on if item in missing_evidence
+        ]
         if failed_dependencies:
             roots: set[str] = set()
             for dependency_id in failed_dependencies:
@@ -137,11 +143,11 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
                 tuple(sorted(roots)),
                 "A failed upstream check can explain this later failure.",
             )
-        elif blocked_dependencies:
+        elif missing_dependencies:
             result = (
                 "UNCONFIRMED",
                 (),
-                "Required upstream evidence is blocked, so the starting point is unknown.",
+                "Required upstream evidence is blocked or not evaluated, so the starting point is unknown.",
             )
         else:
             result = (
@@ -289,19 +295,31 @@ def build_overview(
 ) -> MonitoringOverview:
     if not runs:
         raise ValueError("at least one run is required")
-    ordered = sorted(runs, key=lambda item: (item.observed_at, item.run_id))
-    runs_by_id = {run.run_id: run for run in ordered}
-    latest: dict[str, RunEnvelope] = {}
-    diagnoses: dict[str, RunDiagnosis] = {}
+    ordered = sorted(
+        runs,
+        key=lambda item: (
+            item.observed_at,
+            item.product.id,
+            item.product.environment,
+            item.run_id,
+        ),
+    )
+    runs_by_identity = {
+        (run.product.id, run.product.environment, run.run_id): run for run in ordered
+    }
+    latest: dict[tuple[str, str], RunEnvelope] = {}
+    diagnoses: dict[tuple[str, str, str], RunDiagnosis] = {}
     trend: list[TrendPoint] = []
     for run in ordered:
         diagnosis = diagnose_run(run)
-        diagnoses[run.run_id] = diagnosis
-        latest[run.product.id] = run
+        run_identity = (run.product.id, run.product.environment, run.run_id)
+        diagnoses[run_identity] = diagnosis
+        latest[(run.product.id, run.product.environment)] = run
         evaluated = diagnosis.pass_count + diagnosis.fail_count
         trend.append(
             TrendPoint(
                 product_id=run.product.id,
+                environment=run.product.environment,
                 observed_at=run.observed_at,
                 health=diagnosis.health,
                 pass_rate=(diagnosis.pass_count / evaluated) if evaluated else 0.0,
@@ -310,14 +328,15 @@ def build_overview(
 
     products: list[ProductHealth] = []
     incidents: list[Incident] = []
-    for product_id, run in sorted(latest.items()):
-        diagnosis = diagnoses[run.run_id]
+    for (product_id, environment), run in sorted(latest.items()):
+        run_identity = (product_id, environment, run.run_id)
+        diagnosis = diagnoses[run_identity]
         products.append(
             ProductHealth(
                 product_id=product_id,
                 display_name=run.product.display_name,
                 version=run.product.version,
-                environment=run.product.environment,
+                environment=environment,
                 latest_run_id=run.run_id,
                 observed_at=run.observed_at,
                 health=diagnosis.health,
@@ -330,7 +349,7 @@ def build_overview(
         )
         by_id = {item.observation_id: item for item in run.observations}
         diagnosis_by_id = {item.observation_id: item for item in diagnosis.diagnoses}
-        comparison = runs_by_id.get(run.comparison.run_id)
+        comparison = runs_by_identity.get((product_id, environment, run.comparison.run_id))
         changes = _changes(run, comparison)
         for starting_id in diagnosis.likely_starting_observation_ids:
             observation = by_id[starting_id]
@@ -347,9 +366,10 @@ def build_overview(
             unique_evidence = {item.sha256: item for item in evidence}
             incidents.append(
                 Incident(
-                    incident_id=f"{run.run_id}:{starting_id}",
+                    incident_id=f"{product_id}:{environment}:{run.run_id}:{starting_id}",
                     product_id=product_id,
                     product_name=run.product.display_name,
+                    environment=environment,
                     run_id=run.run_id,
                     comparison_run_id=run.comparison.run_id,
                     comparison_label=run.comparison.label,

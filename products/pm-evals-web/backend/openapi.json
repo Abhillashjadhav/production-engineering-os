@@ -1025,6 +1025,10 @@
             "title": "Downstream Observation Ids",
             "type": "array"
           },
+          "environment": {
+            "title": "Environment",
+            "type": "string"
+          },
           "evidence_level": {
             "enum": [
               "DEPENDENCY_ONLY",
@@ -1151,6 +1155,7 @@
           "incident_id",
           "product_id",
           "product_name",
+          "environment",
           "run_id",
           "comparison_run_id",
           "comparison_label",
@@ -2003,6 +2008,10 @@
       "TrendPoint": {
         "additionalProperties": false,
         "properties": {
+          "environment": {
+            "title": "Environment",
+            "type": "string"
+          },
           "health": {
             "enum": [
               "HEALTHY",
@@ -2029,6 +2038,7 @@
         },
         "required": [
           "product_id",
+          "environment",
           "observed_at",
           "health",
           "pass_rate"

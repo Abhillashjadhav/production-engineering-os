@@ -52,6 +52,7 @@ const OVERVIEW: MonitoringOverview = {
       incident_id: "dream-run:source-linkedin-coverage",
       product_id: "dream-job-agent",
       product_name: "Dream Job Agent",
+      environment: "production",
       run_id: "dream-run",
       comparison_run_id: "dream-approved",
       comparison_label: "Last approved good run",
@@ -102,15 +103,15 @@ const OVERVIEW: MonitoringOverview = {
     },
   ],
   trend: [
-    { product_id: "dream-job-agent", observed_at: "2026-08-27T12:00:00Z", health: "HEALTHY", pass_rate: 1 },
-    { product_id: "dream-job-agent", observed_at: "2026-08-28T12:00:00Z", health: "FAILING", pass_rate: 0.6 },
-    { product_id: "linkedin-research-os", observed_at: "2026-08-27T10:00:00Z", health: "HEALTHY", pass_rate: 1 },
-    { product_id: "linkedin-research-os", observed_at: "2026-08-28T10:00:00Z", health: "HEALTHY", pass_rate: 1 },
+    { product_id: "dream-job-agent", environment: "production", observed_at: "2026-08-27T12:00:00Z", health: "HEALTHY", pass_rate: 1 },
+    { product_id: "dream-job-agent", environment: "production", observed_at: "2026-08-28T12:00:00Z", health: "FAILING", pass_rate: 0.6 },
+    { product_id: "linkedin-research-os", environment: "production", observed_at: "2026-08-27T10:00:00Z", health: "HEALTHY", pass_rate: 1 },
+    { product_id: "linkedin-research-os", environment: "production", observed_at: "2026-08-28T10:00:00Z", health: "HEALTHY", pass_rate: 1 },
   ],
 };
 
-function fetchOverview(): typeof fetch {
-  return async () => new Response(JSON.stringify(OVERVIEW), {
+function fetchOverview(overview: MonitoringOverview = OVERVIEW): typeof fetch {
+  return async () => new Response(JSON.stringify(overview), {
     status: 200,
     headers: { "content-type": "application/json" },
   });
@@ -140,6 +141,34 @@ describe("MonitoringDashboard", () => {
   it("filters failed cases by product", async () => {
     render(<MonitoringDashboard fetcher={fetchOverview()} />);
     fireEvent.click(await screen.findByRole("button", { name: /linkedin research os/i }));
+    expect(screen.getByText(/no starting failure found/i)).toBeInTheDocument();
+  });
+
+  it("keeps production incidents out of the staging product view", async () => {
+    const stagingProduct = {
+      ...OVERVIEW.products[0],
+      environment: "staging",
+      latest_run_id: "dream-staging-run",
+      health: "HEALTHY" as const,
+      fail_count: 0,
+    };
+    const multiEnvironmentOverview: MonitoringOverview = {
+      ...OVERVIEW,
+      products: [...OVERVIEW.products, stagingProduct],
+      trend: [
+        ...OVERVIEW.trend,
+        {
+          product_id: "dream-job-agent",
+          environment: "staging",
+          observed_at: "2026-08-28T12:05:00Z",
+          health: "HEALTHY",
+          pass_rate: 1,
+        },
+      ],
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(multiEnvironmentOverview)} />);
+    fireEvent.click(await screen.findByRole("button", { name: /dream job agent staging/i }));
     expect(screen.getByText(/no starting failure found/i)).toBeInTheDocument();
   });
 });
