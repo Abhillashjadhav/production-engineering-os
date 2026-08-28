@@ -673,9 +673,7 @@ def _lexical_import_aliases(
     # Python's actual definition-time name resolution. Lambda defaults follow the
     # same rule.
     for child, parent in scope_parent.items():
-        if not isinstance(
-            child, (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef, ast.Lambda)
-        ):
+        if not isinstance(child, (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef, ast.Lambda)):
             continue
         for expression in _function_definition_expressions(child):
             for expression_node in ast.walk(expression):
@@ -688,16 +686,10 @@ def _lexical_import_aliases(
     for scope in scopes:
         nodes = nodes_by_scope[scope]
         global_names = {
-            name
-            for node in nodes
-            if isinstance(node, ast.Global)
-            for name in node.names
+            name for node in nodes if isinstance(node, ast.Global) for name in node.names
         }
         nonlocal_names = {
-            name
-            for node in nodes
-            if isinstance(node, ast.Nonlocal)
-            for name in node.names
+            name for node in nodes if isinstance(node, ast.Nonlocal) for name in node.names
         }
         local_names = {
             node.id
