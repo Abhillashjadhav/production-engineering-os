@@ -92,6 +92,47 @@ def _e1_content_manifest() -> dict[str, Any]:
     }
 
 
+_TOOL_RESOURCE_PATH = "fixtures/support-kb-v1.json"
+
+
+def _load_recorded_tool_agent_resource() -> dict[str, Any]:
+    resource_path = Path(__file__).parent / "fixtures" / "support-kb-v1.json"
+    resource = strict_loads(resource_path.read_bytes(), "application/json")
+    if not isinstance(resource, Mapping) or set(resource) != {
+        "dataset_id",
+        "documents",
+        "schema_version",
+    }:
+        raise RuntimeError("recorded tool-agent resource has an unexpected shape")
+    if (
+        resource.get("dataset_id") != "support-kb-v1"
+        or resource.get("schema_version") != "repository-lookup-resource/v1"
+    ):
+        raise RuntimeError("recorded tool-agent resource identity is not admitted")
+    documents = resource.get("documents")
+    if not isinstance(documents, list) or not documents:
+        raise RuntimeError("recorded tool-agent resource must contain documents")
+    document_ids: set[str] = set()
+    for document in documents:
+        if (
+            not isinstance(document, Mapping)
+            or set(document) != {"document_id", "text"}
+            or not isinstance(document.get("document_id"), str)
+            or not str(document["document_id"]).strip()
+            or not isinstance(document.get("text"), str)
+            or not str(document["text"]).strip()
+            or document["document_id"] in document_ids
+        ):
+            raise RuntimeError("recorded tool-agent resource document is malformed")
+        document_ids.add(str(document["document_id"]))
+    canonical_json_bytes(resource)
+    return copy.deepcopy(dict(resource))
+
+
+RECORDED_TOOL_AGENT_RESOURCE = _load_recorded_tool_agent_resource()
+RECORDED_TOOL_AGENT_RESOURCE_DIGEST = canonical_digest(RECORDED_TOOL_AGENT_RESOURCE)
+
+
 _RECORDED_TOOL_AGENT_MANIFEST: dict[str, Any] = {
     "candidate_boundary": {
         "arbitrary_filesystem": False,
@@ -107,6 +148,13 @@ _RECORDED_TOOL_AGENT_MANIFEST: dict[str, Any] = {
         "mode": "recorded",
         "ordered_replay": True,
     },
+    "resources": [
+        {
+            "dataset_id": "support-kb-v1",
+            "resource_digest": RECORDED_TOOL_AGENT_RESOURCE_DIGEST,
+            "resource_scope": _TOOL_RESOURCE_PATH,
+        }
+    ],
     "template_type": "recorded_tool_agent",
     "template_version": "1.0.0",
     "tools": [
@@ -117,7 +165,7 @@ _RECORDED_TOOL_AGENT_MANIFEST: dict[str, Any] = {
         },
         {
             "effect": "read_only",
-            "resource_scopes": ["fixtures/support-kb-v1.json"],
+            "resource_scopes": [_TOOL_RESOURCE_PATH],
             "tool_id": "repository.lookup/v1",
         },
     ],
@@ -176,6 +224,9 @@ _TOOL_FIXTURE_CALL_COUNT = sum(
     event["kind"] == "tool_result" for event in RECORDED_TOOL_AGENT_FIXTURE["events"]
 )
 _TOOL_FIXTURE_STEP_COUNT = len(RECORDED_TOOL_AGENT_FIXTURE["events"])
+_TOOL_FIXTURE_RESPONSE_BYTES = sum(
+    len(canonical_json_bytes(event["response"])) for event in RECORDED_TOOL_AGENT_FIXTURE["events"]
+)
 
 
 def _utc_now() -> datetime:
@@ -438,6 +489,10 @@ def _validate_budgets(identity: str, raw: object) -> dict[str, int]:
     if identity == "tool-agent" and budgets["max_steps"] < _TOOL_FIXTURE_STEP_COUNT:
         raise TemplateSelectionError(
             "tool-agent execution budget cannot cover the recorded replay steps"
+        )
+    if identity == "tool-agent" and budgets["max_bytes"] < _TOOL_FIXTURE_RESPONSE_BYTES:
+        raise TemplateSelectionError(
+            "tool-agent execution budget cannot cover the recorded response bytes"
         )
     return budgets
 
@@ -757,6 +812,8 @@ __all__ = [
     "RECORDED_TOOL_AGENT_CONTENT_DIGEST",
     "RECORDED_TOOL_AGENT_FIXTURE",
     "RECORDED_TOOL_AGENT_FIXTURE_DIGEST",
+    "RECORDED_TOOL_AGENT_RESOURCE",
+    "RECORDED_TOOL_AGENT_RESOURCE_DIGEST",
     "CompiledTemplateSelection",
     "TemplateSelectionError",
     "compile_phase_b_selection",

@@ -29,6 +29,21 @@ _CREDENTIAL_MATERIAL_PATTERNS = PROHIBITED_SECRET_PATTERNS + (
     ),
     re.compile(rb"(?i)\b(?:basic|bearer)\s+[A-Za-z0-9._~+\-/=]{8,}"),
     re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----", re.DOTALL),
+    re.compile(rb"(?i)\b[a-z][a-z0-9+.-]*://[^/@\s]+@"),
+    re.compile(
+        rb"(?i)[\"']?\b(?:accountkey|sharedaccesskey|sharedaccesssignature|pwd|password"
+        rb"|passwd|cookie|set-cookie|aws_access_key_id|aws_secret_access_key"
+        rb"|aws_session_token|client_secret|private_key|api[-_]?key|access[-_]?token"
+        rb"|refresh[-_]?token|token|secret|signature|sig|credential)[\"']?"
+        rb"\s*[=:]\s*(?:\"[^\"]+\"|'[^']+'|[^\s,;]+)"
+    ),
+    re.compile(
+        rb"(?i)(?:^|[\s,;({\[])(?:authorization|credential|password|passwd|pwd"
+        rb"|api[-_]?key|x-api-key|access[-_]?token|refresh[-_]?token"
+        rb"|client[-_]?secret|private[-_]?key|aws_access_key_id"
+        rb"|aws_secret_access_key|aws_session_token|token|secret|cookie|set-cookie)"
+        rb"[ \t]+(?:\"[^\"]+\"|'[^']+'|[^\s,;]+)"
+    ),
 )
 
 

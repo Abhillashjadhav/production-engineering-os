@@ -8,11 +8,14 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator
 
+import pmpe.barebones_selection as selection_module
 from pmpe.barebones_selection import (
     BAREBONES_E1_CONTENT_DIGEST,
     RECORDED_TOOL_AGENT_CONTENT_DIGEST,
     RECORDED_TOOL_AGENT_FIXTURE,
     RECORDED_TOOL_AGENT_FIXTURE_DIGEST,
+    RECORDED_TOOL_AGENT_RESOURCE,
+    RECORDED_TOOL_AGENT_RESOURCE_DIGEST,
     TemplateSelectionError,
     compile_phase_b_selection,
     load_phase_b_contract,
@@ -294,6 +297,9 @@ def test_secret_values_and_unregistered_configuration_fail_closed(
         "sk_" + "live_" + "a" * 24,
         "npm_" + "a" * 24,
         "hf_" + "a" * 24,
+        "https://alice:supersecret@example.com/path",
+        "refresh_token=abcdefghijklmnop",
+        "credential abcdefghijklmnop",
     ],
 )
 def test_all_canonical_credential_formats_fail_closed(credential: str) -> None:
@@ -362,6 +368,18 @@ def test_recorded_tool_agent_budget_covers_every_fixture_replay_step() -> None:
         _compile(selection)
 
 
+def test_recorded_tool_agent_budget_covers_every_fixture_response_byte() -> None:
+    selection = _tool_agent_selection()
+    required_bytes = sum(
+        len(canonical_json_bytes(event["response"]))
+        for event in RECORDED_TOOL_AGENT_FIXTURE["events"]
+    )
+    selection["budgets"]["max_bytes"] = required_bytes - 1
+
+    with pytest.raises(TemplateSelectionError, match="recorded response bytes"):
+        _compile(selection)
+
+
 def test_fixture_identity_and_digest_are_required() -> None:
     selection = _e1_selection()
     selection["fixture"]["fixture_digest"] = "sha256:" + "3" * 64
@@ -379,6 +397,26 @@ def test_recorded_tool_agent_fixture_digest_binds_complete_replay_payload() -> N
     mutated = copy.deepcopy(fixture)
     mutated["events"][1]["response"]["matches"][0]["text"] = "Changed replay output."
     assert canonical_digest(mutated) != RECORDED_TOOL_AGENT_FIXTURE_DIGEST
+
+
+def test_recorded_tool_agent_resource_is_packaged_and_digest_bound() -> None:
+    resource_path = Path("src/pmpe/fixtures/support-kb-v1.json")
+    resource = strict_loads(resource_path.read_bytes(), "application/json")
+
+    assert resource == RECORDED_TOOL_AGENT_RESOURCE
+    assert canonical_digest(resource) == RECORDED_TOOL_AGENT_RESOURCE_DIGEST
+    assert resource["documents"][0]["text"] == (
+        "Customers may request a refund within 30 calendar days of purchase."
+    )
+    manifest = selection_module._RECORDED_TOOL_AGENT_MANIFEST
+    assert manifest["resources"] == [
+        {
+            "dataset_id": "support-kb-v1",
+            "resource_digest": RECORDED_TOOL_AGENT_RESOURCE_DIGEST,
+            "resource_scope": "fixtures/support-kb-v1.json",
+        }
+    ]
+    assert canonical_digest(manifest) == RECORDED_TOOL_AGENT_CONTENT_DIGEST
 
 
 def test_legacy_fixture_id_and_step_count_digest_is_rejected() -> None:
