@@ -3,7 +3,7 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
 
-import { compareFixtures } from "./helpers";
+import { compareFixtures, openComparisonWorkbench } from "./helpers";
 
 async function expectNoViolations(page: Parameters<typeof compareFixtures>[0]): Promise<void> {
   const results = await new AxeBuilder({ page }).analyze();
@@ -18,12 +18,14 @@ async function expectNoViolations(page: Parameters<typeof compareFixtures>[0]): 
 
 test("S-1 initial screen (J-1/J-2) is axe-clean", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: /compare eval runs/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /see the exact issue/i })).toBeVisible();
+  await expect(page.getByText(/dj-linkedin-pm-bengaluru-042/i)).toBeVisible();
   await expectNoViolations(page);
 });
 
 test("S-1 with client-side validation errors (J-4) is axe-clean", async ({ page }) => {
   await page.goto("/");
+  await openComparisonWorkbench(page);
   await page.getByLabel(/baseline/i).setInputFiles({
     name: "broken.json",
     mimeType: "application/json",

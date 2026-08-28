@@ -1,4 +1,4 @@
-"""pm-evals Web backend API (PD-V3, contract APIs API-1..3).
+"""pm-evals Web backend API.
 
 A thin, typed transport over the deterministic ``pm_evals_compare`` engine:
 uploads are size-capped, processed in memory, and never persisted (PD-V3-08);
@@ -6,18 +6,25 @@ malformed files return named validation issues (422, journey step J-4);
 incompatible-but-parseable pairs return the comparison with verdict HOLD
 (PD-V3-04); reports are regenerated deterministically server-side with the
 generation timestamp isolated to labeled fields (PD-V3-07). No egress: the
-backend calls nothing.
+backend calls nothing. Production monitoring uses a separate versioned
+observation contract and an explicitly configured local append-only store;
+comparison uploads never enter that store.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
+import secrets
+from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, Security, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -31,6 +38,17 @@ from pm_evals_compare import (
     render_json,
     render_markdown,
 )
+from pm_evals_monitoring import (
+    FutureObservationError,
+    MonitoringOverview,
+    MonitoringStore,
+    RunDiagnosis,
+    RunEnvelope,
+    build_demo_overview,
+    build_overview,
+    diagnose_run,
+)
+from pm_evals_monitoring.models import IngestResponse
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # per file; capped at read-back (T3)
 # Whole-request outer bound, enforced at the transport boundary before the
@@ -38,7 +56,13 @@ MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # per file; capped at read-back (T3)
 # files plus multipart framing and any form fields fit comfortably under it.
 MAX_REQUEST_BYTES = 2 * MAX_UPLOAD_BYTES + 1024 * 1024
 
-API_VERSION = "1.0.0"
+API_VERSION = "1.3.0"
+
+_monitoring_ingestion_bearer = HTTPBearer(
+    auto_error=False,
+    scheme_name="MonitoringIngestionBearer",
+    description="Bearer credential for trusted production-eval run producers.",
+)
 
 
 class SizeLimitResponse(BaseModel):
@@ -197,12 +221,27 @@ def _config(min_matched_traces: int | None) -> CompareConfig:
     return CompareConfig(min_matched_traces=min_matched_traces)
 
 
-def create_app() -> FastAPI:
+def create_app(
+    *,
+    monitoring_data_dir: Path | None = None,
+    monitoring_ingest_token: str | None = None,
+) -> FastAPI:
+    monitoring_store = MonitoringStore(monitoring_data_dir) if monitoring_data_dir else None
+
+    def stored_comparison(run: RunEnvelope) -> RunEnvelope | None:
+        if monitoring_store is None:
+            return None
+        return monitoring_store.get_run(
+            product_id=run.product.id,
+            environment=run.product.environment,
+            run_id=run.comparison.run_id,
+        )
+
     app = FastAPI(
         title="pm-evals Web API",
         version=API_VERSION,
-        description="Compare two eval runs and receive an evidence-backed release verdict. "
-        "Uploads are processed in memory and never stored.",
+        description="Compare two eval runs or inspect versioned production-eval observations. "
+        "Comparison uploads are processed in memory and never stored.",
     )
     app.add_middleware(BodySizeLimitMiddleware, max_bytes=MAX_REQUEST_BYTES)
 
@@ -309,7 +348,76 @@ def create_app() -> FastAPI:
             headers={"Content-Disposition": 'attachment; filename="eval-comparison.json"'},
         )
 
+    @app.post(
+        "/api/monitoring/evaluate",
+        response_model=RunDiagnosis,
+        responses=validation_responses,
+    )
+    def evaluate_monitoring_run(run: RunEnvelope) -> RunDiagnosis:
+        """Replay diagnosis without mutating monitoring history."""
+        return diagnose_run(run, comparison=stored_comparison(run))
+
+    @app.post(
+        "/api/monitoring/runs",
+        response_model=IngestResponse,
+        responses={
+            **validation_responses,
+            401: {"description": "A valid monitoring ingestion credential is required."},
+            409: {"description": "The run identity already exists with different evidence."},
+            503: {
+                "description": "Monitoring persistence or its ingestion credential is not configured."
+            },
+        },
+    )
+    def ingest_monitoring_run(
+        run: RunEnvelope,
+        credentials: Annotated[
+            HTTPAuthorizationCredentials | None,
+            Security(_monitoring_ingestion_bearer),
+        ],
+    ) -> IngestResponse:
+        if monitoring_store is None:
+            raise HTTPException(status_code=503, detail="Monitoring persistence is not configured")
+        if not monitoring_ingest_token:
+            raise HTTPException(
+                status_code=503,
+                detail="Monitoring ingestion credential is not configured",
+            )
+        supplied = credentials.credentials if credentials is not None else ""
+        if not secrets.compare_digest(supplied, monitoring_ingest_token):
+            raise HTTPException(
+                status_code=401,
+                detail="Valid monitoring ingestion credentials are required",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        try:
+            stored = monitoring_store.append(run)
+        except FutureObservationError as exc:
+            raise _validation_error("observed_at", str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return IngestResponse(
+            stored=stored,
+            duplicate=not stored,
+            diagnosis=diagnose_run(run, comparison=stored_comparison(run)),
+        )
+
+    @app.get("/api/monitoring/overview", response_model=MonitoringOverview)
+    def monitoring_overview() -> MonitoringOverview:
+        runs = monitoring_store.list_runs_for_overview() if monitoring_store else []
+        return build_overview(runs, mode="LIVE") if runs else build_demo_overview()
+
+    frontend_dist = os.environ.get("PM_EVALS_FRONTEND_DIST")
+    if frontend_dist and Path(frontend_dist).is_dir():
+        # Optional single-process preview/deployment seam. API routes are
+        # registered first; the SPA owns only the remaining paths.
+        app.mount("/", StaticFiles(directory=frontend_dist, html=True), name="frontend")
+
     return app
 
 
-app = create_app()
+_monitoring_dir = Path(os.environ.get("PM_EVALS_MONITORING_DATA_DIR", "/tmp/pm-evals-monitoring"))
+app = create_app(
+    monitoring_data_dir=_monitoring_dir,
+    monitoring_ingest_token=os.environ.get("PM_EVALS_INGEST_TOKEN"),
+)

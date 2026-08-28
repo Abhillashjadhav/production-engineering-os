@@ -15,6 +15,8 @@ to the ledger, so an interrupted run continues exactly where it stopped.
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +57,14 @@ from pmpe.engineering.candidate import (
 from pmpe.engineering.ledger import EvidenceLedger
 from pmpe.engineering.submissions import VALIDATORS, validate_routing_submission
 from pmpe.evals.registry import stage_of
+from pmpe.privacy.retention import (
+    DEFAULT_RETENTION_DAYS,
+    purge_retained_runs,
+    retention_policy_digest,
+    terminal_retention_digest,
+    validate_retention_days,
+    validate_retention_run_directory,
+)
 from pmpe.telemetry.events import utc_now
 
 STAGES = (
@@ -80,6 +90,86 @@ STAGES = (
 
 _CORE = "pmpe-core"
 _STATE_FILE = "run-state.json"
+_EVIDENCE_EVENT_FIELDS = {
+    "action",
+    "agent",
+    "cost",
+    "detail",
+    "escalation",
+    "event_id",
+    "idempotency_key",
+    "input_digests",
+    "next_state",
+    "output_digests",
+    "run_id",
+    "stage",
+    "tool",
+    "ts",
+    "verdict",
+}
+
+
+def _authenticate_legacy_retention_state(
+    state: dict[str, Any],
+    events: list[dict[str, Any]],
+) -> None:
+    run_id = state.get("run_id")
+    contract = state.get("contract")
+    if (
+        "retention_days" in state
+        or not isinstance(run_id, str)
+        or not run_id
+        or state.get("stage") not in STAGES
+        or not isinstance(contract, dict)
+        or not events
+    ):
+        raise PmpeError("legacy retention state cannot be authenticated")
+    for event in events:
+        if set(event) != _EVIDENCE_EVENT_FIELDS or event.get("run_id") != run_id:
+            raise PmpeError("legacy retention ledger cannot be authenticated")
+        identity = {
+            key: event[key] for key in _EVIDENCE_EVENT_FIELDS if key not in {"event_id", "ts"}
+        }
+        digest_subject = (
+            identity if event.get("idempotency_key") else {**identity, "ts": event.get("ts")}
+        )
+        if event.get("event_id") != canonical_digest(digest_subject):
+            raise PmpeError("legacy retention ledger cannot be authenticated")
+    first = events[0]
+    outputs = first.get("output_digests")
+    bindings = [event for event in events if event.get("action") == "bind_legacy_retention_policy"]
+    if (
+        first.get("stage") != "contract_lock"
+        or first.get("action") != "lock"
+        or not isinstance(outputs, dict)
+        or outputs.get("contract") != contract.get("digest")
+        or "retention_policy" in outputs
+        or len(bindings) > 1
+    ):
+        raise PmpeError("legacy retention policy binding is invalid")
+    if bindings:
+        binding = bindings[0]
+        if (
+            binding is not events[-1]
+            or binding.get("stage") != "contract_lock"
+            or binding.get("agent") != _CORE
+            or binding.get("input_digests") != {"contract": contract.get("digest")}
+            or binding.get("output_digests")
+            != {"retention_policy": retention_policy_digest(DEFAULT_RETENTION_DAYS)}
+            or binding.get("idempotency_key") != "legacy-retention-policy/v1"
+            or binding.get("cost") is not None
+            or any(
+                binding.get(field) != ""
+                for field in (
+                    "detail",
+                    "escalation",
+                    "next_state",
+                    "tool",
+                    "verdict",
+                )
+            )
+        ):
+            raise PmpeError("legacy retention policy binding is invalid")
 
 
 class SubmissionRejected(SpecError):  # noqa: N818 — named for the admission outcome
@@ -111,8 +201,17 @@ class EngineeringRun:
         approval_receipt_path: Path | None = None,
         expected_approver: str | None = None,
         fixture_mode: bool = False,
+        retention_days: int = 30,
+        trusted_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> EngineeringRun:
-        run_dir = Path(run_dir)
+        run_dir = validate_retention_run_directory(run_dir)
+        retention_days = validate_retention_days(retention_days)
+        run_dir.parent.mkdir(parents=True, exist_ok=True)
+        purge_retained_runs(
+            run_dir.parent,
+            trusted_clock=trusted_clock,
+            exclude_run_dir=run_dir,
+        )
         if (run_dir / _STATE_FILE).exists():
             raise PmpeError(
                 f"a run already exists at {run_dir} — resume it instead of starting over"
@@ -153,6 +252,7 @@ class EngineeringRun:
                 "expected_approver": "" if fixture_mode else str(expected_approver),
                 "receipt_digest": receipt_digest,
             },
+            "retention_days": retention_days,
             "requirement_ids": contract.requirement_ids(),
             "components": [],
             "tasks": [],
@@ -188,7 +288,10 @@ class EngineeringRun:
             stage="contract_lock",
             agent=_CORE,
             action="lock",
-            output_digests={"contract": record.digest},
+            output_digests={
+                "contract": record.digest,
+                "retention_policy": retention_policy_digest(retention_days),
+            },
         )
         if receipt is not None:
             run.ledger.record(
@@ -203,7 +306,7 @@ class EngineeringRun:
 
     @classmethod
     def load(cls, run_dir: Path) -> EngineeringRun:
-        """Resume: re-read state, fail closed if the locked contract was touched."""
+        """Resume, authenticating the one-time legacy retention migration if needed."""
         run_dir = Path(run_dir)
         path = run_dir / _STATE_FILE
         if not path.exists():
@@ -228,7 +331,22 @@ class EngineeringRun:
                 or approval.get("receipt_digest") != verified
             ):
                 raise PmpeError("approval receipt lock changed after engineering admission")
-        return cls(run_dir, state)
+        run = cls(run_dir, state)
+        if "retention_days" not in state:
+            _authenticate_legacy_retention_state(state, run.ledger.read_all())
+            run.ledger.record(
+                stage="contract_lock",
+                agent=_CORE,
+                action="bind_legacy_retention_policy",
+                input_digests={"contract": run.contract_digest},
+                output_digests={
+                    "retention_policy": retention_policy_digest(DEFAULT_RETENTION_DAYS)
+                },
+                idempotency_key="legacy-retention-policy/v1",
+            )
+            state["retention_days"] = DEFAULT_RETENTION_DAYS
+            run._save()
+        return run
 
     @property
     def stage(self) -> str:
@@ -515,7 +633,11 @@ class EngineeringRun:
         return decision
 
     def record_release_report(
-        self, verdict: str, *, gate_results: dict[str, bool] | None = None
+        self,
+        verdict: str,
+        *,
+        gate_results: dict[str, bool] | None = None,
+        trusted_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         """Binary release gates are product intent (PD-01): every gate in the locked
         contract must be evaluated and pass before any release verdict is recorded.
@@ -542,6 +664,7 @@ class EngineeringRun:
                 "release report refused — every binary release gate of the locked "
                 "contract must be evaluated and pass (PD-01): " + "; ".join(problems)
             )
+        retention_days = validate_retention_days(self._state["retention_days"])
         self._write_artifact(
             "release_report", "gate-results", {"verdict": verdict, "gates": results}
         )
@@ -549,11 +672,22 @@ class EngineeringRun:
             stage="release_report",
             agent=_CORE,
             action="report",
+            output_digests={
+                "terminal_retention": terminal_retention_digest(
+                    retention_days,
+                    stage="complete",
+                )
+            },
             verdict=verdict,
             detail="gates_passed=" + ",".join(gate_ids) if gate_ids else "no contract gates",
         )
         self._state["release_verdict"] = verdict
         self._advance("complete")
+        purge_retained_runs(
+            self.run_dir.parent,
+            trusted_clock=trusted_clock,
+            exclude_run_dir=self.run_dir,
+        )
 
     # --- agent artifact admission -----------------------------------------------------
 

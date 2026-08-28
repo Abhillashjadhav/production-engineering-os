@@ -266,9 +266,9 @@ def main() -> int:
     if not isinstance(message, Mapping):
         _fail("stdin must be one JSON object")
     model = _required_environment("PMPE_OPENAI_MODEL")
-    api_key = _required_environment("OPENAI_API_KEY")
+    credential = _required_environment("OPENAI_API_KEY")
     body = _request_body(message, model)
-    api_response = _post(body, api_key=api_key)
+    api_response = _post(body, api_key=credential)
     json.dump(_provider_response(message, api_response, model), sys.stdout)
     return 0
 

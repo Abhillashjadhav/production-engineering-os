@@ -29,6 +29,7 @@ _LEGACY_COMMANDS = frozenset(
         "personal-demo",
         "personal-workflows",
         "personal-runtime",
+        "retention",
         "repository",
         "support-demo",
     }
@@ -71,6 +72,7 @@ def _register_legacy(sub: argparse._SubParsersAction) -> None:  # type: ignore[t
         full_product_cmd,
         guided_cmd,
         personal_cmd,
+        privacy_cmd,
         repository_cmd,
         support_cmd,
     )
@@ -88,6 +90,7 @@ def _register_legacy(sub: argparse._SubParsersAction) -> None:  # type: ignore[t
     full_product_cmd.register(legacy)
     guided_cmd.register(legacy)
     personal_cmd.register(legacy)
+    privacy_cmd.register(legacy)
     repository_cmd.register(legacy)
     support_cmd.register(legacy)
 

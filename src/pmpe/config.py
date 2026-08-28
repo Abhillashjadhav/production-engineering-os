@@ -36,6 +36,7 @@ class PipelineConfig:
     schema_path: Path = field(default_factory=packaged_schema_path)
     required_gates: list[str] = field(default_factory=lambda: list(DEFAULT_REQUIRED_GATES))
     deploy_timeout_s: float = 15.0
+    data_retention_days: int = 30
     # --- test/chaos hooks (constructor-only; see module docstring) ---
     chaos_inject_files: dict[str, str] = field(default_factory=dict)
     chaos_fail_at_step: str | None = None
@@ -47,6 +48,8 @@ class PipelineConfig:
         self.schema_path = Path(self.schema_path).resolve()
         if self.deploy_timeout_s <= 0:
             raise ConfigError("deploy_timeout_s must be positive")
+        if self.data_retention_days < 0:
+            raise ConfigError("data_retention_days cannot be negative")
         if not isinstance(self.chaos_inject_files, dict):
             raise ConfigError("chaos_inject_files must be a mapping of path -> content")
 

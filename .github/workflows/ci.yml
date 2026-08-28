@@ -15,35 +15,55 @@ jobs:
   format-lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
-      - run: pip install ruff
+      - run: pip install --require-hashes -r requirements.lock
       - name: ruff format
         run: |
           ruff format --check \
             src tests/unit tests/integration tests/e2e tests/conftest.py \
             scripts/ci/classify_frontend_ci.py \
+            scripts/ci/evaluate_security_profile.py \
+            scripts/ci/run_trusted_security_entrypoint.py \
+            scripts/ci/verify_privacy_controls.py \
+            scripts/ci/verify_repository_secrets.py \
+            scripts/ci/verify_trusted_security_bootstrap.py \
             examples/barebones/codex-cli-provider.py
       - name: ruff lint
         run: |
           ruff check \
             src tests/unit tests/integration tests/e2e tests/conftest.py \
-            scripts/ci/classify_frontend_ci.py examples/barebones/*.py
+            scripts/ci/classify_frontend_ci.py \
+            scripts/ci/evaluate_security_profile.py \
+            scripts/ci/run_trusted_security_entrypoint.py \
+            scripts/ci/verify_privacy_controls.py \
+            scripts/ci/verify_repository_secrets.py \
+            scripts/ci/verify_trusted_security_bootstrap.py \
+            examples/barebones/*.py
 
   types:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
-      - run: pip install -e ".[dev]"
+      - run: |
+          pip install --require-hashes -r requirements.lock
+          pip install --no-deps --no-build-isolation -e .
       - name: mypy --strict
         run: |
           mypy --strict \
-            src/pmpe scripts/ci/classify_frontend_ci.py examples/barebones/*.py
+            src/pmpe \
+            scripts/ci/classify_frontend_ci.py \
+            scripts/ci/evaluate_security_profile.py \
+            scripts/ci/run_trusted_security_entrypoint.py \
+            scripts/ci/verify_privacy_controls.py \
+            scripts/ci/verify_repository_secrets.py \
+            scripts/ci/verify_trusted_security_bootstrap.py \
+            examples/barebones/*.py
 
   tests:
     runs-on: ubuntu-latest
@@ -51,11 +71,13 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python-version }}
-      - run: pip install -e ".[dev]"
+      - run: |
+          pip install --require-hashes -r requirements.lock
+          pip install --no-deps --no-build-isolation -e .
       - name: unit tests
         run: pytest tests/unit -q
       - name: integration tests
@@ -69,8 +91,8 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python-version }}
       - name: install candidate isolation runtime
@@ -85,7 +107,9 @@ jobs:
           }
           EOF
           sudo apparmor_parser -r /etc/apparmor.d/pmpe-bwrap
-      - run: pip install -e ".[dev]"
+      - run: |
+          pip install --require-hashes -r requirements.lock
+          pip install --no-deps --no-build-isolation -e .
       - name: prove candidate isolation and engine composition
         env:
           PMPE_TEST_REAL_SANDBOX: "true"
@@ -98,20 +122,85 @@ jobs:
             tests/e2e/test_barebones_e1.py::test_e1_real_contract_reaches_release_ready \
             -q
 
-  security:
+  security-static:
+    name: security-static
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
-      - run: pip install -e ".[dev]" pip-audit
+      - name: materialize exact protected-base security policy
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+        run: |
+          test "${#BASE_SHA}" -eq 40
+          case "$BASE_SHA" in *[!0-9a-f]*) exit 1 ;; esac
+          git cat-file -e "$BASE_SHA^{commit}"
+          mkdir -p /tmp/trusted-security-policy
+          git show "$BASE_SHA:security/security-profile-policy.json" > /tmp/trusted-security-policy/security-profile-policy.json
+          git show "$BASE_SHA:security/secret-allowlist.json" > /tmp/trusted-security-policy/secret-allowlist.json
+          python -m json.tool /tmp/trusted-security-policy/security-profile-policy.json >/dev/null
+          python -m json.tool /tmp/trusted-security-policy/secret-allowlist.json >/dev/null
+      - run: |
+          pip install --require-hashes -r requirements.lock
+          pip install --no-deps --no-build-isolation -e .
       - name: bandit (fail on high severity)
-        run: bandit -r src scripts/ci/classify_frontend_ci.py -q --severity-level high
+        run: bandit -r src scripts/ci -q --severity-level high
       - name: bandit full report (informational)
-        run: bandit -r src scripts/ci/classify_frontend_ci.py -q || true
-      - name: dependency audit
-        run: pip-audit --strict || echo "::warning::pip-audit reported issues (non-blocking in V1, see SECURITY.md)"
+        run: bandit -r src scripts/ci -q || true
+      - name: dependency audit (core lockfile blocks on any known vulnerability)
+        run: |
+          mkdir -p /tmp/security-profile
+          pip-audit --cache-dir /tmp/pip-audit --require-hashes -r requirements.lock --strict --format json --output /tmp/security-profile/pip-audit.json
+      - name: no-ignore exact-SHA secret gate
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          python scripts/ci/verify_repository_secrets.py \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --allowlist /tmp/trusted-security-policy/secret-allowlist.json \
+            --output /tmp/security-profile/secret-report.json
+      - name: deterministic security profile contract (all required gates)
+        run: pytest tests/unit/test_security_profiles.py -q
+      - name: execute privacy deletion, retention, and telemetry verifier
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python scripts/ci/verify_privacy_controls.py \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --root . \
+            --policy /tmp/trusted-security-policy/security-profile-policy.json \
+            --output /tmp/security-profile/privacy-evidence.json
+      - name: composed security profile against exact candidate
+        env:
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python scripts/ci/evaluate_security_profile.py \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --audit-evidence /tmp/security-profile/pip-audit.json \
+            --privacy-evidence /tmp/security-profile/privacy-evidence.json \
+            --policy /tmp/trusted-security-policy/security-profile-policy.json \
+            --secret-allowlist /tmp/trusted-security-policy/secret-allowlist.json \
+            --output /tmp/security-profile/composed-security-profile.json
+      - name: retain exact-SHA security evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: exact-sha-secret-evidence
+          path: |
+            /tmp/security-profile/secret-report.json
+            /tmp/security-profile/pip-audit.json
+            /tmp/security-profile/privacy-evidence.json
+            /tmp/security-profile/composed-security-profile.json
+          retention-days: 7
+          if-no-files-found: error
 
   product-backend:
     runs-on: ubuntu-latest
@@ -119,8 +208,8 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e "products/pm-evals-web/backend[dev]"
@@ -137,8 +226,8 @@ jobs:
       - name: dependency audit (backend lockfile blocks on any known vuln)
         working-directory: products/pm-evals-web/backend
         run: |
-          pip install pip-audit
-          pip-audit --require-hashes -r requirements.lock --strict
+          pip install pip-audit==2.9.0
+          pip-audit --cache-dir /tmp/pip-audit --require-hashes -r requirements.lock --strict
 
   product-frontend:
     runs-on: ubuntu-latest
@@ -146,7 +235,7 @@ jobs:
       run:
         working-directory: products/pm-evals-web/frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
       - name: classify frontend impact
@@ -160,7 +249,7 @@ jobs:
             --head-sha "${{ github.event.pull_request.head.sha || github.sha }}" \
             --repo-root . \
             --github-output "$GITHUB_OUTPUT"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         if: steps.frontend-paths.outcome != 'success' || steps.frontend-paths.outputs.applicable != 'false'
         with:
           node-version: "22"
@@ -204,12 +293,12 @@ jobs:
   product-e2e:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
       - run: pip install -e "products/pm-evals-web/backend"
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
@@ -231,7 +320,7 @@ jobs:
         run: npx playwright test
       - name: upload traces on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: playwright-artifacts
           path: |
@@ -243,13 +332,13 @@ jobs:
   product-preview:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
       - name: install pmpe (preview evidence tooling)
         run: pip install -e "."
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "22"
           cache: npm
@@ -289,7 +378,7 @@ jobs:
           echo "doctored record refused, as required"
       - name: upload traces on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: preview-playwright-artifacts
           path: |
@@ -304,13 +393,13 @@ jobs:
   build-smoke:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.11"
       - name: build wheel
         run: |
-          pip install build
+          pip install build==1.3.0
           python -m build --wheel
       - name: install wheel and smoke the CLI
         run: |
