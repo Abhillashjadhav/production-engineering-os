@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import posixpath
 import re
-from urllib.parse import parse_qsl, urlsplit
+import unicodedata
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 PROHIBITED_SECRET_PATTERNS = (
     re.compile(rb"\bgh[pousr]_[A-Za-z0-9_]{20,}\b"),
@@ -55,6 +57,33 @@ _SENSITIVE_QUERY_KEY = re.compile(
 )
 
 
+def _url_path_contains_credential(hostname: str, path: str) -> bool:
+    normalized = unicodedata.normalize("NFKC", unquote(hostname)).rstrip(".").lower()
+    normalized = normalized.encode("idna").decode("ascii")
+    decoded_path = path
+    for _ in range(3):
+        next_path = unquote(decoded_path)
+        if next_path == decoded_path:
+            break
+        decoded_path = next_path
+    lowered_path = posixpath.normpath("/" + decoded_path.replace("\\", "/").lstrip("/")).lower()
+    return bool(
+        (normalized == "hooks.slack.com" and lowered_path.startswith("/services/"))
+        or (
+            normalized == "api.telegram.org"
+            and re.match(r"/bot[^/]+(?:/|$)", lowered_path, re.IGNORECASE)
+        )
+        or (
+            (
+                normalized in {"discord.com", "discordapp.com"}
+                or normalized.endswith(".discord.com")
+                or normalized.endswith(".discordapp.com")
+            )
+            and lowered_path.startswith("/api/webhooks/")
+        )
+    )
+
+
 def contains_prohibited_secret(payload: bytes) -> bool:
     """Return whether bytes match the canonical prohibited-secret patterns."""
     return any(pattern.search(payload) for pattern in PROHIBITED_SECRET_PATTERNS)
@@ -69,6 +98,10 @@ def contains_credential_material(payload: bytes) -> bool:
     for match in _EMBEDDED_URL.finditer(text):
         try:
             parts = urlsplit(match.group(0))
+            if parts.username is not None or parts.password is not None:
+                return True
+            if _url_path_contains_credential(parts.hostname or "", parts.path):
+                return True
             if any(
                 _SENSITIVE_QUERY_KEY.search(key)
                 for component in (parts.query, parts.fragment)
