@@ -265,6 +265,31 @@ describe("MonitoringDashboard", () => {
     }
   });
 
+  it("renders every trend health state distinctly and names it accessibly", async () => {
+    const healthStates = ["HEALTHY", "DEGRADED", "FAILING", "BLOCKED"] as const;
+    const trendOverview: MonitoringOverview = {
+      ...OVERVIEW,
+      products: [OVERVIEW.products[0]],
+      incidents: [],
+      trend: healthStates.map((health, index) => ({
+        ...OVERVIEW.trend[0],
+        run_id: `trend-${health.toLowerCase()}`,
+        observed_at: `2026-08-${24 + index}T12:00:00Z`,
+        health,
+      })),
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(trendOverview)} />);
+    const chart = await screen.findByRole("img", { name: /pass-rate trend/i });
+    const points = chart.querySelectorAll("circle");
+
+    expect(points).toHaveLength(4);
+    healthStates.forEach((health, index) => {
+      expect(points[index]).toHaveClass(`sparkline-point-${health.toLowerCase()}`);
+    });
+    expect(chart).toHaveAccessibleName(/healthy.*degraded.*failing.*blocked/i);
+  });
+
   it("preserves precision for small but significant ratio regressions", async () => {
     const preciseOverview: MonitoringOverview = {
       ...OVERVIEW,

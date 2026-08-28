@@ -169,12 +169,15 @@ function Sparkline({ points }: { points: TrendPoint[] }) {
     return { ...point, x, y };
   });
   const path = coordinates.map((point) => `${point.x},${point.y}`).join(" ");
+  const accessibleTrend = points
+    .map((point) => `${shortDate(point.observed_at)}: ${pct(point.pass_rate)}, ${point.health}`)
+    .join("; ");
   return (
     <svg
       className="sparkline"
       viewBox={`0 0 ${width} ${height}`}
       role="img"
-      aria-label={`Pass-rate trend from ${pct(points[0]?.pass_rate ?? 0)} to ${pct(points.at(-1)?.pass_rate ?? 0)}`}
+      aria-label={`Pass-rate trend from ${pct(points[0]?.pass_rate ?? 0)} to ${pct(points.at(-1)?.pass_rate ?? 0)}. ${accessibleTrend}`}
     >
       <line x1="6" x2="254" y1="66" y2="66" className="sparkline-axis" />
       <polyline points={path} className="sparkline-line" />
@@ -184,7 +187,7 @@ function Sparkline({ points }: { points: TrendPoint[] }) {
           cx={point.x}
           cy={point.y}
           r="4"
-          className={`sparkline-point ${point.health === "FAILING" ? "sparkline-point-failing" : ""}`}
+          className={`sparkline-point sparkline-point-${point.health.toLowerCase()}`}
         >
           <title>{`${shortDate(point.observed_at)}: ${pct(point.pass_rate)} · ${point.health}`}</title>
         </circle>
