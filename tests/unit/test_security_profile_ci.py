@@ -349,6 +349,25 @@ def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
     assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
 
 
+@pytest.mark.parametrize(
+    "source_text",
+    [
+        'import importlib\nget = getattr\nget(importlib, "import_module")("pmpe.guided.api")\n',
+        'import builtins\nget = getattr\nget(builtins, "__import__")("pmpe.guided.api")\n',
+        "import importlib\ninspect = vars\ninspect(importlib)\n",
+    ],
+)
+def test_architecture_observer_fails_closed_on_aliased_module_reflection(
+    tmp_path: Path,
+    source_text: str,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "aliased_reflection.py").write_text(source_text)
+
+    assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
+
+
 def test_dynamic_import_exception_binds_the_complete_target_file(tmp_path: Path) -> None:
     source = tmp_path / "src" / "pmpe" / "evidence"
     source.mkdir(parents=True)
@@ -776,6 +795,8 @@ def test_privacy_verifier_fails_when_emitter_escapes_into_a_container(
         'vars(ctx.events)["emit"]("result", email="hidden")\n',
         'ctx.events.__dict__["emit"]("result", email="hidden")\n',
         'vars(ctx.events)[field_name]("result", email="hidden")\n',
+        'get = getattr\nget(ctx.events, "emit")("result", email="hidden")\n',
+        'inspect = vars\ninspect(ctx.events)["emit"]("result", email="hidden")\n',
     ],
 )
 def test_privacy_verifier_rejects_reflective_emitter_access(

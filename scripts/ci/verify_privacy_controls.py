@@ -175,6 +175,17 @@ def _reflective_emitter_dictionary_access(node: ast.AST) -> bool:
     )
 
 
+def _passes_event_owner_to_unresolved_call(node: ast.AST) -> bool:
+    """Reject unknown callables that receive an event namespace as authority."""
+
+    if not isinstance(node, ast.Call):
+        return False
+    arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
+    if not any(_event_owner_reference(argument) for argument in arguments):
+        return False
+    return not (isinstance(node.func, ast.Name) and node.func.id in {"getattr", "vars"})
+
+
 _LEXICAL_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
 
 
@@ -278,7 +289,9 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                 alias for alias in inherited_aliases if alias.split(".", 1)[0] not in locals_
             }
             for node in nodes:
-                if _reflective_emitter_dictionary_access(node):
+                if _reflective_emitter_dictionary_access(
+                    node
+                ) or _passes_event_owner_to_unresolved_call(node):
                     raise ValueError(
                         "telemetry emitter uses reflective access: "
                         f"{source_path}:{getattr(node, 'lineno', 0)}"

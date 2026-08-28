@@ -431,6 +431,17 @@ def _module_dictionary_reference(node: ast.AST, aliases: set[str]) -> bool:
     )
 
 
+def _passes_tracked_module_to_unresolved_call(node: ast.AST, aliases: set[str]) -> bool:
+    """Fail closed when an unknown callable receives importlib or builtins authority."""
+
+    if not isinstance(node, ast.Call):
+        return False
+    arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
+    if not any(_importlib_module_reference(argument, aliases) for argument in arguments):
+        return False
+    return not (isinstance(node.func, ast.Name) and node.func.id in {"getattr", "vars"})
+
+
 def _import_loader_reference(
     node: ast.AST,
     *,
@@ -723,14 +734,21 @@ def _collect_architecture_edges(
             importlib_aliases,
             _,
         ) = aliases_by_scope[node_scope[node]]
-        if _module_dictionary_reference(node, importlib_aliases | builtins_aliases) or (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Name)
-            and node.func.id == "getattr"
-            and len(node.args) >= 2
-            and isinstance(node.args[0], ast.Name)
-            and node.args[0].id in importlib_aliases | builtins_aliases
-            and not (isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str))
+        tracked_modules = importlib_aliases | builtins_aliases
+        if (
+            _module_dictionary_reference(node, tracked_modules)
+            or _passes_tracked_module_to_unresolved_call(node, tracked_modules)
+            or (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "getattr"
+                and len(node.args) >= 2
+                and isinstance(node.args[0], ast.Name)
+                and node.args[0].id in importlib_aliases | builtins_aliases
+                and not (
+                    isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str)
+                )
+            )
         ):
             edges.add((source_layer, "unresolved_dynamic"))
     for node in ast.walk(tree):
