@@ -1,0 +1,26 @@
+{
+  "format_version": 1,
+  "run_id": "thin-candidate",
+  "suite": "thin-suite (SYNTHETIC)",
+  "criteria": [
+    {
+      "id": "C-1",
+      "description": "Synthetic criterion (SYNTHETIC)",
+      "hard_gate": false
+    }
+  ],
+  "traces": [
+    {
+      "trace_id": "T-1",
+      "results": {
+        "C-1": "pass"
+      }
+    },
+    {
+      "trace_id": "T-2",
+      "results": {
+        "C-1": "pass"
+      }
+    }
+  ]
+}

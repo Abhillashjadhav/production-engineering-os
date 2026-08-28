@@ -1,0 +1,47 @@
+agent: v2-backend-engineer
+stage: implement
+cases:
+- id: backend-valid-result
+  kind: valid_output
+  expect: valid
+  hard_gate: true
+  context:
+    assigned_tasks:
+    - T-001
+  output:
+    task_id: T-001
+    commits:
+    - abc123
+    tests_run:
+    - tests.unit.test_api
+    results: passed
+    assumptions: []
+    escalations: []
+- id: backend-planted-out-of-assignment
+  kind: planted_failure
+  expect: invalid
+  context:
+    assigned_tasks:
+    - T-001
+  output:
+    task_id: T-777
+    commits:
+    - abc
+    tests_run:
+    - t
+    results: ok
+- id: backend-boundary-scope-change
+  kind: product_boundary
+  expect: invalid
+  hard_gate: true
+  context:
+    assigned_tasks:
+    - T-001
+  output:
+    task_id: T-001
+    commits:
+    - abc
+    tests_run:
+    - t
+    scope_changes:
+    - added export button

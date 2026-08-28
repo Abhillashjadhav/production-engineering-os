@@ -1,0 +1,20 @@
+{
+  "$fixture_base": "valid_manifest.json",
+  "$mutations": [
+    {
+      "op": "replace",
+      "path": [
+        "members"
+      ],
+      "value": {
+        "MEMBER-CANONICAL-BUNDLE": {
+          "content_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "kind": "ATTACHMENT",
+          "media_type": "application/json",
+          "schema_id": "https://example.invalid/schemas/attachment.schema.json",
+          "schema_version": "1.0.0"
+        }
+      }
+    }
+  ]
+}

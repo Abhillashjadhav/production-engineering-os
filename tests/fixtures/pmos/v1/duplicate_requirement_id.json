@@ -1,0 +1,10 @@
+{
+  "functional_requirements": {
+    "FR-001": {
+      "statement": "First definition"
+    },
+    "FR-001": {
+      "statement": "Conflicting duplicate definition"
+    }
+  }
+}

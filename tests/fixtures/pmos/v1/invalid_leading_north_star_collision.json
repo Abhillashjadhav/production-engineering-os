@@ -1,0 +1,20 @@
+{
+  "$fixture_base": "valid_bundle.json",
+  "$mutations": [
+    {
+      "op": "replace",
+      "path": [
+        "metrics",
+        "leading"
+      ],
+      "value": {
+        "METRIC-NSM-END-VAPDR": {
+          "definition": "Colliding leading metric.",
+          "direction": "INCREASE",
+          "maturity_policy_ref": "POLICY-METRIC-FIRST-PASS",
+          "name": "Colliding leading metric"
+        }
+      }
+    }
+  ]
+}

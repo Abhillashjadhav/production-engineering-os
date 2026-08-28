@@ -1,0 +1,19 @@
+{
+  "$fixture_base": "valid_bundle.json",
+  "$mutations": [
+    {
+      "op": "replace",
+      "path": [
+        "extensions",
+        "EXT-REPOSITORY-001",
+        "payload"
+      ],
+      "value": {
+        "override_core": true,
+        "remove_required": [
+          "security"
+        ]
+      }
+    }
+  ]
+}

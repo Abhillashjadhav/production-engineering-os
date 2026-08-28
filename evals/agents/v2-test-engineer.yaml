@@ -1,0 +1,28 @@
+agent: v2-test-engineer
+stage: implement
+cases:
+- id: testeng-valid-result
+  kind: valid_output
+  expect: valid
+  hard_gate: true
+  context:
+    assigned_tasks:
+    - T-002
+  output:
+    task_id: T-002
+    commits:
+    - def456
+    tests_run:
+    - tests.unit.test_storage
+    results: passed
+- id: testeng-planted-no-commits
+  kind: planted_failure
+  expect: invalid
+  context:
+    assigned_tasks:
+    - T-002
+  output:
+    task_id: T-002
+    commits: []
+    tests_run:
+    - x

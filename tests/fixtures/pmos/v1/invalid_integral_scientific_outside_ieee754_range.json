@@ -1,0 +1,20 @@
+{
+  "$fixture_base": "valid_bundle.json",
+  "$mutations": [
+    {
+      "op": "replace",
+      "path": [
+        "metrics",
+        "maturity_policies",
+        "POLICY-METRIC-VAPDR",
+        "target"
+      ],
+      "value": {
+        "operator": "AT_LEAST",
+        "status": "APPROVED",
+        "unit": "count",
+        "value": 9.007199254740993e15
+      }
+    }
+  ]
+}

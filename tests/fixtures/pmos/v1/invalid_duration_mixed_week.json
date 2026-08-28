@@ -1,0 +1,16 @@
+{
+  "$fixture_base": "valid_bundle.json",
+  "$mutations": [
+    {
+      "op": "replace",
+      "path": [
+        "metrics",
+        "maturity_policies",
+        "POLICY-METRIC-VAPDR",
+        "evaluation_window",
+        "duration"
+      ],
+      "value": "P1W1D"
+    }
+  ]
+}
