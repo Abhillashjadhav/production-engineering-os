@@ -19,8 +19,11 @@ Event grammar the engine emits and these checks consume:
 - boundary/bind_capability_policy records a canonical digest-bound exact
   capability allowlist in detail as "allowed=cap-a,cap-b".
   external/capability_grant records capability, authority_origin, and source and
-  must carry the same policy digest. External data may inform the run, but only
-  the frozen boundary policy may be the authority source for a capability grant.
+  must carry the same policy digest and emit a canonical grant digest. A
+  boundary/attest_capability_use event must bind that grant and policy before a
+  release report binds the complete ordered capability-use digest set. External
+  data may inform the run, but only the frozen boundary policy may be the
+  authority source for a capability grant.
 
 Every check is a named TRAJ-xx rule; any violation is a hard HOLD.
 """
@@ -113,6 +116,16 @@ def _parse_capability_grant(detail: str) -> tuple[str, str, str] | None:
     ):
         return None
     return capability, authority_origin, source
+
+
+def _parse_capability_use(detail: str) -> str | None:
+    prefix = "capability="
+    if not detail.startswith(prefix):
+        return None
+    capability = detail.removeprefix(prefix)
+    if not capability or capability != capability.strip() or capability == "*":
+        return None
+    return capability
 
 
 def evaluate_trajectory(events: list[dict[str, Any]]) -> list[TrajectoryViolation]:
@@ -378,8 +391,16 @@ def evaluate_trajectory(events: list[dict[str, Any]]) -> list[TrajectoryViolatio
     # TRAJ-16: external data may inform a run but cannot become the authority
     # source for a protected capability. Capability grants must bind one frozen,
     # canonical capability policy and authority must derive from that policy.
+    # Protected uses must bind a preceding admitted grant, and a release-ready
+    # report must bind the complete ordered set of preceding admitted uses.
     bound_capability_digest: str | None = None
     bound_allowed_capabilities: tuple[str, ...] | None = None
+    validated_grants: dict[str, str] = {}
+    validated_capability_uses: list[str] = []
+    capability_policy_declared = any(
+        event.get("stage") == "boundary" and event.get("action") == "bind_capability_policy"
+        for event in events
+    )
     for index, event in enumerate(events):
         is_capability_policy_binding = (
             event.get("stage") == "boundary" and event.get("action") == "bind_capability_policy"
@@ -415,49 +436,134 @@ def evaluate_trajectory(events: list[dict[str, Any]]) -> list[TrajectoryViolatio
         is_capability_grant = (
             event.get("stage") == "external" and event.get("action") == "capability_grant"
         )
-        if not is_capability_grant:
+        if is_capability_grant:
+            parsed_grant = _parse_capability_grant(str(event.get("detail", "")))
+            event_policy_digest = _digest(event, "input_digests", "capability_policy")
+            if bound_capability_digest is None or bound_allowed_capabilities is None:
+                violate(
+                    "TRAJ-16",
+                    "capability granted without a bound capability policy",
+                    f"event {index}: detail={event.get('detail')!r}",
+                )
+                continue
+            if event_policy_digest != bound_capability_digest:
+                violate(
+                    "TRAJ-16",
+                    "capability grant is bound to the wrong capability policy",
+                    f"event {index}: saw {event_policy_digest}, frozen {bound_capability_digest}",
+                )
+                continue
+            if parsed_grant is None:
+                violate(
+                    "TRAJ-16",
+                    "capability grant evidence is malformed",
+                    f"event {index}: detail={event.get('detail')!r}",
+                )
+                continue
+            capability, authority_origin, source = parsed_grant
+            expected_grant_digest = canonical_digest(
+                {
+                    "authority_origin": authority_origin,
+                    "capability": capability,
+                    "capability_policy": bound_capability_digest,
+                    "source": source,
+                }
+            )
+            grant_digest = _digest(event, "output_digests", "capability_grant")
+            if grant_digest != expected_grant_digest:
+                violate(
+                    "TRAJ-16",
+                    "capability grant digest does not match its evidence",
+                    f"event {index}: recorded {grant_digest}, expected {expected_grant_digest}",
+                )
+                continue
+            if authority_origin != "boundary_policy":
+                authority_evidence = (
+                    f"event {index}: capability={capability}; "
+                    f"authority_origin={authority_origin}; source={source}"
+                )
+                violate(
+                    "TRAJ-16",
+                    "external input attempted to become the source of capability authority",
+                    authority_evidence,
+                )
+                continue
+            if capability not in bound_allowed_capabilities:
+                violate(
+                    "TRAJ-16",
+                    "capability grant exceeds the frozen capability policy",
+                    f"event {index}: {capability}; allowed={','.join(bound_allowed_capabilities)}",
+                )
+                continue
+            validated_grants[grant_digest] = capability
             continue
 
-        parsed_grant = _parse_capability_grant(str(event.get("detail", "")))
-        event_policy_digest = _digest(event, "input_digests", "capability_policy")
-        if bound_capability_digest is None or bound_allowed_capabilities is None:
-            violate(
-                "TRAJ-16",
-                "capability granted without a bound capability policy",
-                f"event {index}: detail={event.get('detail')!r}",
+        is_capability_use = (
+            event.get("stage") == "boundary" and event.get("action") == "attest_capability_use"
+        )
+        if is_capability_use:
+            used_capability = _parse_capability_use(str(event.get("detail", "")))
+            event_policy_digest = _digest(event, "input_digests", "capability_policy")
+            grant_digest = _digest(event, "input_digests", "capability_grant")
+            if bound_capability_digest is None or event_policy_digest != bound_capability_digest:
+                violate(
+                    "TRAJ-16",
+                    "capability use is bound to no policy or the wrong capability policy",
+                    f"event {index}: saw {event_policy_digest}, frozen {bound_capability_digest}",
+                )
+                continue
+            if used_capability is None:
+                violate(
+                    "TRAJ-16",
+                    "capability use evidence is malformed",
+                    f"event {index}: detail={event.get('detail')!r}",
+                )
+                continue
+            if grant_digest is None or validated_grants.get(grant_digest) != used_capability:
+                violate(
+                    "TRAJ-16",
+                    "protected capability used without a preceding validated grant",
+                    f"event {index}: capability={used_capability}; grant={grant_digest}",
+                )
+                continue
+            expected_use_digest = canonical_digest(
+                {
+                    "capability": used_capability,
+                    "capability_grant": grant_digest,
+                    "capability_policy": bound_capability_digest,
+                }
             )
+            use_digest = _digest(event, "output_digests", "capability_use")
+            if use_digest != expected_use_digest:
+                violate(
+                    "TRAJ-16",
+                    "capability use digest does not match its evidence",
+                    f"event {index}: recorded {use_digest}, expected {expected_use_digest}",
+                )
+                continue
+            validated_capability_uses.append(use_digest)
             continue
-        if event_policy_digest != bound_capability_digest:
-            violate(
-                "TRAJ-16",
-                "capability grant is bound to the wrong capability policy",
-                f"event {index}: saw {event_policy_digest}, frozen {bound_capability_digest}",
-            )
-            continue
-        if parsed_grant is None:
-            violate(
-                "TRAJ-16",
-                "capability grant evidence is malformed",
-                f"event {index}: detail={event.get('detail')!r}",
-            )
-            continue
-        capability, authority_origin, source = parsed_grant
-        if authority_origin != "boundary_policy":
-            authority_evidence = (
-                f"event {index}: capability={capability}; "
-                f"authority_origin={authority_origin}; source={source}"
-            )
-            violate(
-                "TRAJ-16",
-                "external input attempted to become the source of capability authority",
-                authority_evidence,
-            )
-            continue
-        if capability not in bound_allowed_capabilities:
-            violate(
-                "TRAJ-16",
-                "capability grant exceeds the frozen capability policy",
-                f"event {index}: {capability}; allowed={','.join(bound_allowed_capabilities)}",
-            )
+
+        is_release_ready = (
+            event.get("stage") == "release_report"
+            and event.get("action") == "report"
+            and event.get("verdict") == "READY_FOR_PRODUCTION_APPROVAL"
+        )
+        if is_release_ready and capability_policy_declared:
+            if not validated_capability_uses:
+                violate(
+                    "TRAJ-16",
+                    "release readiness lacks a preceding validated capability use",
+                    f"event {index}: no validated capability use",
+                )
+                continue
+            expected_usage_digest = canonical_digest({"capability_uses": validated_capability_uses})
+            usage_digest = _digest(event, "input_digests", "capability_uses")
+            if usage_digest != expected_usage_digest:
+                violate(
+                    "TRAJ-16",
+                    "release readiness is bound to incomplete capability-use evidence",
+                    f"event {index}: recorded {usage_digest}, expected {expected_usage_digest}",
+                )
 
     return violations

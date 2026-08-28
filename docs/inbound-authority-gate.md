@@ -34,6 +34,7 @@ stage=external
 action=capability_grant
 detail=capability=write_support_draft;authority_origin=boundary_policy;source=webhook:ticket-481
 input_digests.capability_policy=<the frozen policy digest>
+output_digests.capability_grant=<canonical grant digest>
 ```
 
 `source` records where the data came from. It does **not** grant authority.
@@ -47,6 +48,26 @@ A grant passes `TRAJ-16` only when all of the following are true:
 - the capability is explicitly present in the frozen allowlist.
 
 Missing policy evidence, a stale or mismatched digest, policy mutation, malformed grant evidence, an unlisted capability, or an external input recorded as the authority source all produce `TRAJ-16`.
+
+## Capability-use and release binding
+
+A protected use must follow an admitted grant and bind both that exact grant and
+the frozen policy:
+
+```text
+stage=boundary
+action=attest_capability_use
+detail=capability=write_support_draft
+input_digests.capability_policy=<the frozen policy digest>
+input_digests.capability_grant=<the admitted grant digest>
+output_digests.capability_use=<canonical use digest>
+```
+
+A `READY_FOR_PRODUCTION_APPROVAL` report for a capability-policy-bound run must
+then bind the canonical ordered set of all preceding admitted capability-use
+digests in `input_digests.capability_uses`. A missing or renamed grant, a use
+bound to another grant or policy, a missing use attestation, or a release report
+bound to an incomplete use set is `TRAJ-16`.
 
 Final-answer quality is irrelevant after the boundary has failed.
 
@@ -74,7 +95,7 @@ Within the governed evidence path, a successful final output cannot mask recorde
 
 This is not a WAF, application authentication system, network firewall, process sandbox, prompt-injection detector, or protection against arbitrary hostile Python code executing in the same interpreter. Those require separate isolation and security controls.
 
-This gate evaluates and fails closed on the boundary events admitted by the governed runtime. It deliberately makes no claim about unobserved activity outside that boundary.
+This gate evaluates and fails closed on the boundary events admitted by the governed runtime. It deliberately makes no claim about unobserved activity outside that boundary. Within a capability-policy-bound ledger, however, release readiness cannot omit the governed grant/use chain.
 
 ## Verify
 
