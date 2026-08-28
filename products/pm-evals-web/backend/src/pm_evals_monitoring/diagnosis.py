@@ -403,6 +403,7 @@ def build_overview(
         by_id = {item.observation_id: item for item in run.observations}
         diagnosis_by_id = {item.observation_id: item for item in diagnosis.diagnoses}
         comparison = runs_by_identity.get((product_id, environment, run.comparison.run_id))
+        comparison_available = comparison is not None
         changes = _changes(run, comparison)
         for starting_id in diagnosis.likely_starting_observation_ids:
             observation = by_id[starting_id]
@@ -430,7 +431,9 @@ def build_overview(
                     environment=environment,
                     run_id=run.run_id,
                     comparison_run_id=run.comparison.run_id,
-                    comparison_label=run.comparison.label,
+                    comparison_label=(
+                        run.comparison.label if comparison_available else "Comparison unavailable"
+                    ),
                     observed_at=run.observed_at,
                     observation_id=starting_id,
                     case=observation.case,
@@ -442,12 +445,19 @@ def build_overview(
                     layer=observation.evaluation.layer,
                     concern=observation.evaluation.concern,
                     current_value=observation.current_value,
-                    expected_value=observation.expected_value,
+                    expected_value=(observation.expected_value if comparison_available else None),
                     current_summary=observation.current_summary,
-                    expected_summary=observation.expected_summary,
+                    expected_summary=(
+                        observation.expected_summary
+                        if comparison_available
+                        else "The referenced comparison run is not stored, so this expectation "
+                        "is not verified."
+                    ),
                     threshold=observation.threshold,
                     unit=observation.unit,
-                    regression_magnitude=item_diagnosis.regression_magnitude,
+                    regression_magnitude=(
+                        item_diagnosis.regression_magnitude if comparison_available else None
+                    ),
                     downstream_observation_ids=downstream_ids,
                     reason_code=observation.reason_code,
                     cause_category=item_diagnosis.cause_category,

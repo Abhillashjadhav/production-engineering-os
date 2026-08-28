@@ -272,6 +272,20 @@ def test_comparison_run_is_resolved_within_product_and_environment() -> None:
     }
 
 
+def test_missing_comparison_is_never_presented_as_verified_evidence() -> None:
+    run = _failed_dream_job_run()
+
+    overview = build_overview([run], mode="LIVE")
+    incident = overview.incidents[0]
+
+    assert incident.comparison_run_id == run.comparison.run_id
+    assert incident.comparison_label == "Comparison unavailable"
+    assert incident.expected_value is None
+    assert incident.regression_magnitude is None
+    assert "not verified" in incident.expected_summary
+    assert incident.changes_since_comparison == []
+
+
 def test_demo_overview_points_to_case_cause_and_fix_without_asset_churn() -> None:
     overview = build_demo_overview()
 

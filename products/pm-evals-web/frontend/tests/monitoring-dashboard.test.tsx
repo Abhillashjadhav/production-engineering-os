@@ -138,6 +138,27 @@ describe("MonitoringDashboard", () => {
     expect(screen.queryByText("Propagation")).not.toBeInTheDocument();
   });
 
+  it("shows missing comparison evidence without asserting an expected value", async () => {
+    const unavailable: MonitoringOverview = {
+      ...OVERVIEW,
+      mode: "LIVE",
+      incidents: [{
+        ...OVERVIEW.incidents[0],
+        comparison_label: "Comparison unavailable",
+        expected_value: null,
+        expected_summary: "The referenced comparison run is not stored, so this expectation is not verified.",
+        regression_magnitude: null,
+        changes_since_comparison: [],
+      }],
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(unavailable)} />);
+
+    expect(await screen.findByText("Difference unavailable")).toBeInTheDocument();
+    expect(screen.getByText(/expectation is not verified/i)).toBeInTheDocument();
+    expect(screen.getByText(/comparison unavailable: dream-approved/i)).toBeInTheDocument();
+  });
+
   it("filters failed cases by product", async () => {
     render(<MonitoringDashboard fetcher={fetchOverview()} />);
     fireEvent.click(await screen.findByRole("button", { name: /linkedin research os/i }));
