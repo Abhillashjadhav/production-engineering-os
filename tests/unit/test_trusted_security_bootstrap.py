@@ -236,8 +236,10 @@ def test_exact_checkout_rejects_untracked_candidate_files(tmp_path: Path) -> Non
 
 def test_trusted_workflow_has_no_candidate_authority() -> None:
     workflow = Path(".github/workflows/trusted-security.yml").read_text()
+    legacy_workflow = Path(".github/workflows/ci.yml").read_text()
 
     assert "pull_request_target:" in workflow
+    assert "types: [opened, reopened, synchronize, ready_for_review, edited]" in workflow
     assert "contents: read" in workflow
     assert "persist-credentials: false" in workflow
     assert "github.event.pull_request.base.sha" in workflow
@@ -248,3 +250,6 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert "pull_request:" not in workflow.replace("pull_request_target:", "")
     assert "merge" not in workflow.lower()
     assert "deploy" not in workflow.lower()
+    assert "  security:\n    name: security\n" in workflow
+    assert "  security:\n" not in legacy_workflow
+    assert "  security-static:\n    name: security-static\n" in legacy_workflow
