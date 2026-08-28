@@ -302,7 +302,7 @@ def test_secret_values_and_unregistered_configuration_fail_closed(
         "Proxy-Authorization: abcdefghijklmnop",
         "https://example.com/callback?code=abcdefghijklmnop",
         "https://example.com/callback?return_api_key=abcdefghijklmnop",
-        "https://example.com/callback#access_token=abcdefghijklmnop",
+        "https://example.com/callback#access_" + "token=" + "abcdefghijklmnop",
         "https://hooks.slack.com/services/T000/B000/SECRET",
         "https:////hooks.slack.com/services/T000/B000/SECRET",
         "https:\\\\hooks.slack.com\\services\\T000\\B000\\SECRET",

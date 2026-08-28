@@ -308,8 +308,7 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert "dst=/input/requirements.lock,readonly" in workflow
     assert "-r /input/requirements.lock" in workflow
     assert (
-        'container_name="candidate-closure-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$version"'
-        in workflow
+        'container_name="candidate-closure-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$version"' in workflow
     )
     assert "candidate-pip-check-$version.txt" in workflow
     assert "missing_conclusion=failure" in finalizer
