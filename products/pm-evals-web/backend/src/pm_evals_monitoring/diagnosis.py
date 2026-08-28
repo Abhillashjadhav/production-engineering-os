@@ -6,6 +6,7 @@ from collections import Counter, defaultdict, deque
 from datetime import UTC, datetime
 
 from .models import (
+    OVERVIEW_TREND_RUNS_PER_PRODUCT,
     AttributionMetrics,
     CauseCategory,
     CauseConfidence,
@@ -318,9 +319,12 @@ def build_overview(
     mode: str,
     generated_at: datetime | None = None,
     attribution_metrics: AttributionMetrics | None = None,
+    trend_limit_per_product: int = OVERVIEW_TREND_RUNS_PER_PRODUCT,
 ) -> MonitoringOverview:
     if not runs:
         raise ValueError("at least one run is required")
+    if trend_limit_per_product < 1:
+        raise ValueError("trend_limit_per_product must be at least one")
     ordered = sorted(
         runs,
         key=lambda item: (
@@ -335,14 +339,14 @@ def build_overview(
     }
     latest: dict[tuple[str, str], RunEnvelope] = {}
     diagnoses: dict[tuple[str, str, str], RunDiagnosis] = {}
-    trend: list[TrendPoint] = []
+    trend_by_product: dict[tuple[str, str], list[TrendPoint]] = defaultdict(list)
     for run in ordered:
         diagnosis = diagnose_run(run)
         run_identity = (run.product.id, run.product.environment, run.run_id)
         diagnoses[run_identity] = diagnosis
         latest[(run.product.id, run.product.environment)] = run
         evaluated = diagnosis.pass_count + diagnosis.fail_count
-        trend.append(
+        trend_by_product[(run.product.id, run.product.environment)].append(
             TrendPoint(
                 product_id=run.product.id,
                 environment=run.product.environment,
@@ -352,6 +356,14 @@ def build_overview(
             )
         )
 
+    trend = sorted(
+        (
+            point
+            for points in trend_by_product.values()
+            for point in points[-trend_limit_per_product:]
+        ),
+        key=lambda point: (point.observed_at, point.product_id, point.environment),
+    )
     products: list[ProductHealth] = []
     incidents: list[Incident] = []
     for (product_id, environment), run in sorted(latest.items()):

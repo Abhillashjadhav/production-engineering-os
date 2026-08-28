@@ -64,6 +64,8 @@ ChangeDimension = Literal[
     "PRODUCTION_COHORT",
 ]
 
+OVERVIEW_TREND_RUNS_PER_PRODUCT = 30
+
 
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
@@ -156,6 +158,10 @@ class CauseSignal(StrictModel):
             return self
         if not self.control_ref or not self.candidate_ref:
             raise ValueError("controlled replay requires control_ref and candidate_ref")
+        if self.control_ref == self.candidate_ref:
+            raise ValueError(
+                "controlled replay requires distinct control and candidate references"
+            )
         if self.control_status is None or self.candidate_status is None:
             raise ValueError("controlled replay requires both replay statuses")
         if self.supports and not (

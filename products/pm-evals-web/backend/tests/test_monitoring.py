@@ -69,6 +69,18 @@ def test_controlled_replay_requires_a_real_control_and_fixed_dimensions() -> Non
         CauseSignal.model_validate(signal)
 
 
+def test_controlled_replay_requires_distinct_artifacts() -> None:
+    run = _failed_dream_job_run()
+    source = next(
+        item for item in run.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    signal = source.cause_signals[0].model_dump()
+    signal["candidate_ref"] = signal["control_ref"]
+
+    with pytest.raises(ValidationError, match="distinct control and candidate"):
+        CauseSignal.model_validate(signal)
+
+
 def test_blocked_upstream_prevents_false_starting_failure() -> None:
     run = _failed_dream_job_run().model_copy(deep=True)
     source = next(
@@ -247,6 +259,66 @@ def test_store_is_append_only_deduplicated_and_digest_checked(tmp_path: Path) ->
         assert "different evidence" in str(exc)
     else:  # pragma: no cover - protects the immutable-history guarantee
         raise AssertionError("a conflicting run identity was accepted")
+
+
+def test_store_recovers_from_an_unterminated_final_append(tmp_path: Path) -> None:
+    store = MonitoringStore(tmp_path)
+    run = _failed_dream_job_run()
+    assert store.append(run) is True
+    complete_history = store.log_path.read_bytes()
+    with store.log_path.open("ab") as handle:
+        handle.write(b'{"contract_version":"0.2","run_id":"torn')
+
+    recovered = MonitoringStore(tmp_path)
+
+    assert recovered.log_path.read_bytes() == complete_history
+    assert recovered.list_runs() == [run]
+
+
+def test_store_rejects_corruption_in_a_completed_record(tmp_path: Path) -> None:
+    store = MonitoringStore(tmp_path)
+    assert store.append(_failed_dream_job_run()) is True
+    with store.log_path.open("ab") as handle:
+        handle.write(b"not-json\n")
+
+    with pytest.raises(ValueError, match="completed monitoring log record is invalid"):
+        MonitoringStore(tmp_path)
+
+
+def test_overview_history_query_is_bounded_and_keeps_latest_comparisons(
+    tmp_path: Path,
+) -> None:
+    store = MonitoringStore(tmp_path)
+    for run in build_demo_runs():
+        assert store.append(run) is True
+
+    bounded = store.list_runs_for_overview(trend_limit_per_product=2)
+    identities = {(run.product.id, run.run_id) for run in bounded}
+
+    assert len(bounded) == 6
+    assert ("dream-job-agent", "dream-job-2026-08-24") in identities
+    assert ("dream-job-agent", "dream-job-2026-08-28") in identities
+    assert ("linkedin-research-os", "linkedin-os-2026-08-24") in identities
+    assert ("linkedin-research-os", "linkedin-os-2026-08-28") in identities
+    assert ("dream-job-agent", "dream-job-2026-08-25") not in identities
+    assert ("linkedin-research-os", "linkedin-os-2026-08-26") not in identities
+
+
+def test_monitoring_api_bounds_live_trend_history(tmp_path: Path) -> None:
+    store = MonitoringStore(tmp_path)
+    template = next(run for run in build_demo_runs() if run.run_id == "dream-job-2026-08-24")
+    for index in range(35):
+        run = template.model_copy(deep=True)
+        run.run_id = f"dream-history-{index:02d}"
+        run.comparison.run_id = "dream-history-00"
+        run.observed_at = template.observed_at + timedelta(days=index)
+        assert store.append(run) is True
+
+    client = TestClient(create_app(monitoring_data_dir=tmp_path))
+    response = client.get("/api/monitoring/overview")
+
+    assert response.status_code == 200
+    assert len(response.json()["trend"]) == 30
 
 
 def test_monitoring_api_runs_planted_demo_and_persists_live_run(tmp_path: Path) -> None:

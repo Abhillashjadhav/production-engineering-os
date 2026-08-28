@@ -349,7 +349,7 @@ def create_app(*, monitoring_data_dir: Path | None = None) -> FastAPI:
 
     @app.get("/api/monitoring/overview", response_model=MonitoringOverview)
     async def monitoring_overview() -> MonitoringOverview:
-        runs = monitoring_store.list_runs() if monitoring_store else []
+        runs = monitoring_store.list_runs_for_overview() if monitoring_store else []
         return build_overview(runs, mode="LIVE") if runs else build_demo_overview()
 
     frontend_dist = os.environ.get("PM_EVALS_FRONTEND_DIST")

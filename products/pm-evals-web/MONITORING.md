@@ -79,7 +79,11 @@ coverage. A falling score alone changes neither asset.
 
 Canonical history is append-only JSONL with a rebuildable SQLite index. The
 same run is idempotent only when its canonical bytes match; conflicting evidence
-under the same product/environment/run identity is rejected.
+under the same product/environment/run identity is rejected. Startup truncates
+only an unterminated final record left by an interrupted append; corruption in
+any completed record still fails closed. Overview reads are bounded to the most
+recent 30 runs per product/environment plus the latest run's referenced
+comparison, while the canonical history remains complete.
 
 ## First run
 
