@@ -26,8 +26,10 @@ jobs:
             src tests/unit tests/integration tests/e2e tests/conftest.py \
             scripts/ci/classify_frontend_ci.py \
             scripts/ci/evaluate_security_profile.py \
+            scripts/ci/run_trusted_security_entrypoint.py \
             scripts/ci/verify_privacy_controls.py \
             scripts/ci/verify_repository_secrets.py \
+            scripts/ci/verify_trusted_security_bootstrap.py \
             examples/barebones/codex-cli-provider.py
       - name: ruff lint
         run: |
@@ -35,8 +37,10 @@ jobs:
             src tests/unit tests/integration tests/e2e tests/conftest.py \
             scripts/ci/classify_frontend_ci.py \
             scripts/ci/evaluate_security_profile.py \
+            scripts/ci/run_trusted_security_entrypoint.py \
             scripts/ci/verify_privacy_controls.py \
             scripts/ci/verify_repository_secrets.py \
+            scripts/ci/verify_trusted_security_bootstrap.py \
             examples/barebones/*.py
 
   types:
@@ -55,8 +59,10 @@ jobs:
             src/pmpe \
             scripts/ci/classify_frontend_ci.py \
             scripts/ci/evaluate_security_profile.py \
+            scripts/ci/run_trusted_security_entrypoint.py \
             scripts/ci/verify_privacy_controls.py \
             scripts/ci/verify_repository_secrets.py \
+            scripts/ci/verify_trusted_security_bootstrap.py \
             examples/barebones/*.py
 
   tests:
@@ -116,7 +122,8 @@ jobs:
             tests/e2e/test_barebones_e1.py::test_e1_real_contract_reaches_release_ready \
             -q
 
-  security:
+  security-static:
+    name: security-static
     runs-on: ubuntu-latest
     permissions:
       contents: read

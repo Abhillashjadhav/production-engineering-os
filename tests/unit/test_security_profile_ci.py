@@ -938,7 +938,7 @@ def test_ci_executes_provider_neutral_privacy_before_composed_profile() -> None:
 def test_ci_materializes_security_authority_from_exact_protected_base() -> None:
     root = Path(__file__).resolve().parents[2]
     workflow = (root / ".github/workflows/ci.yml").read_text()
-    security = workflow[workflow.index("security:") : workflow.index("product-backend:")]
+    security = workflow[workflow.index("security-static:") : workflow.index("product-backend:")]
 
     assert "fetch-depth: 0" in security
     assert "BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}" in security
@@ -970,6 +970,6 @@ def test_ci_keeps_editable_builds_inside_the_hash_lock() -> None:
     locked_editable_install = "pip install --no-deps --no-build-isolation -e ."
     assert workflow.count(locked_editable_install) == 4
     candidate_isolation = workflow[
-        workflow.index("candidate-isolation:") : workflow.index("security:")
+        workflow.index("candidate-isolation:") : workflow.index("security-static:")
     ]
     assert locked_editable_install in candidate_isolation

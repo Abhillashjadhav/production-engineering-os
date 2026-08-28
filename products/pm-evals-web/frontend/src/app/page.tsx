@@ -1,3 +1,4 @@
+import { MonitoringDashboard } from "@/components/monitoring-dashboard";
 import { Workspace } from "@/components/workspace";
 import { Explainer } from "@/lib/explainer";
 
@@ -7,8 +8,17 @@ import { Explainer } from "@/lib/explainer";
 export default function HomePage() {
   return (
     <main>
-      <Explainer />
-      <Workspace />
+      <MonitoringDashboard />
+      <details className="comparison-workbench">
+        <summary>
+          <span>Compare two eval runs</span>
+          <small>Existing release-check workflow</small>
+        </summary>
+        <div className="comparison-content">
+          <Explainer />
+          <Workspace />
+        </div>
+      </details>
     </main>
   );
 }
