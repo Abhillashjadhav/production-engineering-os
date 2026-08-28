@@ -89,6 +89,8 @@ def test_architecture_observer_accounts_for_dynamic_imports(tmp_path: Path) -> N
         'import importlib as il\nil.import_module("pmpe.guided.api")\n',
         'from importlib import import_module as load\nload("pmpe.guided.api")\n',
         'import importlib\nloader = importlib.import_module\nloader("pmpe.guided.api")\n',
+        'import importlib\nil = importlib\nil.import_module("pmpe.guided.api")\n',
+        'import importlib\nil = importlib\nil2 = il\nil2.import_module("pmpe.guided.api")\n',
         'from importlib import import_module\nloader = import_module\nloader("pmpe.guided.api")\n',
     ],
 )
@@ -283,6 +285,38 @@ def test_event_log_enforces_retention_on_the_actual_runs_root(tmp_path: Path) ->
     )
 
     assert not expired.exists()
+
+
+def test_production_retention_entrypoints_reserve_the_tombstone_namespace(
+    tmp_path: Path,
+) -> None:
+    reserved = tmp_path / ".retention-delete-active-run"
+
+    with pytest.raises(ValueError, match="reserved retention tombstone prefix"):
+        EventLog(reserved, retention_days=30)
+
+    budget = BudgetPolicy(
+        version="budget-v1",
+        limits={
+            "tokens": 100,
+            "credits": 10,
+            "elapsed_seconds": 3600,
+            "external_compute_seconds": 600,
+            "spend_microunits": 1000,
+        },
+        repair_attempts_per_finding=2,
+        repair_attempts_per_stage=3,
+        reserved_safety_units=10,
+        approved_by="delivery-owner",
+    )
+    with pytest.raises(ValueError, match="reserved retention tombstone prefix"):
+        LifecycleControlPlane.create(
+            reserved,
+            run_id="reserved-run",
+            subject_digest="sha256:" + "1" * 64,
+            initial_state=LifecycleState.CONTRACT_RECEIVED,
+            budget_policy=budget,
+        )
 
 
 def test_phase_zero_create_enforces_retention_on_shipped_lifecycle_root(tmp_path: Path) -> None:

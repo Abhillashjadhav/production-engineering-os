@@ -57,7 +57,7 @@ from pmpe.engineering.candidate import (
 from pmpe.engineering.ledger import EvidenceLedger
 from pmpe.engineering.submissions import VALIDATORS, validate_routing_submission
 from pmpe.evals.registry import stage_of
-from pmpe.privacy.retention import RetentionController
+from pmpe.privacy.retention import RetentionController, validate_retention_run_directory
 from pmpe.telemetry.events import utc_now
 
 STAGES = (
@@ -117,7 +117,7 @@ class EngineeringRun:
         retention_days: int = 30,
         trusted_clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> EngineeringRun:
-        run_dir = Path(run_dir)
+        run_dir = validate_retention_run_directory(run_dir)
         run_dir.parent.mkdir(parents=True, exist_ok=True)
         RetentionController(retention_days=retention_days).purge(
             run_dir.parent,

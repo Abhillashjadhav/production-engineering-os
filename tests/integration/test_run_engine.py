@@ -248,6 +248,16 @@ def test_start_twice_fails_closed(run: EngineeringRun) -> None:
         EngineeringRun.start(CONTRACT, run.run_dir, agents_dir=AGENTS_DIR, fixture_mode=True)
 
 
+def test_start_reserves_the_retention_tombstone_namespace(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="reserved retention tombstone prefix"):
+        EngineeringRun.start(
+            CONTRACT,
+            tmp_path / ".retention-delete-active-run",
+            agents_dir=AGENTS_DIR,
+            fixture_mode=True,
+        )
+
+
 def test_resume_preserves_state_and_appends_nothing(run: EngineeringRun) -> None:
     run.record_assessment({"summary": "fresh"})
     run.submit("v2-system-architect", _arch(run.contract_digest))

@@ -13,6 +13,17 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+_TOMBSTONE_PREFIX = ".retention-delete-"
+
+
+def validate_retention_run_directory(run_dir: Path) -> Path:
+    """Reserve the controller's tombstone namespace from active run creation."""
+
+    path = Path(run_dir)
+    if path.name.startswith(_TOMBSTONE_PREFIX):
+        raise ValueError("run directory uses the reserved retention tombstone prefix")
+    return path
+
 
 @dataclass(frozen=True)
 class RetentionResult:
@@ -47,7 +58,7 @@ class RetentionController:
         for run_dir in sorted(root.iterdir()):
             if run_dir.is_symlink() or not run_dir.is_dir():
                 continue
-            if run_dir.name.startswith(".retention-delete-"):
+            if run_dir.name.startswith(_TOMBSTONE_PREFIX):
                 with suppress(FileNotFoundError):
                     shutil.rmtree(run_dir)
                 continue
@@ -73,7 +84,7 @@ class RetentionController:
                     if record.get(terminal_key) != terminal_value or modified > cutoff:
                         retained.append(run_dir.name)
                         continue
-                    tombstone = root / (f".retention-delete-{run_dir.name}-{uuid.uuid4().hex}")
+                    tombstone = root / (f"{_TOMBSTONE_PREFIX}{run_dir.name}-{uuid.uuid4().hex}")
                     os.replace(run_dir, tombstone)
                 finally:
                     fcntl.flock(lock.fileno(), fcntl.LOCK_UN)

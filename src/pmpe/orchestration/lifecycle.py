@@ -25,7 +25,7 @@ from types import MappingProxyType
 from typing import Any, NoReturn
 
 from pmpe.domain.serialize import atomic_write_json
-from pmpe.privacy.retention import RetentionController
+from pmpe.privacy.retention import RetentionController, validate_retention_run_directory
 
 EvidenceVerifier = Callable[[str, str, Mapping[str, Any], str], bool]
 BundleVerifier = Callable[[str, Mapping[str, str]], bool]
@@ -3289,7 +3289,7 @@ class LifecycleControlPlane:
                 "new lifecycle runs must start at CONTRACT_RECEIVED; "
                 "use the explicit migration admission path"
             )
-        path = Path(run_dir)
+        path = validate_retention_run_directory(run_dir)
         path.parent.mkdir(parents=True, exist_ok=True)
         RetentionController(retention_days=retention_days).purge(
             path.parent,

@@ -411,6 +411,12 @@ def _collect_architecture_edges(
             if not isinstance(node, (ast.Assign, ast.AnnAssign)):
                 continue
             value = node.value
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if isinstance(value, ast.Name) and value.id in importlib_aliases:
+                for target in targets:
+                    if isinstance(target, ast.Name) and target.id not in importlib_aliases:
+                        importlib_aliases.add(target.id)
+                        changed = True
             is_loader = bool(
                 isinstance(value, ast.Name)
                 and value.id in import_module_aliases
@@ -429,7 +435,6 @@ def _collect_architecture_edges(
             )
             if not is_loader:
                 continue
-            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             for target in targets:
                 if isinstance(target, ast.Name) and target.id not in import_module_aliases:
                     import_module_aliases.add(target.id)
