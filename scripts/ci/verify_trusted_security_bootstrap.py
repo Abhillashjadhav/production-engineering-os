@@ -8,6 +8,7 @@ import hashlib
 import json
 import re
 import subprocess  # nosec B404 - fixed git argv authenticates local checkouts
+import tomllib
 from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -15,6 +16,14 @@ from typing import Any
 
 _SHA = re.compile(r"[0-9a-f]{40}\Z")
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
+_DECLARED_REQUIREMENT = re.compile(
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)"
+    r"(?:\[[A-Za-z0-9._,-]+\])?==(?P<version>[A-Za-z0-9][A-Za-z0-9.!+_-]*)\Z"
+)
+_LOCKED_REQUIREMENT = re.compile(
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)"
+    r"==(?P<version>[A-Za-z0-9][A-Za-z0-9.!+_-]*)\s*\\?\Z"
+)
 _SCHEMA = "trusted-security-bootstrap/v1"
 _BOOTSTRAP_PR = 133
 _ENTRYPOINTS = (
@@ -177,6 +186,102 @@ def _report_digest(value: Mapping[str, Any]) -> str:
     return _digest_bytes(_canonical_bytes(value))
 
 
+def _normalized_requirement(value: object) -> tuple[str, str]:
+    if not isinstance(value, str):
+        raise BootstrapVerificationError("project dependency declaration is malformed")
+    match = _DECLARED_REQUIREMENT.fullmatch(value)
+    if match is None:
+        raise BootstrapVerificationError("project dependencies must use exact version pins")
+    name = re.sub(r"[-_.]+", "-", match.group("name")).lower()
+    return name, match.group("version")
+
+
+def _declared_dependencies(payload: Mapping[str, Any]) -> set[tuple[str, str]]:
+    build = payload.get("build-system")
+    project = payload.get("project")
+    if not isinstance(build, Mapping) or not isinstance(project, Mapping):
+        raise BootstrapVerificationError("candidate dependency metadata is malformed")
+    groups: list[object] = [build.get("requires"), project.get("dependencies")]
+    optional = project.get("optional-dependencies", {})
+    if not isinstance(optional, Mapping):
+        raise BootstrapVerificationError("candidate optional dependencies are malformed")
+    groups.extend(optional.values())
+    declared: set[tuple[str, str]] = set()
+    for group in groups:
+        if not isinstance(group, list) or not group:
+            raise BootstrapVerificationError("candidate dependency group is malformed")
+        declared.update(_normalized_requirement(item) for item in group)
+    return declared
+
+
+def _locked_dependencies(payload: str) -> set[tuple[str, str]]:
+    locked: set[tuple[str, str]] = set()
+    current: tuple[str, str] | None = None
+    hashed = False
+
+    def finish() -> None:
+        nonlocal current, hashed
+        if current is not None:
+            if not hashed:
+                raise BootstrapVerificationError("requirements lock contains an unhashed entry")
+            locked.add(current)
+        current = None
+        hashed = False
+
+    for line in payload.splitlines():
+        if line and not line[0].isspace() and not line.startswith("#"):
+            finish()
+            match = _LOCKED_REQUIREMENT.fullmatch(line)
+            if match is None:
+                raise BootstrapVerificationError("requirements lock entry is malformed")
+            current = (
+                re.sub(r"[-_.]+", "-", match.group("name")).lower(),
+                match.group("version"),
+            )
+        elif current is not None and "--hash=sha256:" in line:
+            hashed = True
+    finish()
+    if not locked:
+        raise BootstrapVerificationError("requirements lock has no authenticated entries")
+    return locked
+
+
+def verify_locked_dependency_coverage(
+    *,
+    candidate_root: Path,
+    candidate_sha: str,
+) -> dict[str, Any]:
+    """Bind every declared build/runtime/extra dependency to one hashed exact lock entry."""
+
+    if not _SHA.fullmatch(candidate_sha):
+        raise BootstrapVerificationError("candidate SHA is malformed")
+    root = candidate_root.resolve()
+    pyproject_path = root / "pyproject.toml"
+    lock_path = root / "requirements.lock"
+    if any(path.is_symlink() or not path.is_file() for path in (pyproject_path, lock_path)):
+        raise BootstrapVerificationError("candidate dependency metadata is unavailable")
+    try:
+        pyproject_bytes = pyproject_path.read_bytes()
+        lock_bytes = lock_path.read_bytes()
+        pyproject = tomllib.loads(pyproject_bytes.decode())
+        lock_text = lock_bytes.decode()
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise BootstrapVerificationError("candidate dependency metadata is malformed") from exc
+    declared = _declared_dependencies(pyproject)
+    locked = _locked_dependencies(lock_text)
+    if not declared <= locked:
+        raise BootstrapVerificationError("a declared dependency is absent from the hash lock")
+    shell: dict[str, Any] = {
+        "candidate_sha": candidate_sha,
+        "coverage_passed": True,
+        "declared_dependency_count": len(declared),
+        "lock_digest": _digest_bytes(lock_bytes),
+        "pyproject_digest": _digest_bytes(pyproject_bytes),
+        "schema_version": "trusted-dependency-coverage/v1",
+    }
+    return {**shell, "report_digest": _report_digest(shell)}
+
+
 def verify_trusted_security(
     *,
     trusted_root: Path,
@@ -251,26 +356,42 @@ def verify_trusted_security(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--trusted-root", type=Path, required=True)
+    parser.add_argument("--verify-dependency-coverage", action="store_true")
+    parser.add_argument("--trusted-root", type=Path)
     parser.add_argument("--candidate-root", type=Path, required=True)
-    parser.add_argument("--manifest", type=Path, required=True)
-    parser.add_argument("--base-sha", required=True)
+    parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--base-sha")
     parser.add_argument("--candidate-sha", required=True)
-    parser.add_argument("--pr-number", type=int, required=True)
+    parser.add_argument("--pr-number", type=int)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--github-output", type=Path)
     args = parser.parse_args()
-    report = verify_trusted_security(
-        trusted_root=args.trusted_root,
-        candidate_root=args.candidate_root,
-        manifest_path=args.manifest,
-        base_sha=args.base_sha,
-        candidate_sha=args.candidate_sha,
-        pr_number=args.pr_number,
-    )
+    if args.verify_dependency_coverage:
+        report = verify_locked_dependency_coverage(
+            candidate_root=args.candidate_root,
+            candidate_sha=args.candidate_sha,
+        )
+    else:
+        if any(
+            value is None
+            for value in (args.trusted_root, args.manifest, args.base_sha, args.pr_number)
+        ):
+            parser.error("admission mode requires trusted root, manifest, base SHA, and PR number")
+        assert args.trusted_root is not None
+        assert args.manifest is not None
+        assert args.base_sha is not None
+        assert args.pr_number is not None
+        report = verify_trusted_security(
+            trusted_root=args.trusted_root,
+            candidate_root=args.candidate_root,
+            manifest_path=args.manifest,
+            base_sha=args.base_sha,
+            candidate_sha=args.candidate_sha,
+            pr_number=args.pr_number,
+        )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
-    if args.github_output is not None:
+    if args.github_output is not None and not args.verify_dependency_coverage:
         with args.github_output.open("a") as stream:
             for field in ("mode", "requirements_path", "runner_root"):
                 stream.write(f"{field}={report[field]}\n")

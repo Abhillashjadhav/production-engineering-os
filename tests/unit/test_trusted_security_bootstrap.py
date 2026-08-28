@@ -10,6 +10,7 @@ import pytest
 
 from scripts.ci.verify_trusted_security_bootstrap import (
     BootstrapVerificationError,
+    verify_locked_dependency_coverage,
     verify_trusted_security,
 )
 
@@ -243,6 +244,7 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert "pull_request_target:" in workflow
     assert "types: [opened, reopened, synchronize, ready_for_review, edited]" in workflow
     assert "merge_group:" in workflow
+    assert "run-name: trusted-security:" in workflow
     assert "types: [checks_requested]" in workflow
     assert "github.event.merge_group.base_sha" in workflow
     assert "github.event.merge_group.head_sha" in workflow
@@ -278,13 +280,17 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert 'workflows: ["Trusted Security"]' in finalizer
     assert "types: [completed]" in finalizer
     assert "checks: write" in finalizer
-    assert "github.event.workflow_run.event == 'pull_request_target'" in finalizer
-    assert "github.event.workflow_run.pull_requests[0].head.sha" in finalizer
-    assert "github.event.workflow_run.head_sha" in finalizer
+    assert "github.event.workflow_run.event" in finalizer
+    assert "pull_request_target|merge_group" in finalizer
+    assert "github.event.workflow_run.display_title" in finalizer
+    assert "${SOURCE_DISPLAY_TITLE#trusted-security:}" in finalizer
+    assert "github.event.workflow_run.pull_requests[0]" not in finalizer
     assert "github.event.workflow_run.run_attempt" in finalizer
     assert 'source_external_id="$SOURCE_RUN_ID:$SOURCE_RUN_ATTEMPT"' in finalizer
     assert 'select(.external_id == \\"$source_external_id\\")' in finalizer
     assert '-f external_id="$source_external_id"' in finalizer
+    assert "github.run_attempt" in workflow
+    assert "--verify-dependency-coverage" in workflow
     assert "missing_conclusion=failure" in finalizer
     assert '-f conclusion="$missing_conclusion"' in finalizer
     assert "--method PATCH" in finalizer
@@ -292,3 +298,57 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert "candidate/" not in finalizer
     assert "pip install" not in finalizer
     assert "python " not in finalizer
+
+
+def _write_dependency_metadata(root: Path) -> None:
+    (root / "pyproject.toml").write_text(
+        "[build-system]\n"
+        'requires = ["setuptools==83.0.0"]\n'
+        'build-backend = "setuptools.build_meta"\n\n'
+        "[project]\n"
+        'name = "candidate"\n'
+        'version = "1.0.0"\n'
+        'dependencies = ["PyYAML==6.0.3"]\n\n'
+        "[project.optional-dependencies]\n"
+        'dev = ["pytest==9.1.1"]\n'
+    )
+    (root / "requirements.lock").write_text(
+        "pyyaml==6.0.3 \\\n    --hash=sha256:" + "1" * 64 + "\n"
+        "pytest==9.1.1 \\\n    --hash=sha256:" + "2" * 64 + "\n"
+        "setuptools==83.0.0 \\\n    --hash=sha256:" + "3" * 64 + "\n"
+    )
+
+
+def test_dependency_coverage_binds_every_declared_exact_pin(tmp_path: Path) -> None:
+    _write_dependency_metadata(tmp_path)
+
+    report = verify_locked_dependency_coverage(
+        candidate_root=tmp_path,
+        candidate_sha="a" * 40,
+    )
+
+    assert report["coverage_passed"] is True
+    assert report["declared_dependency_count"] == 3
+
+
+def test_dependency_coverage_rejects_unlocked_declaration(tmp_path: Path) -> None:
+    _write_dependency_metadata(tmp_path)
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(
+        pyproject.read_text().replace(
+            'dependencies = ["PyYAML==6.0.3"]',
+            'dependencies = ["PyYAML==6.0.3", "requests==2.32.5"]',
+        )
+    )
+
+    with pytest.raises(BootstrapVerificationError, match="absent from the hash lock"):
+        verify_locked_dependency_coverage(candidate_root=tmp_path, candidate_sha="a" * 40)
+
+
+def test_dependency_coverage_rejects_unpinned_declaration(tmp_path: Path) -> None:
+    _write_dependency_metadata(tmp_path)
+    pyproject = tmp_path / "pyproject.toml"
+    pyproject.write_text(pyproject.read_text().replace("PyYAML==6.0.3", "PyYAML>=6.0"))
+
+    with pytest.raises(BootstrapVerificationError, match="exact version pins"):
+        verify_locked_dependency_coverage(candidate_root=tmp_path, candidate_sha="a" * 40)

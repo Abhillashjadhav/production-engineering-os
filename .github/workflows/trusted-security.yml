@@ -1,4 +1,5 @@
 name: Trusted Security
+run-name: trusted-security:${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
 
 on:
   pull_request_target:
@@ -77,6 +78,13 @@ jobs:
             --pr-number "$SUBJECT_NUMBER" \
             --output "$RUNNER_TEMP/trusted-security/admission.json" \
             --github-output "$GITHUB_OUTPUT"
+      - name: Verify declared dependencies are hash-locked
+        run: |
+          python -I trusted/scripts/ci/verify_trusted_security_bootstrap.py \
+            --verify-dependency-coverage \
+            --candidate-root candidate \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --output "$RUNNER_TEMP/trusted-security/dependency-coverage.json"
       - name: Install authenticated locked verifier toolchain
         run: pip install --require-hashes -r "${{ steps.admission.outputs.requirements_path }}"
       - name: Bandit candidate input
@@ -123,7 +131,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: trusted-security-${{ env.CANDIDATE_SHA }}
+          name: trusted-security-${{ env.CANDIDATE_SHA }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/trusted-security
           retention-days: 7
           if-no-files-found: error
