@@ -1,0 +1,371 @@
+{
+  "allowed_architecture_edges": [
+    ["core", "delivery"],
+    ["core", "interfaces"],
+    ["core", "orchestration"],
+    ["core", "verification"],
+    ["delivery", "core"],
+    ["delivery", "verification"],
+    ["interfaces", "core"],
+    ["interfaces", "delivery"],
+    ["interfaces", "orchestration"],
+    ["interfaces", "verification"],
+    ["orchestration", "core"],
+    ["orchestration", "delivery"],
+    ["orchestration", "verification"],
+    ["verification", "core"],
+    ["verification", "delivery"]
+  ],
+  "allowed_licenses": [
+    "Apache 2.0",
+    "Apache-2.0",
+    "Apache-2.0 OR BSD-2-Clause",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "MIT",
+    "MPL-2.0",
+    "PSF-2.0",
+    "PSFL"
+  ],
+  "dynamic_import_allowlist": [
+    {
+      "file_digest": "sha256:61c0910e293471515dee8642eca6f4c7382f4e35f40af94ac963fb782efa2492",
+      "justification": "Repository intelligence resolves a validated PMPE module inventory.",
+      "line": 1312,
+      "line_fingerprint": "sha256:62e834c40141c7d400331eb4c1c4c05980e81c61d0a67ee7502c915f9d2ee1bf",
+      "path": "src/pmpe/repository/scanner.py"
+    },
+    {
+      "file_digest": "sha256:61c0910e293471515dee8642eca6f4c7382f4e35f40af94ac963fb782efa2492",
+      "justification": "Repository intelligence resolves a discovered dependency module.",
+      "line": 1377,
+      "line_fingerprint": "sha256:d2c19f3405ae30bdf896e61930a5639273211c386133e39a6126ad5e11ffe025",
+      "path": "src/pmpe/repository/scanner.py"
+    },
+    {
+      "file_digest": "sha256:61c0910e293471515dee8642eca6f4c7382f4e35f40af94ac963fb782efa2492",
+      "justification": "Repository intelligence resolves a validated package name.",
+      "line": 1384,
+      "line_fingerprint": "sha256:bca7bc6fa882b05cf8d1b262c67aa6e3ead4c5fbb4b9e8e779dc5e6771e84f71",
+      "path": "src/pmpe/repository/scanner.py"
+    },
+    {
+      "file_digest": "sha256:61c0910e293471515dee8642eca6f4c7382f4e35f40af94ac963fb782efa2492",
+      "justification": "Repository intelligence imports a discovered module for inspection.",
+      "line": 1414,
+      "line_fingerprint": "sha256:ca8a5171054f3442438f3ea56f6fb48033900e094b6ef0630397c07f2992c5d2",
+      "path": "src/pmpe/repository/scanner.py"
+    },
+    {
+      "file_digest": "sha256:61c0910e293471515dee8642eca6f4c7382f4e35f40af94ac963fb782efa2492",
+      "justification": "Repository intelligence imports a discovered module for inspection.",
+      "line": 1432,
+      "line_fingerprint": "sha256:946a48dcd8f424c19d80b16099a14beca2971f8296b7e1585bc2727cb0333729",
+      "path": "src/pmpe/repository/scanner.py"
+    },
+    {
+      "file_digest": "sha256:61c0910e293471515dee8642eca6f4c7382f4e35f40af94ac963fb782efa2492",
+      "justification": "Repository intelligence imports a discovered module for inspection.",
+      "line": 1451,
+      "line_fingerprint": "sha256:946a48dcd8f424c19d80b16099a14beca2971f8296b7e1585bc2727cb0333729",
+      "path": "src/pmpe/repository/scanner.py"
+    },
+    {
+      "file_digest": "sha256:61c0910e293471515dee8642eca6f4c7382f4e35f40af94ac963fb782efa2492",
+      "justification": "Repository intelligence resolves a validated PMPE module inventory.",
+      "line": 1688,
+      "line_fingerprint": "sha256:8d6e37089262b9f1869a0cc524e5040170aecf5536095980f55e79e820aa6783",
+      "path": "src/pmpe/repository/scanner.py"
+    },
+    {
+      "file_digest": "sha256:61c0910e293471515dee8642eca6f4c7382f4e35f40af94ac963fb782efa2492",
+      "justification": "Repository intelligence resolves a validated PMPE module inventory.",
+      "line": 1710,
+      "line_fingerprint": "sha256:8d6e37089262b9f1869a0cc524e5040170aecf5536095980f55e79e820aa6783",
+      "path": "src/pmpe/repository/scanner.py"
+    },
+    {
+      "file_digest": "sha256:e7d418396a10daa6b01c7aecafe8788839e0b0f3bf92347776c6904b53baee78",
+      "justification": "Evidence exports lazily resolve a module from the closed export-to-module map.",
+      "line": 37,
+      "line_fingerprint": "sha256:d3c9396d26178fd712075444c957f95fe8efe6eb747827d27939f3f60a416055",
+      "path": "src/pmpe/evidence/__init__.py"
+    }
+  ],
+  "license_fallbacks": {
+    "markdown-it-py": "MIT",
+    "mdurl": "MIT",
+    "pathspec": "MPL-2.0",
+    "pip-api": "MIT",
+    "pip-audit": "Apache-2.0",
+    "pyproject-hooks": "MIT",
+    "rfc8785": "MIT"
+  },
+  "privacy": {
+    "classification": "INTERNAL",
+    "deletion_required": true,
+    "residency": null,
+    "retention_days": 30,
+    "telemetry_allowlist": [
+      "artifacts",
+      "branch",
+      "checks",
+      "code",
+      "decision_type",
+      "environment",
+      "escalation_id",
+      "gate",
+      "healthy",
+      "journey_passed",
+      "justification",
+      "level",
+      "message",
+      "passed",
+      "reason",
+      "recommendation",
+      "required",
+      "rule",
+      "sha",
+      "skipped",
+      "stage",
+      "step"
+    ]
+  },
+  "sast_allowlist": [
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Intentional planted eval finding used by the deterministic demo corpus.",
+      "line": 10,
+      "line_fingerprint": "sha256:953c1f06f60bd9c5de983cc666e44279673a5cfa02fa97d008d14e8e8491ca1f",
+      "path": "src/pmpe/demo/synthetic.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Intentional planted eval finding used by the deterministic demo corpus.",
+      "line": 52,
+      "line_fingerprint": "sha256:aa02b589123af2b2c9b2827b715bd824168003ce71d882dac1fe213b6eba0a6b",
+      "path": "src/pmpe/demo/synthetic.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Intentional planted eval finding used by the deterministic demo corpus.",
+      "line": 209,
+      "line_fingerprint": "sha256:f3afe28a0bf851ee17bc390d24b1c7e79194c4030ea6e2aac8773f2269fed8f2",
+      "path": "src/pmpe/demo/synthetic.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Intentional planted eval finding used by the deterministic demo corpus.",
+      "line": 481,
+      "line_fingerprint": "sha256:e73191c13e100597af9c9ae471fad7a03950e7d46eab6aa312d06b0b79a085b6",
+      "path": "src/pmpe/demo/synthetic.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Scanner rule definition contains the literal pattern it detects.",
+      "line": 39,
+      "line_fingerprint": "sha256:6e54ea53f1fdf70640a5d2ecbb0fc5a4b1146076b3f88f5c39acc9a849b2f898",
+      "path": "src/pmpe/quality/security_scan.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Scanner rule definition contains the literal pattern it detects.",
+      "line": 44,
+      "line_fingerprint": "sha256:51d71fc43fd8a16964fbfaf7036e594b8c7b01d17e21d4798d9b29c03638df38",
+      "path": "src/pmpe/quality/security_scan.py",
+      "rule_id": "SEC_EXEC"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Scanner rule definition contains the literal pattern it detects.",
+      "line": 49,
+      "line_fingerprint": "sha256:41043d0a8bbbc293451dd80bab99950e4161538b03fc4f7f20d897ac741d1ea2",
+      "path": "src/pmpe/quality/security_scan.py",
+      "rule_id": "SEC_SHELL_TRUE"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Generated test template contains a synthetic credential literal.",
+      "line": 67,
+      "line_fingerprint": "sha256:4a39154f0d61509ced6765cfb6abab0195fccb8b4771e3cf4d72b2d9383b1349",
+      "path": "src/pmpe/stacks/stdlib_tests_api.py",
+      "rule_id": "SEC_HARDCODED_SECRET"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Generated test template contains a synthetic credential literal.",
+      "line": 135,
+      "line_fingerprint": "sha256:19e38a14a3a1e65b3448ffe6f10d9590fec536dc7f4316642f7741e57ccdf70d",
+      "path": "src/pmpe/stacks/stdlib_tests_api.py",
+      "rule_id": "SEC_HARDCODED_SECRET"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 108,
+      "line_fingerprint": "sha256:7485151d0bd26ac4d7001e74fc72a41fb4c640d3e2f9e03cf1397556a5b529c8",
+      "path": "tests/e2e/test_failure_paths.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 49,
+      "line_fingerprint": "sha256:b78541d85091114f6b6936274da56a9a2dcf9af190cdd232987f58ce77e72c87",
+      "path": "tests/integration/test_quality_gates.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 43,
+      "line_fingerprint": "sha256:b78541d85091114f6b6936274da56a9a2dcf9af190cdd232987f58ce77e72c87",
+      "path": "tests/integration/test_review_and_fix.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 84,
+      "line_fingerprint": "sha256:b78541d85091114f6b6936274da56a9a2dcf9af190cdd232987f58ce77e72c87",
+      "path": "tests/integration/test_review_and_fix.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 144,
+      "line_fingerprint": "sha256:88df5f6ec9c040cdd37dc132f3229a460a01ac57b7a653dc0d03686072d86ccb",
+      "path": "tests/integration/test_run_engine.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 54,
+      "line_fingerprint": "sha256:0e5447e8907d0e187a13bbca21a010f0be4f903bc08935eaa3bad70204050da6",
+      "path": "tests/unit/test_merge_gate.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 280,
+      "line_fingerprint": "sha256:7cb1caf631f7869aedf68e8cc1a8a5c4897c08db00d40e3fe5a88fb48c6a935a",
+      "path": "tests/unit/test_repository_intelligence.py",
+      "rule_id": "SEC_EXEC"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 38,
+      "line_fingerprint": "sha256:c4525b56cc069550f7f8fa5181da8b55307556a7888c095f3a2cf5a716d377cf",
+      "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 45,
+      "line_fingerprint": "sha256:69c944dc6374ff7a410379c8f6c4ebb61536f721d3dd878a4c97547bea1316b8",
+      "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_SHELL_TRUE"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 51,
+      "line_fingerprint": "sha256:8932e901cdacbceb8a55b6223a1ef0477ad7bb3213406b3d4ed56560ae140558",
+      "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_PICKLE"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 57,
+      "line_fingerprint": "sha256:9d6a2b055c95e8ad068956f801aaba3ca8aa907aee5e56c1a54591dca534393c",
+      "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_SQL_FORMAT"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 63,
+      "line_fingerprint": "sha256:b7e7a61b81e841c848223a53be73358a598a3d648b3d6c6d3bb6cb1640fecc0c",
+      "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 64,
+      "line_fingerprint": "sha256:f96a69203a4b5fba64e935a946876cb5c2e3557dd41adff6766acb2a33c3eb93",
+      "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 169,
+      "line_fingerprint": "sha256:2cd0d1c6e3a89c889b4cdcf445dbc497b0931e70b8cdb1a251ca36d4d0e4eecb",
+      "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 176,
+      "line_fingerprint": "sha256:d8b3c7834bf55ed1053b7b4581664d0c10926e047efc4df5de32ad8ffdf36f92",
+      "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_EVAL"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-21T00:00:00Z",
+      "justification": "Synthetic security regression fixture; no executable product behavior.",
+      "line": 178,
+      "line_fingerprint": "sha256:502c1872470db496074e479046e30c21fbece59820174ee74e74116cce5a589e",
+      "path": "tests/unit/test_security_scanner.py",
+      "rule_id": "SEC_EXEC"
+    },
+    {
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z",
+      "justification": "Generated portable-package test loader executes only its copied reference app fixture.",
+      "line": 929,
+      "line_fingerprint": "sha256:1714d129931e9e1cf29113ea4ee8f3669e60e0fad3806bfeff0548a87298c0b2",
+      "path": "src/pmpe/support_package.py",
+      "rule_id": "SEC_EXEC"
+    }
+  ],
+  "version": "repository-security-profile/v1"
+}
