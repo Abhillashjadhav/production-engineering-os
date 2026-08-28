@@ -747,6 +747,29 @@ def test_overview_history_query_is_bounded_and_keeps_latest_comparisons(
     assert ("linkedin-research-os", "linkedin-os-2026-08-26") not in identities
 
 
+def test_equal_observation_times_use_server_arrival_order(tmp_path: Path) -> None:
+    first = _failed_dream_job_run().model_copy(deep=True)
+    first.run_id = "z-arrived-first"
+    second = next(
+        run for run in build_demo_runs() if run.run_id == "dream-job-2026-08-24"
+    ).model_copy(deep=True)
+    second.run_id = "a-arrived-second"
+    second.observed_at = first.observed_at
+    store = MonitoringStore(tmp_path)
+
+    assert store.append(first) is True
+    assert store.append(second) is True
+
+    all_runs = store.list_runs()
+    assert [run.run_id for run in all_runs] == [first.run_id, second.run_id]
+    overview = build_overview(all_runs, mode="LIVE", generated_at=second.observed_at)
+    assert overview.products[0].latest_run_id == second.run_id
+    assert overview.products[0].health == "HEALTHY"
+
+    bounded = store.list_runs_for_overview(trend_limit_per_product=1)
+    assert [run.run_id for run in bounded] == [second.run_id]
+
+
 def test_monitoring_api_bounds_live_trend_history(tmp_path: Path) -> None:
     store = MonitoringStore(tmp_path)
     template = next(run for run in build_demo_runs() if run.run_id == "dream-job-2026-08-24")

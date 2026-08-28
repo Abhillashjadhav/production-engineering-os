@@ -64,6 +64,8 @@ class MonitoringStore:
                         ON runs(product_id, environment, run_id);
                     CREATE INDEX IF NOT EXISTS runs_product_observed
                         ON runs(product_id, environment, observed_at DESC, run_id DESC);
+                    CREATE INDEX IF NOT EXISTS runs_product_arrival
+                        ON runs(product_id, environment, observed_at DESC, byte_offset DESC);
                     """
                 )
             self._reconcile_index_unlocked()
@@ -231,7 +233,8 @@ class MonitoringStore:
             self._reconcile_index_unlocked()
             with self._connect() as connection:
                 rows = connection.execute(
-                    "SELECT byte_offset, byte_length, sha256 FROM runs ORDER BY observed_at, run_id"
+                    "SELECT byte_offset, byte_length, sha256 "
+                    "FROM runs ORDER BY observed_at, byte_offset"
                 ).fetchall()
             return self._read_rows(rows)
 
@@ -260,14 +263,14 @@ class MonitoringStore:
                            product_id, environment, run_id,
                            ROW_NUMBER() OVER (
                                PARTITION BY product_id, environment
-                               ORDER BY observed_at DESC, run_id DESC
+                               ORDER BY observed_at DESC, byte_offset DESC
                            ) AS recency_rank
                     FROM runs
                 )
                 SELECT byte_offset, byte_length, sha256
                 FROM ranked
                 WHERE recency_rank <= ?
-                ORDER BY observed_at, product_id, environment, run_id
+                ORDER BY observed_at, product_id, environment, byte_offset
                 """,
                 (trend_limit_per_product,),
             ).fetchall()
@@ -278,12 +281,7 @@ class MonitoringStore:
             product_identity = (run.product.id, run.product.environment)
             run_identity = (*product_identity, run.run_id)
             selected_identities.add(run_identity)
-            current = latest.get(product_identity)
-            if current is None or (run.observed_at, run.run_id) > (
-                current.observed_at,
-                current.run_id,
-            ):
-                latest[product_identity] = run
+            latest[product_identity] = run
 
         comparison_rows: list[tuple[int, int, str]] = []
         seen_comparisons: set[tuple[str, str, str]] = set()
@@ -308,16 +306,23 @@ class MonitoringStore:
                 if row is not None:
                     comparison_rows.append(row)
 
+        comparison_runs = self._read_rows(comparison_rows)
         combined = {
-            (run.product.id, run.product.environment, run.run_id): run
-            for run in [*trend_runs, *self._read_rows(comparison_rows)]
+            (run.product.id, run.product.environment, run.run_id): (run, row[0])
+            for run, row in [
+                *zip(trend_runs, trend_rows, strict=True),
+                *zip(comparison_runs, comparison_rows, strict=True),
+            ]
         }
-        return sorted(
-            combined.values(),
-            key=lambda run: (
-                run.observed_at,
-                run.product.id,
-                run.product.environment,
-                run.run_id,
-            ),
-        )
+        return [
+            run
+            for run, _ in sorted(
+                combined.values(),
+                key=lambda item: (
+                    item[0].observed_at,
+                    item[0].product.id,
+                    item[0].product.environment,
+                    item[1],
+                ),
+            )
+        ]

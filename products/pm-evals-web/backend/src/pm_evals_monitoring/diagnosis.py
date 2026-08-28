@@ -423,15 +423,20 @@ def build_overview(
     if trend_limit_per_product < 1:
         raise ValueError("trend_limit_per_product must be at least one")
     reference_time = generated_at or datetime.now(UTC)
-    ordered = sorted(
-        runs,
-        key=lambda item: (
-            item.observed_at,
-            item.product.id,
-            item.product.environment,
-            item.run_id,
-        ),
-    )
+    # The store returns runs in append order, which is the authoritative
+    # server-owned tie-break when producer observation timestamps are equal.
+    ordered = [
+        item
+        for _, item in sorted(
+            enumerate(runs),
+            key=lambda indexed: (
+                indexed[1].observed_at,
+                indexed[1].product.id,
+                indexed[1].product.environment,
+                indexed[0],
+            ),
+        )
+    ]
     runs_by_identity = {
         (run.product.id, run.product.environment, run.run_id): run for run in ordered
     }
