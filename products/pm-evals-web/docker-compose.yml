@@ -4,6 +4,12 @@
 services:
   backend:
     build: ./backend
+    environment:
+      PM_EVALS_MONITORING_DATA_DIR: /data/monitoring
+      # Writes fail closed when this secret is absent; set it only on trusted producers.
+      PM_EVALS_INGEST_TOKEN: ${PM_EVALS_INGEST_TOKEN:-}
+    volumes:
+      - monitoring-data:/data/monitoring
     ports:
       - "8000:8000"
   frontend:
@@ -16,3 +22,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+volumes:
+  monitoring-data:

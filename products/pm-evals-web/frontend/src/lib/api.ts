@@ -8,8 +8,12 @@ import type {
   CriterionCell,
   CriterionDelta,
   HealthResponse,
+  Incident,
+  MonitoringOverview,
   ParseIssue,
+  ProductHealth,
   TraceComparison,
+  TrendPoint,
   ValidationErrorResponse,
   ValidationProblem,
   VerdictReason,
@@ -28,8 +32,12 @@ export type {
   CriterionCell,
   CriterionDelta,
   HealthResponse,
+  Incident,
+  MonitoringOverview,
   ParseIssue,
+  ProductHealth,
   TraceComparison,
+  TrendPoint,
   ValidationErrorResponse,
   ValidationProblem,
   VerdictReason,
@@ -159,5 +167,24 @@ export async function health(fetcher: typeof fetch = fetch): Promise<ApiResult<H
     return { kind: "ok", value: (await response.json()) as HealthResponse };
   } catch {
     return { kind: "error", message: "unreachable" };
+  }
+}
+
+export async function monitoringOverview(
+  fetcher: typeof fetch = fetch,
+): Promise<ApiResult<MonitoringOverview>> {
+  let response: Response;
+  try {
+    response = await fetcher("/api/monitoring/overview");
+  } catch {
+    return { kind: "error", message: "The monitoring service is unreachable." };
+  }
+  if (!response.ok) {
+    return { kind: "error", message: `Monitoring could not load (HTTP ${response.status}).` };
+  }
+  try {
+    return { kind: "ok", value: (await response.json()) as MonitoringOverview };
+  } catch {
+    return { kind: "error", message: "The monitoring service returned unreadable data." };
   }
 }
