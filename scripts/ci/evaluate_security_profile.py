@@ -349,6 +349,16 @@ def _dynamic_import_call(
     importlib_aliases: set[str],
     import_module_aliases: set[str],
 ) -> bool:
+    reflective_loader = bool(
+        isinstance(node.func, ast.Call)
+        and isinstance(node.func.func, ast.Name)
+        and node.func.func.id == "getattr"
+        and len(node.func.args) >= 2
+        and isinstance(node.func.args[0], ast.Name)
+        and node.func.args[0].id in importlib_aliases
+        and isinstance(node.func.args[1], ast.Constant)
+        and node.func.args[1].value == "import_module"
+    )
     return bool(
         (
             isinstance(node.func, ast.Attribute)
@@ -357,6 +367,7 @@ def _dynamic_import_call(
             and node.func.attr == "import_module"
         )
         or (isinstance(node.func, ast.Name) and node.func.id in import_module_aliases)
+        or reflective_loader
     )
 
 
@@ -383,6 +394,16 @@ def _collect_architecture_edges(
             for alias in node.names:
                 if alias.name == "import_module":
                     import_module_aliases.add(alias.asname or alias.name)
+        elif (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "getattr"
+            and len(node.args) >= 2
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id in importlib_aliases
+            and not (isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, str))
+        ):
+            edges.add((source_layer, "unresolved_dynamic"))
     changed = True
     while changed:
         changed = False
@@ -397,6 +418,14 @@ def _collect_architecture_edges(
                 and isinstance(value.value, ast.Name)
                 and value.value.id in importlib_aliases
                 and value.attr == "import_module"
+                or isinstance(value, ast.Call)
+                and isinstance(value.func, ast.Name)
+                and value.func.id == "getattr"
+                and len(value.args) >= 2
+                and isinstance(value.args[0], ast.Name)
+                and value.args[0].id in importlib_aliases
+                and isinstance(value.args[1], ast.Constant)
+                and value.args[1].value == "import_module"
             )
             if not is_loader:
                 continue

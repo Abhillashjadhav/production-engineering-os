@@ -113,6 +113,37 @@ def test_architecture_observer_resolves_relative_dynamic_imports(tmp_path: Path)
     assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
 
 
+@pytest.mark.parametrize(
+    "source_text",
+    [
+        'import importlib\ngetattr(importlib, "import_module")("pmpe.guided.api")\n',
+        'import importlib\nloader = getattr(importlib, "import_module")\n'
+        'loader("pmpe.guided.api")\n',
+    ],
+)
+def test_architecture_observer_resolves_reflective_dynamic_loaders(
+    tmp_path: Path,
+    source_text: str,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "reflective.py").write_text(source_text)
+
+    assert ("orchestration", "interfaces") in _observed_architecture_edges(tmp_path)
+
+
+def test_architecture_observer_fails_closed_on_unknown_reflective_importlib_access(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "reflective.py").write_text(
+        "import importlib\ngetattr(importlib, attribute_name)(module_name)\n"
+    )
+
+    assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
+
+
 def test_dynamic_import_exception_binds_the_complete_target_file(tmp_path: Path) -> None:
     source = tmp_path / "src" / "pmpe" / "evidence"
     source.mkdir(parents=True)
@@ -333,6 +364,26 @@ def test_privacy_verifier_fails_when_emitter_escapes_into_a_container(
     )
 
     with pytest.raises(ValueError, match="emitter escapes"):
+        _inventory_telemetry_fields(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    [
+        'getattr(ctx.events, "emit")("result", email="hidden")\n',
+        'emit = getattr(ctx.events, "emit")\nemit("result", email="hidden")\n',
+        'getattr(ctx.events, field_name)("result", email="hidden")\n',
+    ],
+)
+def test_privacy_verifier_rejects_reflective_emitter_access(
+    tmp_path: Path,
+    source_text: str,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "context.py").write_text(source_text)
+
+    with pytest.raises(ValueError, match="reflective access"):
         _inventory_telemetry_fields(tmp_path)
 
 

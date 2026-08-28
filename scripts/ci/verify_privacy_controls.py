@@ -139,6 +139,24 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
     fields: set[str] = set()
     for path in sorted((root / "src" / "pmpe").rglob("*.py")):
         tree = ast.parse(path.read_text(), filename=str(path))
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "getattr"
+                and len(node.args) >= 2
+            ):
+                continue
+            attribute = node.args[1]
+            owner = _emitter_identity(node.args[0])
+            if (
+                isinstance(attribute, ast.Constant)
+                and attribute.value == "emit"
+                or owner is not None
+                and owner.endswith(".events")
+                and not (isinstance(attribute, ast.Constant) and isinstance(attribute.value, str))
+            ):
+                raise ValueError(f"telemetry emitter uses reflective access: {path}:{node.lineno}")
         aliases: set[str] = set()
         changed = True
         while changed:
