@@ -17,8 +17,9 @@ from scripts.ci.evaluate_security_profile import (
     _file_digest,
     _observed_architecture_edges,
     _privacy_evidence_from_artifact,
+    _reviewed_policy_config,
 )
-from scripts.ci.verify_privacy_controls import _inventory_telemetry_fields
+from scripts.ci.verify_privacy_controls import _inventory_telemetry_fields, _verify
 
 SHA = "d" * 40
 
@@ -335,6 +336,110 @@ def test_privacy_verifier_fails_when_emitter_escapes_into_a_container(
         _inventory_telemetry_fields(tmp_path)
 
 
+def test_privacy_verifier_uses_trusted_policy_outside_candidate_root(
+    tmp_path: Path,
+) -> None:
+    candidate = tmp_path / "candidate"
+    source = candidate / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "context.py").write_text('events.emit("result", email="synthetic@example.invalid")\n')
+    candidate_policy = candidate / "security" / "security-profile-policy.json"
+    candidate_policy.parent.mkdir()
+    candidate_policy.write_text(
+        json.dumps(
+            {
+                "privacy": {
+                    "classification": "PUBLIC",
+                    "retention_days": 3650,
+                    "residency": None,
+                    "telemetry_allowlist": ["secret"],
+                }
+            }
+        )
+    )
+    trusted_policy = tmp_path / "protected-base" / "security-profile-policy.json"
+    trusted_policy.parent.mkdir()
+    trusted_policy.write_text(
+        json.dumps(
+            {
+                "version": "repository-security-profile/v2",
+                "privacy": {
+                    "approved_by": "repository-security-owner",
+                    "classification": "INTERNAL",
+                    "deletion_required": True,
+                    "expires_at": "2027-08-28T00:00:00Z",
+                    "justification": "Reviewed test privacy intent.",
+                    "retention_days": 30,
+                    "residency": None,
+                    "telemetry_allowlist": [
+                        {
+                            "approved_by": "repository-security-owner",
+                            "expires_at": "2027-08-28T00:00:00Z",
+                            "field": "email",
+                            "justification": "Reviewed test telemetry field.",
+                        }
+                    ],
+                },
+            }
+        )
+    )
+
+    evidence = _verify(SHA, trusted_policy, candidate)
+
+    assert evidence["classification"] == "INTERNAL"
+    assert evidence["retention_days"] == 30
+    assert evidence["emitted_telemetry"] == ["email"]
+    assert evidence["policy_file_digest"] == _file_digest(trusted_policy)
+
+
+@pytest.mark.parametrize(
+    "record_path",
+    [
+        ("allowed_architecture_edges", 0),
+        ("allowed_licenses", 0),
+        ("license_fallbacks", 0),
+        ("dynamic_import_allowlist", 0),
+    ],
+)
+def test_security_policy_rejects_ownerless_grants(
+    record_path: tuple[str, int],
+) -> None:
+    root = Path(__file__).resolve().parents[2]
+    payload = json.loads((root / "security/security-profile-policy.json").read_text())
+    collection, index = record_path
+    del payload[collection][index]["approved_by"]
+
+    with pytest.raises(ValueError, match="exact reviewed fields"):
+        _reviewed_policy_config(
+            payload,
+            trusted_clock=lambda: datetime(2026, 8, 28, tzinfo=UTC),
+        )
+
+
+def test_security_policy_rejects_ownerless_telemetry_grants() -> None:
+    root = Path(__file__).resolve().parents[2]
+    payload = json.loads((root / "security/security-profile-policy.json").read_text())
+    del payload["privacy"]["telemetry_allowlist"][0]["approved_by"]
+
+    with pytest.raises(ValueError, match="exact reviewed fields"):
+        _reviewed_policy_config(
+            payload,
+            trusted_clock=lambda: datetime(2026, 8, 28, tzinfo=UTC),
+        )
+
+
+def test_security_policy_rejects_expired_grants() -> None:
+    root = Path(__file__).resolve().parents[2]
+    payload = json.loads((root / "security/security-profile-policy.json").read_text())
+    payload["dynamic_import_allowlist"][0]["expires_at"] = "2026-08-27T00:00:00Z"
+
+    with pytest.raises(ValueError, match="review has expired"):
+        _reviewed_policy_config(
+            payload,
+            trusted_clock=lambda: datetime(2026, 8, 28, tzinfo=UTC),
+        )
+
+
 def test_privacy_evidence_requires_executed_exact_candidate_artifact(tmp_path: Path) -> None:
     policy_path = tmp_path / "security-profile-policy.json"
     verifier_path = tmp_path / "verify_privacy_controls.py"
@@ -374,6 +479,30 @@ def test_ci_executes_provider_neutral_privacy_before_composed_profile() -> None:
     assert "AWS_RESIDENCY" not in workflow
     assert "configure-aws-credentials" not in workflow
     assert "observe_runtime_residency.py" not in workflow
+
+
+def test_ci_materializes_security_authority_from_exact_protected_base() -> None:
+    root = Path(__file__).resolve().parents[2]
+    workflow = (root / ".github/workflows/ci.yml").read_text()
+    security = workflow[workflow.index("security:") : workflow.index("product-backend:")]
+
+    assert "fetch-depth: 0" in security
+    assert "BASE_SHA: ${{ github.event.pull_request.base.sha || github.sha }}" in security
+    assert 'git cat-file -e "$BASE_SHA^{commit}"' in security
+    assert (
+        'git show "$BASE_SHA:security/security-profile-policy.json" '
+        "> /tmp/trusted-security-policy/security-profile-policy.json"
+    ) in security
+    assert (
+        'git show "$BASE_SHA:security/secret-allowlist.json" '
+        "> /tmp/trusted-security-policy/secret-allowlist.json"
+    ) in security
+    assert "--allowlist /tmp/trusted-security-policy/secret-allowlist.json" in security
+    assert "--policy /tmp/trusted-security-policy/security-profile-policy.json" in security
+    assert "--secret-allowlist /tmp/trusted-security-policy/secret-allowlist.json" in security
+    assert "--root ." in security
+    assert "--allowlist security/secret-allowlist.json" not in security
+    assert "--policy security/security-profile-policy.json" not in security
 
 
 def test_ci_keeps_editable_builds_inside_the_hash_lock() -> None:

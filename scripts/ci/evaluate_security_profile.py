@@ -9,6 +9,7 @@ import hashlib
 import importlib.util
 import json
 import subprocess  # nosec B404 - fixed git argv authenticates the local checkout
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
 from importlib.metadata import PackageNotFoundError, distribution, version
@@ -115,6 +116,167 @@ def _repository_is_exact(root: Path, candidate_sha: str) -> bool:
 
 def _load_json(path: Path) -> Any:
     return json.loads(path.read_text())
+
+
+_REVIEW_METADATA = frozenset({"approved_by", "expires_at", "justification"})
+
+
+def _utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def _reviewed_record(
+    value: object,
+    *,
+    label: str,
+    fields: frozenset[str],
+    now: datetime,
+) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != fields | _REVIEW_METADATA:
+        raise ValueError(f"{label} must contain exact reviewed fields")
+    approved_by = value.get("approved_by")
+    justification = value.get("justification")
+    expires_at = value.get("expires_at")
+    if not isinstance(approved_by, str) or not approved_by.strip():
+        raise ValueError(f"{label} requires an approving owner")
+    if not isinstance(justification, str) or not justification.strip():
+        raise ValueError(f"{label} requires a justification")
+    if not isinstance(expires_at, str):
+        raise ValueError(f"{label} requires an expiration")
+    try:
+        expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"{label} expiration is malformed") from exc
+    if expiry.tzinfo is None or expiry <= now:
+        raise ValueError(f"{label} review has expired")
+    return dict(value)
+
+
+def _reviewed_records(
+    value: object,
+    *,
+    label: str,
+    fields: frozenset[str],
+    now: datetime,
+) -> list[dict[str, Any]]:
+    if not isinstance(value, list) or not value:
+        raise ValueError(f"{label} must be a non-empty reviewed list")
+    return [_reviewed_record(item, label=label, fields=fields, now=now) for item in value]
+
+
+def _require_unique(values: Sequence[object], label: str) -> None:
+    identities = [canonical_digest(item) for item in values]
+    if len(identities) != len(set(identities)):
+        raise ValueError(f"{label} contains duplicate grants")
+
+
+def _reviewed_policy_config(
+    value: object,
+    *,
+    trusted_clock: Callable[[], datetime] = _utc_now,
+) -> dict[str, Any]:
+    expected_top_level = {
+        "allowed_architecture_edges",
+        "allowed_licenses",
+        "dynamic_import_allowlist",
+        "license_fallbacks",
+        "privacy",
+        "sast_allowlist",
+        "version",
+    }
+    if (
+        not isinstance(value, dict)
+        or set(value) != expected_top_level
+        or value.get("version") != "repository-security-profile/v2"
+    ):
+        raise ValueError("repository security profile policy is malformed")
+    now = trusted_clock()
+    if now.tzinfo is None:
+        raise ValueError("security policy clock must be timezone-aware")
+
+    edge_records = _reviewed_records(
+        value["allowed_architecture_edges"],
+        label="architecture edge",
+        fields=frozenset({"source", "target"}),
+        now=now,
+    )
+    edges = [[str(item["source"]), str(item["target"])] for item in edge_records]
+    _require_unique(edges, "architecture edge allowlist")
+
+    license_records = _reviewed_records(
+        value["allowed_licenses"],
+        label="license grant",
+        fields=frozenset({"license"}),
+        now=now,
+    )
+    licenses = [str(item["license"]) for item in license_records]
+    _require_unique(licenses, "license allowlist")
+
+    fallback_records = _reviewed_records(
+        value["license_fallbacks"],
+        label="license fallback",
+        fields=frozenset({"distribution", "license"}),
+        now=now,
+    )
+    fallback_pairs = [
+        [str(item["distribution"]), str(item["license"])] for item in fallback_records
+    ]
+    _require_unique(fallback_pairs, "license fallback list")
+    fallbacks = dict(fallback_pairs)
+    if len(fallbacks) != len(fallback_pairs):
+        raise ValueError("license fallback list contains duplicate distributions")
+
+    privacy = _reviewed_record(
+        value["privacy"],
+        label="privacy intent",
+        fields=frozenset(
+            {
+                "classification",
+                "deletion_required",
+                "residency",
+                "retention_days",
+                "telemetry_allowlist",
+            }
+        ),
+        now=now,
+    )
+    telemetry_records = _reviewed_records(
+        privacy["telemetry_allowlist"],
+        label="telemetry field",
+        fields=frozenset({"field"}),
+        now=now,
+    )
+    telemetry_fields = [str(item["field"]) for item in telemetry_records]
+    _require_unique(telemetry_fields, "telemetry allowlist")
+
+    dynamic_records = _reviewed_records(
+        value["dynamic_import_allowlist"],
+        label="dynamic import exemption",
+        fields=frozenset({"file_digest", "line", "line_fingerprint", "path"}),
+        now=now,
+    )
+    dynamic_identities = [[str(item["path"]), int(item["line"])] for item in dynamic_records]
+    _require_unique(dynamic_identities, "dynamic import allowlist")
+
+    normalized_privacy = {
+        key: privacy[key]
+        for key in (
+            "classification",
+            "deletion_required",
+            "residency",
+            "retention_days",
+        )
+    }
+    normalized_privacy["telemetry_allowlist"] = telemetry_fields
+    return {
+        "allowed_architecture_edges": edges,
+        "allowed_licenses": licenses,
+        "dynamic_import_allowlist": dynamic_records,
+        "license_fallbacks": fallbacks,
+        "privacy": normalized_privacy,
+        "sast_allowlist": value["sast_allowlist"],
+        "version": value["version"],
+    }
 
 
 def _layer(package: str) -> str:
@@ -439,18 +601,18 @@ def _tool(name: str, tool_version: str, ruleset: Path) -> ToolIdentity:
 def _build_policy(
     root: Path,
     config: dict[str, Any],
+    policy_path: Path,
+    secret_allowlist_path: Path,
     profile_authority: str,
     privacy_authority: str,
     advisory_authority: str,
 ) -> SecurityGatePolicy:
     secret_allowlist = tuple(
-        SecretAllowlistEntry(**item)
-        for item in _load_json(root / "security" / "secret-allowlist.json")
+        SecretAllowlistEntry(**item) for item in _load_json(secret_allowlist_path)
     )
     sast_allowlist = tuple(SastAllowlistEntry(**item) for item in config["sast_allowlist"])
     security_module = root / "src" / "pmpe" / "quality" / "security_profiles.py"
     scanner_module = root / "src" / "pmpe" / "quality" / "security_scan.py"
-    policy_path = root / "security" / "security-profile-policy.json"
     tools = (
         _tool("secret-scanner", "1.0.0", scanner_module),
         _tool("bandit", version("bandit"), root / "pyproject.toml"),
@@ -504,16 +666,18 @@ def _build_policy(
 
 
 def _evaluate(
-    root: Path, candidate_sha: str, audit_path: Path, privacy_evidence_path: Path
+    root: Path,
+    candidate_sha: str,
+    audit_path: Path,
+    privacy_evidence_path: Path,
+    policy_path: Path,
+    secret_allowlist_path: Path,
 ) -> bytes:
-    config_path = root / "security" / "security-profile-policy.json"
     privacy_verifier_path = root / "scripts" / "ci" / "verify_privacy_controls.py"
-    config = _load_json(config_path)
-    if not isinstance(config, dict) or config.get("version") != "repository-security-profile/v1":
-        raise ValueError("repository security profile policy is malformed")
+    config = _reviewed_policy_config(_load_json(policy_path))
     audit_payload = _load_json(audit_path)
     profile_authority = canonical_digest(
-        {"authority": "repository-profile-evidence", "policy_digest": _file_digest(config_path)}
+        {"authority": "repository-profile-evidence", "policy_digest": _file_digest(policy_path)}
     )
     privacy_authority = canonical_digest(
         {
@@ -527,6 +691,8 @@ def _evaluate(
     policy = _build_policy(
         root,
         config,
+        policy_path,
+        secret_allowlist_path,
         profile_authority,
         privacy_authority,
         advisory_authority,
@@ -544,7 +710,7 @@ def _evaluate(
     privacy_evidence = _privacy_evidence_from_artifact(
         privacy_evidence_path,
         candidate_sha=candidate_sha,
-        policy_path=config_path,
+        policy_path=policy_path,
         verifier_path=privacy_verifier_path,
     )
 
@@ -636,6 +802,8 @@ def main() -> int:
     parser.add_argument("--candidate-sha", required=True)
     parser.add_argument("--audit-evidence", type=Path, required=True)
     parser.add_argument("--privacy-evidence", type=Path, required=True)
+    parser.add_argument("--policy", type=Path, required=True)
+    parser.add_argument("--secret-allowlist", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     root = Path.cwd().resolve()
@@ -644,6 +812,8 @@ def main() -> int:
         args.candidate_sha,
         args.audit_evidence,
         args.privacy_evidence,
+        args.policy,
+        args.secret_allowlist,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(report + b"\n")

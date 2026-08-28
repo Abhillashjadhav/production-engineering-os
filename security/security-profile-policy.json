@@ -1,31 +1,166 @@
 {
   "allowed_architecture_edges": [
-    ["core", "delivery"],
-    ["core", "interfaces"],
-    ["core", "orchestration"],
-    ["core", "verification"],
-    ["delivery", "core"],
-    ["delivery", "verification"],
-    ["interfaces", "core"],
-    ["interfaces", "delivery"],
-    ["interfaces", "orchestration"],
-    ["interfaces", "verification"],
-    ["orchestration", "core"],
-    ["orchestration", "delivery"],
-    ["orchestration", "verification"],
-    ["verification", "core"],
-    ["verification", "delivery"]
+    {
+      "source": "core",
+      "target": "delivery",
+      "justification": "Observed dependency from the core layer to the delivery layer on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "source": "core",
+      "target": "interfaces",
+      "justification": "Observed dependency from the core layer to the interfaces layer on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "source": "core",
+      "target": "orchestration",
+      "justification": "Observed dependency from the core layer to the orchestration layer on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "source": "core",
+      "target": "verification",
+      "justification": "Observed dependency from the core layer to the verification layer on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "source": "delivery",
+      "target": "core",
+      "justification": "Observed dependency from the delivery layer to the core layer on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "source": "delivery",
+      "target": "verification",
+      "justification": "Observed dependency from the delivery layer to the verification layer on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "source": "interfaces",
+      "target": "core",
+      "justification": "Observed dependency from the interfaces layer to the core layer on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "source": "interfaces",
+      "target": "delivery",
+      "justification": "Observed dependency from the interfaces layer to the delivery layer on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "source": "interfaces",
+      "target": "orchestration",
+      "justification": "Observed dependency from the interfaces layer to the orchestration layer on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "source": "interfaces",
+      "target": "verification",
+      "justification": "Observed dependency from the interfaces layer to the verification layer on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "source": "orchestration",
+      "target": "core",
+      "justification": "Observed dependency from the orchestration layer to the core layer on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "source": "orchestration",
+      "target": "delivery",
+      "justification": "Observed dependency from the orchestration layer to the delivery layer on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "source": "orchestration",
+      "target": "verification",
+      "justification": "Observed dependency from the orchestration layer to the verification layer on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "source": "verification",
+      "target": "core",
+      "justification": "Observed dependency from the verification layer to the core layer on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "source": "verification",
+      "target": "delivery",
+      "justification": "Observed dependency from the verification layer to the delivery layer on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    }
   ],
   "allowed_licenses": [
-    "Apache 2.0",
-    "Apache-2.0",
-    "Apache-2.0 OR BSD-2-Clause",
-    "BSD-2-Clause",
-    "BSD-3-Clause",
-    "MIT",
-    "MPL-2.0",
-    "PSF-2.0",
-    "PSFL"
+    {
+      "license": "Apache 2.0",
+      "justification": "Exact license label reported by a locked repository dependency on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: Apache 2.0",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "license": "Apache-2.0",
+      "justification": "Exact license label reported by a locked repository dependency on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: Apache-2.0",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "license": "Apache-2.0 OR BSD-2-Clause",
+      "justification": "Exact license label reported by a locked repository dependency on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: Apache-2.0 OR BSD-2-Clause",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "license": "BSD-2-Clause",
+      "justification": "Exact license label reported by a locked repository dependency on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: BSD-2-Clause",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "license": "BSD-3-Clause",
+      "justification": "Exact license label reported by a locked repository dependency on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: BSD-3-Clause",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "license": "MIT",
+      "justification": "Exact license label reported by a locked repository dependency on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: MIT",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "license": "MPL-2.0",
+      "justification": "Exact license label reported by a locked repository dependency on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: MPL-2.0",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "license": "PSF-2.0",
+      "justification": "Exact license label reported by a locked repository dependency on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: PSF-2.0",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "license": "PSFL",
+      "justification": "Exact license label reported by a locked repository dependency on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: PSFL",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    }
   ],
   "dynamic_import_allowlist": [
     {
@@ -33,103 +168,276 @@
       "justification": "Repository intelligence resolves a validated PMPE module inventory.",
       "line": 1312,
       "line_fingerprint": "sha256:62e834c40141c7d400331eb4c1c4c05980e81c61d0a67ee7502c915f9d2ee1bf",
-      "path": "src/pmpe/repository/scanner.py"
+      "path": "src/pmpe/repository/scanner.py",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
     },
     {
       "file_digest": "sha256:61c0910e293471515dee8642eca6f4c7382f4e35f40af94ac963fb782efa2492",
       "justification": "Repository intelligence resolves a discovered dependency module.",
       "line": 1377,
       "line_fingerprint": "sha256:d2c19f3405ae30bdf896e61930a5639273211c386133e39a6126ad5e11ffe025",
-      "path": "src/pmpe/repository/scanner.py"
+      "path": "src/pmpe/repository/scanner.py",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
     },
     {
       "file_digest": "sha256:61c0910e293471515dee8642eca6f4c7382f4e35f40af94ac963fb782efa2492",
       "justification": "Repository intelligence resolves a validated package name.",
       "line": 1384,
       "line_fingerprint": "sha256:bca7bc6fa882b05cf8d1b262c67aa6e3ead4c5fbb4b9e8e779dc5e6771e84f71",
-      "path": "src/pmpe/repository/scanner.py"
+      "path": "src/pmpe/repository/scanner.py",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
     },
     {
       "file_digest": "sha256:61c0910e293471515dee8642eca6f4c7382f4e35f40af94ac963fb782efa2492",
       "justification": "Repository intelligence imports a discovered module for inspection.",
       "line": 1414,
       "line_fingerprint": "sha256:ca8a5171054f3442438f3ea56f6fb48033900e094b6ef0630397c07f2992c5d2",
-      "path": "src/pmpe/repository/scanner.py"
+      "path": "src/pmpe/repository/scanner.py",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
     },
     {
       "file_digest": "sha256:61c0910e293471515dee8642eca6f4c7382f4e35f40af94ac963fb782efa2492",
       "justification": "Repository intelligence imports a discovered module for inspection.",
       "line": 1432,
       "line_fingerprint": "sha256:946a48dcd8f424c19d80b16099a14beca2971f8296b7e1585bc2727cb0333729",
-      "path": "src/pmpe/repository/scanner.py"
+      "path": "src/pmpe/repository/scanner.py",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
     },
     {
       "file_digest": "sha256:61c0910e293471515dee8642eca6f4c7382f4e35f40af94ac963fb782efa2492",
       "justification": "Repository intelligence imports a discovered module for inspection.",
       "line": 1451,
       "line_fingerprint": "sha256:946a48dcd8f424c19d80b16099a14beca2971f8296b7e1585bc2727cb0333729",
-      "path": "src/pmpe/repository/scanner.py"
+      "path": "src/pmpe/repository/scanner.py",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
     },
     {
       "file_digest": "sha256:61c0910e293471515dee8642eca6f4c7382f4e35f40af94ac963fb782efa2492",
       "justification": "Repository intelligence resolves a validated PMPE module inventory.",
       "line": 1688,
       "line_fingerprint": "sha256:8d6e37089262b9f1869a0cc524e5040170aecf5536095980f55e79e820aa6783",
-      "path": "src/pmpe/repository/scanner.py"
+      "path": "src/pmpe/repository/scanner.py",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
     },
     {
       "file_digest": "sha256:61c0910e293471515dee8642eca6f4c7382f4e35f40af94ac963fb782efa2492",
       "justification": "Repository intelligence resolves a validated PMPE module inventory.",
       "line": 1710,
       "line_fingerprint": "sha256:8d6e37089262b9f1869a0cc524e5040170aecf5536095980f55e79e820aa6783",
-      "path": "src/pmpe/repository/scanner.py"
+      "path": "src/pmpe/repository/scanner.py",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
     },
     {
       "file_digest": "sha256:e7d418396a10daa6b01c7aecafe8788839e0b0f3bf92347776c6904b53baee78",
       "justification": "Evidence exports lazily resolve a module from the closed export-to-module map.",
       "line": 37,
       "line_fingerprint": "sha256:d3c9396d26178fd712075444c957f95fe8efe6eb747827d27939f3f60a416055",
-      "path": "src/pmpe/evidence/__init__.py"
+      "path": "src/pmpe/evidence/__init__.py",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
     }
   ],
-  "license_fallbacks": {
-    "markdown-it-py": "MIT",
-    "mdurl": "MIT",
-    "pathspec": "MPL-2.0",
-    "pip-api": "MIT",
-    "pip-audit": "Apache-2.0",
-    "pyproject-hooks": "MIT",
-    "rfc8785": "MIT"
-  },
+  "license_fallbacks": [
+    {
+      "distribution": "markdown-it-py",
+      "license": "MIT",
+      "justification": "Reviewed deterministic fallback for locked distribution markdown-it-py when package metadata does not expose an accepted license label.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "distribution": "mdurl",
+      "license": "MIT",
+      "justification": "Reviewed deterministic fallback for locked distribution mdurl when package metadata does not expose an accepted license label.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "distribution": "pathspec",
+      "license": "MPL-2.0",
+      "justification": "Reviewed deterministic fallback for locked distribution pathspec when package metadata does not expose an accepted license label.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "distribution": "pip-api",
+      "license": "MIT",
+      "justification": "Reviewed deterministic fallback for locked distribution pip-api when package metadata does not expose an accepted license label.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "distribution": "pip-audit",
+      "license": "Apache-2.0",
+      "justification": "Reviewed deterministic fallback for locked distribution pip-audit when package metadata does not expose an accepted license label.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "distribution": "pyproject-hooks",
+      "license": "MIT",
+      "justification": "Reviewed deterministic fallback for locked distribution pyproject-hooks when package metadata does not expose an accepted license label.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    },
+    {
+      "distribution": "rfc8785",
+      "license": "MIT",
+      "justification": "Reviewed deterministic fallback for locked distribution rfc8785 when package metadata does not expose an accepted license label.",
+      "approved_by": "repository-security-owner",
+      "expires_at": "2027-08-28T00:00:00Z"
+    }
+  ],
   "privacy": {
     "classification": "INTERNAL",
     "deletion_required": true,
     "residency": null,
     "retention_days": 30,
     "telemetry_allowlist": [
-      "artifacts",
-      "branch",
-      "checks",
-      "code",
-      "decision_type",
-      "environment",
-      "escalation_id",
-      "gate",
-      "healthy",
-      "journey_passed",
-      "justification",
-      "level",
-      "message",
-      "passed",
-      "reason",
-      "recommendation",
-      "required",
-      "rule",
-      "sha",
-      "skipped",
-      "stage",
-      "step"
-    ]
+      {
+        "field": "artifacts",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: artifacts",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "branch",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: branch",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "checks",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: checks",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "code",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: code",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "decision_type",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: decision_type",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "environment",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: environment",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "escalation_id",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: escalation_id",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "gate",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: gate",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "healthy",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: healthy",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "journey_passed",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: journey_passed",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "justification",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: justification",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "level",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: level",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "message",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: message",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "passed",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: passed",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "reason",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: reason",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "recommendation",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: recommendation",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "required",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: required",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "rule",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: rule",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "sha",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: sha",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "skipped",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: skipped",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "stage",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: stage",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      },
+      {
+        "field": "step",
+        "justification": "Repository-owned telemetry field observed on protected baseline 0a4ce6c841a87adfc509d99608b144110ea0f724: step",
+        "approved_by": "repository-security-owner",
+        "expires_at": "2027-08-28T00:00:00Z"
+      }
+    ],
+    "justification": "Provider-neutral privacy intent reviewed for the protected repository baseline.",
+    "approved_by": "repository-security-owner",
+    "expires_at": "2027-08-28T00:00:00Z"
   },
   "sast_allowlist": [
     {
@@ -367,5 +675,5 @@
       "rule_id": "SEC_EXEC"
     }
   ],
-  "version": "repository-security-profile/v1"
+  "version": "repository-security-profile/v2"
 }

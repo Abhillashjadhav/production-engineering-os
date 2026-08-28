@@ -47,9 +47,70 @@ def _file_digest(path: Path) -> str:
 
 def _load_policy(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text())
-    if not isinstance(value, dict) or not isinstance(value.get("privacy"), dict):
+    if (
+        not isinstance(value, dict)
+        or value.get("version") != "repository-security-profile/v2"
+        or not isinstance(value.get("privacy"), dict)
+    ):
         raise ValueError("privacy policy is malformed")
-    return dict(value["privacy"])
+    privacy = dict(value["privacy"])
+    expected = {
+        "approved_by",
+        "classification",
+        "deletion_required",
+        "expires_at",
+        "justification",
+        "residency",
+        "retention_days",
+        "telemetry_allowlist",
+    }
+    if set(privacy) != expected:
+        raise ValueError("privacy policy is malformed")
+    for field in ("approved_by", "justification"):
+        if not isinstance(privacy[field], str) or not privacy[field].strip():
+            raise ValueError("privacy policy lacks reviewed lifecycle metadata")
+    expires_at = privacy["expires_at"]
+    if not isinstance(expires_at, str):
+        raise ValueError("privacy policy expiration is malformed")
+    try:
+        expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("privacy policy expiration is malformed") from exc
+    if expiry.tzinfo is None or expiry <= datetime.now(UTC):
+        raise ValueError("privacy policy review has expired")
+    records = privacy["telemetry_allowlist"]
+    if not isinstance(records, list) or not records:
+        raise ValueError("privacy telemetry allowlist is malformed")
+    telemetry: list[str] = []
+    for record in records:
+        if not isinstance(record, dict) or set(record) != {
+            "approved_by",
+            "expires_at",
+            "field",
+            "justification",
+        }:
+            raise ValueError("privacy telemetry grant is malformed")
+        if any(
+            not isinstance(record[field], str) or not record[field].strip()
+            for field in ("approved_by", "field", "justification")
+        ):
+            raise ValueError("privacy telemetry grant lacks reviewed metadata")
+        try:
+            record_expiry = datetime.fromisoformat(str(record["expires_at"]).replace("Z", "+00:00"))
+        except ValueError as exc:
+            raise ValueError("privacy telemetry grant expiration is malformed") from exc
+        if record_expiry.tzinfo is None or record_expiry <= datetime.now(UTC):
+            raise ValueError("privacy telemetry grant has expired")
+        telemetry.append(str(record["field"]))
+    if len(telemetry) != len(set(telemetry)):
+        raise ValueError("privacy telemetry allowlist contains duplicate grants")
+    return {
+        "classification": privacy["classification"],
+        "deletion_required": privacy["deletion_required"],
+        "residency": privacy["residency"],
+        "retention_days": privacy["retention_days"],
+        "telemetry_allowlist": telemetry,
+    }
 
 
 def _emitter_identity(node: ast.expr) -> str | None:
@@ -149,14 +210,17 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
     return tuple(sorted(fields))
 
 
-def _verify(candidate_sha: str, policy_path: Path) -> dict[str, Any]:
+def _verify(
+    candidate_sha: str,
+    policy_path: Path,
+    repository_root: Path,
+) -> dict[str, Any]:
     if not _SHA.fullmatch(candidate_sha):
         raise ValueError("privacy verifier candidate SHA is malformed")
     privacy = _load_policy(policy_path)
     retention_days = int(privacy["retention_days"])
     telemetry_allowlist = tuple(str(item) for item in privacy["telemetry_allowlist"])
-    repository_root = policy_path.resolve().parents[1]
-    emitted_telemetry = _inventory_telemetry_fields(repository_root)
+    emitted_telemetry = _inventory_telemetry_fields(repository_root.resolve())
     now = datetime.now(UTC)
     with tempfile.TemporaryDirectory(prefix="pmpe-privacy-verifier-") as temporary:
         root = Path(temporary)
@@ -235,10 +299,11 @@ def _verify(candidate_sha: str, policy_path: Path) -> dict[str, Any]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--candidate-sha", required=True)
+    parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--policy", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    evidence = _verify(args.candidate_sha, args.policy)
+    evidence = _verify(args.candidate_sha, args.policy, args.root)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(evidence, sort_keys=True, separators=(",", ":")) + "\n")
     return 0
