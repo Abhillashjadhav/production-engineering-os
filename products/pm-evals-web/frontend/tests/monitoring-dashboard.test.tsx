@@ -171,4 +171,17 @@ describe("MonitoringDashboard", () => {
     fireEvent.click(await screen.findByRole("button", { name: /dream job agent staging/i }));
     expect(screen.getByText(/no starting failure found/i)).toBeInTheDocument();
   });
+
+  it("does not describe blocked evidence as within approved bars", async () => {
+    const blockedOverview: MonitoringOverview = {
+      ...OVERVIEW,
+      products: [{ ...OVERVIEW.products[0], health: "BLOCKED" }],
+      incidents: [],
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(blockedOverview)} />);
+    expect(await screen.findByText(/no confirmed starting point yet/i)).toBeInTheDocument();
+    expect(screen.getByText(/evidence is blocked, incomplete/i)).toBeInTheDocument();
+    expect(screen.queryByText(/within their approved bars/i)).not.toBeInTheDocument();
+  });
 });

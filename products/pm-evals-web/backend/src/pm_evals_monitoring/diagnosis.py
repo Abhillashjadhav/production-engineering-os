@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from datetime import UTC, datetime
 
 from .models import (
@@ -48,7 +48,10 @@ def _is_degraded(observation: Observation) -> bool:
 def _health(observations: list[Observation]) -> RunHealth:
     if any(item.status == "FAIL" for item in observations):
         return "FAILING"
-    if any(item.status == "BLOCKED" for item in observations):
+    if any(
+        item.status == "BLOCKED" or (item.required and item.status == "NOT_EVALUATED")
+        for item in observations
+    ):
         return "BLOCKED"
     if any(_is_degraded(item) for item in observations):
         return "DEGRADED"
@@ -120,11 +123,33 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
         for item in run.observations
         if item.status in {"BLOCKED", "NOT_EVALUATED"}
     }
-    memo: dict[str, tuple[str, tuple[str, ...], str]] = {}
+    remaining_dependencies = {
+        observation_id: len(item.depends_on) for observation_id, item in by_id.items()
+    }
+    dependents: dict[str, list[str]] = defaultdict(list)
+    for observation_id, item in by_id.items():
+        for dependency_id in item.depends_on:
+            dependents[dependency_id].append(observation_id)
+    ready = deque(
+        observation_id
+        for observation_id, remaining in remaining_dependencies.items()
+        if remaining == 0
+    )
+    topological_order: list[str] = []
+    while ready:
+        observation_id = ready.popleft()
+        topological_order.append(observation_id)
+        for dependent_id in dependents[observation_id]:
+            remaining_dependencies[dependent_id] -= 1
+            if remaining_dependencies[dependent_id] == 0:
+                ready.append(dependent_id)
+    if len(topological_order) != len(by_id):
+        raise ValueError("observation dependency graph contains a cycle")
 
-    def classify(observation_id: str) -> tuple[str, tuple[str, ...], str]:
-        if observation_id in memo:
-            return memo[observation_id]
+    classifications: dict[str, tuple[str, tuple[str, ...], str]] = {}
+    for observation_id in topological_order:
+        if observation_id not in failed:
+            continue
         observation = by_id[observation_id]
         failed_dependencies = [item for item in observation.depends_on if item in failed]
         missing_dependencies = [
@@ -133,7 +158,7 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
         if failed_dependencies:
             roots: set[str] = set()
             for dependency_id in failed_dependencies:
-                attribution, dependency_roots, _ = classify(dependency_id)
+                attribution, dependency_roots, _ = classifications[dependency_id]
                 if attribution == "LIKELY_STARTING_FAILURE":
                     roots.add(dependency_id)
                 else:
@@ -155,15 +180,16 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
                 (observation_id,),
                 "This is the earliest observed failure in the declared dependency path.",
             )
-        memo[observation_id] = result
-        return result
+        classifications[observation_id] = result
 
     diagnoses: list[ObservationDiagnosis] = []
     for observation in sorted(
         (item for item in run.observations if item.status == "FAIL"),
         key=lambda item: (item.location.stage_index, item.observation_id),
     ):
-        attribution, roots, localization_reason = classify(observation.observation_id)
+        attribution, classified_roots, localization_reason = classifications[
+            observation.observation_id
+        ]
         delta = _signed_delta(observation)
         if attribution == "LIKELY_STARTING_FAILURE":
             cause = _cause_assessment(observation)
@@ -178,7 +204,7 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
             ObservationDiagnosis(
                 observation_id=observation.observation_id,
                 attribution=attribution,  # type: ignore[arg-type]
-                root_observation_ids=list(roots),
+                root_observation_ids=list(classified_roots),
                 signed_delta=delta,
                 regression_magnitude=abs(delta) if delta is not None and delta < 0 else 0.0,
                 localization_reason=localization_reason,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import timedelta
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from pm_evals_monitoring import (
     build_overview,
     diagnose_run,
 )
-from pm_evals_monitoring.models import CauseSignal
+from pm_evals_monitoring.models import CauseSignal, RunEnvelope
 
 
 def _failed_dream_job_run():
@@ -94,6 +95,65 @@ def test_not_evaluated_upstream_prevents_false_starting_failure() -> None:
 
     assert "source-linkedin-coverage" not in diagnosis.likely_starting_observation_ids
     assert by_id["eligible-job-coverage"].attribution == "UNCONFIRMED"
+
+
+def test_required_not_evaluated_observation_blocks_run_health() -> None:
+    run = next(
+        item for item in build_demo_runs() if item.run_id == "dream-job-2026-08-24"
+    ).model_copy(deep=True)
+    required = run.observations[0]
+    required.status = "NOT_EVALUATED"
+    required.current_value = None
+
+    diagnosis = diagnose_run(run)
+    overview = build_overview([run], mode="LIVE")
+
+    assert diagnosis.health == "BLOCKED"
+    assert overview.products[0].health == "BLOCKED"
+    affected_layer = next(
+        item for item in overview.products[0].layers if item.name == required.evaluation.layer
+    )
+    assert affected_layer.health == "BLOCKED"
+
+
+def test_dependency_validation_and_diagnosis_support_contract_maximum_depth() -> None:
+    payload = _failed_dream_job_run().model_dump(mode="json")
+    template = payload["observations"][0]
+    observations = []
+    for index in range(2000):
+        observation = deepcopy(template)
+        observation_id = f"deep-{index:04d}"
+        observation["observation_id"] = observation_id
+        observation["location"]["stage_index"] = index + 1
+        observation["status"] = "FAIL"
+        observation["current_value"] = 0.0
+        observation["expected_value"] = 1.0
+        observation["depends_on"] = [f"deep-{index - 1:04d}"] if index else []
+        observation["cause_signals"] = []
+        observations.append(observation)
+    payload["observations"] = observations
+
+    run = RunEnvelope.model_validate(payload)
+    diagnosis = diagnose_run(run)
+
+    assert len(diagnosis.diagnoses) == 2000
+    assert diagnosis.likely_starting_observation_ids == ["deep-0000"]
+    assert diagnosis.diagnoses[-1].attribution == "DOWNSTREAM_SYMPTOM"
+    assert diagnosis.diagnoses[-1].root_observation_ids == ["deep-0000"]
+
+
+def test_iterative_dependency_validation_still_rejects_cycles() -> None:
+    payload = _failed_dream_job_run().model_dump(mode="json")
+    first = deepcopy(payload["observations"][0])
+    second = deepcopy(payload["observations"][0])
+    first["observation_id"] = "cycle-a"
+    first["depends_on"] = ["cycle-b"]
+    second["observation_id"] = "cycle-b"
+    second["depends_on"] = ["cycle-a"]
+    payload["observations"] = [first, second]
+
+    with pytest.raises(ValidationError, match="dependency graph contains a cycle"):
+        RunEnvelope.model_validate(payload)
 
 
 def test_overview_keeps_environments_and_reused_run_ids_separate() -> None:

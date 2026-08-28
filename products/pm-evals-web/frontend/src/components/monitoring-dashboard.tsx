@@ -342,6 +342,12 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
   }
 
   const healthyProducts = overview.products.filter((product) => product.health === "HEALTHY").length;
+  const selectedProducts = overview.products.filter(
+    (product) => selectedProduct === "all" || productIdentity(product) === selectedProduct,
+  );
+  const selectionNeedsEvidence = selectedProducts.some(
+    (product) => product.health !== "HEALTHY",
+  );
   const exactCases = new Set(
     overview.incidents.map(
       (incident) => `${productIdentity(incident)}\u001f${incident.case.case_id}`,
@@ -411,7 +417,20 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
           </div>
           {filteredIncidents.length ? filteredIncidents.map((incident) => (
             <IncidentCard key={incident.incident_id} incident={incident} />
-          )) : <div className="empty-state"><strong>No starting failure found.</strong><span>Selected products are within their approved bars.</span></div>}
+          )) : (
+            <div className="empty-state">
+              <strong>
+                {selectionNeedsEvidence
+                  ? "No confirmed starting point yet."
+                  : "No starting failure found."}
+              </strong>
+              <span>
+                {selectionNeedsEvidence
+                  ? "Evidence is blocked, incomplete, or still needs investigation."
+                  : "Selected products are within their approved bars."}
+              </span>
+            </div>
+          )}
         </section>
 
         <aside className="confidence-panel" aria-labelledby="confidence-heading">

@@ -7,6 +7,7 @@ failure happened.
 
 from __future__ import annotations
 
+from collections import defaultdict, deque
 from datetime import datetime
 from typing import Any, Literal
 
@@ -230,22 +231,28 @@ class RunEnvelope(StrictModel):
                     f"{item.observation_id} depends on unknown observations: {', '.join(unknown)}"
                 )
 
-        visiting: set[str] = set()
-        visited: set[str] = set()
-
-        def visit(observation_id: str) -> None:
-            if observation_id in visiting:
-                raise ValueError("observation dependency graph contains a cycle")
-            if observation_id in visited:
-                return
-            visiting.add(observation_id)
-            for dependency_id in by_id[observation_id].depends_on:
-                visit(dependency_id)
-            visiting.remove(observation_id)
-            visited.add(observation_id)
-
-        for observation_id in by_id:
-            visit(observation_id)
+        remaining_dependencies = {
+            observation_id: len(item.depends_on) for observation_id, item in by_id.items()
+        }
+        dependents: dict[str, list[str]] = defaultdict(list)
+        for observation_id, item in by_id.items():
+            for dependency_id in item.depends_on:
+                dependents[dependency_id].append(observation_id)
+        ready = deque(
+            observation_id
+            for observation_id, remaining in remaining_dependencies.items()
+            if remaining == 0
+        )
+        visited_count = 0
+        while ready:
+            observation_id = ready.popleft()
+            visited_count += 1
+            for dependent_id in dependents[observation_id]:
+                remaining_dependencies[dependent_id] -= 1
+                if remaining_dependencies[dependent_id] == 0:
+                    ready.append(dependent_id)
+        if visited_count != len(by_id):
+            raise ValueError("observation dependency graph contains a cycle")
         return self
 
 
