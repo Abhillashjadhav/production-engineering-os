@@ -2,7 +2,7 @@
 export function Explainer() {
   return (
     <header>
-      <h1>Compare eval runs before you release</h1>
+      <h2>Compare eval runs before you release</h2>
       <p>
         Upload the eval results from your current version (the baseline) and
         from the change you are considering (the candidate). pm-evals compares
@@ -25,8 +25,8 @@ export function Explainer() {
         </li>
       </ul>
       <p>
-        Files are processed in memory and never stored. No sign-in, no data
-        leaves this app.
+        Comparison uploads are processed in memory and never stored. They are
+        separate from the production-observation history shown above.
       </p>
     </header>
   );

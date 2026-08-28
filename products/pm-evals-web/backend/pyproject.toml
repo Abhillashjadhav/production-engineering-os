@@ -20,7 +20,7 @@ testpaths = ["tests"]
 
 [tool.mypy]
 strict = true
-files = ["src/pm_evals_compare", "src/pm_evals_api"]
+files = ["src/pm_evals_compare", "src/pm_evals_api", "src/pm_evals_monitoring"]
 
 [tool.ruff]
 line-length = 99
