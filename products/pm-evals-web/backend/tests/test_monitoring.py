@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import timedelta
 from pathlib import Path
@@ -458,7 +460,7 @@ def test_store_rolls_back_log_when_indexing_fails(tmp_path: Path) -> None:
     assert MonitoringStore(tmp_path).list_runs() == [run]
 
 
-def test_store_requires_rebuild_if_append_rollback_fails(
+def test_store_reconciles_before_retry_if_append_rollback_fails(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -479,18 +481,47 @@ def test_store_requires_rebuild_if_append_rollback_fails(
         raise OSError("injected rollback failure")
 
     monkeypatch.setattr(store, "_truncate_log", fail_rollback)
-    with pytest.raises(RuntimeError, match="could not be rolled back"):
+    with pytest.raises(RuntimeError, match="must be reconciled"):
         store.append(run)
-    with pytest.raises(RuntimeError, match="successful index rebuild"):
-        store.append(run)
-    with pytest.raises(RuntimeError, match="successful index rebuild"):
+    with pytest.raises(sqlite3.IntegrityError, match="injected index failure"):
         store.list_runs()
 
     with sqlite3.connect(store.index_path) as connection:
         connection.execute("DROP TRIGGER reject_monitoring_index_insert")
-    store.rebuild_index()
     assert store.append(run) is False
     assert store.list_runs() == [run]
+
+
+def test_store_serializes_appends_across_instances(tmp_path: Path) -> None:
+    first_store = MonitoringStore(tmp_path)
+    second_store = MonitoringStore(tmp_path)
+    first_run = _failed_dream_job_run()
+    second_run = first_run.model_copy(deep=True)
+    second_run.run_id = f"{first_run.run_id}-parallel"
+    ready = threading.Barrier(2)
+
+    def append(store: MonitoringStore, run: RunEnvelope) -> bool:
+        ready.wait()
+        return store.append(run)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first_future = executor.submit(append, first_store, first_run)
+        second_future = executor.submit(append, second_store, second_run)
+        assert first_future.result() is True
+        assert second_future.result() is True
+
+    with sqlite3.connect(first_store.index_path) as connection:
+        rows = connection.execute(
+            "SELECT byte_offset, byte_length FROM runs ORDER BY byte_offset"
+        ).fetchall()
+    assert len(rows) == 2
+    assert rows[0][0] == 0
+    assert rows[0][0] + rows[0][1] == rows[1][0]
+    assert rows[1][0] + rows[1][1] == first_store.log_path.stat().st_size
+    assert {run.run_id for run in first_store.list_runs()} == {
+        first_run.run_id,
+        second_run.run_id,
+    }
 
 
 def test_store_identity_is_collision_free_for_legal_control_characters(

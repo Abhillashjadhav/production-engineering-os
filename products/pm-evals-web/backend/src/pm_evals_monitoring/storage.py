@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
 import os
 import sqlite3
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import UTC
 from pathlib import Path
 
@@ -18,10 +21,11 @@ class MonitoringStore:
         self.data_dir = data_dir
         self.log_path = data_dir / "observations.jsonl"
         self.index_path = data_dir / "observations.sqlite3"
+        self.lock_path = data_dir / "observations.lock"
         self._lock = threading.Lock()
-        self._recovery_required = False
         data_dir.mkdir(parents=True, exist_ok=True)
         self.log_path.touch(exist_ok=True)
+        self.lock_path.touch(exist_ok=True)
         self._initialize_index()
 
     def _connect(self) -> sqlite3.Connection:
@@ -30,32 +34,48 @@ class MonitoringStore:
         connection.execute("PRAGMA synchronous=FULL")
         return connection
 
+    @contextmanager
+    def _exclusive_store_lock(self) -> Iterator[None]:
+        """Serialize history operations across threads, instances, and workers."""
+
+        with self._lock, self.lock_path.open("a+b") as lock_handle:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+
     def _initialize_index(self) -> None:
+        with self._exclusive_store_lock():
+            with self._connect() as connection:
+                connection.executescript(
+                    """
+                    CREATE TABLE IF NOT EXISTS runs (
+                        run_key TEXT PRIMARY KEY,
+                        run_id TEXT NOT NULL,
+                        product_id TEXT NOT NULL,
+                        environment TEXT NOT NULL,
+                        observed_at TEXT NOT NULL,
+                        byte_offset INTEGER NOT NULL,
+                        byte_length INTEGER NOT NULL,
+                        sha256 TEXT NOT NULL
+                    );
+                    CREATE UNIQUE INDEX IF NOT EXISTS runs_identity
+                        ON runs(product_id, environment, run_id);
+                    CREATE INDEX IF NOT EXISTS runs_product_observed
+                        ON runs(product_id, environment, observed_at DESC, run_id DESC);
+                    """
+                )
+            self._reconcile_index_unlocked()
+
+    def _reconcile_index_unlocked(self) -> None:
         with self._connect() as connection:
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS runs (
-                    run_key TEXT PRIMARY KEY,
-                    run_id TEXT NOT NULL,
-                    product_id TEXT NOT NULL,
-                    environment TEXT NOT NULL,
-                    observed_at TEXT NOT NULL,
-                    byte_offset INTEGER NOT NULL,
-                    byte_length INTEGER NOT NULL,
-                    sha256 TEXT NOT NULL
-                );
-                CREATE UNIQUE INDEX IF NOT EXISTS runs_identity
-                    ON runs(product_id, environment, run_id);
-                CREATE INDEX IF NOT EXISTS runs_product_observed
-                    ON runs(product_id, environment, observed_at DESC, run_id DESC);
-                """
-            )
             indexed, indexed_end = connection.execute(
                 "SELECT COUNT(*), COALESCE(MAX(byte_offset + byte_length), 0) FROM runs"
             ).fetchone()
         log_size = self.log_path.stat().st_size
         if (indexed == 0 and log_size) or indexed_end != log_size:
-            self.rebuild_index()
+            self._rebuild_index_unlocked()
 
     @staticmethod
     def _run_key(run: RunEnvelope) -> str:
@@ -90,11 +110,8 @@ class MonitoringStore:
         line = self._canonical_line(run)
         digest = hashlib.sha256(line).hexdigest()
         run_key = self._run_key(run)
-        with self._lock:
-            if self._recovery_required:
-                raise RuntimeError(
-                    "monitoring history requires a successful index rebuild before appending"
-                )
+        with self._exclusive_store_lock():
+            self._reconcile_index_unlocked()
             connection = self._connect()
             rollback_offset: int | None = None
             try:
@@ -134,10 +151,9 @@ class MonitoringStore:
                     try:
                         self._truncate_log(rollback_offset)
                     except BaseException as rollback_error:
-                        self._recovery_required = True
                         raise RuntimeError(
                             "failed monitoring append could not be rolled back; "
-                            "rebuild the index before retrying"
+                            "the log and index must be reconciled before retrying"
                         ) from rollback_error
                 raise
             finally:
@@ -145,6 +161,10 @@ class MonitoringStore:
         return True
 
     def rebuild_index(self) -> None:
+        with self._exclusive_store_lock():
+            self._rebuild_index_unlocked()
+
+    def _rebuild_index_unlocked(self) -> None:
         records: list[tuple[RunEnvelope, int, int, str]] = []
         offset = 0
         log_size = self.log_path.stat().st_size
@@ -191,7 +211,6 @@ class MonitoringStore:
                         digest,
                     ),
                 )
-        self._recovery_required = False
 
     def _read_rows(self, rows: list[tuple[int, int, str]]) -> list[RunEnvelope]:
         runs: list[RunEnvelope] = []
@@ -205,13 +224,13 @@ class MonitoringStore:
         return runs
 
     def list_runs(self) -> list[RunEnvelope]:
-        if self._recovery_required:
-            raise RuntimeError("monitoring history requires a successful index rebuild")
-        with self._connect() as connection:
-            rows = connection.execute(
-                "SELECT byte_offset, byte_length, sha256 FROM runs ORDER BY observed_at, run_id"
-            ).fetchall()
-        return self._read_rows(rows)
+        with self._exclusive_store_lock():
+            self._reconcile_index_unlocked()
+            with self._connect() as connection:
+                rows = connection.execute(
+                    "SELECT byte_offset, byte_length, sha256 FROM runs ORDER BY observed_at, run_id"
+                ).fetchall()
+            return self._read_rows(rows)
 
     def list_runs_for_overview(
         self,
@@ -222,8 +241,14 @@ class MonitoringStore:
 
         if trend_limit_per_product < 1:
             raise ValueError("trend_limit_per_product must be at least one")
-        if self._recovery_required:
-            raise RuntimeError("monitoring history requires a successful index rebuild")
+        with self._exclusive_store_lock():
+            self._reconcile_index_unlocked()
+            return self._list_runs_for_overview_unlocked(trend_limit_per_product)
+
+    def _list_runs_for_overview_unlocked(
+        self,
+        trend_limit_per_product: int,
+    ) -> list[RunEnvelope]:
         with self._connect() as connection:
             trend_rows = connection.execute(
                 """
