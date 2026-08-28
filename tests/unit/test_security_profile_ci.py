@@ -10,8 +10,14 @@ import pytest
 
 import pmpe.privacy.retention as retention_module
 from pmpe.contracts.digest import canonical_digest
+from pmpe.engineering.ledger import EvidenceLedger
 from pmpe.orchestration.lifecycle import BudgetPolicy, LifecycleControlPlane, LifecycleState
-from pmpe.privacy.retention import RetentionController, purge_retained_runs
+from pmpe.privacy.retention import (
+    RetentionController,
+    purge_retained_runs,
+    retention_policy_digest,
+    terminal_retention_digest,
+)
 from pmpe.telemetry.events import EventLog
 from scripts.ci.evaluate_security_profile import (
     _file_digest,
@@ -22,6 +28,79 @@ from scripts.ci.evaluate_security_profile import (
 from scripts.ci.verify_privacy_controls import _inventory_telemetry_fields, _verify
 
 SHA = "d" * 40
+
+
+def _write_authenticated_lifecycle_run(
+    run_dir: Path,
+    *,
+    target: str,
+    retention_days: int = 30,
+) -> Path:
+    run_dir.mkdir(parents=True)
+    metadata = {"retention_days": retention_days}
+    (run_dir / "lifecycle-metadata.json").write_text(json.dumps(metadata))
+    initial = {
+        "evidence_refs": {"metadata_digest": canonical_digest(metadata)},
+        "kind": "STATE_CREATED",
+        "previous_digest": "",
+        "sequence": 1,
+        "target": "CONTRACT_RECEIVED",
+    }
+    initial["event_digest"] = canonical_digest(initial)
+    events = [initial]
+    if target != "CONTRACT_RECEIVED":
+        terminal = {
+            "evidence_refs": {},
+            "kind": "STATE_TRANSITION",
+            "previous_digest": initial["event_digest"],
+            "sequence": 2,
+            "target": target,
+        }
+        terminal["event_digest"] = canonical_digest(terminal)
+        events.append(terminal)
+    ledger = run_dir / "lifecycle-events.jsonl"
+    ledger.write_text("".join(json.dumps(event) + "\n" for event in events))
+    return ledger
+
+
+def _write_authenticated_engineering_run(
+    run_dir: Path,
+    *,
+    stage: str = "complete",
+    retention_days: int = 30,
+) -> Path:
+    run_dir.mkdir(parents=True)
+    run_id = f"eng-{run_dir.name}"
+    state = run_dir / "run-state.json"
+    state.write_text(
+        json.dumps(
+            {
+                "retention_days": retention_days,
+                "run_id": run_id,
+                "stage": stage,
+            }
+        )
+    )
+    ledger = EvidenceLedger(run_dir, run_id=run_id)
+    ledger.record(
+        stage="contract_lock",
+        agent="core",
+        action="lock",
+        output_digests={"retention_policy": retention_policy_digest(retention_days)},
+    )
+    if stage == "complete":
+        ledger.record(
+            stage="release_report",
+            agent="core",
+            action="report",
+            output_digests={
+                "terminal_retention": terminal_retention_digest(
+                    retention_days,
+                    stage="complete",
+                )
+            },
+        )
+    return state
 
 
 def test_architecture_observer_resolves_relative_imports(tmp_path: Path) -> None:
@@ -92,6 +171,9 @@ def test_architecture_observer_accounts_for_dynamic_imports(tmp_path: Path) -> N
         'import importlib\nil = importlib\nil.import_module("pmpe.guided.api")\n',
         'import importlib\nil = importlib\nil2 = il\nil2.import_module("pmpe.guided.api")\n',
         'from importlib import import_module\nloader = import_module\nloader("pmpe.guided.api")\n',
+        'import builtins\nbuiltins.__import__("pmpe.guided.api")\n',
+        'import builtins as bi\nbi.__import__("pmpe.guided.api")\n',
+        'from builtins import __import__ as load\nload("pmpe.guided.api")\n',
     ],
 )
 def test_architecture_observer_resolves_dynamic_import_function_aliases(
@@ -203,15 +285,14 @@ def test_retention_controller_atomically_deletes_only_expired_completed_runs(
     now = datetime(2030, 1, 31, tzinfo=UTC)
     completed = tmp_path / "completed-run"
     active = tmp_path / "active-run"
-    completed.mkdir()
-    active.mkdir()
-    completed_ledger = completed / "lifecycle-events.jsonl"
+    completed_ledger = _write_authenticated_lifecycle_run(completed, target="COMPLETED")
     completed_artifact = completed / "recent-artifact.json"
-    active_ledger = active / "lifecycle-events.jsonl"
+    active_ledger = _write_authenticated_lifecycle_run(
+        active,
+        target="IMPLEMENTATION_IN_PROGRESS",
+    )
     active_artifact = active / "old-artifact.json"
-    completed_ledger.write_text('{"target":"COMPLETED"}\n')
     completed_artifact.write_text("recent but owned by an expired completed run")
-    active_ledger.write_text('{"target":"IMPLEMENTATION_IN_PROGRESS"}\n')
     active_artifact.write_text("old but owned by an active run")
     old = (now - timedelta(days=31)).timestamp()
     recent = (now - timedelta(days=29)).timestamp()
@@ -232,9 +313,7 @@ def test_retention_controller_atomically_deletes_only_expired_completed_runs(
 def test_retention_controller_preserves_a_locked_completed_run(tmp_path: Path) -> None:
     now = datetime(2030, 1, 31, tzinfo=UTC)
     completed = tmp_path / "completed-run"
-    completed.mkdir()
-    ledger = completed / "lifecycle-events.jsonl"
-    ledger.write_text('{"target":"COMPLETED"}\n')
+    ledger = _write_authenticated_lifecycle_run(completed, target="COMPLETED")
     old = (now - timedelta(days=31)).timestamp()
     os.utime(ledger, (old, old))
 
@@ -252,9 +331,7 @@ def test_retention_controller_deletes_expired_completed_engineering_runs(
 ) -> None:
     now = datetime(2030, 1, 31, tzinfo=UTC)
     completed = tmp_path / "completed-engineering-run"
-    completed.mkdir()
-    state = completed / "run-state.json"
-    state.write_text('{"stage":"complete"}\n')
+    state = _write_authenticated_engineering_run(completed)
     (completed / "artifact.json").write_text("belongs to the completed run")
     old = (now - timedelta(days=31)).timestamp()
     os.utime(state, (old, old))
@@ -270,11 +347,10 @@ def test_retention_controller_uses_each_runs_immutable_policy(tmp_path: Path) ->
     short = tmp_path / "short-policy"
     long = tmp_path / "long-policy"
     for run_dir, retention_days in ((short, 30), (long, 365)):
-        run_dir.mkdir()
-        ledger = run_dir / "lifecycle-events.jsonl"
-        ledger.write_text('{"target":"COMPLETED"}\n')
-        (run_dir / "lifecycle-metadata.json").write_text(
-            json.dumps({"retention_days": retention_days})
+        ledger = _write_authenticated_lifecycle_run(
+            run_dir,
+            target="COMPLETED",
+            retention_days=retention_days,
         )
         old = (now - timedelta(days=31)).timestamp()
         os.utime(ledger, (old, old))
@@ -290,9 +366,7 @@ def test_retention_controller_uses_each_runs_immutable_policy(tmp_path: Path) ->
 def test_retention_controller_fails_closed_on_malformed_bound_policy(tmp_path: Path) -> None:
     now = datetime(2030, 1, 31, tzinfo=UTC)
     run_dir = tmp_path / "tampered-policy"
-    run_dir.mkdir()
-    ledger = run_dir / "lifecycle-events.jsonl"
-    ledger.write_text('{"target":"COMPLETED"}\n')
+    ledger = _write_authenticated_lifecycle_run(run_dir, target="COMPLETED")
     (run_dir / "lifecycle-metadata.json").write_text('{"retention_days":false}\n')
     old = (now - timedelta(days=500)).timestamp()
     os.utime(ledger, (old, old))
@@ -301,6 +375,32 @@ def test_retention_controller_fails_closed_on_malformed_bound_policy(tmp_path: P
 
     assert result.deleted == ()
     assert result.retained == ("tampered-policy",)
+    assert run_dir.exists()
+
+
+@pytest.mark.parametrize("run_kind", ["lifecycle", "engineering"])
+def test_retention_controller_rejects_valid_but_unauthenticated_policy_mutation(
+    tmp_path: Path,
+    run_kind: str,
+) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    run_dir = tmp_path / f"tampered-{run_kind}"
+    if run_kind == "lifecycle":
+        marker = _write_authenticated_lifecycle_run(run_dir, target="COMPLETED")
+        policy_path = run_dir / "lifecycle-metadata.json"
+    else:
+        marker = _write_authenticated_engineering_run(run_dir)
+        policy_path = marker
+    policy = json.loads(policy_path.read_text())
+    policy["retention_days"] = 3650
+    policy_path.write_text(json.dumps(policy))
+    old = (now - timedelta(days=31)).timestamp()
+    os.utime(marker, (old, old))
+
+    result = purge_retained_runs(tmp_path, trusted_clock=lambda: now)
+
+    assert result.deleted == ()
+    assert result.retained == (run_dir.name,)
     assert run_dir.exists()
 
 
@@ -353,8 +453,7 @@ def test_event_log_enforces_retention_on_the_actual_runs_root(tmp_path: Path) ->
     now = datetime(2030, 1, 31, tzinfo=UTC)
     expired = tmp_path / "expired-run" / "lifecycle-events.jsonl"
     current_run = tmp_path / "current-run"
-    expired.parent.mkdir()
-    expired.write_text('{"target":"COMPLETED"}\n')
+    expired = _write_authenticated_lifecycle_run(expired.parent, target="COMPLETED")
     old = (now - timedelta(days=31)).timestamp()
     os.utime(expired, (old, old))
 
@@ -402,8 +501,7 @@ def test_production_retention_entrypoints_reserve_the_tombstone_namespace(
 def test_phase_zero_create_enforces_retention_on_shipped_lifecycle_root(tmp_path: Path) -> None:
     now = datetime(2030, 1, 31, tzinfo=UTC)
     expired = tmp_path / "expired-run" / "lifecycle-events.jsonl"
-    expired.parent.mkdir()
-    expired.write_text('{"target":"COMPLETED"}\n')
+    expired = _write_authenticated_lifecycle_run(expired.parent, target="COMPLETED")
     old = (now - timedelta(days=31)).timestamp()
     os.utime(expired, (old, old))
     budget = BudgetPolicy(
@@ -446,6 +544,16 @@ def test_privacy_verifier_inventories_real_product_telemetry(tmp_path: Path) -> 
         "reason",
         "step",
     )
+
+
+def test_privacy_verifier_inventories_product_backend_telemetry(tmp_path: Path) -> None:
+    source = tmp_path / "products" / "pm-evals-web" / "backend" / "src" / "pm_evals_reports"
+    source.mkdir(parents=True)
+    (source / "events.py").write_text(
+        'ctx.events.emit("report", email="synthetic@example.invalid")\n'
+    )
+
+    assert _inventory_telemetry_fields(tmp_path) == ("email",)
 
 
 def test_privacy_verifier_tracks_aliased_event_emitters(tmp_path: Path) -> None:

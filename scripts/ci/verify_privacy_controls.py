@@ -16,7 +16,9 @@ from typing import Any
 
 from pmpe.contracts.digest import canonical_digest
 from pmpe.contracts.intake import FileQuarantineStore
+from pmpe.engineering.ledger import EvidenceLedger
 from pmpe.orchestration.lifecycle import BudgetPolicy, LifecycleControlPlane, LifecycleState
+from pmpe.privacy.retention import retention_policy_digest, terminal_retention_digest
 from pmpe.telemetry.events import EventLog
 
 _SHA = re.compile(r"^[0-9a-f]{40}$")
@@ -214,7 +216,17 @@ def _local_names(scope: ast.AST, nodes: tuple[ast.AST, ...]) -> set[str]:
 
 def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
     fields: set[str] = set()
-    for path in sorted((root / "src" / "pmpe").rglob("*.py")):
+    source_roots = (
+        root / "src" / "pmpe",
+        root / "products" / "pm-evals-web" / "backend" / "src",
+    )
+    source_paths = sorted(
+        path
+        for source_root in source_roots
+        if source_root.is_dir()
+        for path in source_root.rglob("*.py")
+    )
+    for path in source_paths:
         tree = ast.parse(path.read_text(), filename=str(path))
 
         def analyze_scope(
@@ -353,10 +365,37 @@ def _verify(
         )
 
         runs_root = root / "runs"
-        expired = runs_root / "expired-run" / "lifecycle-events.jsonl"
+        expired_run = runs_root / "expired-run"
+        expired_run.mkdir(parents=True)
+        expired = expired_run / "run-state.json"
+        expired.write_text(
+            json.dumps(
+                {
+                    "retention_days": retention_days,
+                    "run_id": "privacy-expired-run",
+                    "stage": "complete",
+                }
+            )
+        )
+        expired_ledger = EvidenceLedger(expired_run, run_id="privacy-expired-run")
+        expired_ledger.record(
+            stage="contract_lock",
+            agent="privacy-verifier",
+            action="lock",
+            output_digests={"retention_policy": retention_policy_digest(retention_days)},
+        )
+        expired_ledger.record(
+            stage="release_report",
+            agent="privacy-verifier",
+            action="report",
+            output_digests={
+                "terminal_retention": terminal_retention_digest(
+                    retention_days,
+                    stage="complete",
+                )
+            },
+        )
         current_run = runs_root / "current-run"
-        expired.parent.mkdir(parents=True)
-        expired.write_text('{"target":"COMPLETED"}\n')
         old_time = (now - timedelta(days=retention_days + 1)).timestamp()
         os.utime(expired, (old_time, old_time))
         budget = BudgetPolicy(

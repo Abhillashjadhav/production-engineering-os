@@ -59,6 +59,8 @@ from pmpe.engineering.submissions import VALIDATORS, validate_routing_submission
 from pmpe.evals.registry import stage_of
 from pmpe.privacy.retention import (
     purge_retained_runs,
+    retention_policy_digest,
+    terminal_retention_digest,
     validate_retention_days,
     validate_retention_run_directory,
 )
@@ -205,7 +207,10 @@ class EngineeringRun:
             stage="contract_lock",
             agent=_CORE,
             action="lock",
-            output_digests={"contract": record.digest},
+            output_digests={
+                "contract": record.digest,
+                "retention_policy": retention_policy_digest(retention_days),
+            },
         )
         if receipt is not None:
             run.ledger.record(
@@ -570,6 +575,12 @@ class EngineeringRun:
             stage="release_report",
             agent=_CORE,
             action="report",
+            output_digests={
+                "terminal_retention": terminal_retention_digest(
+                    int(self._state["retention_days"]),
+                    stage="complete",
+                )
+            },
             verdict=verdict,
             detail="gates_passed=" + ",".join(gate_ids) if gate_ids else "no contract gates",
         )
