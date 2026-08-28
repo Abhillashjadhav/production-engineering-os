@@ -431,6 +431,68 @@ def test_store_is_append_only_deduplicated_and_digest_checked(tmp_path: Path) ->
         raise AssertionError("a conflicting run identity was accepted")
 
 
+def test_store_rolls_back_log_when_indexing_fails(tmp_path: Path) -> None:
+    store = MonitoringStore(tmp_path)
+    run = _failed_dream_job_run()
+    original_log = store.log_path.read_bytes()
+    with sqlite3.connect(store.index_path) as connection:
+        connection.execute(
+            """
+            CREATE TRIGGER reject_monitoring_index_insert
+            BEFORE INSERT ON runs
+            BEGIN
+                SELECT RAISE(FAIL, 'injected index failure');
+            END
+            """
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="injected index failure"):
+        store.append(run)
+
+    assert store.log_path.read_bytes() == original_log
+    assert store.list_runs() == []
+
+    with sqlite3.connect(store.index_path) as connection:
+        connection.execute("DROP TRIGGER reject_monitoring_index_insert")
+    assert store.append(run) is True
+    assert MonitoringStore(tmp_path).list_runs() == [run]
+
+
+def test_store_requires_rebuild_if_append_rollback_fails(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = MonitoringStore(tmp_path)
+    run = _failed_dream_job_run()
+    with sqlite3.connect(store.index_path) as connection:
+        connection.execute(
+            """
+            CREATE TRIGGER reject_monitoring_index_insert
+            BEFORE INSERT ON runs
+            BEGIN
+                SELECT RAISE(FAIL, 'injected index failure');
+            END
+            """
+        )
+
+    def fail_rollback(_byte_offset: int) -> None:
+        raise OSError("injected rollback failure")
+
+    monkeypatch.setattr(store, "_truncate_log", fail_rollback)
+    with pytest.raises(RuntimeError, match="could not be rolled back"):
+        store.append(run)
+    with pytest.raises(RuntimeError, match="successful index rebuild"):
+        store.append(run)
+    with pytest.raises(RuntimeError, match="successful index rebuild"):
+        store.list_runs()
+
+    with sqlite3.connect(store.index_path) as connection:
+        connection.execute("DROP TRIGGER reject_monitoring_index_insert")
+    store.rebuild_index()
+    assert store.append(run) is False
+    assert store.list_runs() == [run]
+
+
 def test_store_identity_is_collision_free_for_legal_control_characters(
     tmp_path: Path,
 ) -> None:

@@ -93,9 +93,11 @@ Canonical history is append-only JSONL with a rebuildable SQLite index. The
 same run is idempotent only when its canonical bytes match; conflicting evidence
 under the same product/environment/run identity is rejected. Startup truncates
 only an unterminated final record left by an interrupted append; corruption in
-any completed record still fails closed. Overview reads are bounded to the most
-recent 30 runs per product/environment plus the latest run's referenced
-comparison, while the canonical history remains complete.
+any completed record still fails closed. If indexing an append fails, the new
+log record is durably rolled back before another append can be accepted.
+Overview reads are bounded to the most recent 30 runs per product/environment
+plus the latest run's referenced comparison, while the canonical history
+remains complete.
 
 ## First run
 

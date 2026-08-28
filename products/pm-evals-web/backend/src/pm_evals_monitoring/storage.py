@@ -19,6 +19,7 @@ class MonitoringStore:
         self.log_path = data_dir / "observations.jsonl"
         self.index_path = data_dir / "observations.sqlite3"
         self._lock = threading.Lock()
+        self._recovery_required = False
         data_dir.mkdir(parents=True, exist_ok=True)
         self.log_path.touch(exist_ok=True)
         self._initialize_index()
@@ -71,6 +72,14 @@ class MonitoringStore:
         payload = run.model_dump(mode="json")
         return (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
 
+    def _truncate_log(self, byte_offset: int) -> None:
+        """Durably roll the canonical log back to a known record boundary."""
+
+        with self.log_path.open("r+b") as handle:
+            handle.truncate(byte_offset)
+            handle.flush()
+            os.fsync(handle.fileno())
+
     def append(self, run: RunEnvelope) -> bool:
         """Append one immutable run. Return False for an exact duplicate.
 
@@ -81,37 +90,58 @@ class MonitoringStore:
         line = self._canonical_line(run)
         digest = hashlib.sha256(line).hexdigest()
         run_key = self._run_key(run)
-        with self._lock, self._connect() as connection:
-            existing = connection.execute(
-                """SELECT sha256 FROM runs
-                   WHERE product_id = ? AND environment = ? AND run_id = ?""",
-                (run.product.id, run.product.environment, run.run_id),
-            ).fetchone()
-            if existing:
-                if existing[0] != digest:
-                    raise ValueError("run identity already exists with different evidence")
-                return False
-            with self.log_path.open("ab") as handle:
-                offset = handle.tell()
-                handle.write(line)
-                handle.flush()
-                os.fsync(handle.fileno())
-            connection.execute(
-                """INSERT INTO runs
-                   (run_key, run_id, product_id, environment, observed_at,
-                    byte_offset, byte_length, sha256)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    run_key,
-                    run.run_id,
-                    run.product.id,
-                    run.product.environment,
-                    run.observed_at.astimezone(UTC).isoformat(),
-                    offset,
-                    len(line),
-                    digest,
-                ),
-            )
+        with self._lock:
+            if self._recovery_required:
+                raise RuntimeError(
+                    "monitoring history requires a successful index rebuild before appending"
+                )
+            connection = self._connect()
+            rollback_offset: int | None = None
+            try:
+                with connection:
+                    existing = connection.execute(
+                        """SELECT sha256 FROM runs
+                           WHERE product_id = ? AND environment = ? AND run_id = ?""",
+                        (run.product.id, run.product.environment, run.run_id),
+                    ).fetchone()
+                    if existing:
+                        if existing[0] != digest:
+                            raise ValueError("run identity already exists with different evidence")
+                        return False
+                    with self.log_path.open("ab") as handle:
+                        rollback_offset = handle.tell()
+                        handle.write(line)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    connection.execute(
+                        """INSERT INTO runs
+                           (run_key, run_id, product_id, environment, observed_at,
+                            byte_offset, byte_length, sha256)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (
+                            run_key,
+                            run.run_id,
+                            run.product.id,
+                            run.product.environment,
+                            run.observed_at.astimezone(UTC).isoformat(),
+                            rollback_offset,
+                            len(line),
+                            digest,
+                        ),
+                    )
+            except BaseException:
+                if rollback_offset is not None:
+                    try:
+                        self._truncate_log(rollback_offset)
+                    except BaseException as rollback_error:
+                        self._recovery_required = True
+                        raise RuntimeError(
+                            "failed monitoring append could not be rolled back; "
+                            "rebuild the index before retrying"
+                        ) from rollback_error
+                raise
+            finally:
+                connection.close()
         return True
 
     def rebuild_index(self) -> None:
@@ -161,6 +191,7 @@ class MonitoringStore:
                         digest,
                     ),
                 )
+        self._recovery_required = False
 
     def _read_rows(self, rows: list[tuple[int, int, str]]) -> list[RunEnvelope]:
         runs: list[RunEnvelope] = []
@@ -174,6 +205,8 @@ class MonitoringStore:
         return runs
 
     def list_runs(self) -> list[RunEnvelope]:
+        if self._recovery_required:
+            raise RuntimeError("monitoring history requires a successful index rebuild")
         with self._connect() as connection:
             rows = connection.execute(
                 "SELECT byte_offset, byte_length, sha256 FROM runs ORDER BY observed_at, run_id"
@@ -189,6 +222,8 @@ class MonitoringStore:
 
         if trend_limit_per_product < 1:
             raise ValueError("trend_limit_per_product must be at least one")
+        if self._recovery_required:
+            raise RuntimeError("monitoring history requires a successful index rebuild")
         with self._connect() as connection:
             trend_rows = connection.execute(
                 """
