@@ -1,0 +1,210 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import subprocess
+from datetime import UTC, datetime
+from pathlib import Path
+
+import pytest
+
+from scripts.ci.verify_trusted_security_bootstrap import (
+    BootstrapVerificationError,
+    verify_trusted_security,
+)
+
+NOW = datetime(2026, 8, 28, 19, 0, tzinfo=UTC)
+
+
+def _git(root: Path, *arguments: str) -> str:
+    return subprocess.run(
+        ["git", "-C", str(root), *arguments],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+def _repository(root: Path, files: dict[str, str]) -> str:
+    root.mkdir()
+    _git(root, "init", "-q")
+    _git(root, "config", "user.email", "fixture@example.invalid")
+    _git(root, "config", "user.name", "Fixture")
+    for relative, content in files.items():
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+    _git(root, "add", ".")
+    _git(root, "commit", "-qm", "fixture")
+    return _git(root, "rev-parse", "HEAD")
+
+
+def _digest(path: Path) -> str:
+    return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _manifest(candidate: Path) -> dict[str, object]:
+    files = {
+        path.relative_to(candidate).as_posix(): _digest(path)
+        for relative in ("requirements.lock", "pyproject.toml", "scripts/ci", "src")
+        for path in sorted((candidate / relative).rglob("*") if (candidate / relative).is_dir() else [candidate / relative])
+        if path.is_file()
+    }
+    shell: dict[str, object] = {
+        "approved_by": "repository-owner",
+        "approved_pr_number": 133,
+        "expires_at": "2026-09-30T00:00:00Z",
+        "files": files,
+        "justification": "One-time exact verifier bootstrap for PR #133.",
+        "schema_version": "trusted-security-bootstrap/v1",
+    }
+    encoded = json.dumps(shell, sort_keys=True, separators=(",", ":")).encode()
+    return {**shell, "manifest_digest": "sha256:" + hashlib.sha256(encoded).hexdigest()}
+
+
+def _roots(tmp_path: Path) -> tuple[Path, str, Path, str, Path]:
+    trusted = tmp_path / "trusted"
+    base_sha = _repository(
+        trusted,
+        {
+            "requirements.lock": "trusted-lock\n",
+            "pyproject.toml": "[project]\nname='trusted'\n",
+            "security/security-profile-policy.json": "{}\n",
+        },
+    )
+    candidate = tmp_path / "candidate"
+    head_sha = _repository(
+        candidate,
+        {
+            "requirements.lock": "candidate-lock\n",
+            "pyproject.toml": "[project]\nname='candidate'\n",
+            "scripts/ci/evaluate_security_profile.py": "print('profile')\n",
+            "scripts/ci/verify_privacy_controls.py": "print('privacy')\n",
+            "scripts/ci/verify_repository_secrets.py": "print('secrets')\n",
+            "src/pmpe/__init__.py": "\n",
+            "src/pmpe/quality/security_profiles.py": "RULES = ()\n",
+        },
+    )
+    manifest_path = trusted / "security" / "trusted-security-bootstrap.json"
+    manifest_path.write_text(json.dumps(_manifest(candidate), indent=2, sort_keys=True) + "\n")
+    _git(trusted, "add", ".")
+    _git(trusted, "commit", "-qm", "manifest")
+    base_sha = _git(trusted, "rev-parse", "HEAD")
+    return trusted, base_sha, candidate, head_sha, manifest_path
+
+
+def test_exact_bootstrap_manifest_selects_only_the_approved_candidate_runtime(
+    tmp_path: Path,
+) -> None:
+    trusted, base_sha, candidate, head_sha, manifest = _roots(tmp_path)
+
+    report = verify_trusted_security(
+        trusted_root=trusted,
+        candidate_root=candidate,
+        manifest_path=manifest,
+        base_sha=base_sha,
+        candidate_sha=head_sha,
+        pr_number=133,
+        trusted_clock=lambda: NOW,
+    )
+
+    assert report["mode"] == "BOOTSTRAP_PINNED_CANDIDATE"
+    assert report["runner_root"] == str(candidate.resolve())
+    assert report["candidate_sha"] == head_sha
+    assert report["manifest_file_count"] == 7
+
+
+@pytest.mark.parametrize("mutation", ["modify", "add"])
+def test_bootstrap_rejects_changed_or_unmanifested_execution_files(
+    tmp_path: Path,
+    mutation: str,
+) -> None:
+    trusted, base_sha, candidate, head_sha, manifest = _roots(tmp_path)
+    if mutation == "modify":
+        (candidate / "scripts/ci/evaluate_security_profile.py").write_text("print('bypass')\n")
+    else:
+        (candidate / "src/sitecustomize.py").write_text("raise SystemExit('bypass')\n")
+    _git(candidate, "add", ".")
+    _git(candidate, "commit", "-qm", mutation)
+    head_sha = _git(candidate, "rev-parse", "HEAD")
+
+    with pytest.raises(BootstrapVerificationError, match="manifest"):
+        verify_trusted_security(
+            trusted_root=trusted,
+            candidate_root=candidate,
+            manifest_path=manifest,
+            base_sha=base_sha,
+            candidate_sha=head_sha,
+            pr_number=133,
+            trusted_clock=lambda: NOW,
+        )
+
+
+def test_protected_base_verifier_never_falls_back_to_candidate(tmp_path: Path) -> None:
+    trusted, _, candidate, head_sha, manifest = _roots(tmp_path)
+    for relative in (
+        "scripts/ci/evaluate_security_profile.py",
+        "scripts/ci/verify_privacy_controls.py",
+        "scripts/ci/verify_repository_secrets.py",
+        "src/pmpe/quality/security_profiles.py",
+    ):
+        path = trusted / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("TRUSTED = True\n")
+    _git(trusted, "add", ".")
+    _git(trusted, "commit", "-qm", "protected verifier")
+    base_sha = _git(trusted, "rev-parse", "HEAD")
+    (candidate / "scripts/ci/evaluate_security_profile.py").write_text("raise SystemExit('bypass')\n")
+    _git(candidate, "add", ".")
+    _git(candidate, "commit", "-qm", "candidate bypass")
+    head_sha = _git(candidate, "rev-parse", "HEAD")
+
+    report = verify_trusted_security(
+        trusted_root=trusted,
+        candidate_root=candidate,
+        manifest_path=manifest,
+        base_sha=base_sha,
+        candidate_sha=head_sha,
+        pr_number=999,
+        trusted_clock=lambda: NOW,
+    )
+
+    assert report["mode"] == "PROTECTED_BASE"
+    assert report["runner_root"] == str(trusted.resolve())
+
+
+def test_partial_protected_verifier_fails_without_bootstrap_fallback(tmp_path: Path) -> None:
+    trusted, _, candidate, head_sha, manifest = _roots(tmp_path)
+    path = trusted / "scripts/ci/evaluate_security_profile.py"
+    path.parent.mkdir(parents=True)
+    path.write_text("TRUSTED = True\n")
+    _git(trusted, "add", ".")
+    _git(trusted, "commit", "-qm", "partial verifier")
+    base_sha = _git(trusted, "rev-parse", "HEAD")
+
+    with pytest.raises(BootstrapVerificationError, match="partial"):
+        verify_trusted_security(
+            trusted_root=trusted,
+            candidate_root=candidate,
+            manifest_path=manifest,
+            base_sha=base_sha,
+            candidate_sha=head_sha,
+            pr_number=133,
+            trusted_clock=lambda: NOW,
+        )
+
+
+def test_trusted_workflow_has_no_candidate_authority() -> None:
+    workflow = Path(".github/workflows/trusted-security.yml").read_text()
+
+    assert "pull_request_target:" in workflow
+    assert "contents: read" in workflow
+    assert "persist-credentials: false" in workflow
+    assert "github.event.pull_request.base.sha" in workflow
+    assert "github.event.pull_request.head.sha" in workflow
+    assert "trusted/scripts/ci/verify_trusted_security_bootstrap.py" in workflow
+    assert "secrets." not in workflow
+    assert "pull_request:" not in workflow.replace("pull_request_target:", "")
+    assert "merge" not in workflow.lower()
+    assert "deploy" not in workflow.lower()
+
