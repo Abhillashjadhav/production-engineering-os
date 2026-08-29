@@ -11,6 +11,8 @@ import json
 import os
 import re
 import secrets
+import subprocess
+import sys
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -142,6 +144,17 @@ def _is_supported_alias_assignment(parent: ast.AST | None, node: ast.expr) -> bo
 
 
 def _event_owner_reference(node: ast.AST, known_owners: set[str] | None = None) -> bool:
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) == 2
+        and not node.keywords
+        and isinstance(node.args[1], ast.Constant)
+        and node.args[1].value == "events"
+    ):
+        owner = _emitter_identity(node.args[0])
+        return owner in {"context", "ctx", "run_context"}
     identity = _emitter_identity(node) if isinstance(node, ast.expr) else None
     if identity is None:
         return False
@@ -521,8 +534,12 @@ def _read_exact_json(path: Path, *, fields: set[str], label: str) -> dict[str, A
 
 
 def _write_json(path: Path, value: dict[str, Any]) -> None:
+    payload = json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+    if path == Path("-"):
+        sys.stdout.write(payload)
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n")
+    path.write_text(payload)
 
 
 def _seed_expired_run(probe_root: Path, *, retention_days: int, now: datetime) -> None:
@@ -767,6 +784,124 @@ def _finalize_probe(
     return {**shell, "evidence_digest": canonical_digest(shell)}
 
 
+def _probe_state_digest(probe_root: Path) -> str:
+    records: list[dict[str, Any]] = []
+    for path in sorted(probe_root.rglob("*")):
+        relative = path.relative_to(probe_root).as_posix()
+        if path.is_symlink():
+            raise ValueError("candidate privacy probe contains a symlink")
+        if path.is_dir():
+            records.append({"path": relative, "type": "directory"})
+        elif path.is_file():
+            records.append(
+                {
+                    "digest": _file_digest(path),
+                    "path": relative,
+                    "size": path.stat().st_size,
+                    "type": "file",
+                }
+            )
+        else:
+            raise ValueError("candidate privacy probe contains a special file")
+    return canonical_digest(records)
+
+
+def _supervise_candidate_runtime(
+    candidate_sha: str,
+    policy_path: Path,
+    repository_root: Path,
+    probe_root: Path,
+) -> dict[str, Any]:
+    """Keep candidate imports below a trusted parent that alone emits evidence."""
+
+    challenge = _prepare_probe(candidate_sha, policy_path, repository_root, probe_root)
+    challenge_path = probe_root.parent / "privacy-challenge.json"
+    receipt_path = probe_root / "candidate-receipt.json"
+    _write_json(challenge_path, challenge)
+    verifier_path = Path(__file__).resolve()
+    candidate_source = repository_root.resolve() / "src"
+    site_packages = [
+        path for path in sys.path if path.endswith("site-packages") and Path(path).is_dir()
+    ]
+    if not candidate_source.is_dir() or not site_packages:
+        raise ValueError("candidate privacy runtime paths are unavailable")
+    child_paths = [str(candidate_source), *site_packages]
+    launcher = (
+        "import runpy,sys;"
+        f"sys.path[:0]={child_paths!r};"
+        f"sys.argv=[{str(verifier_path)!r},*sys.argv[1:]];"
+        f"runpy.run_path({str(verifier_path)!r},run_name='__main__')"
+    )
+    command = [
+        sys.executable,
+        "-I",
+        "-S",
+        "-c",
+        launcher,
+        "--mode",
+        "probe",
+        "--candidate-sha",
+        candidate_sha,
+        "--root",
+        str(repository_root),
+        "--policy",
+        str(policy_path),
+        "--challenge",
+        str(challenge_path),
+        "--probe-root",
+        str(probe_root),
+        "--output",
+        str(receipt_path),
+    ]
+    try:
+        completed = subprocess.run(  # nosec B603 - protected exact interpreter and script
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=90,
+            cwd=probe_root.parent,
+            env={
+                "HOME": "/tmp/candidate-home",
+                "LANG": "C.UTF-8",
+                "PATH": "/runtime/venv/bin:/usr/bin:/bin",
+                "PYTHONDONTWRITEBYTECODE": "1",
+                "PYTHONNOUSERSITE": "1",
+                "PYTHONSAFEPATH": "1",
+            },
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        raise ValueError("candidate privacy subprocess failed") from exc
+    if completed.returncode != 0 or completed.stdout or completed.stderr:
+        raise ValueError("candidate privacy subprocess did not complete exactly")
+    finalized = _finalize_probe(
+        candidate_sha,
+        policy_path,
+        repository_root,
+        challenge_path,
+        probe_root,
+        receipt_path,
+    )
+    finalized_digest = finalized.pop("evidence_digest", None)
+    if finalized_digest != canonical_digest(finalized):
+        raise ValueError("candidate privacy finalization digest is invalid")
+    receipt = _read_exact_json(
+        receipt_path,
+        fields=_RECEIPT_FIELDS,
+        label="candidate privacy receipt",
+    )
+    nonce = secrets.token_bytes(32)
+    shell: dict[str, Any] = {
+        **finalized,
+        "candidate_process_returncode": completed.returncode,
+        "candidate_receipt_digest": receipt["receipt_digest"],
+        "probe_state_digest": _probe_state_digest(probe_root),
+        "schema_version": "candidate-privacy-supervisor-evidence/v1",
+        "supervisor_nonce_digest": "sha256:" + hashlib.sha256(nonce).hexdigest(),
+    }
+    return {**shell, "evidence_digest": canonical_digest(shell)}
+
+
 def _verify(
     candidate_sha: str,
     policy_path: Path,
@@ -896,7 +1031,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--mode",
-        choices=("direct", "prepare", "probe", "finalize"),
+        choices=("direct", "prepare", "probe", "finalize", "supervise"),
         default="direct",
     )
     parser.add_argument("--candidate-sha", required=True)
@@ -926,7 +1061,7 @@ def main() -> int:
             args.challenge,
             args.probe_root,
         )
-    else:
+    elif args.mode == "finalize":
         if args.challenge is None or args.probe_root is None or args.receipt is None:
             parser.error("finalize mode requires --challenge, --probe-root, and --receipt")
         evidence = _finalize_probe(
@@ -936,6 +1071,15 @@ def main() -> int:
             args.challenge,
             args.probe_root,
             args.receipt,
+        )
+    else:
+        if args.probe_root is None:
+            parser.error("supervise mode requires --probe-root")
+        evidence = _supervise_candidate_runtime(
+            args.candidate_sha,
+            args.policy,
+            args.root,
+            args.probe_root,
         )
     _write_json(args.output, evidence)
     return 0

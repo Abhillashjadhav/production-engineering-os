@@ -330,15 +330,19 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert "--network none" in privacy_step
     assert "dst=/candidate,readonly" in privacy_step
     assert "dst=/runtime,readonly" in privacy_step
+    assert "dst=/trusted/src,readonly" in privacy_step
     assert "dst=/trusted/verify_privacy_controls.py,readonly" in privacy_step
-    assert "dst=/input/privacy-challenge.json,readonly" in privacy_step
+    assert '--tmpfs "/probe:rw,nosuid,nodev' in privacy_step
+    assert "uid=$(id -u),gid=$(id -g)" in privacy_step
     assert "-I -S -c" in privacy_step
-    assert '["/candidate/src","/runtime/venv/lib/python3.12/site-packages"]' in privacy_step
-    assert privacy_step.count("run_trusted_security_entrypoint.py") == 2
-    assert "--mode prepare" in privacy_step
-    assert "--mode probe" in privacy_step
-    assert "--mode finalize" in privacy_step
-    assert '--receipt "$probe_root/candidate-receipt.json"' in privacy_step
+    assert '["/trusted/src","/runtime/venv/lib/python3.12/site-packages"]' in privacy_step
+    assert "run_trusted_security_entrypoint.py" not in privacy_step
+    assert "--mode supervise" in privacy_step
+    assert "--mode prepare" not in privacy_step
+    assert "--mode finalize" not in privacy_step
+    assert "--require-supervised-privacy" in workflow
+    assert '> "$RUNNER_TEMP/trusted-security/privacy-evidence.json"' in privacy_step
+    assert "candidate-privacy-receipt.json" not in privacy_step
     assert "dst=/output" not in privacy_step
     assert "/output/privacy-evidence.json" not in privacy_step
     assert "$RUNNER_TEMP/candidate-privacy-runtime" in workflow

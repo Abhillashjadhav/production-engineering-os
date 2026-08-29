@@ -3,6 +3,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -31,6 +32,7 @@ from scripts.ci.verify_privacy_controls import (
     _inventory_telemetry_fields,
     _prepare_probe,
     _probe_candidate_runtime,
+    _supervise_candidate_runtime,
     _verify,
 )
 
@@ -968,6 +970,7 @@ def test_privacy_verifier_rejects_class_bound_emitter_alias(tmp_path: Path) -> N
     "source_text",
     [
         'getattr(ctx.events, "emit")("result", email="hidden")\n',
+        'getattr(getattr(ctx, "events"), "emit")("result", secret_payload="hidden")\n',
         'emit = getattr(ctx.events, "emit")\nemit("result", email="hidden")\n',
         'getattr(ctx.events, field_name)("result", email="hidden")\n',
         'vars(ctx.events)["emit"]("result", email="hidden")\n',
@@ -1072,6 +1075,94 @@ def test_candidate_privacy_probe_is_finalized_by_trusted_process(tmp_path: Path)
     assert evidence["deletion_test_passed"] is True
     assert evidence["retention_test_passed"] is True
     assert evidence["telemetry_test_passed"] is True
+
+
+def test_candidate_privacy_effects_are_attested_by_an_external_supervisor(
+    tmp_path: Path,
+) -> None:
+    root = Path(__file__).resolve().parents[2]
+    policy_path = root / "security" / "security-profile-policy.json"
+    verifier_path = root / "scripts" / "ci" / "verify_privacy_controls.py"
+    evidence = _supervise_candidate_runtime(
+        SHA,
+        policy_path,
+        root,
+        tmp_path / "probe",
+    )
+    artifact_path = tmp_path / "privacy-evidence.json"
+    artifact_path.write_text(json.dumps(evidence))
+
+    assert evidence["schema_version"] == "candidate-privacy-supervisor-evidence/v1"
+    assert evidence["candidate_process_returncode"] == 0
+    assert evidence["deletion_test_passed"] is True
+    assert evidence["retention_test_passed"] is True
+    assert (
+        _privacy_evidence_from_artifact(
+            artifact_path,
+            candidate_sha=SHA,
+            policy_path=policy_path,
+            verifier_path=verifier_path,
+            require_supervised=True,
+        ).deletion_test_passed
+        is True
+    )
+
+
+def test_supervised_privacy_artifact_rejects_candidate_only_evidence(
+    tmp_path: Path,
+) -> None:
+    root = Path(__file__).resolve().parents[2]
+    policy_path = root / "security" / "security-profile-policy.json"
+    verifier_path = root / "scripts" / "ci" / "verify_privacy_controls.py"
+    artifact_path = tmp_path / "privacy-evidence.json"
+    artifact_path.write_text(json.dumps(_verify(SHA, policy_path, root)))
+
+    with pytest.raises(ValueError, match="privacy verifier artifact"):
+        _privacy_evidence_from_artifact(
+            artifact_path,
+            candidate_sha=SHA,
+            policy_path=policy_path,
+            verifier_path=verifier_path,
+            require_supervised=True,
+        )
+
+
+def test_supervisor_survives_candidate_import_time_exit_without_evidence(
+    tmp_path: Path,
+) -> None:
+    root = Path(__file__).resolve().parents[2]
+    candidate = tmp_path / "candidate"
+    shutil.copytree(root / "src", candidate / "src")
+    digest_module = candidate / "src" / "pmpe" / "contracts" / "digest.py"
+    digest_module.write_text(
+        digest_module.read_text()
+        + """
+import json as _json
+import os as _os
+from pathlib import Path as _Path
+_challenge = _json.loads((_Path.cwd() / "privacy-challenge.json").read_text())
+_shell = {
+    "candidate_sha": _challenge["candidate_sha"],
+    "challenge_digest": _challenge["challenge_digest"],
+    "quarantine_delete_returned": True,
+    "quarantine_existed_before_delete": True,
+    "quarantine_exists_after_delete": False,
+    "quarantine_read_digest": _challenge["payload_digest"],
+    "schema_version": "candidate-privacy-receipt/v1",
+}
+_receipt = {**_shell, "receipt_digest": canonical_digest(_shell)}
+(_Path.cwd() / "probe" / "candidate-receipt.json").write_text(_json.dumps(_receipt))
+_os._exit(0)
+"""
+    )
+
+    with pytest.raises(ValueError, match="candidate privacy control verification"):
+        _supervise_candidate_runtime(
+            SHA,
+            root / "security" / "security-profile-policy.json",
+            candidate,
+            tmp_path / "probe",
+        )
 
 
 def test_trusted_privacy_finalizer_rejects_forged_receipt_without_probe_state(

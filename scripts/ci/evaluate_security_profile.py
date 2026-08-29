@@ -1204,14 +1204,53 @@ def _privacy_evidence_from_artifact(
     candidate_sha: str,
     policy_path: Path,
     verifier_path: Path,
+    require_supervised: bool = False,
 ) -> PrivacyEvidence:
     value = _load_json(artifact_path)
     if not isinstance(value, dict):
         raise ValueError("privacy verifier artifact is malformed")
     evidence_digest = value.pop("evidence_digest", None)
+    base_fields = {
+        "candidate_sha",
+        "classification",
+        "deletion_test_passed",
+        "emitted_telemetry",
+        "policy_file_digest",
+        "residency",
+        "retention_days",
+        "retention_test_passed",
+        "telemetry_test_passed",
+        "verifier_file_digest",
+    }
+    supervisor_fields = {
+        "candidate_process_returncode",
+        "candidate_receipt_digest",
+        "probe_state_digest",
+        "schema_version",
+        "supervisor_nonce_digest",
+    }
+    expected_fields = base_fields | supervisor_fields if require_supervised else base_fields
+    supervised_exact = bool(
+        not require_supervised
+        or (
+            value.get("schema_version") == "candidate-privacy-supervisor-evidence/v1"
+            and value.get("candidate_process_returncode") == 0
+            and all(
+                isinstance(value.get(field), str)
+                and re.fullmatch(r"sha256:[0-9a-f]{64}", str(value[field])) is not None
+                for field in (
+                    "candidate_receipt_digest",
+                    "probe_state_digest",
+                    "supervisor_nonce_digest",
+                )
+            )
+        )
+    )
     exact = bool(
-        isinstance(evidence_digest, str)
+        set(value) == expected_fields
+        and isinstance(evidence_digest, str)
         and evidence_digest == canonical_digest(value)
+        and supervised_exact
         and value.get("candidate_sha") == candidate_sha
         and value.get("policy_file_digest") == _file_digest(policy_path)
         and value.get("verifier_file_digest") == _file_digest(verifier_path)
@@ -1309,6 +1348,8 @@ def _evaluate(
     privacy_evidence_path: Path,
     policy_path: Path,
     secret_allowlist_path: Path,
+    *,
+    require_supervised_privacy: bool = False,
 ) -> bytes:
     privacy_verifier_path = root / "scripts" / "ci" / "verify_privacy_controls.py"
     config = _reviewed_policy_config(_load_json(policy_path))
@@ -1364,6 +1405,7 @@ def _evaluate(
         candidate_sha=candidate_sha,
         policy_path=policy_path,
         verifier_path=privacy_verifier_path,
+        require_supervised=require_supervised_privacy,
     )
 
     allowed_edges = policy.trusted_architecture_allowed_edges
@@ -1455,6 +1497,7 @@ def main() -> int:
     parser.add_argument("--audit-evidence", type=Path, required=True)
     parser.add_argument("--candidate-install-report", type=Path, required=True)
     parser.add_argument("--privacy-evidence", type=Path, required=True)
+    parser.add_argument("--require-supervised-privacy", action="store_true")
     parser.add_argument("--policy", type=Path, required=True)
     parser.add_argument("--secret-allowlist", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -1468,6 +1511,7 @@ def main() -> int:
         args.privacy_evidence,
         args.policy,
         args.secret_allowlist,
+        require_supervised_privacy=args.require_supervised_privacy,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(report + b"\n")
