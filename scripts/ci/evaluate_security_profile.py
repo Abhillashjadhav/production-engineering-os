@@ -1021,9 +1021,14 @@ def _dependency_inventory(
         if not isinstance(vulnerabilities, list):
             raise ValueError("pip-audit vulnerability inventory is malformed")
         try:
-            metadata = distribution(name).metadata
+            installed_distribution = distribution(name)
         except PackageNotFoundError as exc:
             raise ValueError(f"audited dependency {name} is not installed") from exc
+        if installed_distribution.version != package_version:
+            raise ValueError(
+                f"audited dependency {name} version does not match the authenticated toolchain"
+            )
+        metadata = installed_distribution.metadata
         metadata_fields = metadata.json
         license_value = (
             metadata_fields.get("license_expression")

@@ -5,6 +5,7 @@ import json
 import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -20,6 +21,7 @@ from pmpe.privacy.retention import (
 )
 from pmpe.telemetry.events import EventLog
 from scripts.ci.evaluate_security_profile import (
+    _dependency_inventory,
     _file_digest,
     _observed_architecture_edges,
     _privacy_evidence_from_artifact,
@@ -1040,6 +1042,26 @@ def test_privacy_verifier_uses_trusted_policy_outside_candidate_root(
     assert evidence["retention_days"] == 30
     assert evidence["emitted_telemetry"] == ["email"]
     assert evidence["policy_file_digest"] == _file_digest(trusted_policy)
+
+
+def test_dependency_inventory_rejects_mismatched_toolchain_version(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "scripts.ci.evaluate_security_profile.distribution",
+        lambda _name: SimpleNamespace(
+            version="1.0.0",
+            metadata=SimpleNamespace(json={"license": "MIT"}),
+        ),
+    )
+    audit_payload = {
+        "dependencies": [
+            {"name": "example", "version": "2.0.0", "vulns": []},
+        ]
+    }
+
+    with pytest.raises(ValueError, match="version does not match"):
+        _dependency_inventory(audit_payload, {})
 
 
 @pytest.mark.parametrize(
