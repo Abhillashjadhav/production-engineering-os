@@ -93,6 +93,8 @@ def _e1_content_manifest() -> dict[str, Any]:
 
 
 _TOOL_RESOURCE_PATH = "fixtures/support-kb-v1.json"
+
+
 def _load_recorded_tool_agent_resource() -> dict[str, Any]:
     resource_path = Path(__file__).parent / "fixtures" / "support-kb-v1.json"
     resource = strict_loads(resource_path.read_bytes(), "application/json")
@@ -222,8 +224,7 @@ _TOOL_FIXTURE_CALL_COUNT = sum(
     event["kind"] == "tool_result" for event in RECORDED_TOOL_AGENT_FIXTURE["events"]
 )
 _TOOL_FIXTURE_ATTEMPT_COUNT = sum(
-    event["kind"] == "recorded_model_response"
-    for event in RECORDED_TOOL_AGENT_FIXTURE["events"]
+    event["kind"] == "recorded_model_response" for event in RECORDED_TOOL_AGENT_FIXTURE["events"]
 )
 _TOOL_FIXTURE_STEP_COUNT = len(RECORDED_TOOL_AGENT_FIXTURE["events"])
 _TOOL_FIXTURE_RESPONSE_BYTES = sum(
