@@ -148,7 +148,12 @@ jobs:
           python -m json.tool /tmp/trusted-security-policy/security-profile-policy.json >/dev/null
           python -m json.tool /tmp/trusted-security-policy/secret-allowlist.json >/dev/null
       - run: |
-          pip install --require-hashes -r requirements.lock
+          mkdir -p /tmp/security-profile
+          pip install \
+            --ignore-installed \
+            --require-hashes \
+            --report /tmp/security-profile/candidate-install-report.json \
+            -r requirements.lock
           pip install --no-deps --no-build-isolation -e .
       - name: bandit (fail on high severity)
         run: bandit -r src scripts/ci -q --severity-level high
@@ -185,6 +190,7 @@ jobs:
           python scripts/ci/evaluate_security_profile.py \
             --candidate-sha "$CANDIDATE_SHA" \
             --audit-evidence /tmp/security-profile/pip-audit.json \
+            --candidate-install-report /tmp/security-profile/candidate-install-report.json \
             --privacy-evidence /tmp/security-profile/privacy-evidence.json \
             --policy /tmp/trusted-security-policy/security-profile-policy.json \
             --secret-allowlist /tmp/trusted-security-policy/secret-allowlist.json \
@@ -197,6 +203,7 @@ jobs:
           path: |
             /tmp/security-profile/secret-report.json
             /tmp/security-profile/pip-audit.json
+            /tmp/security-profile/candidate-install-report.json
             /tmp/security-profile/privacy-evidence.json
             /tmp/security-profile/composed-security-profile.json
           retention-days: 7

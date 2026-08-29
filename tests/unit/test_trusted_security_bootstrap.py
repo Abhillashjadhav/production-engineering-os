@@ -324,16 +324,26 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert "candidate/requirements.lock" in privacy_runtime_step
     assert "--only-binary=:all:" in privacy_runtime_step
     assert "--require-hashes" in privacy_runtime_step
+    assert "--report /runtime/install-report.json" in privacy_runtime_step
     assert "/runtime/venv/bin/python -m pip check" in privacy_runtime_step
     assert 'chmod -R a-w "$privacy_runtime"' in privacy_runtime_step
     assert "--network none" in privacy_step
     assert "dst=/candidate,readonly" in privacy_step
     assert "dst=/runtime,readonly" in privacy_step
     assert "dst=/trusted/verify_privacy_controls.py,readonly" in privacy_step
-    assert 'sys.path.insert(0,"/candidate/src")' in privacy_step
-    assert "run_trusted_security_entrypoint.py" not in privacy_step
+    assert "dst=/input/privacy-challenge.json,readonly" in privacy_step
+    assert "-I -S -c" in privacy_step
+    assert '["/candidate/src","/runtime/venv/lib/python3.12/site-packages"]' in privacy_step
+    assert privacy_step.count("run_trusted_security_entrypoint.py") == 2
+    assert "--mode prepare" in privacy_step
+    assert "--mode probe" in privacy_step
+    assert "--mode finalize" in privacy_step
+    assert '--receipt "$probe_root/candidate-receipt.json"' in privacy_step
+    assert "dst=/output" not in privacy_step
+    assert "/output/privacy-evidence.json" not in privacy_step
     assert "$RUNNER_TEMP/candidate-privacy-runtime" in workflow
     assert "$RUNNER_TEMP/trusted-security/candidate-privacy-runtime" not in workflow
+    assert "candidate-install-report.json" in workflow
     assert "missing_conclusion=failure" in finalizer
     assert '-f conclusion="$missing_conclusion"' in finalizer
     assert "--method PATCH" in finalizer

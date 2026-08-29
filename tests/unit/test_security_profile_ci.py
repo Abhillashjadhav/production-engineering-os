@@ -5,7 +5,6 @@ import json
 import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
@@ -27,7 +26,13 @@ from scripts.ci.evaluate_security_profile import (
     _privacy_evidence_from_artifact,
     _reviewed_policy_config,
 )
-from scripts.ci.verify_privacy_controls import _inventory_telemetry_fields, _verify
+from scripts.ci.verify_privacy_controls import (
+    _finalize_probe,
+    _inventory_telemetry_fields,
+    _prepare_probe,
+    _probe_candidate_runtime,
+    _verify,
+)
 
 SHA = "d" * 40
 
@@ -1044,24 +1049,125 @@ def test_privacy_verifier_uses_trusted_policy_outside_candidate_root(
     assert evidence["policy_file_digest"] == _file_digest(trusted_policy)
 
 
-def test_dependency_inventory_rejects_mismatched_toolchain_version(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(
-        "scripts.ci.evaluate_security_profile.distribution",
-        lambda _name: SimpleNamespace(
-            version="1.0.0",
-            metadata=SimpleNamespace(json={"license": "MIT"}),
-        ),
+def test_candidate_privacy_probe_is_finalized_by_trusted_process(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[2]
+    policy_path = root / "security" / "security-profile-policy.json"
+    probe_root = tmp_path / "probe"
+    challenge_path = tmp_path / "privacy-challenge.json"
+    receipt_path = probe_root / "candidate-receipt.json"
+    challenge = _prepare_probe(SHA, policy_path, root, probe_root)
+    challenge_path.write_text(json.dumps(challenge))
+    receipt = _probe_candidate_runtime(SHA, challenge_path, probe_root)
+    receipt_path.write_text(json.dumps(receipt))
+
+    evidence = _finalize_probe(
+        SHA,
+        policy_path,
+        root,
+        challenge_path,
+        probe_root,
+        receipt_path,
     )
+
+    assert evidence["deletion_test_passed"] is True
+    assert evidence["retention_test_passed"] is True
+    assert evidence["telemetry_test_passed"] is True
+
+
+def test_trusted_privacy_finalizer_rejects_forged_receipt_without_probe_state(
+    tmp_path: Path,
+) -> None:
+    root = Path(__file__).resolve().parents[2]
+    policy_path = root / "security" / "security-profile-policy.json"
+    probe_root = tmp_path / "probe"
+    challenge_path = tmp_path / "privacy-challenge.json"
+    receipt_path = probe_root / "candidate-receipt.json"
+    challenge = _prepare_probe(SHA, policy_path, root, probe_root)
+    challenge_path.write_text(json.dumps(challenge))
+    shell = {
+        "candidate_sha": SHA,
+        "challenge_digest": challenge["challenge_digest"],
+        "quarantine_delete_returned": True,
+        "quarantine_existed_before_delete": True,
+        "quarantine_exists_after_delete": False,
+        "quarantine_read_digest": challenge["payload_digest"],
+        "schema_version": "candidate-privacy-receipt/v1",
+    }
+    receipt_path.write_text(json.dumps({**shell, "receipt_digest": canonical_digest(shell)}))
+
+    with pytest.raises(ValueError, match="candidate privacy control verification failed"):
+        _finalize_probe(
+            SHA,
+            policy_path,
+            root,
+            challenge_path,
+            probe_root,
+            receipt_path,
+        )
+
+
+def test_dependency_inventory_uses_hash_bound_candidate_metadata(tmp_path: Path) -> None:
+    digest = "a" * 64
+    lock_path = tmp_path / "requirements.lock"
+    lock_path.write_text(f"example==2.0.0 \\\n    --hash=sha256:{digest}\n")
     audit_payload = {
         "dependencies": [
             {"name": "example", "version": "2.0.0", "vulns": []},
         ]
     }
+    install_report = {
+        "version": "1",
+        "install": [
+            {
+                "download_info": {"archive_info": {"hashes": {"sha256": digest}}},
+                "metadata": {
+                    "name": "example",
+                    "version": "2.0.0",
+                    "license_expression": "GPL-3.0",
+                },
+            }
+        ],
+    }
 
-    with pytest.raises(ValueError, match="version does not match"):
-        _dependency_inventory(audit_payload, {})
+    assert _dependency_inventory(
+        audit_payload,
+        {},
+        install_report=install_report,
+        lock_path=lock_path,
+    ) == (("example", "2.0.0", "GPL-3.0"),)
+
+
+def test_dependency_inventory_rejects_same_version_with_unlocked_artifact(
+    tmp_path: Path,
+) -> None:
+    lock_path = tmp_path / "requirements.lock"
+    lock_path.write_text(f"example==2.0.0 \\\n    --hash=sha256:{'a' * 64}\n")
+    audit_payload = {
+        "dependencies": [
+            {"name": "example", "version": "2.0.0", "vulns": []},
+        ]
+    }
+    install_report = {
+        "version": "1",
+        "install": [
+            {
+                "download_info": {"archive_info": {"hashes": {"sha256": "b" * 64}}},
+                "metadata": {
+                    "name": "example",
+                    "version": "2.0.0",
+                    "license_expression": "MIT",
+                },
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="not hash-bound"):
+        _dependency_inventory(
+            audit_payload,
+            {},
+            install_report=install_report,
+            lock_path=lock_path,
+        )
 
 
 @pytest.mark.parametrize(

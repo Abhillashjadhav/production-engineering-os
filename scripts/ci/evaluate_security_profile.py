@@ -13,9 +13,11 @@ import subprocess  # nosec B404 - fixed git argv authenticates the local checkou
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
-from importlib.metadata import PackageNotFoundError, distribution, version
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
+
+from packaging.utils import canonicalize_name
 
 from pmpe.contracts.digest import canonical_digest
 from pmpe.quality.security_profiles import (
@@ -66,6 +68,12 @@ _LAYERS = {
         }
     ),
 }
+
+_LOCKED_ARTIFACT_REQUIREMENT = re.compile(
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)"
+    r"==(?P<version>[A-Za-z0-9][A-Za-z0-9.!+_-]*)\s*\\?\Z"
+)
+_LOCKED_ARTIFACT_HASH = re.compile(r"--hash=sha256:(?P<digest>[0-9a-f]{64})\s*\\?\Z")
 
 
 def _sha256_bytes(value: bytes) -> str:
@@ -1002,14 +1010,117 @@ def _collect_architecture_edges(
                 edges.add((source_layer, target_layer))
 
 
+def _locked_artifact_hashes(lock_path: Path) -> dict[tuple[str, str], frozenset[str]]:
+    locked: dict[tuple[str, str], frozenset[str]] = {}
+    current: tuple[str, str] | None = None
+    hashes: set[str] = set()
+
+    def finish() -> None:
+        nonlocal current, hashes
+        if current is not None:
+            if not hashes or current in locked:
+                raise ValueError("candidate lock artifact inventory is malformed")
+            locked[current] = frozenset(hashes)
+        current = None
+        hashes = set()
+
+    for line in lock_path.read_text().splitlines():
+        stripped = line.strip()
+        if line and not line[0].isspace() and not line.startswith("#"):
+            finish()
+            match = _LOCKED_ARTIFACT_REQUIREMENT.fullmatch(line)
+            if match is None:
+                raise ValueError("candidate lock requirement is malformed")
+            current = (canonicalize_name(match.group("name")), match.group("version"))
+        elif current is not None and stripped.startswith("--hash="):
+            match = _LOCKED_ARTIFACT_HASH.fullmatch(stripped)
+            if match is None:
+                raise ValueError("candidate lock artifact hash is malformed")
+            hashes.add(match.group("digest"))
+        elif stripped and not stripped.startswith("#"):
+            raise ValueError("candidate lock continuation is malformed")
+    finish()
+    if not locked:
+        raise ValueError("candidate lock has no artifact inventory")
+    return locked
+
+
+def _candidate_distribution_licenses(
+    install_report: object,
+    *,
+    lock_path: Path,
+    license_fallbacks: dict[str, str],
+) -> dict[tuple[str, str], str]:
+    if (
+        not isinstance(install_report, dict)
+        or install_report.get("version") != "1"
+        or not isinstance(install_report.get("install"), list)
+    ):
+        raise ValueError("candidate install report is malformed")
+    locked = _locked_artifact_hashes(lock_path)
+    licenses: dict[tuple[str, str], str] = {}
+    for item in install_report["install"]:
+        if not isinstance(item, dict):
+            raise ValueError("candidate install report entry is malformed")
+        metadata = item.get("metadata")
+        download = item.get("download_info")
+        if not isinstance(metadata, dict) or not isinstance(download, dict):
+            raise ValueError("candidate install report entry is incomplete")
+        name = metadata.get("name")
+        package_version = metadata.get("version")
+        archive = download.get("archive_info")
+        if (
+            not isinstance(name, str)
+            or not isinstance(package_version, str)
+            or not isinstance(archive, dict)
+            or not isinstance(archive.get("hashes"), dict)
+        ):
+            raise ValueError("candidate install report identity is malformed")
+        digest = archive["hashes"].get("sha256")
+        identity = (canonicalize_name(name), package_version)
+        if (
+            not isinstance(digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+            or identity not in locked
+            or digest not in locked[identity]
+        ):
+            raise ValueError("candidate install report artifact is not hash-bound")
+        if identity in licenses:
+            raise ValueError("candidate install report contains a duplicate distribution")
+        license_value = (
+            metadata.get("license_expression")
+            or metadata.get("license")
+            or license_fallbacks.get(identity[0], "")
+        )
+        license_name = (
+            " OR ".join(license_value) if isinstance(license_value, list) else license_value
+        )
+        if not isinstance(license_name, str) or not license_name:
+            raise ValueError(f"audited dependency {name} has no governed license identity")
+        licenses[identity] = license_name
+    if set(licenses) != set(locked):
+        raise ValueError("candidate install report does not cover the exact lock")
+    return licenses
+
+
 def _dependency_inventory(
-    audit_payload: object, license_fallbacks: dict[str, str]
+    audit_payload: object,
+    license_fallbacks: dict[str, str],
+    *,
+    install_report: object,
+    lock_path: Path,
 ) -> tuple[tuple[str, str, str], ...]:
     if not isinstance(audit_payload, dict) or not isinstance(
         audit_payload.get("dependencies"), list
     ):
         raise ValueError("pip-audit JSON lacks a dependency inventory")
+    licenses = _candidate_distribution_licenses(
+        install_report,
+        lock_path=lock_path,
+        license_fallbacks=license_fallbacks,
+    )
     inventory: list[tuple[str, str, str]] = []
+    observed: set[tuple[str, str]] = set()
     for item in audit_payload["dependencies"]:
         if not isinstance(item, dict):
             raise ValueError("pip-audit dependency entry is malformed")
@@ -1020,27 +1131,13 @@ def _dependency_inventory(
             raise ValueError("pip-audit dependency identity is malformed")
         if not isinstance(vulnerabilities, list):
             raise ValueError("pip-audit vulnerability inventory is malformed")
-        try:
-            installed_distribution = distribution(name)
-        except PackageNotFoundError as exc:
-            raise ValueError(f"audited dependency {name} is not installed") from exc
-        if installed_distribution.version != package_version:
-            raise ValueError(
-                f"audited dependency {name} version does not match the authenticated toolchain"
-            )
-        metadata = installed_distribution.metadata
-        metadata_fields = metadata.json
-        license_value = (
-            metadata_fields.get("license_expression")
-            or metadata_fields.get("license")
-            or license_fallbacks.get(name.lower(), "")
-        )
-        license_name = (
-            " OR ".join(license_value) if isinstance(license_value, list) else license_value
-        )
-        if not isinstance(license_name, str) or not license_name:
-            raise ValueError(f"audited dependency {name} has no governed license identity")
-        inventory.append((name, package_version, license_name))
+        identity = (canonicalize_name(name), package_version)
+        if identity in observed or identity not in licenses:
+            raise ValueError("pip-audit inventory differs from the candidate install report")
+        observed.add(identity)
+        inventory.append((name, package_version, licenses[identity]))
+    if observed != set(licenses):
+        raise ValueError("pip-audit inventory does not cover the candidate installation")
     return tuple(sorted(inventory, key=lambda item: item[0].lower()))
 
 
@@ -1147,6 +1244,7 @@ def _build_policy(
     policy_path: Path,
     secret_allowlist_path: Path,
     profile_authority: str,
+    dependency_authority: str,
     privacy_authority: str,
     advisory_authority: str,
 ) -> SecurityGatePolicy:
@@ -1188,14 +1286,9 @@ def _build_policy(
         trusted_architecture_boundary_digest=boundary_digest,
         trusted_architecture_allowed_edges=allowed_edges,
         trusted_profile_authorities={
-            **dict.fromkeys(
-                (
-                    "architecture_observation",
-                    "dependency_inventory",
-                    "privacy_intent",
-                ),
-                profile_authority,
-            ),
+            "architecture_observation": profile_authority,
+            "dependency_inventory": dependency_authority,
+            "privacy_intent": profile_authority,
             "privacy_evidence": privacy_authority,
         },
         allowed_licenses=tuple(config["allowed_licenses"]),
@@ -1212,6 +1305,7 @@ def _evaluate(
     root: Path,
     candidate_sha: str,
     audit_path: Path,
+    install_report_path: Path,
     privacy_evidence_path: Path,
     policy_path: Path,
     secret_allowlist_path: Path,
@@ -1219,8 +1313,17 @@ def _evaluate(
     privacy_verifier_path = root / "scripts" / "ci" / "verify_privacy_controls.py"
     config = _reviewed_policy_config(_load_json(policy_path))
     audit_payload = _load_json(audit_path)
+    install_report = _load_json(install_report_path)
+    lock_path = root / "requirements.lock"
     profile_authority = canonical_digest(
         {"authority": "repository-profile-evidence", "policy_digest": _file_digest(policy_path)}
+    )
+    dependency_authority = canonical_digest(
+        {
+            "authority": "candidate-artifact-metadata",
+            "install_report_digest": _file_digest(install_report_path),
+            "lock_digest": _file_digest(lock_path),
+        }
     )
     privacy_authority = canonical_digest(
         {
@@ -1229,7 +1332,7 @@ def _evaluate(
         }
     )
     advisory_authority = canonical_digest(
-        {"authority": "pip-audit", "ruleset_digest": _file_digest(root / "requirements.lock")}
+        {"authority": "pip-audit", "ruleset_digest": _file_digest(lock_path)}
     )
     policy = _build_policy(
         root,
@@ -1237,10 +1340,16 @@ def _evaluate(
         policy_path,
         secret_allowlist_path,
         profile_authority,
+        dependency_authority,
         privacy_authority,
         advisory_authority,
     )
-    dependency_inventory = _dependency_inventory(audit_payload, config["license_fallbacks"])
+    dependency_inventory = _dependency_inventory(
+        audit_payload,
+        config["license_fallbacks"],
+        install_report=install_report,
+        lock_path=lock_path,
+    )
 
     privacy = config["privacy"]
     intent = PrivacyIntent(
@@ -1307,7 +1416,7 @@ def _evaluate(
         ),
     )
     payloads: tuple[tuple[str, object, str], ...] = (
-        ("dependency_inventory", dependency_inventory, profile_authority),
+        ("dependency_inventory", dependency_inventory, dependency_authority),
         ("privacy_intent", intent, profile_authority),
         ("privacy_evidence", privacy_evidence, privacy_authority),
         ("architecture_observation", architecture, profile_authority),
@@ -1344,6 +1453,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--candidate-sha", required=True)
     parser.add_argument("--audit-evidence", type=Path, required=True)
+    parser.add_argument("--candidate-install-report", type=Path, required=True)
     parser.add_argument("--privacy-evidence", type=Path, required=True)
     parser.add_argument("--policy", type=Path, required=True)
     parser.add_argument("--secret-allowlist", type=Path, required=True)
@@ -1354,6 +1464,7 @@ def main() -> int:
         root,
         args.candidate_sha,
         args.audit_evidence,
+        args.candidate_install_report,
         args.privacy_evidence,
         args.policy,
         args.secret_allowlist,

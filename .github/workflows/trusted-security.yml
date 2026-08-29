@@ -175,9 +175,12 @@ jobs:
                 --ignore-installed \
                 --only-binary=:all: \
                 --require-hashes \
+                --report /runtime/install-report.json \
                 -r /input/requirements.lock
               /runtime/venv/bin/python -m pip check
             '
+          cp "$privacy_runtime/install-report.json" \
+            "$RUNNER_TEMP/trusted-security/candidate-install-report.json"
           chmod -R a-w "$privacy_runtime"
       - name: Bandit candidate input
         run: bandit -r candidate/src candidate/scripts/ci -q --severity-level high
@@ -202,16 +205,24 @@ jobs:
         env:
           PYTHON312_IMAGE: docker.io/library/python@sha256:4427763a1ba36f5aa8f656a03e5d00f3b8d61f5dd950c73df6c14f8c7640f8ab
         run: |
-          privacy_output="$RUNNER_TEMP/trusted-security/privacy-output"
-          mkdir -p "$privacy_output"
-          chmod 0777 "$privacy_output"
+          probe_root="$RUNNER_TEMP/candidate-privacy-probe"
+          challenge="$RUNNER_TEMP/trusted-security/privacy-challenge.json"
+          python -I trusted/scripts/ci/run_trusted_security_entrypoint.py \
+            --admission-report "$RUNNER_TEMP/trusted-security/admission.json" \
+            --entrypoint scripts/ci/verify_privacy_controls.py -- \
+            --mode prepare \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --root candidate \
+            --policy trusted/security/security-profile-policy.json \
+            --probe-root "$probe_root" \
+            --output "$challenge"
           timeout --signal=KILL 120s docker run --rm \
             --platform linux/amd64 \
             --read-only \
-            --tmpfs /tmp:rw,nosuid,nodev,size=268435456,mode=1777,uid=65532,gid=65532 \
+            --tmpfs /tmp:rw,nosuid,nodev,size=268435456,mode=1777 \
             --cap-drop=ALL \
             --security-opt=no-new-privileges \
-            --user 65532:65532 \
+            --user "$(id -u):$(id -g)" \
             --pids-limit 128 \
             --memory 1g \
             --memory-swap 1g \
@@ -224,18 +235,32 @@ jobs:
             --mount "type=bind,src=$GITHUB_WORKSPACE/candidate,dst=/candidate,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/trusted/scripts/ci/verify_privacy_controls.py,dst=/trusted/verify_privacy_controls.py,readonly" \
             --mount "type=bind,src=$GITHUB_WORKSPACE/trusted/security/security-profile-policy.json,dst=/trusted/security-profile-policy.json,readonly" \
-            --mount "type=bind,src=$privacy_output,dst=/output" \
+            --mount "type=bind,src=$challenge,dst=/input/privacy-challenge.json,readonly" \
+            --mount "type=bind,src=$probe_root,dst=/probe" \
             --workdir /tmp \
             "$PYTHON312_IMAGE" \
-            /runtime/venv/bin/python -I -c \
-            'import runpy,sys; sys.path.insert(0,"/candidate/src"); sys.argv=["/trusted/verify_privacy_controls.py",*sys.argv[1:]]; runpy.run_path("/trusted/verify_privacy_controls.py",run_name="__main__")' \
+            /runtime/venv/bin/python -I -S -c \
+            'import runpy,sys; sys.path[:0]=["/candidate/src","/runtime/venv/lib/python3.12/site-packages"]; sys.argv=["/trusted/verify_privacy_controls.py",*sys.argv[1:]]; runpy.run_path("/trusted/verify_privacy_controls.py",run_name="__main__")' \
+            --mode probe \
             --candidate-sha "$CANDIDATE_SHA" \
             --root /candidate \
             --policy /trusted/security-profile-policy.json \
-            --output /output/privacy-evidence.json
-          test -s "$privacy_output/privacy-evidence.json"
-          mv "$privacy_output/privacy-evidence.json" \
-            "$RUNNER_TEMP/trusted-security/privacy-evidence.json"
+            --challenge /input/privacy-challenge.json \
+            --probe-root /probe \
+            --output /probe/candidate-receipt.json
+          python -I trusted/scripts/ci/run_trusted_security_entrypoint.py \
+            --admission-report "$RUNNER_TEMP/trusted-security/admission.json" \
+            --entrypoint scripts/ci/verify_privacy_controls.py -- \
+            --mode finalize \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --root candidate \
+            --policy trusted/security/security-profile-policy.json \
+            --challenge "$challenge" \
+            --probe-root "$probe_root" \
+            --receipt "$probe_root/candidate-receipt.json" \
+            --output "$RUNNER_TEMP/trusted-security/privacy-evidence.json"
+          cp "$probe_root/candidate-receipt.json" \
+            "$RUNNER_TEMP/trusted-security/candidate-privacy-receipt.json"
       - name: Compose exact-candidate security profile
         working-directory: candidate
         run: |
@@ -244,6 +269,7 @@ jobs:
             --entrypoint scripts/ci/evaluate_security_profile.py -- \
             --candidate-sha "$CANDIDATE_SHA" \
             --audit-evidence "$RUNNER_TEMP/trusted-security/pip-audit.json" \
+            --candidate-install-report "$RUNNER_TEMP/trusted-security/candidate-install-report.json" \
             --privacy-evidence "$RUNNER_TEMP/trusted-security/privacy-evidence.json" \
             --policy ../trusted/security/security-profile-policy.json \
             --secret-allowlist ../trusted/security/secret-allowlist.json \

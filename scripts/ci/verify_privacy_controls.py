@@ -5,10 +5,12 @@ from __future__ import annotations
 
 import argparse
 import ast
+import base64
 import hashlib
 import json
 import os
 import re
+import secrets
 import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -27,8 +29,10 @@ _SHA = re.compile(r"^[0-9a-f]{40}$")
 class _EphemeralCipher:
     key_version = "privacy-verifier-ephemeral/v1"
 
-    def __init__(self) -> None:
-        self._material = os.urandom(32)
+    def __init__(self, material: bytes | None = None) -> None:
+        self._material = material or os.urandom(32)
+        if len(self._material) != 32:
+            raise ValueError("privacy verifier cipher material must contain 32 bytes")
 
     def _transform(self, payload: bytes) -> bytes:
         return bytes(
@@ -469,6 +473,300 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
     return tuple(sorted(fields))
 
 
+_CHALLENGE_FIELDS = {
+    "candidate_sha",
+    "challenge_digest",
+    "classification",
+    "emitted_telemetry",
+    "handle",
+    "nonce",
+    "observed_at",
+    "payload_b64",
+    "payload_digest",
+    "policy_file_digest",
+    "residency",
+    "retention_days",
+    "schema_version",
+    "subject_digest",
+    "telemetry_allowlist",
+    "verifier_file_digest",
+}
+_RECEIPT_FIELDS = {
+    "candidate_sha",
+    "challenge_digest",
+    "quarantine_delete_returned",
+    "quarantine_existed_before_delete",
+    "quarantine_exists_after_delete",
+    "quarantine_read_digest",
+    "receipt_digest",
+    "schema_version",
+}
+
+
+def _exact_digest(value: dict[str, Any], digest_field: str) -> bool:
+    claimed = value.get(digest_field)
+    shell = dict(value)
+    shell.pop(digest_field, None)
+    return isinstance(claimed, str) and claimed == canonical_digest(shell)
+
+
+def _read_exact_json(path: Path, *, fields: set[str], label: str) -> dict[str, Any]:
+    try:
+        value = json.loads(path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"{label} is unavailable") from exc
+    if not isinstance(value, dict) or set(value) != fields:
+        raise ValueError(f"{label} is malformed")
+    return value
+
+
+def _write_json(path: Path, value: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n")
+
+
+def _seed_expired_run(probe_root: Path, *, retention_days: int, now: datetime) -> None:
+    expired_run = probe_root / "runs" / "expired-run"
+    expired_run.mkdir(parents=True)
+    (expired_run / "run-state.json").write_text(
+        json.dumps(
+            {
+                "retention_days": retention_days,
+                "run_id": "privacy-expired-run",
+                "stage": "complete",
+            }
+        )
+    )
+    expired_ledger = EvidenceLedger(expired_run, run_id="privacy-expired-run")
+    expired_ledger.record(
+        stage="contract_lock",
+        agent="privacy-verifier",
+        action="lock",
+        output_digests={"retention_policy": retention_policy_digest(retention_days)},
+    )
+    expired_ledger.record(
+        stage="release_report",
+        agent="privacy-verifier",
+        action="report",
+        output_digests={
+            "terminal_retention": terminal_retention_digest(
+                retention_days,
+                stage="complete",
+            )
+        },
+    )
+    events = expired_ledger.read_all()
+    terminal = events[-1]
+    terminal["ts"] = (now - timedelta(days=retention_days + 1)).isoformat()
+    identity = {key: value for key, value in terminal.items() if key not in {"event_id", "ts"}}
+    terminal["event_id"] = canonical_digest(
+        identity if terminal["idempotency_key"] else {**identity, "ts": terminal["ts"]}
+    )
+    expired_ledger.path.write_text(
+        "".join(json.dumps(event, sort_keys=True) + "\n" for event in events)
+    )
+
+
+def _prepare_probe(
+    candidate_sha: str,
+    policy_path: Path,
+    repository_root: Path,
+    probe_root: Path,
+) -> dict[str, Any]:
+    if not _SHA.fullmatch(candidate_sha):
+        raise ValueError("privacy verifier candidate SHA is malformed")
+    if probe_root.is_symlink() or probe_root.exists():
+        raise ValueError("privacy probe root must be a new directory")
+    privacy = _load_policy(policy_path)
+    emitted_telemetry = _inventory_telemetry_fields(repository_root.resolve())
+    telemetry_allowlist = tuple(str(item) for item in privacy["telemetry_allowlist"])
+    if not set(emitted_telemetry) <= set(telemetry_allowlist):
+        raise ValueError("candidate telemetry exceeds the reviewed allowlist")
+    probe_root.mkdir(parents=True, mode=0o700)
+    now = datetime.now(UTC)
+    retention_days = int(privacy["retention_days"])
+    _seed_expired_run(probe_root, retention_days=retention_days, now=now)
+    nonce = secrets.token_hex(32)
+    payload = hashlib.sha256(f"{candidate_sha}:{nonce}".encode()).digest()
+    shell: dict[str, Any] = {
+        "candidate_sha": candidate_sha,
+        "classification": str(privacy["classification"]),
+        "emitted_telemetry": list(emitted_telemetry),
+        "handle": f"PRIVACY-{nonce[:16].upper()}",
+        "nonce": nonce,
+        "observed_at": now.isoformat(),
+        "payload_b64": base64.b64encode(payload).decode("ascii"),
+        "payload_digest": "sha256:" + hashlib.sha256(payload).hexdigest(),
+        "policy_file_digest": _file_digest(policy_path),
+        "residency": privacy.get("residency"),
+        "retention_days": retention_days,
+        "schema_version": "candidate-privacy-challenge/v1",
+        "subject_digest": canonical_digest({"candidate_sha": candidate_sha}),
+        "telemetry_allowlist": list(telemetry_allowlist),
+        "verifier_file_digest": _file_digest(Path(__file__)),
+    }
+    return {**shell, "challenge_digest": canonical_digest(shell)}
+
+
+def _load_challenge(path: Path) -> dict[str, Any]:
+    value = _read_exact_json(path, fields=_CHALLENGE_FIELDS, label="privacy challenge")
+    if value.get("schema_version") != "candidate-privacy-challenge/v1" or not _exact_digest(
+        value, "challenge_digest"
+    ):
+        raise ValueError("privacy challenge authentication failed")
+    return value
+
+
+def _probe_candidate_runtime(
+    candidate_sha: str,
+    challenge_path: Path,
+    probe_root: Path,
+) -> dict[str, Any]:
+    challenge = _load_challenge(challenge_path)
+    if challenge.get("candidate_sha") != candidate_sha:
+        raise ValueError("privacy challenge candidate does not match")
+    payload = base64.b64decode(str(challenge["payload_b64"]), validate=True)
+    material = bytes.fromhex(str(challenge["nonce"]))
+    quarantine = FileQuarantineStore(
+        probe_root / "quarantine",
+        cipher=_EphemeralCipher(material),
+        max_bytes=1024,
+    )
+    handle = str(challenge["handle"])
+    quarantine.put(handle, payload, {"content_type": "application/octet-stream"})
+    existed_before_delete = quarantine.exists(handle)
+    read_payload = quarantine.read(handle)
+    delete_returned = quarantine.delete(handle)
+
+    now = datetime.fromisoformat(str(challenge["observed_at"]))
+    retention_days = int(challenge["retention_days"])
+    current_run = probe_root / "runs" / "current-run"
+    budget = BudgetPolicy(
+        version="privacy-verifier/v1",
+        limits={
+            "tokens": 1,
+            "credits": 1,
+            "elapsed_seconds": 1,
+            "external_compute_seconds": 1,
+            "spend_microunits": 1,
+        },
+        repair_attempts_per_finding=1,
+        repair_attempts_per_stage=1,
+        reserved_safety_units=1,
+        approved_by="repository-security-owner",
+    )
+    LifecycleControlPlane.create(
+        current_run,
+        run_id="privacy-verification-run",
+        subject_digest=str(challenge["subject_digest"]),
+        initial_state=LifecycleState.CONTRACT_RECEIVED,
+        budget_policy=budget,
+        retention_days=retention_days,
+        trusted_clock=lambda: now,
+    )
+    event_log = EventLog(current_run)
+    event_log.emit(
+        "privacy_verification",
+        **dict.fromkeys((str(item) for item in challenge["emitted_telemetry"]), "synthetic"),
+    )
+    shell: dict[str, Any] = {
+        "candidate_sha": candidate_sha,
+        "challenge_digest": challenge["challenge_digest"],
+        "quarantine_delete_returned": delete_returned,
+        "quarantine_existed_before_delete": existed_before_delete,
+        "quarantine_exists_after_delete": quarantine.exists(handle),
+        "quarantine_read_digest": "sha256:" + hashlib.sha256(read_payload).hexdigest(),
+        "schema_version": "candidate-privacy-receipt/v1",
+    }
+    return {**shell, "receipt_digest": canonical_digest(shell)}
+
+
+def _finalize_probe(
+    candidate_sha: str,
+    policy_path: Path,
+    repository_root: Path,
+    challenge_path: Path,
+    probe_root: Path,
+    receipt_path: Path,
+) -> dict[str, Any]:
+    challenge = _load_challenge(challenge_path)
+    receipt = _read_exact_json(
+        receipt_path,
+        fields=_RECEIPT_FIELDS,
+        label="candidate privacy receipt",
+    )
+    privacy = _load_policy(policy_path)
+    emitted_telemetry = _inventory_telemetry_fields(repository_root.resolve())
+    expected_challenge = bool(
+        challenge.get("candidate_sha") == candidate_sha
+        and challenge.get("policy_file_digest") == _file_digest(policy_path)
+        and challenge.get("verifier_file_digest") == _file_digest(Path(__file__))
+        and challenge.get("classification") == privacy["classification"]
+        and challenge.get("residency") == privacy.get("residency")
+        and challenge.get("retention_days") == privacy["retention_days"]
+        and challenge.get("emitted_telemetry") == list(emitted_telemetry)
+        and challenge.get("telemetry_allowlist") == privacy["telemetry_allowlist"]
+    )
+    receipt_valid = bool(
+        receipt.get("schema_version") == "candidate-privacy-receipt/v1"
+        and _exact_digest(receipt, "receipt_digest")
+        and receipt.get("candidate_sha") == candidate_sha
+        and receipt.get("challenge_digest") == challenge.get("challenge_digest")
+        and receipt.get("quarantine_existed_before_delete") is True
+        and receipt.get("quarantine_delete_returned") is True
+        and receipt.get("quarantine_exists_after_delete") is False
+        and receipt.get("quarantine_read_digest") == challenge.get("payload_digest")
+    )
+    quarantine_root = probe_root / "quarantine"
+    deletion_test_passed = bool(
+        receipt_valid
+        and quarantine_root.is_dir()
+        and not quarantine_root.is_symlink()
+        and not any(quarantine_root.iterdir())
+    )
+    current_run = probe_root / "runs" / "current-run"
+    try:
+        lifecycle = LifecycleControlPlane.load(current_run)
+        events = EventLog(current_run).read_all()
+    except (OSError, TypeError, ValueError):
+        lifecycle = None
+        events = []
+    expected_event = {
+        "type": "privacy_verification",
+        **dict.fromkeys(emitted_telemetry, "synthetic"),
+    }
+    event_body = {key: value for key, value in events[0].items() if key != "ts"} if events else {}
+    retention_test_passed = bool(
+        expected_challenge
+        and lifecycle is not None
+        and lifecycle.run_id == "privacy-verification-run"
+        and lifecycle.subject_digest == challenge.get("subject_digest")
+        and lifecycle.state is LifecycleState.CONTRACT_RECEIVED
+        and not (probe_root / "runs" / "expired-run").exists()
+        and len(events) == 1
+        and event_body == expected_event
+    )
+    telemetry_test_passed = bool(
+        expected_challenge
+        and set(emitted_telemetry) <= {str(item) for item in privacy["telemetry_allowlist"]}
+    )
+    shell = {
+        "candidate_sha": candidate_sha,
+        "classification": str(privacy["classification"]),
+        "deletion_test_passed": deletion_test_passed,
+        "emitted_telemetry": list(emitted_telemetry),
+        "policy_file_digest": _file_digest(policy_path),
+        "residency": privacy.get("residency"),
+        "retention_days": int(privacy["retention_days"]),
+        "retention_test_passed": retention_test_passed,
+        "telemetry_test_passed": telemetry_test_passed,
+        "verifier_file_digest": _file_digest(Path(__file__)),
+    }
+    if not deletion_test_passed or not retention_test_passed or not telemetry_test_passed:
+        raise ValueError("candidate privacy control verification failed")
+    return {**shell, "evidence_digest": canonical_digest(shell)}
+
+
 def _verify(
     candidate_sha: str,
     policy_path: Path,
@@ -596,14 +894,50 @@ def _verify(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--mode",
+        choices=("direct", "prepare", "probe", "finalize"),
+        default="direct",
+    )
     parser.add_argument("--candidate-sha", required=True)
     parser.add_argument("--root", type=Path, required=True)
     parser.add_argument("--policy", type=Path, required=True)
+    parser.add_argument("--challenge", type=Path)
+    parser.add_argument("--probe-root", type=Path)
+    parser.add_argument("--receipt", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    evidence = _verify(args.candidate_sha, args.policy, args.root)
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(evidence, sort_keys=True, separators=(",", ":")) + "\n")
+    if args.mode == "direct":
+        evidence = _verify(args.candidate_sha, args.policy, args.root)
+    elif args.mode == "prepare":
+        if args.probe_root is None:
+            parser.error("prepare mode requires --probe-root")
+        evidence = _prepare_probe(
+            args.candidate_sha,
+            args.policy,
+            args.root,
+            args.probe_root,
+        )
+    elif args.mode == "probe":
+        if args.challenge is None or args.probe_root is None:
+            parser.error("probe mode requires --challenge and --probe-root")
+        evidence = _probe_candidate_runtime(
+            args.candidate_sha,
+            args.challenge,
+            args.probe_root,
+        )
+    else:
+        if args.challenge is None or args.probe_root is None or args.receipt is None:
+            parser.error("finalize mode requires --challenge, --probe-root, and --receipt")
+        evidence = _finalize_probe(
+            args.candidate_sha,
+            args.policy,
+            args.root,
+            args.challenge,
+            args.probe_root,
+            args.receipt,
+        )
+    _write_json(args.output, evidence)
     return 0
 
 
