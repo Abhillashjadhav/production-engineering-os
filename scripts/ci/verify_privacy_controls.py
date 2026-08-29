@@ -329,6 +329,11 @@ def _reflective_emitter_dictionary_access(
         and (
             _event_owner_reference(node.args[0], known_owners, string_aliases)
             or _event_context_reference(node.args[0], known_owners)
+            or isinstance(node.args[0], ast.Call)
+            and isinstance(node.args[0].func, ast.Name)
+            and node.args[0].func.id == "getattr"
+            and len(node.args[0].args) >= 2
+            and _literal_string(node.args[0].args[1], string_aliases) is None
         )
     ):
         return True

@@ -1002,6 +1002,10 @@ def test_privacy_verifier_rejects_class_bound_emitter_alias(tmp_path: Path) -> N
         "    namespace = vars(ctx)\n"
         "    emitter = namespace.get(event_name)\n"
         '    emitter("result", secret_payload="hidden")\n',
+        "def telemetry(ctx, owner_key, method_key, invoke):\n"
+        "    namespace = vars(getattr(ctx, owner_key))\n"
+        "    emitter = namespace.get(method_key)\n"
+        "    invoke(emitter)\n",
         'emit = getattr(ctx.events, "emit")\nemit("result", email="hidden")\n',
         'getattr(ctx.events, field_name)("result", email="hidden")\n',
         'vars(ctx.events)["emit"]("result", email="hidden")\n',
