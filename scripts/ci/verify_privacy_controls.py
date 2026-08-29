@@ -228,15 +228,69 @@ def _literal_string(node: ast.AST, aliases: dict[str, str]) -> str | None:
     return aliases.get(identity) if identity is not None else None
 
 
+def _dictionary_value_reference(
+    node: ast.AST,
+    dictionary_aliases: set[str],
+    getter_aliases: set[str],
+    value_aliases: set[str],
+) -> bool:
+    identity = _emitter_identity(node) if isinstance(node, ast.expr) else None
+    if identity is not None and identity in value_aliases:
+        return True
+    if isinstance(node, ast.Call):
+        return _dictionary_getter_reference(
+            node.func,
+            dictionary_aliases,
+            getter_aliases,
+        )
+    return bool(
+        isinstance(node, ast.Subscript)
+        and _dictionary_namespace_reference(node.value, dictionary_aliases)
+    )
+
+
 def _reflective_emitter_dictionary_access(
     node: ast.AST,
     known_owners: set[str],
     dictionary_aliases: set[str],
     getter_aliases: set[str],
+    value_aliases: set[str],
     string_aliases: dict[str, str],
 ) -> bool:
     """Reject namespace reflection that can recover an emitter outside the alias model."""
 
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) >= 2
+        and _literal_string(node.args[1], string_aliases) in {None, "emit"}
+        and _dictionary_value_reference(
+            node.args[0],
+            dictionary_aliases,
+            getter_aliases,
+            value_aliases,
+        )
+    ):
+        return True
+    if (
+        isinstance(node, ast.Attribute)
+        and node.attr == "emit"
+        and _dictionary_value_reference(
+            node.value,
+            dictionary_aliases,
+            getter_aliases,
+            value_aliases,
+        )
+    ):
+        return True
+    if isinstance(node, ast.Call) and _dictionary_value_reference(
+        node.func,
+        dictionary_aliases,
+        getter_aliases,
+        value_aliases,
+    ):
+        return True
     if (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
@@ -472,6 +526,7 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                         changed = True
             dictionary_aliases: set[str] = set()
             getter_aliases: set[str] = set()
+            value_aliases: set[str] = set()
             changed = True
             while changed:
                 changed = False
@@ -490,9 +545,21 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                         dictionary_aliases,
                         getter_aliases,
                     )
-                    if not (is_dictionary or is_getter):
+                    is_value = _dictionary_value_reference(
+                        value,
+                        dictionary_aliases,
+                        getter_aliases,
+                        value_aliases,
+                    )
+                    if not (is_dictionary or is_getter or is_value):
                         continue
-                    destination = getter_aliases if is_getter else dictionary_aliases
+                    destination = (
+                        value_aliases
+                        if is_value
+                        else getter_aliases
+                        if is_getter
+                        else dictionary_aliases
+                    )
                     for target in _assignment_targets(node):
                         identity = _emitter_identity(target)
                         if identity is not None and identity not in destination:
@@ -504,6 +571,7 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                     event_owners,
                     dictionary_aliases,
                     getter_aliases,
+                    value_aliases,
                     string_aliases,
                 ) or _event_owner_escapes(
                     node,

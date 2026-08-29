@@ -985,6 +985,13 @@ def test_privacy_verifier_rejects_class_bound_emitter_alias(tmp_path: Path) -> N
         'event_name = "events"\n'
         'getattr(vars(ctx).get(event_name), "emit")('
         '"result", secret_payload="hidden")\n',
+        "def telemetry(ctx, event_name):\n"
+        '    getattr(vars(ctx).get(event_name), "emit")('
+        '"result", secret_payload="hidden")\n',
+        "def telemetry(ctx, event_name):\n"
+        "    namespace = vars(ctx)\n"
+        "    emitter = namespace.get(event_name)\n"
+        '    emitter("result", secret_payload="hidden")\n',
         'emit = getattr(ctx.events, "emit")\nemit("result", email="hidden")\n',
         'getattr(ctx.events, field_name)("result", email="hidden")\n',
         'vars(ctx.events)["emit"]("result", email="hidden")\n',
