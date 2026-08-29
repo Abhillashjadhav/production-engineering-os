@@ -424,7 +424,7 @@ def _importlib_module_reference(node: ast.AST, aliases: set[str]) -> bool:
 
 
 def _module_dictionary_reference(node: ast.AST, aliases: set[str]) -> bool:
-    """Recognize reflective access to a tracked module's complete namespace."""
+    """Recognize unmodeled reflection through a tracked module namespace."""
 
     return bool(
         isinstance(node, ast.Call)
@@ -434,8 +434,8 @@ def _module_dictionary_reference(node: ast.AST, aliases: set[str]) -> bool:
         and not node.keywords
         and _importlib_module_reference(node.args[0], aliases)
         or isinstance(node, ast.Attribute)
-        and node.attr == "__dict__"
         and _importlib_module_reference(node.value, aliases)
+        and node.attr not in {"__import__", "import_module"}
         or isinstance(node, ast.Subscript)
         and _importlib_module_reference(node.value, aliases)
     )

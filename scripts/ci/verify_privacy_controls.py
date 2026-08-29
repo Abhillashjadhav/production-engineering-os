@@ -172,7 +172,61 @@ def _event_owner_reference(node: ast.AST, known_owners: set[str] | None = None) 
     )
 
 
-def _reflective_emitter_dictionary_access(node: ast.AST, known_owners: set[str]) -> bool:
+def _event_context_reference(node: ast.AST, known_owners: set[str]) -> bool:
+    identity = _emitter_identity(node) if isinstance(node, ast.expr) else None
+    return identity is not None and f"{identity}.events" in known_owners
+
+
+def _object_dictionary_reference(node: ast.AST) -> bool:
+    return bool(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "vars"
+        and len(node.args) == 1
+        and not node.keywords
+        or isinstance(node, ast.Attribute)
+        and node.attr == "__dict__"
+    )
+
+
+def _contains_object_dictionary_reference(node: ast.AST) -> bool:
+    return any(_object_dictionary_reference(candidate) for candidate in ast.walk(node))
+
+
+def _dictionary_namespace_reference(node: ast.AST, aliases: set[str]) -> bool:
+    identity = _emitter_identity(node) if isinstance(node, ast.expr) else None
+    return _contains_object_dictionary_reference(node) or (
+        identity is not None and identity in aliases
+    )
+
+
+def _dictionary_getter_reference(
+    node: ast.AST,
+    dictionary_aliases: set[str],
+    getter_aliases: set[str],
+) -> bool:
+    identity = _emitter_identity(node) if isinstance(node, ast.expr) else None
+    if identity is not None and identity in getter_aliases:
+        return True
+    if isinstance(node, ast.Attribute) and node.attr in {"get", "__getitem__"}:
+        return _dictionary_namespace_reference(node.value, dictionary_aliases)
+    return bool(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) >= 2
+        and isinstance(node.args[1], ast.Constant)
+        and node.args[1].value in {"get", "__getitem__"}
+        and _dictionary_namespace_reference(node.args[0], dictionary_aliases)
+    )
+
+
+def _reflective_emitter_dictionary_access(
+    node: ast.AST,
+    known_owners: set[str],
+    dictionary_aliases: set[str],
+    getter_aliases: set[str],
+) -> bool:
     """Reject namespace reflection that can recover an emitter outside the alias model."""
 
     if (
@@ -181,28 +235,39 @@ def _reflective_emitter_dictionary_access(node: ast.AST, known_owners: set[str])
         and node.func.id == "vars"
         and len(node.args) == 1
         and not node.keywords
-        and _event_owner_reference(node.args[0], known_owners)
+        and (
+            _event_owner_reference(node.args[0], known_owners)
+            or _event_context_reference(node.args[0], known_owners)
+        )
     ):
         return True
     if (
         isinstance(node, ast.Attribute)
         and node.attr == "__dict__"
-        and _event_owner_reference(node.value, known_owners)
+        and (
+            _event_owner_reference(node.value, known_owners)
+            or _event_context_reference(node.value, known_owners)
+        )
+    ):
+        return True
+    if (
+        isinstance(node, ast.Call)
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
+        and node.args[0].value in {"emit", "events"}
+        and _dictionary_getter_reference(
+            node.func,
+            dictionary_aliases,
+            getter_aliases,
+        )
     ):
         return True
     if not isinstance(node, ast.Subscript):
         return False
     key = node.slice
-    if not (isinstance(key, ast.Constant) and key.value == "emit"):
+    if not (isinstance(key, ast.Constant) and key.value in {"emit", "events"}):
         return False
-    namespace = node.value
-    return bool(
-        isinstance(namespace, ast.Call)
-        and isinstance(namespace.func, ast.Name)
-        and namespace.func.id == "vars"
-        or isinstance(namespace, ast.Attribute)
-        and namespace.attr == "__dict__"
-    )
+    return _dictionary_namespace_reference(node.value, dictionary_aliases)
 
 
 def _event_owner_escapes(
@@ -376,9 +441,40 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                 if isinstance(node, ast.Attribute) and node.attr == "emit"
                 if (identity := _emitter_identity(node.value)) is not None
             }
+            dictionary_aliases: set[str] = set()
+            getter_aliases: set[str] = set()
+            changed = True
+            while changed:
+                changed = False
+                for node in nodes:
+                    if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                        continue
+                    value = node.value
+                    if value is None:
+                        continue
+                    is_dictionary = _dictionary_namespace_reference(
+                        value,
+                        dictionary_aliases,
+                    )
+                    is_getter = _dictionary_getter_reference(
+                        value,
+                        dictionary_aliases,
+                        getter_aliases,
+                    )
+                    if not (is_dictionary or is_getter):
+                        continue
+                    destination = getter_aliases if is_getter else dictionary_aliases
+                    for target in _assignment_targets(node):
+                        identity = _emitter_identity(target)
+                        if identity is not None and identity not in destination:
+                            destination.add(identity)
+                            changed = True
             for node in nodes:
                 if _reflective_emitter_dictionary_access(
-                    node, event_owners
+                    node,
+                    event_owners,
+                    dictionary_aliases,
+                    getter_aliases,
                 ) or _event_owner_escapes(
                     node,
                     parents.get(node),

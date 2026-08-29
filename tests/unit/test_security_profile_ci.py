@@ -361,6 +361,8 @@ def test_architecture_observer_fails_closed_on_unknown_reflective_importlib_acce
         'import builtins\nvars(builtins)["__import__"]("pmpe.guided.api")\n',
         'import builtins\nbuiltins.__dict__["__import__"]("pmpe.guided.api")\n',
         '__builtins__["__import__"]("pmpe.guided.api")\n',
+        '__builtins__.get("__import__")("pmpe.guided.api")\n',
+        '__builtins__.__getitem__("__import__")("pmpe.guided.api")\n',
     ],
 )
 def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
@@ -974,6 +976,15 @@ def test_privacy_verifier_rejects_class_bound_emitter_alias(tmp_path: Path) -> N
         'getattr(getattr(ctx, "events"), "emit")("result", secret_payload="hidden")\n',
         'getattr(getattr(runtime, "events"), "emit")("result", secret_payload="hidden")\n',
         'getattr(getattr(runtime, "events", None), "emit", fallback)('
+        '"result", secret_payload="hidden")\n',
+        'getattr(vars(ctx).get("events"), "emit")("result", secret_payload="hidden")\n',
+        'ctx.__dict__.__getitem__("events").emit("result", secret_payload="hidden")\n',
+        "namespace = vars(ctx)\ngetter = namespace.get\n"
+        'getattr(getter("events"), "emit")('
+        '"result", secret_payload="hidden")\n',
+        'ctx.events.emit("result", run_id="run-1")\n'
+        'event_name = "events"\n'
+        'getattr(vars(ctx).get(event_name), "emit")('
         '"result", secret_payload="hidden")\n',
         'emit = getattr(ctx.events, "emit")\nemit("result", email="hidden")\n',
         'getattr(ctx.events, field_name)("result", email="hidden")\n',
