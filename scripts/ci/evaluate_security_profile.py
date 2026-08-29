@@ -436,6 +436,8 @@ def _module_dictionary_reference(node: ast.AST, aliases: set[str]) -> bool:
         or isinstance(node, ast.Attribute)
         and node.attr == "__dict__"
         and _importlib_module_reference(node.value, aliases)
+        or isinstance(node, ast.Subscript)
+        and _importlib_module_reference(node.value, aliases)
     )
 
 
@@ -725,7 +727,7 @@ def _lexical_import_aliases(
         local_names.difference_update(global_names | nonlocal_names)
 
         if scope is tree:
-            builtins_aliases: set[str] = set()
+            builtins_aliases: set[str] = {"__builtins__"}
             builtin_import_aliases = {"__import__"}
             importlib_aliases: set[str] = set()
             import_module_aliases: set[str] = set()

@@ -360,6 +360,7 @@ def test_architecture_observer_fails_closed_on_unknown_reflective_importlib_acce
         'import importlib\nimportlib.__dict__["import_module"]("pmpe.guided.api")\n',
         'import builtins\nvars(builtins)["__import__"]("pmpe.guided.api")\n',
         'import builtins\nbuiltins.__dict__["__import__"]("pmpe.guided.api")\n',
+        '__builtins__["__import__"]("pmpe.guided.api")\n',
     ],
 )
 def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
@@ -972,6 +973,8 @@ def test_privacy_verifier_rejects_class_bound_emitter_alias(tmp_path: Path) -> N
         'getattr(ctx.events, "emit")("result", email="hidden")\n',
         'getattr(getattr(ctx, "events"), "emit")("result", secret_payload="hidden")\n',
         'getattr(getattr(runtime, "events"), "emit")("result", secret_payload="hidden")\n',
+        'getattr(getattr(runtime, "events", None), "emit", fallback)('
+        '"result", secret_payload="hidden")\n',
         'emit = getattr(ctx.events, "emit")\nemit("result", email="hidden")\n',
         'getattr(ctx.events, field_name)("result", email="hidden")\n',
         'vars(ctx.events)["emit"]("result", email="hidden")\n',

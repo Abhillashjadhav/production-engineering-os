@@ -148,7 +148,7 @@ def _event_owner_reference(node: ast.AST, known_owners: set[str] | None = None) 
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id == "getattr"
-        and len(node.args) == 2
+        and len(node.args) in {2, 3}
         and not node.keywords
         and isinstance(node.args[1], ast.Constant)
         and node.args[1].value == "events"
