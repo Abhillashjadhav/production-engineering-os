@@ -62,6 +62,25 @@ def test_state_file_is_always_valid_json(tmp_path: Path) -> None:
     state.save()
     parsed = json.loads((tmp_path / "state.json").read_text())
     assert parsed["run_id"] == "r1"
+    assert parsed["retention_days"] == 30
+    assert parsed["retention_policy_digest"].startswith("sha256:")
+    assert parsed["retention_record_digest"] == ""
+
+
+def test_terminal_state_persists_authenticated_retention_subject(tmp_path: Path) -> None:
+    state = RunState.new(
+        run_id="r1",
+        run_dir=tmp_path,
+        spec_digest="abc",
+        retention_days=7,
+    )
+    state.outcome = "success"
+    state.save()
+
+    parsed = json.loads((tmp_path / "state.json").read_text())
+    assert parsed["retention_days"] == 7
+    assert parsed["completed_at"]
+    assert parsed["retention_record_digest"].startswith("sha256:")
 
 
 def test_blocked_and_failed_stop_progression(tmp_path: Path) -> None:

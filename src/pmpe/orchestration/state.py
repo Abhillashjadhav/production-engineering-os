@@ -13,6 +13,12 @@ from pathlib import Path
 
 from pmpe.domain.models import StepStatus
 from pmpe.domain.serialize import atomic_write_json
+from pmpe.privacy.retention import (
+    DEFAULT_RETENTION_DAYS,
+    retention_policy_digest,
+    run_state_retention_digest,
+    validate_retention_days,
+)
 from pmpe.telemetry.events import utc_now
 
 STEP_ORDER: tuple[str, ...] = (
@@ -54,17 +60,28 @@ class RunState:
     spec_digest: str
     spec_file: str = ""
     created_at: str = ""
+    retention_days: int = DEFAULT_RETENTION_DAYS
+    completed_at: str = ""
     outcome: str = ""  # "" while running; success | no_merge | blocked | failed
     steps: dict[str, StepRecord] = field(default_factory=dict)
 
     @classmethod
-    def new(cls, run_id: str, run_dir: Path, spec_digest: str, spec_file: str = "") -> RunState:
+    def new(
+        cls,
+        run_id: str,
+        run_dir: Path,
+        spec_digest: str,
+        spec_file: str = "",
+        *,
+        retention_days: int = DEFAULT_RETENTION_DAYS,
+    ) -> RunState:
         return cls(
             run_id=run_id,
             run_dir=Path(run_dir),
             spec_digest=spec_digest,
             spec_file=spec_file,
             created_at=utc_now(),
+            retention_days=validate_retention_days(retention_days),
             steps={name: StepRecord() for name in STEP_ORDER},
         )
 
@@ -95,11 +112,32 @@ class RunState:
             record.finished_at = utc_now()
 
     def save(self) -> None:
+        retention_days = validate_retention_days(self.retention_days)
+        if self.outcome and not self.completed_at:
+            self.completed_at = utc_now()
+        if not self.outcome and self.completed_at:
+            raise ValueError("an active run cannot carry a completion timestamp")
+        retention_record = (
+            run_state_retention_digest(
+                run_id=self.run_id,
+                spec_digest=self.spec_digest,
+                created_at=self.created_at,
+                outcome=self.outcome,
+                completed_at=self.completed_at,
+                retention_days=retention_days,
+            )
+            if self.outcome
+            else ""
+        )
         payload = {
             "run_id": self.run_id,
             "spec_digest": self.spec_digest,
             "spec_file": self.spec_file,
             "created_at": self.created_at,
+            "retention_days": retention_days,
+            "retention_policy_digest": retention_policy_digest(retention_days),
+            "completed_at": self.completed_at,
+            "retention_record_digest": retention_record,
             "outcome": self.outcome,
             "steps": {
                 name: {
@@ -122,6 +160,10 @@ class RunState:
             spec_digest=payload["spec_digest"],
             spec_file=payload.get("spec_file", ""),
             created_at=payload.get("created_at", ""),
+            retention_days=validate_retention_days(
+                payload.get("retention_days", DEFAULT_RETENTION_DAYS)
+            ),
+            completed_at=payload.get("completed_at", ""),
             outcome=payload.get("outcome", ""),
         )
         state.steps = {

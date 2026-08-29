@@ -16,6 +16,7 @@ from typing import Any
 
 _TOMBSTONE_PREFIX = ".retention-delete-"
 DEFAULT_RETENTION_DAYS = 30
+_RUN_STATE_TERMINAL_OUTCOMES = frozenset({"blocked", "failed", "no_merge", "success"})
 
 
 def _canonical_digest(value: object) -> str:
@@ -69,6 +70,30 @@ def terminal_retention_digest(retention_days: int, *, stage: str) -> str:
         {
             "retention_days": validate_retention_days(retention_days),
             "stage": stage,
+        }
+    )
+
+
+def run_state_retention_digest(
+    *,
+    run_id: str,
+    spec_digest: str,
+    created_at: str,
+    outcome: str,
+    completed_at: str,
+    retention_days: int,
+) -> str:
+    """Authenticate the immutable retention subject of one legacy run state."""
+
+    return _canonical_digest(
+        {
+            "completed_at": completed_at,
+            "created_at": created_at,
+            "outcome": outcome,
+            "retention_days": validate_retention_days(retention_days),
+            "run_id": run_id,
+            "schema_version": "run-state-retention/v1",
+            "spec_digest": spec_digest,
         }
     )
 
@@ -185,6 +210,9 @@ class RetentionController:
         engineering = run_dir / "run-state.json"
         if engineering.is_file():
             return engineering, engineering, run_dir / "ledger.lock"
+        legacy = run_dir / "state.json"
+        if legacy.is_file():
+            return legacy, legacy, run_dir / "state.lock"
         return None
 
     @classmethod
@@ -195,7 +223,48 @@ class RetentionController:
     ) -> _AuthenticatedRetention | None:
         if marker_path.name == "lifecycle-events.jsonl":
             return cls._authenticated_lifecycle_retention(marker_path, policy_path)
-        return cls._authenticated_engineering_retention(marker_path)
+        if marker_path.name == "run-state.json":
+            return cls._authenticated_engineering_retention(marker_path)
+        return cls._authenticated_run_state_retention(marker_path)
+
+    @classmethod
+    def _authenticated_run_state_retention(cls, state_path: Path) -> _AuthenticatedRetention | None:
+        state = cls._read_record(state_path)
+        retention_days = cls._validated_retention_days(state)
+        run_id = state.get("run_id")
+        spec_digest = state.get("spec_digest")
+        created_at = state.get("created_at")
+        outcome = state.get("outcome")
+        completed_at_value = state.get("completed_at")
+        if (
+            not state
+            or "retention_days" not in state
+            or retention_days is None
+            or not isinstance(run_id, str)
+            or not run_id
+            or not isinstance(spec_digest, str)
+            or not spec_digest
+            or not isinstance(created_at, str)
+            or not created_at
+            or outcome not in _RUN_STATE_TERMINAL_OUTCOMES
+            or not isinstance(completed_at_value, str)
+            or not completed_at_value
+            or state.get("retention_policy_digest") != retention_policy_digest(retention_days)
+            or state.get("retention_record_digest")
+            != run_state_retention_digest(
+                run_id=run_id,
+                spec_digest=spec_digest,
+                created_at=created_at,
+                outcome=outcome,
+                completed_at=completed_at_value,
+                retention_days=retention_days,
+            )
+        ):
+            return None
+        completed_at = cls._authenticated_timestamp(completed_at_value)
+        if completed_at is None:
+            return None
+        return _AuthenticatedRetention(retention_days, completed_at)
 
     @classmethod
     def _authenticated_lifecycle_retention(

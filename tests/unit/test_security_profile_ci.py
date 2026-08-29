@@ -13,6 +13,7 @@ import pmpe.privacy.retention as retention_module
 from pmpe.contracts.digest import canonical_digest
 from pmpe.engineering.ledger import EvidenceLedger
 from pmpe.orchestration.lifecycle import BudgetPolicy, LifecycleControlPlane, LifecycleState
+from pmpe.orchestration.state import RunState
 from pmpe.privacy.retention import (
     RetentionController,
     purge_retained_runs,
@@ -126,6 +127,26 @@ def _write_authenticated_engineering_run(
         )
         events_path.write_text("".join(json.dumps(event) + "\n" for event in events))
     return state
+
+
+def _write_authenticated_run_state(
+    run_dir: Path,
+    *,
+    outcome: str = "success",
+    retention_days: int = 30,
+    completed_at: datetime | None = None,
+) -> Path:
+    run_dir.mkdir(parents=True)
+    state = RunState.new(
+        run_id=run_dir.name,
+        run_dir=run_dir,
+        spec_digest="sha256:" + "1" * 64,
+        retention_days=retention_days,
+    )
+    state.outcome = outcome
+    state.completed_at = (completed_at or datetime(2030, 1, 1, tzinfo=UTC)).isoformat()
+    state.save()
+    return run_dir / "state.json"
 
 
 def test_architecture_observer_resolves_relative_imports(tmp_path: Path) -> None:
@@ -604,6 +625,35 @@ def test_retention_controller_deletes_expired_completed_engineering_runs(
 
     assert result.deleted == ("completed-engineering-run",)
     assert not completed.exists()
+
+
+def test_retention_controller_deletes_expired_completed_run_states(tmp_path: Path) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    completed = tmp_path / "completed-run-state"
+    marker = _write_authenticated_run_state(completed)
+    (completed / "artifact.json").write_text("belongs to the completed run")
+    old = (now - timedelta(days=31)).timestamp()
+    os.utime(marker, (old, old))
+
+    result = RetentionController().purge(tmp_path, now=now)
+
+    assert result.deleted == ("completed-run-state",)
+    assert not completed.exists()
+
+
+def test_retention_controller_rejects_tampered_run_state_policy(tmp_path: Path) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    run_dir = tmp_path / "tampered-run-state"
+    marker = _write_authenticated_run_state(run_dir)
+    state = json.loads(marker.read_text())
+    state["retention_days"] = 3650
+    marker.write_text(json.dumps(state))
+
+    result = RetentionController().purge(tmp_path, now=now)
+
+    assert result.deleted == ()
+    assert result.retained == (run_dir.name,)
+    assert run_dir.exists()
 
 
 @pytest.mark.parametrize("run_kind", ["lifecycle", "engineering"])
