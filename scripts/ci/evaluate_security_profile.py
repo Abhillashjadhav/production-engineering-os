@@ -423,12 +423,14 @@ def _importlib_module_reference(node: ast.AST, aliases: set[str]) -> bool:
     return isinstance(node, ast.Name) and node.id in aliases
 
 
-def _static_string(node: ast.AST) -> str | None:
+def _static_string(node: ast.AST, aliases: dict[str, str] | None = None) -> str | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
+    if isinstance(node, ast.Name) and aliases is not None:
+        return aliases.get(node.id)
     if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
-        left = _static_string(node.left)
-        right = _static_string(node.right)
+        left = _static_string(node.left, aliases)
+        right = _static_string(node.right, aliases)
         if left is not None and right is not None and len(left) + len(right) <= 4096:
             return left + right
     if isinstance(node, ast.JoinedStr):
@@ -442,30 +444,37 @@ def _static_string(node: ast.AST) -> str | None:
     return None
 
 
-def _ambient_namespace_reference(node: ast.AST) -> bool:
+def _ambient_namespace_reference(node: ast.AST, aliases: set[str] | None = None) -> bool:
     return bool(
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id in {"globals", "locals", "vars"}
         and not node.args
         and not node.keywords
+        or isinstance(node, ast.Name)
+        and aliases is not None
+        and node.id in aliases
     )
 
 
-def _ambient_import_authority_reference(node: ast.AST) -> bool:
+def _ambient_import_authority_reference(
+    node: ast.AST,
+    namespace_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
     authority_keys = {"__builtins__", "__import__", "importlib"}
     if isinstance(node, ast.Subscript):
         return (
-            _ambient_namespace_reference(node.value)
-            and _static_string(node.slice) in authority_keys
+            _ambient_namespace_reference(node.value, namespace_aliases)
+            and _static_string(node.slice, string_aliases) in authority_keys
         )
     return bool(
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr in {"get", "__getitem__"}
-        and _ambient_namespace_reference(node.func.value)
+        and _ambient_namespace_reference(node.func.value, namespace_aliases)
         and node.args
-        and _static_string(node.args[0]) in authority_keys
+        and _static_string(node.args[0], string_aliases) in authority_keys
     )
 
 
@@ -641,7 +650,14 @@ def _builtins_import_fromlist(node: ast.Call) -> tuple[str, ...] | None:
 
 
 _LEXICAL_SCOPES = (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef, ast.Lambda, ast.Module)
-_LoaderAliases = tuple[set[str], set[str], set[str], set[str]]
+_LoaderAliases = tuple[
+    set[str],
+    set[str],
+    set[str],
+    set[str],
+    set[str],
+    dict[str, str],
+]
 
 
 def _inherited_aliases(
@@ -656,6 +672,21 @@ def _inherited_aliases(
         inherited.discard(name)
         if name in module:
             inherited.add(name)
+    return inherited
+
+
+def _inherited_string_aliases(
+    parent: dict[str, str],
+    module: dict[str, str],
+    *,
+    local_names: set[str],
+    global_names: set[str],
+) -> dict[str, str]:
+    inherited = {name: value for name, value in parent.items() if name not in local_names}
+    for name in global_names:
+        inherited.pop(name, None)
+        if name in module:
+            inherited[name] = module[name]
     return inherited
 
 
@@ -777,6 +808,8 @@ def _lexical_import_aliases(
             builtin_import_aliases = {"__import__"}
             importlib_aliases: set[str] = set()
             import_module_aliases: set[str] = set()
+            ambient_namespace_aliases: set[str] = set()
+            string_aliases: dict[str, str] = {}
         else:
             parent_aliases = aliases_by_scope[scope_parent[scope]]
             module_aliases = aliases_by_scope[tree]
@@ -801,6 +834,18 @@ def _lexical_import_aliases(
             import_module_aliases = _inherited_aliases(
                 parent_aliases[3],
                 module_aliases[3],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            ambient_namespace_aliases = _inherited_aliases(
+                parent_aliases[4],
+                module_aliases[4],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            string_aliases = _inherited_string_aliases(
+                parent_aliases[5],
+                module_aliases[5],
                 local_names=local_names,
                 global_names=global_names,
             )
@@ -831,6 +876,26 @@ def _lexical_import_aliases(
                         if isinstance(scope, ast.ClassDef):
                             edges.add((source_layer, "unresolved_dynamic"))
                         builtin_import_aliases.add(alias.asname or alias.name)
+
+        string_assignments: dict[str, list[ast.expr]] = {}
+        for node in nodes:
+            if not isinstance(node, (ast.Assign, ast.AnnAssign)) or node.value is None:
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    string_assignments.setdefault(target.id, []).append(node.value)
+        changed = True
+        while changed:
+            changed = False
+            for name, values in string_assignments.items():
+                resolved = [_static_string(value, string_aliases) for value in values]
+                if any(value is None for value in resolved) or len(set(resolved)) != 1:
+                    continue
+                resolved_value = resolved[0]
+                if resolved_value is not None and string_aliases.get(name) != resolved_value:
+                    string_aliases[name] = resolved_value
+                    changed = True
 
         changed = True
         while changed:
@@ -867,6 +932,10 @@ def _lexical_import_aliases(
                         ),
                         builtin_import_aliases,
                     ),
+                    (
+                        _ambient_namespace_reference(value, ambient_namespace_aliases),
+                        ambient_namespace_aliases,
+                    ),
                 )
                 admitted = False
                 for matches, destination in references:
@@ -885,6 +954,16 @@ def _lexical_import_aliases(
                             edges.add((source_layer, "unresolved_dynamic"))
                     break
                 if admitted:
+                    continue
+                if (
+                    isinstance(value, ast.Attribute)
+                    and value.attr in {"get", "__getitem__"}
+                    and _ambient_namespace_reference(
+                        value.value,
+                        ambient_namespace_aliases,
+                    )
+                ):
+                    edges.add((source_layer, "unresolved_dynamic"))
                     continue
                 if _stores_import_capability(
                     value,
@@ -915,6 +994,8 @@ def _lexical_import_aliases(
             builtin_import_aliases,
             importlib_aliases,
             import_module_aliases,
+            ambient_namespace_aliases,
+            string_aliases,
         )
     return node_scope, aliases_by_scope
 
@@ -942,10 +1023,16 @@ def _collect_architecture_edges(
             builtin_import_aliases,
             importlib_aliases,
             import_module_aliases,
+            ambient_namespace_aliases,
+            string_aliases,
         ) = aliases_by_scope[node_scope[node]]
         tracked_modules = importlib_aliases | builtins_aliases
         if (
-            _ambient_import_authority_reference(node)
+            _ambient_import_authority_reference(
+                node,
+                ambient_namespace_aliases,
+                string_aliases,
+            )
             or _module_dictionary_reference(node, tracked_modules)
             or _passes_tracked_module_to_unresolved_call(
                 node,
@@ -973,6 +1060,8 @@ def _collect_architecture_edges(
             builtin_import_aliases,
             importlib_aliases,
             import_module_aliases,
+            _,
+            _,
         ) = aliases_by_scope[node_scope[node]]
         modules: list[str] = []
         if isinstance(node, ast.Import):

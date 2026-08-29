@@ -365,6 +365,9 @@ def test_architecture_observer_fails_closed_on_unknown_reflective_importlib_acce
         '__builtins__.__getitem__("__import__")("pmpe.guided.api")\n',
         'globals()["__builtins__"]["__import__"]("pmpe.guided.api")\n',
         'globals().get("__" + "builtins__")["__import__"]("pmpe.guided.api")\n',
+        'namespace = globals()\nkey = "__builtins__"\n'
+        'namespace[key]["__import__"]("pmpe.guided.api")\n',
+        'getter = globals().get\ngetter("__builtins__")["__import__"]("pmpe.guided.api")\n',
     ],
 )
 def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
@@ -980,6 +983,9 @@ def test_privacy_verifier_rejects_class_bound_emitter_alias(tmp_path: Path) -> N
         'getattr(getattr(runtime, "events", None), "emit", fallback)('
         '"result", secret_payload="hidden")\n',
         'getattr(getattr(runtime, "ev" + "ents"), "em" + "it")('
+        '"result", secret_payload="hidden")\n',
+        "def telemetry(runtime, owner_name, method_name):\n"
+        "    getattr(getattr(runtime, owner_name), method_name)("
         '"result", secret_payload="hidden")\n',
         'getattr(vars(ctx).get("events"), "emit")("result", secret_payload="hidden")\n',
         'ctx.__dict__.__getitem__("events").emit("result", secret_payload="hidden")\n',

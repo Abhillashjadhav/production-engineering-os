@@ -283,6 +283,17 @@ def _reflective_emitter_dictionary_access(
         and node.func.id == "getattr"
         and len(node.args) >= 2
         and _literal_string(node.args[1], string_aliases) in {None, "emit"}
+        and isinstance(node.args[0], ast.Call)
+        and isinstance(node.args[0].func, ast.Name)
+        and node.args[0].func.id == "getattr"
+    ):
+        return True
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) >= 2
+        and _literal_string(node.args[1], string_aliases) in {None, "emit"}
         and _dictionary_value_reference(
             node.args[0],
             dictionary_aliases,
