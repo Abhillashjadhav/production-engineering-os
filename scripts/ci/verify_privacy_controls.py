@@ -143,15 +143,18 @@ def _is_supported_alias_assignment(parent: ast.AST | None, node: ast.expr) -> bo
     )
 
 
-def _event_owner_reference(node: ast.AST, known_owners: set[str] | None = None) -> bool:
+def _event_owner_reference(
+    node: ast.AST,
+    known_owners: set[str] | None = None,
+    string_aliases: dict[str, str] | None = None,
+) -> bool:
     if (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id == "getattr"
         and len(node.args) in {2, 3}
         and not node.keywords
-        and isinstance(node.args[1], ast.Constant)
-        and node.args[1].value == "events"
+        and _literal_string(node.args[1], string_aliases or {}) == "events"
     ):
         return True
     identity = _emitter_identity(node) if isinstance(node, ast.expr) else None
@@ -224,6 +227,21 @@ def _dictionary_getter_reference(
 def _literal_string(node: ast.AST, aliases: dict[str, str]) -> str | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _literal_string(node.left, aliases)
+        right = _literal_string(node.right, aliases)
+        if left is not None and right is not None and len(left) + len(right) <= 4096:
+            return left + right
+        return None
+    if isinstance(node, ast.JoinedStr):
+        parts = [
+            value.value
+            for value in node.values
+            if isinstance(value, ast.Constant) and isinstance(value.value, str)
+        ]
+        if len(parts) == len(node.values) and sum(map(len, parts)) <= 4096:
+            return "".join(parts)
+        return None
     identity = _emitter_identity(node) if isinstance(node, ast.expr) else None
     return aliases.get(identity) if identity is not None else None
 
@@ -298,7 +316,7 @@ def _reflective_emitter_dictionary_access(
         and len(node.args) == 1
         and not node.keywords
         and (
-            _event_owner_reference(node.args[0], known_owners)
+            _event_owner_reference(node.args[0], known_owners, string_aliases)
             or _event_context_reference(node.args[0], known_owners)
         )
     ):
@@ -307,7 +325,7 @@ def _reflective_emitter_dictionary_access(
         isinstance(node, ast.Attribute)
         and node.attr == "__dict__"
         and (
-            _event_owner_reference(node.value, known_owners)
+            _event_owner_reference(node.value, known_owners, string_aliases)
             or _event_context_reference(node.value, known_owners)
         )
     ):
@@ -334,10 +352,11 @@ def _event_owner_escapes(
     node: ast.AST,
     parent: ast.AST | None,
     known_owners: set[str],
+    string_aliases: dict[str, str],
 ) -> bool:
     """Allow an event namespace only as the owner of the governed ``emit`` method."""
 
-    return _event_owner_reference(node, known_owners) and not (
+    return _event_owner_reference(node, known_owners, string_aliases) and not (
         isinstance(parent, ast.Attribute) and parent.value is node and parent.attr == "emit"
     )
 
@@ -577,6 +596,7 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                     node,
                     parents.get(node),
                     event_owners,
+                    string_aliases,
                 ):
                     raise ValueError(
                         "telemetry emitter uses reflective access: "
@@ -591,13 +611,12 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                 ):
                     continue
                 attribute = node.args[1]
-                if _event_owner_reference(node.args[0], event_owners) and (
-                    isinstance(attribute, ast.Constant)
-                    and attribute.value == "emit"
-                    or not (
-                        isinstance(attribute, ast.Constant) and isinstance(attribute.value, str)
-                    )
-                ):
+                attribute_name = _literal_string(attribute, string_aliases)
+                if _event_owner_reference(
+                    node.args[0],
+                    event_owners,
+                    string_aliases,
+                ) and (attribute_name == "emit" or attribute_name is None):
                     raise ValueError(
                         f"telemetry emitter uses reflective access: {source_path}:{node.lineno}"
                     )

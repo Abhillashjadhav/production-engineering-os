@@ -423,6 +423,52 @@ def _importlib_module_reference(node: ast.AST, aliases: set[str]) -> bool:
     return isinstance(node, ast.Name) and node.id in aliases
 
 
+def _static_string(node: ast.AST) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _static_string(node.left)
+        right = _static_string(node.right)
+        if left is not None and right is not None and len(left) + len(right) <= 4096:
+            return left + right
+    if isinstance(node, ast.JoinedStr):
+        parts = [
+            value.value
+            for value in node.values
+            if isinstance(value, ast.Constant) and isinstance(value.value, str)
+        ]
+        if len(parts) == len(node.values) and sum(map(len, parts)) <= 4096:
+            return "".join(parts)
+    return None
+
+
+def _ambient_namespace_reference(node: ast.AST) -> bool:
+    return bool(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in {"globals", "locals", "vars"}
+        and not node.args
+        and not node.keywords
+    )
+
+
+def _ambient_import_authority_reference(node: ast.AST) -> bool:
+    authority_keys = {"__builtins__", "__import__", "importlib"}
+    if isinstance(node, ast.Subscript):
+        return (
+            _ambient_namespace_reference(node.value)
+            and _static_string(node.slice) in authority_keys
+        )
+    return bool(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"get", "__getitem__"}
+        and _ambient_namespace_reference(node.func.value)
+        and node.args
+        and _static_string(node.args[0]) in authority_keys
+    )
+
+
 def _module_dictionary_reference(node: ast.AST, aliases: set[str]) -> bool:
     """Recognize unmodeled reflection through a tracked module namespace."""
 
@@ -899,7 +945,8 @@ def _collect_architecture_edges(
         ) = aliases_by_scope[node_scope[node]]
         tracked_modules = importlib_aliases | builtins_aliases
         if (
-            _module_dictionary_reference(node, tracked_modules)
+            _ambient_import_authority_reference(node)
+            or _module_dictionary_reference(node, tracked_modules)
             or _passes_tracked_module_to_unresolved_call(
                 node,
                 builtins_aliases=builtins_aliases,
