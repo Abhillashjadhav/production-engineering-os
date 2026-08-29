@@ -6,7 +6,7 @@ import sqlite3
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -15,6 +15,7 @@ from pydantic import ValidationError
 
 from pm_evals_api.app import create_app
 from pm_evals_monitoring import (
+    FutureObservationError,
     MonitoringStore,
     build_demo_overview,
     build_demo_runs,
@@ -80,6 +81,203 @@ def test_missing_expected_value_preserves_unknown_regression_magnitude() -> None
 
     assert start.signed_delta is None
     assert start.regression_magnitude is None
+
+
+@pytest.mark.parametrize(
+    ("status", "current_value", "threshold", "higher_is_better"),
+    [
+        ("PASS", 0.5, 0.8, True),
+        ("FAIL", 0.9, 0.8, True),
+        ("PASS", 0.5, 0.2, False),
+        ("FAIL", 0.1, 0.2, False),
+    ],
+)
+def test_numeric_status_must_match_the_directional_pass_bar(
+    status: str,
+    current_value: float,
+    threshold: float,
+    higher_is_better: bool,
+) -> None:
+    payload = _failed_dream_job_run().model_dump(mode="json")
+    observation = payload["observations"][0]
+    observation["status"] = status
+    observation["current_value"] = current_value
+    observation["threshold"] = threshold
+    observation["higher_is_better"] = higher_is_better
+
+    with pytest.raises(ValidationError, match="contradicts the numeric pass bar"):
+        RunEnvelope.model_validate(payload)
+
+
+def test_implausibly_future_observation_time_is_rejected(tmp_path: Path) -> None:
+    future_time = datetime.now(UTC) + timedelta(minutes=6)
+    payload = _failed_dream_job_run().model_dump(mode="json")
+    payload["observed_at"] = future_time.isoformat()
+
+    accepted_before_clock_correction = RunEnvelope.model_validate(payload)
+    rollback_dir = tmp_path / "clock-rollback"
+    rollback_dir.mkdir()
+    (rollback_dir / "observations.jsonl").write_bytes(
+        MonitoringStore._canonical_line(accepted_before_clock_correction)
+    )
+    restored = MonitoringStore(rollback_dir)
+
+    assert restored.list_runs() == [accepted_before_clock_correction]
+    assert restored.append(accepted_before_clock_correction) is False
+
+    mutated = _failed_dream_job_run().model_copy(deep=True)
+    mutated.observed_at = future_time
+    with pytest.raises(FutureObservationError, match="five-minute clock skew"):
+        MonitoringStore(tmp_path / "new-evidence").append(mutated)
+
+    client = TestClient(
+        create_app(
+            monitoring_data_dir=tmp_path / "api",
+            monitoring_ingest_token=INGEST_TOKEN,
+        )
+    )
+    response = client.post(
+        "/api/monitoring/runs",
+        json=payload,
+        headers=_ingest_headers(),
+    )
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["source"] == "observed_at"
+
+
+def test_overflowing_delta_is_unavailable_without_poisoning_history(tmp_path: Path) -> None:
+    run = _failed_dream_job_run().model_copy(deep=True)
+    source = next(
+        item for item in run.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    source.current_value = 1e308
+    source.expected_value = -1e308
+    source.threshold = 1.5e308
+
+    diagnosis = diagnose_run(run)
+    source_diagnosis = next(
+        item for item in diagnosis.diagnoses if item.observation_id == source.observation_id
+    )
+    store = MonitoringStore(tmp_path)
+
+    assert source_diagnosis.signed_delta is None
+    assert source_diagnosis.regression_magnitude is None
+    assert store.append(run) is True
+    assert store.list_runs() == [run]
+    assert build_overview(store.list_runs(), mode="LIVE").products[0].health == "FAILING"
+
+
+@pytest.mark.parametrize(
+    ("higher_is_better", "approved_value", "current_value", "threshold", "failed_value"),
+    [
+        (True, 1e308, -1e308, -1e308, -1.5e308),
+        (False, -1e308, 1e308, 1e308, 1.5e308),
+    ],
+)
+def test_overflowing_passing_regression_fails_closed(
+    higher_is_better: bool,
+    approved_value: float,
+    current_value: float,
+    threshold: float,
+    failed_value: float,
+) -> None:
+    baseline = next(
+        run for run in build_demo_runs() if run.run_id == "dream-job-2026-08-24"
+    ).model_copy(deep=True)
+    baseline.run_id = f"overflow-approved-{higher_is_better}"
+    baseline_source = next(
+        item for item in baseline.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    baseline_source.current_value = approved_value
+    baseline_source.expected_value = approved_value
+    baseline_source.threshold = threshold
+    baseline_source.higher_is_better = higher_is_better
+
+    current = baseline.model_copy(deep=True)
+    current.run_id = f"overflow-degraded-{higher_is_better}"
+    current.comparison.run_id = baseline.run_id
+    current.observed_at = baseline.observed_at + timedelta(days=1)
+    current_source = next(
+        item
+        for item in current.observations
+        if item.observation_id == baseline_source.observation_id
+    )
+    current_source.current_value = current_value
+    current_source.expected_value = approved_value
+
+    baseline = RunEnvelope.model_validate(baseline.model_dump(mode="python"))
+    current = RunEnvelope.model_validate(current.model_dump(mode="python"))
+    diagnosis = diagnose_run(current, comparison=baseline)
+    degraded = next(
+        item
+        for item in diagnosis.diagnoses
+        if item.observation_id == current_source.observation_id
+    )
+    overview = build_overview(
+        [baseline, current],
+        mode="LIVE",
+        generated_at=current.observed_at,
+    )
+
+    assert diagnosis.health == "DEGRADED"
+    assert degraded.attribution == "DEGRADED_CHECK"
+    assert degraded.signed_delta is None
+    assert degraded.regression_magnitude is None
+    assert overview.products[0].health == "DEGRADED"
+    assert overview.incidents[0].regression_magnitude is None
+
+    latest = current.model_copy(deep=True)
+    latest.run_id = f"after-overflow-{higher_is_better}"
+    latest.comparison.run_id = current.run_id
+    latest.observed_at = current.observed_at + timedelta(days=1)
+    latest_source = next(
+        item
+        for item in latest.observations
+        if item.observation_id == current_source.observation_id
+    )
+    latest_source.status = "FAIL"
+    latest_source.current_value = failed_value
+    latest_source.expected_value = current_value
+    latest = RunEnvelope.model_validate(latest.model_dump(mode="python"))
+
+    latest_overview = build_overview(
+        [baseline, current, latest],
+        mode="LIVE",
+        generated_at=latest.observed_at,
+    )
+    latest_incident = next(
+        item
+        for item in latest_overview.incidents
+        if item.observation_id == latest_source.observation_id
+    )
+    assert latest_incident.comparison_label == "Comparison unavailable"
+    assert latest_incident.expected_value is None
+
+
+def test_observation_extensions_require_finite_json_values(tmp_path: Path) -> None:
+    run = _failed_dream_job_run()
+    overflowing_json = run.model_dump_json().replace(
+        '"extensions":{}',
+        '"extensions":{"nested":{"score":1e400}}',
+        1,
+    )
+
+    with pytest.raises(ValidationError, match="finite JSON numbers"):
+        RunEnvelope.model_validate_json(overflowing_json)
+
+    client = TestClient(
+        create_app(
+            monitoring_data_dir=tmp_path,
+            monitoring_ingest_token=INGEST_TOKEN,
+        )
+    )
+    response = client.post(
+        "/api/monitoring/runs",
+        content=overflowing_json,
+        headers={**_ingest_headers(), "content-type": "application/json"},
+    )
+    assert response.status_code == 422
+    assert "finite JSON numbers" in str(response.json())
 
 
 def test_controlled_replay_requires_a_real_control_and_fixed_dimensions() -> None:
@@ -187,6 +385,121 @@ def test_missing_parallel_branch_overrides_known_failed_dependency() -> None:
     assert by_id["eligible-job-coverage"].root_observation_ids == []
 
 
+def test_missing_evidence_propagates_through_a_passing_intermediate() -> None:
+    run = _failed_dream_job_run().model_copy(deep=True)
+    source = next(
+        item for item in run.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    source.status = "BLOCKED"
+    source.current_value = None
+    intermediate = next(
+        item for item in run.observations if item.observation_id == "eligible-job-coverage"
+    )
+    intermediate.status = "PASS"
+    intermediate.current_value = intermediate.expected_value
+
+    diagnosis = diagnose_run(run)
+    by_id = {item.observation_id: item for item in diagnosis.diagnoses}
+
+    assert "eligible-job-coverage" not in by_id
+    assert by_id["enrichment-completeness"].attribution == "UNCONFIRMED"
+    assert by_id["enrichment-completeness"].cause_confidence == "UNCONFIRMED"
+    assert "enrichment-completeness" not in diagnosis.likely_starting_observation_ids
+
+
+def test_regressed_root_propagates_through_a_passing_intermediate() -> None:
+    run = _failed_dream_job_run().model_copy(deep=True)
+    intermediate = next(
+        item for item in run.observations if item.observation_id == "eligible-job-coverage"
+    )
+    intermediate.status = "PASS"
+    intermediate.current_value = intermediate.expected_value
+
+    diagnosis = diagnose_run(run)
+    by_id = {item.observation_id: item for item in diagnosis.diagnoses}
+
+    assert "eligible-job-coverage" not in by_id
+    downstream = by_id["enrichment-completeness"]
+    assert downstream.attribution == "DOWNSTREAM_SYMPTOM"
+    assert downstream.root_observation_ids == ["source-linkedin-coverage"]
+    assert downstream.cause_confidence == "UNCONFIRMED"
+    assert diagnosis.likely_starting_observation_ids == ["source-linkedin-coverage"]
+
+
+def test_degraded_passing_check_is_projected_as_an_exact_case() -> None:
+    baseline = next(item for item in build_demo_runs() if item.run_id == "dream-job-2026-08-24")
+    current = baseline.model_copy(deep=True)
+    current.run_id = "dream-job-2026-08-25-degraded"
+    current.comparison.run_id = baseline.run_id
+    current.observed_at = baseline.observed_at + timedelta(days=1)
+    regressed = next(
+        item for item in current.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    regressed.current_value = 0.85
+
+    diagnosis = diagnose_run(
+        current,
+        comparison=baseline,
+    )
+    overview = build_overview([baseline, current], mode="LIVE", generated_at=current.observed_at)
+
+    assert diagnosis.health == "DEGRADED"
+    assert diagnosis.fail_count == 0
+    degraded = next(
+        item for item in diagnosis.diagnoses if item.observation_id == regressed.observation_id
+    )
+    assert degraded.attribution == "DEGRADED_CHECK"
+    assert degraded.regression_magnitude == pytest.approx(0.06)
+    assert diagnosis.likely_starting_observation_ids == []
+    assert overview.products[0].health == "DEGRADED"
+    assert len(overview.incidents) == 1
+    assert overview.incidents[0].attribution == "DEGRADED_CHECK"
+    assert overview.incidents[0].case.case_id == regressed.case.case_id
+    assert overview.incidents[0].regression_magnitude == pytest.approx(0.06)
+
+
+def test_passing_regression_requires_a_verified_healthy_comparison() -> None:
+    baseline = next(item for item in build_demo_runs() if item.run_id == "dream-job-2026-08-24")
+    current = baseline.model_copy(deep=True)
+    current.run_id = "dream-job-unverified-degradation"
+    current.comparison.run_id = baseline.run_id
+    current.observed_at = baseline.observed_at + timedelta(days=1)
+    regressed = next(
+        item for item in current.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    regressed.current_value = 0.85
+
+    mismatched = baseline.model_copy(deep=True)
+    mismatched_source = next(
+        item for item in mismatched.observations if item.observation_id == regressed.observation_id
+    )
+    mismatched_source.current_value = 0.90
+
+    unhealthy = baseline.model_copy(deep=True)
+    unrelated = next(
+        item for item in unhealthy.observations if item.observation_id == "pii-disclosure-rate"
+    )
+    unrelated.status = "FAIL"
+    unrelated.current_value = 0.1
+
+    assert diagnose_run(current).health == "HEALTHY"
+    for overview in (
+        build_overview([current], mode="LIVE", generated_at=current.observed_at),
+        build_overview(
+            [mismatched, current],
+            mode="LIVE",
+            generated_at=current.observed_at,
+        ),
+        build_overview(
+            [unhealthy, current],
+            mode="LIVE",
+            generated_at=current.observed_at,
+        ),
+    ):
+        assert overview.products[0].health == "HEALTHY"
+        assert overview.incidents == []
+
+
 def test_required_not_evaluated_observation_blocks_run_health() -> None:
     run = next(
         item for item in build_demo_runs() if item.run_id == "dream-job-2026-08-24"
@@ -204,6 +517,41 @@ def test_required_not_evaluated_observation_blocks_run_health() -> None:
         item for item in overview.products[0].layers if item.name == required.evaluation.layer
     )
     assert affected_layer.health == "BLOCKED"
+
+
+def test_entirely_optional_unevaluated_coverage_is_not_healthy() -> None:
+    run = next(
+        item for item in build_demo_runs() if item.run_id == "dream-job-2026-08-24"
+    ).model_copy(deep=True)
+    optional = next(
+        item for item in run.observations if item.observation_id == "pii-disclosure-rate"
+    )
+    optional.required = False
+    optional.status = "NOT_EVALUATED"
+    optional.current_value = None
+    optional.depends_on = []
+    run.observations = [optional]
+
+    diagnosis = diagnose_run(run)
+    overview = build_overview([run], mode="LIVE", generated_at=run.observed_at)
+
+    assert diagnosis.health == "HEALTHY"
+    assert overview.products[0].health == "HEALTHY"
+    assert overview.products[0].layers[0].health == "BLOCKED"
+    assert overview.products[0].concerns[0].health == "BLOCKED"
+
+
+def test_stale_healthy_run_is_blocked_and_not_projected_as_current() -> None:
+    run = next(item for item in build_demo_runs() if item.run_id == "dream-job-2026-08-24")
+    generated_at = run.observed_at + timedelta(seconds=run.product.freshness_sla_seconds + 1)
+
+    overview = build_overview([run], mode="LIVE", generated_at=generated_at)
+    product = overview.products[0]
+
+    assert product.is_stale is True
+    assert product.health == "BLOCKED"
+    assert all(item.health == "BLOCKED" for item in [*product.layers, *product.concerns])
+    assert overview.incidents == []
 
 
 def test_dependency_validation_and_diagnosis_support_contract_maximum_depth() -> None:
@@ -424,13 +772,27 @@ def test_store_is_append_only_deduplicated_and_digest_checked(tmp_path: Path) ->
     assert store.list_runs() == [run]
 
     conflicting = run.model_copy(deep=True)
-    conflicting.observations[0].current_value = 0.5
+    conflicting.observations[0].current_value = 1.1
     try:
         store.append(conflicting)
     except ValueError as exc:
         assert "different evidence" in str(exc)
     else:  # pragma: no cover - protects the immutable-history guarantee
         raise AssertionError("a conflicting run identity was accepted")
+
+
+def test_store_normalizes_equivalent_timestamp_offsets_for_idempotency(
+    tmp_path: Path,
+) -> None:
+    run = _failed_dream_job_run()
+    payload = run.model_dump(mode="json")
+    payload["observed_at"] = run.observed_at.astimezone(timezone(timedelta(hours=2))).isoformat()
+    equivalent_retry = RunEnvelope.model_validate(payload)
+    store = MonitoringStore(tmp_path)
+
+    assert equivalent_retry.observed_at.utcoffset() == timedelta(0)
+    assert store.append(run) is True
+    assert store.append(equivalent_retry) is False
 
 
 def test_store_rolls_back_log_when_indexing_fails(tmp_path: Path) -> None:
@@ -602,14 +964,136 @@ def test_overview_history_query_is_bounded_and_keeps_latest_comparisons(
     assert ("linkedin-research-os", "linkedin-os-2026-08-26") not in identities
 
 
+def test_missing_comparison_ancestry_cannot_certify_a_degraded_baseline(
+    tmp_path: Path,
+) -> None:
+    approved = next(
+        run for run in build_demo_runs() if run.run_id == "dream-job-2026-08-24"
+    ).model_copy(deep=True)
+    approved.run_id = "approved-root"
+    degraded = approved.model_copy(deep=True)
+    degraded.run_id = "passing-but-degraded"
+    degraded.comparison.run_id = approved.run_id
+    degraded.observed_at = approved.observed_at + timedelta(days=1)
+    degraded_source = next(
+        item for item in degraded.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    degraded_source.current_value = 0.85
+
+    current = degraded.model_copy(deep=True)
+    current.run_id = "latest-failure"
+    current.comparison.run_id = degraded.run_id
+    current.observed_at = degraded.observed_at + timedelta(days=1)
+    current_source = next(
+        item
+        for item in current.observations
+        if item.observation_id == degraded_source.observation_id
+    )
+    current_source.status = "FAIL"
+    current_source.current_value = 0.42
+    current_source.expected_value = degraded_source.current_value
+
+    store = MonitoringStore(tmp_path)
+    for run in (approved, degraded, current):
+        assert store.append(run) is True
+
+    verified_degradation = build_overview(
+        [approved, degraded],
+        mode="LIVE",
+        generated_at=degraded.observed_at,
+    )
+    assert verified_degradation.products[0].health == "DEGRADED"
+
+    bounded = store.list_runs_for_overview(trend_limit_per_product=1)
+    assert {run.run_id for run in bounded} == {degraded.run_id, current.run_id}
+    overview = build_overview(bounded, mode="LIVE", generated_at=current.observed_at)
+    incident = overview.incidents[0]
+    assert incident.comparison_label == "Comparison unavailable"
+    assert incident.expected_value is None
+    assert incident.regression_magnitude is None
+    assert incident.changes_since_comparison == []
+
+
+def test_bounded_history_loads_comparisons_for_every_retained_trend_run(
+    tmp_path: Path,
+) -> None:
+    first_baseline = next(
+        run for run in build_demo_runs() if run.run_id == "dream-job-2026-08-24"
+    ).model_copy(deep=True)
+    first_baseline.run_id = "first-trend-baseline"
+    latest_baseline = first_baseline.model_copy(deep=True)
+    latest_baseline.run_id = "latest-trend-baseline"
+    latest_baseline.observed_at = first_baseline.observed_at + timedelta(hours=1)
+
+    historical = first_baseline.model_copy(deep=True)
+    historical.run_id = "retained-degraded-history"
+    historical.comparison.run_id = first_baseline.run_id
+    historical.observed_at = first_baseline.observed_at + timedelta(days=1)
+    historical_source = next(
+        item
+        for item in historical.observations
+        if item.observation_id == "source-linkedin-coverage"
+    )
+    historical_source.current_value = 0.85
+
+    latest = latest_baseline.model_copy(deep=True)
+    latest.run_id = "latest-healthy-run"
+    latest.comparison.run_id = latest_baseline.run_id
+    latest.observed_at = first_baseline.observed_at + timedelta(days=2)
+
+    store = MonitoringStore(tmp_path)
+    for run in (first_baseline, latest_baseline, historical, latest):
+        assert store.append(run) is True
+
+    bounded = store.list_runs_for_overview(trend_limit_per_product=2)
+    assert {run.run_id for run in bounded} == {
+        first_baseline.run_id,
+        latest_baseline.run_id,
+        historical.run_id,
+        latest.run_id,
+    }
+    overview = build_overview(
+        bounded,
+        mode="LIVE",
+        generated_at=latest.observed_at,
+        trend_limit_per_product=2,
+    )
+    historical_point = next(point for point in overview.trend if point.run_id == historical.run_id)
+    assert historical_point.health == "DEGRADED"
+
+
+def test_equal_observation_times_use_server_arrival_order(tmp_path: Path) -> None:
+    first = _failed_dream_job_run().model_copy(deep=True)
+    first.run_id = "z-arrived-first"
+    second = next(
+        run for run in build_demo_runs() if run.run_id == "dream-job-2026-08-24"
+    ).model_copy(deep=True)
+    second.run_id = "a-arrived-second"
+    second.observed_at = first.observed_at
+    store = MonitoringStore(tmp_path)
+
+    assert store.append(first) is True
+    assert store.append(second) is True
+
+    all_runs = store.list_runs()
+    assert [run.run_id for run in all_runs] == [first.run_id, second.run_id]
+    overview = build_overview(all_runs, mode="LIVE", generated_at=second.observed_at)
+    assert overview.products[0].latest_run_id == second.run_id
+    assert overview.products[0].health == "HEALTHY"
+
+    bounded = store.list_runs_for_overview(trend_limit_per_product=1)
+    assert [run.run_id for run in bounded] == [second.run_id]
+
+
 def test_monitoring_api_bounds_live_trend_history(tmp_path: Path) -> None:
     store = MonitoringStore(tmp_path)
     template = next(run for run in build_demo_runs() if run.run_id == "dream-job-2026-08-24")
+    history_start = template.observed_at - timedelta(days=34)
     for index in range(35):
         run = template.model_copy(deep=True)
         run.run_id = f"dream-history-{index:02d}"
         run.comparison.run_id = "dream-history-00"
-        run.observed_at = template.observed_at + timedelta(days=index)
+        run.observed_at = history_start + timedelta(days=index)
         assert store.append(run) is True
 
     client = TestClient(create_app(monitoring_data_dir=tmp_path))
@@ -652,6 +1136,45 @@ def test_monitoring_api_runs_planted_demo_and_persists_live_run(tmp_path: Path) 
     )
     assert duplicate.status_code == 200
     assert duplicate.json()["duplicate"] is True
+
+
+def test_ingest_diagnosis_uses_the_exact_stored_comparison(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(monitoring_data_dir=tmp_path, monitoring_ingest_token=INGEST_TOKEN)
+    )
+    observed_at = datetime.now(UTC)
+    baseline = next(
+        run for run in build_demo_runs() if run.run_id == "dream-job-2026-08-24"
+    ).model_copy(deep=True)
+    baseline.run_id = "ingest-verified-baseline"
+    baseline.observed_at = observed_at - timedelta(minutes=1)
+    current = baseline.model_copy(deep=True)
+    current.run_id = "ingest-degraded-current"
+    current.comparison.run_id = baseline.run_id
+    current.observed_at = observed_at
+    regressed = next(
+        item for item in current.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    regressed.current_value = 0.85
+
+    baseline_response = client.post(
+        "/api/monitoring/runs",
+        json=baseline.model_dump(mode="json"),
+        headers=_ingest_headers(),
+    )
+    current_response = client.post(
+        "/api/monitoring/runs",
+        json=current.model_dump(mode="json"),
+        headers=_ingest_headers(),
+    )
+    live_response = client.get("/api/monitoring/overview")
+
+    assert baseline_response.status_code == 200
+    assert current_response.status_code == 200
+    assert current_response.json()["diagnosis"]["health"] == "DEGRADED"
+    assert current_response.json()["diagnosis"]["diagnoses"][0]["attribution"] == "DEGRADED_CHECK"
+    assert live_response.status_code == 200
+    assert live_response.json()["products"][0]["health"] == "DEGRADED"
 
 
 def test_monitoring_ingestion_rejects_missing_or_wrong_credentials(tmp_path: Path) -> None:

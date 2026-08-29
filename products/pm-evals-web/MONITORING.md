@@ -21,6 +21,10 @@ For every incident, an operator can see:
 - **Current result**: what happened now.
 - **Expected result**: the approved comparison value or behaviour.
 - **Difference**: how far the current result moved from expected.
+- **Degraded check**: a check that still passes but moved beyond its allowed
+  tolerance; it is not labelled as a failed check.
+- **Localized cases**: unique cases with a localized starting failure or a
+  degraded check. This is not presented as the total number of failed cases.
 - **Comparison run**: the approved good run supplying the expectation.
 - **Likely starting failure**: the earliest observed failure in the declared
   dependency path. This is localization, not proof of cause.
@@ -38,6 +42,16 @@ A product adapter emits a strict `RunEnvelope` V0.2. Each observation contains:
 - dependency edges and tamper-evident evidence references;
 - optional causal signals with an explicit evidence level; and
 - a bounded remediation hint owned by the product adapter.
+
+When a numeric threshold is present, `PASS` and `FAIL` must agree with that
+threshold and with whether higher or lower values are better; contradictory
+envelopes are rejected. Dashboard case counts use the full product, environment,
+use-case, case, segment, and input-fingerprint identity rather than `case_id`
+alone. Each product declares a freshness SLA (26 hours by default); once its
+latest observation exceeds that window, product and coverage health are blocked
+as **Data stale** and old incidents are not presented as current. Observations
+more than five minutes in the future are rejected when new evidence is ingested;
+stored evidence remains readable after a server clock correction.
 
 Layers describe where evaluation happens: input, system, retrieval/tool,
 tool trajectory, output, and outcome. Concerns describe what is protected:
@@ -57,6 +71,19 @@ and check with exactly that expected value. Missing or mismatched comparison
 evidence is labelled **Comparison unavailable** instead of being inferred from
 the current run's self-reported expectation.
 
+All submitted numbers, including values nested inside extensions, must be
+finite. If arithmetic on two valid extreme values would overflow, endpoint
+ordering still marks the regression as degraded while the difference is shown
+as unavailable instead of breaking ingestion or poisoning stored history.
+Incident values use adaptive display
+precision for both ratios and native units so a real localized difference is
+never rounded to zero or scaled to infinity, switching to exponent-safe
+scientific notation when necessary.
+
+Coverage matrices always list the complete layer and concern taxonomies. A
+category omitted by every product is shown as **Not covered**, not hidden. A
+present category whose checks are all unevaluated is **Blocked**, never healthy.
+
 ## Diagnosis rules
 
 Dependency analysis can identify a **likely starting failure**. It cannot prove
@@ -66,6 +93,14 @@ why that failure occurred. Cause confidence is bounded by evidence:
 - controlled replay with relevant variables held fixed: `SUPPORTED`;
 - human adjudication: `CONFIRMED`;
 - missing, contradictory, or equally strong competing evidence: `UNCONFIRMED`.
+
+Blocked or unevaluated evidence remains unresolved through the full dependency
+path, including passing intermediate checks, so a later failure cannot be shown
+as the starting point. Passing checks that regress beyond tolerance receive a
+separate `DEGRADED_CHECK` diagnosis and exact-case incident only when the exact
+earlier healthy comparison verifies the expected value. A comparison with a
+possible but unverified degradation cannot certify a later baseline; missing
+comparison ancestry therefore fails closed as unavailable.
 
 A controlled replay must classify every change dimension as either intentionally
 varied or held constant, with no overlap or omission. Its asserted cause must
@@ -82,24 +117,30 @@ coverage. A falling score alone changes neither asset.
 
 ## API and storage
 
-- `POST /api/monitoring/evaluate` diagnoses an envelope without storing it.
+- `POST /api/monitoring/evaluate` diagnoses an envelope without storing it,
+  resolving its exact stored comparison when available.
 - `POST /api/monitoring/runs` appends an envelope to immutable local history.
   It requires `Authorization: Bearer <token>` matching the server-side
-  `PM_EVALS_INGEST_TOKEN`; writes fail closed when no credential is configured.
+  `PM_EVALS_INGEST_TOKEN`; writes fail closed when no credential is configured,
+  and the response diagnosis uses the exact stored comparison.
 - `GET /api/monitoring/overview` returns product health, exact-case incidents,
   trends, two-axis coverage, and attribution calibration.
 
 Canonical history is append-only JSONL with a rebuildable SQLite index. The
 same run is idempotent only when its canonical bytes match; conflicting evidence
-under the same product/environment/run identity is rejected. A filesystem lock
+under the same product/environment/run identity is rejected. Observation times
+are normalized to UTC before canonical hashing, so equivalent legal offsets are
+the same retry. A filesystem lock
 serializes the duplicate check, log append, and index commit across application
 workers. Startup truncates only an unterminated final record left by an
 interrupted append; corruption in any completed record still fails closed. If
 indexing an append fails, the new log record is durably rolled back. If rollback
 also fails, the next operation reconciles the log and index before proceeding.
 Overview reads are bounded to the most recent 30 runs per product/environment
-plus the latest run's referenced comparison, while the canonical history
-remains complete.
+plus each retained run's direct comparison, so trend health has its required
+evidence while canonical history remains complete. When producer observation
+times tie, the server's append order determines recency; opaque run IDs never
+decide which result is current.
 
 ## First run
 

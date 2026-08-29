@@ -231,12 +231,8 @@ def _provider_response(
             try:
                 input_rate_value = float(input_rate)
                 output_rate_value = float(output_rate)
-                input_cost = (
-                    input_rate_value * int(usage.get("input_tokens", 0)) / 1_000_000
-                )
-                output_cost = (
-                    output_rate_value * int(usage.get("output_tokens", 0)) / 1_000_000
-                )
+                input_cost = input_rate_value * int(usage.get("input_tokens", 0)) / 1_000_000
+                output_cost = output_rate_value * int(usage.get("output_tokens", 0)) / 1_000_000
             except (OverflowError, TypeError, ValueError):
                 _fail("configured OpenAI token prices must be finite non-negative numbers")
             if (

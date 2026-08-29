@@ -306,6 +306,8 @@ def test_secret_values_and_unregistered_configuration_fail_closed(
         "https://hooks.slack.com/services/T000/B000/SECRET",
         "https:////hooks.slack.com/services/T000/B000/SECRET",
         "https:\\\\hooks.slack.com\\services\\T000\\B000\\SECRET",
+        "https:/hooks.slack.com/services/T000/B000/SECRET",
+        "https:hooks.slack.com/services/T000/B000/SECRET",
         "//hooks.slack.com/services/T000/B000/SECRET",
         "https://api.telegram.org/bot123456:ABCDEF/getMe",
         "https://discord.com/api/webhooks/123456/abcdef",

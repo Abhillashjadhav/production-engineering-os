@@ -10,10 +10,18 @@ import sqlite3
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC
+from datetime import UTC, datetime
 from pathlib import Path
 
-from .models import OVERVIEW_TREND_RUNS_PER_PRODUCT, RunEnvelope
+from .models import (
+    MAX_FUTURE_CLOCK_SKEW,
+    OVERVIEW_TREND_RUNS_PER_PRODUCT,
+    RunEnvelope,
+)
+
+
+class FutureObservationError(ValueError):
+    """New evidence is too far ahead of the server's current clock."""
 
 
 class MonitoringStore:
@@ -64,6 +72,8 @@ class MonitoringStore:
                         ON runs(product_id, environment, run_id);
                     CREATE INDEX IF NOT EXISTS runs_product_observed
                         ON runs(product_id, environment, observed_at DESC, run_id DESC);
+                    CREATE INDEX IF NOT EXISTS runs_product_arrival
+                        ON runs(product_id, environment, observed_at DESC, byte_offset DESC);
                     """
                 )
             self._reconcile_index_unlocked()
@@ -90,7 +100,15 @@ class MonitoringStore:
     @staticmethod
     def _canonical_line(run: RunEnvelope) -> bytes:
         payload = run.model_dump(mode="json")
-        return (json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n").encode()
+        return (
+            json.dumps(
+                payload,
+                allow_nan=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            + "\n"
+        ).encode()
 
     def _truncate_log(self, byte_offset: int) -> None:
         """Durably roll the canonical log back to a known record boundary."""
@@ -107,6 +125,9 @@ class MonitoringStore:
         silently replacing history.
         """
 
+        # Revalidate model instances so callers cannot persist values introduced
+        # through Pydantic's non-validating assignment/model-copy escape hatches.
+        run = RunEnvelope.model_validate(run.model_dump(mode="python"))
         line = self._canonical_line(run)
         digest = hashlib.sha256(line).hexdigest()
         run_key = self._run_key(run)
@@ -125,6 +146,10 @@ class MonitoringStore:
                         if existing[0] != digest:
                             raise ValueError("run identity already exists with different evidence")
                         return False
+                    if run.observed_at > datetime.now(UTC) + MAX_FUTURE_CLOCK_SKEW:
+                        raise FutureObservationError(
+                            "observed_at exceeds the allowed five-minute clock skew"
+                        )
                     with self.log_path.open("ab") as handle:
                         rollback_offset = handle.tell()
                         handle.write(line)
@@ -228,9 +253,32 @@ class MonitoringStore:
             self._reconcile_index_unlocked()
             with self._connect() as connection:
                 rows = connection.execute(
-                    "SELECT byte_offset, byte_length, sha256 FROM runs ORDER BY observed_at, run_id"
+                    "SELECT byte_offset, byte_length, sha256 "
+                    "FROM runs ORDER BY observed_at, byte_offset"
                 ).fetchall()
             return self._read_rows(rows)
+
+    def get_run(
+        self,
+        *,
+        product_id: str,
+        environment: str,
+        run_id: str,
+    ) -> RunEnvelope | None:
+        """Load one exact stored identity after reconciling and checking its evidence."""
+
+        with self._exclusive_store_lock():
+            self._reconcile_index_unlocked()
+            with self._connect() as connection:
+                row = connection.execute(
+                    """
+                    SELECT byte_offset, byte_length, sha256
+                    FROM runs
+                    WHERE product_id = ? AND environment = ? AND run_id = ?
+                    """,
+                    (product_id, environment, run_id),
+                ).fetchone()
+            return self._read_rows([row])[0] if row is not None else None
 
     def list_runs_for_overview(
         self,
@@ -257,35 +305,28 @@ class MonitoringStore:
                            product_id, environment, run_id,
                            ROW_NUMBER() OVER (
                                PARTITION BY product_id, environment
-                               ORDER BY observed_at DESC, run_id DESC
+                               ORDER BY observed_at DESC, byte_offset DESC
                            ) AS recency_rank
                     FROM runs
                 )
                 SELECT byte_offset, byte_length, sha256
                 FROM ranked
                 WHERE recency_rank <= ?
-                ORDER BY observed_at, product_id, environment, run_id
+                ORDER BY observed_at, product_id, environment, byte_offset
                 """,
                 (trend_limit_per_product,),
             ).fetchall()
         trend_runs = self._read_rows(trend_rows)
-        latest: dict[tuple[str, str], RunEnvelope] = {}
         selected_identities: set[tuple[str, str, str]] = set()
         for run in trend_runs:
             product_identity = (run.product.id, run.product.environment)
             run_identity = (*product_identity, run.run_id)
             selected_identities.add(run_identity)
-            current = latest.get(product_identity)
-            if current is None or (run.observed_at, run.run_id) > (
-                current.observed_at,
-                current.run_id,
-            ):
-                latest[product_identity] = run
 
         comparison_rows: list[tuple[int, int, str]] = []
         seen_comparisons: set[tuple[str, str, str]] = set()
         with self._connect() as connection:
-            for run in latest.values():
+            for run in trend_runs:
                 identity = (
                     run.product.id,
                     run.product.environment,
@@ -305,16 +346,23 @@ class MonitoringStore:
                 if row is not None:
                     comparison_rows.append(row)
 
+        comparison_runs = self._read_rows(comparison_rows)
         combined = {
-            (run.product.id, run.product.environment, run.run_id): run
-            for run in [*trend_runs, *self._read_rows(comparison_rows)]
+            (run.product.id, run.product.environment, run.run_id): (run, row[0])
+            for run, row in [
+                *zip(trend_runs, trend_rows, strict=True),
+                *zip(comparison_runs, comparison_rows, strict=True),
+            ]
         }
-        return sorted(
-            combined.values(),
-            key=lambda run: (
-                run.observed_at,
-                run.product.id,
-                run.product.environment,
-                run.run_id,
-            ),
-        )
+        return [
+            run
+            for run, _ in sorted(
+                combined.values(),
+                key=lambda item: (
+                    item[0].observed_at,
+                    item[0].product.id,
+                    item[0].product.environment,
+                    item[1],
+                ),
+            )
+        ]

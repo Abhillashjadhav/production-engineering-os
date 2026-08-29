@@ -6,9 +6,11 @@ import base64
 import json
 from collections import Counter, defaultdict, deque
 from datetime import UTC, datetime
+from math import isfinite
 
 from .models import (
     OVERVIEW_TREND_RUNS_PER_PRODUCT,
+    Attribution,
     AttributionMetrics,
     CauseCategory,
     CauseConfidence,
@@ -46,6 +48,8 @@ def _signed_delta(observation: Observation) -> float | None:
     if observation.current_value is None or observation.expected_value is None:
         return None
     raw = observation.current_value - observation.expected_value
+    if not isfinite(raw):
+        return None
     return raw if observation.higher_is_better else -raw
 
 
@@ -99,12 +103,50 @@ def _verified_comparison_observation(
     return candidate
 
 
-def _is_degraded(observation: Observation) -> bool:
-    delta = _signed_delta(observation)
-    return observation.status == "PASS" and delta is not None and delta < -observation.tolerance
+def _exceeds_degradation_tolerance(observation: Observation) -> bool:
+    if (
+        observation.status != "PASS"
+        or observation.current_value is None
+        or observation.expected_value is None
+    ):
+        return False
+    if observation.higher_is_better:
+        if observation.current_value >= observation.expected_value:
+            return False
+        regression_gap = observation.expected_value - observation.current_value
+    else:
+        if observation.current_value <= observation.expected_value:
+            return False
+        regression_gap = observation.current_value - observation.expected_value
+    # Both operands are finite. A positive overflow therefore represents a real
+    # regression beyond every finite tolerance, even though its magnitude cannot
+    # be represented for display.
+    return not isfinite(regression_gap) or regression_gap > observation.tolerance
 
 
-def _health(observations: list[Observation]) -> RunHealth:
+def _verified_degraded_observation_ids(
+    run: RunEnvelope,
+    comparison: RunEnvelope | None,
+    comparison_health: RunHealth | None,
+) -> set[str]:
+    return {
+        observation.observation_id
+        for observation in run.observations
+        if _exceeds_degradation_tolerance(observation)
+        and _verified_comparison_observation(
+            run,
+            observation,
+            comparison,
+            comparison_health,
+        )
+        is not None
+    }
+
+
+def _health(
+    observations: list[Observation],
+    degraded_observation_ids: set[str] | None = None,
+) -> RunHealth:
     if any(item.status == "FAIL" for item in observations):
         return "FAILING"
     if any(
@@ -112,8 +154,23 @@ def _health(observations: list[Observation]) -> RunHealth:
         for item in observations
     ):
         return "BLOCKED"
-    if any(_is_degraded(item) for item in observations):
+    if degraded_observation_ids and any(
+        item.observation_id in degraded_observation_ids for item in observations
+    ):
         return "DEGRADED"
+    return "HEALTHY"
+
+
+def _certified_comparison_health(comparison: RunEnvelope | None) -> RunHealth | None:
+    """Return HEALTHY only when no missing ancestry could hide degradation."""
+
+    if comparison is None:
+        return None
+    status_health = _health(comparison.observations)
+    if status_health != "HEALTHY":
+        return status_health
+    if any(_exceeds_degradation_tolerance(item) for item in comparison.observations):
+        return None
     return "HEALTHY"
 
 
@@ -130,7 +187,7 @@ def _cause_assessment(
             "UNCONFIRMED",
             "UNCONFIRMED",
             "DEPENDENCY_ONLY",
-            "No controlled comparison or human decision identifies why this case failed.",
+            "No controlled comparison or human decision identifies why this result changed.",
         )
 
     strongest_rank = max(_EVIDENCE_RANK[item.evidence_level] for item in supported)
@@ -172,11 +229,21 @@ def _cause_assessment(
     return category, confidence, level, " ".join(item.summary for item in strongest)
 
 
-def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
+def diagnose_run(
+    run: RunEnvelope,
+    *,
+    comparison: RunEnvelope | None = None,
+) -> RunDiagnosis:
     """Localize the first observable break without claiming unearned causality."""
 
     by_id = {item.observation_id: item for item in run.observations}
     failed = {item.observation_id for item in run.observations if item.status == "FAIL"}
+    degraded = _verified_degraded_observation_ids(
+        run,
+        comparison,
+        _certified_comparison_health(comparison),
+    )
+    diagnosable = failed | degraded
     missing_evidence = {
         item.observation_id
         for item in run.observations
@@ -205,71 +272,92 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
     if len(topological_order) != len(by_id):
         raise ValueError("observation dependency graph contains a cycle")
 
-    classifications: dict[str, tuple[str, tuple[str, ...], str]] = {}
+    classifications: dict[str, tuple[Attribution, tuple[str, ...], str]] = {}
+    unresolved_ancestry: dict[str, bool] = {}
+    regressed_ancestry: dict[str, set[str]] = {}
     for observation_id in topological_order:
-        if observation_id not in failed:
-            continue
         observation = by_id[observation_id]
-        failed_dependencies = [item for item in observation.depends_on if item in failed]
-        missing_dependencies = [
-            item for item in observation.depends_on if item in missing_evidence
-        ]
-        unresolved_failed_dependencies = [
-            item for item in failed_dependencies if classifications[item][0] == "UNCONFIRMED"
-        ]
-        result: tuple[str, tuple[str, ...], str]
-        if missing_dependencies or unresolved_failed_dependencies:
+        upstream_is_unresolved = any(
+            unresolved_ancestry[dependency_id] for dependency_id in observation.depends_on
+        )
+        upstream_regressed_roots = {
+            root_id
+            for dependency_id in observation.depends_on
+            for root_id in regressed_ancestry[dependency_id]
+        }
+        unresolved_ancestry[observation_id] = (
+            observation_id in missing_evidence or upstream_is_unresolved
+        )
+        if observation_id not in diagnosable:
+            regressed_ancestry[observation_id] = upstream_regressed_roots
+            continue
+        result: tuple[Attribution, tuple[str, ...], str]
+        if upstream_is_unresolved:
             result = (
                 "UNCONFIRMED",
                 (),
                 (
-                    "At least one required upstream branch is blocked, not evaluated, or "
-                    "unresolved, so the starting path is unknown."
+                    "At least one earlier branch in the declared dependency path is blocked "
+                    "or not evaluated, so the starting point is unknown."
                 ),
             )
-        elif failed_dependencies:
-            roots: set[str] = set()
-            for dependency_id in failed_dependencies:
-                attribution, dependency_roots, _ = classifications[dependency_id]
-                if attribution == "LIKELY_STARTING_FAILURE":
-                    roots.add(dependency_id)
-                else:
-                    roots.update(dependency_roots)
+            regressed_ancestry[observation_id] = upstream_regressed_roots
+        elif upstream_regressed_roots:
             result = (
                 "DOWNSTREAM_SYMPTOM",
-                tuple(sorted(roots)),
-                "A failed upstream check can explain this later failure.",
+                tuple(sorted(upstream_regressed_roots)),
+                "A regressed upstream check can explain this later result.",
             )
-        else:
+            regressed_ancestry[observation_id] = upstream_regressed_roots
+        elif observation_id in failed:
             result = (
                 "LIKELY_STARTING_FAILURE",
                 (observation_id,),
                 "This is the earliest observed failure in the declared dependency path.",
             )
+            regressed_ancestry[observation_id] = {observation_id}
+        else:
+            result = (
+                "DEGRADED_CHECK",
+                (observation_id,),
+                "This check still passes, but its result regressed beyond the allowed tolerance.",
+            )
+            regressed_ancestry[observation_id] = {observation_id}
         classifications[observation_id] = result
 
     diagnoses: list[ObservationDiagnosis] = []
     for observation in sorted(
-        (item for item in run.observations if item.status == "FAIL"),
+        (
+            item
+            for item in run.observations
+            if item.status == "FAIL" or item.observation_id in degraded
+        ),
         key=lambda item: (item.location.stage_index, item.observation_id),
     ):
         attribution, classified_roots, localization_reason = classifications[
             observation.observation_id
         ]
         delta = _signed_delta(observation)
-        if attribution == "LIKELY_STARTING_FAILURE":
+        if attribution in {"LIKELY_STARTING_FAILURE", "DEGRADED_CHECK"}:
             cause = _cause_assessment(observation)
-        else:
+        elif attribution == "DOWNSTREAM_SYMPTOM":
             cause = (
                 "UNCONFIRMED",
                 "UNCONFIRMED",
                 "DEPENDENCY_ONLY",
                 "Treat this as a symptom until its upstream failure is resolved.",
             )
+        else:
+            cause = (
+                "UNCONFIRMED",
+                "UNCONFIRMED",
+                "DEPENDENCY_ONLY",
+                "Do not assign a cause until blocked or unevaluated upstream evidence is resolved.",
+            )
         diagnoses.append(
             ObservationDiagnosis(
                 observation_id=observation.observation_id,
-                attribution=attribution,  # type: ignore[arg-type]
+                attribution=attribution,
                 root_observation_ids=list(classified_roots),
                 signed_delta=delta,
                 regression_magnitude=(None if delta is None else abs(delta) if delta < 0 else 0.0),
@@ -285,7 +373,7 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
     return RunDiagnosis(
         run_id=run.run_id,
         product_id=run.product.id,
-        health=_health(run.observations),
+        health=_health(run.observations, degraded),
         pass_count=counts["PASS"],
         fail_count=counts["FAIL"],
         blocked_count=counts["BLOCKED"],
@@ -299,7 +387,13 @@ def diagnose_run(run: RunEnvelope) -> RunDiagnosis:
     )
 
 
-def _coverage_health(run: RunEnvelope, *, axis: str) -> list[CoverageHealth]:
+def _coverage_health(
+    run: RunEnvelope,
+    *,
+    axis: str,
+    force_blocked: bool = False,
+    degraded_observation_ids: set[str] | None = None,
+) -> list[CoverageHealth]:
     grouped: dict[str, list[Observation]] = defaultdict(list)
     for item in run.observations:
         key = item.evaluation.layer if axis == "layer" else item.evaluation.concern
@@ -307,10 +401,15 @@ def _coverage_health(run: RunEnvelope, *, axis: str) -> list[CoverageHealth]:
     result: list[CoverageHealth] = []
     for name, observations in sorted(grouped.items()):
         counts = Counter(item.status for item in observations)
+        entirely_not_evaluated = all(item.status == "NOT_EVALUATED" for item in observations)
         result.append(
             CoverageHealth(
                 name=name,
-                health=_health(observations),
+                health=(
+                    "BLOCKED"
+                    if force_blocked or entirely_not_evaluated
+                    else _health(observations, degraded_observation_ids)
+                ),
                 pass_count=counts["PASS"],
                 fail_count=counts["FAIL"],
                 blocked_count=counts["BLOCKED"],
@@ -390,15 +489,21 @@ def build_overview(
         raise ValueError("at least one run is required")
     if trend_limit_per_product < 1:
         raise ValueError("trend_limit_per_product must be at least one")
-    ordered = sorted(
-        runs,
-        key=lambda item: (
-            item.observed_at,
-            item.product.id,
-            item.product.environment,
-            item.run_id,
-        ),
-    )
+    reference_time = generated_at or datetime.now(UTC)
+    # The store returns runs in append order, which is the authoritative
+    # server-owned tie-break when producer observation timestamps are equal.
+    ordered = [
+        item
+        for _, item in sorted(
+            enumerate(runs),
+            key=lambda indexed: (
+                indexed[1].observed_at,
+                indexed[1].product.id,
+                indexed[1].product.environment,
+                indexed[0],
+            ),
+        )
+    ]
     runs_by_identity = {
         (run.product.id, run.product.environment, run.run_id): run for run in ordered
     }
@@ -406,8 +511,17 @@ def build_overview(
     diagnoses: dict[tuple[str, str, str], RunDiagnosis] = {}
     trend_by_product: dict[tuple[str, str], list[TrendPoint]] = defaultdict(list)
     for run in ordered:
-        diagnosis = diagnose_run(run)
         run_identity = (run.product.id, run.product.environment, run.run_id)
+        comparison_identity = (
+            run.product.id,
+            run.product.environment,
+            run.comparison.run_id,
+        )
+        comparison = runs_by_identity.get(comparison_identity)
+        diagnosis = diagnose_run(
+            run,
+            comparison=comparison,
+        )
         diagnoses[run_identity] = diagnosis
         latest[(run.product.id, run.product.environment)] = run
         evaluated = diagnosis.pass_count + diagnosis.fail_count
@@ -415,6 +529,7 @@ def build_overview(
             TrendPoint(
                 product_id=run.product.id,
                 environment=run.product.environment,
+                run_id=run.run_id,
                 observed_at=run.observed_at,
                 health=diagnosis.health,
                 pass_rate=(diagnosis.pass_count / evaluated) if evaluated else 0.0,
@@ -434,6 +549,15 @@ def build_overview(
     for (product_id, environment), run in sorted(latest.items()):
         run_identity = (product_id, environment, run.run_id)
         diagnosis = diagnoses[run_identity]
+        by_id = {item.observation_id: item for item in run.observations}
+        degraded_observation_ids = {
+            item.observation_id
+            for item in diagnosis.diagnoses
+            if by_id[item.observation_id].status == "PASS"
+        }
+        is_stale = (
+            reference_time - run.observed_at
+        ).total_seconds() > run.product.freshness_sla_seconds
         products.append(
             ProductHealth(
                 product_id=product_id,
@@ -442,24 +566,40 @@ def build_overview(
                 environment=environment,
                 latest_run_id=run.run_id,
                 observed_at=run.observed_at,
-                health=diagnosis.health,
+                health=("BLOCKED" if is_stale else diagnosis.health),
+                is_stale=is_stale,
+                freshness_sla_seconds=run.product.freshness_sla_seconds,
                 pass_count=diagnosis.pass_count,
                 fail_count=diagnosis.fail_count,
                 blocked_count=diagnosis.blocked_count,
-                layers=_coverage_health(run, axis="layer"),
-                concerns=_coverage_health(run, axis="concern"),
+                layers=_coverage_health(
+                    run,
+                    axis="layer",
+                    force_blocked=is_stale,
+                    degraded_observation_ids=degraded_observation_ids,
+                ),
+                concerns=_coverage_health(
+                    run,
+                    axis="concern",
+                    force_blocked=is_stale,
+                    degraded_observation_ids=degraded_observation_ids,
+                ),
             )
         )
-        by_id = {item.observation_id: item for item in run.observations}
-        diagnosis_by_id = {item.observation_id: item for item in diagnosis.diagnoses}
+        if is_stale:
+            continue
         comparison_identity = (product_id, environment, run.comparison.run_id)
         comparison = runs_by_identity.get(comparison_identity)
-        comparison_health = (
-            diagnoses[comparison_identity].health if comparison is not None else None
-        )
+        comparison_health = _certified_comparison_health(comparison)
         run_changes = _changes(run, comparison)
-        for starting_id in diagnosis.likely_starting_observation_ids:
-            observation = by_id[starting_id]
+        projected_diagnoses = [
+            item
+            for item in diagnosis.diagnoses
+            if item.attribution in {"LIKELY_STARTING_FAILURE", "DEGRADED_CHECK"}
+        ]
+        for item_diagnosis in projected_diagnoses:
+            projected_id = item_diagnosis.observation_id
+            observation = by_id[projected_id]
             comparison_observation = _verified_comparison_observation(
                 run,
                 observation,
@@ -467,12 +607,11 @@ def build_overview(
                 comparison_health,
             )
             comparison_available = comparison_observation is not None
-            item_diagnosis = diagnosis_by_id[starting_id]
             downstream_ids = sorted(
                 item.observation_id
                 for item in diagnosis.diagnoses
                 if item.attribution == "DOWNSTREAM_SYMPTOM"
-                and starting_id in item.root_observation_ids
+                and projected_id in item.root_observation_ids
             )
             evidence = list(observation.evidence_refs)
             for signal in observation.cause_signals:
@@ -484,8 +623,9 @@ def build_overview(
                         product_id,
                         environment,
                         run.run_id,
-                        starting_id,
+                        projected_id,
                     ),
+                    attribution=item_diagnosis.attribution,  # type: ignore[arg-type]
                     product_id=product_id,
                     product_name=run.product.display_name,
                     environment=environment,
@@ -495,7 +635,7 @@ def build_overview(
                         run.comparison.label if comparison_available else "Comparison unavailable"
                     ),
                     observed_at=run.observed_at,
-                    observation_id=starting_id,
+                    observation_id=projected_id,
                     case=observation.case,
                     component_id=observation.location.component_id,
                     stage_id=observation.location.stage_id,
@@ -545,7 +685,7 @@ def build_overview(
         label="No adjudicated production incidents yet",
     )
     return MonitoringOverview(
-        generated_at=generated_at or datetime.now(UTC),
+        generated_at=reference_time,
         mode=mode,  # type: ignore[arg-type]
         products=products,
         incidents=sorted(incidents, key=lambda item: item.observed_at, reverse=True),

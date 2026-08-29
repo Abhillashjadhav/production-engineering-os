@@ -947,6 +947,14 @@
       "Incident": {
         "additionalProperties": false,
         "properties": {
+          "attribution": {
+            "enum": [
+              "LIKELY_STARTING_FAILURE",
+              "DEGRADED_CHECK"
+            ],
+            "title": "Attribution",
+            "type": "string"
+          },
           "case": {
             "$ref": "#/components/schemas/CaseRef"
           },
@@ -1159,6 +1167,7 @@
         },
         "required": [
           "incident_id",
+          "attribution",
           "product_id",
           "product_name",
           "environment",
@@ -1219,6 +1228,7 @@
         "title": "IngestResponse",
         "type": "object"
       },
+      "JsonValue": {},
       "Location": {
         "additionalProperties": false,
         "properties": {
@@ -1443,7 +1453,9 @@
             "title": "Expected Value"
           },
           "extensions": {
-            "additionalProperties": true,
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
             "title": "Extensions",
             "type": "object"
           },
@@ -1527,7 +1539,8 @@
             "enum": [
               "LIKELY_STARTING_FAILURE",
               "DOWNSTREAM_SYMPTOM",
-              "UNCONFIRMED"
+              "UNCONFIRMED",
+              "DEGRADED_CHECK"
             ],
             "title": "Attribution",
             "type": "string"
@@ -1664,6 +1677,10 @@
             "title": "Fail Count",
             "type": "integer"
           },
+          "freshness_sla_seconds": {
+            "title": "Freshness Sla Seconds",
+            "type": "integer"
+          },
           "health": {
             "enum": [
               "HEALTHY",
@@ -1673,6 +1690,10 @@
             ],
             "title": "Health",
             "type": "string"
+          },
+          "is_stale": {
+            "title": "Is Stale",
+            "type": "boolean"
           },
           "latest_run_id": {
             "title": "Latest Run Id",
@@ -1711,6 +1732,8 @@
           "latest_run_id",
           "observed_at",
           "health",
+          "is_stale",
+          "freshness_sla_seconds",
           "pass_count",
           "fail_count",
           "blocked_count",
@@ -1732,6 +1755,13 @@
             "minLength": 1,
             "title": "Environment",
             "type": "string"
+          },
+          "freshness_sla_seconds": {
+            "default": 93600,
+            "maximum": 2678400.0,
+            "minimum": 60.0,
+            "title": "Freshness Sla Seconds",
+            "type": "integer"
           },
           "id": {
             "minLength": 1,
@@ -2040,11 +2070,16 @@
           "product_id": {
             "title": "Product Id",
             "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
           }
         },
         "required": [
           "product_id",
           "environment",
+          "run_id",
           "observed_at",
           "health",
           "pass_rate"
