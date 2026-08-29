@@ -982,7 +982,6 @@ def test_privacy_verifier_rejects_class_bound_emitter_alias(tmp_path: Path) -> N
         "namespace = vars(ctx)\ngetter = namespace.get\n"
         'getattr(getter("events"), "emit")('
         '"result", secret_payload="hidden")\n',
-        'ctx.events.emit("result", run_id="run-1")\n'
         'event_name = "events"\n'
         'getattr(vars(ctx).get(event_name), "emit")('
         '"result", secret_payload="hidden")\n',
@@ -1006,6 +1005,20 @@ def test_privacy_verifier_rejects_reflective_emitter_access(
     source = tmp_path / "src" / "pmpe" / "orchestration"
     source.mkdir(parents=True)
     (source / "context.py").write_text(source_text)
+
+    with pytest.raises(ValueError, match="reflective access"):
+        _inventory_telemetry_fields(tmp_path)
+
+
+def test_privacy_verifier_rejects_dynamic_event_key_in_isolated_scope(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "ordinary.py").write_text('ctx.events.emit("result", run_id="run-1")\n')
+    (source / "reflective.py").write_text(
+        'key = "events"\ngetattr(vars(ctx).get(key), "emit")("result", secret_payload="hidden")\n'
+    )
 
     with pytest.raises(ValueError, match="reflective access"):
         _inventory_telemetry_fields(tmp_path)
