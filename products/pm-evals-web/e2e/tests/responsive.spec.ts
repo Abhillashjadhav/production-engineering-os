@@ -22,7 +22,7 @@ test("the journey completes at a phone viewport without horizontal overflow", as
   await page.goto("/");
   // The whole journey below runs at the contract's declared 375px width.
   expect(page.viewportSize()?.width).toBe(375);
-  await expect(page.getByRole("heading", { name: /see the exact failure/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /see the exact issue/i })).toBeVisible();
   await expectNoHorizontalOverflow(page);
 
   await compareFixtures(page);

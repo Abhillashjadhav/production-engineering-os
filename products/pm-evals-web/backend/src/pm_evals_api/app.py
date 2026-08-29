@@ -39,6 +39,7 @@ from pm_evals_compare import (
     render_markdown,
 )
 from pm_evals_monitoring import (
+    FutureObservationError,
     MonitoringOverview,
     MonitoringStore,
     RunDiagnosis,
@@ -226,6 +227,16 @@ def create_app(
     monitoring_ingest_token: str | None = None,
 ) -> FastAPI:
     monitoring_store = MonitoringStore(monitoring_data_dir) if monitoring_data_dir else None
+
+    def stored_comparison(run: RunEnvelope) -> RunEnvelope | None:
+        if monitoring_store is None:
+            return None
+        return monitoring_store.get_run(
+            product_id=run.product.id,
+            environment=run.product.environment,
+            run_id=run.comparison.run_id,
+        )
+
     app = FastAPI(
         title="pm-evals Web API",
         version=API_VERSION,
@@ -342,9 +353,9 @@ def create_app(
         response_model=RunDiagnosis,
         responses=validation_responses,
     )
-    async def evaluate_monitoring_run(run: RunEnvelope) -> RunDiagnosis:
+    def evaluate_monitoring_run(run: RunEnvelope) -> RunDiagnosis:
         """Replay diagnosis without mutating monitoring history."""
-        return diagnose_run(run)
+        return diagnose_run(run, comparison=stored_comparison(run))
 
     @app.post(
         "/api/monitoring/runs",
@@ -381,9 +392,15 @@ def create_app(
             )
         try:
             stored = monitoring_store.append(run)
+        except FutureObservationError as exc:
+            raise _validation_error("observed_at", str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
-        return IngestResponse(stored=stored, duplicate=not stored, diagnosis=diagnose_run(run))
+        return IngestResponse(
+            stored=stored,
+            duplicate=not stored,
+            diagnosis=diagnose_run(run, comparison=stored_comparison(run)),
+        )
 
     @app.get("/api/monitoring/overview", response_model=MonitoringOverview)
     def monitoring_overview() -> MonitoringOverview:

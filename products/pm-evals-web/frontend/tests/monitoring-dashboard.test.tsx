@@ -26,6 +26,8 @@ const OVERVIEW: MonitoringOverview = {
       latest_run_id: "dream-run",
       observed_at: "2026-08-28T12:00:00Z",
       health: "FAILING",
+      is_stale: false,
+      freshness_sla_seconds: 93600,
       pass_count: 3,
       fail_count: 2,
       blocked_count: 0,
@@ -40,6 +42,8 @@ const OVERVIEW: MonitoringOverview = {
       latest_run_id: "linkedin-run",
       observed_at: "2026-08-28T10:00:00Z",
       health: "HEALTHY",
+      is_stale: false,
+      freshness_sla_seconds: 93600,
       pass_count: 5,
       fail_count: 0,
       blocked_count: 0,
@@ -50,6 +54,7 @@ const OVERVIEW: MonitoringOverview = {
   incidents: [
     {
       incident_id: "dream-run:source-linkedin-coverage",
+      attribution: "LIKELY_STARTING_FAILURE",
       product_id: "dream-job-agent",
       product_name: "Dream Job Agent",
       environment: "production",
@@ -103,10 +108,10 @@ const OVERVIEW: MonitoringOverview = {
     },
   ],
   trend: [
-    { product_id: "dream-job-agent", environment: "production", observed_at: "2026-08-27T12:00:00Z", health: "HEALTHY", pass_rate: 1 },
-    { product_id: "dream-job-agent", environment: "production", observed_at: "2026-08-28T12:00:00Z", health: "FAILING", pass_rate: 0.6 },
-    { product_id: "linkedin-research-os", environment: "production", observed_at: "2026-08-27T10:00:00Z", health: "HEALTHY", pass_rate: 1 },
-    { product_id: "linkedin-research-os", environment: "production", observed_at: "2026-08-28T10:00:00Z", health: "HEALTHY", pass_rate: 1 },
+    { product_id: "dream-job-agent", environment: "production", run_id: "dream-approved", observed_at: "2026-08-27T12:00:00Z", health: "HEALTHY", pass_rate: 1 },
+    { product_id: "dream-job-agent", environment: "production", run_id: "dream-run", observed_at: "2026-08-28T12:00:00Z", health: "FAILING", pass_rate: 0.6 },
+    { product_id: "linkedin-research-os", environment: "production", run_id: "linkedin-approved", observed_at: "2026-08-27T10:00:00Z", health: "HEALTHY", pass_rate: 1 },
+    { product_id: "linkedin-research-os", environment: "production", run_id: "linkedin-run", observed_at: "2026-08-28T10:00:00Z", health: "HEALTHY", pass_rate: 1 },
   ],
 };
 
@@ -121,7 +126,7 @@ describe("MonitoringDashboard", () => {
   it("shows the exact case, earned cause, and fix location in plain language", async () => {
     render(<MonitoringDashboard fetcher={fetchOverview()} />);
 
-    expect(await screen.findByRole("heading", { name: /see the exact failure/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /see the exact issue/i })).toBeInTheDocument();
     expect(screen.getByText(/simulation, not production/i)).toBeInTheDocument();
     const diagnosis = screen.getByRole("heading", { name: /where to start/i }).closest("section");
     expect(diagnosis).not.toBeNull();
@@ -129,6 +134,8 @@ describe("MonitoringDashboard", () => {
     expect(within(diagnosis!).getByText("Current result")).toBeInTheDocument();
     expect(within(diagnosis!).getByText("Expected result")).toBeInTheDocument();
     expect(within(diagnosis!).getByText("Pass bar")).toBeInTheDocument();
+    expect(within(diagnosis!).getByText(/acceptable boundary/i)).toBeInTheDocument();
+    expect(within(diagnosis!).queryByText(/minimum acceptable/i)).not.toBeInTheDocument();
     expect(within(diagnosis!).getByText("49 percentage points")).toBeInTheDocument();
     expect(within(diagnosis!).getByText("LinkedIn source adapter / connector-v2 mapping")).toBeInTheDocument();
     expect(within(diagnosis!).getByText("Supported cause")).toBeInTheDocument();
@@ -159,10 +166,239 @@ describe("MonitoringDashboard", () => {
     expect(screen.getByText(/comparison unavailable: dream-approved/i)).toBeInTheDocument();
   });
 
+  it("labels a passing regression as a degraded check, not a failed check", async () => {
+    const degraded: MonitoringOverview = {
+      ...OVERVIEW,
+      mode: "LIVE",
+      products: [{
+        ...OVERVIEW.products[0],
+        health: "DEGRADED",
+        fail_count: 0,
+      }],
+      incidents: [{
+        ...OVERVIEW.incidents[0],
+        attribution: "DEGRADED_CHECK",
+        downstream_observation_ids: [],
+      }],
+      trend: OVERVIEW.trend.filter((point) => point.product_id === "dream-job-agent"),
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(degraded)} />);
+
+    expect(await screen.findByText("Degraded check")).toBeInTheDocument();
+    expect(screen.getByText(/still passes, but moved beyond/i)).toBeInTheDocument();
+    expect(screen.queryByText("Likely starting failure")).not.toBeInTheDocument();
+  });
+
+  it("does not call localized incidents the total failed-case count", async () => {
+    const unresolved: MonitoringOverview = {
+      ...OVERVIEW,
+      mode: "LIVE",
+      incidents: [],
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(unresolved)} />);
+
+    const label = await screen.findByText("Localized cases");
+    expect(within(label.closest("div")!).getByText("0")).toBeInTheDocument();
+    expect(screen.queryByText("Failed cases")).not.toBeInTheDocument();
+  });
+
+  it("keeps reused case IDs separate across use cases", async () => {
+    const secondUseCase = {
+      ...OVERVIEW.incidents[0],
+      incident_id: "dream-run:source-linkedin-coverage:second-use-case",
+      case: {
+        ...OVERVIEW.incidents[0].case,
+        use_case_id: "career-transition-search",
+      },
+    };
+    const multipleUseCases: MonitoringOverview = {
+      ...OVERVIEW,
+      incidents: [OVERVIEW.incidents[0], secondUseCase],
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(multipleUseCases)} />);
+
+    const label = await screen.findByText("Localized cases");
+    expect(within(label.closest("div")!).getByText("2")).toBeInTheDocument();
+  });
+
   it("filters failed cases by product", async () => {
     render(<MonitoringDashboard fetcher={fetchOverview()} />);
     fireEvent.click(await screen.findByRole("button", { name: /linkedin research os/i }));
     expect(screen.getByText(/no starting failure found/i)).toBeInTheDocument();
+  });
+
+  it("keeps equal-time trend points distinct by run identity", async () => {
+    const tiedOverview: MonitoringOverview = {
+      ...OVERVIEW,
+      products: [OVERVIEW.products[0]],
+      incidents: [],
+      trend: [
+        {
+          ...OVERVIEW.trend[0],
+          run_id: "z-arrived-first",
+          observed_at: "2026-08-28T12:00:00Z",
+          health: "HEALTHY",
+          pass_rate: 1,
+        },
+        {
+          ...OVERVIEW.trend[1],
+          run_id: "a-arrived-second",
+          observed_at: "2026-08-28T12:00:00Z",
+          health: "FAILING",
+          pass_rate: 0.5,
+        },
+      ],
+    };
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    try {
+      render(<MonitoringDashboard fetcher={fetchOverview(tiedOverview)} />);
+      const chart = await screen.findByRole("img", { name: /pass-rate trend/i });
+
+      expect(chart.querySelectorAll("circle")).toHaveLength(2);
+      expect(consoleError.mock.calls.flat().join(" ")).not.toMatch(/same key/i);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("renders every trend health state distinctly and names it accessibly", async () => {
+    const healthStates = ["HEALTHY", "DEGRADED", "FAILING", "BLOCKED"] as const;
+    const trendOverview: MonitoringOverview = {
+      ...OVERVIEW,
+      products: [OVERVIEW.products[0]],
+      incidents: [],
+      trend: healthStates.map((health, index) => ({
+        ...OVERVIEW.trend[0],
+        run_id: `trend-${health.toLowerCase()}`,
+        observed_at: `2026-08-${24 + index}T12:00:00Z`,
+        health,
+      })),
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(trendOverview)} />);
+    const chart = await screen.findByRole("img", { name: /pass-rate trend/i });
+    const points = chart.querySelectorAll("circle");
+
+    expect(points).toHaveLength(4);
+    healthStates.forEach((health, index) => {
+      expect(points[index]).toHaveClass(`sparkline-point-${health.toLowerCase()}`);
+    });
+    expect(chart).toHaveAccessibleName(/healthy.*degraded.*failing.*blocked/i);
+  });
+
+  it("preserves precision for small but significant ratio regressions", async () => {
+    const preciseOverview: MonitoringOverview = {
+      ...OVERVIEW,
+      products: [OVERVIEW.products[0]],
+      incidents: [
+        {
+          ...OVERVIEW.incidents[0],
+          current_value: 0.8004,
+          expected_value: 0.8009,
+          threshold: 0.8,
+          regression_magnitude: 0.0005,
+        },
+      ],
+      trend: OVERVIEW.trend.filter((point) => point.product_id === "dream-job-agent"),
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(preciseOverview)} />);
+    const comparison = await screen.findByLabelText("Current and expected result");
+
+    expect(within(comparison).getByText("80.04%")).toBeInTheDocument();
+    expect(within(comparison).getByText("80.09%")).toBeInTheDocument();
+    expect(within(comparison).getByText("80.00%")).toBeInTheDocument();
+    expect(within(comparison).getByText("0.05 percentage points")).toBeInTheDocument();
+  });
+
+  it("preserves precision for small regressions in native units", async () => {
+    const preciseOverview: MonitoringOverview = {
+      ...OVERVIEW,
+      products: [OVERVIEW.products[0]],
+      incidents: [
+        {
+          ...OVERVIEW.incidents[0],
+          current_value: 0.8004,
+          expected_value: 0.8009,
+          threshold: 0.8,
+          regression_magnitude: 0.0005,
+          unit: "score",
+        },
+      ],
+      trend: OVERVIEW.trend.filter((point) => point.product_id === "dream-job-agent"),
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(preciseOverview)} />);
+    const comparison = await screen.findByLabelText("Current and expected result");
+
+    expect(within(comparison).getByText("0.8004 score")).toBeInTheDocument();
+    expect(within(comparison).getByText("0.8009 score")).toBeInTheDocument();
+    expect(within(comparison).getByText("0.8000 score")).toBeInTheDocument();
+    expect(within(comparison).getByText("0.0005 score")).toBeInTheDocument();
+  });
+
+  it("uses scientific notation instead of rounding tiny values to zero", async () => {
+    const tinyOverview: MonitoringOverview = {
+      ...OVERVIEW,
+      products: [OVERVIEW.products[0]],
+      incidents: [
+        {
+          ...OVERVIEW.incidents[0],
+          current_value: 2e-20,
+          expected_value: 1e-20,
+          threshold: 0,
+          regression_magnitude: 1e-20,
+          unit: "score",
+        },
+      ],
+      trend: OVERVIEW.trend.filter((point) => point.product_id === "dream-job-agent"),
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(tinyOverview)} />);
+    const comparison = await screen.findByLabelText("Current and expected result");
+
+    expect(within(comparison).getByText("2.0e-20 score")).toBeInTheDocument();
+    expect(within(comparison).getAllByText("1.0e-20 score")).toHaveLength(2);
+    expect(within(comparison).queryByText(/^0\.0+ score$/)).not.toBeInTheDocument();
+  });
+
+  it("formats large finite ratios without overflowing to infinity", async () => {
+    const largeOverview: MonitoringOverview = {
+      ...OVERVIEW,
+      products: [OVERVIEW.products[0]],
+      incidents: [
+        {
+          ...OVERVIEW.incidents[0],
+          current_value: 1e308,
+          expected_value: 5e307,
+          threshold: 0,
+          regression_magnitude: 5e307,
+          unit: "ratio",
+        },
+      ],
+      trend: OVERVIEW.trend.filter((point) => point.product_id === "dream-job-agent"),
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(largeOverview)} />);
+    const comparison = await screen.findByLabelText("Current and expected result");
+
+    expect(within(comparison).getByText("1.0e+310%")).toBeInTheDocument();
+    expect(within(comparison).getAllByText("5.0e+309%")).toHaveLength(1);
+    expect(within(comparison).getByText("5.0e+309 percentage points")).toBeInTheDocument();
+    expect(within(comparison).queryByText(/infinity/i)).not.toBeInTheDocument();
+  });
+
+  it("shows contract categories that no product currently covers", async () => {
+    render(<MonitoringDashboard fetcher={fetchOverview()} />);
+    const policyRow = await screen.findByRole("row", { name: /policy compliance/i });
+    const systemRow = screen.getByRole("row", { name: /^system /i });
+
+    expect(within(policyRow).getAllByText("Not covered")).toHaveLength(2);
+    expect(within(systemRow).getAllByText("Not covered")).toHaveLength(2);
   });
 
   it("keeps production incidents out of the staging product view", async () => {
@@ -181,6 +417,7 @@ describe("MonitoringDashboard", () => {
         {
           product_id: "dream-job-agent",
           environment: "staging",
+          run_id: "dream-staging-run",
           observed_at: "2026-08-28T12:05:00Z",
           health: "HEALTHY",
           pass_rate: 1,
@@ -239,6 +476,26 @@ describe("MonitoringDashboard", () => {
     expect(await screen.findByText(/no confirmed starting point yet/i)).toBeInTheDocument();
     expect(screen.getByText(/evidence is blocked, incomplete/i)).toBeInTheDocument();
     expect(screen.queryByText(/within their approved bars/i)).not.toBeInTheDocument();
+  });
+
+  it("marks stale product observations as unavailable, not healthy now", async () => {
+    const staleOverview: MonitoringOverview = {
+      ...OVERVIEW,
+      mode: "LIVE",
+      products: [{
+        ...OVERVIEW.products[1],
+        health: "BLOCKED",
+        is_stale: true,
+      }],
+      incidents: [],
+      trend: OVERVIEW.trend.filter((point) => point.product_id === "linkedin-research-os"),
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(staleOverview)} />);
+
+    expect(await screen.findByText("DATA STALE")).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent(/production data unavailable for 1 product/i);
+    expect(screen.getByText("0/1")).toBeInTheDocument();
   });
 
   it("refreshes the overview without reloading the page", async () => {
