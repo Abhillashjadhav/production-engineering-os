@@ -338,7 +338,9 @@ button:disabled { background: var(--muted); border-color: var(--muted); cursor: 
 .sparkline-axis { stroke: #d8dcd4; stroke-width: 1; }
 .sparkline-line { fill: none; stroke: #29332b; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; }
 .sparkline-point { fill: #f8f8f4; stroke: #29332b; stroke-width: 2; }
+.sparkline-point-degraded { fill: #f8edc7; stroke: #796016; stroke-width: 3; }
 .sparkline-point-failing { fill: var(--accent); stroke: var(--accent); }
+.sparkline-point-blocked { fill: #555d54; stroke: #f8f8f4; stroke-dasharray: 2 1; stroke-width: 2.5; }
 .product-card-footer { color: var(--muted); font-size: 0.68rem; }
 .product-card-footer strong { color: var(--ink); }
 

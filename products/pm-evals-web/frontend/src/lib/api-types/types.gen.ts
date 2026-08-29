@@ -532,6 +532,10 @@ export type HealthResponse = {
  * Incident
  */
 export type Incident = {
+    /**
+     * Attribution
+     */
+    attribution: 'LIKELY_STARTING_FAILURE' | 'DEGRADED_CHECK';
     case: CaseRef;
     /**
      * Cause Category
@@ -676,6 +680,8 @@ export type IngestResponse = {
     stored: boolean;
 };
 
+export type JsonValue = unknown;
+
 /**
  * Location
  */
@@ -807,7 +813,7 @@ export type Observation = {
      * Extensions
      */
     extensions?: {
-        [key: string]: unknown;
+        [key: string]: JsonValue;
     };
     /**
      * Higher Is Better
@@ -852,7 +858,7 @@ export type ObservationDiagnosis = {
     /**
      * Attribution
      */
-    attribution: 'LIKELY_STARTING_FAILURE' | 'DOWNSTREAM_SYMPTOM' | 'UNCONFIRMED';
+    attribution: 'LIKELY_STARTING_FAILURE' | 'DOWNSTREAM_SYMPTOM' | 'UNCONFIRMED' | 'DEGRADED_CHECK';
     /**
      * Cause Category
      */
@@ -932,9 +938,17 @@ export type ProductHealth = {
      */
     fail_count: number;
     /**
+     * Freshness Sla Seconds
+     */
+    freshness_sla_seconds: number;
+    /**
      * Health
      */
     health: 'HEALTHY' | 'DEGRADED' | 'FAILING' | 'BLOCKED';
+    /**
+     * Is Stale
+     */
+    is_stale: boolean;
     /**
      * Latest Run Id
      */
@@ -973,6 +987,10 @@ export type ProductRef = {
      * Environment
      */
     environment: string;
+    /**
+     * Freshness Sla Seconds
+     */
+    freshness_sla_seconds?: number;
     /**
      * Id
      */
@@ -1175,6 +1193,10 @@ export type TrendPoint = {
      * Product Id
      */
     product_id: string;
+    /**
+     * Run Id
+     */
+    run_id: string;
 };
 
 /**

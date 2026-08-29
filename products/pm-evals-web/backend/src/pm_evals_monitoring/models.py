@@ -8,13 +8,28 @@ failure happened.
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from datetime import datetime
-from typing import Any, Literal
+from datetime import UTC, datetime, timedelta
+from math import isfinite
+from typing import Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    field_validator,
+    model_validator,
+)
 
 ObservationStatus = Literal["PASS", "FAIL", "BLOCKED", "NOT_EVALUATED"]
-Attribution = Literal["LIKELY_STARTING_FAILURE", "DOWNSTREAM_SYMPTOM", "UNCONFIRMED"]
+Attribution = Literal[
+    "LIKELY_STARTING_FAILURE",
+    "DOWNSTREAM_SYMPTOM",
+    "UNCONFIRMED",
+    "DEGRADED_CHECK",
+]
+IncidentAttribution = Literal["LIKELY_STARTING_FAILURE", "DEGRADED_CHECK"]
 RunHealth = Literal["HEALTHY", "DEGRADED", "FAILING", "BLOCKED"]
 EvalLayer = Literal[
     "INPUT",
@@ -90,6 +105,8 @@ _CAUSE_CHANGE_DIMENSIONS: dict[CauseCategory, frozenset[ChangeDimension]] = {
 }
 
 OVERVIEW_TREND_RUNS_PER_PRODUCT = 30
+DEFAULT_FRESHNESS_SLA_SECONDS = 26 * 60 * 60
+MAX_FUTURE_CLOCK_SKEW = timedelta(minutes=5)
 
 
 class StrictModel(BaseModel):
@@ -101,6 +118,11 @@ class ProductRef(StrictModel):
     display_name: str = Field(min_length=1)
     version: str = Field(min_length=1)
     environment: str = Field(min_length=1)
+    freshness_sla_seconds: int = Field(
+        default=DEFAULT_FRESHNESS_SLA_SECONDS,
+        ge=60,
+        le=31 * 24 * 60 * 60,
+    )
 
 
 class ModelRef(StrictModel):
@@ -245,12 +267,45 @@ class Observation(StrictModel):
     evidence_refs: list[EvidenceRef] = Field(default_factory=list)
     cause_signals: list[CauseSignal] = Field(default_factory=list)
     remediation: Remediation
-    extensions: dict[str, Any] = Field(default_factory=dict)
+    extensions: dict[str, JsonValue] = Field(default_factory=dict)
+
+    @field_validator("extensions")
+    @classmethod
+    def validate_extensions(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
+        # JsonValue rejects non-JSON Python objects. Pydantic trusts numbers parsed
+        # from JSON, however, so retain an explicit recursive finite-number check
+        # for overflowing literals such as 1e400 as well.
+        pending: list[JsonValue] = list(value.values())
+        while pending:
+            item = pending.pop()
+            if isinstance(item, float) and not isfinite(item):
+                raise ValueError("extensions must contain only finite JSON numbers")
+            if isinstance(item, list):
+                pending.extend(item)
+            elif isinstance(item, dict):
+                pending.extend(item.values())
+        return value
 
     @model_validator(mode="after")
     def validate_measurement(self) -> Observation:
         if self.status in ("PASS", "FAIL") and self.current_value is None:
             raise ValueError("PASS and FAIL observations require current_value")
+        if (
+            self.status in ("PASS", "FAIL")
+            and self.current_value is not None
+            and self.threshold is not None
+        ):
+            meets_bar = (
+                self.current_value >= self.threshold
+                if self.higher_is_better
+                else self.current_value <= self.threshold
+            )
+            if (self.status == "PASS") != meets_bar:
+                direction = "at least" if self.higher_is_better else "at most"
+                raise ValueError(
+                    f"status {self.status} contradicts the numeric pass bar; "
+                    f"current_value must be {direction} threshold to pass"
+                )
         if self.observation_id in self.depends_on:
             raise ValueError("an observation cannot depend on itself")
         if len(self.depends_on) != len(set(self.depends_on)):
@@ -272,6 +327,11 @@ class RunEnvelope(StrictModel):
     change_manifest: ChangeManifest
     provenance: Provenance
     observations: list[Observation] = Field(min_length=1, max_length=2000)
+
+    @field_validator("observed_at")
+    @classmethod
+    def normalize_observation_time(cls, value: datetime) -> datetime:
+        return value.astimezone(UTC)
 
     @model_validator(mode="after")
     def validate_graph(self) -> RunEnvelope:
@@ -352,6 +412,8 @@ class ProductHealth(StrictModel):
     latest_run_id: str
     observed_at: datetime
     health: RunHealth
+    is_stale: bool
+    freshness_sla_seconds: int
     pass_count: int
     fail_count: int
     blocked_count: int
@@ -373,6 +435,7 @@ class MaintenanceAssessment(StrictModel):
 
 class Incident(StrictModel):
     incident_id: str
+    attribution: IncidentAttribution
     product_id: str
     product_name: str
     environment: str
@@ -411,6 +474,7 @@ class Incident(StrictModel):
 class TrendPoint(StrictModel):
     product_id: str
     environment: str
+    run_id: str
     observed_at: datetime
     health: RunHealth
     pass_rate: float
