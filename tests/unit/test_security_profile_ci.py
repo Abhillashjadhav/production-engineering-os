@@ -1278,6 +1278,7 @@ def test_ci_materializes_security_authority_from_exact_protected_base() -> None:
     assert "--allowlist /tmp/trusted-security-policy/secret-allowlist.json" in security
     assert "--policy /tmp/trusted-security-policy/security-profile-policy.json" in security
     assert "--secret-allowlist /tmp/trusted-security-policy/secret-allowlist.json" in security
+    assert "--no-deps --disable-pip" in security
     assert "--root ." in security
     assert "--allowlist security/secret-allowlist.json" not in security
     assert "--policy security/security-profile-policy.json" not in security

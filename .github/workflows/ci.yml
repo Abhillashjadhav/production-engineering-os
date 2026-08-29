@@ -162,7 +162,7 @@ jobs:
       - name: dependency audit (core lockfile blocks on any known vulnerability)
         run: |
           mkdir -p /tmp/security-profile
-          pip-audit --cache-dir /tmp/pip-audit --require-hashes -r requirements.lock --strict --format json --output /tmp/security-profile/pip-audit.json
+          pip-audit --cache-dir /tmp/pip-audit --require-hashes -r requirements.lock --no-deps --disable-pip --strict --format json --output /tmp/security-profile/pip-audit.json
       - name: no-ignore exact-SHA secret gate
         env:
           CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
