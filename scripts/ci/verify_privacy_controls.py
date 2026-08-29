@@ -303,6 +303,35 @@ def _reflective_emitter_dictionary_access(
     ):
         return True
     if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"__getattr__", "__getattribute__", "getattr_static"}
+        and node.args
+        and _dictionary_value_reference(
+            node.args[0],
+            dictionary_aliases,
+            getter_aliases,
+            value_aliases,
+        )
+    ):
+        return True
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Call)
+        and isinstance(node.func.func, ast.Attribute)
+        and node.func.func.attr in {"attrgetter", "methodcaller"}
+        and any(
+            _dictionary_value_reference(
+                argument,
+                dictionary_aliases,
+                getter_aliases,
+                value_aliases,
+            )
+            for argument in node.args
+        )
+    ):
+        return True
+    if (
         isinstance(node, ast.Attribute)
         and node.attr == "emit"
         and _dictionary_value_reference(

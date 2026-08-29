@@ -286,6 +286,9 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert "  security:\n    name: security\n" not in workflow
     assert "  security:\n" not in legacy_workflow
     assert "  security-static:\n    name: security-static\n" in legacy_workflow
+    assert "name: exact-sha-secret-evidence-attempt-${{ github.run_attempt }}" in legacy_workflow
+    assert "name: playwright-artifacts-attempt-${{ github.run_attempt }}" in legacy_workflow
+    assert "name: preview-playwright-artifacts-attempt-${{ github.run_attempt }}" in legacy_workflow
     assert "workflow_run:" in finalizer
     assert 'workflows: ["Trusted Security"]' in finalizer
     assert "types: [completed]" in finalizer

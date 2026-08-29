@@ -199,7 +199,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: exact-sha-secret-evidence
+          name: exact-sha-secret-evidence-attempt-${{ github.run_attempt }}
           path: |
             /tmp/security-profile/secret-report.json
             /tmp/security-profile/pip-audit.json
@@ -329,7 +329,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: playwright-artifacts
+          name: playwright-artifacts-attempt-${{ github.run_attempt }}
           path: |
             products/pm-evals-web/e2e/test-results/
             products/pm-evals-web/e2e/playwright-report/
@@ -387,7 +387,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: preview-playwright-artifacts
+          name: preview-playwright-artifacts-attempt-${{ github.run_attempt }}
           path: |
             products/pm-evals-web/e2e/test-results/
             products/pm-evals-web/e2e/playwright-report/
