@@ -345,9 +345,7 @@ class RetentionController:
             if event.get("event_id") != _canonical_digest(digest_subject):
                 return None
         first = events[0]
-        terminal = events[-1]
         first_outputs = first.get("output_digests")
-        terminal_outputs = terminal.get("output_digests")
         modern_policy_binding = bool(
             first.get("stage") == "contract_lock"
             and first.get("action") == "lock"
@@ -360,29 +358,81 @@ class RetentionController:
             if event.get("stage") == "contract_lock"
             and event.get("action") == "bind_legacy_retention_policy"
         ]
-        legacy_policy_binding = False
+        completion_bindings = [
+            event
+            for event in events
+            if event.get("stage") == "release_report"
+            and event.get("action") == "bind_legacy_retention_completion"
+        ]
+        release_reports = [
+            event
+            for event in events
+            if event.get("stage") == "release_report"
+            and event.get("action") == "report"
+            and not event.get("idempotency_key")
+        ]
+        if len(release_reports) != 1:
+            return None
+        report = release_reports[0]
+        report_outputs = report.get("output_digests")
+        if not isinstance(report_outputs, dict):
+            return None
+
+        if modern_policy_binding:
+            if (
+                legacy_bindings
+                or completion_bindings
+                or report is not events[-1]
+                or report_outputs.get("terminal_retention")
+                != terminal_retention_digest(retention_days, stage="complete")
+            ):
+                return None
+            completed_at = cls._authenticated_timestamp(report.get("ts"))
+            if completed_at is None:
+                return None
+            return _AuthenticatedRetention(retention_days, completed_at)
+
         contract = state.get("contract")
-        if len(legacy_bindings) == 1 and isinstance(contract, dict):
-            binding = legacy_bindings[0]
-            inputs = binding.get("input_digests")
-            outputs = binding.get("output_digests")
-            legacy_policy_binding = bool(
-                isinstance(inputs, dict)
-                and inputs.get("contract") == contract.get("digest")
-                and isinstance(outputs, dict)
-                and outputs.get("retention_policy") == retention_policy_digest(retention_days)
-            )
         if (
-            modern_policy_binding == legacy_policy_binding
-            or terminal.get("stage") != "release_report"
-            or terminal.get("action") != "report"
-            or terminal.get("idempotency_key")
-            or not isinstance(terminal_outputs, dict)
-            or terminal_outputs.get("terminal_retention")
-            != terminal_retention_digest(retention_days, stage="complete")
+            len(legacy_bindings) != 1
+            or len(completion_bindings) != 1
+            or not isinstance(contract, dict)
+            or not isinstance(first_outputs, dict)
+            or first.get("stage") != "contract_lock"
+            or first.get("action") != "lock"
+            or first_outputs.get("contract") != contract.get("digest")
+            or "retention_policy" in first_outputs
+            or len(events) < 3
+            or events[-3:] != [report, legacy_bindings[0], completion_bindings[0]]
+            or "terminal_retention" in report_outputs
         ):
             return None
-        completed_at = cls._authenticated_timestamp(terminal.get("ts"))
+        binding = legacy_bindings[0]
+        completion = completion_bindings[0]
+        completion_outputs = completion.get("output_digests")
+        if not isinstance(completion_outputs, dict):
+            return None
+        blank_fields = ("detail", "escalation", "next_state", "tool", "verdict")
+        if (
+            binding.get("agent") != "pmpe-core"
+            or binding.get("input_digests") != {"contract": contract.get("digest")}
+            or binding.get("output_digests")
+            != {"retention_policy": retention_policy_digest(retention_days)}
+            or binding.get("idempotency_key") != "legacy-retention-policy/v1"
+            or binding.get("cost") is not None
+            or any(binding.get(field) != "" for field in blank_fields)
+            or completion.get("agent") != "pmpe-core"
+            or completion.get("input_digests")
+            != {"completion_event": report.get("event_id")}
+            or completion_outputs.get("terminal_retention")
+            != terminal_retention_digest(retention_days, stage="complete")
+            or set(completion_outputs) != {"terminal_retention"}
+            or completion.get("idempotency_key") != "legacy-retention-completion/v1"
+            or completion.get("cost") is not None
+            or any(completion.get(field) != "" for field in blank_fields)
+        ):
+            return None
+        completed_at = cls._authenticated_timestamp(report.get("ts"))
         if completed_at is None:
             return None
         return _AuthenticatedRetention(retention_days, completed_at)

@@ -405,6 +405,27 @@ def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
 @pytest.mark.parametrize(
     "source_text",
     [
+        'import sys\nsys.modules["builtins"].__import__("pmpe.guided.api")\n',
+        'import sys as runtime\nmods = runtime.modules\n'
+        'mods.get("builtins").__import__("pmpe.guided.api")\n',
+        'from sys import modules as mods\n'
+        'mods["importlib"].import_module("pmpe.guided.api")\n',
+    ],
+)
+def test_architecture_observer_fails_closed_on_sys_modules_import_authority(
+    tmp_path: Path,
+    source_text: str,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "sys_modules_loader.py").write_text(source_text)
+
+    assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    [
         'import importlib\nget = getattr\nget(importlib, "import_module")("pmpe.guided.api")\n',
         'import builtins\nget = getattr\nget(builtins, "__import__")("pmpe.guided.api")\n',
         "import importlib\ninspect = vars\ninspect(importlib)\n",
@@ -1076,6 +1097,10 @@ def test_privacy_verifier_rejects_class_bound_emitter_alias(tmp_path: Path) -> N
         'get = getattr\nget([ctx.events][0], "emit")("result", email="hidden")\n',
         'get = getattr\nget(**{"object": ctx.events, "name": "emit"})("result", email="hidden")\n',
         'owners = [ctx.events]\nowners[0].emit("result", email="hidden")\n',
+        "def telemetry(ctx):\n"
+        "    import operator, sys\n"
+        '    operator.attrgetter("emit")(sys._getframe().f_locals["ctx"].events)'
+        '("result", secret_payload="hidden")\n',
     ],
 )
 def test_privacy_verifier_rejects_reflective_emitter_access(

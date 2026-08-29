@@ -496,6 +496,140 @@ def _module_dictionary_reference(node: ast.AST, aliases: set[str]) -> bool:
     )
 
 
+def _sys_module_registry_reference(
+    node: ast.AST,
+    *,
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
+    """Recognize the process-wide module registry without flagging ordinary use."""
+
+    if isinstance(node, ast.Name):
+        return node.id in module_registry_aliases
+    if (
+        isinstance(node, ast.Attribute)
+        and node.attr == "modules"
+        and isinstance(node.value, ast.Name)
+    ):
+        return node.value.id in sys_aliases
+    return bool(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) == 2
+        and not node.keywords
+        and isinstance(node.args[0], ast.Name)
+        and node.args[0].id in sys_aliases
+        and _static_string(node.args[1], string_aliases) == "modules"
+    )
+
+
+def _sys_modules_authority_module(
+    node: ast.AST,
+    *,
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> str | None:
+    """Return an import-capable module recovered directly from ``sys.modules``."""
+
+    authority_modules = {"builtins", "importlib"}
+    if isinstance(node, ast.Subscript):
+        module = _static_string(node.slice, string_aliases)
+        if module in authority_modules and _sys_module_registry_reference(
+                node.value,
+                sys_aliases=sys_aliases,
+                module_registry_aliases=module_registry_aliases,
+                string_aliases=string_aliases,
+        ):
+            return module
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"get", "__getitem__"}
+        and _sys_module_registry_reference(
+            node.func.value,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+        and node.args
+    ):
+        module = _static_string(node.args[0], string_aliases)
+        if module in authority_modules:
+            return module
+    return None
+
+
+def _recovered_import_authority_reference(
+    node: ast.AST,
+    *,
+    authority: str,
+    authority_aliases: set[str],
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
+    return bool(
+        isinstance(node, ast.Name)
+        and node.id in authority_aliases
+        or _sys_modules_authority_module(
+            node,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+        == authority
+    )
+
+
+def _sys_modules_import_authority_reference(
+    node: ast.AST,
+    *,
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    recovered_builtins_aliases: set[str],
+    recovered_importlib_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
+    """Fail closed when recovered module authority is used as an import loader."""
+
+    def recovered(value: ast.AST, authority: str) -> bool:
+        aliases = (
+            recovered_builtins_aliases
+            if authority == "builtins"
+            else recovered_importlib_aliases
+        )
+        return _recovered_import_authority_reference(
+            value,
+            authority=authority,
+            authority_aliases=aliases,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+
+    if isinstance(node, ast.Attribute):
+        return bool(
+            node.attr == "__import__" and recovered(node.value, "builtins")
+            or node.attr == "import_module" and recovered(node.value, "importlib")
+        )
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) >= 2
+    ):
+        attribute = _static_string(node.args[1], string_aliases)
+        return bool(
+            recovered(node.args[0], "builtins") and attribute in {None, "__import__"}
+            or recovered(node.args[0], "importlib")
+            and attribute in {None, "import_module"}
+        )
+    return False
+
+
 def _passes_tracked_module_to_unresolved_call(
     node: ast.AST,
     *,
@@ -656,6 +790,10 @@ _LoaderAliases = tuple[
     set[str],
     set[str],
     set[str],
+    set[str],
+    set[str],
+    set[str],
+    set[str],
     dict[str, str],
 ]
 
@@ -808,6 +946,10 @@ def _lexical_import_aliases(
             builtin_import_aliases = {"__import__"}
             importlib_aliases: set[str] = set()
             import_module_aliases: set[str] = set()
+            sys_aliases: set[str] = set()
+            module_registry_aliases: set[str] = set()
+            recovered_builtins_aliases: set[str] = set()
+            recovered_importlib_aliases: set[str] = set()
             ambient_namespace_aliases: set[str] = set()
             string_aliases: dict[str, str] = {}
         else:
@@ -837,15 +979,39 @@ def _lexical_import_aliases(
                 local_names=local_names,
                 global_names=global_names,
             )
-            ambient_namespace_aliases = _inherited_aliases(
+            sys_aliases = _inherited_aliases(
                 parent_aliases[4],
                 module_aliases[4],
                 local_names=local_names,
                 global_names=global_names,
             )
-            string_aliases = _inherited_string_aliases(
+            module_registry_aliases = _inherited_aliases(
                 parent_aliases[5],
                 module_aliases[5],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            recovered_builtins_aliases = _inherited_aliases(
+                parent_aliases[6],
+                module_aliases[6],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            recovered_importlib_aliases = _inherited_aliases(
+                parent_aliases[7],
+                module_aliases[7],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            ambient_namespace_aliases = _inherited_aliases(
+                parent_aliases[8],
+                module_aliases[8],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            string_aliases = _inherited_string_aliases(
+                parent_aliases[9],
+                module_aliases[9],
                 local_names=local_names,
                 global_names=global_names,
             )
@@ -864,6 +1030,10 @@ def _lexical_import_aliases(
                         if isinstance(scope, ast.ClassDef):
                             edges.add((source_layer, "unresolved_dynamic"))
                         builtins_aliases.add(bound)
+                    elif alias.name == "sys":
+                        if isinstance(scope, ast.ClassDef):
+                            edges.add((source_layer, "unresolved_dynamic"))
+                        sys_aliases.add(bound)
             elif isinstance(node, ast.ImportFrom) and node.module == "importlib":
                 for alias in node.names:
                     if alias.name == "import_module":
@@ -876,6 +1046,12 @@ def _lexical_import_aliases(
                         if isinstance(scope, ast.ClassDef):
                             edges.add((source_layer, "unresolved_dynamic"))
                         builtin_import_aliases.add(alias.asname or alias.name)
+            elif isinstance(node, ast.ImportFrom) and node.module == "sys":
+                for alias in node.names:
+                    if alias.name == "modules":
+                        if isinstance(scope, ast.ClassDef):
+                            edges.add((source_layer, "unresolved_dynamic"))
+                        module_registry_aliases.add(alias.asname or alias.name)
 
         string_assignments: dict[str, list[ast.expr]] = {}
         for node in nodes:
@@ -931,6 +1107,37 @@ def _lexical_import_aliases(
                             builtin_import_aliases=builtin_import_aliases,
                         ),
                         builtin_import_aliases,
+                    ),
+                    (
+                        _recovered_import_authority_reference(
+                            value,
+                            authority="builtins",
+                            authority_aliases=recovered_builtins_aliases,
+                            sys_aliases=sys_aliases,
+                            module_registry_aliases=module_registry_aliases,
+                            string_aliases=string_aliases,
+                        ),
+                        recovered_builtins_aliases,
+                    ),
+                    (
+                        _recovered_import_authority_reference(
+                            value,
+                            authority="importlib",
+                            authority_aliases=recovered_importlib_aliases,
+                            sys_aliases=sys_aliases,
+                            module_registry_aliases=module_registry_aliases,
+                            string_aliases=string_aliases,
+                        ),
+                        recovered_importlib_aliases,
+                    ),
+                    (
+                        _sys_module_registry_reference(
+                            value,
+                            sys_aliases=sys_aliases,
+                            module_registry_aliases=module_registry_aliases,
+                            string_aliases=string_aliases,
+                        ),
+                        module_registry_aliases,
                     ),
                     (
                         _ambient_namespace_reference(value, ambient_namespace_aliases),
@@ -994,6 +1201,10 @@ def _lexical_import_aliases(
             builtin_import_aliases,
             importlib_aliases,
             import_module_aliases,
+            sys_aliases,
+            module_registry_aliases,
+            recovered_builtins_aliases,
+            recovered_importlib_aliases,
             ambient_namespace_aliases,
             string_aliases,
         )
@@ -1023,6 +1234,10 @@ def _collect_architecture_edges(
             builtin_import_aliases,
             importlib_aliases,
             import_module_aliases,
+            sys_aliases,
+            module_registry_aliases,
+            recovered_builtins_aliases,
+            recovered_importlib_aliases,
             ambient_namespace_aliases,
             string_aliases,
         ) = aliases_by_scope[node_scope[node]]
@@ -1032,6 +1247,14 @@ def _collect_architecture_edges(
                 node,
                 ambient_namespace_aliases,
                 string_aliases,
+            )
+            or _sys_modules_import_authority_reference(
+                node,
+                sys_aliases=sys_aliases,
+                module_registry_aliases=module_registry_aliases,
+                recovered_builtins_aliases=recovered_builtins_aliases,
+                recovered_importlib_aliases=recovered_importlib_aliases,
+                string_aliases=string_aliases,
             )
             or _module_dictionary_reference(node, tracked_modules)
             or _passes_tracked_module_to_unresolved_call(
@@ -1060,6 +1283,10 @@ def _collect_architecture_edges(
             builtin_import_aliases,
             importlib_aliases,
             import_module_aliases,
+            _,
+            _,
+            _,
+            _,
             _,
             _,
         ) = aliases_by_scope[node_scope[node]]

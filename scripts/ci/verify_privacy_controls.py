@@ -320,14 +320,20 @@ def _reflective_emitter_dictionary_access(
         and isinstance(node.func, ast.Call)
         and isinstance(node.func.func, ast.Attribute)
         and node.func.func.attr in {"attrgetter", "methodcaller"}
-        and any(
-            _dictionary_value_reference(
-                argument,
-                dictionary_aliases,
-                getter_aliases,
-                value_aliases,
+        and (
+            any(
+                _literal_string(argument, string_aliases) in {None, "emit", "events"}
+                for argument in node.func.args
             )
-            for argument in node.args
+            or any(
+                _dictionary_value_reference(
+                    argument,
+                    dictionary_aliases,
+                    getter_aliases,
+                    value_aliases,
+                )
+                for argument in node.args
+            )
         )
     ):
         return True
