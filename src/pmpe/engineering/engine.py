@@ -141,9 +141,7 @@ def _authenticate_legacy_retention_state(
         event for event in events if event.get("action") == "bind_legacy_retention_policy"
     ]
     completion_bindings = [
-        event
-        for event in events
-        if event.get("action") == "bind_legacy_retention_completion"
+        event for event in events if event.get("action") == "bind_legacy_retention_completion"
     ]
     if (
         first.get("stage") != "contract_lock"
@@ -179,9 +177,7 @@ def _authenticate_legacy_retention_state(
             raise PmpeError("legacy retention policy binding is invalid")
 
     if state.get("stage") != "complete":
-        if completion_bindings or (
-            policy_bindings and policy_bindings[0] is not events[-1]
-        ):
+        if completion_bindings or (policy_bindings and policy_bindings[0] is not events[-1]):
             raise PmpeError("legacy retention completion binding is invalid")
         return None
 

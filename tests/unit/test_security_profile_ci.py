@@ -406,10 +406,9 @@ def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
     "source_text",
     [
         'import sys\nsys.modules["builtins"].__import__("pmpe.guided.api")\n',
-        'import sys as runtime\nmods = runtime.modules\n'
+        "import sys as runtime\nmods = runtime.modules\n"
         'mods.get("builtins").__import__("pmpe.guided.api")\n',
-        'from sys import modules as mods\n'
-        'mods["importlib"].import_module("pmpe.guided.api")\n',
+        'from sys import modules as mods\nmods["importlib"].import_module("pmpe.guided.api")\n',
     ],
 )
 def test_architecture_observer_fails_closed_on_sys_modules_import_authority(

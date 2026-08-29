@@ -422,8 +422,7 @@ class RetentionController:
             or binding.get("cost") is not None
             or any(binding.get(field) != "" for field in blank_fields)
             or completion.get("agent") != "pmpe-core"
-            or completion.get("input_digests")
-            != {"completion_event": report.get("event_id")}
+            or completion.get("input_digests") != {"completion_event": report.get("event_id")}
             or completion_outputs.get("terminal_retention")
             != terminal_retention_digest(retention_days, stage="complete")
             or set(completion_outputs) != {"terminal_retention"}

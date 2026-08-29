@@ -538,10 +538,10 @@ def _sys_modules_authority_module(
     if isinstance(node, ast.Subscript):
         module = _static_string(node.slice, string_aliases)
         if module in authority_modules and _sys_module_registry_reference(
-                node.value,
-                sys_aliases=sys_aliases,
-                module_registry_aliases=module_registry_aliases,
-                string_aliases=string_aliases,
+            node.value,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
         ):
             return module
     if (
@@ -597,9 +597,7 @@ def _sys_modules_import_authority_reference(
 
     def recovered(value: ast.AST, authority: str) -> bool:
         aliases = (
-            recovered_builtins_aliases
-            if authority == "builtins"
-            else recovered_importlib_aliases
+            recovered_builtins_aliases if authority == "builtins" else recovered_importlib_aliases
         )
         return _recovered_import_authority_reference(
             value,
@@ -612,8 +610,10 @@ def _sys_modules_import_authority_reference(
 
     if isinstance(node, ast.Attribute):
         return bool(
-            node.attr == "__import__" and recovered(node.value, "builtins")
-            or node.attr == "import_module" and recovered(node.value, "importlib")
+            node.attr == "__import__"
+            and recovered(node.value, "builtins")
+            or node.attr == "import_module"
+            and recovered(node.value, "importlib")
         )
     if (
         isinstance(node, ast.Call)
@@ -623,7 +623,8 @@ def _sys_modules_import_authority_reference(
     ):
         attribute = _static_string(node.args[1], string_aliases)
         return bool(
-            recovered(node.args[0], "builtins") and attribute in {None, "__import__"}
+            recovered(node.args[0], "builtins")
+            and attribute in {None, "__import__"}
             or recovered(node.args[0], "importlib")
             and attribute in {None, "import_module"}
         )
