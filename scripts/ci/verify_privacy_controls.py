@@ -153,8 +153,7 @@ def _event_owner_reference(node: ast.AST, known_owners: set[str] | None = None) 
         and isinstance(node.args[1], ast.Constant)
         and node.args[1].value == "events"
     ):
-        owner = _emitter_identity(node.args[0])
-        return owner in {"context", "ctx", "run_context"}
+        return True
     identity = _emitter_identity(node) if isinstance(node, ast.expr) else None
     if identity is None:
         return False
@@ -533,6 +532,19 @@ def _read_exact_json(path: Path, *, fields: set[str], label: str) -> dict[str, A
     return value
 
 
+def _decode_exact_json(payload: str, *, fields: set[str], label: str) -> dict[str, Any]:
+    try:
+        value = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{label} is unavailable") from exc
+    if not isinstance(value, dict) or set(value) != fields:
+        raise ValueError(f"{label} is malformed")
+    canonical = json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+    if payload != canonical:
+        raise ValueError(f"{label} is not canonical")
+    return value
+
+
 def _write_json(path: Path, value: dict[str, Any]) -> None:
     payload = json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
     if path == Path("-"):
@@ -704,14 +716,20 @@ def _finalize_probe(
     repository_root: Path,
     challenge_path: Path,
     probe_root: Path,
-    receipt_path: Path,
+    receipt_source: Path | dict[str, Any],
 ) -> dict[str, Any]:
     challenge = _load_challenge(challenge_path)
-    receipt = _read_exact_json(
-        receipt_path,
-        fields=_RECEIPT_FIELDS,
-        label="candidate privacy receipt",
+    receipt = (
+        _read_exact_json(
+            receipt_source,
+            fields=_RECEIPT_FIELDS,
+            label="candidate privacy receipt",
+        )
+        if isinstance(receipt_source, Path)
+        else receipt_source
     )
+    if set(receipt) != _RECEIPT_FIELDS:
+        raise ValueError("candidate privacy receipt is malformed")
     privacy = _load_policy(policy_path)
     emitted_telemetry = _inventory_telemetry_fields(repository_root.resolve())
     expected_challenge = bool(
@@ -816,7 +834,6 @@ def _supervise_candidate_runtime(
 
     challenge = _prepare_probe(candidate_sha, policy_path, repository_root, probe_root)
     challenge_path = probe_root.parent / "privacy-challenge.json"
-    receipt_path = probe_root / "candidate-receipt.json"
     _write_json(challenge_path, challenge)
     verifier_path = Path(__file__).resolve()
     candidate_source = repository_root.resolve() / "src"
@@ -827,10 +844,15 @@ def _supervise_candidate_runtime(
         raise ValueError("candidate privacy runtime paths are unavailable")
     child_paths = [str(candidate_source), *site_packages]
     launcher = (
-        "import runpy,sys;"
+        "import json,os,pathlib,runpy,sys;"
+        "_dumps=json.dumps;_exit=os._exit;_write=os.write;_Path=pathlib.Path;"
         f"sys.path[:0]={child_paths!r};"
-        f"sys.argv=[{str(verifier_path)!r},*sys.argv[1:]];"
-        f"runpy.run_path({str(verifier_path)!r},run_name='__main__')"
+        f"_scope=runpy.run_path({str(verifier_path)!r},run_name='_candidate_privacy_probe');"
+        "_probe=_scope['_probe_candidate_runtime'];"
+        f"_receipt=_probe({candidate_sha!r},_Path({str(challenge_path)!r}),"
+        f"_Path({str(probe_root)!r}));"
+        "_payload=(_dumps(_receipt,sort_keys=True,separators=(',',':'))+'\\n').encode();"
+        "_write(1,_payload);_exit(0)"
     )
     command = [
         sys.executable,
@@ -838,20 +860,6 @@ def _supervise_candidate_runtime(
         "-S",
         "-c",
         launcher,
-        "--mode",
-        "probe",
-        "--candidate-sha",
-        candidate_sha,
-        "--root",
-        str(repository_root),
-        "--policy",
-        str(policy_path),
-        "--challenge",
-        str(challenge_path),
-        "--probe-root",
-        str(probe_root),
-        "--output",
-        str(receipt_path),
     ]
     try:
         completed = subprocess.run(  # nosec B603 - protected exact interpreter and script
@@ -872,24 +880,24 @@ def _supervise_candidate_runtime(
         )
     except (OSError, subprocess.SubprocessError) as exc:
         raise ValueError("candidate privacy subprocess failed") from exc
-    if completed.returncode != 0 or completed.stdout or completed.stderr:
+    if completed.returncode != 0 or not completed.stdout or completed.stderr:
         raise ValueError("candidate privacy subprocess did not complete exactly")
+    receipt = _decode_exact_json(
+        completed.stdout,
+        fields=_RECEIPT_FIELDS,
+        label="candidate privacy receipt",
+    )
     finalized = _finalize_probe(
         candidate_sha,
         policy_path,
         repository_root,
         challenge_path,
         probe_root,
-        receipt_path,
+        receipt,
     )
     finalized_digest = finalized.pop("evidence_digest", None)
     if finalized_digest != canonical_digest(finalized):
         raise ValueError("candidate privacy finalization digest is invalid")
-    receipt = _read_exact_json(
-        receipt_path,
-        fields=_RECEIPT_FIELDS,
-        label="candidate privacy receipt",
-    )
     nonce = secrets.token_bytes(32)
     shell: dict[str, Any] = {
         **finalized,

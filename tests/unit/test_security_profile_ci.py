@@ -971,6 +971,7 @@ def test_privacy_verifier_rejects_class_bound_emitter_alias(tmp_path: Path) -> N
     [
         'getattr(ctx.events, "emit")("result", email="hidden")\n',
         'getattr(getattr(ctx, "events"), "emit")("result", secret_payload="hidden")\n',
+        'getattr(getattr(runtime, "events"), "emit")("result", secret_payload="hidden")\n',
         'emit = getattr(ctx.events, "emit")\nemit("result", email="hidden")\n',
         'getattr(ctx.events, field_name)("result", email="hidden")\n',
         'vars(ctx.events)["emit"]("result", email="hidden")\n',
@@ -1153,6 +1154,56 @@ _shell = {
 _receipt = {**_shell, "receipt_digest": canonical_digest(_shell)}
 (_Path.cwd() / "probe" / "candidate-receipt.json").write_text(_json.dumps(_receipt))
 _os._exit(0)
+"""
+    )
+
+    with pytest.raises(ValueError, match="candidate privacy subprocess did not complete exactly"):
+        _supervise_candidate_runtime(
+            SHA,
+            root / "security" / "security-profile-policy.json",
+            candidate,
+            tmp_path / "probe",
+        )
+
+
+def test_supervisor_bypasses_candidate_atexit_probe_forgery(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[2]
+    candidate = tmp_path / "candidate"
+    shutil.copytree(root / "src", candidate / "src")
+    intake_module = candidate / "src" / "pmpe" / "contracts" / "intake.py"
+    intake_module.write_text(
+        intake_module.read_text()
+        + """
+import atexit as _atexit
+import json as _json
+from pathlib import Path as _Path
+from pmpe.contracts.digest import canonical_digest as _canonical_digest
+
+def _broken_delete(self, handle):
+    return False
+
+FileQuarantineStore.delete = _broken_delete
+
+def _forge_probe_at_exit():
+    root = _Path.cwd() / "probe"
+    quarantine = root / "quarantine"
+    if quarantine.is_dir():
+        for path in quarantine.iterdir():
+            path.unlink()
+    challenge = _json.loads((_Path.cwd() / "privacy-challenge.json").read_text())
+    shell = {
+        "candidate_sha": challenge["candidate_sha"],
+        "challenge_digest": challenge["challenge_digest"],
+        "quarantine_delete_returned": True,
+        "quarantine_existed_before_delete": True,
+        "quarantine_exists_after_delete": False,
+        "quarantine_read_digest": challenge["payload_digest"],
+        "schema_version": "candidate-privacy-receipt/v1",
+    }
+    receipt = {**shell, "receipt_digest": _canonical_digest(shell)}
+    (root / "candidate-receipt.json").write_text(_json.dumps(receipt))
+
+_atexit.register(_forge_probe_at_exit)
 """
     )
 
