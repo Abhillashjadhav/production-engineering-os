@@ -416,8 +416,13 @@ def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
         'wrapped.__import__("pmpe.guided.api")\n',
         "import sys\nmodule = sys.modules['builtins']\n"
         'vars(module)["__import__"]("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['builtins']\nnamespace = vars(module)\n"
+        'namespace["__import__"]("pmpe.guided.api")\n',
         "import sys\nmodule = sys.modules['importlib']\n"
         "loader = module.__dict__.get(loader_name)\n"
+        'loader("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['importlib']\nnamespace = module.__dict__\n"
+        "loader = namespace.get(loader_name)\n"
         'loader("pmpe.guided.api")\n',
         "import sys\nmodule = sys.modules['builtins']\n"
         "wrapped = module if flag else object()\n"
@@ -543,7 +548,8 @@ def test_architecture_observer_allows_sys_modules_identity_and_dynamic_lookup(
         "module_name_value = namespace.get('__name__')\n"
         "def inspect(module_name):\n"
         "    nested = sys.modules\n"
-        "    return id(nested), type(nested), nested.get(module_name)\n"
+        "    inspected = nested.get(module_name)\n"
+        "    return id(nested), type(nested), type(inspected)\n"
     )
 
     assert ("orchestration", "unresolved_dynamic") not in _observed_architecture_edges(tmp_path)
