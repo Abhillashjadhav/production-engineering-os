@@ -673,7 +673,7 @@ def _unknown_sys_modules_authority_reference(
         )
     ):
         return True
-    if (
+    return bool(
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr in {"get", "__getitem__"}
@@ -685,11 +685,44 @@ def _unknown_sys_modules_authority_reference(
             module_registry_aliases=module_registry_aliases,
             string_aliases=string_aliases,
         )
+    )
+
+
+def _recovered_unknown_sys_modules_authority_reference(
+    node: ast.AST,
+    *,
+    authority_aliases: set[str],
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
+    if isinstance(node, ast.Name) and node.id in authority_aliases:
+        return True
+    if _unknown_sys_modules_authority_reference(
+        node,
+        sys_aliases=sys_aliases,
+        module_registry_aliases=module_registry_aliases,
+        string_aliases=string_aliases,
     ):
         return True
+    if not isinstance(
+        node,
+        (
+            ast.BoolOp,
+            ast.Dict,
+            ast.IfExp,
+            ast.List,
+            ast.NamedExpr,
+            ast.Set,
+            ast.Subscript,
+            ast.Tuple,
+        ),
+    ):
+        return False
     return any(
-        _unknown_sys_modules_authority_reference(
+        _recovered_unknown_sys_modules_authority_reference(
             child,
+            authority_aliases=authority_aliases,
             sys_aliases=sys_aliases,
             module_registry_aliases=module_registry_aliases,
             string_aliases=string_aliases,
@@ -746,16 +779,15 @@ def _sys_modules_import_authority_reference(
         )
 
     def unknown(value: ast.AST) -> bool:
-        return bool(
-            isinstance(value, ast.Name)
-            and value.id in recovered_unknown_aliases
-            or _unknown_sys_modules_authority_reference(
-                value,
-                sys_aliases=sys_aliases,
-                module_registry_aliases=module_registry_aliases,
-                string_aliases=string_aliases,
-            )
-        )
+        if _recovered_unknown_sys_modules_authority_reference(
+            value,
+            authority_aliases=recovered_unknown_aliases,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        ):
+            return True
+        return any(unknown(child) for child in ast.iter_child_nodes(value))
 
     if isinstance(node, ast.Attribute):
         return bool(
@@ -1301,15 +1333,12 @@ def _lexical_import_aliases(
                         recovered_importlib_aliases,
                     ),
                     (
-                        bool(
-                            isinstance(value, ast.Name)
-                            and value.id in recovered_unknown_aliases
-                            or _unknown_sys_modules_authority_reference(
-                                value,
-                                sys_aliases=sys_aliases,
-                                module_registry_aliases=module_registry_aliases,
-                                string_aliases=string_aliases,
-                            )
+                        _recovered_unknown_sys_modules_authority_reference(
+                            value,
+                            authority_aliases=recovered_unknown_aliases,
+                            sys_aliases=sys_aliases,
+                            module_registry_aliases=module_registry_aliases,
+                            string_aliases=string_aliases,
                         ),
                         recovered_unknown_aliases,
                     ),

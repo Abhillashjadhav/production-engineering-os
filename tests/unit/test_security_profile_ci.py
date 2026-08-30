@@ -426,6 +426,8 @@ def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
         'import sys\nmodule = sys.modules.get(name)\nmodule.__import__("pmpe.guided.api")\n',
         "import sys\nmodule = sys.modules.get(name)\nalias = module\n"
         'alias.__import__("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules.get(name)\nholder = [module]\n"
+        'holder[0].__import__("pmpe.guided.api")\n',
         'import sys\n(module := sys.modules.get(name)).__import__("pmpe.guided.api")\n',
         "import sys\nmodule = sys.modules.get(name) if flag else object()\n"
         'module.__import__("pmpe.guided.api")\n',
