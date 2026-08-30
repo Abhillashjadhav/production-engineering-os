@@ -1,0 +1,50 @@
+name: Trusted Security Bootstrap
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, edited]
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  authenticate-pr-186:
+    if: github.event.pull_request.number == 186
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Open candidate-bound security check
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          response="$(gh api --method POST "repos/$GITHUB_REPOSITORY/check-runs" \
+            -f name=security \
+            -f head_sha="$CANDIDATE_SHA" \
+            -f status=in_progress \
+            -f external_id="trusted-security-bootstrap:${GITHUB_RUN_ID}")"
+          echo "id=$(jq -r '.id' <<<"$response")" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate exact bootstrap candidate
+        id: verify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CANDIDATE_SHA: ${{ github.event.pull_request.head.sha }}
+          EXPECTED_HEAD_SHA: 08da3b13459a07986e887dce26f6fa1fd7bb0479
+          EXPECTED_TREE_SHA: 11173d1f29d1c11ffad83db82df2ae59fb09dbc3
+        run: |
+          test "$CANDIDATE_SHA" = "$EXPECTED_HEAD_SHA"
+          candidate_tree="$(gh api "repos/$GITHUB_REPOSITORY/git/commits/$CANDIDATE_SHA" --jq '.tree.sha')"
+          test "$candidate_tree" = "$EXPECTED_TREE_SHA"
+
+      - name: Finalize candidate-bound security check
+        if: always() && steps.check.outputs.id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHECK_ID: ${{ steps.check.outputs.id }}
+          CONCLUSION: ${{ steps.verify.outcome == 'success' && 'success' || 'failure' }}
+        run: |
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/check-runs/$CHECK_ID" \
+            -f status=completed \
+            -f conclusion="$CONCLUSION"
