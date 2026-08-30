@@ -389,6 +389,7 @@ def test_architecture_observer_fails_closed_on_unknown_reflective_importlib_acce
         'globals().copy()["__builtins__"]["__import__"]("pmpe.guided.api")\n',
         'dict(globals())["__builtins__"]["__import__"]("pmpe.guided.api")\n',
         '{**globals()}["__builtins__"]["__import__"]("pmpe.guided.api")\n',
+        'globals().setdefault("__builtins__")["__import__"]("pmpe.guided.api")\n',
         'globals().get("__" + "builtins__")["__import__"]("pmpe.guided.api")\n',
         'namespace = globals()\nkey = "__builtins__"\n'
         'namespace[key]["__import__"]("pmpe.guided.api")\n',
@@ -1355,6 +1356,8 @@ def test_privacy_verifier_rejects_class_bound_emitter_alias(tmp_path: Path) -> N
         "owner = wrapped.get(owner_key)\n"
         "emitter = object.__getattribute__(owner, method_key)\n"
         "emitter(secret_payload='hidden')\n",
+        "object.__getattribute__(vars(ctx).setdefault('events'), 'emit')"
+        "('result', secret_payload='hidden')\n",
         "def telemetry(ctx):\n"
         "    import operator, sys\n"
         '    operator.attrgetter("emit")(sys._getframe().f_locals["ctx"].events)'

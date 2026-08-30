@@ -502,10 +502,16 @@ def _ambient_import_authority_reference(
     if not (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
-        and node.func.attr in {"get", "__getitem__"}
         and _ambient_namespace_reference(node.func.value, namespace_aliases)
-        and node.args
     ):
+        return False
+    if node.func.attr == "copy" and not node.args and not node.keywords:
+        return False
+    if node.func.attr in {"items", "keys", "values"}:
+        return False
+    if node.func.attr not in {"get", "__getitem__"}:
+        return True
+    if not node.args:
         return False
     key = _static_string(node.args[0], string_aliases)
     return key in authority_keys

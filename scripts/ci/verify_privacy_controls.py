@@ -213,6 +213,22 @@ def _dictionary_namespace_reference(node: ast.AST, aliases: set[str]) -> bool:
     identity = _emitter_identity(node) if isinstance(node, ast.expr) else None
     if _contains_object_dictionary_reference(node) or identity is not None and identity in aliases:
         return True
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "copy"
+        and not node.args
+        and not node.keywords
+    ):
+        return _dictionary_namespace_reference(node.func.value, aliases)
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "dict"
+        and len(node.args) == 1
+        and not node.keywords
+    ):
+        return _dictionary_namespace_reference(node.args[0], aliases)
     if not isinstance(node, _DICTIONARY_NAMESPACE_FLOW_NODES):
         return False
     return any(
@@ -258,8 +274,10 @@ def _dictionary_getter_reference(
     identity = _emitter_identity(node) if isinstance(node, ast.expr) else None
     if identity is not None and identity in getter_aliases:
         return True
-    if isinstance(node, ast.Attribute) and node.attr in {"get", "__getitem__"}:
-        return _dictionary_namespace_reference(node.value, dictionary_aliases)
+    if isinstance(node, ast.Attribute):
+        return node.attr != "copy" and _dictionary_namespace_reference(
+            node.value, dictionary_aliases
+        )
     return bool(
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
