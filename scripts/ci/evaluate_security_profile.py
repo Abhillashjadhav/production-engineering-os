@@ -526,6 +526,30 @@ def _sys_module_registry_reference(
             module_registry_aliases=module_registry_aliases,
             string_aliases=string_aliases,
         )
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "dict"
+        and len(node.args) == 1
+        and not node.keywords
+    ):
+        return _sys_module_registry_reference(
+            node.args[0],
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+    if isinstance(node, ast.Dict):
+        return any(
+            key is None
+            and _sys_module_registry_reference(
+                value,
+                sys_aliases=sys_aliases,
+                module_registry_aliases=module_registry_aliases,
+                string_aliases=string_aliases,
+            )
+            for key, value in zip(node.keys, node.values, strict=True)
+        )
     return bool(
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
@@ -541,26 +565,60 @@ def _sys_module_registry_reference(
 def _unmodeled_sys_module_registry_operation(
     node: ast.AST,
     *,
+    parent: ast.AST | None,
     sys_aliases: set[str],
     module_registry_aliases: set[str],
     string_aliases: dict[str, str],
 ) -> bool:
-    """Reject registry transformations that the authority model cannot propagate."""
+    """Reject registry consumption that the authority model cannot propagate."""
 
-    if (
-        not isinstance(node, ast.Call)
-        or not isinstance(node.func, ast.Attribute)
-        or not _sys_module_registry_reference(
-            node.func.value,
+    def registry(value: ast.AST) -> bool:
+        return _sys_module_registry_reference(
+            value,
             sys_aliases=sys_aliases,
             module_registry_aliases=module_registry_aliases,
             string_aliases=string_aliases,
         )
+
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and registry(node.func.value)
     ):
+        if node.func.attr in {"get", "__getitem__"}:
+            return False
+        return not (node.func.attr == "copy" and not node.args and not node.keywords)
+    if registry(node):
         return False
-    if node.func.attr in {"get", "__getitem__"}:
-        return False
-    return not (node.func.attr == "copy" and not node.args and not node.keywords)
+    if isinstance(node, ast.Call):
+        if (
+            isinstance(node.func, ast.Name)
+            and node.func.id in {"id", "type"}
+            and len(node.args) == 1
+            and not node.keywords
+            and registry(node.args[0])
+        ):
+            return False
+        return any(registry(value) for value in node.args) or any(
+            registry(keyword.value) for keyword in node.keywords
+        )
+    if isinstance(node, ast.Attribute):
+        return registry(node.value) and not (isinstance(parent, ast.Call) and parent.func is node)
+    if isinstance(node, (ast.BinOp, ast.BoolOp, ast.Compare, ast.List, ast.Set, ast.Tuple)):
+        return any(registry(child) for child in ast.iter_child_nodes(node))
+    if isinstance(node, (ast.AsyncFor, ast.For, ast.comprehension)):
+        return registry(node.iter)
+    return bool(
+        isinstance(node, ast.Dict)
+        and any(
+            registry(value)
+            for value in (
+                *(key for key in node.keys if key is not None),
+                *node.values,
+            )
+        )
+        and not registry(node)
+    )
 
 
 def _sys_modules_authority_module(
@@ -1267,6 +1325,9 @@ def _collect_architecture_edges(
         source_layer=source_layer,
         edges=edges,
     )
+    node_parent = {
+        child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)
+    }
     for node in ast.walk(tree):
         (
             builtins_aliases,
@@ -1297,6 +1358,7 @@ def _collect_architecture_edges(
             )
             or _unmodeled_sys_module_registry_operation(
                 node,
+                parent=node_parent.get(node),
                 sys_aliases=sys_aliases,
                 module_registry_aliases=module_registry_aliases,
                 string_aliases=string_aliases,

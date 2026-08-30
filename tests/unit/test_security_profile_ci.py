@@ -414,6 +414,12 @@ def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
         'from sys import modules as mods\nmods["importlib"].import_module("pmpe.guided.api")\n',
         "from sys import modules as mods\nsnapshot = mods.copy()\n"
         'snapshot["importlib"].import_module("pmpe.guided.api")\n',
+        'import sys\n{**sys.modules}["builtins"].__import__("pmpe.guided.api")\n',
+        'import sys\ndict(sys.modules)["builtins"].__import__("pmpe.guided.api")\n',
+        "import sys\nmods = {**sys.modules}\nmodule = mods['builtins']\n"
+        'module.__import__("pmpe.guided.api")\n',
+        "import sys\nmods = dict(sys.modules)\nmodule = mods['importlib']\n"
+        'module.import_module("pmpe.guided.api")\n',
     ],
 )
 def test_architecture_observer_fails_closed_on_sys_modules_import_authority(
@@ -427,16 +433,42 @@ def test_architecture_observer_fails_closed_on_sys_modules_import_authority(
     assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
 
 
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "sys.modules.items()",
+        "sys.modules.get",
+        "sys.modules.copy",
+        "list(sys.modules)",
+        "consume(sys.modules)",
+        "sys.modules | {}",
+    ],
+)
 def test_architecture_observer_fails_closed_on_unmodeled_sys_modules_operation(
+    tmp_path: Path,
+    operation: str,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "sys_modules_operation.py").write_text(f"import sys\nregistry_view = {operation}\n")
+
+    assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
+
+
+def test_architecture_observer_allows_sys_modules_identity_and_dynamic_lookup(
     tmp_path: Path,
 ) -> None:
     source = tmp_path / "src" / "pmpe" / "orchestration"
     source.mkdir(parents=True)
-    (source / "sys_modules_operation.py").write_text(
-        "import sys\nregistry_view = sys.modules.items()\n"
+    (source / "sys_modules_inspection.py").write_text(
+        "import sys\n"
+        "registry = sys.modules\n"
+        "identity = id(registry)\n"
+        "registry_type = type(registry)\n"
+        "module = registry.get(module_name)\n"
     )
 
-    assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
+    assert ("orchestration", "unresolved_dynamic") not in _observed_architecture_edges(tmp_path)
 
 
 @pytest.mark.parametrize(
