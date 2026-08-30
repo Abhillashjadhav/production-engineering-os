@@ -444,6 +444,9 @@ def test_architecture_observer_fails_closed_on_sys_modules_import_authority(
         "list(sys.modules)",
         "consume(sys.modules)",
         "sys.modules | {}",
+        "sys.modules if condition else {}",
+        "(lambda: sys.modules)",
+        "sys.modules()",
     ],
 )
 def test_architecture_observer_fails_closed_on_unmodeled_sys_modules_operation(

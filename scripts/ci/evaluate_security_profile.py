@@ -599,28 +599,16 @@ def _unmodeled_sys_module_registry_operation(
             and registry(node.args[0])
         ):
             return False
-        return any(registry(value) for value in node.args) or any(
-            registry(keyword.value) for keyword in node.keywords
+        return (
+            registry(node.func)
+            or any(registry(value) for value in node.args)
+            or any(registry(keyword.value) for keyword in node.keywords)
         )
     if isinstance(node, ast.Attribute):
         return registry(node.value) and not (isinstance(parent, ast.Call) and parent.func is node)
-    if isinstance(node, ast.NamedExpr):
-        return registry(node.value)
-    if isinstance(node, (ast.BinOp, ast.BoolOp, ast.Compare, ast.List, ast.Set, ast.Tuple)):
-        return any(registry(child) for child in ast.iter_child_nodes(node))
-    if isinstance(node, (ast.AsyncFor, ast.For, ast.comprehension)):
-        return registry(node.iter)
-    return bool(
-        isinstance(node, ast.Dict)
-        and any(
-            registry(value)
-            for value in (
-                *(key for key in node.keys if key is not None),
-                *node.values,
-            )
-        )
-        and not registry(node)
-    )
+    if isinstance(node, (ast.Assign, ast.AnnAssign, ast.Subscript, ast.keyword)):
+        return False
+    return any(registry(child) for child in ast.iter_child_nodes(node))
 
 
 def _sys_modules_authority_module(
