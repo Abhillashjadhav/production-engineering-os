@@ -1025,6 +1025,21 @@ def _sys_modules_import_authority_reference(
             or unknown(node.args[0])
             and attribute in {None, "__import__", "import_module"}
         )
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"__getattr__", "__getattribute__"}
+        and node.args
+    ):
+        attribute = _static_string(node.args[0], string_aliases)
+        return bool(
+            recovered(node.func.value, "builtins")
+            and attribute in {None, "__import__"}
+            or recovered(node.func.value, "importlib")
+            and attribute in {None, "import_module"}
+            or unknown(node.func.value)
+            and attribute in {None, "__import__", "import_module"}
+        )
     return False
 
 
