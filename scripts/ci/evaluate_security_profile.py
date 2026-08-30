@@ -1289,11 +1289,15 @@ def _lexical_import_aliases(
                         recovered_importlib_aliases,
                     ),
                     (
-                        _unknown_sys_modules_authority_reference(
-                            value,
-                            sys_aliases=sys_aliases,
-                            module_registry_aliases=module_registry_aliases,
-                            string_aliases=string_aliases,
+                        bool(
+                            isinstance(value, ast.Name)
+                            and value.id in recovered_unknown_aliases
+                            or _unknown_sys_modules_authority_reference(
+                                value,
+                                sys_aliases=sys_aliases,
+                                module_registry_aliases=module_registry_aliases,
+                                string_aliases=string_aliases,
+                            )
                         ),
                         recovered_unknown_aliases,
                     ),
