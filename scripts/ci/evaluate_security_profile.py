@@ -513,6 +513,19 @@ def _sys_module_registry_reference(
         and isinstance(node.value, ast.Name)
     ):
         return node.value.id in sys_aliases
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "copy"
+        and not node.args
+        and not node.keywords
+    ):
+        return _sys_module_registry_reference(
+            node.func.value,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
     return bool(
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
@@ -523,6 +536,31 @@ def _sys_module_registry_reference(
         and node.args[0].id in sys_aliases
         and _static_string(node.args[1], string_aliases) == "modules"
     )
+
+
+def _unmodeled_sys_module_registry_operation(
+    node: ast.AST,
+    *,
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
+    """Reject registry transformations that the authority model cannot propagate."""
+
+    if (
+        not isinstance(node, ast.Call)
+        or not isinstance(node.func, ast.Attribute)
+        or not _sys_module_registry_reference(
+            node.func.value,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+    ):
+        return False
+    if node.func.attr in {"get", "__getitem__"}:
+        return False
+    return not (node.func.attr == "copy" and not node.args and not node.keywords)
 
 
 def _sys_modules_authority_module(
@@ -1255,6 +1293,12 @@ def _collect_architecture_edges(
                 module_registry_aliases=module_registry_aliases,
                 recovered_builtins_aliases=recovered_builtins_aliases,
                 recovered_importlib_aliases=recovered_importlib_aliases,
+                string_aliases=string_aliases,
+            )
+            or _unmodeled_sys_module_registry_operation(
+                node,
+                sys_aliases=sys_aliases,
+                module_registry_aliases=module_registry_aliases,
                 string_aliases=string_aliases,
             )
             or _module_dictionary_reference(node, tracked_modules)
