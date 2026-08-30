@@ -18,6 +18,7 @@ from pmpe.privacy.retention import (
     RetentionController,
     purge_retained_runs,
     retention_policy_digest,
+    run_state_retention_digest,
     terminal_retention_digest,
 )
 from pmpe.telemetry.events import EventLog
@@ -723,6 +724,108 @@ def test_retention_controller_rejects_tampered_run_state_policy(tmp_path: Path) 
     assert result.deleted == ()
     assert result.retained == (run_dir.name,)
     assert run_dir.exists()
+
+
+@pytest.mark.parametrize(
+    ("outcome", "terminal_status"),
+    [
+        ("success", "done"),
+        ("no_merge", "done"),
+        ("blocked", "blocked"),
+        ("failed", "failed"),
+    ],
+)
+def test_retention_controller_migrates_pre_retention_completed_run_state(
+    tmp_path: Path,
+    outcome: str,
+    terminal_status: str,
+) -> None:
+    completed_at = datetime(2030, 1, 1, tzinfo=UTC)
+    run_dir = tmp_path / f"legacy-{outcome}-run"
+    state_path = _write_authenticated_run_state(
+        run_dir,
+        outcome=outcome,
+        completed_at=completed_at,
+    )
+    state = json.loads(state_path.read_text())
+    for field in (
+        "completed_at",
+        "retention_days",
+        "retention_policy_digest",
+        "retention_record_digest",
+    ):
+        state.pop(field)
+    terminal_steps = (
+        state["steps"].values()
+        if outcome in {"no_merge", "success"}
+        else (next(iter(state["steps"].values())),)
+    )
+    for step in terminal_steps:
+        step.update(
+            {
+                "finished_at": completed_at.isoformat(),
+                "started_at": completed_at.isoformat(),
+                "status": terminal_status,
+            }
+        )
+    state_path.write_text(json.dumps(state))
+
+    retained = RetentionController().purge(
+        tmp_path,
+        now=completed_at + timedelta(days=29),
+    )
+
+    assert retained.retained == (run_dir.name,)
+    migrated = json.loads(state_path.read_text())
+    assert migrated["retention_days"] == 30
+    assert migrated["completed_at"] == completed_at.isoformat()
+    assert migrated["retention_policy_digest"] == retention_policy_digest(30)
+    assert migrated["retention_record_digest"] == run_state_retention_digest(
+        run_id=state["run_id"],
+        spec_digest=state["spec_digest"],
+        created_at=state["created_at"],
+        outcome=state["outcome"],
+        completed_at=completed_at.isoformat(),
+        retention_days=30,
+    )
+
+    deleted = RetentionController().purge(
+        tmp_path,
+        now=completed_at + timedelta(days=31),
+    )
+
+    assert deleted.deleted == (run_dir.name,)
+    assert not run_dir.exists()
+
+
+def test_retention_controller_rejects_legacy_run_without_terminal_step_time(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "legacy-unbound-run"
+    state_path = _write_authenticated_run_state(run_dir)
+    state = json.loads(state_path.read_text())
+    for field in (
+        "completed_at",
+        "retention_days",
+        "retention_policy_digest",
+        "retention_record_digest",
+    ):
+        state.pop(field)
+    state_path.write_text(json.dumps(state))
+
+    result = RetentionController().purge(
+        tmp_path,
+        now=datetime(2031, 1, 1, tzinfo=UTC),
+    )
+
+    assert result.deleted == ()
+    assert result.retained == (run_dir.name,)
+    assert not {
+        "completed_at",
+        "retention_days",
+        "retention_policy_digest",
+        "retention_record_digest",
+    }.intersection(json.loads(state_path.read_text()))
 
 
 @pytest.mark.parametrize("run_kind", ["lifecycle", "engineering"])
