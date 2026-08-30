@@ -1,0 +1,276 @@
+name: Trusted Security
+run-name: trusted-security:${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review, edited]
+  merge_group:
+    types: [checks_requested]
+
+permissions:
+  contents: read
+  checks: write
+
+concurrency:
+  group: trusted-security-${{ github.event_name }}-${{ github.event.pull_request.number || github.event.merge_group.head_ref }}-${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+  cancel-in-progress: true
+
+jobs:
+  trusted-security-runner:
+    name: trusted-security-runner
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TRUSTED_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+      CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+      CANDIDATE_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+      SUBJECT_NUMBER: ${{ github.event.pull_request.number || 0 }}
+    steps:
+      - name: Start candidate-bound required check
+        id: required-check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          check_run_id="$(
+            gh api --method POST \
+              -H "Accept: application/vnd.github+json" \
+              "/repos/$GITHUB_REPOSITORY/check-runs" \
+              -f name=security \
+              -f head_sha="$CANDIDATE_SHA" \
+              -f external_id="$GITHUB_RUN_ID:$GITHUB_RUN_ATTEMPT" \
+              -f status=in_progress \
+              -f details_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+              -f "output[title]=Trusted security running" \
+              -f "output[summary]=Verifying exact candidate $CANDIDATE_SHA against base $TRUSTED_BASE_SHA." \
+              --jq .id
+          )"
+          test "$check_run_id" -gt 0
+          echo "check_run_id=$check_run_id" >> "$GITHUB_OUTPUT"
+      - name: Check out exact protected base
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ env.TRUSTED_BASE_SHA }}
+          path: trusted
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Check out exact candidate as untrusted input
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: ${{ env.CANDIDATE_REPOSITORY }}
+          ref: ${{ env.CANDIDATE_SHA }}
+          path: candidate
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Set up pinned trusted Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12.14"
+      - name: Authenticate verifier execution root
+        id: admission
+        run: |
+          mkdir -p "$RUNNER_TEMP/trusted-security"
+          python -I trusted/scripts/ci/verify_trusted_security_bootstrap.py \
+            --trusted-root trusted \
+            --candidate-root candidate \
+            --manifest trusted/security/trusted-security-bootstrap.json \
+            --base-sha "$TRUSTED_BASE_SHA" \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --pr-number "$SUBJECT_NUMBER" \
+            --output "$RUNNER_TEMP/trusted-security/admission.json" \
+            --github-output "$GITHUB_OUTPUT"
+      - name: Verify declared dependencies are hash-locked
+        run: |
+          python -I trusted/scripts/ci/verify_trusted_security_bootstrap.py \
+            --verify-dependency-coverage \
+            --candidate-root candidate \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --output "$RUNNER_TEMP/trusted-security/dependency-coverage.json"
+      - name: Resolve candidate dependency closure in an isolated environment
+        env:
+          PYTHON311_IMAGE: docker.io/library/python@sha256:2fc9207f64226cb05ac317cee0bab6fa55a9ea311ce5a086baddd4b4a83c2d3c
+          PYTHON312_IMAGE: docker.io/library/python@sha256:4427763a1ba36f5aa8f656a03e5d00f3b8d61f5dd950c73df6c14f8c7640f8ab
+        run: |
+          candidate_lock="$GITHUB_WORKSPACE/candidate/requirements.lock"
+          test -f "$candidate_lock"
+          ulimit -f 8192
+          for specification in "311:$PYTHON311_IMAGE" "312:$PYTHON312_IMAGE"; do
+            version="${specification%%:*}"
+            image="${specification#*:}"
+            container_name="candidate-closure-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$version"
+            cleanup() {
+              docker rm -f "$container_name" >/dev/null 2>&1 || true
+            }
+            trap cleanup EXIT INT TERM
+            timeout --signal=KILL 600s docker run --rm \
+              --name "$container_name" \
+              --platform linux/amd64 \
+              --read-only \
+              --tmpfs /tmp:rw,nosuid,nodev,size=1610612736,mode=1777,uid=65532,gid=65532 \
+              --cap-drop=ALL \
+              --security-opt=no-new-privileges \
+              --user 65532:65532 \
+              --pids-limit 256 \
+              --memory 2g \
+              --memory-swap 2g \
+              --cpus 2 \
+              --ulimit nofile=1024:1024 \
+              --network bridge \
+              --env HOME=/tmp/home \
+              --env PIP_DISABLE_PIP_VERSION_CHECK=1 \
+              --env PIP_NO_CACHE_DIR=1 \
+              --env PYTHONDONTWRITEBYTECODE=1 \
+              --mount "type=bind,src=$candidate_lock,dst=/input/requirements.lock,readonly" \
+              --workdir /tmp \
+              "$image" \
+              sh -euc '
+                python --version
+                python -m venv /tmp/closure
+                /tmp/closure/bin/python -m pip install \
+                  --ignore-installed \
+                  --only-binary=:all: \
+                  --require-hashes \
+                  -r /input/requirements.lock
+                /tmp/closure/bin/python -m pip check
+              ' 2>&1 | tee "$RUNNER_TEMP/trusted-security/candidate-pip-check-$version.txt"
+            cleanup
+            trap - EXIT INT TERM
+          done
+      - name: Install authenticated locked verifier toolchain
+        run: |
+          python -m pip install \
+            --ignore-installed \
+            --require-hashes \
+            -r "${{ steps.admission.outputs.requirements_path }}"
+          python -m pip check
+      - name: Build isolated candidate privacy runtime
+        env:
+          PYTHON312_IMAGE: docker.io/library/python@sha256:4427763a1ba36f5aa8f656a03e5d00f3b8d61f5dd950c73df6c14f8c7640f8ab
+        run: |
+          privacy_runtime="$RUNNER_TEMP/candidate-privacy-runtime"
+          mkdir -p "$privacy_runtime"
+          timeout --signal=KILL 600s docker run --rm \
+            --platform linux/amd64 \
+            --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=1610612736,mode=1777 \
+            --cap-drop=ALL \
+            --security-opt=no-new-privileges \
+            --user "$(id -u):$(id -g)" \
+            --pids-limit 256 \
+            --memory 2g \
+            --memory-swap 2g \
+            --cpus 2 \
+            --ulimit nofile=1024:1024 \
+            --network bridge \
+            --env HOME=/tmp/home \
+            --env PIP_DISABLE_PIP_VERSION_CHECK=1 \
+            --env PIP_NO_CACHE_DIR=1 \
+            --env PYTHONDONTWRITEBYTECODE=1 \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/candidate/requirements.lock,dst=/input/requirements.lock,readonly" \
+            --mount "type=bind,src=$privacy_runtime,dst=/runtime" \
+            --workdir /tmp \
+            "$PYTHON312_IMAGE" \
+            sh -euc '
+              python -m venv /runtime/venv
+              /runtime/venv/bin/python -m pip install \
+                --ignore-installed \
+                --only-binary=:all: \
+                --require-hashes \
+                --report /runtime/install-report.json \
+                -r /input/requirements.lock
+              /runtime/venv/bin/python -m pip check
+            '
+          cp "$privacy_runtime/install-report.json" \
+            "$RUNNER_TEMP/trusted-security/candidate-install-report.json"
+          chmod -R a-w "$privacy_runtime"
+      - name: Bandit candidate input
+        run: bandit -r candidate/src candidate/scripts/ci -q --severity-level high
+      - name: Audit candidate dependency lock
+        run: |
+          pip-audit \
+            --cache-dir "$RUNNER_TEMP/pip-audit" \
+            --require-hashes -r candidate/requirements.lock \
+            --no-deps --disable-pip \
+            --strict --format json \
+            --output "$RUNNER_TEMP/trusted-security/pip-audit.json"
+      - name: Scan candidate repository secrets
+        run: |
+          python -I trusted/scripts/ci/run_trusted_security_entrypoint.py \
+            --admission-report "$RUNNER_TEMP/trusted-security/admission.json" \
+            --entrypoint scripts/ci/verify_repository_secrets.py -- \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --root candidate \
+            --allowlist trusted/security/secret-allowlist.json \
+            --output "$RUNNER_TEMP/trusted-security/secret-report.json"
+      - name: Execute candidate privacy controls
+        env:
+          PYTHON312_IMAGE: docker.io/library/python@sha256:4427763a1ba36f5aa8f656a03e5d00f3b8d61f5dd950c73df6c14f8c7640f8ab
+        run: |
+          timeout --signal=KILL 120s docker run --rm \
+            --platform linux/amd64 \
+            --read-only \
+            --tmpfs /tmp:rw,nosuid,nodev,size=268435456,mode=1777 \
+            --tmpfs "/probe:rw,nosuid,nodev,size=268435456,mode=0700,uid=$(id -u),gid=$(id -g)" \
+            --cap-drop=ALL \
+            --security-opt=no-new-privileges \
+            --user "$(id -u):$(id -g)" \
+            --pids-limit 128 \
+            --memory 1g \
+            --memory-swap 1g \
+            --cpus 1 \
+            --ulimit nofile=256:256 \
+            --network none \
+            --env HOME=/tmp/home \
+            --env PYTHONDONTWRITEBYTECODE=1 \
+            --mount "type=bind,src=$RUNNER_TEMP/candidate-privacy-runtime,dst=/runtime,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/candidate,dst=/candidate,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/trusted/src,dst=/trusted/src,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/trusted/scripts/ci/verify_privacy_controls.py,dst=/trusted/verify_privacy_controls.py,readonly" \
+            --mount "type=bind,src=$GITHUB_WORKSPACE/trusted/security/security-profile-policy.json,dst=/trusted/security-profile-policy.json,readonly" \
+            --workdir /tmp \
+            "$PYTHON312_IMAGE" \
+            /runtime/venv/bin/python -I -S -c \
+            'import runpy,sys; sys.path[:0]=["/trusted/src","/runtime/venv/lib/python3.12/site-packages"]; sys.argv=["/trusted/verify_privacy_controls.py",*sys.argv[1:]]; runpy.run_path("/trusted/verify_privacy_controls.py",run_name="__main__")' \
+            --mode supervise \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --root /candidate \
+            --policy /trusted/security-profile-policy.json \
+            --probe-root /probe/state \
+            --output - \
+            > "$RUNNER_TEMP/trusted-security/privacy-evidence.json"
+      - name: Compose exact-candidate security profile
+        working-directory: candidate
+        run: |
+          python -I ../trusted/scripts/ci/run_trusted_security_entrypoint.py \
+            --admission-report "$RUNNER_TEMP/trusted-security/admission.json" \
+            --entrypoint scripts/ci/evaluate_security_profile.py -- \
+            --candidate-sha "$CANDIDATE_SHA" \
+            --audit-evidence "$RUNNER_TEMP/trusted-security/pip-audit.json" \
+            --candidate-install-report "$RUNNER_TEMP/trusted-security/candidate-install-report.json" \
+            --privacy-evidence "$RUNNER_TEMP/trusted-security/privacy-evidence.json" \
+            --require-supervised-privacy \
+            --policy ../trusted/security/security-profile-policy.json \
+            --secret-allowlist ../trusted/security/secret-allowlist.json \
+            --output "$RUNNER_TEMP/trusted-security/composed-security-profile.json"
+      - name: Retain trusted exact-head security evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: trusted-security-${{ env.CANDIDATE_SHA }}-attempt-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/trusted-security
+          retention-days: 7
+          if-no-files-found: error
+      - name: Complete candidate-bound required check
+        if: always() && steps.required-check.outputs.check_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CHECK_CONCLUSION: ${{ job.status == 'success' && 'success' || 'failure' }}
+          CHECK_RUN_ID: ${{ steps.required-check.outputs.check_run_id }}
+        run: |
+          gh api --method PATCH \
+            -H "Accept: application/vnd.github+json" \
+            "/repos/$GITHUB_REPOSITORY/check-runs/$CHECK_RUN_ID" \
+            -f status=completed \
+            -f conclusion="$CHECK_CONCLUSION" \
+            -f details_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            -f "output[title]=Trusted security $CHECK_CONCLUSION" \
+            -f "output[summary]=Protected verifier completed for exact candidate $CANDIDATE_SHA against base $TRUSTED_BASE_SHA with outcome $CHECK_CONCLUSION."
