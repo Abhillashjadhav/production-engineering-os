@@ -736,6 +736,8 @@ def _passes_recovered_unknown_authority_to_unmodeled_call(
     node: ast.AST,
     *,
     authority_aliases: set[str],
+    recovered_builtins_aliases: set[str],
+    recovered_importlib_aliases: set[str],
     sys_aliases: set[str],
     module_registry_aliases: set[str],
     safe_registry_inspection_aliases: set[str],
@@ -747,12 +749,27 @@ def _passes_recovered_unknown_authority_to_unmodeled_call(
         return False
 
     def recovered(value: ast.AST) -> bool:
-        return _recovered_unknown_sys_modules_authority_reference(
+        if _recovered_unknown_sys_modules_authority_reference(
             value,
             authority_aliases=authority_aliases,
             sys_aliases=sys_aliases,
             module_registry_aliases=module_registry_aliases,
             string_aliases=string_aliases,
+        ):
+            return True
+        return any(
+            _recovered_import_authority_reference(
+                value,
+                authority=authority,
+                authority_aliases=aliases,
+                sys_aliases=sys_aliases,
+                module_registry_aliases=module_registry_aliases,
+                string_aliases=string_aliases,
+            )
+            for authority, aliases in (
+                ("builtins", recovered_builtins_aliases),
+                ("importlib", recovered_importlib_aliases),
+            )
         )
 
     # ``vars(module)`` is modeled separately as a module-dictionary view. Other
@@ -844,7 +861,7 @@ def _recovered_import_authority_reference(
     module_registry_aliases: set[str],
     string_aliases: dict[str, str],
 ) -> bool:
-    return bool(
+    if (
         isinstance(node, ast.Name)
         and node.id in authority_aliases
         or _sys_modules_authority_module(
@@ -854,6 +871,33 @@ def _recovered_import_authority_reference(
             string_aliases=string_aliases,
         )
         == authority
+    ):
+        return True
+    if not isinstance(
+        node,
+        (
+            ast.BoolOp,
+            ast.Dict,
+            ast.IfExp,
+            ast.List,
+            ast.NamedExpr,
+            ast.Set,
+            ast.Starred,
+            ast.Subscript,
+            ast.Tuple,
+        ),
+    ):
+        return False
+    return any(
+        _recovered_import_authority_reference(
+            child,
+            authority=authority,
+            authority_aliases=authority_aliases,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+        for child in ast.iter_child_nodes(node)
     )
 
 
@@ -1622,6 +1666,8 @@ def _collect_architecture_edges(
             or _passes_recovered_unknown_authority_to_unmodeled_call(
                 node,
                 authority_aliases=recovered_unknown_aliases,
+                recovered_builtins_aliases=recovered_builtins_aliases,
+                recovered_importlib_aliases=recovered_importlib_aliases,
                 sys_aliases=sys_aliases,
                 module_registry_aliases=module_registry_aliases,
                 safe_registry_inspection_aliases=safe_registry_inspection_aliases,

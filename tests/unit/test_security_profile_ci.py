@@ -412,6 +412,14 @@ def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
         'mods.get("builtins").__import__("pmpe.guided.api")\n',
         "import sys\nmods = sys.modules.copy()\nmodule = mods['builtins']\n"
         'module.__import__("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['builtins']\nwrapped = (module,)[0]\n"
+        'wrapped.__import__("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['builtins']\n"
+        "wrapped = module if flag else object()\n"
+        'wrapped.__import__("pmpe.guided.api")\n',
+        "import sys\ndef identity(value):\n    return value\n"
+        "module = sys.modules['builtins']\nwrapped = identity(module)\n"
+        'wrapped.__import__("pmpe.guided.api")\n',
         'from sys import modules as mods\nmods["importlib"].import_module("pmpe.guided.api")\n',
         "from sys import modules as mods\nsnapshot = mods.copy()\n"
         'snapshot["importlib"].import_module("pmpe.guided.api")\n',
