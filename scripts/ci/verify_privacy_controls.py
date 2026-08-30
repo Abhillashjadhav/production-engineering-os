@@ -180,11 +180,39 @@ def _event_context_reference(node: ast.AST, known_owners: set[str]) -> bool:
     return identity is not None and f"{identity}.events" in known_owners
 
 
-def _object_dictionary_reference(node: ast.AST) -> bool:
+def _reflection_callable_reference(node: ast.AST, aliases: set[str]) -> bool:
+    identity = _emitter_identity(node) if isinstance(node, ast.expr) else None
+    if identity is not None and identity in aliases:
+        return True
+    if not isinstance(
+        node,
+        (
+            ast.BoolOp,
+            ast.Call,
+            ast.IfExp,
+            ast.Lambda,
+            ast.List,
+            ast.NamedExpr,
+            ast.Set,
+            ast.Starred,
+            ast.Subscript,
+            ast.Tuple,
+        ),
+    ):
+        return False
+    return any(
+        _reflection_callable_reference(child, aliases) for child in ast.iter_child_nodes(node)
+    )
+
+
+def _object_dictionary_reference(
+    node: ast.AST,
+    reflection_aliases: set[str] | None = None,
+) -> bool:
     return bool(
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
-        and node.func.id == "vars"
+        and node.func.id in (reflection_aliases or {"vars"})
         and len(node.args) == 1
         and not node.keywords
         or isinstance(node, ast.Attribute)
@@ -659,12 +687,18 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
         def analyze_scope(
             scope: ast.AST,
             inherited_aliases: set[str],
+            inherited_reflection_aliases: set[str],
             source_path: Path = path,
         ) -> None:
             nodes = _scope_nodes(scope)
             locals_ = _local_names(scope, nodes)
             aliases = {
                 alias for alias in inherited_aliases if alias.split(".", 1)[0] not in locals_
+            }
+            reflection_aliases = {
+                alias
+                for alias in inherited_reflection_aliases
+                if alias.split(".", 1)[0] not in locals_
             }
             parents = {child: parent for parent in nodes for child in ast.iter_child_nodes(parent)}
             event_owners = {
@@ -709,9 +743,18 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                     value = node.value
                     if value is None:
                         continue
+                    if _reflection_callable_reference(value, reflection_aliases):
+                        for target in _assignment_targets(node):
+                            target_identity = _emitter_identity(target)
+                            if (
+                                target_identity is not None
+                                and target_identity not in reflection_aliases
+                            ):
+                                reflection_aliases.add(target_identity)
+                                changed = True
                     value_identity = _emitter_identity(value)
                     is_direct_dictionary = (
-                        _object_dictionary_reference(value)
+                        _object_dictionary_reference(value, reflection_aliases)
                         or value_identity is not None
                         and value_identity in direct_dictionary_aliases
                         or _dictionary_namespace_passed_to_unmodeled_call(
@@ -879,9 +922,9 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                         )
                     fields.add(keyword.arg)
             for nested in _nested_scopes(scope):
-                analyze_scope(nested, aliases)
+                analyze_scope(nested, aliases, reflection_aliases)
 
-        analyze_scope(tree, set())
+        analyze_scope(tree, set(), {"vars"})
     if not fields:
         raise ValueError("no product telemetry emissions were observed")
     return tuple(sorted(fields))

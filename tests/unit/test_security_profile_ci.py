@@ -1383,6 +1383,10 @@ def test_privacy_verifier_rejects_class_bound_emitter_alias(tmp_path: Path) -> N
         "namespace = recover(ctx)()\nowner = namespace.get('events')\n"
         "emitter = object.__getattribute__(owner, 'emit')\n"
         "emitter(secret_payload='hidden')\n",
+        "reflect = (lambda value: value)(vars)\nnamespace = reflect(ctx)\n"
+        "owner = namespace['events']\n"
+        "emitter = object.__getattribute__(owner, 'emit')\n"
+        "emitter(secret_payload='hidden')\n",
         "def telemetry(ctx):\n"
         "    import operator, sys\n"
         '    operator.attrgetter("emit")(sys._getframe().f_locals["ctx"].events)'
