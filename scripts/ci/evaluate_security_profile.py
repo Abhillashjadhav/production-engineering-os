@@ -804,17 +804,34 @@ def _unknown_module_dictionary_reference(
     node: ast.AST,
     *,
     recovered_unknown_aliases: set[str],
+    recovered_builtins_aliases: set[str],
+    recovered_importlib_aliases: set[str],
     sys_aliases: set[str],
     module_registry_aliases: set[str],
     string_aliases: dict[str, str],
 ) -> bool:
-    def unknown(value: ast.AST) -> bool:
-        return _recovered_unknown_sys_modules_authority_reference(
+    def recovered(value: ast.AST) -> bool:
+        if _recovered_unknown_sys_modules_authority_reference(
             value,
             authority_aliases=recovered_unknown_aliases,
             sys_aliases=sys_aliases,
             module_registry_aliases=module_registry_aliases,
             string_aliases=string_aliases,
+        ):
+            return True
+        return any(
+            _recovered_import_authority_reference(
+                value,
+                authority=authority,
+                authority_aliases=aliases,
+                sys_aliases=sys_aliases,
+                module_registry_aliases=module_registry_aliases,
+                string_aliases=string_aliases,
+            )
+            for authority, aliases in (
+                ("builtins", recovered_builtins_aliases),
+                ("importlib", recovered_importlib_aliases),
+            )
         )
 
     return bool(
@@ -823,10 +840,10 @@ def _unknown_module_dictionary_reference(
         and node.func.id == "vars"
         and len(node.args) == 1
         and not node.keywords
-        and unknown(node.args[0])
+        and recovered(node.args[0])
         or isinstance(node, ast.Attribute)
         and node.attr == "__dict__"
-        and unknown(node.value)
+        and recovered(node.value)
     )
 
 
@@ -835,6 +852,8 @@ def _recovered_unknown_module_loader_reference(
     *,
     loader_aliases: set[str],
     recovered_unknown_aliases: set[str],
+    recovered_builtins_aliases: set[str],
+    recovered_importlib_aliases: set[str],
     sys_aliases: set[str],
     module_registry_aliases: set[str],
     string_aliases: dict[str, str],
@@ -846,6 +865,8 @@ def _recovered_unknown_module_loader_reference(
         return _unknown_module_dictionary_reference(
             value,
             recovered_unknown_aliases=recovered_unknown_aliases,
+            recovered_builtins_aliases=recovered_builtins_aliases,
+            recovered_importlib_aliases=recovered_importlib_aliases,
             sys_aliases=sys_aliases,
             module_registry_aliases=module_registry_aliases,
             string_aliases=string_aliases,
@@ -943,6 +964,8 @@ def _sys_modules_import_authority_reference(
             value,
             loader_aliases=recovered_unknown_loader_aliases,
             recovered_unknown_aliases=recovered_unknown_aliases,
+            recovered_builtins_aliases=recovered_builtins_aliases,
+            recovered_importlib_aliases=recovered_importlib_aliases,
             sys_aliases=sys_aliases,
             module_registry_aliases=module_registry_aliases,
             string_aliases=string_aliases,
@@ -1510,6 +1533,8 @@ def _lexical_import_aliases(
                             value,
                             loader_aliases=recovered_unknown_loader_aliases,
                             recovered_unknown_aliases=recovered_unknown_aliases,
+                            recovered_builtins_aliases=recovered_builtins_aliases,
+                            recovered_importlib_aliases=recovered_importlib_aliases,
                             sys_aliases=sys_aliases,
                             module_registry_aliases=module_registry_aliases,
                             string_aliases=string_aliases,
