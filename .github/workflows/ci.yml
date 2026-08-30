@@ -98,7 +98,8 @@ jobs:
             tests/e2e/test_barebones_e1.py::test_e1_real_contract_reaches_release_ready \
             -q
 
-  security:
+  security-static:
+    name: security-static
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
