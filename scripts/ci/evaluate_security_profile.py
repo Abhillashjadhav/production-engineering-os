@@ -662,16 +662,18 @@ def _unknown_sys_modules_authority_reference(
 ) -> bool:
     """Recognize a registry lookup whose runtime key may recover import authority."""
 
-    if isinstance(node, ast.Subscript):
-        return _static_string(
-            node.slice, string_aliases
-        ) is None and _sys_module_registry_reference(
+    if (
+        isinstance(node, ast.Subscript)
+        and _static_string(node.slice, string_aliases) is None
+        and _sys_module_registry_reference(
             node.value,
             sys_aliases=sys_aliases,
             module_registry_aliases=module_registry_aliases,
             string_aliases=string_aliases,
         )
-    return bool(
+    ):
+        return True
+    if (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr in {"get", "__getitem__"}
@@ -683,6 +685,16 @@ def _unknown_sys_modules_authority_reference(
             module_registry_aliases=module_registry_aliases,
             string_aliases=string_aliases,
         )
+    ):
+        return True
+    return any(
+        _unknown_sys_modules_authority_reference(
+            child,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+        for child in ast.iter_child_nodes(node)
     )
 
 
