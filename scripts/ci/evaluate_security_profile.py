@@ -501,6 +501,11 @@ def _ambient_namespace_reference(node: ast.AST, aliases: set[str] | None = None)
         and any(_ambient_namespace_reference(value, aliases) for value in node.args)
     ):
         return True
+    if isinstance(node, ast.Call) and (
+        any(_ambient_namespace_reference(value, aliases) for value in node.args)
+        or any(_ambient_namespace_reference(keyword.value, aliases) for keyword in node.keywords)
+    ):
+        return True
     if (
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
@@ -1829,6 +1834,7 @@ def _lexical_import_aliases(
                     module_registry_aliases=module_registry_aliases,
                     string_aliases=string_aliases,
                 )
+                or _ambient_namespace_reference(node.value, ambient_namespace_aliases)
             ):
                 edges.add((source_layer, "unresolved_dynamic"))
         aliases_by_scope[scope] = (
