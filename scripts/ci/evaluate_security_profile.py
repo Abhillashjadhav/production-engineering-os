@@ -480,6 +480,35 @@ def _ambient_namespace_reference(node: ast.AST, aliases: set[str] | None = None)
         and not node.keywords
     ):
         return _ambient_namespace_reference(node.args[0], aliases)
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id
+        in {
+            "enumerate",
+            "filter",
+            "iter",
+            "list",
+            "map",
+            "max",
+            "min",
+            "next",
+            "set",
+            "sorted",
+            "tuple",
+            "zip",
+        }
+        and any(_ambient_namespace_reference(value, aliases) for value in node.args)
+    ):
+        return True
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"get", "__getitem__"}
+        and node.args
+        and _ambient_namespace_reference(node.func.value, aliases)
+    ):
+        return True
     if isinstance(node, ast.Dict):
         return any(
             key is None and _ambient_namespace_reference(value, aliases)
@@ -489,25 +518,18 @@ def _ambient_namespace_reference(node: ast.AST, aliases: set[str] | None = None)
         node,
         (
             ast.BoolOp,
-            ast.DictComp,
-            ast.GeneratorExp,
             ast.IfExp,
             ast.List,
-            ast.ListComp,
             ast.NamedExpr,
             ast.Set,
-            ast.SetComp,
             ast.Starred,
             ast.Tuple,
-            ast.comprehension,
         ),
     ):
         return any(
             _ambient_namespace_reference(child, aliases) for child in ast.iter_child_nodes(node)
         )
-    if isinstance(node, ast.Subscript) and isinstance(
-        node.value, (ast.Dict, ast.List, ast.Set, ast.Tuple)
-    ):
+    if isinstance(node, ast.Subscript):
         return _ambient_namespace_reference(node.value, aliases)
     return False
 
@@ -518,6 +540,10 @@ def _ambient_import_authority_reference(
     string_aliases: dict[str, str],
 ) -> bool:
     authority_keys = {"__builtins__", "__import__", "importlib"}
+    if isinstance(node, ast.Attribute):
+        return node.attr in {"__import__", "import_module"} and _ambient_namespace_reference(
+            node.value, namespace_aliases
+        )
     if isinstance(node, ast.Subscript):
         key = _static_string(node.slice, string_aliases)
         return _ambient_namespace_reference(node.value, namespace_aliases) and key in authority_keys
@@ -526,6 +552,15 @@ def _ambient_import_authority_reference(
         and isinstance(node.func, ast.Attribute)
         and _ambient_namespace_reference(node.func.value, namespace_aliases)
     ):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"__getattr__", "__getattribute__"}
+            and node.args
+            and _ambient_namespace_reference(node.func.value, namespace_aliases)
+        ):
+            attribute = _static_string(node.args[0], string_aliases)
+            return attribute is None or attribute in {"__import__", "import_module"}
         return False
     if node.func.attr == "copy" and not node.args and not node.keywords:
         return False
