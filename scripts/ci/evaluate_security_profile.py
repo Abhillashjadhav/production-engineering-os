@@ -1257,7 +1257,10 @@ def _lexical_import_aliases(
 
         string_assignments: dict[str, list[ast.expr]] = {}
         for node in nodes:
-            if not isinstance(node, (ast.Assign, ast.AnnAssign)) or node.value is None:
+            if (
+                not isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr))
+                or node.value is None
+            ):
                 continue
             targets = node.targets if isinstance(node, ast.Assign) else [node.target]
             for target in targets:
@@ -1279,7 +1282,7 @@ def _lexical_import_aliases(
         while changed:
             changed = False
             for node in nodes:
-                if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                if not isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
                     continue
                 value = node.value
                 if value is None:
