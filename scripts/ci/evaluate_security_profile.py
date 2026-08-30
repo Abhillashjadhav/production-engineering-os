@@ -688,6 +688,30 @@ def _unknown_sys_modules_authority_reference(
     )
 
 
+_RECOVERED_AUTHORITY_FLOW_NODES = (
+    ast.Await,
+    ast.BinOp,
+    ast.BoolOp,
+    ast.Dict,
+    ast.DictComp,
+    ast.GeneratorExp,
+    ast.IfExp,
+    ast.Lambda,
+    ast.List,
+    ast.ListComp,
+    ast.NamedExpr,
+    ast.Set,
+    ast.SetComp,
+    ast.Starred,
+    ast.Subscript,
+    ast.Tuple,
+    ast.UnaryOp,
+    ast.Yield,
+    ast.YieldFrom,
+    ast.comprehension,
+)
+
+
 def _recovered_unknown_sys_modules_authority_reference(
     node: ast.AST,
     *,
@@ -705,20 +729,7 @@ def _recovered_unknown_sys_modules_authority_reference(
         string_aliases=string_aliases,
     ):
         return True
-    if not isinstance(
-        node,
-        (
-            ast.BoolOp,
-            ast.Dict,
-            ast.IfExp,
-            ast.List,
-            ast.NamedExpr,
-            ast.Set,
-            ast.Starred,
-            ast.Subscript,
-            ast.Tuple,
-        ),
-    ):
+    if not isinstance(node, _RECOVERED_AUTHORITY_FLOW_NODES):
         return False
     return any(
         _recovered_unknown_sys_modules_authority_reference(
@@ -782,8 +793,10 @@ def _passes_recovered_unknown_authority_to_unmodeled_call(
         and recovered(node.args[0])
     ):
         return False
-    return any(recovered(value) for value in node.args) or any(
-        recovered(keyword.value) for keyword in node.keywords
+    return (
+        recovered(node.func)
+        or any(recovered(value) for value in node.args)
+        or any(recovered(keyword.value) for keyword in node.keywords)
     )
 
 
@@ -873,20 +886,7 @@ def _recovered_import_authority_reference(
         == authority
     ):
         return True
-    if not isinstance(
-        node,
-        (
-            ast.BoolOp,
-            ast.Dict,
-            ast.IfExp,
-            ast.List,
-            ast.NamedExpr,
-            ast.Set,
-            ast.Starred,
-            ast.Subscript,
-            ast.Tuple,
-        ),
-    ):
+    if not isinstance(node, _RECOVERED_AUTHORITY_FLOW_NODES):
         return False
     return any(
         _recovered_import_authority_reference(
