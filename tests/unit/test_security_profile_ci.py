@@ -422,6 +422,17 @@ def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
         "import sys\nmods = dict(sys.modules)\nmodule = mods['importlib']\n"
         'module.import_module("pmpe.guided.api")\n',
         "import sys\n(snapshot := dict(sys.modules))['builtins'].__import__(\"pmpe.guided.api\")\n",
+        'import sys\nsys.modules.get(name).__import__("pmpe.guided.api")\n',
+        'import sys\nmodule = sys.modules.get(name)\nmodule.__import__("pmpe.guided.api")\n',
+        'import sys\nmodule = sys.modules[name]\nmodule.import_module("pmpe.guided.api")\n',
+        "import sys\ndef id(registry):\n    return registry['builtins']\n"
+        'id(sys.modules).__import__("pmpe.guided.api")\n',
+        "import sys\ntype = lambda registry: registry['importlib']\n"
+        'type(sys.modules).import_module("pmpe.guided.api")\n',
+        "import sys\nclass Leak:\n"
+        "    def __getitem__(self, registry):\n"
+        "        return registry['builtins']\n"
+        'Leak()[sys.modules].__import__("pmpe.guided.api")\n',
     ],
 )
 def test_architecture_observer_fails_closed_on_sys_modules_import_authority(
@@ -471,6 +482,9 @@ def test_architecture_observer_allows_sys_modules_identity_and_dynamic_lookup(
         "identity = id(registry)\n"
         "registry_type = type(registry)\n"
         "module = registry.get(module_name)\n"
+        "def inspect(module_name):\n"
+        "    nested = sys.modules\n"
+        "    return id(nested), type(nested), nested.get(module_name)\n"
     )
 
     assert ("orchestration", "unresolved_dynamic") not in _observed_architecture_edges(tmp_path)

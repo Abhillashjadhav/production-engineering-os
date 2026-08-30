@@ -568,6 +568,7 @@ def _unmodeled_sys_module_registry_operation(
     parent: ast.AST | None,
     sys_aliases: set[str],
     module_registry_aliases: set[str],
+    safe_registry_inspection_aliases: set[str],
     string_aliases: dict[str, str],
 ) -> bool:
     """Reject registry consumption that the authority model cannot propagate."""
@@ -593,7 +594,7 @@ def _unmodeled_sys_module_registry_operation(
     if isinstance(node, ast.Call):
         if (
             isinstance(node.func, ast.Name)
-            and node.func.id in {"id", "type"}
+            and node.func.id in safe_registry_inspection_aliases
             and len(node.args) == 1
             and not node.keywords
             and registry(node.args[0])
@@ -606,7 +607,11 @@ def _unmodeled_sys_module_registry_operation(
         )
     if isinstance(node, ast.Attribute):
         return registry(node.value) and not (isinstance(parent, ast.Call) and parent.func is node)
-    if isinstance(node, (ast.Assign, ast.AnnAssign, ast.Subscript, ast.keyword)):
+    if isinstance(node, ast.Subscript):
+        if registry(node.value):
+            return registry(node.slice)
+        return any(registry(child) for child in ast.iter_child_nodes(node))
+    if isinstance(node, (ast.Assign, ast.AnnAssign, ast.keyword)):
         return False
     return any(registry(child) for child in ast.iter_child_nodes(node))
 
@@ -648,6 +653,39 @@ def _sys_modules_authority_module(
     return None
 
 
+def _unknown_sys_modules_authority_reference(
+    node: ast.AST,
+    *,
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
+    """Recognize a registry lookup whose runtime key may recover import authority."""
+
+    if isinstance(node, ast.Subscript):
+        return _static_string(
+            node.slice, string_aliases
+        ) is None and _sys_module_registry_reference(
+            node.value,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+    return bool(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"get", "__getitem__"}
+        and node.args
+        and _static_string(node.args[0], string_aliases) is None
+        and _sys_module_registry_reference(
+            node.func.value,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+    )
+
+
 def _recovered_import_authority_reference(
     node: ast.AST,
     *,
@@ -677,6 +715,7 @@ def _sys_modules_import_authority_reference(
     module_registry_aliases: set[str],
     recovered_builtins_aliases: set[str],
     recovered_importlib_aliases: set[str],
+    recovered_unknown_aliases: set[str],
     string_aliases: dict[str, str],
 ) -> bool:
     """Fail closed when recovered module authority is used as an import loader."""
@@ -694,12 +733,26 @@ def _sys_modules_import_authority_reference(
             string_aliases=string_aliases,
         )
 
+    def unknown(value: ast.AST) -> bool:
+        return bool(
+            isinstance(value, ast.Name)
+            and value.id in recovered_unknown_aliases
+            or _unknown_sys_modules_authority_reference(
+                value,
+                sys_aliases=sys_aliases,
+                module_registry_aliases=module_registry_aliases,
+                string_aliases=string_aliases,
+            )
+        )
+
     if isinstance(node, ast.Attribute):
         return bool(
             node.attr == "__import__"
             and recovered(node.value, "builtins")
             or node.attr == "import_module"
             and recovered(node.value, "importlib")
+            or node.attr in {"__import__", "import_module"}
+            and unknown(node.value)
         )
     if (
         isinstance(node, ast.Call)
@@ -713,6 +766,8 @@ def _sys_modules_import_authority_reference(
             and attribute in {None, "__import__"}
             or recovered(node.args[0], "importlib")
             and attribute in {None, "import_module"}
+            or unknown(node.args[0])
+            and attribute in {None, "__import__", "import_module"}
         )
     return False
 
@@ -881,6 +936,8 @@ _LoaderAliases = tuple[
     set[str],
     set[str],
     set[str],
+    set[str],
+    set[str],
     dict[str, str],
 ]
 
@@ -1037,6 +1094,8 @@ def _lexical_import_aliases(
             module_registry_aliases: set[str] = set()
             recovered_builtins_aliases: set[str] = set()
             recovered_importlib_aliases: set[str] = set()
+            recovered_unknown_aliases: set[str] = set()
+            safe_registry_inspection_aliases = {"id", "type"} - local_names
             ambient_namespace_aliases: set[str] = set()
             string_aliases: dict[str, str] = {}
         else:
@@ -1090,15 +1149,27 @@ def _lexical_import_aliases(
                 local_names=local_names,
                 global_names=global_names,
             )
-            ambient_namespace_aliases = _inherited_aliases(
+            recovered_unknown_aliases = _inherited_aliases(
                 parent_aliases[8],
                 module_aliases[8],
                 local_names=local_names,
                 global_names=global_names,
             )
-            string_aliases = _inherited_string_aliases(
+            safe_registry_inspection_aliases = _inherited_aliases(
                 parent_aliases[9],
                 module_aliases[9],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            ambient_namespace_aliases = _inherited_aliases(
+                parent_aliases[10],
+                module_aliases[10],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            string_aliases = _inherited_string_aliases(
+                parent_aliases[11],
+                module_aliases[11],
                 local_names=local_names,
                 global_names=global_names,
             )
@@ -1218,6 +1289,15 @@ def _lexical_import_aliases(
                         recovered_importlib_aliases,
                     ),
                     (
+                        _unknown_sys_modules_authority_reference(
+                            value,
+                            sys_aliases=sys_aliases,
+                            module_registry_aliases=module_registry_aliases,
+                            string_aliases=string_aliases,
+                        ),
+                        recovered_unknown_aliases,
+                    ),
+                    (
                         _sys_module_registry_reference(
                             value,
                             sys_aliases=sys_aliases,
@@ -1292,6 +1372,8 @@ def _lexical_import_aliases(
             module_registry_aliases,
             recovered_builtins_aliases,
             recovered_importlib_aliases,
+            recovered_unknown_aliases,
+            safe_registry_inspection_aliases,
             ambient_namespace_aliases,
             string_aliases,
         )
@@ -1328,6 +1410,8 @@ def _collect_architecture_edges(
             module_registry_aliases,
             recovered_builtins_aliases,
             recovered_importlib_aliases,
+            recovered_unknown_aliases,
+            safe_registry_inspection_aliases,
             ambient_namespace_aliases,
             string_aliases,
         ) = aliases_by_scope[node_scope[node]]
@@ -1344,6 +1428,7 @@ def _collect_architecture_edges(
                 module_registry_aliases=module_registry_aliases,
                 recovered_builtins_aliases=recovered_builtins_aliases,
                 recovered_importlib_aliases=recovered_importlib_aliases,
+                recovered_unknown_aliases=recovered_unknown_aliases,
                 string_aliases=string_aliases,
             )
             or _unmodeled_sys_module_registry_operation(
@@ -1351,6 +1436,7 @@ def _collect_architecture_edges(
                 parent=node_parent.get(node),
                 sys_aliases=sys_aliases,
                 module_registry_aliases=module_registry_aliases,
+                safe_registry_inspection_aliases=safe_registry_inspection_aliases,
                 string_aliases=string_aliases,
             )
             or _module_dictionary_reference(node, tracked_modules)
@@ -1380,6 +1466,8 @@ def _collect_architecture_edges(
             builtin_import_aliases,
             importlib_aliases,
             import_module_aliases,
+            _,
+            _,
             _,
             _,
             _,
