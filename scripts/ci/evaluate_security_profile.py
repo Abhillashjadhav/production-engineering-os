@@ -714,6 +714,7 @@ def _recovered_unknown_sys_modules_authority_reference(
             ast.List,
             ast.NamedExpr,
             ast.Set,
+            ast.Starred,
             ast.Subscript,
             ast.Tuple,
         ),
