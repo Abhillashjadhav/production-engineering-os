@@ -1411,6 +1411,20 @@ def _lexical_import_aliases(
                 global_names=global_names,
             )
 
+        inherited_sys_aliases = set(sys_aliases) if scope is not tree else set()
+        inherited_module_registry_aliases = (
+            set(module_registry_aliases) if scope is not tree else set()
+        )
+        inherited_recovered_builtins_aliases = (
+            set(recovered_builtins_aliases) if scope is not tree else set()
+        )
+        inherited_recovered_importlib_aliases = (
+            set(recovered_importlib_aliases) if scope is not tree else set()
+        )
+        inherited_recovered_unknown_aliases = (
+            set(recovered_unknown_aliases) if scope is not tree else set()
+        )
+
         for node in nodes:
             if isinstance(node, ast.Import):
                 for alias in node.names:
@@ -1615,6 +1629,35 @@ def _lexical_import_aliases(
                     import_module_aliases=import_module_aliases,
                 )
                 for expression in _function_definition_expressions(child)
+            ):
+                edges.add((source_layer, "unresolved_dynamic"))
+        for node in nodes:
+            if not isinstance(node, (ast.Return, ast.Yield, ast.YieldFrom)) or node.value is None:
+                continue
+            if (
+                _recovered_unknown_sys_modules_authority_reference(
+                    node.value,
+                    authority_aliases=inherited_recovered_unknown_aliases,
+                    sys_aliases=inherited_sys_aliases,
+                    module_registry_aliases=inherited_module_registry_aliases,
+                    string_aliases=string_aliases,
+                )
+                or _recovered_import_authority_reference(
+                    node.value,
+                    authority="builtins",
+                    authority_aliases=inherited_recovered_builtins_aliases,
+                    sys_aliases=inherited_sys_aliases,
+                    module_registry_aliases=inherited_module_registry_aliases,
+                    string_aliases=string_aliases,
+                )
+                or _recovered_import_authority_reference(
+                    node.value,
+                    authority="importlib",
+                    authority_aliases=inherited_recovered_importlib_aliases,
+                    sys_aliases=inherited_sys_aliases,
+                    module_registry_aliases=inherited_module_registry_aliases,
+                    string_aliases=string_aliases,
+                )
             ):
                 edges.add((source_layer, "unresolved_dynamic"))
         aliases_by_scope[scope] = (
