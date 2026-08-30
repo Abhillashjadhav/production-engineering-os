@@ -731,6 +731,44 @@ def _recovered_unknown_sys_modules_authority_reference(
     )
 
 
+def _passes_recovered_unknown_authority_to_unmodeled_call(
+    node: ast.AST,
+    *,
+    authority_aliases: set[str],
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    safe_registry_inspection_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
+    """Reject helper calls that can transform dynamically recovered module authority."""
+
+    if not isinstance(node, ast.Call):
+        return False
+
+    def recovered(value: ast.AST) -> bool:
+        return _recovered_unknown_sys_modules_authority_reference(
+            value,
+            authority_aliases=authority_aliases,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+
+    # ``vars(module)`` is modeled separately as a module-dictionary view. Other
+    # callables may return, retain, or invoke authority and therefore fail closed.
+    if (
+        isinstance(node.func, ast.Name)
+        and node.func.id in safe_registry_inspection_aliases | {"vars"}
+        and len(node.args) == 1
+        and not node.keywords
+        and recovered(node.args[0])
+    ):
+        return False
+    return any(recovered(value) for value in node.args) or any(
+        recovered(keyword.value) for keyword in node.keywords
+    )
+
+
 def _unknown_module_dictionary_reference(
     node: ast.AST,
     *,
@@ -1578,6 +1616,14 @@ def _collect_architecture_edges(
                 recovered_importlib_aliases=recovered_importlib_aliases,
                 recovered_unknown_aliases=recovered_unknown_aliases,
                 recovered_unknown_loader_aliases=recovered_unknown_loader_aliases,
+                string_aliases=string_aliases,
+            )
+            or _passes_recovered_unknown_authority_to_unmodeled_call(
+                node,
+                authority_aliases=recovered_unknown_aliases,
+                sys_aliases=sys_aliases,
+                module_registry_aliases=module_registry_aliases,
+                safe_registry_inspection_aliases=safe_registry_inspection_aliases,
                 string_aliases=string_aliases,
             )
             or _unmodeled_sys_module_registry_operation(

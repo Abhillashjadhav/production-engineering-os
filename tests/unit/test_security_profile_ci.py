@@ -439,6 +439,9 @@ def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
         "import sys\nmodule = sys.modules.get(name)\n"
         "loader = vars(module).get(loader_name)\n"
         'loader("pmpe.guided.api")\n',
+        "import sys\ndef identity(value):\n    return value\n"
+        "module = sys.modules.get(name)\nwrapped = identity(module)\n"
+        'wrapped.__import__("pmpe.guided.api")\n',
         'import sys\nmodule = sys.modules[name]\nmodule.import_module("pmpe.guided.api")\n',
         "import sys\ndef id(registry):\n    return registry['builtins']\n"
         'id(sys.modules).__import__("pmpe.guided.api")\n',
@@ -497,6 +500,7 @@ def test_architecture_observer_allows_sys_modules_identity_and_dynamic_lookup(
         "identity = id(registry)\n"
         "registry_type = type(registry)\n"
         "module = registry.get(module_name)\n"
+        "module_type = type(module)\n"
         "namespace = vars(module)\n"
         "module_name_value = namespace.get('__name__')\n"
         "def inspect(module_name):\n"
@@ -1259,6 +1263,14 @@ def test_privacy_verifier_rejects_class_bound_emitter_alias(tmp_path: Path) -> N
         "    namespace = vars(ctx)\n"
         "    emitter = namespace.get(event_name)\n"
         '    emitter("result", secret_payload="hidden")\n',
+        "def identity(value):\n"
+        "    return value\n\n"
+        "def telemetry(ctx, owner_key, method_key, invoke):\n"
+        "    namespace = vars(ctx)\n"
+        "    wrapped = identity(namespace)\n"
+        "    owner = wrapped.get(owner_key)\n"
+        "    emitter = object.__getattribute__(owner, method_key)\n"
+        "    invoke(emitter)\n",
         "def telemetry(ctx, owner_key, method_key, invoke):\n"
         "    namespace = vars(getattr(ctx, owner_key))\n"
         "    emitter = namespace.get(method_key)\n"

@@ -203,6 +203,41 @@ def _dictionary_namespace_reference(node: ast.AST, aliases: set[str]) -> bool:
     )
 
 
+def _dictionary_namespace_passed_to_unmodeled_call(
+    node: ast.AST,
+    aliases: set[str],
+) -> bool:
+    """Reject helpers that can retain or transform a reflective object namespace."""
+
+    def contains_alias(value: ast.AST) -> bool:
+        identity = _emitter_identity(value) if isinstance(value, ast.expr) else None
+        if identity is not None and identity in aliases:
+            return True
+        if not isinstance(
+            value,
+            (
+                ast.BoolOp,
+                ast.Dict,
+                ast.IfExp,
+                ast.List,
+                ast.NamedExpr,
+                ast.Set,
+                ast.Starred,
+                ast.Tuple,
+            ),
+        ):
+            return False
+        return any(contains_alias(child) for child in ast.iter_child_nodes(value))
+
+    return bool(
+        isinstance(node, ast.Call)
+        and (
+            any(contains_alias(value) for value in node.args)
+            or any(contains_alias(keyword.value) for keyword in node.keywords)
+        )
+    )
+
+
 def _dictionary_getter_reference(
     node: ast.AST,
     dictionary_aliases: set[str],
@@ -595,6 +630,7 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                         string_aliases[identity] = resolved_value
                         changed = True
             dictionary_aliases: set[str] = set()
+            direct_dictionary_aliases: set[str] = set()
             getter_aliases: set[str] = set()
             value_aliases: set[str] = set()
             changed = True
@@ -606,9 +642,27 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                     value = node.value
                     if value is None:
                         continue
-                    is_dictionary = _dictionary_namespace_reference(
-                        value,
-                        dictionary_aliases,
+                    value_identity = _emitter_identity(value)
+                    is_direct_dictionary = (
+                        _object_dictionary_reference(value)
+                        or value_identity is not None
+                        and value_identity in direct_dictionary_aliases
+                        or _dictionary_namespace_passed_to_unmodeled_call(
+                            value,
+                            direct_dictionary_aliases,
+                        )
+                    )
+                    if is_direct_dictionary:
+                        for target in _assignment_targets(node):
+                            target_identity = _emitter_identity(target)
+                            if (
+                                target_identity is not None
+                                and target_identity not in direct_dictionary_aliases
+                            ):
+                                direct_dictionary_aliases.add(target_identity)
+                                changed = True
+                    is_dictionary = is_direct_dictionary or _dictionary_namespace_reference(
+                        value, dictionary_aliases
                     )
                     is_getter = _dictionary_getter_reference(
                         value,
