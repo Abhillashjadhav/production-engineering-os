@@ -297,6 +297,16 @@ def test_resume_preserves_state_and_appends_nothing(run: EngineeringRun) -> None
     assert resumed.stage == "route"
 
 
+def test_resume_rejects_retention_changed_after_admission(run: EngineeringRun) -> None:
+    state_path = run.run_dir / "run-state.json"
+    state = json.loads(state_path.read_text())
+    state["retention_days"] = 365
+    state_path.write_text(json.dumps(state))
+
+    with pytest.raises(PmpeError, match="retention policy changed"):
+        EngineeringRun.load(run.run_dir)
+
+
 def test_resume_authenticates_and_binds_pre_retention_run_before_release(
     run: EngineeringRun,
 ) -> None:

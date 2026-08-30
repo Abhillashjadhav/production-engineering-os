@@ -431,6 +431,14 @@ class EngineeringRun:
                 )
             state["retention_days"] = DEFAULT_RETENTION_DAYS
             run._save()
+        else:
+            retention_days = validate_retention_days(state["retention_days"])
+            events = run.ledger.read_all()
+            first_outputs = events[0].get("output_digests") if events else None
+            if not isinstance(first_outputs, dict) or first_outputs.get(
+                "retention_policy"
+            ) != retention_policy_digest(retention_days):
+                raise PmpeError("retention policy changed after engineering admission")
         return run
 
     @property

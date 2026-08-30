@@ -835,6 +835,11 @@ def test_retention_controller_rejects_tampered_run_state_policy(tmp_path: Path) 
     assert run_dir.exists()
 
 
+def test_retention_policy_rejects_overflowing_duration() -> None:
+    with pytest.raises(ValueError, match="cannot exceed"):
+        retention_policy_digest(1_000_000)
+
+
 @pytest.mark.parametrize(
     ("outcome", "terminal_status"),
     [

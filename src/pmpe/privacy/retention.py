@@ -18,6 +18,7 @@ from pmpe.domain.serialize import atomic_write_json
 
 _TOMBSTONE_PREFIX = ".retention-delete-"
 DEFAULT_RETENTION_DAYS = 30
+MAX_RETENTION_DAYS = 365_000
 _RUN_STATE_TERMINAL_OUTCOMES = frozenset({"blocked", "failed", "no_merge", "success"})
 _RUN_STATE_RETENTION_FIELDS = frozenset(
     {
@@ -64,6 +65,8 @@ def validate_retention_days(retention_days: int) -> int:
         raise ValueError("retention days must be an integer")
     if retention_days < 0:
         raise ValueError("retention days cannot be negative")
+    if retention_days > MAX_RETENTION_DAYS:
+        raise ValueError(f"retention days cannot exceed {MAX_RETENTION_DAYS}")
     return retention_days
 
 
