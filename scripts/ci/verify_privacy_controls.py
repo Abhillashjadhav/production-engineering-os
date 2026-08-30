@@ -757,18 +757,26 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                             destination.add(identity)
                             changed = True
             for node in nodes:
-                if _reflective_emitter_dictionary_access(
-                    node,
-                    event_owners,
-                    dictionary_aliases,
-                    getter_aliases,
-                    value_aliases,
-                    string_aliases,
-                ) or _event_owner_escapes(
-                    node,
-                    parents.get(node),
-                    event_owners,
-                    string_aliases,
+                if (
+                    _reflective_emitter_dictionary_access(
+                        node,
+                        event_owners,
+                        dictionary_aliases,
+                        getter_aliases,
+                        value_aliases,
+                        string_aliases,
+                    )
+                    or (
+                        isinstance(node, (ast.Return, ast.Yield, ast.YieldFrom))
+                        and isinstance(node.value, ast.Lambda)
+                        and _dictionary_namespace_reference(node.value, dictionary_aliases)
+                    )
+                    or _event_owner_escapes(
+                        node,
+                        parents.get(node),
+                        event_owners,
+                        string_aliases,
+                    )
                 ):
                     raise ValueError(
                         "telemetry emitter uses reflective access: "

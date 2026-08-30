@@ -524,6 +524,7 @@ def _ambient_namespace_reference(node: ast.AST, aliases: set[str] | None = None)
         (
             ast.BoolOp,
             ast.IfExp,
+            ast.Lambda,
             ast.List,
             ast.NamedExpr,
             ast.Set,

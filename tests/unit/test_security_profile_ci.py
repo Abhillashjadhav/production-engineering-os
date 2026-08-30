@@ -397,6 +397,8 @@ def test_architecture_observer_fails_closed_on_unknown_reflective_importlib_acce
         'identity(globals())["__builtins__"]["__import__"]("pmpe.guided.api")\n',
         "def recover():\n    return globals()\n"
         'recover()["__builtins__"]["__import__"]("pmpe.guided.api")\n',
+        "def recover():\n    return lambda: globals()\n"
+        'recover()()["__builtins__"]["__import__"]("pmpe.guided.api")\n',
         'globals().get("__" + "builtins__")["__import__"]("pmpe.guided.api")\n',
         'namespace = globals()\nkey = "__builtins__"\n'
         'namespace[key]["__import__"]("pmpe.guided.api")\n',
@@ -1367,6 +1369,10 @@ def test_privacy_verifier_rejects_class_bound_emitter_alias(tmp_path: Path) -> N
         "('result', secret_payload='hidden')\n",
         "owner = next(v for k, v in vars(ctx).items() if k == 'events')\n"
         "object.__getattribute__(owner, 'emit')('result', secret_payload='hidden')\n",
+        "def recover(ctx):\n    return lambda: vars(ctx)\n"
+        "namespace = recover(ctx)()\nowner = namespace.get('events')\n"
+        "emitter = object.__getattribute__(owner, 'emit')\n"
+        "emitter(secret_payload='hidden')\n",
         "def telemetry(ctx):\n"
         "    import operator, sys\n"
         '    operator.attrgetter("emit")(sys._getframe().f_locals["ctx"].events)'
