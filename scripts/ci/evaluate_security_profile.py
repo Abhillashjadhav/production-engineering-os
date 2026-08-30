@@ -466,6 +466,14 @@ def _ambient_namespace_reference(node: ast.AST, aliases: set[str] | None = None)
         return _ambient_namespace_reference(node.func.value, aliases)
     if (
         isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"items", "keys", "values"}
+        and not node.args
+        and not node.keywords
+    ):
+        return _ambient_namespace_reference(node.func.value, aliases)
+    if (
+        isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id == "dict"
         and len(node.args) == 1
@@ -478,7 +486,21 @@ def _ambient_namespace_reference(node: ast.AST, aliases: set[str] | None = None)
             for key, value in zip(node.keys, node.values, strict=True)
         )
     if isinstance(
-        node, (ast.BoolOp, ast.IfExp, ast.List, ast.NamedExpr, ast.Set, ast.Starred, ast.Tuple)
+        node,
+        (
+            ast.BoolOp,
+            ast.DictComp,
+            ast.GeneratorExp,
+            ast.IfExp,
+            ast.List,
+            ast.ListComp,
+            ast.NamedExpr,
+            ast.Set,
+            ast.SetComp,
+            ast.Starred,
+            ast.Tuple,
+            ast.comprehension,
+        ),
     ):
         return any(
             _ambient_namespace_reference(child, aliases) for child in ast.iter_child_nodes(node)

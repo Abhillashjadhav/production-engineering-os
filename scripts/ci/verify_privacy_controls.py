@@ -199,13 +199,18 @@ def _contains_object_dictionary_reference(node: ast.AST) -> bool:
 _DICTIONARY_NAMESPACE_FLOW_NODES = (
     ast.BoolOp,
     ast.Dict,
+    ast.DictComp,
+    ast.GeneratorExp,
     ast.IfExp,
     ast.List,
+    ast.ListComp,
     ast.NamedExpr,
     ast.Set,
+    ast.SetComp,
     ast.Starred,
     ast.Subscript,
     ast.Tuple,
+    ast.comprehension,
 )
 
 
@@ -217,6 +222,14 @@ def _dictionary_namespace_reference(node: ast.AST, aliases: set[str]) -> bool:
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
         and node.func.attr == "copy"
+        and not node.args
+        and not node.keywords
+    ):
+        return _dictionary_namespace_reference(node.func.value, aliases)
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"items", "keys", "values"}
         and not node.args
         and not node.keywords
     ):
@@ -321,14 +334,38 @@ def _dictionary_value_reference(
     if identity is not None and identity in value_aliases:
         return True
     if isinstance(node, ast.Call):
-        return _dictionary_getter_reference(
+        if _dictionary_getter_reference(
             node.func,
             dictionary_aliases,
             getter_aliases,
-        )
+        ):
+            return True
+        if (
+            isinstance(node.func, ast.Name)
+            and node.func.id in {"iter", "list", "max", "min", "next", "set", "sorted", "tuple"}
+            and any(
+                _dictionary_namespace_reference(value, dictionary_aliases)
+                or _dictionary_value_reference(
+                    value,
+                    dictionary_aliases,
+                    getter_aliases,
+                    value_aliases,
+                )
+                for value in node.args
+            )
+        ):
+            return True
     return bool(
         isinstance(node, ast.Subscript)
-        and _direct_dictionary_namespace_reference(node.value, dictionary_aliases)
+        and (
+            _direct_dictionary_namespace_reference(node.value, dictionary_aliases)
+            or _dictionary_value_reference(
+                node.value,
+                dictionary_aliases,
+                getter_aliases,
+                value_aliases,
+            )
+        )
     )
 
 
