@@ -418,6 +418,9 @@ def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
         'vars(module)["__import__"]("pmpe.guided.api")\n',
         "import sys\nmodule = sys.modules['builtins']\nnamespace = vars(module)\n"
         'namespace["__import__"]("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['builtins']\nnamespace = vars(module)\n"
+        "wrapped = (namespace,)[0]\n"
+        'wrapped["__import__"]("pmpe.guided.api")\n',
         "import sys\nmodule = sys.modules['importlib']\n"
         "loader = module.__dict__.get(loader_name)\n"
         'loader("pmpe.guided.api")\n',
@@ -1339,6 +1342,10 @@ def test_privacy_verifier_rejects_class_bound_emitter_alias(tmp_path: Path) -> N
         'get = getattr\nget([ctx.events][0], "emit")("result", email="hidden")\n',
         'get = getattr\nget(**{"object": ctx.events, "name": "emit"})("result", email="hidden")\n',
         'owners = [ctx.events]\nowners[0].emit("result", email="hidden")\n',
+        "namespace = vars(ctx)\nwrapped = (namespace,)[0]\n"
+        "owner = wrapped.get(owner_key)\n"
+        "emitter = object.__getattribute__(owner, method_key)\n"
+        "emitter(secret_payload='hidden')\n",
         "def telemetry(ctx):\n"
         "    import operator, sys\n"
         '    operator.attrgetter("emit")(sys._getframe().f_locals["ctx"].events)'

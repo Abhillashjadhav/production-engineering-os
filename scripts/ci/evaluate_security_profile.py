@@ -810,6 +810,7 @@ def _unknown_module_dictionary_reference(
     module_registry_aliases: set[str],
     string_aliases: dict[str, str],
     dictionary_aliases: set[str] | None = None,
+    recurse: bool = True,
 ) -> bool:
     def recovered(value: ast.AST) -> bool:
         if _recovered_unknown_sys_modules_authority_reference(
@@ -835,7 +836,7 @@ def _unknown_module_dictionary_reference(
             )
         )
 
-    return bool(
+    if bool(
         isinstance(node, ast.Name)
         and dictionary_aliases is not None
         and node.id in dictionary_aliases
@@ -848,6 +849,23 @@ def _unknown_module_dictionary_reference(
         or isinstance(node, ast.Attribute)
         and node.attr == "__dict__"
         and recovered(node.value)
+    ):
+        return True
+    if not recurse or not isinstance(node, _RECOVERED_AUTHORITY_FLOW_NODES):
+        return False
+    return any(
+        _unknown_module_dictionary_reference(
+            child,
+            recovered_unknown_aliases=recovered_unknown_aliases,
+            recovered_builtins_aliases=recovered_builtins_aliases,
+            recovered_importlib_aliases=recovered_importlib_aliases,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+            dictionary_aliases=dictionary_aliases,
+            recurse=True,
+        )
+        for child in ast.iter_child_nodes(node)
     )
 
 
@@ -876,6 +894,7 @@ def _recovered_unknown_module_loader_reference(
             module_registry_aliases=module_registry_aliases,
             string_aliases=string_aliases,
             dictionary_aliases=recovered_module_dictionary_aliases,
+            recurse=False,
         )
 
     loader_names = {"__import__", "import_module"}

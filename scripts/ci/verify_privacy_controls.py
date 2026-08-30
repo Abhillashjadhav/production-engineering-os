@@ -196,7 +196,31 @@ def _contains_object_dictionary_reference(node: ast.AST) -> bool:
     return any(_object_dictionary_reference(candidate) for candidate in ast.walk(node))
 
 
+_DICTIONARY_NAMESPACE_FLOW_NODES = (
+    ast.BoolOp,
+    ast.Dict,
+    ast.IfExp,
+    ast.List,
+    ast.NamedExpr,
+    ast.Set,
+    ast.Starred,
+    ast.Subscript,
+    ast.Tuple,
+)
+
+
 def _dictionary_namespace_reference(node: ast.AST, aliases: set[str]) -> bool:
+    identity = _emitter_identity(node) if isinstance(node, ast.expr) else None
+    if _contains_object_dictionary_reference(node) or identity is not None and identity in aliases:
+        return True
+    if not isinstance(node, _DICTIONARY_NAMESPACE_FLOW_NODES):
+        return False
+    return any(
+        _dictionary_namespace_reference(child, aliases) for child in ast.iter_child_nodes(node)
+    )
+
+
+def _direct_dictionary_namespace_reference(node: ast.AST, aliases: set[str]) -> bool:
     identity = _emitter_identity(node) if isinstance(node, ast.expr) else None
     return _contains_object_dictionary_reference(node) or (
         identity is not None and identity in aliases
@@ -213,19 +237,7 @@ def _dictionary_namespace_passed_to_unmodeled_call(
         identity = _emitter_identity(value) if isinstance(value, ast.expr) else None
         if identity is not None and identity in aliases:
             return True
-        if not isinstance(
-            value,
-            (
-                ast.BoolOp,
-                ast.Dict,
-                ast.IfExp,
-                ast.List,
-                ast.NamedExpr,
-                ast.Set,
-                ast.Starred,
-                ast.Tuple,
-            ),
-        ):
+        if not isinstance(value, _DICTIONARY_NAMESPACE_FLOW_NODES):
             return False
         return any(contains_alias(child) for child in ast.iter_child_nodes(value))
 
@@ -298,7 +310,7 @@ def _dictionary_value_reference(
         )
     return bool(
         isinstance(node, ast.Subscript)
-        and _dictionary_namespace_reference(node.value, dictionary_aliases)
+        and _direct_dictionary_namespace_reference(node.value, dictionary_aliases)
     )
 
 
