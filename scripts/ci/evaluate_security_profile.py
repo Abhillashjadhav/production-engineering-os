@@ -1589,6 +1589,8 @@ def _lexical_import_aliases(
                         break
                     for target in targets:
                         if isinstance(target, ast.Name):
+                            if target.id in global_names | nonlocal_names:
+                                edges.add((source_layer, "unresolved_dynamic"))
                             if target.id not in destination:
                                 destination.add(target.id)
                                 changed = True
@@ -1627,6 +1629,29 @@ def _lexical_import_aliases(
                     builtin_import_aliases=builtin_import_aliases,
                     importlib_aliases=importlib_aliases,
                     import_module_aliases=import_module_aliases,
+                )
+                or _recovered_unknown_sys_modules_authority_reference(
+                    expression,
+                    authority_aliases=recovered_unknown_aliases,
+                    sys_aliases=sys_aliases,
+                    module_registry_aliases=module_registry_aliases,
+                    string_aliases=string_aliases,
+                )
+                or _recovered_import_authority_reference(
+                    expression,
+                    authority="builtins",
+                    authority_aliases=recovered_builtins_aliases,
+                    sys_aliases=sys_aliases,
+                    module_registry_aliases=module_registry_aliases,
+                    string_aliases=string_aliases,
+                )
+                or _recovered_import_authority_reference(
+                    expression,
+                    authority="importlib",
+                    authority_aliases=recovered_importlib_aliases,
+                    sys_aliases=sys_aliases,
+                    module_registry_aliases=module_registry_aliases,
+                    string_aliases=string_aliases,
                 )
                 for expression in _function_definition_expressions(child)
             ):

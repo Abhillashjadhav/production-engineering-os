@@ -429,6 +429,14 @@ def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
         "def recover():\n    return module\n"
         "wrapped = recover()\n"
         'wrapped.__import__("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['builtins']\n"
+        "def recover(value=module):\n    return value\n"
+        "wrapped = recover()\n"
+        'wrapped.__import__("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['builtins']\nleaked = None\n"
+        "def recover():\n    global leaked\n    leaked = module\n"
+        "recover()\n"
+        'leaked.__import__("pmpe.guided.api")\n',
         'from sys import modules as mods\nmods["importlib"].import_module("pmpe.guided.api")\n',
         "from sys import modules as mods\nsnapshot = mods.copy()\n"
         'snapshot["importlib"].import_module("pmpe.guided.api")\n',
