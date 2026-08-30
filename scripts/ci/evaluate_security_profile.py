@@ -1805,6 +1805,7 @@ def _lexical_import_aliases(
                     module_registry_aliases=module_registry_aliases,
                     string_aliases=string_aliases,
                 )
+                or _ambient_namespace_reference(expression, ambient_namespace_aliases)
                 for expression in _function_definition_expressions(child)
             ):
                 edges.add((source_layer, "unresolved_dynamic"))

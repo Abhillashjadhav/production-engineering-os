@@ -756,6 +756,15 @@ def _inventory_telemetry_fields(root: Path) -> tuple[str, ...]:
                         if identity is not None and identity not in destination:
                             destination.add(identity)
                             changed = True
+            for nested in _nested_scopes(scope):
+                if any(
+                    _dictionary_namespace_reference(expression, dictionary_aliases)
+                    for expression in _definition_expressions(nested)
+                ):
+                    raise ValueError(
+                        "telemetry emitter uses reflective access: "
+                        f"{source_path}:{getattr(nested, 'lineno', 0)}"
+                    )
             for node in nodes:
                 if (
                     _reflective_emitter_dictionary_access(
