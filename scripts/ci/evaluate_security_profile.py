@@ -604,6 +604,8 @@ def _unmodeled_sys_module_registry_operation(
         )
     if isinstance(node, ast.Attribute):
         return registry(node.value) and not (isinstance(parent, ast.Call) and parent.func is node)
+    if isinstance(node, ast.NamedExpr):
+        return registry(node.value)
     if isinstance(node, (ast.BinOp, ast.BoolOp, ast.Compare, ast.List, ast.Set, ast.Tuple)):
         return any(registry(child) for child in ast.iter_child_nodes(node))
     if isinstance(node, (ast.AsyncFor, ast.For, ast.comprehension)):

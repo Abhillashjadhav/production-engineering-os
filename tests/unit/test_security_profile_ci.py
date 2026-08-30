@@ -421,6 +421,7 @@ def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
         'module.__import__("pmpe.guided.api")\n',
         "import sys\nmods = dict(sys.modules)\nmodule = mods['importlib']\n"
         'module.import_module("pmpe.guided.api")\n',
+        "import sys\n(snapshot := dict(sys.modules))['builtins'].__import__(\"pmpe.guided.api\")\n",
     ],
 )
 def test_architecture_observer_fails_closed_on_sys_modules_import_authority(
