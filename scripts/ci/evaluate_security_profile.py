@@ -445,7 +445,7 @@ def _static_string(node: ast.AST, aliases: dict[str, str] | None = None) -> str 
 
 
 def _ambient_namespace_reference(node: ast.AST, aliases: set[str] | None = None) -> bool:
-    return bool(
+    if bool(
         isinstance(node, ast.Call)
         and isinstance(node.func, ast.Name)
         and node.func.id in {"globals", "locals", "vars"}
@@ -454,7 +454,40 @@ def _ambient_namespace_reference(node: ast.AST, aliases: set[str] | None = None)
         or isinstance(node, ast.Name)
         and aliases is not None
         and node.id in aliases
-    )
+    ):
+        return True
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "copy"
+        and not node.args
+        and not node.keywords
+    ):
+        return _ambient_namespace_reference(node.func.value, aliases)
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "dict"
+        and len(node.args) == 1
+        and not node.keywords
+    ):
+        return _ambient_namespace_reference(node.args[0], aliases)
+    if isinstance(node, ast.Dict):
+        return any(
+            key is None and _ambient_namespace_reference(value, aliases)
+            for key, value in zip(node.keys, node.values, strict=True)
+        )
+    if isinstance(
+        node, (ast.BoolOp, ast.IfExp, ast.List, ast.NamedExpr, ast.Set, ast.Starred, ast.Tuple)
+    ):
+        return any(
+            _ambient_namespace_reference(child, aliases) for child in ast.iter_child_nodes(node)
+        )
+    if isinstance(node, ast.Subscript) and isinstance(
+        node.value, (ast.Dict, ast.List, ast.Set, ast.Tuple)
+    ):
+        return _ambient_namespace_reference(node.value, aliases)
+    return False
 
 
 def _ambient_import_authority_reference(

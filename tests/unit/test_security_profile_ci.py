@@ -386,6 +386,9 @@ def test_architecture_observer_fails_closed_on_unknown_reflective_importlib_acce
         '__builtins__.get("__import__")("pmpe.guided.api")\n',
         '__builtins__.__getitem__("__import__")("pmpe.guided.api")\n',
         'globals()["__builtins__"]["__import__"]("pmpe.guided.api")\n',
+        'globals().copy()["__builtins__"]["__import__"]("pmpe.guided.api")\n',
+        'dict(globals())["__builtins__"]["__import__"]("pmpe.guided.api")\n',
+        '{**globals()}["__builtins__"]["__import__"]("pmpe.guided.api")\n',
         'globals().get("__" + "builtins__")["__import__"]("pmpe.guided.api")\n',
         'namespace = globals()\nkey = "__builtins__"\n'
         'namespace[key]["__import__"]("pmpe.guided.api")\n',
