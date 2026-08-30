@@ -432,6 +432,13 @@ def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
         'import sys\n(module := sys.modules.get(name))\nmodule.__import__("pmpe.guided.api")\n',
         "import sys\nmodule = sys.modules.get(name) if flag else object()\n"
         'module.__import__("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules.get(name)\n"
+        'vars(module)["__import__"]("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules.get(name)\n"
+        'module.__dict__["import_module"]("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules.get(name)\n"
+        "loader = vars(module).get(loader_name)\n"
+        'loader("pmpe.guided.api")\n',
         'import sys\nmodule = sys.modules[name]\nmodule.import_module("pmpe.guided.api")\n',
         "import sys\ndef id(registry):\n    return registry['builtins']\n"
         'id(sys.modules).__import__("pmpe.guided.api")\n',
@@ -490,6 +497,8 @@ def test_architecture_observer_allows_sys_modules_identity_and_dynamic_lookup(
         "identity = id(registry)\n"
         "registry_type = type(registry)\n"
         "module = registry.get(module_name)\n"
+        "namespace = vars(module)\n"
+        "module_name_value = namespace.get('__name__')\n"
         "def inspect(module_name):\n"
         "    nested = sys.modules\n"
         "    return id(nested), type(nested), nested.get(module_name)\n"

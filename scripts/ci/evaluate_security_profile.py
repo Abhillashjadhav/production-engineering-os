@@ -731,6 +731,71 @@ def _recovered_unknown_sys_modules_authority_reference(
     )
 
 
+def _unknown_module_dictionary_reference(
+    node: ast.AST,
+    *,
+    recovered_unknown_aliases: set[str],
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
+    def unknown(value: ast.AST) -> bool:
+        return _recovered_unknown_sys_modules_authority_reference(
+            value,
+            authority_aliases=recovered_unknown_aliases,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+
+    return bool(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "vars"
+        and len(node.args) == 1
+        and not node.keywords
+        and unknown(node.args[0])
+        or isinstance(node, ast.Attribute)
+        and node.attr == "__dict__"
+        and unknown(node.value)
+    )
+
+
+def _recovered_unknown_module_loader_reference(
+    node: ast.AST,
+    *,
+    loader_aliases: set[str],
+    recovered_unknown_aliases: set[str],
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
+    if isinstance(node, ast.Name):
+        return node.id in loader_aliases
+
+    def dictionary(value: ast.AST) -> bool:
+        return _unknown_module_dictionary_reference(
+            value,
+            recovered_unknown_aliases=recovered_unknown_aliases,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+
+    loader_names = {"__import__", "import_module"}
+    if isinstance(node, ast.Subscript) and dictionary(node.value):
+        name = _static_string(node.slice, string_aliases)
+        return name is None or name in loader_names
+    return bool(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"get", "__getitem__"}
+        and node.args
+        and dictionary(node.func.value)
+        and ((name := _static_string(node.args[0], string_aliases)) is None or name in loader_names)
+    )
+
+
 def _recovered_import_authority_reference(
     node: ast.AST,
     *,
@@ -761,6 +826,7 @@ def _sys_modules_import_authority_reference(
     recovered_builtins_aliases: set[str],
     recovered_importlib_aliases: set[str],
     recovered_unknown_aliases: set[str],
+    recovered_unknown_loader_aliases: set[str],
     string_aliases: dict[str, str],
 ) -> bool:
     """Fail closed when recovered module authority is used as an import loader."""
@@ -788,6 +854,19 @@ def _sys_modules_import_authority_reference(
         ):
             return True
         return any(unknown(child) for child in ast.iter_child_nodes(value))
+
+    def dictionary_loader(value: ast.AST) -> bool:
+        return _recovered_unknown_module_loader_reference(
+            value,
+            loader_aliases=recovered_unknown_loader_aliases,
+            recovered_unknown_aliases=recovered_unknown_aliases,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+
+    if isinstance(node, ast.Call) and dictionary_loader(node.func):
+        return True
 
     if isinstance(node, ast.Attribute):
         return bool(
@@ -982,6 +1061,7 @@ _LoaderAliases = tuple[
     set[str],
     set[str],
     set[str],
+    set[str],
     dict[str, str],
 ]
 
@@ -1139,6 +1219,7 @@ def _lexical_import_aliases(
             recovered_builtins_aliases: set[str] = set()
             recovered_importlib_aliases: set[str] = set()
             recovered_unknown_aliases: set[str] = set()
+            recovered_unknown_loader_aliases: set[str] = set()
             safe_registry_inspection_aliases = {"id", "type"} - local_names
             ambient_namespace_aliases: set[str] = set()
             string_aliases: dict[str, str] = {}
@@ -1199,21 +1280,27 @@ def _lexical_import_aliases(
                 local_names=local_names,
                 global_names=global_names,
             )
-            safe_registry_inspection_aliases = _inherited_aliases(
+            recovered_unknown_loader_aliases = _inherited_aliases(
                 parent_aliases[9],
                 module_aliases[9],
                 local_names=local_names,
                 global_names=global_names,
             )
-            ambient_namespace_aliases = _inherited_aliases(
+            safe_registry_inspection_aliases = _inherited_aliases(
                 parent_aliases[10],
                 module_aliases[10],
                 local_names=local_names,
                 global_names=global_names,
             )
-            string_aliases = _inherited_string_aliases(
+            ambient_namespace_aliases = _inherited_aliases(
                 parent_aliases[11],
                 module_aliases[11],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            string_aliases = _inherited_string_aliases(
+                parent_aliases[12],
+                module_aliases[12],
                 local_names=local_names,
                 global_names=global_names,
             )
@@ -1336,6 +1423,17 @@ def _lexical_import_aliases(
                         recovered_importlib_aliases,
                     ),
                     (
+                        _recovered_unknown_module_loader_reference(
+                            value,
+                            loader_aliases=recovered_unknown_loader_aliases,
+                            recovered_unknown_aliases=recovered_unknown_aliases,
+                            sys_aliases=sys_aliases,
+                            module_registry_aliases=module_registry_aliases,
+                            string_aliases=string_aliases,
+                        ),
+                        recovered_unknown_loader_aliases,
+                    ),
+                    (
                         _recovered_unknown_sys_modules_authority_reference(
                             value,
                             authority_aliases=recovered_unknown_aliases,
@@ -1421,6 +1519,7 @@ def _lexical_import_aliases(
             recovered_builtins_aliases,
             recovered_importlib_aliases,
             recovered_unknown_aliases,
+            recovered_unknown_loader_aliases,
             safe_registry_inspection_aliases,
             ambient_namespace_aliases,
             string_aliases,
@@ -1459,6 +1558,7 @@ def _collect_architecture_edges(
             recovered_builtins_aliases,
             recovered_importlib_aliases,
             recovered_unknown_aliases,
+            recovered_unknown_loader_aliases,
             safe_registry_inspection_aliases,
             ambient_namespace_aliases,
             string_aliases,
@@ -1477,6 +1577,7 @@ def _collect_architecture_edges(
                 recovered_builtins_aliases=recovered_builtins_aliases,
                 recovered_importlib_aliases=recovered_importlib_aliases,
                 recovered_unknown_aliases=recovered_unknown_aliases,
+                recovered_unknown_loader_aliases=recovered_unknown_loader_aliases,
                 string_aliases=string_aliases,
             )
             or _unmodeled_sys_module_registry_operation(
@@ -1514,6 +1615,7 @@ def _collect_architecture_edges(
             builtin_import_aliases,
             importlib_aliases,
             import_module_aliases,
+            _,
             _,
             _,
             _,
