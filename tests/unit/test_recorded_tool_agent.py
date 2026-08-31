@@ -416,7 +416,10 @@ def test_release_ready_evidence_write_is_inside_wall_time_budget(
     def slow_terminal_append(self: EvidenceLedger, **kwargs: object):  # type: ignore[no-untyped-def]
         nonlocal elapsed
         event = original_append(self, **kwargs)  # type: ignore[arg-type]
-        if kwargs.get("event_type") == "recorded_agent_release_ready":
+        if kwargs.get("event_type") in {
+            "recorded_agent_release_candidate",
+            "recorded_agent_release_ready",
+        }:
             elapsed = True
         return event
 
@@ -431,6 +434,7 @@ def test_release_ready_evidence_write_is_inside_wall_time_budget(
     events = tuple(EvidenceLedger.open_existing(tmp_path, result.run_id).verify())
     assert events[-1]["event_type"] == "recorded_agent_halted"
     assert events[-1]["state"] == "HALTED"
+    assert all(event["state"] != "RELEASE_READY" for event in events)
 
 
 @pytest.mark.parametrize(
