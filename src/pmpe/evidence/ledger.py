@@ -221,7 +221,8 @@ class EvidenceLedger:
         subject_digest: str,
         blob_digests: Sequence[str] = (),
         payload: Mapping[str, Any] | None = None,
-        commit_guard: Callable[[], None] | None = None,
+        commit_deadline: float | None = None,
+        trusted_monotonic: Callable[[], float] | None = None,
     ) -> Mapping[str, Any]:
         if self._read_only:
             raise EvidenceIntegrityError("an inspection ledger is read-only")
@@ -235,6 +236,10 @@ class EvidenceLedger:
             raise ValueError("event type, state, and subject digest are required")
         if any(not _is_digest(item) for item in blob_digests):
             raise ValueError("blob references must be SHA-256 digests")
+        if (commit_deadline is None) != (trusted_monotonic is None):
+            raise ValueError(
+                "commit deadline and trusted monotonic clock must be provided together"
+            )
         events = tuple(self.verify())
         body: dict[str, Any] = {
             "schema_version": "1.0.0",
@@ -250,7 +255,7 @@ class EvidenceLedger:
         event = {**body, "event_digest": canonical_digest(body)}
         _validate_event_schema(event)
         encoded_event = canonical_json_bytes(event) + b"\n"
-        if commit_guard is None:
+        if commit_deadline is None:
             directory = os.open(self.run_directory, os.O_RDONLY)
             try:
                 fcntl.flock(directory, fcntl.LOCK_EX)
@@ -277,17 +282,23 @@ class EvidenceLedger:
                 rollback.write(current_events)
                 rollback.flush()
                 os.fsync(rollback.fileno())
-            commit_guard()
+            assert trusted_monotonic is not None
+            if trusted_monotonic() > commit_deadline:
+                raise TimeoutError("evidence commit deadline exceeded")
             directory = os.open(self.run_directory, os.O_RDONLY)
             try:
                 fcntl.flock(directory, fcntl.LOCK_EX)
-                os.replace(staged_name, self.events_path)
-                os.fsync(directory)
+                published = False
                 try:
-                    commit_guard()
-                except Exception:
-                    os.replace(rollback_name, self.events_path)
+                    os.replace(staged_name, self.events_path)
+                    published = True
                     os.fsync(directory)
+                    if trusted_monotonic() > commit_deadline:
+                        raise TimeoutError("evidence commit deadline exceeded")
+                except Exception:
+                    if published:
+                        os.replace(rollback_name, self.events_path)
+                        os.fsync(directory)
                     raise
             finally:
                 fcntl.flock(directory, fcntl.LOCK_UN)

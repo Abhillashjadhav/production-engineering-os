@@ -191,9 +191,10 @@ def run_recorded_tool_agent(
         else resource_payload
     )
     budgets = plan["budgets"]
+    deadline = started + budgets["max_wall_time_ms"] / 1000
 
     def enforce_wall_time() -> None:
-        if trusted_monotonic() - started > budgets["max_wall_time_ms"] / 1000:
+        if trusted_monotonic() > deadline:
             raise _ExecutionHalt("WALL_TIME_BUDGET_EXCEEDED")
 
     try:
@@ -350,7 +351,8 @@ def run_recorded_tool_agent(
             subject_digest=subject_digest,
             blob_digests=[output_digest],
             payload=release_payload,
-            commit_guard=enforce_wall_time,
+            commit_deadline=deadline,
+            trusted_monotonic=trusted_monotonic,
         )
         return AgentRunResult(
             run_id=run_id,
@@ -358,6 +360,12 @@ def run_recorded_tool_agent(
             cause="PASS",
             output=output,
             evidence_path=ledger.events_path,
+        )
+    except TimeoutError:
+        return _halt(
+            ledger,
+            subject_digest=subject_digest,
+            cause="WALL_TIME_BUDGET_EXCEEDED",
         )
     except _ExecutionHalt as exc:
         return _halt(ledger, subject_digest=subject_digest, cause=str(exc))

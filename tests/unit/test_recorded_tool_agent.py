@@ -87,10 +87,10 @@ ALLOWED_CALLS = {
     "trusted_monotonic",
 }
 APPROVED_CALL_SITE_DIGEST = (
-    "sha256:591e0c5eaab27768c2775b18934973d36d9210a58e4ade8aceb380fbd1646154"
+    "sha256:2a656c2bdbf4ceee76a5e7329636fcbc4b6b5f94bc00670a5b717b371c5de9de"
 )
 APPROVED_MODULE_AST_DIGEST = (
-    "sha256:db04d5f4c50ad83b99ac28ae03eda3340ad509dfbcda8e4eed58ed0c0a6310bd"
+    "sha256:667fb6c3aa39419d5b5406ac0810597f268a932d612cae5bc537405c24dd2885"
 )
 FORBIDDEN_REFERENCES = {
     "__builtins__",
@@ -421,14 +421,14 @@ def test_release_ready_evidence_write_is_inside_wall_time_budget(
 
     def slow_terminal_append(self: EvidenceLedger, **kwargs: object):  # type: ignore[no-untyped-def]
         nonlocal elapsed, reader
-        guard = kwargs.get("commit_guard")
-        if kwargs.get("event_type") == "recorded_agent_release_ready" and callable(guard):
-            guard_calls = 0
+        clock = kwargs.get("trusted_monotonic")
+        if kwargs.get("event_type") == "recorded_agent_release_ready" and callable(clock):
+            clock_calls = 0
 
-            def expire_then_check() -> None:
-                nonlocal elapsed, guard_calls, reader
-                guard_calls += 1
-                if guard_calls == 2:
+            def expire_then_check() -> float:
+                nonlocal elapsed, clock_calls, reader
+                clock_calls += 1
+                if clock_calls == 2:
 
                     def inspect_concurrently() -> None:
                         reader_started.set()
@@ -445,9 +445,9 @@ def test_release_ready_evidence_write_is_inside_wall_time_budget(
                     assert reader_started.wait(timeout=1)
                     assert not reader_finished.is_set()
                     elapsed = True
-                guard()
+                return clock()
 
-            kwargs["commit_guard"] = expire_then_check
+            kwargs["trusted_monotonic"] = expire_then_check
         return original_append(self, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(EvidenceLedger, "append", slow_terminal_append)
