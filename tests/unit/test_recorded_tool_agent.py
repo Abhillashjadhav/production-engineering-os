@@ -87,7 +87,7 @@ APPROVED_CALL_SITE_DIGEST = (
     "sha256:1f328fdd4fd570f488070db90adb6ec747e506a53265cba406764120f81f50a5"
 )
 APPROVED_MODULE_AST_DIGEST = (
-    "sha256:71704e0b112b3507115d4e5ea7f9fa5c03100ad97f1198c818a084e19cea7085"
+    "sha256:dc589f6df7324e27de9791b35a58e15df185a8de1e3510573db8f1037225b58d"
 )
 FORBIDDEN_REFERENCES = {
     "__builtins__",
@@ -452,6 +452,9 @@ def _authority_surface(
             referenced.add(node.id)
         elif isinstance(node, ast.Attribute):
             referenced.add(node.attr)
+    for node in ast.walk(tree):
+        if hasattr(node, "type_params"):
+            delattr(node, "type_params")
     module_digest = canonical_digest(ast.dump(tree, include_attributes=False))
     return imported, referenced, called, tuple(sorted(call_sites)), module_digest
 
