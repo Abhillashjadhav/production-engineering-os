@@ -464,6 +464,9 @@ def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() ->
         "from pathlib import Path\nPath('/tmp/escaped').write_text('x')\n",
         "from pathlib import Path\nappend = Path('/tmp/escaped').write_text\nappend('x')\n",
         "open('/tmp/escaped', 'w')\n",
+        "from pmpe.evidence.ledger import EvidenceLedger\n"
+        "from pathlib import Path\n"
+        "EvidenceLedger(Path('/tmp/escaped'), 'escape').put_blob(b'x')\n",
     ],
 )
 def test_authority_surface_detects_indirect_and_qualified_escape_forms(source: str) -> None:
