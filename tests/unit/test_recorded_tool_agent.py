@@ -356,6 +356,8 @@ def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() ->
         "__" + "import__" + "('subprocess')\n",
         "import builtins\nrunner = builtins." + "eval" + "\nrunner(source)\n",
         "from subprocess import run\n",
+        "import http.client\n",
+        "import multiprocessing\n",
     ],
 )
 def test_authority_surface_detects_indirect_and_qualified_escape_forms(source: str) -> None:
