@@ -422,13 +422,9 @@ def test_release_ready_evidence_write_is_inside_wall_time_budget(
             def expire_then_check() -> None:
                 nonlocal elapsed
                 visible_events = tuple(
-                    EvidenceLedger.open_existing(
-                        self.root.parent, self.run_id
-                    ).verify()
+                    EvidenceLedger.open_existing(self.root.parent, self.run_id).verify()
                 )
-                concurrently_observed_states.extend(
-                    str(event["state"]) for event in visible_events
-                )
+                concurrently_observed_states.extend(str(event["state"]) for event in visible_events)
                 elapsed = True
                 guard()
 

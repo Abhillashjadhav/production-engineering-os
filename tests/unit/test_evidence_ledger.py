@@ -27,6 +27,44 @@ def test_ledger_writes_only_the_frozen_two_path_shapes(tmp_path: Path) -> None:
     assert tuple(ledger.verify()) == (event,)
 
 
+def test_commit_guard_keeps_event_private_until_it_passes(tmp_path: Path) -> None:
+    ledger = EvidenceLedger(tmp_path, "guarded")
+    subject = canonical_digest({"candidate": 1})
+    visible_during_guard: tuple[object, ...] | None = None
+
+    def inspect_before_commit() -> None:
+        nonlocal visible_during_guard
+        visible_during_guard = tuple(EvidenceLedger.open_existing(tmp_path, "guarded").verify())
+
+    event = ledger.append(
+        event_type="released",
+        state="RELEASE_READY",
+        subject_digest=subject,
+        commit_guard=inspect_before_commit,
+    )
+
+    assert visible_during_guard == ()
+    assert tuple(ledger.verify()) == (event,)
+
+
+def test_failed_commit_guard_leaves_no_event_or_staging_file(tmp_path: Path) -> None:
+    ledger = EvidenceLedger(tmp_path, "guarded")
+
+    def reject_commit() -> None:
+        raise RuntimeError("deadline exceeded")
+
+    with pytest.raises(RuntimeError, match="deadline exceeded"):
+        ledger.append(
+            event_type="released",
+            state="RELEASE_READY",
+            subject_digest=canonical_digest({"candidate": 1}),
+            commit_guard=reject_commit,
+        )
+
+    assert tuple(ledger.verify()) == ()
+    assert tuple(ledger.run_directory.iterdir()) == (ledger.events_path,)
+
+
 def test_resume_continues_the_existing_hash_chain(tmp_path: Path) -> None:
     subject = canonical_digest({"candidate": 1})
     first = EvidenceLedger(tmp_path, "run-001")
