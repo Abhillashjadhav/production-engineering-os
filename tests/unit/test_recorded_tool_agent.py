@@ -345,8 +345,10 @@ def _authority_surface(source: str) -> tuple[set[str], set[str]]:
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             imported.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom) and node.module:
-            imported.update(f"{node.module}.{alias.name}" for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            prefix = "." * node.level + (node.module or "")
+            separator = "" if prefix.endswith(".") else "."
+            imported.update(f"{prefix}{separator}{alias.name}" for alias in node.names)
         elif isinstance(node, ast.Name):
             referenced.add(node.id)
         elif isinstance(node, ast.Attribute):
