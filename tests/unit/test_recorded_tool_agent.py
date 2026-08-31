@@ -83,35 +83,8 @@ ALLOWED_CALLS = {
     "strict_loads",
     "trusted_monotonic",
 }
-APPROVED_SENSITIVE_CALLS = (
-    "EvidenceLedger(Path(repository_root), run_id)",
-    "Path(repository_root)",
-    "history.append(copy.deepcopy(dict(message)))",
-    "history.append({'content': copy.deepcopy(actual), 'role': 'tool', "
-    "'tool_call_id': pending['call_id']})",
-    "history.append({'content': pending, 'role': 'assistant_tool_call'})",
-    "ledger.append(event_type='recorded_agent_halted', state='HALTED', "
-    "subject_digest=subject_digest, payload={'cause': cause, 'deployment_authority': False})",
-    "ledger.append(event_type='recorded_agent_release_ready', state='RELEASE_READY', "
-    "subject_digest=subject_digest, blob_digests=[output_digest], "
-    "payload={'deployment_authority': False, 'model_attempts': attempts, "
-    "'output_digest': canonical_digest(output), 'replay_steps': len(events), "
-    "'tool_calls': calls})",
-    "ledger.append(event_type='recorded_agent_step', state='BUILDING', "
-    "subject_digest=subject_digest, blob_digests=[event_blob], "
-    "payload={'kind': kind, 'sequence': index})",
-    "ledger.append(event_type='recorded_agent_validated', state='VALIDATED', "
-    "subject_digest=subject_digest, blob_digests=blobs, "
-    "payload={'deployment_authority': False, "
-    "'fixture_digest': RECORDED_TOOL_AGENT_FIXTURE_DIGEST, "
-    "'resource_digest': RECORDED_TOOL_AGENT_RESOURCE_DIGEST, "
-    "'tool_schema_digest': RECORDED_TOOL_AGENT_SCHEMA_DIGEST})",
-    "ledger.put_blob(canonical_json_bytes(event))",
-    "ledger.put_blob(canonical_json_bytes(fixture))",
-    "ledger.put_blob(canonical_json_bytes(resource))",
-    "ledger.put_blob(compiled.canonical_bytes())",
-    "ledger.put_blob(output.encode())",
-    "ledger.put_blob(schema_bytes)",
+APPROVED_CALL_SITE_DIGEST = (
+    "sha256:1f328fdd4fd570f488070db90adb6ec747e506a53265cba406764120f81f50a5"
 )
 FORBIDDEN_REFERENCES = {
     "__builtins__",
@@ -455,7 +428,7 @@ def _authority_surface(
     imported: set[str] = set()
     referenced: set[str] = set()
     called: set[str] = set()
-    sensitive: list[str] = []
+    call_sites: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
             target = ""
@@ -465,8 +438,7 @@ def _authority_surface(
                 target = node.func.attr
             if target:
                 called.add(target)
-                if target in {"EvidenceLedger", "Path", "append", "put_blob"}:
-                    sensitive.append(ast.unparse(node))
+            call_sites.append(ast.unparse(node))
         if isinstance(node, ast.Import):
             imported.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
@@ -477,16 +449,16 @@ def _authority_surface(
             referenced.add(node.id)
         elif isinstance(node, ast.Attribute):
             referenced.add(node.attr)
-    return imported, referenced, called, tuple(sorted(sensitive))
+    return imported, referenced, called, tuple(sorted(call_sites))
 
 
 def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() -> None:
     source = Path("src/pmpe/recorded_tool_agent.py").read_text()
-    imported, referenced, called, sensitive = _authority_surface(source)
+    imported, referenced, called, call_sites = _authority_surface(source)
     assert imported <= ALLOWED_IMPORTS
     assert referenced.isdisjoint(FORBIDDEN_REFERENCES)
     assert called <= ALLOWED_CALLS
-    assert sensitive == APPROVED_SENSITIVE_CALLS
+    assert canonical_digest(call_sites) == APPROVED_CALL_SITE_DIGEST
 
 
 @pytest.mark.parametrize(
@@ -516,10 +488,11 @@ def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() ->
     ],
 )
 def test_authority_surface_detects_indirect_and_qualified_escape_forms(source: str) -> None:
-    imported, referenced, called, sensitive = _authority_surface(source)
+    module = Path("src/pmpe/recorded_tool_agent.py").read_text()
+    imported, referenced, called, call_sites = _authority_surface(module + "\n" + source)
     assert (
         not imported.issubset(ALLOWED_IMPORTS)
         or not called.issubset(ALLOWED_CALLS)
         or referenced.intersection(FORBIDDEN_REFERENCES)
-        or any(call not in APPROVED_SENSITIVE_CALLS for call in sensitive)
+        or canonical_digest(call_sites) != APPROVED_CALL_SITE_DIGEST
     )
