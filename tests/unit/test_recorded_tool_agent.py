@@ -19,16 +19,17 @@ from pmpe.evidence.ledger import EvidenceLedger
 from pmpe.recorded_tool_agent import AgentRunResult, run_recorded_tool_agent
 
 NOW = datetime(2026, 8, 31, 9, 30, tzinfo=UTC)
-FORBIDDEN_IMPORTS = {
-    "asyncio",
-    "builtins",
-    "ctypes",
-    "importlib",
-    "os",
-    "requests",
-    "socket",
-    "subprocess",
-    "urllib",
+ALLOWED_IMPORTS = {
+    "__future__",
+    "collections",
+    "copy",
+    "dataclasses",
+    "datetime",
+    "jsonschema",
+    "pathlib",
+    "pmpe",
+    "time",
+    "typing",
 }
 FORBIDDEN_REFERENCES = {
     "__builtins__",
@@ -345,7 +346,7 @@ def _authority_surface(source: str) -> tuple[set[str], set[str]]:
 def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() -> None:
     source = Path("src/pmpe/recorded_tool_agent.py").read_text()
     imported, referenced = _authority_surface(source)
-    assert imported.isdisjoint(FORBIDDEN_IMPORTS)
+    assert imported <= ALLOWED_IMPORTS
     assert referenced.isdisjoint(FORBIDDEN_REFERENCES)
 
 
@@ -362,4 +363,4 @@ def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() ->
 )
 def test_authority_surface_detects_indirect_and_qualified_escape_forms(source: str) -> None:
     imported, referenced = _authority_surface(source)
-    assert imported.intersection(FORBIDDEN_IMPORTS) or referenced.intersection(FORBIDDEN_REFERENCES)
+    assert not imported.issubset(ALLOWED_IMPORTS) or referenced.intersection(FORBIDDEN_REFERENCES)
