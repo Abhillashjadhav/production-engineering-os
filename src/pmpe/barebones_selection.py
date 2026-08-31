@@ -133,6 +133,41 @@ RECORDED_TOOL_AGENT_RESOURCE = _load_recorded_tool_agent_resource()
 RECORDED_TOOL_AGENT_RESOURCE_DIGEST = canonical_digest(RECORDED_TOOL_AGENT_RESOURCE)
 
 
+def _load_recorded_tool_agent_schemas() -> dict[str, Any]:
+    schema_path = Path(__file__).parent / "fixtures" / "recorded_tool_agent_tool_schemas_v1.json"
+    payload = strict_loads(schema_path.read_bytes(), "application/json")
+    if (
+        not isinstance(payload, Mapping)
+        or set(payload) != {"schema_version", "tools"}
+        or payload.get("schema_version") != "recorded-tool-agent-tool-schemas/v1"
+    ):
+        raise RuntimeError("recorded tool-agent schemas have an unexpected shape")
+    tools = payload.get("tools")
+    if not isinstance(tools, list) or [tool.get("tool_id") for tool in tools] != [
+        "pure.transform/v1",
+        "repository.lookup/v1",
+    ]:
+        raise RuntimeError("recorded tool-agent schema identities are not admitted")
+    for tool in tools:
+        if not isinstance(tool, Mapping) or set(tool) != {
+            "arguments_schema",
+            "result_schema",
+            "tool_id",
+        }:
+            raise RuntimeError("recorded tool-agent tool schema is malformed")
+        for field in ("arguments_schema", "result_schema"):
+            schema = tool.get(field)
+            if not isinstance(schema, Mapping):
+                raise RuntimeError("recorded tool-agent JSON Schema is malformed")
+            Draft202012Validator.check_schema(schema)
+    canonical_json_bytes(payload)
+    return copy.deepcopy(dict(payload))
+
+
+RECORDED_TOOL_AGENT_SCHEMAS = _load_recorded_tool_agent_schemas()
+RECORDED_TOOL_AGENT_SCHEMA_DIGEST = canonical_digest(RECORDED_TOOL_AGENT_SCHEMAS)
+
+
 _RECORDED_TOOL_AGENT_MANIFEST: dict[str, Any] = {
     "candidate_boundary": {
         "arbitrary_filesystem": False,
@@ -157,6 +192,7 @@ _RECORDED_TOOL_AGENT_MANIFEST: dict[str, Any] = {
     ],
     "template_type": "recorded_tool_agent",
     "template_version": "1.0.0",
+    "tool_schema_digest": RECORDED_TOOL_AGENT_SCHEMA_DIGEST,
     "tools": [
         {
             "effect": "pure",
@@ -213,6 +249,11 @@ def _load_recorded_tool_agent_fixture() -> dict[str, Any]:
             event.get("response"), Mapping
         ):
             raise RuntimeError("recorded tool-agent event payload is malformed")
+        if (
+            event.get("kind") == "recorded_model_response"
+            and event["request"].get("tool_schema_digest") != RECORDED_TOOL_AGENT_SCHEMA_DIGEST
+        ):
+            raise RuntimeError("recorded tool-agent fixture has an unknown tool schema")
     canonical_json_bytes(fixture)
     return copy.deepcopy(dict(fixture))
 

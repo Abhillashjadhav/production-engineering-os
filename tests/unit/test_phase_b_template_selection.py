@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import subprocess
+import sys
+import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -16,6 +20,8 @@ from pmpe.barebones_selection import (
     RECORDED_TOOL_AGENT_FIXTURE_DIGEST,
     RECORDED_TOOL_AGENT_RESOURCE,
     RECORDED_TOOL_AGENT_RESOURCE_DIGEST,
+    RECORDED_TOOL_AGENT_SCHEMA_DIGEST,
+    RECORDED_TOOL_AGENT_SCHEMAS,
     TemplateSelectionError,
     compile_phase_b_selection,
     load_phase_b_contract,
@@ -24,6 +30,7 @@ from pmpe.barebones_selection import (
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes, strict_loads
 
 NOW = datetime(2026, 8, 28, 18, 0, tzinfo=UTC)
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def _capability_binding(
@@ -120,6 +127,72 @@ def _tool_agent_selection() -> dict[str, object]:
             "fixture_digest": RECORDED_TOOL_AGENT_FIXTURE_DIGEST,
         },
     }
+
+
+def test_recorded_tool_schema_digest_is_reconstructible_and_fixture_bound() -> None:
+    schema_path = Path("src/pmpe/fixtures/recorded_tool_agent_tool_schemas_v1.json")
+    schemas = strict_loads(schema_path.read_bytes(), "application/json")
+
+    assert schemas == RECORDED_TOOL_AGENT_SCHEMAS
+    assert canonical_digest(schemas) == RECORDED_TOOL_AGENT_SCHEMA_DIGEST
+    assert {
+        event["request"]["tool_schema_digest"]
+        for event in RECORDED_TOOL_AGENT_FIXTURE["events"]
+        if event["kind"] == "recorded_model_response"
+    } == {RECORDED_TOOL_AGENT_SCHEMA_DIGEST}
+    for tool in schemas["tools"]:
+        Draft202012Validator.check_schema(tool["arguments_schema"])
+        Draft202012Validator.check_schema(tool["result_schema"])
+
+
+def test_built_wheel_contains_and_imports_all_recorded_artifacts(tmp_path: Path) -> None:
+    wheel_dir = tmp_path / "wheel"
+    wheel_dir.mkdir()
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pip",
+            "wheel",
+            "--no-build-isolation",
+            "--no-deps",
+            "--wheel-dir",
+            str(wheel_dir),
+            str(ROOT),
+        ],
+        cwd=tmp_path,
+        env={**os.environ, "PIP_NO_INDEX": "1"},
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    wheel = next(wheel_dir.glob("*.whl"))
+    expected = {
+        "pmpe/fixtures/recorded_tool_agent_happy_v1.json",
+        "pmpe/fixtures/recorded_tool_agent_tool_schemas_v1.json",
+        "pmpe/fixtures/support-kb-v1.json",
+    }
+    with zipfile.ZipFile(wheel) as archive:
+        assert expected <= set(archive.namelist())
+        installed = tmp_path / "installed"
+        archive.extractall(installed)
+
+    environment = os.environ.copy()
+    environment["PYTHONPATH"] = str(installed)
+    imported = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "from pmpe.barebones_selection import "
+            "RECORDED_TOOL_AGENT_SCHEMA_DIGEST as value; print(value)",
+        ],
+        cwd=tmp_path,
+        env=environment,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    assert imported.stdout.strip() == RECORDED_TOOL_AGENT_SCHEMA_DIGEST
 
 
 def _contract(selection: dict[str, object]) -> dict[str, object]:

@@ -14,7 +14,7 @@
           }
         ],
         "model": "recorded/fixture-v1",
-        "tool_schema_digest": "sha256:2db98ef5923b8a9481a2a3c3ebe839a99ceec407aedc068ed067ff5d2969f0e9"
+        "tool_schema_digest": "sha256:8a65cf9c7ad7d30e23298d21b7652aaae2f1e2de67fe40423414de90f1243ad1"
       },
       "response": {
         "finish_reason": "tool_call",
@@ -87,7 +87,7 @@
           }
         ],
         "model": "recorded/fixture-v1",
-        "tool_schema_digest": "sha256:2db98ef5923b8a9481a2a3c3ebe839a99ceec407aedc068ed067ff5d2969f0e9"
+        "tool_schema_digest": "sha256:8a65cf9c7ad7d30e23298d21b7652aaae2f1e2de67fe40423414de90f1243ad1"
       },
       "response": {
         "finish_reason": "tool_call",
@@ -173,7 +173,7 @@
           }
         ],
         "model": "recorded/fixture-v1",
-        "tool_schema_digest": "sha256:2db98ef5923b8a9481a2a3c3ebe839a99ceec407aedc068ed067ff5d2969f0e9"
+        "tool_schema_digest": "sha256:8a65cf9c7ad7d30e23298d21b7652aaae2f1e2de67fe40423414de90f1243ad1"
       },
       "response": {
         "finish_reason": "stop",
