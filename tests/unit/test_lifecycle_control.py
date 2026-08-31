@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
+import multiprocessing
 import os
 import threading
 import time
@@ -527,6 +529,41 @@ def test_forward_transition_rejects_self_computed_budget_telemetry(tmp_path: Pat
             replace(valid, evidence=forged_evidence),
             reason="contract_admitted",
         )
+
+
+def test_transition_waits_for_the_retention_sweep_lock(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+    transition_context = context(
+        evidence=evidence_for(
+            LifecycleState.CONTRACT_RECEIVED,
+            LifecycleState.CONTRACT_APPROVED,
+            reason="contract_admitted",
+        )
+    )
+    process_context = multiprocessing.get_context("fork")
+    locked = process_context.Event()
+
+    def hold_retention_lock() -> None:
+        with cp.lock_path.open("a+") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            locked.set()
+            time.sleep(0.2)
+
+    holder = process_context.Process(target=hold_retention_lock)
+    holder.start()
+    assert locked.wait(timeout=1)
+    started_at = time.monotonic()
+    event = cp.transition(
+        LifecycleState.CONTRACT_APPROVED,
+        transition_context,
+        reason="contract_admitted",
+    )
+    elapsed = time.monotonic() - started_at
+    holder.join(timeout=1)
+
+    assert holder.exitcode == 0
+    assert elapsed >= 0.15
+    assert event.target is LifecycleState.CONTRACT_APPROVED
 
 
 def evidence_for(source: LifecycleState, target: LifecycleState, *, reason: str) -> dict[str, str]:
