@@ -423,6 +423,7 @@ def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() ->
         "from pmpe.barebones import subprocess\nsubprocess.run([])\n",
         "from . import barebones\n",
         "from pathlib import Path\nPath('/tmp/escaped').write_text('x')\n",
+        "from pathlib import Path\nappend = Path('/tmp/escaped').write_text\nappend('x')\n",
         "open('/tmp/escaped', 'w')\n",
     ],
 )
