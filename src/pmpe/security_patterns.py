@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import posixpath
 import re
+import unicodedata
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 PROHIBITED_SECRET_PATTERNS = (
     re.compile(rb"\bgh[pousr]_[A-Za-z0-9_]{20,}\b"),
@@ -13,7 +16,115 @@ PROHIBITED_SECRET_PATTERNS = (
     ),
 )
 
+_CREDENTIAL_MATERIAL_PATTERNS = PROHIBITED_SECRET_PATTERNS + (
+    re.compile(rb"\b(?:gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,})\b"),
+    re.compile(rb"\bglpat-[A-Za-z0-9_-]{16,}\b"),
+    re.compile(rb"\bxox[baprs]-[A-Za-z0-9-]{10,}\b"),
+    re.compile(
+        rb"\b(?:AIza[0-9A-Za-z_-]{35}|sk_(?:live|test)_[0-9A-Za-z]{16,}"
+        rb"|rk_(?:live|test)_[0-9A-Za-z]{16,}|npm_[0-9A-Za-z]{20,}"
+        rb"|pypi-[0-9A-Za-z_-]{20,})\b"
+    ),
+    re.compile(
+        rb"(?i)\b(?:sk-(?:proj|svcacct|ant)-[A-Za-z0-9_-]{16,}"
+        rb"|sk-or-v1-[A-Za-z0-9_-]{16,}|sk-[A-Za-z0-9]{20,}"
+        rb"|hf_[A-Za-z0-9_-]{20,})\b"
+    ),
+    re.compile(rb"(?i)\b(?:basic|bearer)\s+[A-Za-z0-9._~+\-/=]{8,}"),
+    re.compile(rb"-----BEGIN [A-Z ]*PRIVATE KEY-----", re.DOTALL),
+    re.compile(rb"(?i)\b[a-z][a-z0-9+.-]*://[^/@\s]+@"),
+    re.compile(
+        rb"(?i)[\"']?\b(?:accountkey|sharedaccesskey|sharedaccesssignature|pwd|password"
+        rb"|passwd|authorization|proxy-authorization|cookie|set-cookie"
+        rb"|aws_access_key_id|aws_secret_access_key"
+        rb"|aws_session_token|client_secret|private_key|api[-_]?key|access[-_]?token"
+        rb"|refresh[-_]?token|token|secret|signature|sig|credential)[\"']?"
+        rb"\s*[=:]\s*(?:\"[^\"]+\"|'[^']+'|[^\s,;]+)"
+    ),
+    re.compile(
+        rb"(?i)(?:^|[\s,;({\[])(?:authorization|credential|password|passwd|pwd"
+        rb"|api[-_]?key|x-api-key|access[-_]?token|refresh[-_]?token"
+        rb"|client[-_]?secret|private[-_]?key|aws_access_key_id"
+        rb"|aws_secret_access_key|aws_session_token|token|secret|cookie|set-cookie)"
+        rb"[ \t]+(?:\"[^\"]+\"|'[^']+'|[^\s,;]+)"
+    ),
+)
+
+_EMBEDDED_URL = re.compile(
+    r"(?i)(?<![A-Za-z0-9+.-])"
+    r"(?:[a-z][a-z0-9+.-]*:[/\\]*|[/\\]{2})"
+    r"(?:[^/@\s<>\"']+@)?(?:[A-Za-z0-9-]+\.)+"
+    r"[A-Za-z0-9-]+[^\s<>\"']*"
+)
+_SENSITIVE_QUERY_KEY = re.compile(
+    r"(?i)(?:^|[-_])(?:access[-_]?token|refresh[-_]?token|api[-_]?key|token|key"
+    r"|secret|password|passwd|signature|sig|credential|code)(?:$|[-_])"
+)
+
+
+def _url_path_contains_credential(hostname: str, path: str) -> bool:
+    normalized = unicodedata.normalize("NFKC", unquote(hostname)).rstrip(".").lower()
+    normalized = normalized.encode("idna").decode("ascii")
+    decoded_path = path
+    for _ in range(3):
+        next_path = unquote(decoded_path)
+        if next_path == decoded_path:
+            break
+        decoded_path = next_path
+    lowered_path = posixpath.normpath("/" + decoded_path.replace("\\", "/").lstrip("/")).lower()
+    return bool(
+        (normalized == "hooks.slack.com" and lowered_path.startswith("/services/"))
+        or (
+            normalized == "api.telegram.org"
+            and re.match(r"/bot[^/]+(?:/|$)", lowered_path, re.IGNORECASE)
+        )
+        or (
+            (
+                normalized in {"discord.com", "discordapp.com"}
+                or normalized.endswith(".discord.com")
+                or normalized.endswith(".discordapp.com")
+            )
+            and lowered_path.startswith("/api/webhooks/")
+        )
+    )
+
+
+def _normalize_embedded_url(candidate: str) -> str:
+    """Canonicalize slash variants before URL authority and path inspection."""
+
+    normalized = unicodedata.normalize("NFKC", candidate).replace("\\", "/")
+    if normalized.startswith("//"):
+        return "https:" + normalized
+    separator = normalized.find(":")
+    if separator < 1:
+        return normalized
+    return normalized[: separator + 1] + "//" + normalized[separator + 1 :].lstrip("/")
+
 
 def contains_prohibited_secret(payload: bytes) -> bool:
     """Return whether bytes match the canonical prohibited-secret patterns."""
     return any(pattern.search(payload) for pattern in PROHIBITED_SECRET_PATTERNS)
+
+
+def contains_credential_material(payload: bytes) -> bool:
+    """Return whether one scalar contains any credential format the platform redacts."""
+
+    if any(pattern.search(payload) for pattern in _CREDENTIAL_MATERIAL_PATTERNS):
+        return True
+    text = payload.decode("utf-8", errors="replace")
+    for match in _EMBEDDED_URL.finditer(text):
+        try:
+            parts = urlsplit(_normalize_embedded_url(match.group(0)))
+            if parts.username is not None or parts.password is not None:
+                return True
+            if _url_path_contains_credential(parts.hostname or "", parts.path):
+                return True
+            if any(
+                _SENSITIVE_QUERY_KEY.search(key)
+                for component in (parts.query, parts.fragment)
+                for key, _ in parse_qsl(component, keep_blank_values=True)
+            ):
+                return True
+        except (UnicodeError, ValueError):
+            return True
+    return False
