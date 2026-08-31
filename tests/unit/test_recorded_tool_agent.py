@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+import pmpe.recorded_tool_agent as recorded_tool_agent
 from pmpe.barebones_selection import (
     RECORDED_TOOL_AGENT_CONTENT_DIGEST,
     RECORDED_TOOL_AGENT_FIXTURE,
@@ -370,6 +371,30 @@ def test_wall_time_exhaustion_halts(tmp_path: Path) -> None:
     assert result.state == "HALTED"
 
 
+def test_wall_time_includes_contract_compilation_and_setup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    elapsed = False
+    original_compile = recorded_tool_agent.compile_phase_b_selection
+
+    def slow_compile(*args: object, **kwargs: object):  # type: ignore[no-untyped-def]
+        nonlocal elapsed
+        compiled = original_compile(*args, **kwargs)
+        elapsed = True
+        return compiled
+
+    monkeypatch.setattr(
+        recorded_tool_agent, "compile_phase_b_selection", slow_compile
+    )
+    result = _run(
+        tmp_path,
+        trusted_monotonic=lambda: 31.0 if elapsed else 0.0,
+    )
+
+    assert result.state == "HALTED"
+    assert result.cause == "WALL_TIME_BUDGET_EXCEEDED"
+
+
 def test_wall_time_crossed_by_terminal_evidence_write_halts(tmp_path: Path) -> None:
     final_check = 2 + 2 * len(RECORDED_TOOL_AGENT_FIXTURE["events"])
     calls = 0
@@ -382,6 +407,32 @@ def test_wall_time_crossed_by_terminal_evidence_write_halts(tmp_path: Path) -> N
     result = _run(tmp_path, trusted_monotonic=monotonic)
     assert result.state == "HALTED"
     assert result.cause == "WALL_TIME_BUDGET_EXCEEDED"
+
+
+def test_release_ready_evidence_write_is_inside_wall_time_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    elapsed = False
+    original_append = EvidenceLedger.append
+
+    def slow_terminal_append(self: EvidenceLedger, **kwargs: object):  # type: ignore[no-untyped-def]
+        nonlocal elapsed
+        event = original_append(self, **kwargs)  # type: ignore[arg-type]
+        if kwargs.get("event_type") == "recorded_agent_release_ready":
+            elapsed = True
+        return event
+
+    monkeypatch.setattr(EvidenceLedger, "append", slow_terminal_append)
+    result = _run(
+        tmp_path,
+        trusted_monotonic=lambda: 31.0 if elapsed else 0.0,
+    )
+
+    assert result.state == "HALTED"
+    assert result.cause == "WALL_TIME_BUDGET_EXCEEDED"
+    events = tuple(EvidenceLedger.open_existing(tmp_path, result.run_id).verify())
+    assert events[-1]["event_type"] == "recorded_agent_halted"
+    assert events[-1]["state"] == "HALTED"
 
 
 @pytest.mark.parametrize(
