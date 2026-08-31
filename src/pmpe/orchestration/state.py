@@ -192,6 +192,7 @@ class RunState:
             current = run_dir.stat()
             if (current.st_dev, current.st_ino) != (initial.st_dev, initial.st_ino):
                 raise ValueError("run-state directory was replaced")
+            loaded_identity = (current.st_dev, current.st_ino)
             payload = json.loads((run_dir / "state.json").read_text())
         has_retention_days = "retention_days" in payload
         has_retention_policy = "retention_policy_digest" in payload
@@ -227,4 +228,5 @@ class RunState:
         # tolerate states written by older step lists: missing steps are pending
         for name in STEP_ORDER:
             state.steps.setdefault(name, StepRecord())
+        state._run_dir_identity = loaded_identity
         return state

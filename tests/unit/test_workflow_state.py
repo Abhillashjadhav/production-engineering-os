@@ -99,6 +99,27 @@ def test_loaded_state_rejects_save_after_retention_rename(tmp_path: Path) -> Non
     assert tombstone.exists()
 
 
+def test_load_keeps_the_locked_identity_if_retention_renames_during_construction(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    state = RunState.new(run_id="r1", run_dir=tmp_path, spec_digest="abc")
+    state.save()
+    tombstone = tmp_path.with_name(".retention-delete-load-race")
+    original_post_init = RunState.__post_init__
+
+    def rename_during_construction(loaded: RunState) -> None:
+        tmp_path.rename(tombstone)
+        original_post_init(loaded)
+
+    monkeypatch.setattr(RunState, "__post_init__", rename_during_construction)
+    loaded = RunState.load(tmp_path)
+
+    with pytest.raises(ValueError, match="directory is missing"):
+        loaded.save()
+    assert not tmp_path.exists()
+
+
 def test_state_file_is_always_valid_json(tmp_path: Path) -> None:
     state = RunState.new(run_id="r1", run_dir=tmp_path, spec_digest="abc")
     state.save()
