@@ -514,3 +514,32 @@ def test_real_candidate_sandbox_applies_resource_limits(tmp_path: Path) -> None:
         "open_files": [256, 256],
         "processes": [128, 128],
     }
+
+
+@pytest.mark.skipif(
+    os.environ.get("PMPE_TEST_REAL_SANDBOX") != "true",
+    reason="requires the dedicated CI namespace runtime",
+)
+def test_real_candidate_sandbox_executes_the_exact_recorded_agent() -> None:
+    root = Path(__file__).resolve().parents[2]
+    completed = BubblewrapCandidateSandbox().run(
+        root,
+        (
+            sys.executable,
+            "/workspace/examples/recorded-tool-agent/run.py",
+            "/tmp/recorded-agent-output",
+        ),
+        timeout_seconds=30,
+        environment={
+            "HOME": "/tmp/home",
+            "PATH": "/usr/local/bin:/usr/bin:/bin",
+            "PYTHONPATH": "/workspace/src",
+        },
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout)
+    assert result["state"] == "RELEASE_READY"
+    assert result["cause"] == "PASS"
+    assert result["deployment_authority"] is False
+    assert result["evidence_path"].startswith("/tmp/recorded-agent-output/.pmpe/runs/")

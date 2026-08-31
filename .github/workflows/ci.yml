@@ -117,6 +117,7 @@ jobs:
           pytest \
             tests/unit/test_candidate_sandbox.py::test_real_candidate_sandbox_has_no_host_credentials_network_or_write_access \
             tests/unit/test_candidate_sandbox.py::test_real_candidate_sandbox_applies_resource_limits \
+            tests/unit/test_candidate_sandbox.py::test_real_candidate_sandbox_executes_the_exact_recorded_agent \
             tests/unit/test_candidate_sandbox.py::test_engine_fails_closed_when_candidate_sandbox_is_unavailable \
             tests/unit/test_candidate_sandbox.py::test_model_file_path_cannot_escape_through_symlink \
             tests/e2e/test_barebones_e1.py::test_e1_real_contract_reaches_release_ready \
