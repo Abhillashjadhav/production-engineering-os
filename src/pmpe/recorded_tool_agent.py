@@ -177,9 +177,23 @@ def run_recorded_tool_agent(
 
     ledger = EvidenceLedger(Path(repository_root), run_id)
     subject_digest = str(plan["compiled_plan_digest"])
-    fixture_bytes = fixture_payload or canonical_json_bytes(RECORDED_TOOL_AGENT_FIXTURE)
-    resource_bytes = resource_payload or canonical_json_bytes(RECORDED_TOOL_AGENT_RESOURCE)
+    fixture_bytes = (
+        canonical_json_bytes(RECORDED_TOOL_AGENT_FIXTURE)
+        if fixture_payload is None
+        else fixture_payload
+    )
+    resource_bytes = (
+        canonical_json_bytes(RECORDED_TOOL_AGENT_RESOURCE)
+        if resource_payload is None
+        else resource_payload
+    )
+    budgets = plan["budgets"]
     started = trusted_monotonic()
+
+    def enforce_wall_time() -> None:
+        if trusted_monotonic() - started > budgets["max_wall_time_ms"] / 1000:
+            raise _ExecutionHalt("WALL_TIME_BUDGET_EXCEEDED")
+
     try:
         if runtime_environment:
             raise _ExecutionHalt("AMBIENT_ENVIRONMENT_DENIED")
@@ -190,6 +204,8 @@ def run_recorded_tool_agent(
         if canonical_digest(resource) != RECORDED_TOOL_AGENT_RESOURCE_DIGEST:
             raise _ExecutionHalt("RESOURCE_DIGEST_MISMATCH")
         schema_bytes = canonical_json_bytes(RECORDED_TOOL_AGENT_SCHEMAS)
+        if canonical_digest(RECORDED_TOOL_AGENT_SCHEMAS) != RECORDED_TOOL_AGENT_SCHEMA_DIGEST:
+            raise _ExecutionHalt("TOOL_SCHEMA_DIGEST_MISMATCH")
         blobs = [
             ledger.put_blob(compiled.canonical_bytes()),
             ledger.put_blob(canonical_json_bytes(fixture)),
@@ -208,7 +224,7 @@ def run_recorded_tool_agent(
                 "tool_schema_digest": RECORDED_TOOL_AGENT_SCHEMA_DIGEST,
             },
         )
-        budgets = plan["budgets"]
+        enforce_wall_time()
         attempts = calls = response_bytes = 0
         seen_calls: set[str] = set()
         pending: dict[str, Any] | None = None
@@ -222,8 +238,7 @@ def run_recorded_tool_agent(
             raise _ExecutionHalt("FIXTURE_INVALID")
         validators = _schema_validators()
         for index, event in enumerate(events, start=1):
-            if trusted_monotonic() - started > budgets["max_wall_time_ms"] / 1000:
-                raise _ExecutionHalt("WALL_TIME_BUDGET_EXCEEDED")
+            enforce_wall_time()
             if index > budgets["max_steps"]:
                 raise _ExecutionHalt("STEP_BUDGET_EXCEEDED")
             if not isinstance(event, Mapping) or event.get("sequence") != index:
@@ -305,9 +320,12 @@ def run_recorded_tool_agent(
                 blob_digests=[event_blob],
                 payload={"kind": kind, "sequence": index},
             )
+            enforce_wall_time()
         if pending is not None or not output:
             raise _ExecutionHalt("TRANSCRIPT_NOT_TERMINAL")
+        enforce_wall_time()
         output_digest = ledger.put_blob(output.encode())
+        enforce_wall_time()
         ledger.append(
             event_type="recorded_agent_release_ready",
             state="RELEASE_READY",
