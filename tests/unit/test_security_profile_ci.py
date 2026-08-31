@@ -1040,6 +1040,36 @@ def test_retention_controller_rejects_a_denied_completion_target(tmp_path: Path)
     assert run_dir.exists()
 
 
+def test_retention_controller_preserves_completion_after_denied_transition(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    run_dir = tmp_path / "completed-with-denial"
+    ledger = _write_authenticated_lifecycle_run(
+        run_dir,
+        target="COMPLETED",
+        completed_at=now - timedelta(days=31),
+    )
+    events = [json.loads(line) for line in ledger.read_text().splitlines()]
+    denied = {
+        "evidence_refs": {},
+        "kind": "TRANSITION",
+        "observed_at": now.isoformat(),
+        "outcome": "DENIED",
+        "previous_digest": events[-1]["event_digest"],
+        "sequence": 3,
+        "target": "ROLLED_BACK",
+    }
+    denied["event_digest"] = canonical_digest(denied)
+    events.append(denied)
+    ledger.write_text("".join(json.dumps(event) + "\n" for event in events))
+
+    result = purge_retained_runs(tmp_path, trusted_clock=lambda: now)
+
+    assert result.deleted == (run_dir.name,)
+    assert not run_dir.exists()
+
+
 @pytest.mark.parametrize("run_kind", ["lifecycle", "engineering"])
 def test_retention_controller_rejects_valid_but_unauthenticated_policy_mutation(
     tmp_path: Path,
