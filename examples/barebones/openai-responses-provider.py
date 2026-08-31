@@ -231,12 +231,8 @@ def _provider_response(
             try:
                 input_rate_value = float(input_rate)
                 output_rate_value = float(output_rate)
-                input_cost = (
-                    input_rate_value * int(usage.get("input_tokens", 0)) / 1_000_000
-                )
-                output_cost = (
-                    output_rate_value * int(usage.get("output_tokens", 0)) / 1_000_000
-                )
+                input_cost = input_rate_value * int(usage.get("input_tokens", 0)) / 1_000_000
+                output_cost = output_rate_value * int(usage.get("output_tokens", 0)) / 1_000_000
             except (OverflowError, TypeError, ValueError):
                 _fail("configured OpenAI token prices must be finite non-negative numbers")
             if (
@@ -266,9 +262,9 @@ def main() -> int:
     if not isinstance(message, Mapping):
         _fail("stdin must be one JSON object")
     model = _required_environment("PMPE_OPENAI_MODEL")
-    api_key = _required_environment("OPENAI_API_KEY")
+    credential = _required_environment("OPENAI_API_KEY")
     body = _request_body(message, model)
-    api_response = _post(body, api_key=api_key)
+    api_response = _post(body, api_key=credential)
     json.dump(_provider_response(message, api_response, model), sys.stdout)
     return 0
 

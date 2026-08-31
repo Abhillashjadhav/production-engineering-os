@@ -16,7 +16,9 @@ from pmpe.cli import main
 from pmpe.contracts.authoring import approve_contract_draft
 from pmpe.contracts.canonical import canonical_digest
 from pmpe.engineering.engine import EngineeringRun
+from pmpe.engineering.ledger import EvidenceLedger
 from pmpe.gitops.local import LocalGitAdapter
+from pmpe.privacy.retention import retention_policy_digest, terminal_retention_digest
 from tests.integration.test_run_engine import drive_to_deploy
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -154,3 +156,58 @@ def test_production_mutation_is_retired_via_cli(
     captured = capsys.readouterr()
     assert rc == 3
     assert "retired" in (captured.err + captured.out)
+
+
+def test_retention_purge_runs_without_creating_a_new_run(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    expired = tmp_path / "expired"
+    expired.mkdir()
+    state = expired / "run-state.json"
+    run_id = "eng-expired"
+    retention_days = 30
+    state.write_text(
+        json.dumps(
+            {
+                "retention_days": retention_days,
+                "run_id": run_id,
+                "stage": "complete",
+            }
+        )
+    )
+    ledger = EvidenceLedger(expired, run_id=run_id)
+    ledger.record(
+        stage="contract_lock",
+        agent="core",
+        action="lock",
+        output_digests={"retention_policy": retention_policy_digest(retention_days)},
+    )
+    ledger.record(
+        stage="release_report",
+        agent="core",
+        action="report",
+        output_digests={
+            "terminal_retention": terminal_retention_digest(
+                retention_days,
+                stage="complete",
+            )
+        },
+    )
+    events_path = expired / "ledger.jsonl"
+    events = [json.loads(line) for line in events_path.read_text().splitlines()]
+    terminal = events[-1]
+    terminal["ts"] = (datetime.now(UTC) - timedelta(days=31)).isoformat()
+    identity = {key: value for key, value in terminal.items() if key not in {"event_id", "ts"}}
+    terminal["event_id"] = canonical_digest(
+        identity if terminal["idempotency_key"] else {**identity, "ts": terminal["ts"]}
+    )
+    events_path.write_text("".join(json.dumps(event) + "\n" for event in events))
+
+    assert main(["retention", "purge", "--runs-root", str(tmp_path)]) == 0
+
+    report = json.loads(capsys.readouterr().out)
+    assert report["deleted"] == ["expired"]
+    assert not expired.exists()

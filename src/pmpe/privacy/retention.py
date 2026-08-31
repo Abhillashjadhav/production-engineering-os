@@ -250,6 +250,7 @@ class RetentionController:
         created_at = state.get("created_at")
         outcome = state.get("outcome")
         completed_at_value = state.get("completed_at")
+        steps = state.get("steps")
         if (
             not state
             or "retention_days" not in state
@@ -263,6 +264,11 @@ class RetentionController:
             or outcome not in _RUN_STATE_TERMINAL_OUTCOMES
             or not isinstance(completed_at_value, str)
             or not completed_at_value
+            or not isinstance(steps, dict)
+            or any(
+                isinstance(step, dict) and step.get("status") == "running"
+                for step in steps.values()
+            )
             or state.get("retention_policy_digest") != retention_policy_digest(retention_days)
             or state.get("retention_record_digest")
             != run_state_retention_digest(
@@ -390,19 +396,33 @@ class RetentionController:
                 return None
             previous = supplied
         initial = events[0]
-        terminal = events[-1]
+        completion = next(
+            (
+                event
+                for event in reversed(events)
+                if event.get("kind") == "COMPLETION_CLAIMED"
+                and event.get("outcome") == "APPLIED"
+                and event.get("target") == "COMPLETED"
+            ),
+            None,
+        )
+        if completion is None:
+            return None
+        completion_index = events.index(completion)
+        if any(
+            event.get("kind") != "TRANSITION" or event.get("outcome") != "DENIED"
+            for event in events[completion_index + 1 :]
+        ):
+            return None
         evidence_refs = initial.get("evidence_refs")
         if (
             initial.get("kind") != "STATE_CREATED"
             or not isinstance(evidence_refs, dict)
             or evidence_refs.get("metadata_digest") != _canonical_digest(metadata)
-            or terminal.get("kind") != "COMPLETION_CLAIMED"
-            or terminal.get("outcome") != "APPLIED"
-            or terminal.get("target") != "COMPLETED"
         ):
             return None
         retention_days = cls._validated_retention_days(metadata)
-        completed_at = cls._authenticated_timestamp(terminal.get("observed_at"))
+        completed_at = cls._authenticated_timestamp(completion.get("observed_at"))
         if retention_days is None or completed_at is None:
             return None
         return _AuthenticatedRetention(retention_days, completed_at)
