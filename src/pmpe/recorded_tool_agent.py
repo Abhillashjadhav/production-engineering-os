@@ -161,6 +161,7 @@ def run_recorded_tool_agent(
 ) -> AgentRunResult:
     """Execute the sole admitted replay fixture without network, process, or file authority."""
 
+    started = trusted_monotonic()
     compiled = compile_phase_b_selection(
         contract,
         approval,
@@ -190,7 +191,6 @@ def run_recorded_tool_agent(
         else resource_payload
     )
     budgets = plan["budgets"]
-    started = trusted_monotonic()
 
     def enforce_wall_time() -> None:
         if trusted_monotonic() - started > budgets["max_wall_time_ms"] / 1000:
@@ -342,6 +342,7 @@ def run_recorded_tool_agent(
                 "tool_calls": calls,
             },
         )
+        enforce_wall_time()
         return AgentRunResult(
             run_id=run_id,
             state="RELEASE_READY",

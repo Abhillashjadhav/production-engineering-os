@@ -85,10 +85,10 @@ ALLOWED_CALLS = {
     "trusted_monotonic",
 }
 APPROVED_CALL_SITE_DIGEST = (
-    "sha256:1f328fdd4fd570f488070db90adb6ec747e506a53265cba406764120f81f50a5"
+    "sha256:15fc2b3456551054d57f80342fa6ee72764f2e9ceae04b72fbe7feeb22a8cf2a"
 )
 APPROVED_MODULE_AST_DIGEST = (
-    "sha256:dc589f6df7324e27de9791b35a58e15df185a8de1e3510573db8f1037225b58d"
+    "sha256:8d5b89dfbe409c625b38dfa7b25a331724235423f34755efbf06c975323f4026"
 )
 FORBIDDEN_REFERENCES = {
     "__builtins__",
@@ -383,9 +383,7 @@ def test_wall_time_includes_contract_compilation_and_setup(
         elapsed = True
         return compiled
 
-    monkeypatch.setattr(
-        recorded_tool_agent, "compile_phase_b_selection", slow_compile
-    )
+    monkeypatch.setattr(recorded_tool_agent, "compile_phase_b_selection", slow_compile)
     result = _run(
         tmp_path,
         trusted_monotonic=lambda: 31.0 if elapsed else 0.0,
