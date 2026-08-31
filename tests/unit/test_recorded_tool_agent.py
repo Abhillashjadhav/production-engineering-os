@@ -411,6 +411,7 @@ def test_release_ready_evidence_write_is_inside_wall_time_budget(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     elapsed = False
+    concurrently_observed_states: list[str] = []
     original_append = EvidenceLedger.append
 
     def slow_terminal_append(self: EvidenceLedger, **kwargs: object):  # type: ignore[no-untyped-def]
@@ -420,6 +421,14 @@ def test_release_ready_evidence_write_is_inside_wall_time_budget(
 
             def expire_then_check() -> None:
                 nonlocal elapsed
+                visible_events = tuple(
+                    EvidenceLedger.open_existing(
+                        self.root.parent, self.run_id
+                    ).verify()
+                )
+                concurrently_observed_states.extend(
+                    str(event["state"]) for event in visible_events
+                )
                 elapsed = True
                 guard()
 
@@ -438,6 +447,7 @@ def test_release_ready_evidence_write_is_inside_wall_time_budget(
     assert events[-1]["event_type"] == "recorded_agent_halted"
     assert events[-1]["state"] == "HALTED"
     assert all(event["state"] != "RELEASE_READY" for event in events)
+    assert "RELEASE_READY" not in concurrently_observed_states
 
 
 @pytest.mark.parametrize(
