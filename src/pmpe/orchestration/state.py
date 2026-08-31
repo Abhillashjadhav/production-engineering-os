@@ -7,6 +7,7 @@ in shipped code; only the explicit test harness replays incomplete steps.
 
 from __future__ import annotations
 
+import fcntl
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -64,6 +65,14 @@ class RunState:
     completed_at: str = ""
     outcome: str = ""  # "" while running; success | no_merge | blocked | failed
     steps: dict[str, StepRecord] = field(default_factory=dict)
+    _run_dir_identity: tuple[int, int] | None = field(default=None, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        try:
+            current = self.run_dir.stat()
+        except FileNotFoundError:
+            return
+        self._run_dir_identity = (current.st_dev, current.st_ino)
 
     @classmethod
     def new(
@@ -149,11 +158,45 @@ class RunState:
                 for name, rec in self.steps.items()
             },
         }
-        atomic_write_json(self.run_dir / "state.json", payload)
+        if self._run_dir_identity is None:
+            self.run_dir.mkdir(parents=True, exist_ok=True)
+            current = self.run_dir.stat()
+            self._run_dir_identity = (current.st_dev, current.st_ino)
+        try:
+            lock = (self.run_dir / "state.lock").open("a+")
+        except FileNotFoundError as exc:
+            raise ValueError("run-state directory is missing") from exc
+        with lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                try:
+                    current = self.run_dir.stat()
+                except FileNotFoundError as exc:
+                    raise ValueError("run-state directory is missing") from exc
+                if (current.st_dev, current.st_ino) != self._run_dir_identity:
+                    raise ValueError("run-state directory was replaced")
+                atomic_write_json(self.run_dir / "state.json", payload)
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
     @classmethod
     def load(cls, run_dir: Path) -> RunState:
-        payload = json.loads((Path(run_dir) / "state.json").read_text())
+        run_dir = Path(run_dir)
+        initial = run_dir.stat()
+        try:
+            lock = (run_dir / "state.lock").open("a+")
+        except FileNotFoundError as exc:
+            raise ValueError("run-state directory is missing") from exc
+        with lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            current = run_dir.stat()
+            if (current.st_dev, current.st_ino) != (initial.st_dev, initial.st_ino):
+                raise ValueError("run-state directory was replaced")
+            payload = json.loads((run_dir / "state.json").read_text())
+        has_retention_days = "retention_days" in payload
+        has_retention_policy = "retention_policy_digest" in payload
+        if has_retention_days != has_retention_policy:
+            raise ValueError("run-state retention binding is incomplete")
         retention_days = validate_retention_days(
             payload.get("retention_days", DEFAULT_RETENTION_DAYS)
         )
@@ -164,7 +207,7 @@ class RunState:
             raise ValueError("retention policy changed after run-state admission")
         state = cls(
             run_id=payload["run_id"],
-            run_dir=Path(run_dir),
+            run_dir=run_dir,
             spec_digest=payload["spec_digest"],
             spec_file=payload.get("spec_file", ""),
             created_at=payload.get("created_at", ""),

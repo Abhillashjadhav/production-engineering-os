@@ -71,6 +71,34 @@ def test_load_rejects_retention_changed_after_admission(tmp_path: Path) -> None:
         RunState.load(tmp_path)
 
 
+def test_load_rejects_one_missing_modern_retention_field(tmp_path: Path) -> None:
+    state = RunState.new(run_id="r1", run_dir=tmp_path, spec_digest="abc")
+    state.save()
+    state_path = tmp_path / "state.json"
+    payload = json.loads(state_path.read_text())
+    payload.pop("retention_policy_digest")
+    payload["retention_days"] = 365
+    state_path.write_text(json.dumps(payload))
+
+    with pytest.raises(ValueError, match="retention binding is incomplete"):
+        RunState.load(tmp_path)
+
+
+def test_loaded_state_rejects_save_after_retention_rename(tmp_path: Path) -> None:
+    state = RunState.new(run_id="r1", run_dir=tmp_path, spec_digest="abc")
+    state.save()
+    loaded = RunState.load(tmp_path)
+    tombstone = tmp_path.with_name(".retention-delete-run-state")
+    tmp_path.rename(tombstone)
+
+    loaded.mark("ingest", StepStatus.RUNNING)
+    with pytest.raises(ValueError, match="directory is missing"):
+        loaded.save()
+
+    assert not tmp_path.exists()
+    assert tombstone.exists()
+
+
 def test_state_file_is_always_valid_json(tmp_path: Path) -> None:
     state = RunState.new(run_id="r1", run_dir=tmp_path, spec_digest="abc")
     state.save()
