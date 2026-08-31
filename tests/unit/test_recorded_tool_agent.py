@@ -485,6 +485,7 @@ def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() ->
         "rogue = dict(str('/tmp/escaped'), 'escape')\n"
         "get = rogue.put_blob\n"
         "get(b'x')\n",
+        "strict_loads = breakpoint\n",
     ],
 )
 def test_authority_surface_detects_indirect_and_qualified_escape_forms(source: str) -> None:
