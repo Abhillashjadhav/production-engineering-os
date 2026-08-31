@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from pathlib import Path
 
 import pytest
 
+import pmpe.evidence.ledger as evidence_ledger
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 
@@ -30,20 +33,20 @@ def test_ledger_writes_only_the_frozen_two_path_shapes(tmp_path: Path) -> None:
 def test_commit_guard_keeps_event_private_until_it_passes(tmp_path: Path) -> None:
     ledger = EvidenceLedger(tmp_path, "guarded")
     subject = canonical_digest({"candidate": 1})
-    visible_during_guard: tuple[object, ...] | None = None
+    guard_calls = 0
 
-    def inspect_before_commit() -> None:
-        nonlocal visible_during_guard
-        visible_during_guard = tuple(EvidenceLedger.open_existing(tmp_path, "guarded").verify())
+    def approve_commit() -> None:
+        nonlocal guard_calls
+        guard_calls += 1
 
     event = ledger.append(
         event_type="released",
         state="RELEASE_READY",
         subject_digest=subject,
-        commit_guard=inspect_before_commit,
+        commit_guard=approve_commit,
     )
 
-    assert visible_during_guard == ()
+    assert guard_calls == 2
     assert tuple(ledger.verify()) == (event,)
 
 
@@ -63,6 +66,30 @@ def test_failed_commit_guard_leaves_no_event_or_staging_file(tmp_path: Path) -> 
 
     assert tuple(ledger.verify()) == ()
     assert tuple(ledger.run_directory.iterdir()) == (ledger.events_path,)
+
+
+def test_guarded_commit_fsyncs_the_run_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ledger = EvidenceLedger(tmp_path, "guarded")
+    original_fsync = evidence_ledger.os.fsync
+    directory_syncs = 0
+
+    def track_fsync(descriptor: int) -> None:
+        nonlocal directory_syncs
+        if stat.S_ISDIR(os.fstat(descriptor).st_mode):
+            directory_syncs += 1
+        original_fsync(descriptor)
+
+    monkeypatch.setattr(evidence_ledger.os, "fsync", track_fsync)
+    ledger.append(
+        event_type="released",
+        state="RELEASE_READY",
+        subject_digest=canonical_digest({"candidate": 1}),
+        commit_guard=lambda: None,
+    )
+
+    assert directory_syncs == 1
 
 
 def test_resume_continues_the_existing_hash_chain(tmp_path: Path) -> None:

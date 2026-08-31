@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import os
 import re
@@ -186,6 +187,15 @@ class EvidenceLedger:
             raise EvidenceIntegrityError(f"{description} exceeds size limit")
         return payload
 
+    def _events_snapshot(self) -> bytes:
+        directory = os.open(self.run_directory, os.O_RDONLY)
+        try:
+            fcntl.flock(directory, fcntl.LOCK_SH)
+            return self._read_bounded(self.events_path, "evidence ledger")
+        finally:
+            fcntl.flock(directory, fcntl.LOCK_UN)
+            os.close(directory)
+
     def read_blob(self, digest: str) -> bytes:
         """Return one verified content-addressed blob without mutating the ledger."""
 
@@ -241,31 +251,58 @@ class EvidenceLedger:
         _validate_event_schema(event)
         encoded_event = canonical_json_bytes(event) + b"\n"
         if commit_guard is None:
-            with self.events_path.open("ab") as stream:
-                stream.write(encoded_event)
-                stream.flush()
-                os.fsync(stream.fileno())
+            directory = os.open(self.run_directory, os.O_RDONLY)
+            try:
+                fcntl.flock(directory, fcntl.LOCK_EX)
+                with self.events_path.open("ab") as stream:
+                    stream.write(encoded_event)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            finally:
+                fcntl.flock(directory, fcntl.LOCK_UN)
+                os.close(directory)
             return event
 
-        current_events = self._read_bounded(self.events_path, "evidence ledger")
-        descriptor, temporary_name = tempfile.mkstemp(dir=self.run_directory)
+        current_events = self._events_snapshot()
+        staged_descriptor, staged_name = tempfile.mkstemp(dir=self.run_directory)
+        rollback_name: str | None = None
         try:
-            with os.fdopen(descriptor, "wb") as temporary:
-                temporary.write(current_events)
-                temporary.write(encoded_event)
-                temporary.flush()
-                os.fsync(temporary.fileno())
+            with os.fdopen(staged_descriptor, "wb") as staged:
+                staged.write(current_events)
+                staged.write(encoded_event)
+                staged.flush()
+                os.fsync(staged.fileno())
+            rollback_descriptor, rollback_name = tempfile.mkstemp(dir=self.run_directory)
+            with os.fdopen(rollback_descriptor, "wb") as rollback:
+                rollback.write(current_events)
+                rollback.flush()
+                os.fsync(rollback.fileno())
             commit_guard()
-            os.replace(temporary_name, self.events_path)
+            directory = os.open(self.run_directory, os.O_RDONLY)
+            try:
+                fcntl.flock(directory, fcntl.LOCK_EX)
+                os.replace(staged_name, self.events_path)
+                os.fsync(directory)
+                try:
+                    commit_guard()
+                except Exception:
+                    os.replace(rollback_name, self.events_path)
+                    os.fsync(directory)
+                    raise
+            finally:
+                fcntl.flock(directory, fcntl.LOCK_UN)
+                os.close(directory)
         finally:
-            Path(temporary_name).unlink(missing_ok=True)
+            Path(staged_name).unlink(missing_ok=True)
+            if rollback_name is not None:
+                Path(rollback_name).unlink(missing_ok=True)
         return event
 
     def verify(self) -> Iterator[Mapping[str, Any]]:
         if not self.events_path.exists():
             return
         try:
-            events_payload = self._read_bounded(self.events_path, "evidence ledger")
+            events_payload = self._events_snapshot()
             raw_events = events_payload.splitlines()
         except OSError as exc:
             raise EvidenceIntegrityError("evidence ledger cannot be read") from exc

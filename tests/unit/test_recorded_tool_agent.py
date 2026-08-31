@@ -5,9 +5,11 @@ import copy
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from threading import Event, Thread
 
 import pytest
 
+import pmpe.evidence.ledger as evidence_ledger
 import pmpe.recorded_tool_agent as recorded_tool_agent
 from pmpe.barebones_selection import (
     RECORDED_TOOL_AGENT_CONTENT_DIGEST,
@@ -412,20 +414,37 @@ def test_release_ready_evidence_write_is_inside_wall_time_budget(
 ) -> None:
     elapsed = False
     concurrently_observed_states: list[str] = []
+    reader_started = Event()
+    reader_finished = Event()
+    reader: Thread | None = None
     original_append = EvidenceLedger.append
 
     def slow_terminal_append(self: EvidenceLedger, **kwargs: object):  # type: ignore[no-untyped-def]
-        nonlocal elapsed
+        nonlocal elapsed, reader
         guard = kwargs.get("commit_guard")
         if kwargs.get("event_type") == "recorded_agent_release_ready" and callable(guard):
+            guard_calls = 0
 
             def expire_then_check() -> None:
-                nonlocal elapsed
-                visible_events = tuple(
-                    EvidenceLedger.open_existing(self.root.parent, self.run_id).verify()
-                )
-                concurrently_observed_states.extend(str(event["state"]) for event in visible_events)
-                elapsed = True
+                nonlocal elapsed, guard_calls, reader
+                guard_calls += 1
+                if guard_calls == 2:
+
+                    def inspect_concurrently() -> None:
+                        reader_started.set()
+                        visible_events = tuple(
+                            EvidenceLedger.open_existing(self.root.parent, self.run_id).verify()
+                        )
+                        concurrently_observed_states.extend(
+                            str(event["state"]) for event in visible_events
+                        )
+                        reader_finished.set()
+
+                    reader = Thread(target=inspect_concurrently)
+                    reader.start()
+                    assert reader_started.wait(timeout=1)
+                    assert not reader_finished.is_set()
+                    elapsed = True
                 guard()
 
             kwargs["commit_guard"] = expire_then_check
@@ -436,6 +455,8 @@ def test_release_ready_evidence_write_is_inside_wall_time_budget(
         tmp_path,
         trusted_monotonic=lambda: 31.0 if elapsed else 0.0,
     )
+    assert reader is not None
+    reader.join(timeout=1)
 
     assert result.state == "HALTED"
     assert result.cause == "WALL_TIME_BUDGET_EXCEEDED"
@@ -443,7 +464,33 @@ def test_release_ready_evidence_write_is_inside_wall_time_budget(
     assert events[-1]["event_type"] == "recorded_agent_halted"
     assert events[-1]["state"] == "HALTED"
     assert all(event["state"] != "RELEASE_READY" for event in events)
+    assert reader_finished.is_set()
     assert "RELEASE_READY" not in concurrently_observed_states
+
+
+def test_release_publication_is_inside_wall_time_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    elapsed = False
+    original_replace = evidence_ledger.os.replace
+
+    def slow_publication(source: object, destination: object) -> None:
+        nonlocal elapsed
+        original_replace(source, destination)  # type: ignore[arg-type]
+        if Path(destination).name == "events.jsonl":
+            elapsed = True
+
+    monkeypatch.setattr(evidence_ledger.os, "replace", slow_publication)
+    result = _run(
+        tmp_path,
+        trusted_monotonic=lambda: 31.0 if elapsed else 0.0,
+    )
+
+    assert result.state == "HALTED"
+    assert result.cause == "WALL_TIME_BUDGET_EXCEEDED"
+    events = tuple(EvidenceLedger.open_existing(tmp_path, result.run_id).verify())
+    assert events[-1]["state"] == "HALTED"
+    assert all(event["state"] != "RELEASE_READY" for event in events)
 
 
 @pytest.mark.parametrize(
