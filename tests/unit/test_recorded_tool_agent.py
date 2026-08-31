@@ -20,16 +20,27 @@ from pmpe.recorded_tool_agent import AgentRunResult, run_recorded_tool_agent
 
 NOW = datetime(2026, 8, 31, 9, 30, tzinfo=UTC)
 ALLOWED_IMPORTS = {
-    "__future__",
-    "collections",
+    "__future__.annotations",
+    "collections.abc.Callable",
+    "collections.abc.Mapping",
     "copy",
-    "dataclasses",
-    "datetime",
-    "jsonschema",
-    "pathlib",
-    "pmpe",
+    "dataclasses.dataclass",
+    "datetime.datetime",
+    "jsonschema.Draft202012Validator",
+    "pathlib.Path",
+    "pmpe.barebones_selection.RECORDED_TOOL_AGENT_FIXTURE",
+    "pmpe.barebones_selection.RECORDED_TOOL_AGENT_FIXTURE_DIGEST",
+    "pmpe.barebones_selection.RECORDED_TOOL_AGENT_RESOURCE",
+    "pmpe.barebones_selection.RECORDED_TOOL_AGENT_RESOURCE_DIGEST",
+    "pmpe.barebones_selection.RECORDED_TOOL_AGENT_SCHEMAS",
+    "pmpe.barebones_selection.RECORDED_TOOL_AGENT_SCHEMA_DIGEST",
+    "pmpe.barebones_selection.compile_phase_b_selection",
+    "pmpe.contracts.canonical.canonical_digest",
+    "pmpe.contracts.canonical.canonical_json_bytes",
+    "pmpe.contracts.canonical.strict_loads",
+    "pmpe.evidence.ledger.EvidenceLedger",
     "time",
-    "typing",
+    "typing.Any",
 }
 FORBIDDEN_REFERENCES = {
     "__builtins__",
@@ -333,9 +344,9 @@ def _authority_surface(source: str) -> tuple[set[str], set[str]]:
     referenced: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
-            imported.update(alias.name.split(".")[0] for alias in node.names)
+            imported.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module:
-            imported.add(node.module.split(".")[0])
+            imported.update(f"{node.module}.{alias.name}" for alias in node.names)
         elif isinstance(node, ast.Name):
             referenced.add(node.id)
         elif isinstance(node, ast.Attribute):
