@@ -240,54 +240,48 @@ class EvidenceLedger:
             raise ValueError(
                 "commit deadline and trusted monotonic clock must be provided together"
             )
-        events = tuple(self.verify())
-        body: dict[str, Any] = {
-            "schema_version": "1.0.0",
-            "run_id": self.run_id,
-            "sequence": len(events) + 1,
-            "previous_digest": events[-1]["event_digest"] if events else GENESIS_DIGEST,
-            "event_type": event_type,
-            "state": state,
-            "subject_digest": subject_digest,
-            "blob_digests": sorted(set(blob_digests)),
-            "payload": dict(payload or {}),
-        }
-        event = {**body, "event_digest": canonical_digest(body)}
-        _validate_event_schema(event)
-        encoded_event = canonical_json_bytes(event) + b"\n"
-        if commit_deadline is None:
-            directory = os.open(self.run_directory, os.O_RDONLY)
-            try:
-                fcntl.flock(directory, fcntl.LOCK_EX)
+        directory = os.open(self.run_directory, os.O_RDONLY)
+        try:
+            fcntl.flock(directory, fcntl.LOCK_EX)
+            current_events = self._read_bounded(self.events_path, "evidence ledger")
+            events = tuple(self._verify_payload(current_events))
+            body: dict[str, Any] = {
+                "schema_version": "1.0.0",
+                "run_id": self.run_id,
+                "sequence": len(events) + 1,
+                "previous_digest": events[-1]["event_digest"] if events else GENESIS_DIGEST,
+                "event_type": event_type,
+                "state": state,
+                "subject_digest": subject_digest,
+                "blob_digests": sorted(set(blob_digests)),
+                "payload": dict(payload or {}),
+            }
+            event = {**body, "event_digest": canonical_digest(body)}
+            _validate_event_schema(event)
+            encoded_event = canonical_json_bytes(event) + b"\n"
+            if commit_deadline is None:
                 with self.events_path.open("ab") as stream:
                     stream.write(encoded_event)
                     stream.flush()
                     os.fsync(stream.fileno())
-            finally:
-                fcntl.flock(directory, fcntl.LOCK_UN)
-                os.close(directory)
-            return event
+                return event
 
-        current_events = self._events_snapshot()
-        staged_descriptor, staged_name = tempfile.mkstemp(dir=self.run_directory)
-        rollback_name: str | None = None
-        try:
-            with os.fdopen(staged_descriptor, "wb") as staged:
-                staged.write(current_events)
-                staged.write(encoded_event)
-                staged.flush()
-                os.fsync(staged.fileno())
-            rollback_descriptor, rollback_name = tempfile.mkstemp(dir=self.run_directory)
-            with os.fdopen(rollback_descriptor, "wb") as rollback:
-                rollback.write(current_events)
-                rollback.flush()
-                os.fsync(rollback.fileno())
-            assert trusted_monotonic is not None
-            if trusted_monotonic() > commit_deadline:
-                raise TimeoutError("evidence commit deadline exceeded")
-            directory = os.open(self.run_directory, os.O_RDONLY)
+            staged_descriptor, staged_name = tempfile.mkstemp(dir=self.run_directory)
+            rollback_name: str | None = None
             try:
-                fcntl.flock(directory, fcntl.LOCK_EX)
+                with os.fdopen(staged_descriptor, "wb") as staged:
+                    staged.write(current_events)
+                    staged.write(encoded_event)
+                    staged.flush()
+                    os.fsync(staged.fileno())
+                rollback_descriptor, rollback_name = tempfile.mkstemp(dir=self.run_directory)
+                with os.fdopen(rollback_descriptor, "wb") as rollback:
+                    rollback.write(current_events)
+                    rollback.flush()
+                    os.fsync(rollback.fileno())
+                assert trusted_monotonic is not None
+                if trusted_monotonic() > commit_deadline:
+                    raise TimeoutError("evidence commit deadline exceeded")
                 published = False
                 try:
                     os.replace(staged_name, self.events_path)
@@ -301,22 +295,16 @@ class EvidenceLedger:
                         os.fsync(directory)
                     raise
             finally:
-                fcntl.flock(directory, fcntl.LOCK_UN)
-                os.close(directory)
+                Path(staged_name).unlink(missing_ok=True)
+                if rollback_name is not None:
+                    Path(rollback_name).unlink(missing_ok=True)
+            return event
         finally:
-            Path(staged_name).unlink(missing_ok=True)
-            if rollback_name is not None:
-                Path(rollback_name).unlink(missing_ok=True)
-        return event
+            fcntl.flock(directory, fcntl.LOCK_UN)
+            os.close(directory)
 
-    def verify(self) -> Iterator[Mapping[str, Any]]:
-        if not self.events_path.exists():
-            return
-        try:
-            events_payload = self._events_snapshot()
-            raw_events = events_payload.splitlines()
-        except OSError as exc:
-            raise EvidenceIntegrityError("evidence ledger cannot be read") from exc
+    def _verify_payload(self, events_payload: bytes) -> Iterator[Mapping[str, Any]]:
+        raw_events = events_payload.splitlines()
         previous = GENESIS_DIGEST
         total_read_bytes = len(events_payload)
         counted_blobs: set[str] = set()
@@ -356,3 +344,12 @@ class EvidenceLedger:
                     raise EvidenceIntegrityError("evidence exceeds aggregate size limit")
             previous = str(event_digest)
             yield event
+
+    def verify(self) -> Iterator[Mapping[str, Any]]:
+        if not self.events_path.exists():
+            return
+        try:
+            events_payload = self._events_snapshot()
+        except OSError as exc:
+            raise EvidenceIntegrityError("evidence ledger cannot be read") from exc
+        yield from self._verify_payload(events_payload)

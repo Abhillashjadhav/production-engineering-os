@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import os
 import stat
+from collections.abc import Mapping
 from pathlib import Path
+from threading import Event, Thread
 
 import pytest
 
@@ -121,6 +123,56 @@ def test_publication_fsync_failure_rolls_back_before_unlocking(
     assert directory_syncs == 2
     assert tuple(ledger.verify()) == ()
     assert tuple(ledger.run_directory.iterdir()) == (ledger.events_path,)
+
+
+def test_guarded_append_serializes_a_concurrent_writer_without_lost_events(
+    tmp_path: Path,
+) -> None:
+    subject = canonical_digest({"candidate": 1})
+    ledger = EvidenceLedger(tmp_path, "guarded")
+    first = ledger.append(event_type="validated", state="VALIDATED", subject_digest=subject)
+    concurrent = EvidenceLedger(tmp_path, "guarded", resume=True)
+    writer_started = Event()
+    writer_finished = Event()
+    concurrent_events: list[Mapping[str, object]] = []
+    writer: Thread | None = None
+    clock_calls = 0
+
+    def append_concurrently() -> None:
+        writer_started.set()
+        concurrent_events.append(
+            concurrent.append(
+                event_type="concurrent",
+                state="BUILDING",
+                subject_digest=subject,
+            )
+        )
+        writer_finished.set()
+
+    def monotonic() -> float:
+        nonlocal clock_calls, writer
+        clock_calls += 1
+        if clock_calls == 1:
+            writer = Thread(target=append_concurrently)
+            writer.start()
+            assert writer_started.wait(timeout=1)
+            assert not writer_finished.is_set()
+        return 0.0
+
+    guarded = ledger.append(
+        event_type="guarded",
+        state="BUILDING",
+        subject_digest=subject,
+        commit_deadline=1.0,
+        trusted_monotonic=monotonic,
+    )
+    assert writer is not None
+    writer.join(timeout=1)
+
+    assert writer_finished.is_set()
+    events = tuple(ledger.verify())
+    assert events == (first, guarded, concurrent_events[0])
+    assert [event["sequence"] for event in events] == [1, 2, 3]
 
 
 def test_resume_continues_the_existing_hash_chain(tmp_path: Path) -> None:
