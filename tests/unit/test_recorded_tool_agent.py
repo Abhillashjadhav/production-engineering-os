@@ -42,6 +42,47 @@ ALLOWED_IMPORTS = {
     "time",
     "typing.Any",
 }
+ALLOWED_CALLS = {
+    "AgentRunResult",
+    "Draft202012Validator",
+    "EvidenceLedger",
+    "Path",
+    "RecordedToolAgentError",
+    "_ExecutionHalt",
+    "_dispatch",
+    "_halt",
+    "_lookup",
+    "_object",
+    "_schema_validators",
+    "_transform",
+    "_validate",
+    "add",
+    "append",
+    "as_dict",
+    "canonical_bytes",
+    "canonical_digest",
+    "canonical_json_bytes",
+    "casefold",
+    "compile_phase_b_selection",
+    "dataclass",
+    "deepcopy",
+    "dict",
+    "encode",
+    "enforce_wall_time",
+    "enumerate",
+    "get",
+    "isinstance",
+    "iter_errors",
+    "join",
+    "len",
+    "next",
+    "put_blob",
+    "set",
+    "split",
+    "str",
+    "strict_loads",
+    "trusted_monotonic",
+}
 FORBIDDEN_REFERENCES = {
     "__builtins__",
     "__import__",
@@ -338,11 +379,17 @@ def test_bad_approval_fails_before_a_ledger_is_created(tmp_path: Path) -> None:
     assert not (tmp_path / ".pmpe").exists()
 
 
-def _authority_surface(source: str) -> tuple[set[str], set[str]]:
+def _authority_surface(source: str) -> tuple[set[str], set[str], set[str]]:
     tree = ast.parse(source)
     imported: set[str] = set()
     referenced: set[str] = set()
+    called: set[str] = set()
     for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                called.add(node.func.id)
+            elif isinstance(node.func, ast.Attribute):
+                called.add(node.func.attr)
         if isinstance(node, ast.Import):
             imported.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
@@ -353,14 +400,15 @@ def _authority_surface(source: str) -> tuple[set[str], set[str]]:
             referenced.add(node.id)
         elif isinstance(node, ast.Attribute):
             referenced.add(node.attr)
-    return imported, referenced
+    return imported, referenced, called
 
 
 def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() -> None:
     source = Path("src/pmpe/recorded_tool_agent.py").read_text()
-    imported, referenced = _authority_surface(source)
+    imported, referenced, called = _authority_surface(source)
     assert imported <= ALLOWED_IMPORTS
     assert referenced.isdisjoint(FORBIDDEN_REFERENCES)
+    assert called <= ALLOWED_CALLS
 
 
 @pytest.mark.parametrize(
@@ -379,5 +427,9 @@ def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() ->
     ],
 )
 def test_authority_surface_detects_indirect_and_qualified_escape_forms(source: str) -> None:
-    imported, referenced = _authority_surface(source)
-    assert not imported.issubset(ALLOWED_IMPORTS) or referenced.intersection(FORBIDDEN_REFERENCES)
+    imported, referenced, called = _authority_surface(source)
+    assert (
+        not imported.issubset(ALLOWED_IMPORTS)
+        or not called.issubset(ALLOWED_CALLS)
+        or referenced.intersection(FORBIDDEN_REFERENCES)
+    )
