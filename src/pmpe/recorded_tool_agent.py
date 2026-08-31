@@ -329,20 +329,28 @@ def run_recorded_tool_agent(
         enforce_wall_time()
         output_digest = ledger.put_blob(output.encode())
         enforce_wall_time()
+        release_payload = {
+            "deployment_authority": False,
+            "model_attempts": attempts,
+            "output_digest": canonical_digest(output),
+            "replay_steps": len(events),
+            "tool_calls": calls,
+        }
+        ledger.append(
+            event_type="recorded_agent_release_candidate",
+            state="VERIFYING",
+            subject_digest=subject_digest,
+            blob_digests=[output_digest],
+            payload=release_payload,
+        )
+        enforce_wall_time()
         ledger.append(
             event_type="recorded_agent_release_ready",
             state="RELEASE_READY",
             subject_digest=subject_digest,
             blob_digests=[output_digest],
-            payload={
-                "deployment_authority": False,
-                "model_attempts": attempts,
-                "output_digest": canonical_digest(output),
-                "replay_steps": len(events),
-                "tool_calls": calls,
-            },
+            payload=release_payload,
         )
-        enforce_wall_time()
         return AgentRunResult(
             run_id=run_id,
             state="RELEASE_READY",
