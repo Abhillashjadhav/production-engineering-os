@@ -62,9 +62,11 @@ def _object(payload: bytes, description: str) -> dict[str, Any]:
     return value
 
 
-def _schema_validators() -> dict[str, tuple[Draft202012Validator, Draft202012Validator]]:
+def _schema_validators(
+    schemas: Mapping[str, Any],
+) -> dict[str, tuple[Draft202012Validator, Draft202012Validator]]:
     validators: dict[str, tuple[Draft202012Validator, Draft202012Validator]] = {}
-    for tool in RECORDED_TOOL_AGENT_SCHEMAS["tools"]:
+    for tool in schemas["tools"]:
         validators[str(tool["tool_id"])] = (
             Draft202012Validator(tool["arguments_schema"]),
             Draft202012Validator(tool["result_schema"]),
@@ -203,8 +205,9 @@ def run_recorded_tool_agent(
             raise _ExecutionHalt("FIXTURE_DIGEST_MISMATCH")
         if canonical_digest(resource) != RECORDED_TOOL_AGENT_RESOURCE_DIGEST:
             raise _ExecutionHalt("RESOURCE_DIGEST_MISMATCH")
-        schema_bytes = canonical_json_bytes(RECORDED_TOOL_AGENT_SCHEMAS)
-        if canonical_digest(RECORDED_TOOL_AGENT_SCHEMAS) != RECORDED_TOOL_AGENT_SCHEMA_DIGEST:
+        schema_snapshot = copy.deepcopy(RECORDED_TOOL_AGENT_SCHEMAS)
+        schema_bytes = canonical_json_bytes(schema_snapshot)
+        if canonical_digest(schema_snapshot) != RECORDED_TOOL_AGENT_SCHEMA_DIGEST:
             raise _ExecutionHalt("TOOL_SCHEMA_DIGEST_MISMATCH")
         blobs = [
             ledger.put_blob(compiled.canonical_bytes()),
@@ -236,7 +239,7 @@ def run_recorded_tool_agent(
         events = fixture.get("events")
         if not isinstance(events, list) or not events:
             raise _ExecutionHalt("FIXTURE_INVALID")
-        validators = _schema_validators()
+        validators = _schema_validators(schema_snapshot)
         for index, event in enumerate(events, start=1):
             enforce_wall_time()
             if index > budgets["max_steps"]:

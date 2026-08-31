@@ -360,6 +360,4 @@ def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() ->
 )
 def test_authority_surface_detects_indirect_and_qualified_escape_forms(source: str) -> None:
     imported, referenced = _authority_surface(source)
-    assert imported.intersection(FORBIDDEN_IMPORTS) or referenced.intersection(
-        FORBIDDEN_REFERENCES
-    )
+    assert imported.intersection(FORBIDDEN_IMPORTS) or referenced.intersection(FORBIDDEN_REFERENCES)
