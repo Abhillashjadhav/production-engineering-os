@@ -86,6 +86,9 @@ ALLOWED_CALLS = {
 APPROVED_CALL_SITE_DIGEST = (
     "sha256:1f328fdd4fd570f488070db90adb6ec747e506a53265cba406764120f81f50a5"
 )
+APPROVED_MODULE_AST_DIGEST = (
+    "sha256:71704e0b112b3507115d4e5ea7f9fa5c03100ad97f1198c818a084e19cea7085"
+)
 FORBIDDEN_REFERENCES = {
     "__builtins__",
     "__import__",
@@ -423,7 +426,7 @@ def test_bad_approval_fails_before_a_ledger_is_created(tmp_path: Path) -> None:
 
 def _authority_surface(
     source: str,
-) -> tuple[set[str], set[str], set[str], tuple[str, ...]]:
+) -> tuple[set[str], set[str], set[str], tuple[str, ...], str]:
     tree = ast.parse(source)
     imported: set[str] = set()
     referenced: set[str] = set()
@@ -449,16 +452,18 @@ def _authority_surface(
             referenced.add(node.id)
         elif isinstance(node, ast.Attribute):
             referenced.add(node.attr)
-    return imported, referenced, called, tuple(sorted(call_sites))
+    module_digest = canonical_digest(ast.dump(tree, include_attributes=False))
+    return imported, referenced, called, tuple(sorted(call_sites)), module_digest
 
 
 def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() -> None:
     source = Path("src/pmpe/recorded_tool_agent.py").read_text()
-    imported, referenced, called, call_sites = _authority_surface(source)
+    imported, referenced, called, call_sites, module_digest = _authority_surface(source)
     assert imported <= ALLOWED_IMPORTS
     assert referenced.isdisjoint(FORBIDDEN_REFERENCES)
     assert called <= ALLOWED_CALLS
     assert canonical_digest(call_sites) == APPROVED_CALL_SITE_DIGEST
+    assert module_digest == APPROVED_MODULE_AST_DIGEST
 
 
 @pytest.mark.parametrize(
@@ -490,10 +495,13 @@ def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() ->
 )
 def test_authority_surface_detects_indirect_and_qualified_escape_forms(source: str) -> None:
     module = Path("src/pmpe/recorded_tool_agent.py").read_text()
-    imported, referenced, called, call_sites = _authority_surface(module + "\n" + source)
+    imported, referenced, called, call_sites, module_digest = _authority_surface(
+        module + "\n" + source
+    )
     assert (
         not imported.issubset(ALLOWED_IMPORTS)
         or not called.issubset(ALLOWED_CALLS)
         or referenced.intersection(FORBIDDEN_REFERENCES)
         or canonical_digest(call_sites) != APPROVED_CALL_SITE_DIGEST
+        or module_digest != APPROVED_MODULE_AST_DIGEST
     )
