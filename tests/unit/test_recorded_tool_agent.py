@@ -12,6 +12,7 @@ from pmpe.barebones_selection import (
     RECORDED_TOOL_AGENT_CONTENT_DIGEST,
     RECORDED_TOOL_AGENT_FIXTURE,
     RECORDED_TOOL_AGENT_FIXTURE_DIGEST,
+    RECORDED_TOOL_AGENT_SCHEMAS,
 )
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from pmpe.evidence.ledger import EvidenceLedger
@@ -192,6 +193,27 @@ def test_duplicate_fixture_key_halts(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
+    ("payload_name", "expected_cause"),
+    [("fixture_payload", "FIXTURE_INVALID"), ("resource_payload", "RESOURCE_INVALID")],
+)
+def test_explicitly_empty_payload_halts(
+    tmp_path: Path, payload_name: str, expected_cause: str
+) -> None:
+    result = _run(tmp_path, **{payload_name: b""})
+    assert result.state == "HALTED"
+    assert result.cause == expected_cause
+
+
+def test_mutated_in_memory_tool_schema_halts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setitem(RECORDED_TOOL_AGENT_SCHEMAS, "schema_version", "tampered/v1")
+    result = _run(tmp_path)
+    assert result.state == "HALTED"
+    assert result.cause == "TOOL_SCHEMA_DIGEST_MISMATCH"
+
+
+@pytest.mark.parametrize(
     ("budget", "value"),
     [("max_attempts", 2), ("max_bytes", 1), ("max_steps", 4), ("max_tool_calls", 1)],
 )
@@ -207,6 +229,20 @@ def test_wall_time_exhaustion_halts(tmp_path: Path) -> None:
     ticks = iter([0.0, 0.0, 31.0])
     result = _run(tmp_path, trusted_monotonic=lambda: next(ticks, 31.0))
     assert result.state == "HALTED"
+
+
+def test_wall_time_crossed_by_terminal_evidence_write_halts(tmp_path: Path) -> None:
+    final_check = 2 + 2 * len(RECORDED_TOOL_AGENT_FIXTURE["events"])
+    calls = 0
+
+    def monotonic() -> float:
+        nonlocal calls
+        calls += 1
+        return 31.0 if calls >= final_check else 0.0
+
+    result = _run(tmp_path, trusted_monotonic=monotonic)
+    assert result.state == "HALTED"
+    assert result.cause == "WALL_TIME_BUDGET_EXCEEDED"
 
 
 @pytest.mark.parametrize(
