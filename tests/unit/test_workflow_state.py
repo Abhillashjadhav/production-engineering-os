@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from pmpe.domain.models import StepStatus
 from pmpe.orchestration.state import STEP_ORDER, RunState
 
@@ -55,6 +57,18 @@ def test_save_load_roundtrip(tmp_path: Path) -> None:
     assert loaded.status_of("validate") is StepStatus.BLOCKED
     assert loaded.run_id == "r1"
     assert loaded.spec_digest == "abc"
+
+
+def test_load_rejects_retention_changed_after_admission(tmp_path: Path) -> None:
+    state = RunState.new(run_id="r1", run_dir=tmp_path, spec_digest="abc")
+    state.save()
+    state_path = tmp_path / "state.json"
+    payload = json.loads(state_path.read_text())
+    payload["retention_days"] = 365
+    state_path.write_text(json.dumps(payload))
+
+    with pytest.raises(ValueError, match="retention policy changed"):
+        RunState.load(tmp_path)
 
 
 def test_state_file_is_always_valid_json(tmp_path: Path) -> None:

@@ -154,15 +154,21 @@ class RunState:
     @classmethod
     def load(cls, run_dir: Path) -> RunState:
         payload = json.loads((Path(run_dir) / "state.json").read_text())
+        retention_days = validate_retention_days(
+            payload.get("retention_days", DEFAULT_RETENTION_DAYS)
+        )
+        persisted_policy = payload.get("retention_policy_digest")
+        if persisted_policy is not None and persisted_policy != retention_policy_digest(
+            retention_days
+        ):
+            raise ValueError("retention policy changed after run-state admission")
         state = cls(
             run_id=payload["run_id"],
             run_dir=Path(run_dir),
             spec_digest=payload["spec_digest"],
             spec_file=payload.get("spec_file", ""),
             created_at=payload.get("created_at", ""),
-            retention_days=validate_retention_days(
-                payload.get("retention_days", DEFAULT_RETENTION_DAYS)
-            ),
+            retention_days=retention_days,
             completed_at=payload.get("completed_at", ""),
             outcome=payload.get("outcome", ""),
         )

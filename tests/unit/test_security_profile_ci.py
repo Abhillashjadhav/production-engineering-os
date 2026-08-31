@@ -835,6 +835,23 @@ def test_retention_controller_rejects_tampered_run_state_policy(tmp_path: Path) 
     assert run_dir.exists()
 
 
+def test_retention_controller_preserves_resumed_terminal_run_state(tmp_path: Path) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    run_dir = tmp_path / "resumed-terminal"
+    marker = _write_authenticated_run_state(run_dir)
+    state = json.loads(marker.read_text())
+    step = next(iter(state["steps"].values()))
+    step["status"] = "running"
+    step["finished_at"] = None
+    marker.write_text(json.dumps(state))
+
+    result = purge_retained_runs(tmp_path, trusted_clock=lambda: now)
+
+    assert result.deleted == ()
+    assert result.retained == (run_dir.name,)
+    assert run_dir.exists()
+
+
 def test_retention_policy_rejects_overflowing_duration() -> None:
     with pytest.raises(ValueError, match="cannot exceed"):
         retention_policy_digest(1_000_000)

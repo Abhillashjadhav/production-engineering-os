@@ -250,6 +250,7 @@ class RetentionController:
         created_at = state.get("created_at")
         outcome = state.get("outcome")
         completed_at_value = state.get("completed_at")
+        steps = state.get("steps")
         if (
             not state
             or "retention_days" not in state
@@ -263,6 +264,11 @@ class RetentionController:
             or outcome not in _RUN_STATE_TERMINAL_OUTCOMES
             or not isinstance(completed_at_value, str)
             or not completed_at_value
+            or not isinstance(steps, dict)
+            or any(
+                isinstance(step, dict) and step.get("status") == "running"
+                for step in steps.values()
+            )
             or state.get("retention_policy_digest") != retention_policy_digest(retention_days)
             or state.get("retention_record_digest")
             != run_state_retention_digest(
