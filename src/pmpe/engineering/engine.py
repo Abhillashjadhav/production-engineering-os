@@ -401,36 +401,47 @@ class EngineeringRun:
                 raise PmpeError("approval receipt lock changed after engineering admission")
         run = cls(run_dir, state)
         if "retention_days" not in state:
-            legacy_completion = _authenticate_legacy_retention_state(
-                state,
-                run.ledger.read_all(),
-            )
-            run.ledger.record(
-                stage="contract_lock",
-                agent=_CORE,
-                action="bind_legacy_retention_policy",
-                input_digests={"contract": run.contract_digest},
-                output_digests={
-                    "retention_policy": retention_policy_digest(DEFAULT_RETENTION_DAYS)
-                },
-                idempotency_key="legacy-retention-policy/v1",
-            )
-            if legacy_completion is not None:
-                run.ledger.record(
-                    stage="release_report",
-                    agent=_CORE,
-                    action="bind_legacy_retention_completion",
-                    input_digests={"completion_event": str(legacy_completion["event_id"])},
-                    output_digests={
-                        "terminal_retention": terminal_retention_digest(
-                            DEFAULT_RETENTION_DAYS,
-                            stage="complete",
-                        )
-                    },
-                    idempotency_key="legacy-retention-completion/v1",
+            initial = run_dir.stat()
+            with run.ledger.exclusive():
+                try:
+                    current = run_dir.stat()
+                except FileNotFoundError as exc:
+                    raise PmpeError("engineering run directory is missing") from exc
+                if (current.st_dev, current.st_ino) != (initial.st_dev, initial.st_ino):
+                    raise PmpeError("engineering run directory was replaced")
+                legacy_completion = _authenticate_legacy_retention_state(
+                    state,
+                    run.ledger.read_all(),
                 )
-            state["retention_days"] = DEFAULT_RETENTION_DAYS
-            run._save()
+                run.ledger.record(
+                    stage="contract_lock",
+                    agent=_CORE,
+                    action="bind_legacy_retention_policy",
+                    input_digests={"contract": run.contract_digest},
+                    output_digests={
+                        "retention_policy": retention_policy_digest(DEFAULT_RETENTION_DAYS)
+                    },
+                    idempotency_key="legacy-retention-policy/v1",
+                )
+                if legacy_completion is not None:
+                    run.ledger.record(
+                        stage="release_report",
+                        agent=_CORE,
+                        action="bind_legacy_retention_completion",
+                        input_digests={"completion_event": str(legacy_completion["event_id"])},
+                        output_digests={
+                            "terminal_retention": terminal_retention_digest(
+                                DEFAULT_RETENTION_DAYS,
+                                stage="complete",
+                            )
+                        },
+                        idempotency_key="legacy-retention-completion/v1",
+                    )
+                current = run_dir.stat()
+                if (current.st_dev, current.st_ino) != (initial.st_dev, initial.st_ino):
+                    raise PmpeError("engineering run directory was replaced")
+                state["retention_days"] = DEFAULT_RETENTION_DAYS
+                run._save()
         else:
             retention_days = validate_retention_days(state["retention_days"])
             events = run.ledger.read_all()

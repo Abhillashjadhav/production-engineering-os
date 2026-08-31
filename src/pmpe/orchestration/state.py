@@ -206,6 +206,22 @@ class RunState:
             retention_days
         ):
             raise ValueError("retention policy changed after run-state admission")
+        outcome = payload.get("outcome", "")
+        completed_at = payload.get("completed_at", "")
+        if (
+            has_retention_days
+            and outcome
+            and payload.get("retention_record_digest")
+            != run_state_retention_digest(
+                run_id=payload["run_id"],
+                spec_digest=payload["spec_digest"],
+                created_at=payload.get("created_at", ""),
+                outcome=outcome,
+                completed_at=completed_at,
+                retention_days=retention_days,
+            )
+        ):
+            raise ValueError("terminal retention record changed after run-state admission")
         state = cls(
             run_id=payload["run_id"],
             run_dir=run_dir,
@@ -213,8 +229,8 @@ class RunState:
             spec_file=payload.get("spec_file", ""),
             created_at=payload.get("created_at", ""),
             retention_days=retention_days,
-            completed_at=payload.get("completed_at", ""),
-            outcome=payload.get("outcome", ""),
+            completed_at=completed_at,
+            outcome=outcome,
         )
         state.steps = {
             name: StepRecord(

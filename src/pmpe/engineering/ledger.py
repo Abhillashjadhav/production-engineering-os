@@ -10,6 +10,9 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +26,31 @@ class EvidenceLedger:
         self.run_id = run_id
         self.path = Path(run_dir) / "ledger.jsonl"
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._lock_state = threading.local()
+
+    @contextmanager
+    def exclusive(self) -> Iterator[None]:
+        depth = getattr(self._lock_state, "depth", 0)
+        if depth:
+            self._lock_state.depth = depth + 1
+            try:
+                yield
+            finally:
+                self._lock_state.depth = depth
+            return
+        lock_path = self.path.with_suffix(".lock")
+        try:
+            lock = lock_path.open("a+")
+        except FileNotFoundError as exc:
+            raise ValueError("engineering run directory is missing") from exc
+        with lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            self._lock_state.depth = 1
+            try:
+                yield
+            finally:
+                self._lock_state.depth = 0
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
     def record(
         self,
@@ -63,9 +91,7 @@ class EvidenceLedger:
             ),
             "ts": recorded_at,
         }
-        lock_path = self.path.with_suffix(".lock")
-        with lock_path.open("a+") as lock:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        with self.exclusive():
             existing = self._read_all(repair_truncated_tail=bool(idempotency_key))
             if idempotency_key:
                 prior = next(
@@ -84,6 +110,8 @@ class EvidenceLedger:
         return event
 
     def read_all(self) -> list[dict[str, Any]]:
+        if getattr(self._lock_state, "depth", 0):
+            return self._read_all(repair_truncated_tail=False)
         lock_path = self.path.with_suffix(".lock")
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         with lock_path.open("a+") as lock:

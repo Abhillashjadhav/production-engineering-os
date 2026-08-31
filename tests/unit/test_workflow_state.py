@@ -84,6 +84,19 @@ def test_load_rejects_one_missing_modern_retention_field(tmp_path: Path) -> None
         RunState.load(tmp_path)
 
 
+def test_load_rejects_changed_terminal_retention_timestamp(tmp_path: Path) -> None:
+    state = RunState.new(run_id="r1", run_dir=tmp_path, spec_digest="abc")
+    state.outcome = "success"
+    state.save()
+    state_path = tmp_path / "state.json"
+    payload = json.loads(state_path.read_text())
+    payload["completed_at"] = "2099-01-01T00:00:00+00:00"
+    state_path.write_text(json.dumps(payload))
+
+    with pytest.raises(ValueError, match="terminal retention record changed"):
+        RunState.load(tmp_path)
+
+
 def test_loaded_state_rejects_save_after_retention_rename(tmp_path: Path) -> None:
     state = RunState.new(run_id="r1", run_dir=tmp_path, spec_digest="abc")
     state.save()

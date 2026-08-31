@@ -378,6 +378,7 @@ def test_resume_recovers_an_interrupted_legacy_retention_state_write(
 def test_resume_binds_completed_legacy_retention_and_preserves_completion_time(
     run: EngineeringRun,
     repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from datetime import datetime, timedelta
 
@@ -404,15 +405,31 @@ def test_resume_binds_completed_legacy_retention_and_preserves_completion_time(
         event["event_id"] = canonical_digest({**identity, "ts": event["ts"]})
     run.ledger.path.write_text("".join(json.dumps(event) + "\n" for event in events))
 
+    completed_at = datetime.fromisoformat(str(report["ts"]).replace("Z", "+00:00"))
+    purge_results = []
+    original_save = EngineeringRun._save
+
+    def purge_during_migration_save(migrating: EngineeringRun) -> None:
+        purge_results.append(
+            RetentionController().purge(
+                migrating.run_dir.parent,
+                now=completed_at + timedelta(days=31),
+            )
+        )
+        original_save(migrating)
+
+    monkeypatch.setattr(EngineeringRun, "_save", purge_during_migration_save)
+
     resumed = EngineeringRun.load(run.run_dir)
 
+    assert run.run_dir.name in purge_results[0].retained
+    assert not purge_results[0].deleted
     migrated = resumed.ledger.read_all()
     assert [event["action"] for event in migrated[-2:]] == [
         "bind_legacy_retention_policy",
         "bind_legacy_retention_completion",
     ]
     assert migrated[-1]["input_digests"] == {"completion_event": report["event_id"]}
-    completed_at = datetime.fromisoformat(str(report["ts"]).replace("Z", "+00:00"))
     result = RetentionController().purge(
         run.run_dir.parent,
         now=completed_at + timedelta(days=31),
