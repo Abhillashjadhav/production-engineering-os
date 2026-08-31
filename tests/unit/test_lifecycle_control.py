@@ -566,6 +566,28 @@ def test_transition_waits_for_the_retention_sweep_lock(tmp_path: Path) -> None:
     assert event.target is LifecycleState.CONTRACT_APPROVED
 
 
+def test_transition_rejects_a_run_directory_renamed_by_retention(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+    tombstone = cp.run_dir.with_name(".retention-delete-raced-run")
+    cp.run_dir.rename(tombstone)
+
+    with pytest.raises(TransitionDeniedError, match="run directory is missing"):
+        cp.transition(
+            LifecycleState.CONTRACT_APPROVED,
+            context(
+                evidence=evidence_for(
+                    LifecycleState.CONTRACT_RECEIVED,
+                    LifecycleState.CONTRACT_APPROVED,
+                    reason="contract_admitted",
+                )
+            ),
+            reason="contract_admitted",
+        )
+
+    assert not cp.run_dir.exists()
+    assert tombstone.exists()
+
+
 def evidence_for(source: LifecycleState, target: LifecycleState, *, reason: str) -> dict[str, str]:
     rule = PHASE_ZERO_POLICY.rule(source, target, reason=reason)
     evidence = {

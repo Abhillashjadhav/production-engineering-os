@@ -2652,6 +2652,8 @@ class LifecycleControlPlane:
         self._events = list(events or ())
         self._operation_lock = threading.RLock()
         self._exclusive_lock_state = threading.local()
+        run_stat = self.run_dir.stat()
+        self._run_dir_identity = (run_stat.st_dev, run_stat.st_ino)
         self._completion_claim_active = False
         self._mutation_keys: dict[str, str] = {}
         self._mutation_attempts: dict[str, MutationAttempt] = {}
@@ -3274,11 +3276,23 @@ class LifecycleControlPlane:
             finally:
                 self._exclusive_lock_state.depth = depth
             return
-        self.run_dir.mkdir(parents=True, exist_ok=True)
-        with self.lock_path.open("a+") as lock:
+        try:
+            current = self.run_dir.stat()
+            if (current.st_dev, current.st_ino) != self._run_dir_identity:
+                raise TransitionDeniedError("lifecycle run directory was replaced")
+            lock = self.lock_path.open("a+")
+        except FileNotFoundError as exc:
+            raise TransitionDeniedError("lifecycle run directory is missing") from exc
+        with lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             self._exclusive_lock_state.depth = 1
             try:
+                try:
+                    current = self.run_dir.stat()
+                except FileNotFoundError as exc:
+                    raise TransitionDeniedError("lifecycle run directory is missing") from exc
+                if (current.st_dev, current.st_ino) != self._run_dir_identity:
+                    raise TransitionDeniedError("lifecycle run directory was replaced")
                 yield
             finally:
                 self._exclusive_lock_state.depth = 0
