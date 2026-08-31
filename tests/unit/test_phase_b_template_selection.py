@@ -194,6 +194,23 @@ def test_built_wheel_contains_and_imports_all_recorded_artifacts(tmp_path: Path)
     )
     assert imported.stdout.strip() == RECORDED_TOOL_AGENT_SCHEMA_DIGEST
 
+    output_root = tmp_path / "wheel-recorded-agent-output"
+    executed = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "examples/recorded-tool-agent/run.py"),
+            str(output_root),
+        ],
+        cwd=tmp_path,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert executed.returncode == 0, executed.stderr
+    assert json.loads(executed.stdout)["state"] == "RELEASE_READY"
+
 
 def _contract(selection: dict[str, object]) -> dict[str, object]:
     criteria = {
