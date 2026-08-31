@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import os
 import re
 import tempfile
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -186,6 +187,15 @@ class EvidenceLedger:
             raise EvidenceIntegrityError(f"{description} exceeds size limit")
         return payload
 
+    def _events_snapshot(self) -> bytes:
+        directory = os.open(self.run_directory, os.O_RDONLY)
+        try:
+            fcntl.flock(directory, fcntl.LOCK_SH)
+            return self._read_bounded(self.events_path, "evidence ledger")
+        finally:
+            fcntl.flock(directory, fcntl.LOCK_UN)
+            os.close(directory)
+
     def read_blob(self, digest: str) -> bytes:
         """Return one verified content-addressed blob without mutating the ledger."""
 
@@ -211,6 +221,8 @@ class EvidenceLedger:
         subject_digest: str,
         blob_digests: Sequence[str] = (),
         payload: Mapping[str, Any] | None = None,
+        commit_deadline: float | None = None,
+        trusted_monotonic: Callable[[], float] | None = None,
     ) -> Mapping[str, Any]:
         if self._read_only:
             raise EvidenceIntegrityError("an inspection ledger is read-only")
@@ -224,34 +236,75 @@ class EvidenceLedger:
             raise ValueError("event type, state, and subject digest are required")
         if any(not _is_digest(item) for item in blob_digests):
             raise ValueError("blob references must be SHA-256 digests")
-        events = tuple(self.verify())
-        body: dict[str, Any] = {
-            "schema_version": "1.0.0",
-            "run_id": self.run_id,
-            "sequence": len(events) + 1,
-            "previous_digest": events[-1]["event_digest"] if events else GENESIS_DIGEST,
-            "event_type": event_type,
-            "state": state,
-            "subject_digest": subject_digest,
-            "blob_digests": sorted(set(blob_digests)),
-            "payload": dict(payload or {}),
-        }
-        event = {**body, "event_digest": canonical_digest(body)}
-        _validate_event_schema(event)
-        with self.events_path.open("ab") as stream:
-            stream.write(canonical_json_bytes(event) + b"\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        return event
-
-    def verify(self) -> Iterator[Mapping[str, Any]]:
-        if not self.events_path.exists():
-            return
+        if (commit_deadline is None) != (trusted_monotonic is None):
+            raise ValueError(
+                "commit deadline and trusted monotonic clock must be provided together"
+            )
+        directory = os.open(self.run_directory, os.O_RDONLY)
         try:
-            events_payload = self._read_bounded(self.events_path, "evidence ledger")
-            raw_events = events_payload.splitlines()
-        except OSError as exc:
-            raise EvidenceIntegrityError("evidence ledger cannot be read") from exc
+            fcntl.flock(directory, fcntl.LOCK_EX)
+            current_events = self._read_bounded(self.events_path, "evidence ledger")
+            events = tuple(self._verify_payload(current_events))
+            body: dict[str, Any] = {
+                "schema_version": "1.0.0",
+                "run_id": self.run_id,
+                "sequence": len(events) + 1,
+                "previous_digest": events[-1]["event_digest"] if events else GENESIS_DIGEST,
+                "event_type": event_type,
+                "state": state,
+                "subject_digest": subject_digest,
+                "blob_digests": sorted(set(blob_digests)),
+                "payload": dict(payload or {}),
+            }
+            event = {**body, "event_digest": canonical_digest(body)}
+            _validate_event_schema(event)
+            encoded_event = canonical_json_bytes(event) + b"\n"
+            if commit_deadline is None:
+                with self.events_path.open("ab") as stream:
+                    stream.write(encoded_event)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                return event
+
+            staged_descriptor, staged_name = tempfile.mkstemp(dir=self.run_directory)
+            rollback_name: str | None = None
+            try:
+                with os.fdopen(staged_descriptor, "wb") as staged:
+                    staged.write(current_events)
+                    staged.write(encoded_event)
+                    staged.flush()
+                    os.fsync(staged.fileno())
+                rollback_descriptor, rollback_name = tempfile.mkstemp(dir=self.run_directory)
+                with os.fdopen(rollback_descriptor, "wb") as rollback:
+                    rollback.write(current_events)
+                    rollback.flush()
+                    os.fsync(rollback.fileno())
+                assert trusted_monotonic is not None
+                if trusted_monotonic() > commit_deadline:
+                    raise TimeoutError("evidence commit deadline exceeded")
+                published = False
+                try:
+                    os.replace(staged_name, self.events_path)
+                    published = True
+                    os.fsync(directory)
+                    if trusted_monotonic() > commit_deadline:
+                        raise TimeoutError("evidence commit deadline exceeded")
+                except Exception:
+                    if published:
+                        os.replace(rollback_name, self.events_path)
+                        os.fsync(directory)
+                    raise
+            finally:
+                Path(staged_name).unlink(missing_ok=True)
+                if rollback_name is not None:
+                    Path(rollback_name).unlink(missing_ok=True)
+            return event
+        finally:
+            fcntl.flock(directory, fcntl.LOCK_UN)
+            os.close(directory)
+
+    def _verify_payload(self, events_payload: bytes) -> Iterator[Mapping[str, Any]]:
+        raw_events = events_payload.splitlines()
         previous = GENESIS_DIGEST
         total_read_bytes = len(events_payload)
         counted_blobs: set[str] = set()
@@ -291,3 +344,12 @@ class EvidenceLedger:
                     raise EvidenceIntegrityError("evidence exceeds aggregate size limit")
             previous = str(event_digest)
             yield event
+
+    def verify(self) -> Iterator[Mapping[str, Any]]:
+        if not self.events_path.exists():
+            return
+        try:
+            events_payload = self._events_snapshot()
+        except OSError as exc:
+            raise EvidenceIntegrityError("evidence ledger cannot be read") from exc
+        yield from self._verify_payload(events_payload)
