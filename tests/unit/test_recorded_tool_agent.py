@@ -288,18 +288,19 @@ def test_bad_approval_fails_before_a_ledger_is_created(tmp_path: Path) -> None:
 def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() -> None:
     source = Path("src/pmpe/recorded_tool_agent.py").read_text()
     tree = ast.parse(source)
-    imported = {
-        alias.name.split(".")[0]
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.Import, ast.ImportFrom))
-        for alias in node.names
-    }
+    imported: set[str] = set()
+    called_names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(alias.name.split(".")[0] for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module.split(".")[0])
+        elif isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Name):
+                called_names.add(node.func.id)
+            elif isinstance(node.func, ast.Attribute):
+                called_names.add(node.func.attr)
     assert imported.isdisjoint(
         {"asyncio", "ctypes", "importlib", "os", "requests", "socket", "subprocess", "urllib"}
     )
-    called_names = {
-        node.func.id
-        for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
-    }
     assert called_names.isdisjoint({"eval", "exec"})
