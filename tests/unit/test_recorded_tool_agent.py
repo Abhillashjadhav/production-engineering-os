@@ -261,5 +261,9 @@ def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() ->
     assert imported.isdisjoint(
         {"asyncio", "ctypes", "importlib", "os", "requests", "socket", "subprocess", "urllib"}
     )
-    assert "eval(" not in source
-    assert "exec(" not in source
+    called_names = {
+        node.func.id
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    assert called_names.isdisjoint({"eval", "exec"})
