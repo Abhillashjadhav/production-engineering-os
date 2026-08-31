@@ -6,7 +6,7 @@ import hashlib
 import os
 import re
 import tempfile
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -211,6 +211,7 @@ class EvidenceLedger:
         subject_digest: str,
         blob_digests: Sequence[str] = (),
         payload: Mapping[str, Any] | None = None,
+        commit_guard: Callable[[], None] | None = None,
     ) -> Mapping[str, Any]:
         if self._read_only:
             raise EvidenceIntegrityError("an inspection ledger is read-only")
@@ -238,10 +239,20 @@ class EvidenceLedger:
         }
         event = {**body, "event_digest": canonical_digest(body)}
         _validate_event_schema(event)
-        with self.events_path.open("ab") as stream:
-            stream.write(canonical_json_bytes(event) + b"\n")
-            stream.flush()
-            os.fsync(stream.fileno())
+        with self.events_path.open("r+b") as stream:
+            stream.seek(0, os.SEEK_END)
+            original_size = stream.tell()
+            try:
+                stream.write(canonical_json_bytes(event) + b"\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+                if commit_guard is not None:
+                    commit_guard()
+            except Exception:
+                stream.truncate(original_size)
+                stream.flush()
+                os.fsync(stream.fileno())
+                raise
         return event
 
     def verify(self) -> Iterator[Mapping[str, Any]]:

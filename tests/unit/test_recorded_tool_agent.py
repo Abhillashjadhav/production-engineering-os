@@ -85,10 +85,10 @@ ALLOWED_CALLS = {
     "trusted_monotonic",
 }
 APPROVED_CALL_SITE_DIGEST = (
-    "sha256:8543a4c17d2cd93f83e9be2f7a32af7945b5d49bd540869281774f7a76fcda8a"
+    "sha256:591e0c5eaab27768c2775b18934973d36d9210a58e4ade8aceb380fbd1646154"
 )
 APPROVED_MODULE_AST_DIGEST = (
-    "sha256:beeb156ff90d0fb97f8f7c1c902e1a68af25646e26603d70f05896103396d942"
+    "sha256:db04d5f4c50ad83b99ac28ae03eda3340ad509dfbcda8e4eed58ed0c0a6310bd"
 )
 FORBIDDEN_REFERENCES = {
     "__builtins__",
@@ -415,13 +415,16 @@ def test_release_ready_evidence_write_is_inside_wall_time_budget(
 
     def slow_terminal_append(self: EvidenceLedger, **kwargs: object):  # type: ignore[no-untyped-def]
         nonlocal elapsed
-        event = original_append(self, **kwargs)  # type: ignore[arg-type]
-        if kwargs.get("event_type") in {
-            "recorded_agent_release_candidate",
-            "recorded_agent_release_ready",
-        }:
-            elapsed = True
-        return event
+        guard = kwargs.get("commit_guard")
+        if kwargs.get("event_type") == "recorded_agent_release_ready" and callable(guard):
+
+            def expire_then_check() -> None:
+                nonlocal elapsed
+                elapsed = True
+                guard()
+
+            kwargs["commit_guard"] = expire_then_check
+        return original_append(self, **kwargs)  # type: ignore[arg-type]
 
     monkeypatch.setattr(EvidenceLedger, "append", slow_terminal_append)
     result = _run(

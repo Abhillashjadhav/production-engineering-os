@@ -350,6 +350,7 @@ def run_recorded_tool_agent(
             subject_digest=subject_digest,
             blob_digests=[output_digest],
             payload=release_payload,
+            commit_guard=enforce_wall_time,
         )
         return AgentRunResult(
             run_id=run_id,
