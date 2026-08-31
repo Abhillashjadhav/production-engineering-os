@@ -239,20 +239,26 @@ class EvidenceLedger:
         }
         event = {**body, "event_digest": canonical_digest(body)}
         _validate_event_schema(event)
-        with self.events_path.open("r+b") as stream:
-            stream.seek(0, os.SEEK_END)
-            original_size = stream.tell()
-            try:
-                stream.write(canonical_json_bytes(event) + b"\n")
+        event_line = canonical_json_bytes(event) + b"\n"
+        if commit_guard is None:
+            with self.events_path.open("ab") as stream:
+                stream.write(event_line)
                 stream.flush()
                 os.fsync(stream.fileno())
-                if commit_guard is not None:
-                    commit_guard()
-            except Exception:
-                stream.truncate(original_size)
-                stream.flush()
-                os.fsync(stream.fileno())
-                raise
+            return event
+
+        current_ledger = self.events_path.read_bytes()
+        descriptor, staged_name = tempfile.mkstemp(dir=self.run_directory)
+        try:
+            with os.fdopen(descriptor, "wb") as staged:
+                staged.write(current_ledger)
+                staged.write(event_line)
+                staged.flush()
+                os.fsync(staged.fileno())
+            commit_guard()
+            os.replace(staged_name, self.events_path)
+        finally:
+            Path(staged_name).unlink(missing_ok=True)
         return event
 
     def verify(self) -> Iterator[Mapping[str, Any]]:
