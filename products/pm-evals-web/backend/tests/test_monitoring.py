@@ -164,7 +164,16 @@ def test_overflowing_delta_is_unavailable_without_poisoning_history(tmp_path: Pa
     assert source_diagnosis.regression_magnitude is None
     assert store.append(run) is True
     assert store.list_runs() == [run]
-    assert build_overview(store.list_runs(), mode="LIVE").products[0].health == "FAILING"
+    assert (
+        build_overview(
+            store.list_runs(),
+            mode="LIVE",
+            generated_at=run.observed_at,
+        )
+        .products[0]
+        .health
+        == "FAILING"
+    )
 
 
 @pytest.mark.parametrize(
@@ -509,7 +518,7 @@ def test_required_not_evaluated_observation_blocks_run_health() -> None:
     required.current_value = None
 
     diagnosis = diagnose_run(run)
-    overview = build_overview([run], mode="LIVE")
+    overview = build_overview([run], mode="LIVE", generated_at=run.observed_at)
 
     assert diagnosis.health == "BLOCKED"
     assert overview.products[0].health == "BLOCKED"
@@ -605,7 +614,11 @@ def test_overview_keeps_environments_and_reused_run_ids_separate() -> None:
     staging.run_id = production.run_id
     staging.observed_at = production.observed_at + timedelta(minutes=1)
 
-    overview = build_overview([production, staging], mode="LIVE")
+    overview = build_overview(
+        [production, staging],
+        mode="LIVE",
+        generated_at=staging.observed_at,
+    )
     by_environment = {item.environment: item for item in overview.products}
 
     assert set(by_environment) == {"production", "staging"}
@@ -628,7 +641,11 @@ def test_comparison_run_is_resolved_within_product_and_environment() -> None:
     foreign_baseline.run_id = baseline.run_id
     foreign_baseline.observed_at = baseline.observed_at + timedelta(seconds=1)
 
-    overview = build_overview([baseline, foreign_baseline, current], mode="LIVE")
+    overview = build_overview(
+        [baseline, foreign_baseline, current],
+        mode="LIVE",
+        generated_at=current.observed_at,
+    )
     incident = next(item for item in overview.incidents if item.product_id == "dream-job-agent")
 
     assert {item.dimension for item in incident.changes_since_comparison} == {
@@ -641,7 +658,7 @@ def test_comparison_run_is_resolved_within_product_and_environment() -> None:
 def test_missing_comparison_is_never_presented_as_verified_evidence() -> None:
     run = _failed_dream_job_run()
 
-    overview = build_overview([run], mode="LIVE")
+    overview = build_overview([run], mode="LIVE", generated_at=run.observed_at)
     incident = overview.incidents[0]
 
     assert incident.comparison_run_id == run.comparison.run_id
@@ -666,6 +683,7 @@ def test_comparison_requires_a_matching_passing_observation_and_value() -> None:
     missing_incident = build_overview(
         [missing_observation, current],
         mode="LIVE",
+        generated_at=current.observed_at,
     ).incidents[0]
 
     different_value = baseline.model_copy(deep=True)
@@ -678,6 +696,7 @@ def test_comparison_requires_a_matching_passing_observation_and_value() -> None:
     mismatched_incident = build_overview(
         [different_value, current],
         mode="LIVE",
+        generated_at=current.observed_at,
     ).incidents[0]
 
     unhealthy = baseline.model_copy(deep=True)
@@ -688,6 +707,7 @@ def test_comparison_requires_a_matching_passing_observation_and_value() -> None:
     unhealthy_incident = build_overview(
         [unhealthy, current],
         mode="LIVE",
+        generated_at=current.observed_at,
     ).incidents[0]
 
     not_earlier = baseline.model_copy(deep=True)
@@ -695,6 +715,7 @@ def test_comparison_requires_a_matching_passing_observation_and_value() -> None:
     not_earlier_incident = build_overview(
         [not_earlier, current],
         mode="LIVE",
+        generated_at=current.observed_at,
     ).incidents[0]
 
     for incident in (
@@ -743,12 +764,12 @@ def test_overview_incident_ids_are_collision_free_for_legal_delimiters() -> None
     second_payload["product"]["environment"] = "c"
     second_payload["run_id"] = "d"
 
+    first = RunEnvelope.model_validate(first_payload)
+    second = RunEnvelope.model_validate(second_payload)
     overview = build_overview(
-        [
-            RunEnvelope.model_validate(first_payload),
-            RunEnvelope.model_validate(second_payload),
-        ],
+        [first, second],
         mode="LIVE",
+        generated_at=first.observed_at,
     )
 
     assert len(overview.incidents) == 2
@@ -1112,7 +1133,8 @@ def test_monitoring_api_runs_planted_demo_and_persists_live_run(tmp_path: Path) 
     assert demo.status_code == 200
     assert demo.json()["mode"] == "PLANTED_DEMO"
 
-    run = _failed_dream_job_run()
+    run = _failed_dream_job_run().model_copy(deep=True)
+    run.observed_at = datetime.now(UTC)
     ingested = client.post(
         "/api/monitoring/runs",
         json=run.model_dump(mode="json"),

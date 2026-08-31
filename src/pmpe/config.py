@@ -48,6 +48,10 @@ class PipelineConfig:
         self.schema_path = Path(self.schema_path).resolve()
         if self.deploy_timeout_s <= 0:
             raise ConfigError("deploy_timeout_s must be positive")
+        if isinstance(self.data_retention_days, bool) or not isinstance(
+            self.data_retention_days, int
+        ):
+            raise ConfigError("data_retention_days must be a non-boolean integer")
         if self.data_retention_days < 0:
             raise ConfigError("data_retention_days cannot be negative")
         if not isinstance(self.chaos_inject_files, dict):

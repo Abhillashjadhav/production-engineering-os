@@ -112,7 +112,7 @@ _EVIDENCE_EVENT_FIELDS = {
 def _authenticate_legacy_retention_state(
     state: dict[str, Any],
     events: list[dict[str, Any]],
-) -> None:
+) -> dict[str, Any] | None:
     run_id = state.get("run_id")
     contract = state.get("contract")
     if (
@@ -137,21 +137,26 @@ def _authenticate_legacy_retention_state(
             raise PmpeError("legacy retention ledger cannot be authenticated")
     first = events[0]
     outputs = first.get("output_digests")
-    bindings = [event for event in events if event.get("action") == "bind_legacy_retention_policy"]
+    policy_bindings = [
+        event for event in events if event.get("action") == "bind_legacy_retention_policy"
+    ]
+    completion_bindings = [
+        event for event in events if event.get("action") == "bind_legacy_retention_completion"
+    ]
     if (
         first.get("stage") != "contract_lock"
         or first.get("action") != "lock"
         or not isinstance(outputs, dict)
         or outputs.get("contract") != contract.get("digest")
         or "retention_policy" in outputs
-        or len(bindings) > 1
+        or len(policy_bindings) > 1
+        or len(completion_bindings) > 1
     ):
         raise PmpeError("legacy retention policy binding is invalid")
-    if bindings:
-        binding = bindings[0]
+    if policy_bindings:
+        binding = policy_bindings[0]
         if (
-            binding is not events[-1]
-            or binding.get("stage") != "contract_lock"
+            binding.get("stage") != "contract_lock"
             or binding.get("agent") != _CORE
             or binding.get("input_digests") != {"contract": contract.get("digest")}
             or binding.get("output_digests")
@@ -170,6 +175,69 @@ def _authenticate_legacy_retention_state(
             )
         ):
             raise PmpeError("legacy retention policy binding is invalid")
+
+    if state.get("stage") != "complete":
+        if completion_bindings or (policy_bindings and policy_bindings[0] is not events[-1]):
+            raise PmpeError("legacy retention completion binding is invalid")
+        return None
+
+    release_reports = [
+        event
+        for event in events
+        if event.get("stage") == "release_report"
+        and event.get("action") == "report"
+        and not event.get("idempotency_key")
+    ]
+    if len(release_reports) != 1:
+        raise PmpeError("legacy retention completion cannot be authenticated")
+    report = release_reports[0]
+    report_outputs = report.get("output_digests")
+    if not isinstance(report_outputs, dict) or "terminal_retention" in report_outputs:
+        raise PmpeError("legacy retention completion cannot be authenticated")
+
+    if not policy_bindings and not completion_bindings:
+        valid_order = report is events[-1]
+    elif len(policy_bindings) == 1 and not completion_bindings:
+        valid_order = len(events) >= 2 and events[-2:] == [report, policy_bindings[0]]
+    elif len(policy_bindings) == 1 and len(completion_bindings) == 1:
+        valid_order = len(events) >= 3 and events[-3:] == [
+            report,
+            policy_bindings[0],
+            completion_bindings[0],
+        ]
+    else:
+        valid_order = False
+    if not valid_order:
+        raise PmpeError("legacy retention completion binding is invalid")
+
+    if completion_bindings:
+        completion = completion_bindings[0]
+        if (
+            completion.get("stage") != "release_report"
+            or completion.get("agent") != _CORE
+            or completion.get("input_digests") != {"completion_event": report.get("event_id")}
+            or completion.get("output_digests")
+            != {
+                "terminal_retention": terminal_retention_digest(
+                    DEFAULT_RETENTION_DAYS,
+                    stage="complete",
+                )
+            }
+            or completion.get("idempotency_key") != "legacy-retention-completion/v1"
+            or completion.get("cost") is not None
+            or any(
+                completion.get(field) != ""
+                for field in (
+                    "detail",
+                    "escalation",
+                    "next_state",
+                    "tool",
+                    "verdict",
+                )
+            )
+        ):
+            raise PmpeError("legacy retention completion binding is invalid")
+    return report
 
 
 class SubmissionRejected(SpecError):  # noqa: N818 — named for the admission outcome
@@ -333,19 +401,55 @@ class EngineeringRun:
                 raise PmpeError("approval receipt lock changed after engineering admission")
         run = cls(run_dir, state)
         if "retention_days" not in state:
-            _authenticate_legacy_retention_state(state, run.ledger.read_all())
-            run.ledger.record(
-                stage="contract_lock",
-                agent=_CORE,
-                action="bind_legacy_retention_policy",
-                input_digests={"contract": run.contract_digest},
-                output_digests={
-                    "retention_policy": retention_policy_digest(DEFAULT_RETENTION_DAYS)
-                },
-                idempotency_key="legacy-retention-policy/v1",
-            )
-            state["retention_days"] = DEFAULT_RETENTION_DAYS
-            run._save()
+            initial = run_dir.stat()
+            with run.ledger.exclusive():
+                try:
+                    current = run_dir.stat()
+                except FileNotFoundError as exc:
+                    raise PmpeError("engineering run directory is missing") from exc
+                if (current.st_dev, current.st_ino) != (initial.st_dev, initial.st_ino):
+                    raise PmpeError("engineering run directory was replaced")
+                legacy_completion = _authenticate_legacy_retention_state(
+                    state,
+                    run.ledger.read_all(),
+                )
+                run.ledger.record(
+                    stage="contract_lock",
+                    agent=_CORE,
+                    action="bind_legacy_retention_policy",
+                    input_digests={"contract": run.contract_digest},
+                    output_digests={
+                        "retention_policy": retention_policy_digest(DEFAULT_RETENTION_DAYS)
+                    },
+                    idempotency_key="legacy-retention-policy/v1",
+                )
+                if legacy_completion is not None:
+                    run.ledger.record(
+                        stage="release_report",
+                        agent=_CORE,
+                        action="bind_legacy_retention_completion",
+                        input_digests={"completion_event": str(legacy_completion["event_id"])},
+                        output_digests={
+                            "terminal_retention": terminal_retention_digest(
+                                DEFAULT_RETENTION_DAYS,
+                                stage="complete",
+                            )
+                        },
+                        idempotency_key="legacy-retention-completion/v1",
+                    )
+                current = run_dir.stat()
+                if (current.st_dev, current.st_ino) != (initial.st_dev, initial.st_ino):
+                    raise PmpeError("engineering run directory was replaced")
+                state["retention_days"] = DEFAULT_RETENTION_DAYS
+                run._save()
+        else:
+            retention_days = validate_retention_days(state["retention_days"])
+            events = run.ledger.read_all()
+            first_outputs = events[0].get("output_digests") if events else None
+            if not isinstance(first_outputs, dict) or first_outputs.get(
+                "retention_policy"
+            ) != retention_policy_digest(retention_days):
+                raise PmpeError("retention policy changed after engineering admission")
         return run
 
     @property

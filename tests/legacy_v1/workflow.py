@@ -55,7 +55,11 @@ class WorkflowEngine:
         shutil.copyfile(spec_path, spec_copy)
         digest = hashlib.sha256(spec_copy.read_bytes()).hexdigest()
         state = RunState.new(
-            run_id=run_id, run_dir=run_dir, spec_digest=digest, spec_file=spec_copy.name
+            run_id=run_id,
+            run_dir=run_dir,
+            spec_digest=digest,
+            spec_file=spec_copy.name,
+            retention_days=self.config.data_retention_days,
         )
         state.save()
         return self._execute(state)

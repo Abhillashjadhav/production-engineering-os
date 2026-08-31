@@ -240,6 +240,16 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     workflow = Path(".github/workflows/trusted-security.yml").read_text()
     finalizer = Path(".github/workflows/trusted-security-finalizer.yml").read_text()
     legacy_workflow = Path(".github/workflows/ci.yml").read_text()
+    privacy_step = workflow[
+        workflow.index("- name: Execute candidate privacy controls") : workflow.index(
+            "- name: Compose exact-candidate security profile"
+        )
+    ]
+    privacy_runtime_step = workflow[
+        workflow.index("- name: Build isolated candidate privacy runtime") : workflow.index(
+            "- name: Bandit candidate input"
+        )
+    ]
 
     assert "pull_request_target:" in workflow
     assert "types: [opened, reopened, synchronize, ready_for_review, edited]" in workflow
@@ -276,6 +286,9 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
     assert "  security:\n    name: security\n" not in workflow
     assert "  security:\n" not in legacy_workflow
     assert "  security-static:\n    name: security-static\n" in legacy_workflow
+    assert "name: exact-sha-secret-evidence-attempt-${{ github.run_attempt }}" in legacy_workflow
+    assert "name: playwright-artifacts-attempt-${{ github.run_attempt }}" in legacy_workflow
+    assert "name: preview-playwright-artifacts-attempt-${{ github.run_attempt }}" in legacy_workflow
     assert "workflow_run:" in finalizer
     assert 'workflows: ["Trusted Security"]' in finalizer
     assert "types: [completed]" in finalizer
@@ -311,6 +324,33 @@ def test_trusted_workflow_has_no_candidate_authority() -> None:
         'container_name="candidate-closure-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-$version"' in workflow
     )
     assert "candidate-pip-check-$version.txt" in workflow
+    assert "candidate/requirements.lock" in privacy_runtime_step
+    assert "--only-binary=:all:" in privacy_runtime_step
+    assert "--require-hashes" in privacy_runtime_step
+    assert "--report /runtime/install-report.json" in privacy_runtime_step
+    assert "/runtime/venv/bin/python -m pip check" in privacy_runtime_step
+    assert 'chmod -R a-w "$privacy_runtime"' in privacy_runtime_step
+    assert "--network none" in privacy_step
+    assert "dst=/candidate,readonly" in privacy_step
+    assert "dst=/runtime,readonly" in privacy_step
+    assert "dst=/trusted/src,readonly" in privacy_step
+    assert "dst=/trusted/verify_privacy_controls.py,readonly" in privacy_step
+    assert '--tmpfs "/probe:rw,nosuid,nodev' in privacy_step
+    assert "uid=$(id -u),gid=$(id -g)" in privacy_step
+    assert "-I -S -c" in privacy_step
+    assert '["/trusted/src","/runtime/venv/lib/python3.12/site-packages"]' in privacy_step
+    assert "run_trusted_security_entrypoint.py" not in privacy_step
+    assert "--mode supervise" in privacy_step
+    assert "--mode prepare" not in privacy_step
+    assert "--mode finalize" not in privacy_step
+    assert "--require-supervised-privacy" in workflow
+    assert '> "$RUNNER_TEMP/trusted-security/privacy-evidence.json"' in privacy_step
+    assert "candidate-privacy-receipt.json" not in privacy_step
+    assert "dst=/output" not in privacy_step
+    assert "/output/privacy-evidence.json" not in privacy_step
+    assert "$RUNNER_TEMP/candidate-privacy-runtime" in workflow
+    assert "$RUNNER_TEMP/trusted-security/candidate-privacy-runtime" not in workflow
+    assert "candidate-install-report.json" in workflow
     assert "missing_conclusion=failure" in finalizer
     assert '-f conclusion="$missing_conclusion"' in finalizer
     assert "--method PATCH" in finalizer

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import json
+import multiprocessing
 import os
 import threading
 import time
@@ -527,6 +529,63 @@ def test_forward_transition_rejects_self_computed_budget_telemetry(tmp_path: Pat
             replace(valid, evidence=forged_evidence),
             reason="contract_admitted",
         )
+
+
+def test_transition_waits_for_the_retention_sweep_lock(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+    transition_context = context(
+        evidence=evidence_for(
+            LifecycleState.CONTRACT_RECEIVED,
+            LifecycleState.CONTRACT_APPROVED,
+            reason="contract_admitted",
+        )
+    )
+    process_context = multiprocessing.get_context("fork")
+    locked = process_context.Event()
+
+    def hold_retention_lock() -> None:
+        with cp.lock_path.open("a+") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            locked.set()
+            time.sleep(0.2)
+
+    holder = process_context.Process(target=hold_retention_lock)
+    holder.start()
+    assert locked.wait(timeout=1)
+    started_at = time.monotonic()
+    event = cp.transition(
+        LifecycleState.CONTRACT_APPROVED,
+        transition_context,
+        reason="contract_admitted",
+    )
+    elapsed = time.monotonic() - started_at
+    holder.join(timeout=1)
+
+    assert holder.exitcode == 0
+    assert elapsed >= 0.15
+    assert event.target is LifecycleState.CONTRACT_APPROVED
+
+
+def test_transition_rejects_a_run_directory_renamed_by_retention(tmp_path: Path) -> None:
+    cp = control_plane(tmp_path)
+    tombstone = cp.run_dir.with_name(".retention-delete-raced-run")
+    cp.run_dir.rename(tombstone)
+
+    with pytest.raises(TransitionDeniedError, match="run directory is missing"):
+        cp.transition(
+            LifecycleState.CONTRACT_APPROVED,
+            context(
+                evidence=evidence_for(
+                    LifecycleState.CONTRACT_RECEIVED,
+                    LifecycleState.CONTRACT_APPROVED,
+                    reason="contract_admitted",
+                )
+            ),
+            reason="contract_admitted",
+        )
+
+    assert not cp.run_dir.exists()
+    assert tombstone.exists()
 
 
 def evidence_for(source: LifecycleState, target: LifecycleState, *, reason: str) -> dict[str, str]:
@@ -5118,6 +5177,34 @@ def test_creation_retry_accepts_authenticated_legacy_metadata_at_historical_defa
 
     assert recovered.run_id == "legacy-run"
     assert recovered.state is LifecycleState.CONTRACT_RECEIVED
+
+
+def test_creation_retry_persists_legacy_metadata_before_first_event(tmp_path: Path) -> None:
+    policy, _ = budgets()
+    LifecycleControlPlane.create(
+        tmp_path,
+        run_id="legacy-interrupted-run",
+        subject_digest=SHA,
+        initial_state=LifecycleState.CONTRACT_RECEIVED,
+        budget_policy=policy,
+    )
+    metadata_path = tmp_path / "lifecycle-metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    metadata.pop("retention_days")
+    metadata_path.write_text(json.dumps(metadata, sort_keys=True, separators=(",", ":")))
+    (tmp_path / "lifecycle-events.jsonl").unlink()
+
+    recovered = LifecycleControlPlane.create(
+        tmp_path,
+        run_id="legacy-interrupted-run",
+        subject_digest=SHA,
+        initial_state=LifecycleState.CONTRACT_RECEIVED,
+        budget_policy=policy,
+        retention_days=30,
+    )
+
+    assert json.loads(metadata_path.read_text())["retention_days"] == 30
+    assert LifecycleControlPlane.load(tmp_path).events == recovered.events
 
 
 def test_creation_retry_preserves_an_expired_completed_lifecycle_run(tmp_path: Path) -> None:

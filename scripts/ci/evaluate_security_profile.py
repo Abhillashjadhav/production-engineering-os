@@ -13,9 +13,11 @@ import subprocess  # nosec B404 - fixed git argv authenticates the local checkou
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, replace
 from datetime import UTC, datetime, timedelta
-from importlib.metadata import PackageNotFoundError, distribution, version
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
+
+from packaging.utils import canonicalize_name
 
 from pmpe.contracts.digest import canonical_digest
 from pmpe.quality.security_profiles import (
@@ -66,6 +68,12 @@ _LAYERS = {
         }
     ),
 }
+
+_LOCKED_ARTIFACT_REQUIREMENT = re.compile(
+    r"(?P<name>[A-Za-z0-9][A-Za-z0-9._-]*)"
+    r"==(?P<version>[A-Za-z0-9][A-Za-z0-9.!+_-]*)\s*\\?\Z"
+)
+_LOCKED_ARTIFACT_HASH = re.compile(r"--hash=sha256:(?P<digest>[0-9a-f]{64})\s*\\?\Z")
 
 
 def _sha256_bytes(value: bytes) -> str:
@@ -415,8 +423,165 @@ def _importlib_module_reference(node: ast.AST, aliases: set[str]) -> bool:
     return isinstance(node, ast.Name) and node.id in aliases
 
 
+def _static_string(node: ast.AST, aliases: dict[str, str] | None = None) -> str | None:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.Name) and aliases is not None:
+        return aliases.get(node.id)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _static_string(node.left, aliases)
+        right = _static_string(node.right, aliases)
+        if left is not None and right is not None and len(left) + len(right) <= 4096:
+            return left + right
+    if isinstance(node, ast.JoinedStr):
+        parts = [
+            value.value
+            for value in node.values
+            if isinstance(value, ast.Constant) and isinstance(value.value, str)
+        ]
+        if len(parts) == len(node.values) and sum(map(len, parts)) <= 4096:
+            return "".join(parts)
+    return None
+
+
+def _ambient_namespace_reference(node: ast.AST, aliases: set[str] | None = None) -> bool:
+    if bool(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id in {"globals", "locals", "vars"}
+        and not node.args
+        and not node.keywords
+        or isinstance(node, ast.Name)
+        and aliases is not None
+        and node.id in aliases
+    ):
+        return True
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "copy"
+        and not node.args
+        and not node.keywords
+    ):
+        return _ambient_namespace_reference(node.func.value, aliases)
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"items", "keys", "values"}
+        and not node.args
+        and not node.keywords
+    ):
+        return _ambient_namespace_reference(node.func.value, aliases)
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "dict"
+        and len(node.args) == 1
+        and not node.keywords
+    ):
+        return _ambient_namespace_reference(node.args[0], aliases)
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id
+        in {
+            "enumerate",
+            "filter",
+            "iter",
+            "list",
+            "map",
+            "max",
+            "min",
+            "next",
+            "set",
+            "sorted",
+            "tuple",
+            "zip",
+        }
+        and any(_ambient_namespace_reference(value, aliases) for value in node.args)
+    ):
+        return True
+    if isinstance(node, ast.Call) and (
+        any(_ambient_namespace_reference(value, aliases) for value in node.args)
+        or any(_ambient_namespace_reference(keyword.value, aliases) for keyword in node.keywords)
+    ):
+        return True
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"get", "__getitem__"}
+        and node.args
+        and _ambient_namespace_reference(node.func.value, aliases)
+    ):
+        return True
+    if isinstance(node, ast.Dict):
+        return any(
+            key is None and _ambient_namespace_reference(value, aliases)
+            for key, value in zip(node.keys, node.values, strict=True)
+        )
+    if isinstance(
+        node,
+        (
+            ast.BoolOp,
+            ast.IfExp,
+            ast.Lambda,
+            ast.List,
+            ast.NamedExpr,
+            ast.Set,
+            ast.Starred,
+            ast.Tuple,
+        ),
+    ):
+        return any(
+            _ambient_namespace_reference(child, aliases) for child in ast.iter_child_nodes(node)
+        )
+    if isinstance(node, ast.Subscript):
+        return _ambient_namespace_reference(node.value, aliases)
+    return False
+
+
+def _ambient_import_authority_reference(
+    node: ast.AST,
+    namespace_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
+    authority_keys = {"__builtins__", "__import__", "importlib"}
+    if isinstance(node, ast.Attribute):
+        return node.attr in {"__import__", "import_module"} and _ambient_namespace_reference(
+            node.value, namespace_aliases
+        )
+    if isinstance(node, ast.Subscript):
+        key = _static_string(node.slice, string_aliases)
+        return _ambient_namespace_reference(node.value, namespace_aliases) and key in authority_keys
+    if not (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and _ambient_namespace_reference(node.func.value, namespace_aliases)
+    ):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"__getattr__", "__getattribute__"}
+            and node.args
+            and _ambient_namespace_reference(node.func.value, namespace_aliases)
+        ):
+            attribute = _static_string(node.args[0], string_aliases)
+            return attribute is None or attribute in {"__import__", "import_module"}
+        return False
+    if node.func.attr == "copy" and not node.args and not node.keywords:
+        return False
+    if node.func.attr in {"items", "keys", "values"}:
+        return False
+    if node.func.attr not in {"get", "__getitem__"}:
+        return True
+    if not node.args:
+        return False
+    key = _static_string(node.args[0], string_aliases)
+    return key in authority_keys
+
+
 def _module_dictionary_reference(node: ast.AST, aliases: set[str]) -> bool:
-    """Recognize reflective access to a tracked module's complete namespace."""
+    """Recognize unmodeled reflection through a tracked module namespace."""
 
     return bool(
         isinstance(node, ast.Call)
@@ -426,9 +591,558 @@ def _module_dictionary_reference(node: ast.AST, aliases: set[str]) -> bool:
         and not node.keywords
         and _importlib_module_reference(node.args[0], aliases)
         or isinstance(node, ast.Attribute)
-        and node.attr == "__dict__"
+        and _importlib_module_reference(node.value, aliases)
+        and node.attr not in {"__import__", "import_module"}
+        or isinstance(node, ast.Subscript)
         and _importlib_module_reference(node.value, aliases)
     )
+
+
+def _sys_module_registry_reference(
+    node: ast.AST,
+    *,
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
+    """Recognize the process-wide module registry without flagging ordinary use."""
+
+    if isinstance(node, ast.Name):
+        return node.id in module_registry_aliases
+    if (
+        isinstance(node, ast.Attribute)
+        and node.attr == "modules"
+        and isinstance(node.value, ast.Name)
+    ):
+        return node.value.id in sys_aliases
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "copy"
+        and not node.args
+        and not node.keywords
+    ):
+        return _sys_module_registry_reference(
+            node.func.value,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "dict"
+        and len(node.args) == 1
+        and not node.keywords
+    ):
+        return _sys_module_registry_reference(
+            node.args[0],
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+    if isinstance(node, ast.Dict):
+        return any(
+            key is None
+            and _sys_module_registry_reference(
+                value,
+                sys_aliases=sys_aliases,
+                module_registry_aliases=module_registry_aliases,
+                string_aliases=string_aliases,
+            )
+            for key, value in zip(node.keys, node.values, strict=True)
+        )
+    return bool(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) == 2
+        and not node.keywords
+        and isinstance(node.args[0], ast.Name)
+        and node.args[0].id in sys_aliases
+        and _static_string(node.args[1], string_aliases) == "modules"
+    )
+
+
+def _unmodeled_sys_module_registry_operation(
+    node: ast.AST,
+    *,
+    parent: ast.AST | None,
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    safe_registry_inspection_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
+    """Reject registry consumption that the authority model cannot propagate."""
+
+    def registry(value: ast.AST) -> bool:
+        return _sys_module_registry_reference(
+            value,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and registry(node.func.value)
+    ):
+        if node.func.attr in {"get", "__getitem__"}:
+            return False
+        return not (node.func.attr == "copy" and not node.args and not node.keywords)
+    if registry(node):
+        return False
+    if isinstance(node, ast.Call):
+        if (
+            isinstance(node.func, ast.Name)
+            and node.func.id in safe_registry_inspection_aliases
+            and len(node.args) == 1
+            and not node.keywords
+            and registry(node.args[0])
+        ):
+            return False
+        return (
+            registry(node.func)
+            or any(registry(value) for value in node.args)
+            or any(registry(keyword.value) for keyword in node.keywords)
+        )
+    if isinstance(node, ast.Attribute):
+        return registry(node.value) and not (isinstance(parent, ast.Call) and parent.func is node)
+    if isinstance(node, ast.Subscript):
+        if registry(node.value):
+            return registry(node.slice)
+        return any(registry(child) for child in ast.iter_child_nodes(node))
+    if isinstance(node, (ast.Assign, ast.AnnAssign, ast.keyword)):
+        return False
+    return any(registry(child) for child in ast.iter_child_nodes(node))
+
+
+def _sys_modules_authority_module(
+    node: ast.AST,
+    *,
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> str | None:
+    """Return an import-capable module recovered directly from ``sys.modules``."""
+
+    authority_modules = {"builtins", "importlib"}
+    if isinstance(node, ast.Subscript):
+        module = _static_string(node.slice, string_aliases)
+        if module in authority_modules and _sys_module_registry_reference(
+            node.value,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        ):
+            return module
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"get", "__getitem__"}
+        and _sys_module_registry_reference(
+            node.func.value,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+        and node.args
+    ):
+        module = _static_string(node.args[0], string_aliases)
+        if module in authority_modules:
+            return module
+    return None
+
+
+def _unknown_sys_modules_authority_reference(
+    node: ast.AST,
+    *,
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
+    """Recognize a registry lookup whose runtime key may recover import authority."""
+
+    if (
+        isinstance(node, ast.Subscript)
+        and _static_string(node.slice, string_aliases) is None
+        and _sys_module_registry_reference(
+            node.value,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+    ):
+        return True
+    return bool(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"get", "__getitem__"}
+        and node.args
+        and _static_string(node.args[0], string_aliases) is None
+        and _sys_module_registry_reference(
+            node.func.value,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+    )
+
+
+_RECOVERED_AUTHORITY_FLOW_NODES = (
+    ast.Await,
+    ast.BinOp,
+    ast.BoolOp,
+    ast.Dict,
+    ast.DictComp,
+    ast.GeneratorExp,
+    ast.IfExp,
+    ast.Lambda,
+    ast.List,
+    ast.ListComp,
+    ast.NamedExpr,
+    ast.Set,
+    ast.SetComp,
+    ast.Starred,
+    ast.Subscript,
+    ast.Tuple,
+    ast.UnaryOp,
+    ast.Yield,
+    ast.YieldFrom,
+    ast.comprehension,
+)
+
+
+def _recovered_unknown_sys_modules_authority_reference(
+    node: ast.AST,
+    *,
+    authority_aliases: set[str],
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
+    if isinstance(node, ast.Name) and node.id in authority_aliases:
+        return True
+    if _unknown_sys_modules_authority_reference(
+        node,
+        sys_aliases=sys_aliases,
+        module_registry_aliases=module_registry_aliases,
+        string_aliases=string_aliases,
+    ):
+        return True
+    if not isinstance(node, _RECOVERED_AUTHORITY_FLOW_NODES):
+        return False
+    return any(
+        _recovered_unknown_sys_modules_authority_reference(
+            child,
+            authority_aliases=authority_aliases,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+        for child in ast.iter_child_nodes(node)
+    )
+
+
+def _passes_recovered_unknown_authority_to_unmodeled_call(
+    node: ast.AST,
+    *,
+    authority_aliases: set[str],
+    recovered_builtins_aliases: set[str],
+    recovered_importlib_aliases: set[str],
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    safe_registry_inspection_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
+    """Reject helper calls that can transform dynamically recovered module authority."""
+
+    if not isinstance(node, ast.Call):
+        return False
+
+    def recovered(value: ast.AST) -> bool:
+        if _recovered_unknown_sys_modules_authority_reference(
+            value,
+            authority_aliases=authority_aliases,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        ):
+            return True
+        return any(
+            _recovered_import_authority_reference(
+                value,
+                authority=authority,
+                authority_aliases=aliases,
+                sys_aliases=sys_aliases,
+                module_registry_aliases=module_registry_aliases,
+                string_aliases=string_aliases,
+            )
+            for authority, aliases in (
+                ("builtins", recovered_builtins_aliases),
+                ("importlib", recovered_importlib_aliases),
+            )
+        )
+
+    # ``vars(module)`` is modeled separately as a module-dictionary view. Other
+    # callables may return, retain, or invoke authority and therefore fail closed.
+    if (
+        isinstance(node.func, ast.Name)
+        and node.func.id in safe_registry_inspection_aliases | {"vars"}
+        and len(node.args) == 1
+        and not node.keywords
+        and recovered(node.args[0])
+    ):
+        return False
+    return (
+        recovered(node.func)
+        or any(recovered(value) for value in node.args)
+        or any(recovered(keyword.value) for keyword in node.keywords)
+    )
+
+
+def _unknown_module_dictionary_reference(
+    node: ast.AST,
+    *,
+    recovered_unknown_aliases: set[str],
+    recovered_builtins_aliases: set[str],
+    recovered_importlib_aliases: set[str],
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    string_aliases: dict[str, str],
+    dictionary_aliases: set[str] | None = None,
+    recurse: bool = True,
+) -> bool:
+    def recovered(value: ast.AST) -> bool:
+        if _recovered_unknown_sys_modules_authority_reference(
+            value,
+            authority_aliases=recovered_unknown_aliases,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        ):
+            return True
+        return any(
+            _recovered_import_authority_reference(
+                value,
+                authority=authority,
+                authority_aliases=aliases,
+                sys_aliases=sys_aliases,
+                module_registry_aliases=module_registry_aliases,
+                string_aliases=string_aliases,
+            )
+            for authority, aliases in (
+                ("builtins", recovered_builtins_aliases),
+                ("importlib", recovered_importlib_aliases),
+            )
+        )
+
+    if bool(
+        isinstance(node, ast.Name)
+        and dictionary_aliases is not None
+        and node.id in dictionary_aliases
+        or isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "vars"
+        and len(node.args) == 1
+        and not node.keywords
+        and recovered(node.args[0])
+        or isinstance(node, ast.Attribute)
+        and node.attr == "__dict__"
+        and recovered(node.value)
+    ):
+        return True
+    if not recurse or not isinstance(node, _RECOVERED_AUTHORITY_FLOW_NODES):
+        return False
+    return any(
+        _unknown_module_dictionary_reference(
+            child,
+            recovered_unknown_aliases=recovered_unknown_aliases,
+            recovered_builtins_aliases=recovered_builtins_aliases,
+            recovered_importlib_aliases=recovered_importlib_aliases,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+            dictionary_aliases=dictionary_aliases,
+            recurse=True,
+        )
+        for child in ast.iter_child_nodes(node)
+    )
+
+
+def _recovered_unknown_module_loader_reference(
+    node: ast.AST,
+    *,
+    loader_aliases: set[str],
+    recovered_unknown_aliases: set[str],
+    recovered_builtins_aliases: set[str],
+    recovered_importlib_aliases: set[str],
+    recovered_module_dictionary_aliases: set[str],
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
+    if isinstance(node, ast.Name):
+        return node.id in loader_aliases
+
+    def dictionary(value: ast.AST) -> bool:
+        return _unknown_module_dictionary_reference(
+            value,
+            recovered_unknown_aliases=recovered_unknown_aliases,
+            recovered_builtins_aliases=recovered_builtins_aliases,
+            recovered_importlib_aliases=recovered_importlib_aliases,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+            dictionary_aliases=recovered_module_dictionary_aliases,
+            recurse=False,
+        )
+
+    loader_names = {"__import__", "import_module"}
+    if isinstance(node, ast.Subscript) and dictionary(node.value):
+        name = _static_string(node.slice, string_aliases)
+        return name is None or name in loader_names
+    return bool(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"get", "__getitem__"}
+        and node.args
+        and dictionary(node.func.value)
+        and ((name := _static_string(node.args[0], string_aliases)) is None or name in loader_names)
+    )
+
+
+def _recovered_import_authority_reference(
+    node: ast.AST,
+    *,
+    authority: str,
+    authority_aliases: set[str],
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
+    if (
+        isinstance(node, ast.Name)
+        and node.id in authority_aliases
+        or _sys_modules_authority_module(
+            node,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+        == authority
+    ):
+        return True
+    if not isinstance(node, _RECOVERED_AUTHORITY_FLOW_NODES):
+        return False
+    return any(
+        _recovered_import_authority_reference(
+            child,
+            authority=authority,
+            authority_aliases=authority_aliases,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+        for child in ast.iter_child_nodes(node)
+    )
+
+
+def _sys_modules_import_authority_reference(
+    node: ast.AST,
+    *,
+    sys_aliases: set[str],
+    module_registry_aliases: set[str],
+    recovered_builtins_aliases: set[str],
+    recovered_importlib_aliases: set[str],
+    recovered_unknown_aliases: set[str],
+    recovered_module_dictionary_aliases: set[str],
+    recovered_unknown_loader_aliases: set[str],
+    string_aliases: dict[str, str],
+) -> bool:
+    """Fail closed when recovered module authority is used as an import loader."""
+
+    def recovered(value: ast.AST, authority: str) -> bool:
+        aliases = (
+            recovered_builtins_aliases if authority == "builtins" else recovered_importlib_aliases
+        )
+        return _recovered_import_authority_reference(
+            value,
+            authority=authority,
+            authority_aliases=aliases,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+
+    def unknown(value: ast.AST) -> bool:
+        if _recovered_unknown_sys_modules_authority_reference(
+            value,
+            authority_aliases=recovered_unknown_aliases,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        ):
+            return True
+        return any(unknown(child) for child in ast.iter_child_nodes(value))
+
+    def dictionary_loader(value: ast.AST) -> bool:
+        return _recovered_unknown_module_loader_reference(
+            value,
+            loader_aliases=recovered_unknown_loader_aliases,
+            recovered_unknown_aliases=recovered_unknown_aliases,
+            recovered_builtins_aliases=recovered_builtins_aliases,
+            recovered_importlib_aliases=recovered_importlib_aliases,
+            recovered_module_dictionary_aliases=recovered_module_dictionary_aliases,
+            sys_aliases=sys_aliases,
+            module_registry_aliases=module_registry_aliases,
+            string_aliases=string_aliases,
+        )
+
+    if isinstance(node, ast.Call) and dictionary_loader(node.func):
+        return True
+
+    if isinstance(node, ast.Attribute):
+        return bool(
+            node.attr == "__import__"
+            and recovered(node.value, "builtins")
+            or node.attr == "import_module"
+            and recovered(node.value, "importlib")
+            or node.attr in {"__import__", "import_module"}
+            and unknown(node.value)
+        )
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "getattr"
+        and len(node.args) >= 2
+    ):
+        attribute = _static_string(node.args[1], string_aliases)
+        return bool(
+            recovered(node.args[0], "builtins")
+            and attribute in {None, "__import__"}
+            or recovered(node.args[0], "importlib")
+            and attribute in {None, "import_module"}
+            or unknown(node.args[0])
+            and attribute in {None, "__import__", "import_module"}
+        )
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr in {"__getattr__", "__getattribute__"}
+        and node.args
+    ):
+        attribute = _static_string(node.args[0], string_aliases)
+        return bool(
+            recovered(node.func.value, "builtins")
+            and attribute in {None, "__import__"}
+            or recovered(node.func.value, "importlib")
+            and attribute in {None, "import_module"}
+            or unknown(node.func.value)
+            and attribute in {None, "__import__", "import_module"}
+        )
+    return False
 
 
 def _passes_tracked_module_to_unresolved_call(
@@ -585,7 +1299,22 @@ def _builtins_import_fromlist(node: ast.Call) -> tuple[str, ...] | None:
 
 
 _LEXICAL_SCOPES = (ast.AsyncFunctionDef, ast.ClassDef, ast.FunctionDef, ast.Lambda, ast.Module)
-_LoaderAliases = tuple[set[str], set[str], set[str], set[str]]
+_LoaderAliases = tuple[
+    set[str],
+    set[str],
+    set[str],
+    set[str],
+    set[str],
+    set[str],
+    set[str],
+    set[str],
+    set[str],
+    set[str],
+    set[str],
+    set[str],
+    set[str],
+    dict[str, str],
+]
 
 
 def _inherited_aliases(
@@ -600,6 +1329,21 @@ def _inherited_aliases(
         inherited.discard(name)
         if name in module:
             inherited.add(name)
+    return inherited
+
+
+def _inherited_string_aliases(
+    parent: dict[str, str],
+    module: dict[str, str],
+    *,
+    local_names: set[str],
+    global_names: set[str],
+) -> dict[str, str]:
+    inherited = {name: value for name, value in parent.items() if name not in local_names}
+    for name in global_names:
+        inherited.pop(name, None)
+        if name in module:
+            inherited[name] = module[name]
     return inherited
 
 
@@ -717,10 +1461,20 @@ def _lexical_import_aliases(
         local_names.difference_update(global_names | nonlocal_names)
 
         if scope is tree:
-            builtins_aliases: set[str] = set()
+            builtins_aliases: set[str] = {"__builtins__"}
             builtin_import_aliases = {"__import__"}
             importlib_aliases: set[str] = set()
             import_module_aliases: set[str] = set()
+            sys_aliases: set[str] = set()
+            module_registry_aliases: set[str] = set()
+            recovered_builtins_aliases: set[str] = set()
+            recovered_importlib_aliases: set[str] = set()
+            recovered_unknown_aliases: set[str] = set()
+            recovered_module_dictionary_aliases: set[str] = set()
+            recovered_unknown_loader_aliases: set[str] = set()
+            safe_registry_inspection_aliases = {"id", "type"} - local_names
+            ambient_namespace_aliases: set[str] = set()
+            string_aliases: dict[str, str] = {}
         else:
             parent_aliases = aliases_by_scope[scope_parent[scope]]
             module_aliases = aliases_by_scope[tree]
@@ -748,6 +1502,66 @@ def _lexical_import_aliases(
                 local_names=local_names,
                 global_names=global_names,
             )
+            sys_aliases = _inherited_aliases(
+                parent_aliases[4],
+                module_aliases[4],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            module_registry_aliases = _inherited_aliases(
+                parent_aliases[5],
+                module_aliases[5],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            recovered_builtins_aliases = _inherited_aliases(
+                parent_aliases[6],
+                module_aliases[6],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            recovered_importlib_aliases = _inherited_aliases(
+                parent_aliases[7],
+                module_aliases[7],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            recovered_unknown_aliases = _inherited_aliases(
+                parent_aliases[8],
+                module_aliases[8],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            recovered_module_dictionary_aliases = _inherited_aliases(
+                parent_aliases[9],
+                module_aliases[9],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            recovered_unknown_loader_aliases = _inherited_aliases(
+                parent_aliases[10],
+                module_aliases[10],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            safe_registry_inspection_aliases = _inherited_aliases(
+                parent_aliases[11],
+                module_aliases[11],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            ambient_namespace_aliases = _inherited_aliases(
+                parent_aliases[12],
+                module_aliases[12],
+                local_names=local_names,
+                global_names=global_names,
+            )
+            string_aliases = _inherited_string_aliases(
+                parent_aliases[13],
+                module_aliases[13],
+                local_names=local_names,
+                global_names=global_names,
+            )
 
         for node in nodes:
             if isinstance(node, ast.Import):
@@ -763,6 +1577,10 @@ def _lexical_import_aliases(
                         if isinstance(scope, ast.ClassDef):
                             edges.add((source_layer, "unresolved_dynamic"))
                         builtins_aliases.add(bound)
+                    elif alias.name == "sys":
+                        if isinstance(scope, ast.ClassDef):
+                            edges.add((source_layer, "unresolved_dynamic"))
+                        sys_aliases.add(bound)
             elif isinstance(node, ast.ImportFrom) and node.module == "importlib":
                 for alias in node.names:
                     if alias.name == "import_module":
@@ -775,12 +1593,41 @@ def _lexical_import_aliases(
                         if isinstance(scope, ast.ClassDef):
                             edges.add((source_layer, "unresolved_dynamic"))
                         builtin_import_aliases.add(alias.asname or alias.name)
+            elif isinstance(node, ast.ImportFrom) and node.module == "sys":
+                for alias in node.names:
+                    if alias.name == "modules":
+                        if isinstance(scope, ast.ClassDef):
+                            edges.add((source_layer, "unresolved_dynamic"))
+                        module_registry_aliases.add(alias.asname or alias.name)
+
+        string_assignments: dict[str, list[ast.expr]] = {}
+        for node in nodes:
+            if (
+                not isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr))
+                or node.value is None
+            ):
+                continue
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            for target in targets:
+                if isinstance(target, ast.Name):
+                    string_assignments.setdefault(target.id, []).append(node.value)
+        changed = True
+        while changed:
+            changed = False
+            for name, values in string_assignments.items():
+                resolved = [_static_string(value, string_aliases) for value in values]
+                if any(value is None for value in resolved) or len(set(resolved)) != 1:
+                    continue
+                resolved_value = resolved[0]
+                if resolved_value is not None and string_aliases.get(name) != resolved_value:
+                    string_aliases[name] = resolved_value
+                    changed = True
 
         changed = True
         while changed:
             changed = False
             for node in nodes:
-                if not isinstance(node, (ast.Assign, ast.AnnAssign)):
+                if not isinstance(node, (ast.Assign, ast.AnnAssign, ast.NamedExpr)):
                     continue
                 value = node.value
                 if value is None:
@@ -811,6 +1658,78 @@ def _lexical_import_aliases(
                         ),
                         builtin_import_aliases,
                     ),
+                    (
+                        _recovered_import_authority_reference(
+                            value,
+                            authority="builtins",
+                            authority_aliases=recovered_builtins_aliases,
+                            sys_aliases=sys_aliases,
+                            module_registry_aliases=module_registry_aliases,
+                            string_aliases=string_aliases,
+                        ),
+                        recovered_builtins_aliases,
+                    ),
+                    (
+                        _recovered_import_authority_reference(
+                            value,
+                            authority="importlib",
+                            authority_aliases=recovered_importlib_aliases,
+                            sys_aliases=sys_aliases,
+                            module_registry_aliases=module_registry_aliases,
+                            string_aliases=string_aliases,
+                        ),
+                        recovered_importlib_aliases,
+                    ),
+                    (
+                        _recovered_unknown_module_loader_reference(
+                            value,
+                            loader_aliases=recovered_unknown_loader_aliases,
+                            recovered_unknown_aliases=recovered_unknown_aliases,
+                            recovered_builtins_aliases=recovered_builtins_aliases,
+                            recovered_importlib_aliases=recovered_importlib_aliases,
+                            recovered_module_dictionary_aliases=recovered_module_dictionary_aliases,
+                            sys_aliases=sys_aliases,
+                            module_registry_aliases=module_registry_aliases,
+                            string_aliases=string_aliases,
+                        ),
+                        recovered_unknown_loader_aliases,
+                    ),
+                    (
+                        _recovered_unknown_sys_modules_authority_reference(
+                            value,
+                            authority_aliases=recovered_unknown_aliases,
+                            sys_aliases=sys_aliases,
+                            module_registry_aliases=module_registry_aliases,
+                            string_aliases=string_aliases,
+                        ),
+                        recovered_unknown_aliases,
+                    ),
+                    (
+                        _sys_module_registry_reference(
+                            value,
+                            sys_aliases=sys_aliases,
+                            module_registry_aliases=module_registry_aliases,
+                            string_aliases=string_aliases,
+                        ),
+                        module_registry_aliases,
+                    ),
+                    (
+                        _unknown_module_dictionary_reference(
+                            value,
+                            recovered_unknown_aliases=recovered_unknown_aliases,
+                            recovered_builtins_aliases=recovered_builtins_aliases,
+                            recovered_importlib_aliases=recovered_importlib_aliases,
+                            sys_aliases=sys_aliases,
+                            module_registry_aliases=module_registry_aliases,
+                            string_aliases=string_aliases,
+                            dictionary_aliases=recovered_module_dictionary_aliases,
+                        ),
+                        recovered_module_dictionary_aliases,
+                    ),
+                    (
+                        _ambient_namespace_reference(value, ambient_namespace_aliases),
+                        ambient_namespace_aliases,
+                    ),
                 )
                 admitted = False
                 for matches, destination in references:
@@ -822,6 +1741,8 @@ def _lexical_import_aliases(
                         break
                     for target in targets:
                         if isinstance(target, ast.Name):
+                            if target.id in global_names | nonlocal_names:
+                                edges.add((source_layer, "unresolved_dynamic"))
                             if target.id not in destination:
                                 destination.add(target.id)
                                 changed = True
@@ -829,6 +1750,16 @@ def _lexical_import_aliases(
                             edges.add((source_layer, "unresolved_dynamic"))
                     break
                 if admitted:
+                    continue
+                if (
+                    isinstance(value, ast.Attribute)
+                    and value.attr in {"get", "__getitem__"}
+                    and _ambient_namespace_reference(
+                        value.value,
+                        ambient_namespace_aliases,
+                    )
+                ):
+                    edges.add((source_layer, "unresolved_dynamic"))
                     continue
                 if _stores_import_capability(
                     value,
@@ -851,7 +1782,61 @@ def _lexical_import_aliases(
                     importlib_aliases=importlib_aliases,
                     import_module_aliases=import_module_aliases,
                 )
+                or _recovered_unknown_sys_modules_authority_reference(
+                    expression,
+                    authority_aliases=recovered_unknown_aliases,
+                    sys_aliases=sys_aliases,
+                    module_registry_aliases=module_registry_aliases,
+                    string_aliases=string_aliases,
+                )
+                or _recovered_import_authority_reference(
+                    expression,
+                    authority="builtins",
+                    authority_aliases=recovered_builtins_aliases,
+                    sys_aliases=sys_aliases,
+                    module_registry_aliases=module_registry_aliases,
+                    string_aliases=string_aliases,
+                )
+                or _recovered_import_authority_reference(
+                    expression,
+                    authority="importlib",
+                    authority_aliases=recovered_importlib_aliases,
+                    sys_aliases=sys_aliases,
+                    module_registry_aliases=module_registry_aliases,
+                    string_aliases=string_aliases,
+                )
+                or _ambient_namespace_reference(expression, ambient_namespace_aliases)
                 for expression in _function_definition_expressions(child)
+            ):
+                edges.add((source_layer, "unresolved_dynamic"))
+        for node in nodes:
+            if not isinstance(node, (ast.Return, ast.Yield, ast.YieldFrom)) or node.value is None:
+                continue
+            if (
+                _recovered_unknown_sys_modules_authority_reference(
+                    node.value,
+                    authority_aliases=recovered_unknown_aliases,
+                    sys_aliases=sys_aliases,
+                    module_registry_aliases=module_registry_aliases,
+                    string_aliases=string_aliases,
+                )
+                or _recovered_import_authority_reference(
+                    node.value,
+                    authority="builtins",
+                    authority_aliases=recovered_builtins_aliases,
+                    sys_aliases=sys_aliases,
+                    module_registry_aliases=module_registry_aliases,
+                    string_aliases=string_aliases,
+                )
+                or _recovered_import_authority_reference(
+                    node.value,
+                    authority="importlib",
+                    authority_aliases=recovered_importlib_aliases,
+                    sys_aliases=sys_aliases,
+                    module_registry_aliases=module_registry_aliases,
+                    string_aliases=string_aliases,
+                )
+                or _ambient_namespace_reference(node.value, ambient_namespace_aliases)
             ):
                 edges.add((source_layer, "unresolved_dynamic"))
         aliases_by_scope[scope] = (
@@ -859,6 +1844,16 @@ def _lexical_import_aliases(
             builtin_import_aliases,
             importlib_aliases,
             import_module_aliases,
+            sys_aliases,
+            module_registry_aliases,
+            recovered_builtins_aliases,
+            recovered_importlib_aliases,
+            recovered_unknown_aliases,
+            recovered_module_dictionary_aliases,
+            recovered_unknown_loader_aliases,
+            safe_registry_inspection_aliases,
+            ambient_namespace_aliases,
+            string_aliases,
         )
     return node_scope, aliases_by_scope
 
@@ -880,16 +1875,63 @@ def _collect_architecture_edges(
         source_layer=source_layer,
         edges=edges,
     )
+    node_parent = {
+        child: parent for parent in ast.walk(tree) for child in ast.iter_child_nodes(parent)
+    }
     for node in ast.walk(tree):
         (
             builtins_aliases,
             builtin_import_aliases,
             importlib_aliases,
             import_module_aliases,
+            sys_aliases,
+            module_registry_aliases,
+            recovered_builtins_aliases,
+            recovered_importlib_aliases,
+            recovered_unknown_aliases,
+            recovered_module_dictionary_aliases,
+            recovered_unknown_loader_aliases,
+            safe_registry_inspection_aliases,
+            ambient_namespace_aliases,
+            string_aliases,
         ) = aliases_by_scope[node_scope[node]]
         tracked_modules = importlib_aliases | builtins_aliases
         if (
-            _module_dictionary_reference(node, tracked_modules)
+            _ambient_import_authority_reference(
+                node,
+                ambient_namespace_aliases,
+                string_aliases,
+            )
+            or _sys_modules_import_authority_reference(
+                node,
+                sys_aliases=sys_aliases,
+                module_registry_aliases=module_registry_aliases,
+                recovered_builtins_aliases=recovered_builtins_aliases,
+                recovered_importlib_aliases=recovered_importlib_aliases,
+                recovered_unknown_aliases=recovered_unknown_aliases,
+                recovered_module_dictionary_aliases=recovered_module_dictionary_aliases,
+                recovered_unknown_loader_aliases=recovered_unknown_loader_aliases,
+                string_aliases=string_aliases,
+            )
+            or _passes_recovered_unknown_authority_to_unmodeled_call(
+                node,
+                authority_aliases=recovered_unknown_aliases,
+                recovered_builtins_aliases=recovered_builtins_aliases,
+                recovered_importlib_aliases=recovered_importlib_aliases,
+                sys_aliases=sys_aliases,
+                module_registry_aliases=module_registry_aliases,
+                safe_registry_inspection_aliases=safe_registry_inspection_aliases,
+                string_aliases=string_aliases,
+            )
+            or _unmodeled_sys_module_registry_operation(
+                node,
+                parent=node_parent.get(node),
+                sys_aliases=sys_aliases,
+                module_registry_aliases=module_registry_aliases,
+                safe_registry_inspection_aliases=safe_registry_inspection_aliases,
+                string_aliases=string_aliases,
+            )
+            or _module_dictionary_reference(node, tracked_modules)
             or _passes_tracked_module_to_unresolved_call(
                 node,
                 builtins_aliases=builtins_aliases,
@@ -916,6 +1958,16 @@ def _collect_architecture_edges(
             builtin_import_aliases,
             importlib_aliases,
             import_module_aliases,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _,
         ) = aliases_by_scope[node_scope[node]]
         modules: list[str] = []
         if isinstance(node, ast.Import):
@@ -1002,14 +2054,117 @@ def _collect_architecture_edges(
                 edges.add((source_layer, target_layer))
 
 
+def _locked_artifact_hashes(lock_path: Path) -> dict[tuple[str, str], frozenset[str]]:
+    locked: dict[tuple[str, str], frozenset[str]] = {}
+    current: tuple[str, str] | None = None
+    hashes: set[str] = set()
+
+    def finish() -> None:
+        nonlocal current, hashes
+        if current is not None:
+            if not hashes or current in locked:
+                raise ValueError("candidate lock artifact inventory is malformed")
+            locked[current] = frozenset(hashes)
+        current = None
+        hashes = set()
+
+    for line in lock_path.read_text().splitlines():
+        stripped = line.strip()
+        if line and not line[0].isspace() and not line.startswith("#"):
+            finish()
+            match = _LOCKED_ARTIFACT_REQUIREMENT.fullmatch(line)
+            if match is None:
+                raise ValueError("candidate lock requirement is malformed")
+            current = (canonicalize_name(match.group("name")), match.group("version"))
+        elif current is not None and stripped.startswith("--hash="):
+            match = _LOCKED_ARTIFACT_HASH.fullmatch(stripped)
+            if match is None:
+                raise ValueError("candidate lock artifact hash is malformed")
+            hashes.add(match.group("digest"))
+        elif stripped and not stripped.startswith("#"):
+            raise ValueError("candidate lock continuation is malformed")
+    finish()
+    if not locked:
+        raise ValueError("candidate lock has no artifact inventory")
+    return locked
+
+
+def _candidate_distribution_licenses(
+    install_report: object,
+    *,
+    lock_path: Path,
+    license_fallbacks: dict[str, str],
+) -> dict[tuple[str, str], str]:
+    if (
+        not isinstance(install_report, dict)
+        or install_report.get("version") != "1"
+        or not isinstance(install_report.get("install"), list)
+    ):
+        raise ValueError("candidate install report is malformed")
+    locked = _locked_artifact_hashes(lock_path)
+    licenses: dict[tuple[str, str], str] = {}
+    for item in install_report["install"]:
+        if not isinstance(item, dict):
+            raise ValueError("candidate install report entry is malformed")
+        metadata = item.get("metadata")
+        download = item.get("download_info")
+        if not isinstance(metadata, dict) or not isinstance(download, dict):
+            raise ValueError("candidate install report entry is incomplete")
+        name = metadata.get("name")
+        package_version = metadata.get("version")
+        archive = download.get("archive_info")
+        if (
+            not isinstance(name, str)
+            or not isinstance(package_version, str)
+            or not isinstance(archive, dict)
+            or not isinstance(archive.get("hashes"), dict)
+        ):
+            raise ValueError("candidate install report identity is malformed")
+        digest = archive["hashes"].get("sha256")
+        identity = (canonicalize_name(name), package_version)
+        if (
+            not isinstance(digest, str)
+            or re.fullmatch(r"[0-9a-f]{64}", digest) is None
+            or identity not in locked
+            or digest not in locked[identity]
+        ):
+            raise ValueError("candidate install report artifact is not hash-bound")
+        if identity in licenses:
+            raise ValueError("candidate install report contains a duplicate distribution")
+        license_value = (
+            metadata.get("license_expression")
+            or metadata.get("license")
+            or license_fallbacks.get(identity[0], "")
+        )
+        license_name = (
+            " OR ".join(license_value) if isinstance(license_value, list) else license_value
+        )
+        if not isinstance(license_name, str) or not license_name:
+            raise ValueError(f"audited dependency {name} has no governed license identity")
+        licenses[identity] = license_name
+    if set(licenses) != set(locked):
+        raise ValueError("candidate install report does not cover the exact lock")
+    return licenses
+
+
 def _dependency_inventory(
-    audit_payload: object, license_fallbacks: dict[str, str]
+    audit_payload: object,
+    license_fallbacks: dict[str, str],
+    *,
+    install_report: object,
+    lock_path: Path,
 ) -> tuple[tuple[str, str, str], ...]:
     if not isinstance(audit_payload, dict) or not isinstance(
         audit_payload.get("dependencies"), list
     ):
         raise ValueError("pip-audit JSON lacks a dependency inventory")
+    licenses = _candidate_distribution_licenses(
+        install_report,
+        lock_path=lock_path,
+        license_fallbacks=license_fallbacks,
+    )
     inventory: list[tuple[str, str, str]] = []
+    observed: set[tuple[str, str]] = set()
     for item in audit_payload["dependencies"]:
         if not isinstance(item, dict):
             raise ValueError("pip-audit dependency entry is malformed")
@@ -1020,22 +2175,13 @@ def _dependency_inventory(
             raise ValueError("pip-audit dependency identity is malformed")
         if not isinstance(vulnerabilities, list):
             raise ValueError("pip-audit vulnerability inventory is malformed")
-        try:
-            metadata = distribution(name).metadata
-        except PackageNotFoundError as exc:
-            raise ValueError(f"audited dependency {name} is not installed") from exc
-        metadata_fields = metadata.json
-        license_value = (
-            metadata_fields.get("license_expression")
-            or metadata_fields.get("license")
-            or license_fallbacks.get(name.lower(), "")
-        )
-        license_name = (
-            " OR ".join(license_value) if isinstance(license_value, list) else license_value
-        )
-        if not isinstance(license_name, str) or not license_name:
-            raise ValueError(f"audited dependency {name} has no governed license identity")
-        inventory.append((name, package_version, license_name))
+        identity = (canonicalize_name(name), package_version)
+        if identity in observed or identity not in licenses:
+            raise ValueError("pip-audit inventory differs from the candidate install report")
+        observed.add(identity)
+        inventory.append((name, package_version, licenses[identity]))
+    if observed != set(licenses):
+        raise ValueError("pip-audit inventory does not cover the candidate installation")
     return tuple(sorted(inventory, key=lambda item: item[0].lower()))
 
 
@@ -1102,14 +2248,53 @@ def _privacy_evidence_from_artifact(
     candidate_sha: str,
     policy_path: Path,
     verifier_path: Path,
+    require_supervised: bool = False,
 ) -> PrivacyEvidence:
     value = _load_json(artifact_path)
     if not isinstance(value, dict):
         raise ValueError("privacy verifier artifact is malformed")
     evidence_digest = value.pop("evidence_digest", None)
+    base_fields = {
+        "candidate_sha",
+        "classification",
+        "deletion_test_passed",
+        "emitted_telemetry",
+        "policy_file_digest",
+        "residency",
+        "retention_days",
+        "retention_test_passed",
+        "telemetry_test_passed",
+        "verifier_file_digest",
+    }
+    supervisor_fields = {
+        "candidate_process_returncode",
+        "candidate_receipt_digest",
+        "probe_state_digest",
+        "schema_version",
+        "supervisor_nonce_digest",
+    }
+    expected_fields = base_fields | supervisor_fields if require_supervised else base_fields
+    supervised_exact = bool(
+        not require_supervised
+        or (
+            value.get("schema_version") == "candidate-privacy-supervisor-evidence/v1"
+            and value.get("candidate_process_returncode") == 0
+            and all(
+                isinstance(value.get(field), str)
+                and re.fullmatch(r"sha256:[0-9a-f]{64}", str(value[field])) is not None
+                for field in (
+                    "candidate_receipt_digest",
+                    "probe_state_digest",
+                    "supervisor_nonce_digest",
+                )
+            )
+        )
+    )
     exact = bool(
-        isinstance(evidence_digest, str)
+        set(value) == expected_fields
+        and isinstance(evidence_digest, str)
         and evidence_digest == canonical_digest(value)
+        and supervised_exact
         and value.get("candidate_sha") == candidate_sha
         and value.get("policy_file_digest") == _file_digest(policy_path)
         and value.get("verifier_file_digest") == _file_digest(verifier_path)
@@ -1142,6 +2327,7 @@ def _build_policy(
     policy_path: Path,
     secret_allowlist_path: Path,
     profile_authority: str,
+    dependency_authority: str,
     privacy_authority: str,
     advisory_authority: str,
 ) -> SecurityGatePolicy:
@@ -1183,14 +2369,9 @@ def _build_policy(
         trusted_architecture_boundary_digest=boundary_digest,
         trusted_architecture_allowed_edges=allowed_edges,
         trusted_profile_authorities={
-            **dict.fromkeys(
-                (
-                    "architecture_observation",
-                    "dependency_inventory",
-                    "privacy_intent",
-                ),
-                profile_authority,
-            ),
+            "architecture_observation": profile_authority,
+            "dependency_inventory": dependency_authority,
+            "privacy_intent": profile_authority,
             "privacy_evidence": privacy_authority,
         },
         allowed_licenses=tuple(config["allowed_licenses"]),
@@ -1207,15 +2388,27 @@ def _evaluate(
     root: Path,
     candidate_sha: str,
     audit_path: Path,
+    install_report_path: Path,
     privacy_evidence_path: Path,
     policy_path: Path,
     secret_allowlist_path: Path,
+    *,
+    require_supervised_privacy: bool = False,
 ) -> bytes:
     privacy_verifier_path = root / "scripts" / "ci" / "verify_privacy_controls.py"
     config = _reviewed_policy_config(_load_json(policy_path))
     audit_payload = _load_json(audit_path)
+    install_report = _load_json(install_report_path)
+    lock_path = root / "requirements.lock"
     profile_authority = canonical_digest(
         {"authority": "repository-profile-evidence", "policy_digest": _file_digest(policy_path)}
+    )
+    dependency_authority = canonical_digest(
+        {
+            "authority": "candidate-artifact-metadata",
+            "install_report_digest": _file_digest(install_report_path),
+            "lock_digest": _file_digest(lock_path),
+        }
     )
     privacy_authority = canonical_digest(
         {
@@ -1224,7 +2417,7 @@ def _evaluate(
         }
     )
     advisory_authority = canonical_digest(
-        {"authority": "pip-audit", "ruleset_digest": _file_digest(root / "requirements.lock")}
+        {"authority": "pip-audit", "ruleset_digest": _file_digest(lock_path)}
     )
     policy = _build_policy(
         root,
@@ -1232,10 +2425,16 @@ def _evaluate(
         policy_path,
         secret_allowlist_path,
         profile_authority,
+        dependency_authority,
         privacy_authority,
         advisory_authority,
     )
-    dependency_inventory = _dependency_inventory(audit_payload, config["license_fallbacks"])
+    dependency_inventory = _dependency_inventory(
+        audit_payload,
+        config["license_fallbacks"],
+        install_report=install_report,
+        lock_path=lock_path,
+    )
 
     privacy = config["privacy"]
     intent = PrivacyIntent(
@@ -1250,6 +2449,7 @@ def _evaluate(
         candidate_sha=candidate_sha,
         policy_path=policy_path,
         verifier_path=privacy_verifier_path,
+        require_supervised=require_supervised_privacy,
     )
 
     allowed_edges = policy.trusted_architecture_allowed_edges
@@ -1302,7 +2502,7 @@ def _evaluate(
         ),
     )
     payloads: tuple[tuple[str, object, str], ...] = (
-        ("dependency_inventory", dependency_inventory, profile_authority),
+        ("dependency_inventory", dependency_inventory, dependency_authority),
         ("privacy_intent", intent, profile_authority),
         ("privacy_evidence", privacy_evidence, privacy_authority),
         ("architecture_observation", architecture, profile_authority),
@@ -1339,7 +2539,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--candidate-sha", required=True)
     parser.add_argument("--audit-evidence", type=Path, required=True)
+    parser.add_argument("--candidate-install-report", type=Path, required=True)
     parser.add_argument("--privacy-evidence", type=Path, required=True)
+    parser.add_argument("--require-supervised-privacy", action="store_true")
     parser.add_argument("--policy", type=Path, required=True)
     parser.add_argument("--secret-allowlist", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
@@ -1349,9 +2551,11 @@ def main() -> int:
         root,
         args.candidate_sha,
         args.audit_evidence,
+        args.candidate_install_report,
         args.privacy_evidence,
         args.policy,
         args.secret_allowlist,
+        require_supervised_privacy=args.require_supervised_privacy,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_bytes(report + b"\n")

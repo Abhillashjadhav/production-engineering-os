@@ -148,7 +148,12 @@ jobs:
           python -m json.tool /tmp/trusted-security-policy/security-profile-policy.json >/dev/null
           python -m json.tool /tmp/trusted-security-policy/secret-allowlist.json >/dev/null
       - run: |
-          pip install --require-hashes -r requirements.lock
+          mkdir -p /tmp/security-profile
+          pip install \
+            --ignore-installed \
+            --require-hashes \
+            --report /tmp/security-profile/candidate-install-report.json \
+            -r requirements.lock
           pip install --no-deps --no-build-isolation -e .
       - name: bandit (fail on high severity)
         run: bandit -r src scripts/ci -q --severity-level high
@@ -157,7 +162,7 @@ jobs:
       - name: dependency audit (core lockfile blocks on any known vulnerability)
         run: |
           mkdir -p /tmp/security-profile
-          pip-audit --cache-dir /tmp/pip-audit --require-hashes -r requirements.lock --strict --format json --output /tmp/security-profile/pip-audit.json
+          pip-audit --cache-dir /tmp/pip-audit --require-hashes -r requirements.lock --no-deps --disable-pip --strict --format json --output /tmp/security-profile/pip-audit.json
       - name: no-ignore exact-SHA secret gate
         env:
           CANDIDATE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
@@ -185,6 +190,7 @@ jobs:
           python scripts/ci/evaluate_security_profile.py \
             --candidate-sha "$CANDIDATE_SHA" \
             --audit-evidence /tmp/security-profile/pip-audit.json \
+            --candidate-install-report /tmp/security-profile/candidate-install-report.json \
             --privacy-evidence /tmp/security-profile/privacy-evidence.json \
             --policy /tmp/trusted-security-policy/security-profile-policy.json \
             --secret-allowlist /tmp/trusted-security-policy/secret-allowlist.json \
@@ -193,10 +199,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: exact-sha-secret-evidence
+          name: exact-sha-secret-evidence-attempt-${{ github.run_attempt }}
           path: |
             /tmp/security-profile/secret-report.json
             /tmp/security-profile/pip-audit.json
+            /tmp/security-profile/candidate-install-report.json
             /tmp/security-profile/privacy-evidence.json
             /tmp/security-profile/composed-security-profile.json
           retention-days: 7
@@ -322,7 +329,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: playwright-artifacts
+          name: playwright-artifacts-attempt-${{ github.run_attempt }}
           path: |
             products/pm-evals-web/e2e/test-results/
             products/pm-evals-web/e2e/playwright-report/
@@ -380,7 +387,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: preview-playwright-artifacts
+          name: preview-playwright-artifacts-attempt-${{ github.run_attempt }}
           path: |
             products/pm-evals-web/e2e/test-results/
             products/pm-evals-web/e2e/playwright-report/

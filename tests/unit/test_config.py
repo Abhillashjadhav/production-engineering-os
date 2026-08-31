@@ -54,6 +54,18 @@ def test_invalid_timeout_is_rejected() -> None:
         PipelineConfig(deploy_timeout_s=0)
 
 
+@pytest.mark.parametrize("payload", ["false", "true", "1.5", "'30'"])
+def test_retention_days_rejects_non_integer_yaml_values(
+    tmp_path: Path,
+    payload: str,
+) -> None:
+    path = tmp_path / "pmpe.yaml"
+    path.write_text(f"data_retention_days: {payload}\n")
+
+    with pytest.raises(ConfigError, match="non-boolean integer"):
+        PipelineConfig.load(path)
+
+
 def test_config_loads_overrides(tmp_path: Path) -> None:
     path = tmp_path / "pmpe.yaml"
     path.write_text("runs_dir: /tmp/other-runs\ndeploy_timeout_s: 30\n")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import shutil
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -12,20 +13,30 @@ import pmpe.privacy.retention as retention_module
 from pmpe.contracts.digest import canonical_digest
 from pmpe.engineering.ledger import EvidenceLedger
 from pmpe.orchestration.lifecycle import BudgetPolicy, LifecycleControlPlane, LifecycleState
+from pmpe.orchestration.state import RunState
 from pmpe.privacy.retention import (
     RetentionController,
     purge_retained_runs,
     retention_policy_digest,
+    run_state_retention_digest,
     terminal_retention_digest,
 )
 from pmpe.telemetry.events import EventLog
 from scripts.ci.evaluate_security_profile import (
+    _dependency_inventory,
     _file_digest,
     _observed_architecture_edges,
     _privacy_evidence_from_artifact,
     _reviewed_policy_config,
 )
-from scripts.ci.verify_privacy_controls import _inventory_telemetry_fields, _verify
+from scripts.ci.verify_privacy_controls import (
+    _finalize_probe,
+    _inventory_telemetry_fields,
+    _prepare_probe,
+    _probe_candidate_runtime,
+    _supervise_candidate_runtime,
+    _verify,
+)
 
 SHA = "d" * 40
 
@@ -117,6 +128,26 @@ def _write_authenticated_engineering_run(
         )
         events_path.write_text("".join(json.dumps(event) + "\n" for event in events))
     return state
+
+
+def _write_authenticated_run_state(
+    run_dir: Path,
+    *,
+    outcome: str = "success",
+    retention_days: int = 30,
+    completed_at: datetime | None = None,
+) -> Path:
+    run_dir.mkdir(parents=True)
+    state = RunState.new(
+        run_id=run_dir.name,
+        run_dir=run_dir,
+        spec_digest="sha256:" + "1" * 64,
+        retention_days=retention_days,
+    )
+    state.outcome = outcome
+    state.completed_at = (completed_at or datetime(2030, 1, 1, tzinfo=UTC)).isoformat()
+    state.save()
+    return run_dir / "state.json"
 
 
 def test_architecture_observer_resolves_relative_imports(tmp_path: Path) -> None:
@@ -351,6 +382,31 @@ def test_architecture_observer_fails_closed_on_unknown_reflective_importlib_acce
         'import importlib\nimportlib.__dict__["import_module"]("pmpe.guided.api")\n',
         'import builtins\nvars(builtins)["__import__"]("pmpe.guided.api")\n',
         'import builtins\nbuiltins.__dict__["__import__"]("pmpe.guided.api")\n',
+        '__builtins__["__import__"]("pmpe.guided.api")\n',
+        '__builtins__.get("__import__")("pmpe.guided.api")\n',
+        '__builtins__.__getitem__("__import__")("pmpe.guided.api")\n',
+        'globals()["__builtins__"]["__import__"]("pmpe.guided.api")\n',
+        'globals().copy()["__builtins__"]["__import__"]("pmpe.guided.api")\n',
+        'dict(globals())["__builtins__"]["__import__"]("pmpe.guided.api")\n',
+        '{**globals()}["__builtins__"]["__import__"]("pmpe.guided.api")\n',
+        'globals().setdefault("__builtins__")["__import__"]("pmpe.guided.api")\n',
+        'dict(globals().items())["__builtins__"]["__import__"]("pmpe.guided.api")\n',
+        "namespace = dict(zip(globals().keys(), globals().values()))\n"
+        'namespace["__builtins__"]["__import__"]("pmpe.guided.api")\n',
+        "def identity(value):\n    return value\n"
+        'identity(globals())["__builtins__"]["__import__"]("pmpe.guided.api")\n',
+        "def recover():\n    return globals()\n"
+        'recover()["__builtins__"]["__import__"]("pmpe.guided.api")\n',
+        "def recover():\n    return lambda: globals()\n"
+        'recover()()["__builtins__"]["__import__"]("pmpe.guided.api")\n',
+        "def recover():\n"
+        "    def nested(namespace=globals()):\n        return namespace\n"
+        "    return nested\n"
+        'recover()()["__builtins__"]["__import__"]("pmpe.guided.api")\n',
+        'globals().get("__" + "builtins__")["__import__"]("pmpe.guided.api")\n',
+        'namespace = globals()\nkey = "__builtins__"\n'
+        'namespace[key]["__import__"]("pmpe.guided.api")\n',
+        'getter = globals().get\ngetter("__builtins__")["__import__"]("pmpe.guided.api")\n',
     ],
 )
 def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
@@ -362,6 +418,167 @@ def test_architecture_observer_fails_closed_on_module_dictionary_loaders(
     (source / "dictionary_loader.py").write_text(source_text)
 
     assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "source_text",
+    [
+        'import sys\nsys.modules["builtins"].__import__("pmpe.guided.api")\n',
+        'import sys\nsys.modules.copy()["builtins"].__import__("pmpe.guided.api")\n',
+        "import sys as runtime\nmods = runtime.modules\n"
+        'mods.get("builtins").__import__("pmpe.guided.api")\n',
+        "import sys\nmods = sys.modules.copy()\nmodule = mods['builtins']\n"
+        'module.__import__("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['builtins']\nwrapped = (module,)[0]\n"
+        'wrapped.__import__("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['builtins']\n"
+        'vars(module)["__import__"]("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['builtins']\nnamespace = vars(module)\n"
+        'namespace["__import__"]("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['builtins']\nnamespace = vars(module)\n"
+        "wrapped = (namespace,)[0]\n"
+        'wrapped["__import__"]("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['builtins']\n"
+        'module.__getattribute__("__import__")("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['importlib']\n"
+        'module.__getattribute__("import_module")("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules.get(name)\n"
+        'module.__getattribute__(loader_name)("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['importlib']\n"
+        "loader = module.__dict__.get(loader_name)\n"
+        'loader("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['importlib']\nnamespace = module.__dict__\n"
+        "loader = namespace.get(loader_name)\n"
+        'loader("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['builtins']\n"
+        "wrapped = module if flag else object()\n"
+        'wrapped.__import__("pmpe.guided.api")\n',
+        "import sys\ndef identity(value):\n    return value\n"
+        "module = sys.modules['builtins']\nwrapped = identity(module)\n"
+        'wrapped.__import__("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['builtins']\n"
+        "def recover():\n    return module\n"
+        "wrapped = recover()\n"
+        'wrapped.__import__("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['builtins']\n"
+        "def recover(value=module):\n    return value\n"
+        "wrapped = recover()\n"
+        'wrapped.__import__("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules['builtins']\nleaked = None\n"
+        "def recover():\n    global leaked\n    leaked = module\n"
+        "recover()\n"
+        'leaked.__import__("pmpe.guided.api")\n',
+        'from sys import modules as mods\nmods["importlib"].import_module("pmpe.guided.api")\n',
+        "from sys import modules as mods\nsnapshot = mods.copy()\n"
+        'snapshot["importlib"].import_module("pmpe.guided.api")\n',
+        'import sys\n{**sys.modules}["builtins"].__import__("pmpe.guided.api")\n',
+        'import sys\ndict(sys.modules)["builtins"].__import__("pmpe.guided.api")\n',
+        "import sys\nmods = {**sys.modules}\nmodule = mods['builtins']\n"
+        'module.__import__("pmpe.guided.api")\n',
+        "import sys\nmods = dict(sys.modules)\nmodule = mods['importlib']\n"
+        'module.import_module("pmpe.guided.api")\n',
+        "import sys\n(snapshot := dict(sys.modules))['builtins'].__import__(\"pmpe.guided.api\")\n",
+        'import sys\nsys.modules.get(name).__import__("pmpe.guided.api")\n',
+        'import sys\nmodule = sys.modules.get(name)\nmodule.__import__("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules.get(name)\nalias = module\n"
+        'alias.__import__("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules.get(name)\nholder = [module]\n"
+        'holder[0].__import__("pmpe.guided.api")\n',
+        'import sys\n(module := sys.modules.get(name)).__import__("pmpe.guided.api")\n',
+        'import sys\n(module := sys.modules.get(name))\nmodule.__import__("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules.get(name) if flag else object()\n"
+        'module.__import__("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules.get(name)\n"
+        'vars(module)["__import__"]("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules.get(name)\n"
+        'module.__dict__["import_module"]("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules.get(name)\n"
+        "loader = vars(module).get(loader_name)\n"
+        'loader("pmpe.guided.api")\n',
+        "import sys\ndef identity(value):\n    return value\n"
+        "module = sys.modules.get(name)\nwrapped = identity(module)\n"
+        'wrapped.__import__("pmpe.guided.api")\n',
+        "import sys\ndef identity(value):\n    return value\n"
+        "module = sys.modules.get(name)\nwrapped = identity(*(module,))\n"
+        'wrapped.__import__("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules.get(name)\n"
+        "wrapped = next(item for item in (module,))\n"
+        'wrapped.__import__("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules.get(name)\n"
+        "wrapped = (lambda: module)()\n"
+        'wrapped.__import__("pmpe.guided.api")\n',
+        "import sys\nmodule = sys.modules.get(name)\n"
+        "def recover():\n    return module\n"
+        "wrapped = recover()\n"
+        'wrapped.__import__("pmpe.guided.api")\n',
+        'import sys\nmodule = sys.modules[name]\nmodule.import_module("pmpe.guided.api")\n',
+        "import sys\ndef id(registry):\n    return registry['builtins']\n"
+        'id(sys.modules).__import__("pmpe.guided.api")\n',
+        "import sys\ntype = lambda registry: registry['importlib']\n"
+        'type(sys.modules).import_module("pmpe.guided.api")\n',
+        "import sys\nclass Leak:\n"
+        "    def __getitem__(self, registry):\n"
+        "        return registry['builtins']\n"
+        'Leak()[sys.modules].__import__("pmpe.guided.api")\n',
+    ],
+)
+def test_architecture_observer_fails_closed_on_sys_modules_import_authority(
+    tmp_path: Path,
+    source_text: str,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "sys_modules_loader.py").write_text(source_text)
+
+    assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "sys.modules.items()",
+        "sys.modules.get",
+        "sys.modules.copy",
+        "list(sys.modules)",
+        "consume(sys.modules)",
+        "sys.modules | {}",
+        "sys.modules if condition else {}",
+        "(lambda: sys.modules)",
+        "sys.modules()",
+    ],
+)
+def test_architecture_observer_fails_closed_on_unmodeled_sys_modules_operation(
+    tmp_path: Path,
+    operation: str,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "sys_modules_operation.py").write_text(f"import sys\nregistry_view = {operation}\n")
+
+    assert ("orchestration", "unresolved_dynamic") in _observed_architecture_edges(tmp_path)
+
+
+def test_architecture_observer_allows_sys_modules_identity_and_dynamic_lookup(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "sys_modules_inspection.py").write_text(
+        "import sys\n"
+        "registry = sys.modules\n"
+        "identity = id(registry)\n"
+        "registry_type = type(registry)\n"
+        "module = registry.get(module_name)\n"
+        "module_type = type(module)\n"
+        "namespace = vars(module)\n"
+        "module_name_value = namespace.get('__name__')\n"
+        "def inspect(module_name):\n"
+        "    nested = sys.modules\n"
+        "    inspected = nested.get(module_name)\n"
+        "    return id(nested), type(nested), type(inspected)\n"
+    )
+
+    assert ("orchestration", "unresolved_dynamic") not in _observed_architecture_edges(tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -589,6 +806,159 @@ def test_retention_controller_deletes_expired_completed_engineering_runs(
     assert not completed.exists()
 
 
+def test_retention_controller_deletes_expired_completed_run_states(tmp_path: Path) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    completed = tmp_path / "completed-run-state"
+    marker = _write_authenticated_run_state(completed)
+    (completed / "artifact.json").write_text("belongs to the completed run")
+    old = (now - timedelta(days=31)).timestamp()
+    os.utime(marker, (old, old))
+
+    result = RetentionController().purge(tmp_path, now=now)
+
+    assert result.deleted == ("completed-run-state",)
+    assert not completed.exists()
+
+
+def test_retention_controller_rejects_tampered_run_state_policy(tmp_path: Path) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    run_dir = tmp_path / "tampered-run-state"
+    marker = _write_authenticated_run_state(run_dir)
+    state = json.loads(marker.read_text())
+    state["retention_days"] = 3650
+    marker.write_text(json.dumps(state))
+
+    result = RetentionController().purge(tmp_path, now=now)
+
+    assert result.deleted == ()
+    assert result.retained == (run_dir.name,)
+    assert run_dir.exists()
+
+
+def test_retention_controller_preserves_resumed_terminal_run_state(tmp_path: Path) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    run_dir = tmp_path / "resumed-terminal"
+    marker = _write_authenticated_run_state(run_dir)
+    state = json.loads(marker.read_text())
+    step = next(iter(state["steps"].values()))
+    step["status"] = "running"
+    step["finished_at"] = None
+    marker.write_text(json.dumps(state))
+
+    result = purge_retained_runs(tmp_path, trusted_clock=lambda: now)
+
+    assert result.deleted == ()
+    assert result.retained == (run_dir.name,)
+    assert run_dir.exists()
+
+
+def test_retention_policy_rejects_overflowing_duration() -> None:
+    with pytest.raises(ValueError, match="cannot exceed"):
+        retention_policy_digest(1_000_000)
+
+
+@pytest.mark.parametrize(
+    ("outcome", "terminal_status"),
+    [
+        ("success", "done"),
+        ("no_merge", "done"),
+        ("blocked", "blocked"),
+        ("failed", "failed"),
+    ],
+)
+def test_retention_controller_migrates_pre_retention_completed_run_state(
+    tmp_path: Path,
+    outcome: str,
+    terminal_status: str,
+) -> None:
+    completed_at = datetime(2030, 1, 1, tzinfo=UTC)
+    run_dir = tmp_path / f"legacy-{outcome}-run"
+    state_path = _write_authenticated_run_state(
+        run_dir,
+        outcome=outcome,
+        completed_at=completed_at,
+    )
+    state = json.loads(state_path.read_text())
+    for field in (
+        "completed_at",
+        "retention_days",
+        "retention_policy_digest",
+        "retention_record_digest",
+    ):
+        state.pop(field)
+    terminal_steps = (
+        state["steps"].values()
+        if outcome in {"no_merge", "success"}
+        else (next(iter(state["steps"].values())),)
+    )
+    for step in terminal_steps:
+        step.update(
+            {
+                "finished_at": completed_at.isoformat(),
+                "started_at": completed_at.isoformat(),
+                "status": terminal_status,
+            }
+        )
+    state_path.write_text(json.dumps(state))
+
+    retained = RetentionController().purge(
+        tmp_path,
+        now=completed_at + timedelta(days=29),
+    )
+
+    assert retained.retained == (run_dir.name,)
+    migrated = json.loads(state_path.read_text())
+    assert migrated["retention_days"] == 30
+    assert migrated["completed_at"] == completed_at.isoformat()
+    assert migrated["retention_policy_digest"] == retention_policy_digest(30)
+    assert migrated["retention_record_digest"] == run_state_retention_digest(
+        run_id=state["run_id"],
+        spec_digest=state["spec_digest"],
+        created_at=state["created_at"],
+        outcome=state["outcome"],
+        completed_at=completed_at.isoformat(),
+        retention_days=30,
+    )
+
+    deleted = RetentionController().purge(
+        tmp_path,
+        now=completed_at + timedelta(days=31),
+    )
+
+    assert deleted.deleted == (run_dir.name,)
+    assert not run_dir.exists()
+
+
+def test_retention_controller_rejects_legacy_run_without_terminal_step_time(
+    tmp_path: Path,
+) -> None:
+    run_dir = tmp_path / "legacy-unbound-run"
+    state_path = _write_authenticated_run_state(run_dir)
+    state = json.loads(state_path.read_text())
+    for field in (
+        "completed_at",
+        "retention_days",
+        "retention_policy_digest",
+        "retention_record_digest",
+    ):
+        state.pop(field)
+    state_path.write_text(json.dumps(state))
+
+    result = RetentionController().purge(
+        tmp_path,
+        now=datetime(2031, 1, 1, tzinfo=UTC),
+    )
+
+    assert result.deleted == ()
+    assert result.retained == (run_dir.name,)
+    assert not {
+        "completed_at",
+        "retention_days",
+        "retention_policy_digest",
+        "retention_record_digest",
+    }.intersection(json.loads(state_path.read_text()))
+
+
 @pytest.mark.parametrize("run_kind", ["lifecycle", "engineering"])
 def test_retention_controller_uses_authenticated_completion_time_not_marker_mtime(
     tmp_path: Path,
@@ -685,6 +1055,36 @@ def test_retention_controller_rejects_a_denied_completion_target(tmp_path: Path)
     assert result.deleted == ()
     assert result.retained == (run_dir.name,)
     assert run_dir.exists()
+
+
+def test_retention_controller_preserves_completion_after_denied_transition(
+    tmp_path: Path,
+) -> None:
+    now = datetime(2030, 1, 31, tzinfo=UTC)
+    run_dir = tmp_path / "completed-with-denial"
+    ledger = _write_authenticated_lifecycle_run(
+        run_dir,
+        target="COMPLETED",
+        completed_at=now - timedelta(days=31),
+    )
+    events = [json.loads(line) for line in ledger.read_text().splitlines()]
+    denied = {
+        "evidence_refs": {},
+        "kind": "TRANSITION",
+        "observed_at": now.isoformat(),
+        "outcome": "DENIED",
+        "previous_digest": events[-1]["event_digest"],
+        "sequence": 3,
+        "target": "ROLLED_BACK",
+    }
+    denied["event_digest"] = canonical_digest(denied)
+    events.append(denied)
+    ledger.write_text("".join(json.dumps(event) + "\n" for event in events))
+
+    result = purge_retained_runs(tmp_path, trusted_clock=lambda: now)
+
+    assert result.deleted == (run_dir.name,)
+    assert not run_dir.exists()
 
 
 @pytest.mark.parametrize("run_kind", ["lifecycle", "engineering"])
@@ -961,6 +1361,51 @@ def test_privacy_verifier_rejects_class_bound_emitter_alias(tmp_path: Path) -> N
     "source_text",
     [
         'getattr(ctx.events, "emit")("result", email="hidden")\n',
+        'getattr(getattr(ctx, "events"), "emit")("result", secret_payload="hidden")\n',
+        'getattr(getattr(runtime, "events"), "emit")("result", secret_payload="hidden")\n',
+        'getattr(getattr(runtime, "events", None), "emit", fallback)('
+        '"result", secret_payload="hidden")\n',
+        'getattr(getattr(runtime, "ev" + "ents"), "em" + "it")('
+        '"result", secret_payload="hidden")\n',
+        "def telemetry(runtime, owner_name, method_name):\n"
+        "    getattr(getattr(runtime, owner_name), method_name)("
+        '"result", secret_payload="hidden")\n',
+        'getattr(vars(ctx).get("events"), "emit")("result", secret_payload="hidden")\n',
+        'ctx.__dict__.__getitem__("events").emit("result", secret_payload="hidden")\n',
+        "namespace = vars(ctx)\ngetter = namespace.get\n"
+        'getattr(getter("events"), "emit")('
+        '"result", secret_payload="hidden")\n',
+        'event_name = "events"\n'
+        'getattr(vars(ctx).get(event_name), "emit")('
+        '"result", secret_payload="hidden")\n',
+        "def telemetry(ctx, event_name):\n"
+        '    getattr(vars(ctx).get(event_name), "emit")('
+        '"result", secret_payload="hidden")\n',
+        "def telemetry(ctx, event_name):\n"
+        "    namespace = vars(ctx)\n"
+        "    emitter = namespace.get(event_name)\n"
+        '    emitter("result", secret_payload="hidden")\n',
+        "def identity(value):\n"
+        "    return value\n\n"
+        "def telemetry(ctx, owner_key, method_key, invoke):\n"
+        "    namespace = vars(ctx)\n"
+        "    wrapped = identity(namespace)\n"
+        "    owner = wrapped.get(owner_key)\n"
+        "    emitter = object.__getattribute__(owner, method_key)\n"
+        "    invoke(emitter)\n",
+        "def telemetry(ctx, owner_key, method_key, invoke):\n"
+        "    namespace = vars(getattr(ctx, owner_key))\n"
+        "    emitter = namespace.get(method_key)\n"
+        "    invoke(emitter)\n",
+        "def telemetry(ctx, owner_key, method_key, invoke):\n"
+        "    owner = vars(ctx).get(owner_key)\n"
+        "    emitter = object.__getattribute__(owner, method_key)\n"
+        "    invoke(emitter)\n",
+        "def telemetry(ctx, owner_key, method_key, invoke):\n"
+        "    import operator\n"
+        "    owner = vars(ctx).get(owner_key)\n"
+        "    emitter = operator.attrgetter(method_key)(owner)\n"
+        "    invoke(emitter)\n",
         'emit = getattr(ctx.events, "emit")\nemit("result", email="hidden")\n',
         'getattr(ctx.events, field_name)("result", email="hidden")\n',
         'vars(ctx.events)["emit"]("result", email="hidden")\n',
@@ -972,6 +1417,32 @@ def test_privacy_verifier_rejects_class_bound_emitter_alias(tmp_path: Path) -> N
         'get = getattr\nget([ctx.events][0], "emit")("result", email="hidden")\n',
         'get = getattr\nget(**{"object": ctx.events, "name": "emit"})("result", email="hidden")\n',
         'owners = [ctx.events]\nowners[0].emit("result", email="hidden")\n',
+        "namespace = vars(ctx)\nwrapped = (namespace,)[0]\n"
+        "owner = wrapped.get(owner_key)\n"
+        "emitter = object.__getattribute__(owner, method_key)\n"
+        "emitter(secret_payload='hidden')\n",
+        "object.__getattribute__(vars(ctx).setdefault('events'), 'emit')"
+        "('result', secret_payload='hidden')\n",
+        "owner = next(v for k, v in vars(ctx).items() if k == 'events')\n"
+        "object.__getattribute__(owner, 'emit')('result', secret_payload='hidden')\n",
+        "def recover(ctx):\n    return lambda: vars(ctx)\n"
+        "namespace = recover(ctx)()\nowner = namespace.get('events')\n"
+        "emitter = object.__getattribute__(owner, 'emit')\n"
+        "emitter(secret_payload='hidden')\n",
+        "def recover(ctx):\n"
+        "    def nested(namespace=vars(ctx)):\n        return namespace\n"
+        "    return nested\n"
+        "namespace = recover(ctx)()\nowner = namespace.get('events')\n"
+        "emitter = object.__getattribute__(owner, 'emit')\n"
+        "emitter(secret_payload='hidden')\n",
+        "reflect = (lambda value: value)(vars)\nnamespace = reflect(ctx)\n"
+        "owner = namespace['events']\n"
+        "emitter = object.__getattribute__(owner, 'emit')\n"
+        "emitter(secret_payload='hidden')\n",
+        "def telemetry(ctx):\n"
+        "    import operator, sys\n"
+        '    operator.attrgetter("emit")(sys._getframe().f_locals["ctx"].events)'
+        '("result", secret_payload="hidden")\n',
     ],
 )
 def test_privacy_verifier_rejects_reflective_emitter_access(
@@ -981,6 +1452,20 @@ def test_privacy_verifier_rejects_reflective_emitter_access(
     source = tmp_path / "src" / "pmpe" / "orchestration"
     source.mkdir(parents=True)
     (source / "context.py").write_text(source_text)
+
+    with pytest.raises(ValueError, match="reflective access"):
+        _inventory_telemetry_fields(tmp_path)
+
+
+def test_privacy_verifier_rejects_dynamic_event_key_in_isolated_scope(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "src" / "pmpe" / "orchestration"
+    source.mkdir(parents=True)
+    (source / "ordinary.py").write_text('ctx.events.emit("result", run_id="run-1")\n')
+    (source / "reflective.py").write_text(
+        'key = "events"\ngetattr(vars(ctx).get(key), "emit")("result", secret_payload="hidden")\n'
+    )
 
     with pytest.raises(ValueError, match="reflective access"):
         _inventory_telemetry_fields(tmp_path)
@@ -1040,6 +1525,265 @@ def test_privacy_verifier_uses_trusted_policy_outside_candidate_root(
     assert evidence["retention_days"] == 30
     assert evidence["emitted_telemetry"] == ["email"]
     assert evidence["policy_file_digest"] == _file_digest(trusted_policy)
+
+
+def test_candidate_privacy_probe_is_finalized_by_trusted_process(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[2]
+    policy_path = root / "security" / "security-profile-policy.json"
+    probe_root = tmp_path / "probe"
+    challenge_path = tmp_path / "privacy-challenge.json"
+    receipt_path = probe_root / "candidate-receipt.json"
+    challenge = _prepare_probe(SHA, policy_path, root, probe_root)
+    challenge_path.write_text(json.dumps(challenge))
+    receipt = _probe_candidate_runtime(SHA, challenge_path, probe_root)
+    receipt_path.write_text(json.dumps(receipt))
+
+    evidence = _finalize_probe(
+        SHA,
+        policy_path,
+        root,
+        challenge_path,
+        probe_root,
+        receipt_path,
+    )
+
+    assert evidence["deletion_test_passed"] is True
+    assert evidence["retention_test_passed"] is True
+    assert evidence["telemetry_test_passed"] is True
+
+
+def test_candidate_privacy_effects_are_attested_by_an_external_supervisor(
+    tmp_path: Path,
+) -> None:
+    root = Path(__file__).resolve().parents[2]
+    policy_path = root / "security" / "security-profile-policy.json"
+    verifier_path = root / "scripts" / "ci" / "verify_privacy_controls.py"
+    evidence = _supervise_candidate_runtime(
+        SHA,
+        policy_path,
+        root,
+        tmp_path / "probe",
+    )
+    artifact_path = tmp_path / "privacy-evidence.json"
+    artifact_path.write_text(json.dumps(evidence))
+
+    assert evidence["schema_version"] == "candidate-privacy-supervisor-evidence/v1"
+    assert evidence["candidate_process_returncode"] == 0
+    assert evidence["deletion_test_passed"] is True
+    assert evidence["retention_test_passed"] is True
+    assert (
+        _privacy_evidence_from_artifact(
+            artifact_path,
+            candidate_sha=SHA,
+            policy_path=policy_path,
+            verifier_path=verifier_path,
+            require_supervised=True,
+        ).deletion_test_passed
+        is True
+    )
+
+
+def test_supervised_privacy_artifact_rejects_candidate_only_evidence(
+    tmp_path: Path,
+) -> None:
+    root = Path(__file__).resolve().parents[2]
+    policy_path = root / "security" / "security-profile-policy.json"
+    verifier_path = root / "scripts" / "ci" / "verify_privacy_controls.py"
+    artifact_path = tmp_path / "privacy-evidence.json"
+    artifact_path.write_text(json.dumps(_verify(SHA, policy_path, root)))
+
+    with pytest.raises(ValueError, match="privacy verifier artifact"):
+        _privacy_evidence_from_artifact(
+            artifact_path,
+            candidate_sha=SHA,
+            policy_path=policy_path,
+            verifier_path=verifier_path,
+            require_supervised=True,
+        )
+
+
+def test_supervisor_survives_candidate_import_time_exit_without_evidence(
+    tmp_path: Path,
+) -> None:
+    root = Path(__file__).resolve().parents[2]
+    candidate = tmp_path / "candidate"
+    shutil.copytree(root / "src", candidate / "src")
+    digest_module = candidate / "src" / "pmpe" / "contracts" / "digest.py"
+    digest_module.write_text(
+        digest_module.read_text()
+        + """
+import json as _json
+import os as _os
+from pathlib import Path as _Path
+_challenge = _json.loads((_Path.cwd() / "privacy-challenge.json").read_text())
+_shell = {
+    "candidate_sha": _challenge["candidate_sha"],
+    "challenge_digest": _challenge["challenge_digest"],
+    "quarantine_delete_returned": True,
+    "quarantine_existed_before_delete": True,
+    "quarantine_exists_after_delete": False,
+    "quarantine_read_digest": _challenge["payload_digest"],
+    "schema_version": "candidate-privacy-receipt/v1",
+}
+_receipt = {**_shell, "receipt_digest": canonical_digest(_shell)}
+(_Path.cwd() / "probe" / "candidate-receipt.json").write_text(_json.dumps(_receipt))
+_os._exit(0)
+"""
+    )
+
+    with pytest.raises(ValueError, match="candidate privacy subprocess did not complete exactly"):
+        _supervise_candidate_runtime(
+            SHA,
+            root / "security" / "security-profile-policy.json",
+            candidate,
+            tmp_path / "probe",
+        )
+
+
+def test_supervisor_bypasses_candidate_atexit_probe_forgery(tmp_path: Path) -> None:
+    root = Path(__file__).resolve().parents[2]
+    candidate = tmp_path / "candidate"
+    shutil.copytree(root / "src", candidate / "src")
+    intake_module = candidate / "src" / "pmpe" / "contracts" / "intake.py"
+    intake_module.write_text(
+        intake_module.read_text()
+        + """
+import atexit as _atexit
+import json as _json
+from pathlib import Path as _Path
+from pmpe.contracts.digest import canonical_digest as _canonical_digest
+
+def _broken_delete(self, handle):
+    return False
+
+FileQuarantineStore.delete = _broken_delete
+
+def _forge_probe_at_exit():
+    root = _Path.cwd() / "probe"
+    quarantine = root / "quarantine"
+    if quarantine.is_dir():
+        for path in quarantine.iterdir():
+            path.unlink()
+    challenge = _json.loads((_Path.cwd() / "privacy-challenge.json").read_text())
+    shell = {
+        "candidate_sha": challenge["candidate_sha"],
+        "challenge_digest": challenge["challenge_digest"],
+        "quarantine_delete_returned": True,
+        "quarantine_existed_before_delete": True,
+        "quarantine_exists_after_delete": False,
+        "quarantine_read_digest": challenge["payload_digest"],
+        "schema_version": "candidate-privacy-receipt/v1",
+    }
+    receipt = {**shell, "receipt_digest": _canonical_digest(shell)}
+    (root / "candidate-receipt.json").write_text(_json.dumps(receipt))
+
+_atexit.register(_forge_probe_at_exit)
+"""
+    )
+
+    with pytest.raises(ValueError, match="candidate privacy control verification"):
+        _supervise_candidate_runtime(
+            SHA,
+            root / "security" / "security-profile-policy.json",
+            candidate,
+            tmp_path / "probe",
+        )
+
+
+def test_trusted_privacy_finalizer_rejects_forged_receipt_without_probe_state(
+    tmp_path: Path,
+) -> None:
+    root = Path(__file__).resolve().parents[2]
+    policy_path = root / "security" / "security-profile-policy.json"
+    probe_root = tmp_path / "probe"
+    challenge_path = tmp_path / "privacy-challenge.json"
+    receipt_path = probe_root / "candidate-receipt.json"
+    challenge = _prepare_probe(SHA, policy_path, root, probe_root)
+    challenge_path.write_text(json.dumps(challenge))
+    shell = {
+        "candidate_sha": SHA,
+        "challenge_digest": challenge["challenge_digest"],
+        "quarantine_delete_returned": True,
+        "quarantine_existed_before_delete": True,
+        "quarantine_exists_after_delete": False,
+        "quarantine_read_digest": challenge["payload_digest"],
+        "schema_version": "candidate-privacy-receipt/v1",
+    }
+    receipt_path.write_text(json.dumps({**shell, "receipt_digest": canonical_digest(shell)}))
+
+    with pytest.raises(ValueError, match="candidate privacy control verification failed"):
+        _finalize_probe(
+            SHA,
+            policy_path,
+            root,
+            challenge_path,
+            probe_root,
+            receipt_path,
+        )
+
+
+def test_dependency_inventory_uses_hash_bound_candidate_metadata(tmp_path: Path) -> None:
+    digest = "a" * 64
+    lock_path = tmp_path / "requirements.lock"
+    lock_path.write_text(f"example==2.0.0 \\\n    --hash=sha256:{digest}\n")
+    audit_payload = {
+        "dependencies": [
+            {"name": "example", "version": "2.0.0", "vulns": []},
+        ]
+    }
+    install_report = {
+        "version": "1",
+        "install": [
+            {
+                "download_info": {"archive_info": {"hashes": {"sha256": digest}}},
+                "metadata": {
+                    "name": "example",
+                    "version": "2.0.0",
+                    "license_expression": "GPL-3.0",
+                },
+            }
+        ],
+    }
+
+    assert _dependency_inventory(
+        audit_payload,
+        {},
+        install_report=install_report,
+        lock_path=lock_path,
+    ) == (("example", "2.0.0", "GPL-3.0"),)
+
+
+def test_dependency_inventory_rejects_same_version_with_unlocked_artifact(
+    tmp_path: Path,
+) -> None:
+    lock_path = tmp_path / "requirements.lock"
+    lock_path.write_text(f"example==2.0.0 \\\n    --hash=sha256:{'a' * 64}\n")
+    audit_payload = {
+        "dependencies": [
+            {"name": "example", "version": "2.0.0", "vulns": []},
+        ]
+    }
+    install_report = {
+        "version": "1",
+        "install": [
+            {
+                "download_info": {"archive_info": {"hashes": {"sha256": "b" * 64}}},
+                "metadata": {
+                    "name": "example",
+                    "version": "2.0.0",
+                    "license_expression": "MIT",
+                },
+            }
+        ],
+    }
+
+    with pytest.raises(ValueError, match="not hash-bound"):
+        _dependency_inventory(
+            audit_payload,
+            {},
+            install_report=install_report,
+            lock_path=lock_path,
+        )
 
 
 @pytest.mark.parametrize(
@@ -1150,6 +1894,7 @@ def test_ci_materializes_security_authority_from_exact_protected_base() -> None:
     assert "--allowlist /tmp/trusted-security-policy/secret-allowlist.json" in security
     assert "--policy /tmp/trusted-security-policy/security-profile-policy.json" in security
     assert "--secret-allowlist /tmp/trusted-security-policy/secret-allowlist.json" in security
+    assert "--no-deps --disable-pip" in security
     assert "--root ." in security
     assert "--allowlist security/secret-allowlist.json" not in security
     assert "--policy security/security-profile-policy.json" not in security

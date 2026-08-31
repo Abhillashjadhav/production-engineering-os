@@ -2651,6 +2651,9 @@ class LifecycleControlPlane:
         self._bundle_verifier = bundle_verifier
         self._events = list(events or ())
         self._operation_lock = threading.RLock()
+        self._exclusive_lock_state = threading.local()
+        run_stat = self.run_dir.stat()
+        self._run_dir_identity = (run_stat.st_dev, run_stat.st_ino)
         self._completion_claim_active = False
         self._mutation_keys: dict[str, str] = {}
         self._mutation_attempts: dict[str, MutationAttempt] = {}
@@ -3265,12 +3268,34 @@ class LifecycleControlPlane:
 
     @contextmanager
     def _exclusive_lock(self) -> Iterator[None]:
-        self.run_dir.mkdir(parents=True, exist_ok=True)
-        with self.lock_path.open("a+") as lock:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        depth = getattr(self._exclusive_lock_state, "depth", 0)
+        if depth:
+            self._exclusive_lock_state.depth = depth + 1
             try:
                 yield
             finally:
+                self._exclusive_lock_state.depth = depth
+            return
+        try:
+            current = self.run_dir.stat()
+            if (current.st_dev, current.st_ino) != self._run_dir_identity:
+                raise TransitionDeniedError("lifecycle run directory was replaced")
+            lock = self.lock_path.open("a+")
+        except FileNotFoundError as exc:
+            raise TransitionDeniedError("lifecycle run directory is missing") from exc
+        with lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            self._exclusive_lock_state.depth = 1
+            try:
+                try:
+                    current = self.run_dir.stat()
+                except FileNotFoundError as exc:
+                    raise TransitionDeniedError("lifecycle run directory is missing") from exc
+                if (current.st_dev, current.st_ino) != self._run_dir_identity:
+                    raise TransitionDeniedError("lifecycle run directory was replaced")
+                yield
+            finally:
+                self._exclusive_lock_state.depth = 0
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
     @classmethod
@@ -3346,6 +3371,8 @@ class LifecycleControlPlane:
                         evidence_verifier=evidence_verifier,
                         bundle_verifier=bundle_verifier,
                     )
+                if authenticated_legacy_retry:
+                    atomic_write_json(metadata_path, metadata)
             elif ledger.exists():
                 raise ValueError("lifecycle ledger exists without bound metadata")
             else:
@@ -4239,7 +4266,7 @@ class LifecycleControlPlane:
     ) -> LifecycleEvent:
         """Validate and append one transition against one serialized source state."""
 
-        with self._operation_lock:
+        with self._operation_lock, self._exclusive_lock():
             return self._transition_locked(target, context, reason=reason)
 
     def _transition_locked(

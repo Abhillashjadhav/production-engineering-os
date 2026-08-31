@@ -297,6 +297,16 @@ def test_resume_preserves_state_and_appends_nothing(run: EngineeringRun) -> None
     assert resumed.stage == "route"
 
 
+def test_resume_rejects_retention_changed_after_admission(run: EngineeringRun) -> None:
+    state_path = run.run_dir / "run-state.json"
+    state = json.loads(state_path.read_text())
+    state["retention_days"] = 365
+    state_path.write_text(json.dumps(state))
+
+    with pytest.raises(PmpeError, match="retention policy changed"):
+        EngineeringRun.load(run.run_dir)
+
+
 def test_resume_authenticates_and_binds_pre_retention_run_before_release(
     run: EngineeringRun,
 ) -> None:
@@ -363,6 +373,69 @@ def test_resume_recovers_an_interrupted_legacy_retention_state_write(
 
     assert json.loads(state_path.read_text())["retention_days"] == 30
     assert resumed.ledger.read_all() == before
+
+
+def test_resume_binds_completed_legacy_retention_and_preserves_completion_time(
+    run: EngineeringRun,
+    repo: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from datetime import datetime, timedelta
+
+    from pmpe.contracts.digest import canonical_digest
+    from pmpe.privacy.retention import RetentionController
+
+    drive_to_deploy(run, repo)
+    run.record_release_report(
+        "READY_FOR_PRODUCTION_APPROVAL",
+        gate_results={"GATE-001": True, "GATE-002": True},
+    )
+    state_path = run.run_dir / "run-state.json"
+    state = json.loads(state_path.read_text())
+    state.pop("retention_days")
+    state_path.write_text(json.dumps(state))
+
+    events = run.ledger.read_all()
+    first = events[0]
+    first["output_digests"].pop("retention_policy")
+    report = events[-1]
+    report["output_digests"].pop("terminal_retention")
+    for event in (first, report):
+        identity = {key: value for key, value in event.items() if key not in {"event_id", "ts"}}
+        event["event_id"] = canonical_digest({**identity, "ts": event["ts"]})
+    run.ledger.path.write_text("".join(json.dumps(event) + "\n" for event in events))
+
+    completed_at = datetime.fromisoformat(str(report["ts"]).replace("Z", "+00:00"))
+    purge_results = []
+    original_save = EngineeringRun._save
+
+    def purge_during_migration_save(migrating: EngineeringRun) -> None:
+        purge_results.append(
+            RetentionController().purge(
+                migrating.run_dir.parent,
+                now=completed_at + timedelta(days=31),
+            )
+        )
+        original_save(migrating)
+
+    monkeypatch.setattr(EngineeringRun, "_save", purge_during_migration_save)
+
+    resumed = EngineeringRun.load(run.run_dir)
+
+    assert run.run_dir.name in purge_results[0].retained
+    assert not purge_results[0].deleted
+    migrated = resumed.ledger.read_all()
+    assert [event["action"] for event in migrated[-2:]] == [
+        "bind_legacy_retention_policy",
+        "bind_legacy_retention_completion",
+    ]
+    assert migrated[-1]["input_digests"] == {"completion_event": report["event_id"]}
+    result = RetentionController().purge(
+        run.run_dir.parent,
+        now=completed_at + timedelta(days=31),
+    )
+    assert run.run_dir.name in result.deleted
+    assert not run.run_dir.exists()
 
 
 def test_resume_fails_closed_on_contract_mutation(run: EngineeringRun) -> None:
