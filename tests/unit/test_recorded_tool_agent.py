@@ -19,6 +19,26 @@ from pmpe.evidence.ledger import EvidenceLedger
 from pmpe.recorded_tool_agent import AgentRunResult, run_recorded_tool_agent
 
 NOW = datetime(2026, 8, 31, 9, 30, tzinfo=UTC)
+FORBIDDEN_IMPORTS = {
+    "asyncio",
+    "builtins",
+    "ctypes",
+    "importlib",
+    "os",
+    "requests",
+    "socket",
+    "subprocess",
+    "urllib",
+}
+FORBIDDEN_REFERENCES = {
+    "__builtins__",
+    "__import__",
+    "compile",
+    "eval",
+    "exec",
+    "globals",
+    "locals",
+}
 
 
 def _binding(capability: str, criterion: str, verifier: str) -> dict[str, object]:
@@ -213,6 +233,27 @@ def test_mutated_in_memory_tool_schema_halts(
     assert result.cause == "TOOL_SCHEMA_DIGEST_MISMATCH"
 
 
+def test_authenticated_schema_snapshot_is_immune_to_later_global_mutation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    lookup = next(
+        tool
+        for tool in RECORDED_TOOL_AGENT_SCHEMAS["tools"]
+        if tool["tool_id"] == "repository.lookup/v1"
+    )
+    calls = 0
+
+    def monotonic() -> float:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            monkeypatch.setitem(lookup, "result_schema", {"not": {}})
+        return 0.0
+
+    result = _run(tmp_path, trusted_monotonic=monotonic)
+    assert result.state == "RELEASE_READY", result.cause
+
+
 @pytest.mark.parametrize(
     ("budget", "value"),
     [("max_attempts", 2), ("max_bytes", 1), ("max_steps", 4), ("max_tool_calls", 1)],
@@ -285,22 +326,40 @@ def test_bad_approval_fails_before_a_ledger_is_created(tmp_path: Path) -> None:
     assert not (tmp_path / ".pmpe").exists()
 
 
-def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() -> None:
-    source = Path("src/pmpe/recorded_tool_agent.py").read_text()
+def _authority_surface(source: str) -> tuple[set[str], set[str]]:
     tree = ast.parse(source)
     imported: set[str] = set()
-    called_names: set[str] = set()
+    referenced: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             imported.update(alias.name.split(".")[0] for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module:
             imported.add(node.module.split(".")[0])
-        elif isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Name):
-                called_names.add(node.func.id)
-            elif isinstance(node.func, ast.Attribute):
-                called_names.add(node.func.attr)
-    assert imported.isdisjoint(
-        {"asyncio", "ctypes", "importlib", "os", "requests", "socket", "subprocess", "urllib"}
+        elif isinstance(node, ast.Name):
+            referenced.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            referenced.add(node.attr)
+    return imported, referenced
+
+
+def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() -> None:
+    source = Path("src/pmpe/recorded_tool_agent.py").read_text()
+    imported, referenced = _authority_surface(source)
+    assert imported.isdisjoint(FORBIDDEN_IMPORTS)
+    assert referenced.isdisjoint(FORBIDDEN_REFERENCES)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "runner = " + "eval" + "\nrunner(source)\n",
+        "__" + "import__" + "('subprocess')\n",
+        "import builtins\nrunner = builtins." + "eval" + "\nrunner(source)\n",
+        "from subprocess import run\n",
+    ],
+)
+def test_authority_surface_detects_indirect_and_qualified_escape_forms(source: str) -> None:
+    imported, referenced = _authority_surface(source)
+    assert imported.intersection(FORBIDDEN_IMPORTS) or referenced.intersection(
+        FORBIDDEN_REFERENCES
     )
-    assert called_names.isdisjoint({"eval", "exec"})
