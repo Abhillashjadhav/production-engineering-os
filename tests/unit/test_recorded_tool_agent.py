@@ -83,6 +83,36 @@ ALLOWED_CALLS = {
     "strict_loads",
     "trusted_monotonic",
 }
+APPROVED_SENSITIVE_CALLS = (
+    "EvidenceLedger(Path(repository_root), run_id)",
+    "Path(repository_root)",
+    "history.append(copy.deepcopy(dict(message)))",
+    "history.append({'content': copy.deepcopy(actual), 'role': 'tool', "
+    "'tool_call_id': pending['call_id']})",
+    "history.append({'content': pending, 'role': 'assistant_tool_call'})",
+    "ledger.append(event_type='recorded_agent_halted', state='HALTED', "
+    "subject_digest=subject_digest, payload={'cause': cause, 'deployment_authority': False})",
+    "ledger.append(event_type='recorded_agent_release_ready', state='RELEASE_READY', "
+    "subject_digest=subject_digest, blob_digests=[output_digest], "
+    "payload={'deployment_authority': False, 'model_attempts': attempts, "
+    "'output_digest': canonical_digest(output), 'replay_steps': len(events), "
+    "'tool_calls': calls})",
+    "ledger.append(event_type='recorded_agent_step', state='BUILDING', "
+    "subject_digest=subject_digest, blob_digests=[event_blob], "
+    "payload={'kind': kind, 'sequence': index})",
+    "ledger.append(event_type='recorded_agent_validated', state='VALIDATED', "
+    "subject_digest=subject_digest, blob_digests=blobs, "
+    "payload={'deployment_authority': False, "
+    "'fixture_digest': RECORDED_TOOL_AGENT_FIXTURE_DIGEST, "
+    "'resource_digest': RECORDED_TOOL_AGENT_RESOURCE_DIGEST, "
+    "'tool_schema_digest': RECORDED_TOOL_AGENT_SCHEMA_DIGEST})",
+    "ledger.put_blob(canonical_json_bytes(event))",
+    "ledger.put_blob(canonical_json_bytes(fixture))",
+    "ledger.put_blob(canonical_json_bytes(resource))",
+    "ledger.put_blob(compiled.canonical_bytes())",
+    "ledger.put_blob(output.encode())",
+    "ledger.put_blob(schema_bytes)",
+)
 FORBIDDEN_REFERENCES = {
     "__builtins__",
     "__import__",
@@ -418,17 +448,25 @@ def test_bad_approval_fails_before_a_ledger_is_created(tmp_path: Path) -> None:
     assert not (tmp_path / ".pmpe").exists()
 
 
-def _authority_surface(source: str) -> tuple[set[str], set[str], set[str]]:
+def _authority_surface(
+    source: str,
+) -> tuple[set[str], set[str], set[str], tuple[str, ...]]:
     tree = ast.parse(source)
     imported: set[str] = set()
     referenced: set[str] = set()
     called: set[str] = set()
+    sensitive: list[str] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.Call):
+            target = ""
             if isinstance(node.func, ast.Name):
-                called.add(node.func.id)
+                target = node.func.id
             elif isinstance(node.func, ast.Attribute):
-                called.add(node.func.attr)
+                target = node.func.attr
+            if target:
+                called.add(target)
+                if target in {"EvidenceLedger", "Path", "append", "put_blob"}:
+                    sensitive.append(ast.unparse(node))
         if isinstance(node, ast.Import):
             imported.update(alias.name for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
@@ -439,15 +477,16 @@ def _authority_surface(source: str) -> tuple[set[str], set[str], set[str]]:
             referenced.add(node.id)
         elif isinstance(node, ast.Attribute):
             referenced.add(node.attr)
-    return imported, referenced, called
+    return imported, referenced, called, tuple(sorted(sensitive))
 
 
 def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() -> None:
     source = Path("src/pmpe/recorded_tool_agent.py").read_text()
-    imported, referenced, called = _authority_surface(source)
+    imported, referenced, called, sensitive = _authority_surface(source)
     assert imported <= ALLOWED_IMPORTS
     assert referenced.isdisjoint(FORBIDDEN_REFERENCES)
     assert called <= ALLOWED_CALLS
+    assert sensitive == APPROVED_SENSITIVE_CALLS
 
 
 @pytest.mark.parametrize(
@@ -470,9 +509,10 @@ def test_phase_c_module_has_no_network_process_dynamic_or_ambient_authority() ->
     ],
 )
 def test_authority_surface_detects_indirect_and_qualified_escape_forms(source: str) -> None:
-    imported, referenced, called = _authority_surface(source)
+    imported, referenced, called, sensitive = _authority_surface(source)
     assert (
         not imported.issubset(ALLOWED_IMPORTS)
         or not called.issubset(ALLOWED_CALLS)
         or referenced.intersection(FORBIDDEN_REFERENCES)
+        or any(call not in APPROVED_SENSITIVE_CALLS for call in sensitive)
     )
