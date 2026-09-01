@@ -39,7 +39,7 @@ def test_dashboard_free_text_rejects_private_paths_and_credentials() -> None:
         RunEnvelope.model_validate(payload)
 
     payload = _run().model_dump(mode="json")
-    payload["observations"][0]["expected_summary"] = "api_key=secret-value"
+    payload["observations"][0]["expected_summary"] = "api_key=bad"
     with pytest.raises(ValidationError, match="credential assignment"):
         RunEnvelope.model_validate(payload)
 

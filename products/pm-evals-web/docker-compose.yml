@@ -6,7 +6,10 @@ services:
     build: ./backend
     environment:
       PM_EVALS_MONITORING_DATA_DIR: /data/monitoring
-      PM_EVALS_PRODUCTION_MONITORING: "1"
+      # Preview defaults to non-production. Real deployments must explicitly set
+      # this to 1, at which point durable storage, scoped credentials, and the
+      # expected-product registry are all required and startup fails closed.
+      PM_EVALS_PRODUCTION_MONITORING: ${PM_EVALS_PRODUCTION_MONITORING:-0}
       # Writes fail closed when this secret is absent; set it only on trusted producers.
       PM_EVALS_INGEST_CREDENTIALS_JSON: ${PM_EVALS_INGEST_CREDENTIALS_JSON:-}
       PM_EVALS_ADJUDICATION_TOKEN: ${PM_EVALS_ADJUDICATION_TOKEN:-}

@@ -19,7 +19,8 @@ async function expectNoViolations(page: Parameters<typeof compareFixtures>[0]): 
 test("S-1 initial screen (J-1/J-2) is axe-clean", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: /see the exact issue/i })).toBeVisible();
-  await expect(page.getByText(/dj-linkedin-pm-bengaluru-042/i)).toBeVisible();
+  await expect(page.getByText(/no production eval data received/i)).toBeVisible();
+  await expect(page.getByText(/dj-linkedin-pm-bengaluru-042/i)).toHaveCount(0);
   await expectNoViolations(page);
 });
 
