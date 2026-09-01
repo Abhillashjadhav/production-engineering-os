@@ -29,7 +29,7 @@ from pm_evals_monitoring import (
 from pm_evals_monitoring import outbox as outbox_module
 from pm_evals_monitoring import storage as storage_module
 from pm_evals_monitoring.diagnosis import attribution_metrics_from_adjudications
-from pm_evals_monitoring.outbox import enqueue, flush
+from pm_evals_monitoring.outbox import canonical_outbox_identity, enqueue, flush
 from pm_evals_monitoring.storage import MonitoringStore
 
 
@@ -78,6 +78,10 @@ def test_dashboard_free_text_rejects_private_paths_and_credentials() -> None:
     payload["observations"][0]["evidence_refs"][0]["uri"] = "https://user:secret@example.com/eval"
     with pytest.raises(ValidationError, match="email address|opaque artifact"):
         RunEnvelope.model_validate(payload)
+
+    payload = _run().model_dump(mode="json")
+    payload["observations"][0]["evidence_refs"][0]["uri"] = "https://example.com/eval"
+    assert RunEnvelope.model_validate(payload)
 
     payload = _run().model_dump(mode="json")
     payload["observations"][0]["case"]["case_id"] = "candidate@example.com"
@@ -1004,6 +1008,25 @@ def test_adapter_metadata_is_bounded_before_observation_expansion(field: str) ->
         AdapterSettings.model_validate(payload)
 
 
+def test_legacy_comparison_without_digest_remains_available() -> None:
+    baseline = _run()
+    baseline.run_id = "legacy-baseline"
+    baseline.observed_at = datetime.now(UTC) - timedelta(minutes=1)
+    candidate = baseline.model_copy(deep=True)
+    candidate.run_id = "legacy-candidate"
+    candidate.observed_at = datetime.now(UTC)
+    candidate.comparison.run_id = baseline.run_id
+    candidate.comparison.sha256 = None
+    candidate.observations[0].status = "FAIL"
+    candidate.observations[0].current_value = 0.0
+
+    overview = build_overview([baseline, candidate], mode="LIVE")
+    incident = next(item for item in overview.incidents if item.run_id == candidate.run_id)
+    assert not incident.expected_summary.startswith(
+        "The referenced comparison does not contain"
+    )
+
+
 def test_late_comparison_is_used_only_when_its_digest_matches() -> None:
     baseline = _run()
     baseline.run_id = "late-baseline"
@@ -1123,6 +1146,13 @@ def test_both_product_settings_map_through_the_same_contract() -> None:
         )
         products.append(map_normalized_run(settings, normalized).product.id)
     assert products == ["dream-job-agent", "linkedin-research-os"]
+
+
+def test_outbox_identity_is_injective() -> None:
+    first = canonical_outbox_identity("run", "a:b", "c", "d")
+    second = canonical_outbox_identity("run", "a", "b:c", "d")
+
+    assert first != second
 
 
 def test_outbox_retries_without_losing_evidence(

@@ -333,14 +333,9 @@ class EvidenceRef(StrictModel):
     @field_validator("uri")
     @classmethod
     def validate_safe_uri(cls, value: str) -> str:
-        validate_redacted_text(value)
-        if not re.fullmatch(
-            r"(?:artifact://[a-z0-9][a-z0-9._/-]*|"
-            r"urn:[a-z0-9][a-z0-9-]{0,31}:[A-Za-z0-9][A-Za-z0-9._:-]*)",
-            value,
-        ):
-            raise ValueError("evidence URI must be an opaque artifact:// or urn: reference")
-        return value
+        # V0.2 allowed redacted HTTPS evidence links. Preserve that persisted
+        # contract while rejecting credentials, local paths, and private data.
+        return validate_redacted_text(value)
 
 
 class CauseSignal(StrictModel):

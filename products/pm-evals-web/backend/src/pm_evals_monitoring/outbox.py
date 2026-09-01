@@ -20,6 +20,11 @@ _SHARED_OUTBOX_ROOTS = frozenset(
 )
 
 
+def canonical_outbox_identity(kind: str, *components: str) -> str:
+    """Return an injective identity for a typed outbox item."""
+    return json.dumps([kind, *components], ensure_ascii=False, separators=(",", ":"))
+
+
 def _validate_outbox_root(outbox_dir: Path) -> None:
     resolved = outbox_dir.resolve(strict=False)
     if resolved == Path("/") or resolved.parent == Path("/") or resolved in _SHARED_OUTBOX_ROOTS:

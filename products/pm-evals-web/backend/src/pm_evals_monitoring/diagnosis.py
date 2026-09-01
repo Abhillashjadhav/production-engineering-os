@@ -513,10 +513,13 @@ def attribution_metrics_from_adjudications(
 def _digest_verified_comparison(
     run: RunEnvelope, comparison: RunEnvelope | None
 ) -> RunEnvelope | None:
+    if comparison is None:
+        return None
+    # Legacy V0.2 envelopes did not require a comparison digest. Overview inputs
+    # come from digest-checked ledger rows, so keep those comparisons readable.
     if (
-        comparison is None
-        or run.comparison.sha256 is None
-        or canonical_run_digest(comparison) != run.comparison.sha256
+        run.comparison.sha256 is not None
+        and canonical_run_digest(comparison) != run.comparison.sha256
     ):
         return None
     return comparison

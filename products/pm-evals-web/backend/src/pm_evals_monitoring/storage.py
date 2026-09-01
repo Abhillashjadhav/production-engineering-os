@@ -215,10 +215,9 @@ class MonitoringStore:
             environment=run.product.environment,
             run_id=run.comparison.run_id,
         )
-        if (
-            comparison is None
-            or run.comparison.sha256 is None
-            or canonical_run_digest(comparison) != run.comparison.sha256
+        if comparison is None or (
+            run.comparison.sha256 is not None
+            and canonical_run_digest(comparison) != run.comparison.sha256
         ):
             comparison = None
         diagnosis = diagnose_run(run, comparison=comparison)

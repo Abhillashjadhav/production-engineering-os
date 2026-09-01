@@ -53,7 +53,6 @@ from pm_evals_monitoring import (
     build_demo_overview,
     build_empty_overview,
     build_overview,
-    canonical_run_digest,
     case_incident_id,
     diagnose_run,
     replay_dimension_values,
@@ -321,11 +320,14 @@ def create_app(
             environment=run.product.environment,
             run_id=run.comparison.run_id,
         )
-        if (
-            comparison is None
-            or run.comparison.sha256 is None
-            or canonical_run_digest(comparison) != run.comparison.sha256
-        ):
+        if comparison is None:
+            return None
+        stored_digest = monitoring_store.get_run_digest(
+            product_id=run.product.id,
+            environment=run.product.environment,
+            run_id=run.comparison.run_id,
+        )
+        if run.comparison.sha256 is not None and stored_digest != run.comparison.sha256:
             return None
         return comparison
 

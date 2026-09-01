@@ -15,7 +15,7 @@ from pm_evals_monitoring import (
     load_normalized_run,
     map_normalized_run,
 )
-from pm_evals_monitoring.outbox import enqueue, flush
+from pm_evals_monitoring.outbox import canonical_outbox_identity, enqueue, flush
 
 
 def _post_sender(base_url: str, token: str):
@@ -54,7 +54,7 @@ def main() -> int:
         enqueue(
             args.outbox_dir,
             route="/api/monitoring/receipts",
-            identity=f"receipt:{model.receipt_id}",
+            identity=canonical_outbox_identity("receipt", model.receipt_id),
             payload=model.model_dump(mode="json"),
         )
         return 0
@@ -65,7 +65,12 @@ def main() -> int:
         enqueue(
             args.outbox_dir,
             route="/api/monitoring/runs",
-            identity=f"run:{envelope.product.id}:{envelope.product.environment}:{envelope.run_id}",
+            identity=canonical_outbox_identity(
+                "run",
+                envelope.product.id,
+                envelope.product.environment,
+                envelope.run_id,
+            ),
             payload=envelope.model_dump(mode="json"),
         )
         return 0
