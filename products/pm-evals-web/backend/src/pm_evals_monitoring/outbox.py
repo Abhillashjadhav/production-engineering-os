@@ -15,6 +15,10 @@ from pathlib import Path
 
 MAX_OUTBOX_ITEM_BYTES = 5 * 1024 * 1024
 _TEMPORARY_ITEM = re.compile(r"^\.[0-9a-f]{64}\.[0-9a-f]{16}\.tmp$")
+_SHARED_OUTBOX_ROOTS = frozenset(
+    path.resolve(strict=False)
+    for path in (Path("/"), Path("/tmp"), Path("/private/tmp"), Path("/var/tmp"))
+)
 
 
 def _fsync_directory(path: Path) -> None:
@@ -74,6 +78,8 @@ def _reconcile_temporary_items(outbox_dir: Path) -> None:
 
 
 def enqueue(outbox_dir: Path, *, route: str, identity: str, payload: object) -> Path:
+    if outbox_dir.resolve(strict=False) in _SHARED_OUTBOX_ROOTS:
+        raise ValueError("monitoring outbox must not use a shared system root")
     missing_directories: list[Path] = []
     cursor = outbox_dir
     while not cursor.exists():

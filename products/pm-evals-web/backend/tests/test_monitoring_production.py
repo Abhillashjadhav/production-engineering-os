@@ -944,6 +944,20 @@ def test_outbox_retries_without_losing_evidence(
     assert list(outbox.glob("*.sent.json"))
 
 
+def test_outbox_rejects_shared_root_before_mutating_it() -> None:
+    before = stat.S_IMODE(Path("/tmp").stat().st_mode)
+
+    with pytest.raises(ValueError, match="shared system root"):
+        enqueue(
+            Path("/tmp"),
+            route="/api/monitoring/runs",
+            identity="run:dream-job-agent:production:unsafe",
+            payload={"run_id": "unsafe"},
+        )
+
+    assert stat.S_IMODE(Path("/tmp").stat().st_mode) == before
+
+
 def test_outbox_does_not_publish_a_partial_item(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
