@@ -8,9 +8,10 @@ from collections import defaultdict, deque
 from pathlib import Path
 from typing import Literal
 
-from pydantic import AwareDatetime, Field, JsonValue, model_validator
+from pydantic import AwareDatetime, Field, JsonValue, field_validator, model_validator
 
 from .models import (
+    OPAQUE_IDENTIFIER_PATTERN,
     CaseRef,
     ChangeManifest,
     ComparisonRef,
@@ -27,6 +28,7 @@ from .models import (
     Remediation,
     RunEnvelope,
     StrictModel,
+    validate_redacted_text,
 )
 
 MAX_ADAPTER_INPUT_BYTES = 5 * 1024 * 1024
@@ -199,13 +201,18 @@ class NormalizedCase(StrictModel):
 
 class NormalizedRun(StrictModel):
     format_version: Literal["normalized-eval-run/0.1"] = "normalized-eval-run/0.1"
-    run_id: str = Field(min_length=1)
+    run_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
     observed_at: AwareDatetime
     product_version: str = Field(min_length=1)
     comparison: ComparisonRef
     change_manifest: ChangeManifest
     provenance: Provenance
     cases: list[NormalizedCase] = Field(min_length=1, max_length=2000)
+
+    @field_validator("run_id")
+    @classmethod
+    def redact_run_identifier(cls, value: str) -> str:
+        return validate_redacted_text(value)
 
 
 def load_adapter_settings(path: Path) -> AdapterSettings:

@@ -536,6 +536,15 @@ def _receipt_products(
             latest[identity] = receipt
     for identity, receipt in latest.items():
         current = by_identity.get(identity)
+        if (
+            current is not None
+            and current.latest_run_id != receipt.run_id
+            and receipt.observed_at <= current.observed_at
+        ):
+            # Lifecycle evidence for an older run must not replace a newer run.
+            # A differently identified receipt only takes precedence when its
+            # own timestamp proves that it started after the current run.
+            continue
         overdue = generated_at > receipt.expected_next_run_at
         completed_run_present = (
             current is not None

@@ -138,6 +138,52 @@ def test_started_receipt_makes_missing_product_visible(tmp_path: Path) -> None:
     assert overview["products"][0]["latest_run_id"] == "scheduled-run-1"
 
 
+def test_older_receipt_does_not_override_newer_completed_run() -> None:
+    run = _run()
+    run.run_id = "newer-completed-run"
+    now = datetime.now(UTC)
+    run.observed_at = now
+    receipt = RunReceipt(
+        receipt_id="older-receipt",
+        run_id="older-run",
+        product=run.product,
+        status="FAILED",
+        observed_at=now - timedelta(minutes=5),
+        expected_next_run_at=now + timedelta(days=1),
+        detail_code="RUN_FAILED",
+    )
+
+    overview = build_overview([run], receipts=[receipt], generated_at=now, mode="LIVE")
+
+    assert overview.products[0].latest_run_id == run.run_id
+    assert overview.products[0].health != "BLOCKED"
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("run_id", "candidate@example.com"),
+        ("run_id", "/private/raw-run"),
+        ("comparison.run_id", "api_key=exposed"),
+        ("comparison.label", "Owner candidate@example.com"),
+    ],
+)
+def test_run_and_comparison_references_enforce_privacy_boundary(
+    field: str, value: str
+) -> None:
+    payload = _run().model_dump(mode="json")
+    target: dict[str, object] = payload
+    path = field.split(".")
+    for part in path[:-1]:
+        nested = target[part]
+        assert isinstance(nested, dict)
+        target = nested
+    target[path[-1]] = value
+
+    with pytest.raises(ValidationError):
+        RunEnvelope.model_validate(payload)
+
+
 def test_expected_product_is_visible_before_first_emission(tmp_path: Path) -> None:
     product = ProductRef(
         id="linkedin-research-os",
@@ -679,6 +725,11 @@ def test_horizontal_mapper_uses_settings_without_product_branches() -> None:
         "native_private_data": "candidate@example.com"
     }
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        NormalizedRun.model_validate(normalized_payload)
+
+    normalized_payload = normalized.model_dump(mode="json")
+    normalized_payload["run_id"] = "PrivateRunTokenABC123456789012345678901234567890"
+    with pytest.raises(ValidationError, match="high-entropy token"):
         NormalizedRun.model_validate(normalized_payload)
 
 

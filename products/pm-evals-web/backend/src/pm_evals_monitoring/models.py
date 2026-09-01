@@ -128,6 +128,7 @@ _SECRET_ASSIGNMENT = re.compile(
     re.IGNORECASE,
 )
 _TOKEN = re.compile(r"\b[A-Za-z0-9_-]{40,}\b")
+OPAQUE_IDENTIFIER_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
 
 
 def validate_redacted_text(value: str) -> str:
@@ -460,9 +461,14 @@ class Observation(StrictModel):
 
 
 class ComparisonRef(StrictModel):
-    run_id: str = Field(min_length=1)
+    run_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
     label: str = Field(default="Last approved good run", min_length=1, max_length=120)
     sha256: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+
+    @field_validator("run_id", "label")
+    @classmethod
+    def redact_comparison_text(cls, value: str) -> str:
+        return validate_redacted_text(value)
 
 
 class RunReceipt(StrictModel):
@@ -470,7 +476,7 @@ class RunReceipt(StrictModel):
 
     receipt_version: Literal["0.1"] = "0.1"
     receipt_id: str = Field(min_length=1)
-    run_id: str = Field(min_length=1)
+    run_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
     product: ProductRef
     status: ReceiptStatus
     observed_at: AwareDatetime
@@ -493,7 +499,7 @@ class _AdjudicationRecordBase(StrictModel):
     adjudication_id: str = Field(min_length=1)
     product_id: str = Field(min_length=1)
     environment: str = Field(min_length=1)
-    run_id: str = Field(min_length=1)
+    run_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
     observation_id: str = Field(min_length=1)
     predicted_root_observation_ids: list[str]
     actual_root_observation_ids: list[str]
@@ -542,13 +548,18 @@ class AdjudicationRecord(_AdjudicationRecordBase):
 
 class RunEnvelope(StrictModel):
     contract_version: Literal["0.2"] = "0.2"
-    run_id: str = Field(min_length=1)
+    run_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
     comparison: ComparisonRef
     observed_at: AwareDatetime
     product: ProductRef
     change_manifest: ChangeManifest
     provenance: Provenance
     observations: list[Observation] = Field(min_length=1, max_length=2000)
+
+    @field_validator("run_id")
+    @classmethod
+    def redact_run_identifier(cls, value: str) -> str:
+        return validate_redacted_text(value)
 
     @field_validator("observed_at")
     @classmethod
