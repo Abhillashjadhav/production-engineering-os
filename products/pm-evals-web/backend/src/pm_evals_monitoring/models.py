@@ -119,12 +119,12 @@ class StrictModel(BaseModel):
 
 
 _PRIVATE_PATH = re.compile(
-    r"(?:file://|(?<![A-Za-z0-9_./+-])/(?=[A-Za-z0-9._~-])\S*|"
+    r"(?:file://|(?<![A-Za-z0-9_./+:-])/(?=\S)\S*|"
     r"(?<![A-Za-z0-9_./+-])[A-Za-z]:[\\/])",
     re.IGNORECASE,
 )
 _UNC_PATH = re.compile(
-    r"(?<![A-Za-z0-9_./+:-])(?:\\\\|//)[A-Za-z0-9._~-]+[\\/]",
+    r"(?<![A-Za-z0-9_./+:-])(?:\\\\|//)[^\s\\/]+[\\/]",
     re.IGNORECASE,
 )
 _EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
@@ -160,10 +160,10 @@ def validate_redacted_text(value: str) -> str:
 
 
 class ProductRef(StrictModel):
-    id: str = Field(min_length=1, max_length=160)
-    display_name: str = Field(min_length=1, max_length=160)
-    version: str = Field(min_length=1, max_length=160)
-    environment: str = Field(min_length=1, max_length=160)
+    id: str = Field(min_length=1)
+    display_name: str = Field(min_length=1)
+    version: str = Field(min_length=1)
+    environment: str = Field(min_length=1)
     freshness_sla_seconds: int = Field(
         default=DEFAULT_FRESHNESS_SLA_SECONDS,
         ge=60,
@@ -177,9 +177,9 @@ class ProductRef(StrictModel):
 
 
 class ModelRef(StrictModel):
-    provider: str = Field(min_length=1, max_length=160)
-    name: str = Field(min_length=1, max_length=160)
-    snapshot: str = Field(min_length=1, max_length=160)
+    provider: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    snapshot: str = Field(min_length=1)
 
     @field_validator("provider", "name", "snapshot")
     @classmethod
@@ -190,16 +190,16 @@ class ModelRef(StrictModel):
 class ChangeManifest(StrictModel):
     """Human-readable versions needed to explain what changed between runs."""
 
-    use_case_version: str = Field(min_length=1, max_length=160)
-    deployment_id: str = Field(min_length=1, max_length=160)
+    use_case_version: str = Field(min_length=1)
+    deployment_id: str = Field(min_length=1)
     model: ModelRef
-    prompt_version: str = Field(min_length=1, max_length=160)
-    config_version: str = Field(min_length=1, max_length=160)
-    toolset_version: str = Field(min_length=1, max_length=160)
-    evaluator_version: str = Field(min_length=1, max_length=160)
-    rubric_version: str = Field(min_length=1, max_length=160)
-    golden_dataset_version: str = Field(min_length=1, max_length=160)
-    production_cohort: str = Field(min_length=1, max_length=160)
+    prompt_version: str = Field(min_length=1)
+    config_version: str = Field(min_length=1)
+    toolset_version: str = Field(min_length=1)
+    evaluator_version: str = Field(min_length=1)
+    rubric_version: str = Field(min_length=1)
+    golden_dataset_version: str = Field(min_length=1)
+    production_cohort: str = Field(min_length=1)
 
     @field_validator(
         "use_case_version",
@@ -266,9 +266,9 @@ def replay_dimension_values(
 
 
 class CaseRef(StrictModel):
-    case_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
+    case_id: str = Field(min_length=1)
     display_name: str = Field(min_length=1, max_length=160)
-    use_case_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
+    use_case_id: str = Field(min_length=1)
     segment: str = Field(min_length=1, max_length=160)
     input_fingerprint: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
 
@@ -302,8 +302,8 @@ def case_incident_id(*, product_id: str, environment: str, run_id: str, case: Ca
 class EvaluationRef(StrictModel):
     layer: EvalLayer
     concern: EvalConcern
-    suite_id: str = Field(min_length=1, max_length=160)
-    suite_version: str = Field(min_length=1, max_length=160)
+    suite_id: str = Field(min_length=1)
+    suite_version: str = Field(min_length=1)
     method: EvalMethod
 
     @field_validator("suite_id", "suite_version")
@@ -313,11 +313,11 @@ class EvaluationRef(StrictModel):
 
 
 class Location(StrictModel):
-    component_id: str = Field(min_length=1, max_length=160)
-    stage_id: str = Field(min_length=1, max_length=160)
+    component_id: str = Field(min_length=1)
+    stage_id: str = Field(min_length=1)
     stage_index: int = Field(ge=1)
-    parameter_id: str = Field(min_length=1, max_length=160)
-    owner_id: str = Field(min_length=1, max_length=160)
+    parameter_id: str = Field(min_length=1)
+    owner_id: str = Field(min_length=1)
     fix_location: str = Field(min_length=1, max_length=240)
 
     @field_validator("component_id", "stage_id", "parameter_id", "owner_id", "fix_location")
@@ -327,7 +327,7 @@ class Location(StrictModel):
 
 
 class EvidenceRef(StrictModel):
-    uri: str = Field(min_length=1, max_length=256)
+    uri: str = Field(min_length=1)
     sha256: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
 
     @field_validator("uri")
@@ -414,7 +414,7 @@ class Remediation(StrictModel):
 
 
 class Observation(StrictModel):
-    observation_id: str = Field(min_length=1, max_length=160)
+    observation_id: str = Field(min_length=1)
     case: CaseRef
     evaluation: EvaluationRef
     location: Location
@@ -425,10 +425,10 @@ class Observation(StrictModel):
     expected_summary: str = Field(min_length=1, max_length=500)
     threshold: float | None = None
     tolerance: float = Field(default=0.0, ge=0.0)
-    unit: str = Field(default="", max_length=40)
+    unit: str = ""
     higher_is_better: bool = True
     required: bool = True
-    reason_code: str = Field(min_length=1, max_length=160)
+    reason_code: str = Field(min_length=1)
     depends_on: list[str] = Field(default_factory=list)
     evidence_refs: list[EvidenceRef] = Field(default_factory=list)
     cause_signals: list[CauseSignal] = Field(default_factory=list)
@@ -510,7 +510,7 @@ class RunReceipt(StrictModel):
     """Lifecycle evidence emitted before and after a scheduled product run."""
 
     receipt_version: Literal["0.1"] = "0.1"
-    receipt_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
+    receipt_id: str = Field(min_length=1)
     run_id: str = Field(min_length=1)
     product: ProductRef
     status: ReceiptStatus
@@ -585,16 +585,14 @@ class _AdjudicationRecordBase(_LegacyAdjudicationRecordBase):
     """Bounded v0.2 shape used for every newly persisted adjudication."""
 
     adjudication_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
-    product_id: str = Field(min_length=1, max_length=160)
-    environment: str = Field(min_length=1, max_length=160)
+    product_id: str = Field(min_length=1)
+    environment: str = Field(min_length=1)
     run_id: str = Field(min_length=1)
-    observation_id: str = Field(min_length=1, max_length=160)
-    predicted_root_observation_ids: list[Annotated[str, Field(min_length=1, max_length=160)]] = (
-        Field(max_length=2000)
-    )
-    actual_root_observation_ids: list[Annotated[str, Field(min_length=1, max_length=160)]] = Field(
+    observation_id: str = Field(min_length=1)
+    predicted_root_observation_ids: list[Annotated[str, Field(min_length=1)]] = Field(
         max_length=2000
     )
+    actual_root_observation_ids: list[Annotated[str, Field(min_length=1)]] = Field(max_length=2000)
 
     @field_validator(
         "adjudication_id",

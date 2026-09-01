@@ -94,11 +94,24 @@ def test_dashboard_free_text_rejects_private_paths_and_credentials() -> None:
         r"[\\server\share\customer.json]",
         "[//server/share/customer.json]",
         "[C:/Users/customer/private.json]",
+        "/客户/案例.json",
+        "//服务器/共享/file.json",
     ):
         payload = _run().model_dump(mode="json")
         payload["observations"][0]["current_summary"] = f"proof at {absolute_path}"
         with pytest.raises(ValidationError, match="private or absolute path"):
             RunEnvelope.model_validate(payload)
+
+    payload = _run().model_dump(mode="json")
+    payload["observations"][0]["current_summary"] = "See https://example.com/reference"
+    assert RunEnvelope.model_validate(payload)
+
+    payload = _run().model_dump(mode="json")
+    pii_observation = next(
+        item for item in payload["observations"] if item["observation_id"] == "pii-disclosure-rate"
+    )
+    pii_observation["observation_id"] = "safe-observation-" + "x" * 500
+    assert RunEnvelope.model_validate(payload)
 
 
 @pytest.mark.parametrize(
@@ -236,7 +249,7 @@ def test_started_receipt_makes_missing_product_visible(tmp_path: Path) -> None:
     )
     now = datetime.now(UTC)
     receipt = RunReceipt(
-        receipt_id="receipt-1",
+        receipt_id="receipt 1",
         run_id="scheduled run 1",
         product=_run().product,
         status="STARTED",

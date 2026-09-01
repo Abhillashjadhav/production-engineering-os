@@ -7,7 +7,6 @@
         "properties": {
           "actual_root_observation_ids": {
             "items": {
-              "maxLength": 160,
               "minLength": 1,
               "type": "string"
             },
@@ -43,20 +42,17 @@
             "type": "string"
           },
           "environment": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Environment",
             "type": "string"
           },
           "observation_id": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Observation Id",
             "type": "string"
           },
           "predicted_root_observation_ids": {
             "items": {
-              "maxLength": 160,
               "minLength": 1,
               "type": "string"
             },
@@ -65,7 +61,6 @@
             "type": "array"
           },
           "product_id": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Product Id",
             "type": "string"
@@ -272,7 +267,7 @@
         "additionalProperties": false,
         "properties": {
           "case_id": {
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+            "minLength": 1,
             "title": "Case Id",
             "type": "string"
           },
@@ -301,7 +296,7 @@
             "type": "string"
           },
           "use_case_id": {
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+            "minLength": 1,
             "title": "Use Case Id",
             "type": "string"
           }
@@ -505,25 +500,21 @@
         "description": "Human-readable versions needed to explain what changed between runs.",
         "properties": {
           "config_version": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Config Version",
             "type": "string"
           },
           "deployment_id": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Deployment Id",
             "type": "string"
           },
           "evaluator_version": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Evaluator Version",
             "type": "string"
           },
           "golden_dataset_version": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Golden Dataset Version",
             "type": "string"
@@ -532,31 +523,26 @@
             "$ref": "#/components/schemas/ModelRef"
           },
           "production_cohort": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Production Cohort",
             "type": "string"
           },
           "prompt_version": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Prompt Version",
             "type": "string"
           },
           "rubric_version": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Rubric Version",
             "type": "string"
           },
           "toolset_version": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Toolset Version",
             "type": "string"
           },
           "use_case_version": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Use Case Version",
             "type": "string"
@@ -983,13 +969,11 @@
             "type": "string"
           },
           "suite_id": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Suite Id",
             "type": "string"
           },
           "suite_version": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Suite Version",
             "type": "string"
@@ -1014,7 +998,6 @@
             "type": "string"
           },
           "uri": {
-            "maxLength": 256,
             "minLength": 1,
             "title": "Uri",
             "type": "string"
@@ -1383,7 +1366,6 @@
         "additionalProperties": false,
         "properties": {
           "component_id": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Component Id",
             "type": "string"
@@ -1395,19 +1377,16 @@
             "type": "string"
           },
           "owner_id": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Owner Id",
             "type": "string"
           },
           "parameter_id": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Parameter Id",
             "type": "string"
           },
           "stage_id": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Stage Id",
             "type": "string"
@@ -1467,19 +1446,16 @@
         "additionalProperties": false,
         "properties": {
           "name": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Name",
             "type": "string"
           },
           "provider": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Provider",
             "type": "string"
           },
           "snapshot": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Snapshot",
             "type": "string"
@@ -1626,13 +1602,11 @@
             "$ref": "#/components/schemas/Location"
           },
           "observation_id": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Observation Id",
             "type": "string"
           },
           "reason_code": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Reason Code",
             "type": "string"
@@ -1674,7 +1648,6 @@
           },
           "unit": {
             "default": "",
-            "maxLength": 40,
             "title": "Unit",
             "type": "string"
           }
@@ -1908,13 +1881,11 @@
         "additionalProperties": false,
         "properties": {
           "display_name": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Display Name",
             "type": "string"
           },
           "environment": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Environment",
             "type": "string"
@@ -1927,13 +1898,11 @@
             "type": "integer"
           },
           "id": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Id",
             "type": "string"
           },
           "version": {
-            "maxLength": 160,
             "minLength": 1,
             "title": "Version",
             "type": "string"
@@ -2160,7 +2129,7 @@
             "$ref": "#/components/schemas/ProductRef"
           },
           "receipt_id": {
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+            "minLength": 1,
             "title": "Receipt Id",
             "type": "string"
           },
