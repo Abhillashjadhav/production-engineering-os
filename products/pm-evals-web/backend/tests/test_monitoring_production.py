@@ -1022,9 +1022,7 @@ def test_legacy_comparison_without_digest_remains_available() -> None:
 
     overview = build_overview([baseline, candidate], mode="LIVE")
     incident = next(item for item in overview.incidents if item.run_id == candidate.run_id)
-    assert not incident.expected_summary.startswith(
-        "The referenced comparison does not contain"
-    )
+    assert not incident.expected_summary.startswith("The referenced comparison does not contain")
 
 
 def test_late_comparison_is_used_only_when_its_digest_matches() -> None:
