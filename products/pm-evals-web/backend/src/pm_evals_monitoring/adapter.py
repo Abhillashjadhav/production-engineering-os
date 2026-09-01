@@ -101,8 +101,8 @@ class CheckDefinition(StrictModel):
 
 class AdapterSettings(StrictModel):
     mapper_version: Literal["0.1"] = "0.1"
-    adapter_id: str = Field(min_length=1)
-    adapter_version: str = Field(min_length=1)
+    adapter_id: str = Field(min_length=1, max_length=120)
+    adapter_version: str = Field(min_length=1, max_length=120)
     product: AdapterProduct
     case_types: dict[str, list[str]]
     definitions: list[CheckDefinition] = Field(min_length=1, max_length=2000)

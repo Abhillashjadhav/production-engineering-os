@@ -157,6 +157,34 @@ def test_product_scoped_credentials_refuse_cross_namespace_write(tmp_path: Path)
     assert client.get("/api/monitoring/overview").json()["mode"] == "NO_DATA"
 
 
+@pytest.mark.parametrize("use_legacy_token", [False, True])
+def test_adjudication_credential_must_be_distinct_from_producers(
+    tmp_path: Path, use_legacy_token: bool
+) -> None:
+    kwargs: dict[str, object] = {
+        "monitoring_data_dir": tmp_path,
+        "monitoring_adjudication_token": "shared-token",
+    }
+    if use_legacy_token:
+        kwargs["monitoring_ingest_token"] = "shared-token"
+    else:
+        kwargs["monitoring_ingest_credentials"] = {
+            ("dream-job-agent", "production"): "shared-token"
+        }
+
+    with pytest.raises(ValueError, match="adjudication credential must be distinct"):
+        create_app(**kwargs)  # type: ignore[arg-type]
+
+
+def test_production_monitoring_rejects_demo_mode(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="cannot enable demo mode"):
+        create_app(
+            monitoring_data_dir=tmp_path,
+            monitoring_demo_mode=True,
+            monitoring_production=True,
+        )
+
+
 def test_started_receipt_makes_missing_product_visible(tmp_path: Path) -> None:
     client = TestClient(
         create_app(
@@ -883,6 +911,16 @@ def test_horizontal_mapper_uses_settings_without_product_branches() -> None:
     )
     with pytest.raises(ValueError, match="2,000 observation limit"):
         map_normalized_run(settings, excessive)
+
+
+@pytest.mark.parametrize("field", ["adapter_id", "adapter_version"])
+def test_adapter_metadata_is_bounded_before_observation_expansion(field: str) -> None:
+    root = Path(__file__).resolve().parents[2]
+    payload = json.loads((root / "adapters/dream-job.settings.json").read_text())
+    payload[field] = "x" * 121
+
+    with pytest.raises(ValidationError, match="at most 120 characters"):
+        AdapterSettings.model_validate(payload)
 
 
 def test_late_comparison_is_used_only_when_its_digest_matches() -> None:

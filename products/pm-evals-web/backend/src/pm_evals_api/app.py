@@ -237,6 +237,7 @@ def create_app(
     monitoring_ingest_credentials: dict[tuple[str, str], str] | None = None,
     monitoring_adjudication_token: str | None = None,
     monitoring_demo_mode: bool = False,
+    monitoring_production: bool = False,
     monitoring_expected_products: list[ProductRef] | None = None,
     monitoring_ingest_limit_per_minute: int = 120,
 ) -> FastAPI:
@@ -247,6 +248,13 @@ def create_app(
         raise ValueError("legacy and product-scoped monitoring credentials cannot be mixed")
     if len(set(scoped_credentials.values())) != len(scoped_credentials):
         raise ValueError("each product monitoring identity requires a distinct credential")
+    producer_tokens = set(scoped_credentials.values())
+    if monitoring_ingest_token:
+        producer_tokens.add(monitoring_ingest_token)
+    if monitoring_adjudication_token in producer_tokens:
+        raise ValueError("the monitoring adjudication credential must be distinct from producers")
+    if monitoring_production and monitoring_demo_mode:
+        raise ValueError("production monitoring cannot enable demo mode")
     if monitoring_ingest_limit_per_minute < 1:
         raise ValueError("monitoring ingest limit must be positive")
 
@@ -792,6 +800,7 @@ app = create_app(
     monitoring_ingest_credentials=_scoped_credentials,
     monitoring_adjudication_token=os.environ.get("PM_EVALS_ADJUDICATION_TOKEN"),
     monitoring_demo_mode=os.environ.get("PM_EVALS_DEMO_MODE") == "1",
+    monitoring_production=_production_monitoring,
     monitoring_expected_products=_expected_products,
     monitoring_ingest_limit_per_minute=int(
         os.environ.get("PM_EVALS_INGEST_LIMIT_PER_MINUTE", "120")
