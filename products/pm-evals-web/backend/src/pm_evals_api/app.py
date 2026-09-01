@@ -533,7 +533,7 @@ def create_app(
                     control_observation.unit,
                     control_observation.tolerance,
                     control_observation.required,
-                    control_observation.depends_on,
+                    tuple(sorted(control_observation.depends_on)),
                 )
                 candidate_measurement = (
                     observation.threshold,
@@ -541,7 +541,7 @@ def create_app(
                     observation.unit,
                     observation.tolerance,
                     observation.required,
-                    observation.depends_on,
+                    tuple(sorted(observation.depends_on)),
                 )
                 if control_measurement != candidate_measurement:
                     raise _validation_error(

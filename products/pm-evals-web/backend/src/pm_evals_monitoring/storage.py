@@ -31,6 +31,14 @@ from .models import (
 _SHARED_STORE_ROOTS = frozenset(
     path.resolve(strict=False) for path in (Path("/private/tmp"), Path("/var/tmp"))
 )
+_LEGACY_STORE_MARKERS = (
+    "observations.jsonl",
+    "observations.sqlite3",
+    "observations.lock",
+    "run-receipts.jsonl",
+    "adjudications.jsonl",
+)
+_MAX_AUXILIARY_LEDGER_BYTES = 50 * 1024 * 1024
 
 
 class FutureObservationError(ValueError):
@@ -45,7 +53,7 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
-def _validate_store_directory(data_dir: Path) -> None:
+def _validate_store_directory(data_dir: Path, *, migrate_legacy_permissions: bool = False) -> None:
     resolved = data_dir.resolve(strict=False)
     if resolved == Path("/") or resolved.parent == Path("/") or resolved in _SHARED_STORE_ROOTS:
         raise ValueError("monitoring data directory must not use a shared system root")
@@ -53,14 +61,37 @@ def _validate_store_directory(data_dir: Path) -> None:
         return
     if data_dir.is_symlink() or not data_dir.is_dir():
         raise ValueError("monitoring data directory must be a real directory")
-    directory_stat = data_dir.stat(follow_symlinks=False)
-    if directory_stat.st_uid != os.getuid() or stat.S_IMODE(directory_stat.st_mode) != 0o700:
-        raise ValueError("existing monitoring data directory must be owner-only mode 0700")
+    flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | getattr(os, "O_CLOEXEC", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(data_dir, flags)
+    try:
+        directory_stat = os.fstat(descriptor)
+        if directory_stat.st_uid != os.getuid():
+            raise ValueError("existing monitoring data directory must be owned by this process")
+        if stat.S_IMODE(directory_stat.st_mode) == 0o700:
+            return
+        legacy_store = False
+        if migrate_legacy_permissions:
+            for marker in _LEGACY_STORE_MARKERS:
+                try:
+                    marker_stat = os.stat(marker, dir_fd=descriptor, follow_symlinks=False)
+                except FileNotFoundError:
+                    continue
+                if stat.S_ISREG(marker_stat.st_mode):
+                    legacy_store = True
+                    break
+        if not legacy_store:
+            raise ValueError("existing monitoring data directory must be owner-only mode 0700")
+        os.fchmod(descriptor, 0o700)
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
 
 class MonitoringStore:
     def __init__(self, data_dir: Path) -> None:
-        _validate_store_directory(data_dir)
+        _validate_store_directory(data_dir, migrate_legacy_permissions=True)
         self.data_dir = data_dir
         self.log_path = data_dir / "observations.jsonl"
         self.index_path = data_dir / "observations.sqlite3"
@@ -371,8 +402,6 @@ class MonitoringStore:
     ) -> bool:
         line = self._canonical_record(record)
         with self._exclusive_store_lock():
-            if path.stat().st_size > 50 * 1024 * 1024:
-                raise ValueError("auxiliary monitoring ledger exceeds the 50 MB safety limit")
             kind = "receipt" if path == self.receipt_path else "adjudication"
             for existing_line in self._reconcile_auxiliary_unlocked(path, kind):
                 payload = json.loads(existing_line)
@@ -381,6 +410,8 @@ class MonitoringStore:
                 if existing_line != line:
                     raise ValueError(f"{identity_field} already exists with different evidence")
                 return False
+            if path.stat().st_size + len(line) > _MAX_AUXILIARY_LEDGER_BYTES:
+                raise ValueError("auxiliary monitoring ledger exceeds the 50 MB safety limit")
             with path.open("ab") as handle:
                 handle.write(line)
                 handle.flush()

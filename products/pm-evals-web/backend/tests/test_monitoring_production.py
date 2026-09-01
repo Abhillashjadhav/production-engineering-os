@@ -730,6 +730,7 @@ def test_controlled_replay_must_match_case_check_and_manifest_changes(
     source = next(
         item for item in control.observations if item.observation_id == "source-linkedin-coverage"
     )
+    source.depends_on.append("pii-disclosure-rate")
     candidate = control.model_copy(deep=True)
     candidate.run_id = "replay-candidate"
     candidate.observed_at = datetime.now(UTC)
@@ -744,6 +745,7 @@ def test_controlled_replay_must_match_case_check_and_manifest_changes(
     )
     candidate_source.status = "FAIL"
     candidate_source.current_value = 0.0
+    candidate_source.depends_on.reverse()
     planted = next(item for item in build_demo_runs() if item.run_id == "dream-job-2026-08-28")
     signal = next(
         item for item in planted.observations if item.observation_id == "source-linkedin-coverage"
@@ -1248,6 +1250,19 @@ def test_existing_store_and_outbox_must_already_be_private(tmp_path: Path) -> No
     assert stat.S_IMODE(outbox_dir.stat().st_mode) == 0o755
 
 
+def test_owned_legacy_store_permissions_are_migrated(tmp_path: Path) -> None:
+    store_dir = tmp_path / "legacy-store"
+    store_dir.mkdir(mode=0o755)
+    legacy_log = store_dir / "observations.jsonl"
+    legacy_log.touch(mode=0o644)
+
+    store = MonitoringStore(store_dir)
+
+    assert store.data_dir == store_dir
+    assert stat.S_IMODE(store_dir.stat().st_mode) == 0o700
+    assert stat.S_IMODE(legacy_log.stat().st_mode) == 0o600
+
+
 def test_concurrently_created_directories_are_validated_not_chmodded(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1368,6 +1383,29 @@ def test_auxiliary_ledgers_are_private_and_recover_a_torn_tail(tmp_path: Path) -
         recovered.index_path,
     ):
         assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+
+
+def test_auxiliary_ledger_limit_includes_the_pending_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = MonitoringStore(tmp_path)
+    now = datetime.now(UTC)
+    receipt = RunReceipt(
+        receipt_id="bounded-receipt",
+        run_id="bounded-run",
+        product=_run().product,
+        status="STARTED",
+        observed_at=now,
+        expected_next_run_at=now + timedelta(days=1),
+        detail_code="RUN_STARTED",
+    )
+    line = store._canonical_record(receipt)
+    monkeypatch.setattr(storage_module, "_MAX_AUXILIARY_LEDGER_BYTES", len(line) - 1)
+
+    with pytest.raises(ValueError, match="50 MB safety limit"):
+        store.append_receipt(receipt)
+
+    assert store.receipt_path.stat().st_size == 0
 
 
 def test_store_syncs_new_directories_and_rejects_a_symlink_index(

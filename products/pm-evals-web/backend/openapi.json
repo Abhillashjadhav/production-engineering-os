@@ -7,8 +7,10 @@
         "properties": {
           "actual_root_observation_ids": {
             "items": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
               "type": "string"
             },
+            "maxItems": 2000,
             "title": "Actual Root Observation Ids",
             "type": "array"
           },
@@ -18,7 +20,7 @@
             "type": "string"
           },
           "adjudication_id": {
-            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
             "title": "Adjudication Id",
             "type": "string"
           },
@@ -40,23 +42,27 @@
             "type": "string"
           },
           "environment": {
+            "maxLength": 160,
             "minLength": 1,
             "title": "Environment",
             "type": "string"
           },
           "observation_id": {
-            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
             "title": "Observation Id",
             "type": "string"
           },
           "predicted_root_observation_ids": {
             "items": {
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
               "type": "string"
             },
+            "maxItems": 2000,
             "title": "Predicted Root Observation Ids",
             "type": "array"
           },
           "product_id": {
+            "maxLength": 160,
             "minLength": 1,
             "title": "Product Id",
             "type": "string"
@@ -2151,7 +2157,7 @@
             "$ref": "#/components/schemas/ProductRef"
           },
           "receipt_id": {
-            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
             "title": "Receipt Id",
             "type": "string"
           },

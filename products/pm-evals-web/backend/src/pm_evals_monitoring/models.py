@@ -13,7 +13,7 @@ import re
 from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 from math import isfinite
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import (
     AwareDatetime,
@@ -510,13 +510,18 @@ class RunReceipt(StrictModel):
     """Lifecycle evidence emitted before and after a scheduled product run."""
 
     receipt_version: Literal["0.1"] = "0.1"
-    receipt_id: str = Field(min_length=1)
+    receipt_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
     run_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
     product: ProductRef
     status: ReceiptStatus
     observed_at: AwareDatetime
     expected_next_run_at: AwareDatetime
     detail_code: str = Field(min_length=1, max_length=120, pattern=r"^[A-Z0-9_:-]+$")
+
+    @field_validator("receipt_id", "run_id", "detail_code")
+    @classmethod
+    def redact_receipt_identifier(cls, value: str) -> str:
+        return validate_redacted_text(value)
 
     @field_validator("observed_at", "expected_next_run_at")
     @classmethod
@@ -531,22 +536,39 @@ class RunReceipt(StrictModel):
 
 
 class _AdjudicationRecordBase(StrictModel):
-    adjudication_id: str = Field(min_length=1)
-    product_id: str = Field(min_length=1)
-    environment: str = Field(min_length=1)
+    adjudication_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
+    product_id: str = Field(min_length=1, max_length=160)
+    environment: str = Field(min_length=1, max_length=160)
     run_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
-    observation_id: str = Field(min_length=1)
-    predicted_root_observation_ids: list[str]
-    actual_root_observation_ids: list[str]
+    observation_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
+    predicted_root_observation_ids: list[
+        Annotated[str, Field(pattern=OPAQUE_IDENTIFIER_PATTERN)]
+    ] = Field(max_length=2000)
+    actual_root_observation_ids: list[Annotated[str, Field(pattern=OPAQUE_IDENTIFIER_PATTERN)]] = (
+        Field(max_length=2000)
+    )
     verdict: AdjudicationVerdict
     adjudicated_at: AwareDatetime
     adjudicator_id: str = Field(min_length=1, max_length=120)
     reason_code: str = Field(min_length=1, max_length=120)
 
-    @field_validator("adjudicator_id")
+    @field_validator(
+        "adjudication_id",
+        "product_id",
+        "environment",
+        "run_id",
+        "observation_id",
+        "adjudicator_id",
+        "reason_code",
+    )
     @classmethod
-    def redact_adjudicator(cls, value: str) -> str:
+    def redact_adjudication_identifier(cls, value: str) -> str:
         return validate_redacted_text(value)
+
+    @field_validator("predicted_root_observation_ids", "actual_root_observation_ids")
+    @classmethod
+    def redact_adjudication_roots(cls, value: list[str]) -> list[str]:
+        return [validate_redacted_text(item) for item in value]
 
     @field_validator("adjudicated_at")
     @classmethod
