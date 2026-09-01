@@ -75,21 +75,27 @@ def _validate_store_directory(data_dir: Path, *, migrate_legacy_permissions: boo
         if directory_mode == 0o700:
             return
         legacy_store = False
-        legacy_mode_is_safe = directory_mode & 0o022 == 0 and directory_mode & 0o700 == 0o700
+        legacy_mode_is_safe = (
+            directory_mode & 0o022 == 0 and directory_mode & 0o700 == 0o700
+        )
         if migrate_legacy_permissions and legacy_mode_is_safe:
+            existing_markers = 0
+            all_markers_are_safe = True
             for marker in _LEGACY_STORE_MARKERS:
                 try:
                     marker_stat = os.stat(marker, dir_fd=descriptor, follow_symlinks=False)
                 except FileNotFoundError:
                     continue
+                existing_markers += 1
                 marker_mode = stat.S_IMODE(marker_stat.st_mode)
                 if (
-                    stat.S_ISREG(marker_stat.st_mode)
-                    and marker_stat.st_uid == os.getuid()
-                    and marker_mode & 0o022 == 0
+                    not stat.S_ISREG(marker_stat.st_mode)
+                    or marker_stat.st_uid != os.getuid()
+                    or marker_mode & 0o022 != 0
                 ):
-                    legacy_store = True
+                    all_markers_are_safe = False
                     break
+            legacy_store = existing_markers > 0 and all_markers_are_safe
         if not legacy_store:
             raise ValueError("existing monitoring data directory must be owner-only mode 0700")
         os.fchmod(descriptor, 0o700)

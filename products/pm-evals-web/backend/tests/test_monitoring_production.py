@@ -1575,6 +1575,22 @@ def test_unsafe_legacy_store_permissions_are_rejected(
     assert stat.S_IMODE(marker.stat().st_mode) == marker_mode
 
 
+def test_legacy_migration_rejects_any_unsafe_existing_marker(tmp_path: Path) -> None:
+    store_dir = tmp_path / "mixed-legacy-store"
+    store_dir.mkdir(mode=0o755)
+    safe_marker = store_dir / "observations.jsonl"
+    unsafe_marker = store_dir / "run-receipts.jsonl"
+    safe_marker.touch(mode=0o600)
+    unsafe_marker.touch(mode=0o600)
+    unsafe_marker.chmod(0o666)
+
+    with pytest.raises(ValueError, match="owner-only mode 0700"):
+        MonitoringStore(store_dir)
+
+    assert stat.S_IMODE(store_dir.stat().st_mode) == 0o755
+    assert stat.S_IMODE(unsafe_marker.stat().st_mode) == 0o666
+
+
 def test_owned_legacy_store_permissions_are_migrated(tmp_path: Path) -> None:
     store_dir = tmp_path / "legacy-store"
     store_dir.mkdir(mode=0o755)
