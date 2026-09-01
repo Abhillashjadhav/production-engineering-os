@@ -119,7 +119,7 @@ class StrictModel(BaseModel):
 
 
 _PRIVATE_PATH = re.compile(
-    r"(?:file://|(?:^|[\s(])/(?:Users|home|private|tmp|var|etc|workspace)/|[A-Za-z]:\\)",
+    r"(?:file://|(?:^|[\s('\"=])/(?!/)(?=[A-Za-z0-9._~-])\S*|[A-Za-z]:\\)",
     re.IGNORECASE,
 )
 _EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)

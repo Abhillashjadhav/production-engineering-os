@@ -29,8 +29,7 @@ from .models import (
 )
 
 _SHARED_STORE_ROOTS = frozenset(
-    path.resolve(strict=False)
-    for path in (Path("/"), Path("/tmp"), Path("/private/tmp"), Path("/var/tmp"))
+    path.resolve(strict=False) for path in (Path("/private/tmp"), Path("/var/tmp"))
 )
 
 
@@ -46,10 +45,22 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
+def _validate_store_directory(data_dir: Path) -> None:
+    resolved = data_dir.resolve(strict=False)
+    if resolved == Path("/") or resolved.parent == Path("/") or resolved in _SHARED_STORE_ROOTS:
+        raise ValueError("monitoring data directory must not use a shared system root")
+    if not data_dir.exists():
+        return
+    if data_dir.is_symlink() or not data_dir.is_dir():
+        raise ValueError("monitoring data directory must be a real directory")
+    directory_stat = data_dir.stat(follow_symlinks=False)
+    if directory_stat.st_uid != os.getuid() or stat.S_IMODE(directory_stat.st_mode) != 0o700:
+        raise ValueError("existing monitoring data directory must be owner-only mode 0700")
+
+
 class MonitoringStore:
     def __init__(self, data_dir: Path) -> None:
-        if data_dir.resolve(strict=False) in _SHARED_STORE_ROOTS:
-            raise ValueError("monitoring data directory must not use a shared system root")
+        _validate_store_directory(data_dir)
         self.data_dir = data_dir
         self.log_path = data_dir / "observations.jsonl"
         self.index_path = data_dir / "observations.sqlite3"
@@ -68,7 +79,7 @@ class MonitoringStore:
         for directory in reversed(missing_directories):
             os.chmod(directory, 0o700)
             _fsync_directory(directory.parent)
-        os.chmod(data_dir, 0o700)
+        _validate_store_directory(data_dir)
         _fsync_directory(data_dir.parent)
         for path in (
             self.log_path,

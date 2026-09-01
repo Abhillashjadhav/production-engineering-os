@@ -118,6 +118,7 @@ def test_implausibly_future_observation_time_is_rejected(tmp_path: Path) -> None
     accepted_before_clock_correction = RunEnvelope.model_validate(payload)
     rollback_dir = tmp_path / "clock-rollback"
     rollback_dir.mkdir()
+    rollback_dir.chmod(0o700)
     (rollback_dir / "observations.jsonl").write_bytes(
         MonitoringStore._canonical_line(accepted_before_clock_correction)
     )

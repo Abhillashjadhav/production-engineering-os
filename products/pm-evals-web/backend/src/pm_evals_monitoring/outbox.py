@@ -16,16 +16,21 @@ from pathlib import Path
 MAX_OUTBOX_ITEM_BYTES = 5 * 1024 * 1024
 _TEMPORARY_ITEM = re.compile(r"^\.[0-9a-f]{64}\.[0-9a-f]{16}\.tmp$")
 _SHARED_OUTBOX_ROOTS = frozenset(
-    path.resolve(strict=False)
-    for path in (Path("/"), Path("/tmp"), Path("/private/tmp"), Path("/var/tmp"))
+    path.resolve(strict=False) for path in (Path("/private/tmp"), Path("/var/tmp"))
 )
 
 
 def _validate_outbox_root(outbox_dir: Path) -> None:
-    if outbox_dir.resolve(strict=False) in _SHARED_OUTBOX_ROOTS:
+    resolved = outbox_dir.resolve(strict=False)
+    if resolved == Path("/") or resolved.parent == Path("/") or resolved in _SHARED_OUTBOX_ROOTS:
         raise ValueError("monitoring outbox must not use a shared system root")
-    if outbox_dir.exists() and (outbox_dir.is_symlink() or not outbox_dir.is_dir()):
+    if not outbox_dir.exists():
+        return
+    if outbox_dir.is_symlink() or not outbox_dir.is_dir():
         raise ValueError("monitoring outbox must be a real directory")
+    directory_stat = outbox_dir.stat(follow_symlinks=False)
+    if directory_stat.st_uid != os.getuid() or stat.S_IMODE(directory_stat.st_mode) != 0o700:
+        raise ValueError("existing monitoring outbox must be owner-only mode 0700")
 
 
 def _fsync_directory(path: Path) -> None:
@@ -96,11 +101,12 @@ def enqueue(outbox_dir: Path, *, route: str, identity: str, payload: object) -> 
         missing_directories.append(cursor)
         cursor = cursor.parent
     outbox_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    _validate_outbox_root(outbox_dir)
+    if outbox_dir.is_symlink() or not outbox_dir.is_dir():
+        raise ValueError("monitoring outbox must be a real directory")
     for directory in reversed(missing_directories):
         os.chmod(directory, 0o700)
         _fsync_directory(directory.parent)
-    os.chmod(outbox_dir, 0o700)
+    _validate_outbox_root(outbox_dir)
     _fsync_directory(outbox_dir.parent)
     item = {"outbox_version": "0.1", "route": route, "payload": payload}
     canonical = (json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n").encode()

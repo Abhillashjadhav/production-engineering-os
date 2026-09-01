@@ -84,6 +84,12 @@ def test_dashboard_free_text_rejects_private_paths_and_credentials() -> None:
     with pytest.raises(ValidationError):
         RunEnvelope.model_validate(payload)
 
+    for absolute_path in ("/root/customer.json", "/opt/app/private-data", "/mnt/cases/raw.json"):
+        payload = _run().model_dump(mode="json")
+        payload["observations"][0]["current_summary"] = f"proof at {absolute_path}"
+        with pytest.raises(ValidationError, match="private or absolute path"):
+            RunEnvelope.model_validate(payload)
+
 
 @pytest.mark.parametrize(
     ("path", "value"),
@@ -953,6 +959,7 @@ def test_outbox_retries_without_losing_evidence(
 
     existing_outbox = tmp_path / "already-created-outbox"
     existing_outbox.mkdir()
+    existing_outbox.chmod(0o700)
     synced.clear()
     enqueue(
         existing_outbox,
@@ -1056,7 +1063,18 @@ def test_flush_reconciles_legacy_pending_and_sent_duplicate(tmp_path: Path) -> N
     assert sent.exists()
 
 
-@pytest.mark.parametrize("shared_root", [Path("/"), Path("/tmp"), Path("/var/tmp")])
+@pytest.mark.parametrize(
+    "shared_root",
+    [
+        Path("/"),
+        Path("/tmp"),
+        Path("/var/tmp"),
+        Path("/home"),
+        Path("/var"),
+        Path("/usr"),
+        Path("/etc"),
+    ],
+)
 def test_monitoring_store_rejects_shared_roots_before_mutating_them(
     shared_root: Path,
 ) -> None:
@@ -1067,6 +1085,26 @@ def test_monitoring_store_rejects_shared_roots_before_mutating_them(
 
     after = stat.S_IMODE(shared_root.stat().st_mode) if shared_root.exists() else None
     assert after == before
+
+
+def test_existing_store_and_outbox_must_already_be_private(tmp_path: Path) -> None:
+    store_dir = tmp_path / "public-store"
+    outbox_dir = tmp_path / "public-outbox"
+    store_dir.mkdir(mode=0o755)
+    outbox_dir.mkdir(mode=0o755)
+
+    with pytest.raises(ValueError, match="owner-only mode 0700"):
+        MonitoringStore(store_dir)
+    with pytest.raises(ValueError, match="owner-only mode 0700"):
+        enqueue(
+            outbox_dir,
+            route="/api/monitoring/runs",
+            identity="run:dream-job-agent:production:public-dir",
+            payload={"run_id": "public-dir"},
+        )
+
+    assert stat.S_IMODE(store_dir.stat().st_mode) == 0o755
+    assert stat.S_IMODE(outbox_dir.stat().st_mode) == 0o755
 
 
 def test_outbox_does_not_publish_a_partial_item(
@@ -1173,12 +1211,14 @@ def test_store_syncs_new_directories_and_rejects_a_symlink_index(
 
     existing_data_dir = tmp_path / "already-created-store"
     existing_data_dir.mkdir()
+    existing_data_dir.chmod(0o700)
     synced.clear()
     MonitoringStore(existing_data_dir)
     assert tmp_path in synced
 
     unsafe = tmp_path / "unsafe"
     unsafe.mkdir()
+    unsafe.chmod(0o700)
     target = tmp_path / "outside.sqlite3"
     target.touch()
     (unsafe / "observations.sqlite3").symlink_to(target)
