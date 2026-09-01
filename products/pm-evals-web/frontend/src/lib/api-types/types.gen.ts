@@ -1526,10 +1526,6 @@ export type IngestMonitoringReceiptApiMonitoringReceiptsPostErrors = {
      */
     409: unknown;
     /**
-     * Monitoring ingestion rate limit exceeded.
-     */
-    429: unknown;
-    /**
      * The request exceeds a size limit — the whole-request cap (enforced before parsing) or an individual file's cap.
      */
     413: SizeLimitResponse;
@@ -1537,6 +1533,10 @@ export type IngestMonitoringReceiptApiMonitoringReceiptsPostErrors = {
      * A validation failure: one or more named per-source problems.
      */
     422: ValidationErrorResponse;
+    /**
+     * Monitoring ingestion rate limit exceeded.
+     */
+    429: unknown;
     /**
      * Monitoring persistence is not configured.
      */
@@ -1575,10 +1575,6 @@ export type IngestMonitoringRunApiMonitoringRunsPostErrors = {
      */
     409: unknown;
     /**
-     * Monitoring ingestion rate limit exceeded.
-     */
-    429: unknown;
-    /**
      * The request exceeds a size limit — the whole-request cap (enforced before parsing) or an individual file's cap.
      */
     413: SizeLimitResponse;
@@ -1586,6 +1582,10 @@ export type IngestMonitoringRunApiMonitoringRunsPostErrors = {
      * A validation failure: one or more named per-source problems.
      */
     422: ValidationErrorResponse;
+    /**
+     * Monitoring ingestion rate limit exceeded.
+     */
+    429: unknown;
     /**
      * Monitoring persistence or its ingestion credential is not configured.
      */

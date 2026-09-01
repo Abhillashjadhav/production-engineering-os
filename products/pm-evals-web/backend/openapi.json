@@ -1011,7 +1011,7 @@
         "type": "object"
       },
       "GuardrailGovernance": {
-        "description": "Baseline-authoritative provenance for one criterion's min_pass_rate\nguardrail (PD-V3-19).\n\nThe baseline governs the threshold; the candidate — the artifact under\nevaluation — may STRENGTHEN it but may never WEAKEN it. Resolution is by\nexplicit `is not None`, never truthiness, so an explicit candidate 0.0 is a\nreal value (which cannot lower the baseline), not a falsy fallback trigger.",
+        "description": "Baseline-authoritative provenance for one criterion's min_pass_rate\nguardrail (PD-V3-19).\n\nThe baseline governs the threshold; the candidate \u2014 the artifact under\nevaluation \u2014 may STRENGTHEN it but may never WEAKEN it. Resolution is by\nexplicit `is not None`, never truthiness, so an explicit candidate 0.0 is a\nreal value (which cannot lower the baseline), not a falsy fallback trigger.",
         "properties": {
           "baseline_threshold": {
             "title": "Baseline Threshold",
@@ -2167,7 +2167,7 @@
         "type": "object"
       },
       "SizeLimitResponse": {
-        "description": "The 413 body — one documented shape for either size boundary: the\nwhole-request cap (the middleware, before parsing) and the per-file cap\n(``_read_capped``, at read-back) both emit ``{\"detail\": str}``.",
+        "description": "The 413 body \u2014 one documented shape for either size boundary: the\nwhole-request cap (the middleware, before parsing) and the per-file cap\n(``_read_capped``, at read-back) both emit ``{\"detail\": str}``.",
         "properties": {
           "detail": {
             "title": "Detail",
@@ -2284,7 +2284,7 @@
         "type": "object"
       },
       "ValidationErrorResponse": {
-        "description": "The single 422 envelope: every validation failure — malformed upload,\nout-of-range config, or a native transport type error — is reported as\n``{\"detail\": [ValidationProblem, ...]}`` so one committed schema matches\nthe wire for all of them (P-4).",
+        "description": "The single 422 envelope: every validation failure \u2014 malformed upload,\nout-of-range config, or a native transport type error \u2014 is reported as\n``{\"detail\": [ValidationProblem, ...]}`` so one committed schema matches\nthe wire for all of them (P-4).",
         "properties": {
           "detail": {
             "items": {
@@ -2399,7 +2399,7 @@
                 }
               }
             },
-            "description": "The request exceeds a size limit — the whole-request cap (enforced before parsing) or an individual file's cap."
+            "description": "The request exceeds a size limit \u2014 the whole-request cap (enforced before parsing) or an individual file's cap."
           },
           "422": {
             "content": {
@@ -2437,7 +2437,7 @@
                 }
               }
             },
-            "description": "The request exceeds a size limit — the whole-request cap (enforced before parsing) or an individual file's cap."
+            "description": "The request exceeds a size limit \u2014 the whole-request cap (enforced before parsing) or an individual file's cap."
           }
         },
         "summary": "Health"
@@ -2481,7 +2481,7 @@
                 }
               }
             },
-            "description": "The request exceeds a size limit — the whole-request cap (enforced before parsing) or an individual file's cap."
+            "description": "The request exceeds a size limit \u2014 the whole-request cap (enforced before parsing) or an individual file's cap."
           },
           "422": {
             "content": {
@@ -2538,7 +2538,7 @@
                 }
               }
             },
-            "description": "The request exceeds a size limit — the whole-request cap (enforced before parsing) or an individual file's cap."
+            "description": "The request exceeds a size limit \u2014 the whole-request cap (enforced before parsing) or an individual file's cap."
           },
           "422": {
             "content": {
@@ -2613,7 +2613,7 @@
                 }
               }
             },
-            "description": "The request exceeds a size limit — the whole-request cap (enforced before parsing) or an individual file's cap."
+            "description": "The request exceeds a size limit \u2014 the whole-request cap (enforced before parsing) or an individual file's cap."
           },
           "422": {
             "content": {
@@ -2681,7 +2681,7 @@
                 }
               }
             },
-            "description": "The request exceeds a size limit — the whole-request cap (enforced before parsing) or an individual file's cap."
+            "description": "The request exceeds a size limit \u2014 the whole-request cap (enforced before parsing) or an individual file's cap."
           },
           "422": {
             "content": {
@@ -2745,7 +2745,7 @@
                 }
               }
             },
-            "description": "The request exceeds a size limit — the whole-request cap (enforced before parsing) or an individual file's cap."
+            "description": "The request exceeds a size limit \u2014 the whole-request cap (enforced before parsing) or an individual file's cap."
           },
           "422": {
             "content": {
