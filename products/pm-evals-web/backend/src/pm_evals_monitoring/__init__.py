@@ -19,6 +19,7 @@ from .models import (
     RunReceipt,
     canonical_run_digest,
     canonical_run_line,
+    manifest_values,
 )
 from .storage import FutureObservationError, MonitoringStore
 
@@ -43,5 +44,6 @@ __all__ = [
     "diagnose_run",
     "load_adapter_settings",
     "load_normalized_run",
+    "manifest_values",
     "map_normalized_run",
 ]

@@ -191,6 +191,23 @@ class ChangeManifest(StrictModel):
     production_cohort: str = Field(min_length=1)
 
 
+def manifest_values(manifest: ChangeManifest) -> dict[ChangeDimension, str]:
+    """Return the canonical value for each controlled-replay change dimension."""
+
+    return {
+        "USE_CASE": manifest.use_case_version,
+        "DEPLOYMENT": manifest.deployment_id,
+        "MODEL": f"{manifest.model.provider}/{manifest.model.name}@{manifest.model.snapshot}",
+        "PROMPT": manifest.prompt_version,
+        "CONFIGURATION": manifest.config_version,
+        "TOOLSET": manifest.toolset_version,
+        "EVALUATOR": manifest.evaluator_version,
+        "RUBRIC": manifest.rubric_version,
+        "GOLDEN_DATASET": manifest.golden_dataset_version,
+        "PRODUCTION_COHORT": manifest.production_cohort,
+    }
+
+
 class Provenance(StrictModel):
     """Tamper-evident identifiers; no raw private case content belongs here."""
 

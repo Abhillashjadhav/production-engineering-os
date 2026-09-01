@@ -59,6 +59,7 @@ def enqueue(outbox_dir: Path, *, route: str, identity: str, payload: object) -> 
     if target.exists():
         if _read_private_file(target) != canonical:
             raise ValueError("outbox identity already exists with different evidence")
+        _fsync_directory(outbox_dir)
         return target
     temporary = outbox_dir / f".{digest}.{secrets.token_hex(8)}.tmp"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0)
@@ -66,16 +67,16 @@ def enqueue(outbox_dir: Path, *, route: str, identity: str, payload: object) -> 
         flags |= os.O_NOFOLLOW
     descriptor = os.open(temporary, flags, 0o600)
     try:
-        view = memoryview(canonical)
-        while view:
-            written = os.write(descriptor, view)
-            if written <= 0:
-                raise OSError("short outbox write")
-            view = view[written:]
-        os.fsync(descriptor)
-    finally:
-        os.close(descriptor)
-    try:
+        try:
+            view = memoryview(canonical)
+            while view:
+                written = os.write(descriptor, view)
+                if written <= 0:
+                    raise OSError("short outbox write")
+                view = view[written:]
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
         try:
             os.link(temporary, target, follow_symlinks=False)
         except FileExistsError:

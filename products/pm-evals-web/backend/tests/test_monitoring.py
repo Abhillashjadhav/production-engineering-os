@@ -1142,6 +1142,8 @@ def test_monitoring_api_shows_no_data_then_persists_live_run(tmp_path: Path) -> 
 
     run = _failed_dream_job_run().model_copy(deep=True)
     run.observed_at = datetime.now(UTC)
+    for observation in run.observations:
+        observation.cause_signals = []
     baseline = next(
         item for item in build_demo_runs() if item.run_id == run.comparison.run_id
     ).model_copy(deep=True)

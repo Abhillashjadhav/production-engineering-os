@@ -54,6 +54,7 @@ from pm_evals_monitoring import (
     build_overview,
     canonical_run_digest,
     diagnose_run,
+    manifest_values,
 )
 from pm_evals_monitoring.models import MAX_FUTURE_CLOCK_SKEW, IngestResponse
 
@@ -508,6 +509,28 @@ def create_app(
                         "control_ref",
                         "controlled replay control does not resolve in stored evidence",
                     )
+                if (
+                    control_observation.case != observation.case
+                    or control_observation.evaluation != observation.evaluation
+                    or control_observation.location != observation.location
+                ):
+                    raise _validation_error(
+                        "control_ref",
+                        "controlled replay must compare the same case, evaluation, and location",
+                    )
+                assert control_run is not None
+                control_manifest = manifest_values(control_run.change_manifest)
+                candidate_manifest = manifest_values(run.change_manifest)
+                actual_varied = {
+                    dimension
+                    for dimension, candidate_value in candidate_manifest.items()
+                    if candidate_value != control_manifest[dimension]
+                }
+                if actual_varied != set(signal.varied_dimensions):
+                    raise _validation_error(
+                        "cause_signals",
+                        "controlled replay varied dimensions do not match stored manifests",
+                    )
         stored_digest = monitoring_store.get_run_digest(
             product_id=run.product.id,
             environment=run.product.environment,
@@ -630,6 +653,14 @@ def create_app(
             raise _validation_error(
                 "predicted_root_observation_ids",
                 "predicted roots must match the server diagnosis",
+            )
+        if (
+            diagnosed.attribution not in {"LIKELY_STARTING_FAILURE", "DEGRADED_CHECK"}
+            and record.verdict != "UNRESOLVED"
+        ):
+            raise _validation_error(
+                "verdict",
+                "only independently projected root incidents may receive a resolved verdict",
             )
         derived_verdict = (
             "UNRESOLVED"

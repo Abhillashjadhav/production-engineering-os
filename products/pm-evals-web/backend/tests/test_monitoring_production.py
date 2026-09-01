@@ -402,6 +402,151 @@ def test_unconfirmed_diagnosis_cannot_invent_a_resolved_root(tmp_path: Path) -> 
     assert metrics["guardrail_proven"] is False
 
 
+def test_downstream_symptom_cannot_count_as_an_independent_localization(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(
+        create_app(
+            monitoring_data_dir=tmp_path,
+            monitoring_ingest_token="producer-token",
+            monitoring_adjudication_token="review-token",
+        )
+    )
+    run = _run()
+    upstream = next(
+        item for item in run.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    downstream = next(
+        item for item in run.observations if item.observation_id == "eligible-job-coverage"
+    )
+    upstream.status = "FAIL"
+    upstream.current_value = 0.0
+    downstream.status = "FAIL"
+    downstream.current_value = 0.0
+    assert (
+        client.post(
+            "/api/monitoring/runs",
+            json=run.model_dump(mode="json"),
+            headers={"Authorization": "Bearer producer-token"},
+        ).status_code
+        == 200
+    )
+    record = AdjudicationRecord(
+        adjudication_id="downstream-is-not-independent",
+        product_id=run.product.id,
+        environment=run.product.environment,
+        run_id=run.run_id,
+        observation_id=downstream.observation_id,
+        predicted_root_observation_ids=[upstream.observation_id],
+        actual_root_observation_ids=[upstream.observation_id],
+        verdict="CORRECT",
+        adjudicated_at=datetime.now(UTC),
+        adjudicator_id="eval-reviewer",
+        reason_code="KNOWN_CAUSE_CONFIRMED",
+    )
+    rejected = client.post(
+        "/api/monitoring/adjudications",
+        json=record.model_dump(mode="json"),
+        headers={"Authorization": "Bearer review-token"},
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"][0]["source"] == "verdict"
+
+
+def test_controlled_replay_must_match_case_check_and_manifest_changes(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(
+        create_app(monitoring_data_dir=tmp_path, monitoring_ingest_token="producer-token")
+    )
+    control = _run()
+    control.run_id = "replay-control"
+    control.observed_at = datetime.now(UTC) - timedelta(seconds=1)
+    source = next(
+        item for item in control.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    candidate = control.model_copy(deep=True)
+    candidate.run_id = "replay-candidate"
+    candidate.observed_at = datetime.now(UTC)
+    candidate.comparison.run_id = control.run_id
+    candidate.comparison.sha256 = canonical_run_digest(control)
+    candidate.change_manifest.toolset_version = "connectors@replay"
+    candidate_source = next(
+        item
+        for item in candidate.observations
+        if item.observation_id == "source-linkedin-coverage"
+    )
+    candidate_source.status = "FAIL"
+    candidate_source.current_value = 0.0
+    planted = next(item for item in build_demo_runs() if item.run_id == "dream-job-2026-08-28")
+    signal = next(
+        item for item in planted.observations if item.observation_id == "source-linkedin-coverage"
+    ).cause_signals[0]
+    candidate_source.cause_signals = [
+        signal.model_copy(
+            deep=True,
+            update={
+                "control_ref": f"{control.run_id}#{source.observation_id}",
+                "candidate_ref": f"{candidate.run_id}#{candidate_source.observation_id}",
+            },
+        )
+    ]
+    headers = {"Authorization": "Bearer producer-token"}
+    assert (
+        client.post(
+            "/api/monitoring/runs", json=control.model_dump(mode="json"), headers=headers
+        ).status_code
+        == 200
+    )
+
+    wrong_check = candidate.model_copy(deep=True)
+    wrong_check.run_id = "replay-wrong-check"
+    wrong_source = next(
+        item
+        for item in wrong_check.observations
+        if item.observation_id == candidate_source.observation_id
+    )
+    wrong_source.cause_signals[
+        0
+    ].candidate_ref = f"{wrong_check.run_id}#{wrong_source.observation_id}"
+    wrong_source.cause_signals[0].control_ref = f"{control.run_id}#input-constraint-completeness"
+    rejected = client.post(
+        "/api/monitoring/runs", json=wrong_check.model_dump(mode="json"), headers=headers
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"][0]["source"] == "control_ref"
+
+    wrong_manifest = candidate.model_copy(deep=True)
+    wrong_manifest.run_id = "replay-wrong-manifest"
+    wrong_manifest.change_manifest.deployment_id = "changed-deployment"
+    wrong_manifest_source = next(
+        item
+        for item in wrong_manifest.observations
+        if item.observation_id == candidate_source.observation_id
+    )
+    wrong_manifest_source.cause_signals[
+        0
+    ].candidate_ref = f"{wrong_manifest.run_id}#{wrong_manifest_source.observation_id}"
+    rejected = client.post(
+        "/api/monitoring/runs",
+        json=wrong_manifest.model_dump(mode="json"),
+        headers=headers,
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"][0]["source"] == "cause_signals"
+
+    accepted = client.post(
+        "/api/monitoring/runs", json=candidate.model_dump(mode="json"), headers=headers
+    )
+    assert accepted.status_code == 200
+    diagnosis = next(
+        item
+        for item in accepted.json()["diagnosis"]["diagnoses"]
+        if item["observation_id"] == candidate_source.observation_id
+    )
+    assert diagnosis["evidence_level"] == "CONTROLLED_REPLAY"
+
+
 def test_horizontal_mapper_uses_settings_without_product_branches() -> None:
     root = Path(__file__).resolve().parents[2]
     payload = json.loads((root / "adapters/dream-job.settings.json").read_text())
@@ -611,6 +756,17 @@ def test_outbox_retries_without_losing_evidence(
     assert tmp_path in synced
     assert tmp_path / "nested" in synced
     assert outbox in synced
+    synced.clear()
+    assert (
+        enqueue(
+            outbox,
+            route="/api/monitoring/runs",
+            identity="run:dream-job-agent:production:1",
+            payload={"run_id": "1"},
+        )
+        == path
+    )
+    assert outbox in synced
 
     def fail(_: str, __: dict[str, object]) -> None:
         raise RuntimeError("offline")
@@ -650,6 +806,7 @@ def test_outbox_does_not_publish_a_partial_item(
                 payload={"run_id": "partial"},
             )
     assert not list(outbox.glob("*.pending.json"))
+    assert not list(outbox.glob("*.tmp"))
     path = enqueue(
         outbox,
         route="/api/monitoring/runs",

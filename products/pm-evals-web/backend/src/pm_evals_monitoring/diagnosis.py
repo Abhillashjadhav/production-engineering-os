@@ -16,7 +16,6 @@ from .models import (
     CauseCategory,
     CauseConfidence,
     ChangeItem,
-    ChangeManifest,
     CoverageHealth,
     EvidenceLevel,
     Incident,
@@ -32,6 +31,7 @@ from .models import (
     RunReceipt,
     TrendPoint,
     canonical_run_digest,
+    manifest_values,
 )
 
 _EVIDENCE_RANK: dict[str, int] = {
@@ -422,28 +422,13 @@ def _coverage_health(
     return result
 
 
-def _manifest_values(manifest: ChangeManifest) -> dict[str, str]:
-    return {
-        "USE_CASE": manifest.use_case_version,
-        "DEPLOYMENT": manifest.deployment_id,
-        "MODEL": f"{manifest.model.provider}/{manifest.model.name}@{manifest.model.snapshot}",
-        "PROMPT": manifest.prompt_version,
-        "CONFIGURATION": manifest.config_version,
-        "TOOLSET": manifest.toolset_version,
-        "EVALUATOR": manifest.evaluator_version,
-        "RUBRIC": manifest.rubric_version,
-        "GOLDEN_DATASET": manifest.golden_dataset_version,
-        "PRODUCTION_COHORT": manifest.production_cohort,
-    }
-
-
 def _changes(run: RunEnvelope, comparison: RunEnvelope | None) -> list[ChangeItem]:
     if comparison is None:
         return []
-    current = _manifest_values(run.change_manifest)
-    previous = _manifest_values(comparison.change_manifest)
+    current = manifest_values(run.change_manifest)
+    previous = manifest_values(comparison.change_manifest)
     return [
-        ChangeItem(dimension=dimension, previous=previous[dimension], current=value)  # type: ignore[arg-type]
+        ChangeItem(dimension=dimension, previous=previous[dimension], current=value)
         for dimension, value in current.items()
         if value != previous[dimension]
     ]
