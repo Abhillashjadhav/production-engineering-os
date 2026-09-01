@@ -1591,6 +1591,31 @@ def test_legacy_migration_rejects_any_unsafe_existing_marker(tmp_path: Path) -> 
     assert stat.S_IMODE(unsafe_marker.stat().st_mode) == 0o666
 
 
+@pytest.mark.parametrize(
+    "sidecar_name",
+    [
+        "observations.sqlite3-wal",
+        "observations.sqlite3-shm",
+        "observations.sqlite3-journal",
+    ],
+)
+def test_legacy_migration_rejects_unsafe_sqlite_sidecars(
+    tmp_path: Path, sidecar_name: str
+) -> None:
+    store_dir = tmp_path / "sidecar-legacy-store"
+    store_dir.mkdir(mode=0o755)
+    (store_dir / "observations.sqlite3").touch(mode=0o600)
+    sidecar = store_dir / sidecar_name
+    sidecar.touch(mode=0o600)
+    sidecar.chmod(0o666)
+
+    with pytest.raises(ValueError, match="owner-only mode 0700"):
+        MonitoringStore(store_dir)
+
+    assert stat.S_IMODE(store_dir.stat().st_mode) == 0o755
+    assert stat.S_IMODE(sidecar.stat().st_mode) == 0o666
+
+
 def test_owned_legacy_store_permissions_are_migrated(tmp_path: Path) -> None:
     store_dir = tmp_path / "legacy-store"
     store_dir.mkdir(mode=0o755)

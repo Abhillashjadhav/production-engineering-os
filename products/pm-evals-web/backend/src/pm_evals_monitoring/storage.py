@@ -36,6 +36,9 @@ _SHARED_STORE_ROOTS = frozenset(
 _LEGACY_STORE_MARKERS = (
     "observations.jsonl",
     "observations.sqlite3",
+    "observations.sqlite3-wal",
+    "observations.sqlite3-shm",
+    "observations.sqlite3-journal",
     "observations.lock",
     "run-receipts.jsonl",
     "adjudications.jsonl",
