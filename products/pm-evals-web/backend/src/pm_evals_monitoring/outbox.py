@@ -44,9 +44,7 @@ class _RejectRedirects(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def http_post_sender(
-    base_url: str, token: str
-) -> Callable[[str, dict[str, object]], None]:
+def http_post_sender(base_url: str, token: str) -> Callable[[str, dict[str, object]], None]:
     """Build a sender that acknowledges only a direct 2xx ingestion response."""
     opener = urllib.request.build_opener(_RejectRedirects())
 
@@ -62,7 +60,9 @@ def http_post_sender(
                 if response.status // 100 != 2:
                     raise RuntimeError(f"monitoring delivery failed with HTTP {response.status}")
         except urllib.error.URLError as exc:
-            raise RuntimeError("monitoring delivery failed; evidence remains in the outbox") from exc
+            raise RuntimeError(
+                "monitoring delivery failed; evidence remains in the outbox"
+            ) from exc
 
     return send
 

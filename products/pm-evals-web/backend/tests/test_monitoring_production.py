@@ -232,7 +232,11 @@ def test_production_monitoring_requires_durable_store() -> None:
 
 @pytest.mark.parametrize(
     "temporary_dir",
-    [Path("/tmp/pm-evals-live"), Path("/private/tmp/pm-evals-live"), Path("/var/tmp/pm-evals-live")],
+    [
+        Path("/tmp/pm-evals-live"),
+        Path("/private/tmp/pm-evals-live"),
+        Path("/var/tmp/pm-evals-live"),
+    ],
 )
 def test_production_monitoring_rejects_temporary_store(temporary_dir: Path) -> None:
     product = _run().product

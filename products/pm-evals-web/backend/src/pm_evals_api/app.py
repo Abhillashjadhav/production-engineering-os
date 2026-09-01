@@ -66,14 +66,15 @@ MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # per file; capped at read-back (T3)
 MAX_REQUEST_BYTES = 2 * MAX_UPLOAD_BYTES + 1024 * 1024
 
 _TEMPORARY_MONITORING_ROOTS = tuple(
-    root.resolve(strict=False)
-    for root in (Path("/tmp"), Path("/private/tmp"), Path("/var/tmp"))
+    root.resolve(strict=False) for root in (Path("/tmp"), Path("/private/tmp"), Path("/var/tmp"))
 )
 
 
 def _uses_temporary_monitoring_storage(path: Path) -> bool:
     resolved = path.resolve(strict=False)
-    return any(resolved == root or root in resolved.parents for root in _TEMPORARY_MONITORING_ROOTS)
+    return any(
+        resolved == root or root in resolved.parents for root in _TEMPORARY_MONITORING_ROOTS
+    )
 
 
 API_VERSION = "1.3.0"
