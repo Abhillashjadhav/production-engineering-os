@@ -100,12 +100,16 @@ def enqueue(outbox_dir: Path, *, route: str, identity: str, payload: object) -> 
     while not cursor.exists():
         missing_directories.append(cursor)
         cursor = cursor.parent
-    outbox_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-    if outbox_dir.is_symlink() or not outbox_dir.is_dir():
-        raise ValueError("monitoring outbox must be a real directory")
     for directory in reversed(missing_directories):
-        os.chmod(directory, 0o700)
-        _fsync_directory(directory.parent)
+        try:
+            directory.mkdir(mode=0o700)
+        except FileExistsError:
+            _validate_outbox_root(directory)
+        else:
+            os.chmod(directory, 0o700)
+            _fsync_directory(directory.parent)
+    if not outbox_dir.exists():
+        raise ValueError("monitoring outbox disappeared during initialization")
     _validate_outbox_root(outbox_dir)
     _fsync_directory(outbox_dir.parent)
     item = {"outbox_version": "0.1", "route": route, "payload": payload}

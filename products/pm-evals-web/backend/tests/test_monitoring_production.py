@@ -84,7 +84,12 @@ def test_dashboard_free_text_rejects_private_paths_and_credentials() -> None:
     with pytest.raises(ValidationError):
         RunEnvelope.model_validate(payload)
 
-    for absolute_path in ("/root/customer.json", "/opt/app/private-data", "/mnt/cases/raw.json"):
+    for absolute_path in (
+        "/root/customer.json",
+        "/opt/app/private-data",
+        "/mnt/cases/raw.json",
+        "C:/Users/customer/private.json",
+    ):
         payload = _run().model_dump(mode="json")
         payload["observations"][0]["current_summary"] = f"proof at {absolute_path}"
         with pytest.raises(ValidationError, match="private or absolute path"):
@@ -1105,6 +1110,43 @@ def test_existing_store_and_outbox_must_already_be_private(tmp_path: Path) -> No
 
     assert stat.S_IMODE(store_dir.stat().st_mode) == 0o755
     assert stat.S_IMODE(outbox_dir.stat().st_mode) == 0o755
+
+
+def test_concurrently_created_directories_are_validated_not_chmodded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_mkdir = Path.mkdir
+
+    def race_creation(target: Path) -> None:
+        def raced_mkdir(
+            path: Path,
+            mode: int = 0o777,
+            parents: bool = False,
+            exist_ok: bool = False,
+        ) -> None:
+            if path == target and not path.exists():
+                os.mkdir(path, 0o755)
+                path.chmod(0o755)
+                raise FileExistsError(path)
+            real_mkdir(path, mode=mode, parents=parents, exist_ok=exist_ok)
+
+        with monkeypatch.context() as context:
+            context.setattr(Path, "mkdir", raced_mkdir)
+            if "store" in target.name:
+                with pytest.raises(ValueError, match="owner-only mode 0700"):
+                    MonitoringStore(target)
+            else:
+                with pytest.raises(ValueError, match="owner-only mode 0700"):
+                    enqueue(
+                        target,
+                        route="/api/monitoring/runs",
+                        identity="run:dream-job-agent:production:raced-dir",
+                        payload={"run_id": "raced-dir"},
+                    )
+        assert stat.S_IMODE(target.stat().st_mode) == 0o755
+
+    race_creation(tmp_path / "raced-store")
+    race_creation(tmp_path / "raced-outbox")
 
 
 def test_outbox_does_not_publish_a_partial_item(

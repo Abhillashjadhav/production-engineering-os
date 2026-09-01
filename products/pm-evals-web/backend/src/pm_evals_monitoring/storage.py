@@ -73,12 +73,16 @@ class MonitoringStore:
         while not cursor.exists():
             missing_directories.append(cursor)
             cursor = cursor.parent
-        data_dir.mkdir(parents=True, exist_ok=True)
-        if data_dir.is_symlink() or not data_dir.is_dir():
-            raise ValueError("monitoring data directory must be a real directory")
         for directory in reversed(missing_directories):
-            os.chmod(directory, 0o700)
-            _fsync_directory(directory.parent)
+            try:
+                directory.mkdir(mode=0o700)
+            except FileExistsError:
+                _validate_store_directory(directory)
+            else:
+                os.chmod(directory, 0o700)
+                _fsync_directory(directory.parent)
+        if not data_dir.exists():
+            raise ValueError("monitoring data directory disappeared during initialization")
         _validate_store_directory(data_dir)
         _fsync_directory(data_dir.parent)
         for path in (
