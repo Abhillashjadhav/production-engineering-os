@@ -1129,6 +1129,32 @@ def test_repeated_adapter_definition_labels_are_bounded(field: str) -> None:
         AdapterSettings.model_validate(payload)
 
 
+@pytest.mark.parametrize("field", ["case_id", "use_case_id"])
+def test_repeated_normalized_case_identifiers_are_bounded(field: str) -> None:
+    template = _run()
+    case = template.observations[0].case.model_dump(mode="json")
+    case[field] = "x" * 121
+    payload = {
+        "format_version": "normalized-eval-run/0.1",
+        "run_id": "bounded-case-run",
+        "observed_at": template.observed_at,
+        "product_version": "release-1",
+        "comparison": template.comparison.model_dump(mode="json"),
+        "change_manifest": template.change_manifest.model_dump(mode="json"),
+        "provenance": template.provenance.model_dump(mode="json"),
+        "cases": [
+            {
+                "case_type": "job-search",
+                "case": case,
+                "checks": [],
+            }
+        ],
+    }
+
+    with pytest.raises(ValidationError, match="at most 120 characters"):
+        NormalizedRun.model_validate(payload)
+
+
 def test_late_comparison_is_used_only_when_its_digest_matches() -> None:
     baseline = _run()
     baseline.run_id = "late-baseline"

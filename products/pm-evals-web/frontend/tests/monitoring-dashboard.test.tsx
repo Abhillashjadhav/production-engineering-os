@@ -160,6 +160,26 @@ describe("MonitoringDashboard", () => {
     expect(screen.queryByText("Propagation")).not.toBeInTheDocument();
   });
 
+  it("renders the production guardrail as proven when calibration earns it", async () => {
+    const proven: MonitoringOverview = {
+      ...OVERVIEW,
+      attribution_metrics: {
+        ...OVERVIEW.attribution_metrics,
+        known_cause_sample_size: 149,
+        production_adjudicated_sample_size: 149,
+        false_attribution_rate: 0.01,
+        guardrail_proven: true,
+        label: "149 resolved independent case incidents",
+      },
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(proven)} />);
+
+    expect(await screen.findByText("target <2% · proven")).toBeInTheDocument();
+    expect(screen.getByText("Production guardrail proven")).toBeInTheDocument();
+    expect(screen.queryByText(/production guardrail not proven/i)).not.toBeInTheDocument();
+  });
+
   it("shows missing comparison evidence without asserting an expected value", async () => {
     const unavailable: MonitoringOverview = {
       ...OVERVIEW,

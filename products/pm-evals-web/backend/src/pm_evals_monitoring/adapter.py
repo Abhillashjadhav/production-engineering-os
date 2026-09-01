@@ -192,6 +192,13 @@ class NormalizedCase(StrictModel):
     case: CaseRef
     checks: list[NormalizedCheck] = Field(default_factory=list)
 
+    @field_validator("case")
+    @classmethod
+    def validate_repeated_case_identifiers(cls, value: CaseRef) -> CaseRef:
+        if len(value.case_id) > 120 or len(value.use_case_id) > 120:
+            raise ValueError("normalized case identifiers must be at most 120 characters")
+        return value
+
     @model_validator(mode="after")
     def validate_checks(self) -> NormalizedCase:
         ids = [item.definition_id for item in self.checks]
