@@ -1392,7 +1392,7 @@
             "type": "string"
           },
           "stage_index": {
-            "minimum": 1,
+            "minimum": 1.0,
             "title": "Stage Index",
             "type": "integer"
           }
@@ -1641,8 +1641,8 @@
             "title": "Threshold"
           },
           "tolerance": {
-            "default": 0,
-            "minimum": 0,
+            "default": 0.0,
+            "minimum": 0.0,
             "title": "Tolerance",
             "type": "number"
           },
@@ -1892,8 +1892,8 @@
           },
           "freshness_sla_seconds": {
             "default": 93600,
-            "maximum": 2678400,
-            "minimum": 60,
+            "maximum": 2678400.0,
+            "minimum": 60.0,
             "title": "Freshness Sla Seconds",
             "type": "integer"
           },
