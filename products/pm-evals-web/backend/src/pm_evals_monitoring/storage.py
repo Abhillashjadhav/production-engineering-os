@@ -255,13 +255,14 @@ class MonitoringStore:
                         ON runs(product_id, environment, observed_at DESC, run_id DESC);
                     CREATE INDEX IF NOT EXISTS runs_product_arrival
                         ON runs(product_id, environment, observed_at DESC, byte_offset DESC);
-                    CREATE TABLE IF NOT EXISTS ingest_rate (
+                    DROP TABLE IF EXISTS ingest_rate;
+                    CREATE TABLE IF NOT EXISTS ingest_rate_events (
                         product_id TEXT NOT NULL,
                         environment TEXT NOT NULL,
-                        minute_epoch INTEGER NOT NULL,
-                        request_count INTEGER NOT NULL,
-                        PRIMARY KEY(product_id, environment, minute_epoch)
+                        request_epoch REAL NOT NULL
                     );
+                    CREATE INDEX IF NOT EXISTS ingest_rate_events_identity_time
+                        ON ingest_rate_events(product_id, environment, request_epoch);
                     """
                 )
             self._reconcile_index_unlocked()
@@ -271,24 +272,23 @@ class MonitoringStore:
 
         if limit_per_minute < 1:
             raise ValueError("limit_per_minute must be positive")
-        minute_epoch = int(datetime.now(UTC).timestamp()) // 60
+        request_epoch = datetime.now(UTC).timestamp()
+        window_start = request_epoch - 60.0
         with self._exclusive_store_lock(), self._connect() as connection:
             connection.execute(
-                "DELETE FROM ingest_rate WHERE minute_epoch < ?", (minute_epoch - 2,)
+                "DELETE FROM ingest_rate_events WHERE request_epoch <= ?", (window_start,)
             )
             current = connection.execute(
-                """SELECT request_count FROM ingest_rate
-                   WHERE product_id = ? AND environment = ? AND minute_epoch = ?""",
-                (product_id, environment, minute_epoch),
-            ).fetchone()
-            if current is not None and current[0] >= limit_per_minute:
+                """SELECT COUNT(*) FROM ingest_rate_events
+                   WHERE product_id = ? AND environment = ? AND request_epoch > ?""",
+                (product_id, environment, window_start),
+            ).fetchone()[0]
+            if current >= limit_per_minute:
                 return False
             connection.execute(
-                """INSERT INTO ingest_rate(product_id, environment, minute_epoch, request_count)
-                   VALUES (?, ?, ?, 1)
-                   ON CONFLICT(product_id, environment, minute_epoch)
-                   DO UPDATE SET request_count = request_count + 1""",
-                (product_id, environment, minute_epoch),
+                """INSERT INTO ingest_rate_events(product_id, environment, request_epoch)
+                   VALUES (?, ?, ?)""",
+                (product_id, environment, request_epoch),
             )
         return True
 

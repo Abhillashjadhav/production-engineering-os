@@ -315,6 +315,37 @@ def test_product_ingestion_is_rate_limited(tmp_path: Path) -> None:
     assert second.status_code == 429
 
 
+def test_ingestion_rate_limit_uses_a_rolling_window_across_minute_boundary(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = MonitoringStore(tmp_path)
+    moments = iter(
+        [
+            datetime.fromtimestamp(119.9, UTC),
+            datetime.fromtimestamp(120.1, UTC),
+            datetime.fromtimestamp(180.0, UTC),
+        ]
+    )
+
+    class TestClock:
+        @classmethod
+        def now(cls, tz: object) -> datetime:
+            assert tz is UTC
+            return next(moments)
+
+    monkeypatch.setattr(storage_module, "datetime", TestClock)
+
+    assert store.admit_ingest(
+        product_id="dream-job-agent", environment="production", limit_per_minute=1
+    )
+    assert not store.admit_ingest(
+        product_id="dream-job-agent", environment="production", limit_per_minute=1
+    )
+    assert store.admit_ingest(
+        product_id="dream-job-agent", environment="production", limit_per_minute=1
+    )
+
+
 def test_stored_comparison_requires_matching_digest(tmp_path: Path) -> None:
     client = TestClient(
         create_app(monitoring_data_dir=tmp_path, monitoring_ingest_token="producer-token")
