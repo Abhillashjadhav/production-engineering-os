@@ -123,6 +123,10 @@ _PRIVATE_PATH = re.compile(
     r"(?:^|[\s('\"=])[A-Za-z]:[\\/])",
     re.IGNORECASE,
 )
+_UNC_PATH = re.compile(
+    r"(?:^|[\s('\"=])(?:\\\\|//)[A-Za-z0-9._~-]+[\\/]",
+    re.IGNORECASE,
+)
 _EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
 _SECRET_ASSIGNMENT = re.compile(
     r"\b(?:api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*\S+",
@@ -139,7 +143,7 @@ def validate_redacted_text(value: str) -> str:
     validator is a central defense in depth, not a claim of perfect redaction.
     """
 
-    if _PRIVATE_PATH.search(value):
+    if _PRIVATE_PATH.search(value) or _UNC_PATH.search(value):
         raise ValueError("dashboard text must not contain a private or absolute path")
     if _EMAIL.search(value):
         raise ValueError("dashboard text must not contain an email address")

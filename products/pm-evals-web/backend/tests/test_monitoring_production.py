@@ -89,6 +89,8 @@ def test_dashboard_free_text_rejects_private_paths_and_credentials() -> None:
         "/opt/app/private-data",
         "/mnt/cases/raw.json",
         "C:/Users/customer/private.json",
+        r"\\server\share\customer.json",
+        "//server/share/customer.json",
     ):
         payload = _run().model_dump(mode="json")
         payload["observations"][0]["current_summary"] = f"proof at {absolute_path}"
@@ -805,6 +807,15 @@ def test_horizontal_mapper_uses_settings_without_product_branches() -> None:
     normalized_payload["run_id"] = "PrivateRunTokenABC123456789012345678901234567890"
     with pytest.raises(ValidationError, match="high-entropy token"):
         NormalizedRun.model_validate(normalized_payload)
+
+    selected_definition_count = len(settings.case_types["job-search"])
+    excessive_case_count = 2000 // selected_definition_count + 1
+    excessive = normalized.model_copy(
+        deep=True,
+        update={"cases": [normalized.cases[0]] * excessive_case_count},
+    )
+    with pytest.raises(ValueError, match="2,000 observation limit"):
+        map_normalized_run(settings, excessive)
 
 
 def test_late_comparison_is_used_only_when_its_digest_matches() -> None:

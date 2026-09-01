@@ -32,6 +32,7 @@ from .models import (
 )
 
 MAX_ADAPTER_INPUT_BYTES = 5 * 1024 * 1024
+MAX_MAPPED_OBSERVATIONS = 2000
 _ALL_STATUSES: frozenset[ObservationStatus] = frozenset(
     {"PASS", "FAIL", "BLOCKED", "NOT_EVALUATED"}
 )
@@ -241,6 +242,14 @@ def map_normalized_run(settings: AdapterSettings, run: NormalizedRun) -> RunEnve
     """Map normalized facts with no product-specific code branches."""
 
     definitions = {item.id: item for item in settings.definitions}
+    mapped_observation_count = 0
+    for normalized_case in run.cases:
+        selected_ids = settings.case_types.get(normalized_case.case_type)
+        if selected_ids is None:
+            raise ValueError(f"normalized run has unknown case type: {normalized_case.case_type}")
+        mapped_observation_count += len(selected_ids)
+        if mapped_observation_count > MAX_MAPPED_OBSERVATIONS:
+            raise ValueError("mapped run exceeds the 2,000 observation limit")
     observations: list[Observation] = []
     metadata: dict[str, JsonValue] = {
         "id": settings.adapter_id,
