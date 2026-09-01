@@ -389,6 +389,21 @@ class MonitoringStore:
     def _canonical_line(run: RunEnvelope) -> bytes:
         return canonical_run_line(run)
 
+    @staticmethod
+    def _legacy_v02_line(run: RunEnvelope) -> bytes | None:
+        """Recreate the V0.2 representation from before comparison digests."""
+
+        if run.comparison.sha256 is not None:
+            return None
+        payload = run.model_dump(mode="json")
+        comparison = payload.get("comparison")
+        if not isinstance(comparison, dict):
+            return None
+        comparison.pop("sha256", None)
+        return (
+            json.dumps(payload, allow_nan=False, sort_keys=True, separators=(",", ":")) + "\n"
+        ).encode()
+
     def _truncate_log(self, byte_offset: int) -> None:
         """Durably roll the canonical log back to a known record boundary."""
 
@@ -497,9 +512,15 @@ class MonitoringStore:
                         (run.product.id, run.product.environment, run.run_id),
                     ).fetchone()
                     if existing:
-                        if existing[0] != digest:
-                            raise ValueError("run identity already exists with different evidence")
-                        return False
+                        if existing[0] == digest:
+                            return False
+                        legacy_line = self._legacy_v02_line(run)
+                        if (
+                            legacy_line is not None
+                            and hashlib.sha256(legacy_line).hexdigest() == existing[0]
+                        ):
+                            return False
+                        raise ValueError("run identity already exists with different evidence")
                     if run.observed_at > datetime.now(UTC) + MAX_FUTURE_CLOCK_SKEW:
                         raise FutureObservationError(
                             "observed_at exceeds the allowed five-minute clock skew"

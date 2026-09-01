@@ -174,6 +174,16 @@ def test_product_scoped_credentials_refuse_cross_namespace_write(tmp_path: Path)
     assert client.get("/api/monitoring/overview").json()["mode"] == "NO_DATA"
 
 
+def test_product_scoped_credentials_must_not_be_empty(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="must not be empty"):
+        create_app(
+            monitoring_data_dir=tmp_path,
+            monitoring_ingest_credentials={
+                ("dream-job-agent", "production"): "",
+            },
+        )
+
+
 @pytest.mark.parametrize("use_legacy_token", [False, True])
 def test_adjudication_credential_must_be_distinct_from_producers(
     tmp_path: Path, use_legacy_token: bool
@@ -1024,6 +1034,7 @@ def test_stored_legacy_comparison_uses_verified_ledger_digest(tmp_path: Path) ->
     legacy_log.write_bytes(legacy_line)
     legacy_log.chmod(0o600)
     store = MonitoringStore(store_dir)
+    assert not store.append(baseline)
 
     candidate = baseline.model_copy(deep=True)
     candidate.run_id = "stored-legacy-candidate"

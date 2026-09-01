@@ -261,6 +261,8 @@ def create_app(
     expected_products = monitoring_expected_products or []
     if monitoring_ingest_token and scoped_credentials:
         raise ValueError("legacy and product-scoped monitoring credentials cannot be mixed")
+    if any(not token for token in scoped_credentials.values()):
+        raise ValueError("product-scoped monitoring credentials must not be empty")
     if len(set(scoped_credentials.values())) != len(scoped_credentials):
         raise ValueError("each product monitoring identity requires a distinct credential")
     producer_tokens = set(scoped_credentials.values())
