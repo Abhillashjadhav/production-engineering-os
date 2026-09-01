@@ -9,11 +9,17 @@ import os
 import re
 import secrets
 import stat
+import urllib.error
+import urllib.request
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from http.client import HTTPMessage
 from pathlib import Path
+from typing import IO
 
 MAX_OUTBOX_ITEM_BYTES = 5 * 1024 * 1024
+MAX_SENT_MARKERS = 10_000
+_SENT_MARKER_VERSION = "0.1"
 _TEMPORARY_ITEM = re.compile(r"^\.[0-9a-f]{64}\.[0-9a-f]{16}\.tmp$")
 _SHARED_OUTBOX_ROOTS = frozenset(
     path.resolve(strict=False) for path in (Path("/private/tmp"), Path("/var/tmp"))
@@ -23,6 +29,42 @@ _SHARED_OUTBOX_ROOTS = frozenset(
 def canonical_outbox_identity(kind: str, *components: str) -> str:
     """Return an injective identity for a typed outbox item."""
     return json.dumps([kind, *components], ensure_ascii=False, separators=(",", ":"))
+
+
+class _RejectRedirects(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: HTTPMessage,
+        newurl: str,
+    ) -> None:
+        return None
+
+
+def http_post_sender(
+    base_url: str, token: str
+) -> Callable[[str, dict[str, object]], None]:
+    """Build a sender that acknowledges only a direct 2xx ingestion response."""
+    opener = urllib.request.build_opener(_RejectRedirects())
+
+    def send(route: str, payload: dict[str, object]) -> None:
+        request = urllib.request.Request(
+            base_url.rstrip("/") + route,
+            data=json.dumps(payload, separators=(",", ":")).encode(),
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with opener.open(request, timeout=30) as response:
+                if response.status // 100 != 2:
+                    raise RuntimeError(f"monitoring delivery failed with HTTP {response.status}")
+        except urllib.error.URLError as exc:
+            raise RuntimeError("monitoring delivery failed; evidence remains in the outbox") from exc
+
+    return send
 
 
 def _validate_outbox_root(outbox_dir: Path) -> None:
@@ -44,6 +86,30 @@ def _fsync_directory(path: Path) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+
+
+def _sent_marker(data: bytes) -> bytes:
+    marker = {
+        "evidence_sha256": hashlib.sha256(data).hexdigest(),
+        "outbox_sent_version": _SENT_MARKER_VERSION,
+    }
+    return (json.dumps(marker, sort_keys=True, separators=(",", ":")) + "\n").encode()
+
+
+def _sent_matches(path: Path, data: bytes) -> bool:
+    stored = _read_private_file(path)
+    if stored == data:
+        return True
+    try:
+        marker = json.loads(stored)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return False
+    return (
+        isinstance(marker, dict)
+        and set(marker) == {"evidence_sha256", "outbox_sent_version"}
+        and marker.get("outbox_sent_version") == _SENT_MARKER_VERSION
+        and marker.get("evidence_sha256") == hashlib.sha256(data).hexdigest()
+    )
 
 
 def _read_private_file(path: Path) -> bytes:
@@ -88,6 +154,49 @@ def _exclusive_outbox_lock(outbox_dir: Path) -> Iterator[None]:
         os.close(descriptor)
 
 
+def _publish_sent_marker(
+    outbox_dir: Path, pending_path: Path, sent_path: Path, data: bytes
+) -> None:
+    marker = _sent_marker(data)
+    digest = pending_path.name.split(".", 1)[0]
+    temporary = outbox_dir / f".{digest}.{secrets.token_hex(8)}.tmp"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(temporary, flags, 0o600)
+    try:
+        try:
+            view = memoryview(marker)
+            while view:
+                written = os.write(descriptor, view)
+                if written <= 0:
+                    raise OSError("short outbox marker write")
+                view = view[written:]
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+        os.replace(temporary, sent_path)
+        pending_path.unlink()
+    finally:
+        temporary.unlink(missing_ok=True)
+        _fsync_directory(outbox_dir)
+
+
+def _prune_sent_markers(outbox_dir: Path) -> None:
+    markers = sorted(
+        outbox_dir.glob("*.sent.json"),
+        key=lambda path: (path.stat(follow_symlinks=False).st_mtime_ns, path.name),
+    )
+    removed = False
+    for path in markers[:-MAX_SENT_MARKERS]:
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("monitoring outbox sent marker must be a regular file")
+        path.unlink()
+        removed = True
+    if removed:
+        _fsync_directory(outbox_dir)
+
+
 def _reconcile_temporary_items(outbox_dir: Path) -> None:
     removed = False
     for path in outbox_dir.iterdir():
@@ -124,10 +233,11 @@ def enqueue(outbox_dir: Path, *, route: str, identity: str, payload: object) -> 
     digest = hashlib.sha256(identity.encode()).hexdigest()
     with _exclusive_outbox_lock(outbox_dir):
         _reconcile_temporary_items(outbox_dir)
+        _prune_sent_markers(outbox_dir)
         target = outbox_dir / f"{digest}.pending.json"
         sent_target = outbox_dir / f"{digest}.sent.json"
         if sent_target.exists():
-            if _read_private_file(sent_target) != canonical:
+            if not _sent_matches(sent_target, canonical):
                 raise ValueError("outbox identity already exists with different evidence")
             if target.exists():
                 if _read_private_file(target) != canonical:
@@ -173,6 +283,8 @@ def flush(
         return 0
     sent = 0
     with _exclusive_outbox_lock(outbox_dir):
+        _reconcile_temporary_items(outbox_dir)
+        _prune_sent_markers(outbox_dir)
         for path in sorted(outbox_dir.glob("*.pending.json")):
             data = _read_private_file(path)
             payload = json.loads(data)
@@ -186,13 +298,13 @@ def flush(
                 raise ValueError("monitoring outbox item has an invalid schema")
             sent_path = path.with_name(path.name.replace(".pending.json", ".sent.json"))
             if sent_path.exists():
-                if _read_private_file(sent_path) != data:
+                if not _sent_matches(sent_path, data):
                     raise ValueError("outbox identity already exists with different evidence")
                 path.unlink()
                 _fsync_directory(outbox_dir)
                 continue
             sender(payload["route"], payload["payload"])
-            os.replace(path, sent_path)
-            _fsync_directory(outbox_dir)
+            _publish_sent_marker(outbox_dir, path, sent_path, data)
             sent += 1
+        _prune_sent_markers(outbox_dir)
     return sent

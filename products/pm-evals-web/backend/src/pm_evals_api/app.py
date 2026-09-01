@@ -65,6 +65,17 @@ MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # per file; capped at read-back (T3)
 # files plus multipart framing and any form fields fit comfortably under it.
 MAX_REQUEST_BYTES = 2 * MAX_UPLOAD_BYTES + 1024 * 1024
 
+_TEMPORARY_MONITORING_ROOTS = tuple(
+    root.resolve(strict=False)
+    for root in (Path("/tmp"), Path("/private/tmp"), Path("/var/tmp"))
+)
+
+
+def _uses_temporary_monitoring_storage(path: Path) -> bool:
+    resolved = path.resolve(strict=False)
+    return any(resolved == root or root in resolved.parents for root in _TEMPORARY_MONITORING_ROOTS)
+
+
 API_VERSION = "1.3.0"
 
 _monitoring_ingestion_bearer = HTTPBearer(
@@ -256,6 +267,10 @@ def create_app(
     monitoring_expected_products: list[ProductRef] | None = None,
     monitoring_ingest_limit_per_minute: int = 120,
 ) -> FastAPI:
+    if monitoring_production and (
+        monitoring_data_dir is None or _uses_temporary_monitoring_storage(monitoring_data_dir)
+    ):
+        raise ValueError("production monitoring requires a durable non-temporary data directory")
     monitoring_store = MonitoringStore(monitoring_data_dir) if monitoring_data_dir else None
     scoped_credentials = monitoring_ingest_credentials or {}
     expected_products = monitoring_expected_products or []
@@ -272,8 +287,6 @@ def create_app(
         raise ValueError("the monitoring adjudication credential must be distinct from producers")
     if monitoring_production and monitoring_demo_mode:
         raise ValueError("production monitoring cannot enable demo mode")
-    if monitoring_production and monitoring_store is None:
-        raise ValueError("production monitoring requires a durable monitoring data directory")
     expected_identities = {(product.id, product.environment) for product in expected_products}
     expected_by_identity = {
         (product.id, product.environment): product for product in expected_products
@@ -872,11 +885,8 @@ _monitoring_dir = Path(os.environ.get("PM_EVALS_MONITORING_DATA_DIR", "/tmp/pm-e
 _production_monitoring = os.environ.get("PM_EVALS_PRODUCTION_MONITORING") == "1"
 _scoped_credentials = _scoped_credentials_from_environment()
 _expected_products = _expected_products_from_environment()
-_resolved_monitoring_dir = _monitoring_dir.resolve(strict=False)
-_tmp_root = Path("/tmp")
 if _production_monitoring and (
-    _resolved_monitoring_dir == _tmp_root
-    or _tmp_root in _resolved_monitoring_dir.parents
+    _uses_temporary_monitoring_storage(_monitoring_dir)
     or not _scoped_credentials
     or not _expected_products
     or bool(os.environ.get("PM_EVALS_INGEST_TOKEN"))

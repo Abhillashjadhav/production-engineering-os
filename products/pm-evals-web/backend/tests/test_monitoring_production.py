@@ -5,7 +5,9 @@ from __future__ import annotations
 import json
 import os
 import stat
+import urllib.request
 from datetime import UTC, datetime, timedelta
+from http.client import HTTPMessage
 from pathlib import Path
 
 import pytest
@@ -29,7 +31,12 @@ from pm_evals_monitoring import (
 from pm_evals_monitoring import outbox as outbox_module
 from pm_evals_monitoring import storage as storage_module
 from pm_evals_monitoring.diagnosis import attribution_metrics_from_adjudications
-from pm_evals_monitoring.outbox import canonical_outbox_identity, enqueue, flush
+from pm_evals_monitoring.outbox import (
+    _RejectRedirects,
+    canonical_outbox_identity,
+    enqueue,
+    flush,
+)
 from pm_evals_monitoring.storage import MonitoringStore
 
 
@@ -221,6 +228,24 @@ def test_production_monitoring_requires_durable_store() -> None:
             monitoring_expected_products=[product],
             monitoring_production=True,
         )
+
+
+@pytest.mark.parametrize(
+    "temporary_dir",
+    [Path("/tmp/pm-evals-live"), Path("/private/tmp/pm-evals-live"), Path("/var/tmp/pm-evals-live")],
+)
+def test_production_monitoring_rejects_temporary_store(temporary_dir: Path) -> None:
+    product = _run().product
+
+    with pytest.raises(ValueError, match="durable non-temporary data directory"):
+        create_app(
+            monitoring_data_dir=temporary_dir,
+            monitoring_ingest_credentials={(product.id, product.environment): "producer-token"},
+            monitoring_expected_products=[product],
+            monitoring_production=True,
+        )
+
+    assert not temporary_dir.exists()
 
 
 def test_production_registry_must_match_scoped_credential_identities(tmp_path: Path) -> None:
@@ -1292,6 +1317,23 @@ def test_both_product_settings_map_through_the_same_contract() -> None:
     assert products == ["dream-job-agent", "linkedin-research-os"]
 
 
+def test_outbox_sender_refuses_redirects() -> None:
+    handler = _RejectRedirects()
+    request = urllib.request.Request("https://monitoring.example/api/monitoring/runs")
+
+    assert (
+        handler.redirect_request(
+            request,
+            None,
+            302,
+            "Found",
+            HTTPMessage(),
+            "https://example.com/not-ingestion",
+        )
+        is None
+    )
+
+
 def test_outbox_identity_is_injective() -> None:
     first = canonical_outbox_identity("run", "a:b", "c", "d")
     second = canonical_outbox_identity("run", "a", "b:c", "d")
@@ -1384,6 +1426,31 @@ def test_outbox_flush_rejects_shared_root_before_scanning_it() -> None:
         flush(Path("/tmp"), sender=sender)
 
     assert not sent
+
+
+def test_sent_outbox_markers_are_compact_and_bounded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    outbox = tmp_path / "bounded-outbox"
+    monkeypatch.setattr(outbox_module, "MAX_SENT_MARKERS", 2)
+    large_value = "x" * 10_000
+
+    for index in range(3):
+        enqueue(
+            outbox,
+            route="/api/monitoring/runs",
+            identity=canonical_outbox_identity("run", str(index)),
+            payload={"run_id": str(index), "large_value": large_value},
+        )
+        assert flush(outbox, sender=lambda _route, _payload: None) == 1
+
+    markers = list(outbox.glob("*.sent.json"))
+    assert len(markers) == 2
+    for marker_path in markers:
+        marker = json.loads(marker_path.read_text())
+        assert set(marker) == {"evidence_sha256", "outbox_sent_version"}
+        assert marker["outbox_sent_version"] == "0.1"
+        assert len(marker_path.read_bytes()) < len(large_value)
 
 
 def test_sent_outbox_identity_is_not_reenqueued(tmp_path: Path) -> None:

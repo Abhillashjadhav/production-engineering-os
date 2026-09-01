@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
-import urllib.error
-import urllib.request
 from pathlib import Path
 
 from pm_evals_monitoring import (
@@ -15,25 +12,12 @@ from pm_evals_monitoring import (
     load_normalized_run,
     map_normalized_run,
 )
-from pm_evals_monitoring.outbox import canonical_outbox_identity, enqueue, flush
-
-
-def _post_sender(base_url: str, token: str):
-    def send(route: str, payload: dict[str, object]) -> None:
-        request = urllib.request.Request(
-            base_url.rstrip("/") + route,
-            data=json.dumps(payload, separators=(",", ":")).encode(),
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            method="POST",
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                if response.status // 100 != 2:
-                    raise RuntimeError(f"monitoring delivery failed with HTTP {response.status}")
-        except urllib.error.URLError as exc:
-            raise RuntimeError("monitoring delivery failed; evidence remains in the outbox") from exc
-
-    return send
+from pm_evals_monitoring.outbox import (
+    canonical_outbox_identity,
+    enqueue,
+    flush,
+    http_post_sender,
+)
 
 
 def main() -> int:
@@ -77,7 +61,7 @@ def main() -> int:
     token = os.environ.get(args.token_env, "")
     if not token:
         raise RuntimeError(f"monitoring credential environment variable {args.token_env} is empty")
-    print(flush(args.outbox_dir, sender=_post_sender(args.base_url, token)))
+    print(flush(args.outbox_dir, sender=http_post_sender(args.base_url, token)))
     return 0
 
 
