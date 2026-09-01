@@ -162,8 +162,8 @@ def _dream_job_run(day: int, *, planted_failure: bool) -> RunEnvelope:
             CauseSignal(
                 category="PROMPT_CONFIG_TOOL_CHANGE",
                 evidence_level="CONTROLLED_REPLAY",
-                control_ref="connectors@1:same-case",
-                candidate_ref="connectors@2:same-case",
+                control_ref="dream-job-2026-08-24#source-linkedin-coverage",
+                candidate_ref=f"{run_id}#source-linkedin-coverage",
                 control_status="PASS",
                 candidate_status="FAIL",
                 held_constant=[

@@ -484,8 +484,8 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
           </p>
         </div>
         <div className="run-context">
-          <span className={`mode-pill ${overview.mode === "PLANTED_DEMO" ? "mode-demo" : "mode-live"}`}>
-            {overview.mode === "PLANTED_DEMO" ? "Planted demo run" : "Live observations"}
+          <span className={`mode-pill ${overview.mode === "PLANTED_DEMO" ? "mode-demo" : overview.mode === "NO_DATA" ? "mode-empty" : "mode-live"}`}>
+            {overview.mode === "PLANTED_DEMO" ? "Planted demo run" : overview.mode === "NO_DATA" ? "No production data" : "Live observations"}
           </span>
           <span>Updated {currentTime(overview.generated_at)}</span>
           <button
@@ -502,6 +502,13 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
       {overview.mode === "PLANTED_DEMO" && (
         <div className="demo-banner" role="note">
           <strong>Simulation, not production.</strong> One known Dream Job connector failure is planted to prove exact-case localization, controlled-replay attribution, and downstream suppression.
+        </div>
+      )}
+
+      {overview.mode === "NO_DATA" && (
+        <div className="refresh-error" role="status">
+          <strong>No production eval data received.</strong>
+          <span>Products will appear after their first lifecycle receipt or completed eval run.</span>
         </div>
       )}
 

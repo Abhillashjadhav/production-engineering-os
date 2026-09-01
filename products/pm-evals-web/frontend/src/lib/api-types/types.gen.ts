@@ -5,6 +5,76 @@ export type ClientOptions = {
 };
 
 /**
+ * AdjudicationRecord
+ *
+ * Privileged, append-only ground truth for localization accuracy.
+ */
+export type AdjudicationRecord = {
+    /**
+     * Actual Root Observation Ids
+     */
+    actual_root_observation_ids: Array<string>;
+    /**
+     * Adjudicated At
+     */
+    adjudicated_at: string;
+    /**
+     * Adjudication Id
+     */
+    adjudication_id: string;
+    /**
+     * Adjudication Version
+     */
+    adjudication_version?: '0.1';
+    /**
+     * Adjudicator Id
+     */
+    adjudicator_id: string;
+    /**
+     * Environment
+     */
+    environment: string;
+    /**
+     * Observation Id
+     */
+    observation_id: string;
+    /**
+     * Predicted Root Observation Ids
+     */
+    predicted_root_observation_ids: Array<string>;
+    /**
+     * Product Id
+     */
+    product_id: string;
+    /**
+     * Reason Code
+     */
+    reason_code: string;
+    /**
+     * Run Id
+     */
+    run_id: string;
+    /**
+     * Verdict
+     */
+    verdict: 'CORRECT' | 'INCORRECT' | 'UNRESOLVED';
+};
+
+/**
+ * AppendResponse
+ */
+export type AppendResponse = {
+    /**
+     * Duplicate
+     */
+    duplicate: boolean;
+    /**
+     * Stored
+     */
+    stored: boolean;
+};
+
+/**
  * AttributionMetrics
  */
 export type AttributionMetrics = {
@@ -318,6 +388,10 @@ export type ComparisonRef = {
      * Run Id
      */
     run_id: string;
+    /**
+     * Sha256
+     */
+    sha256?: string | null;
 };
 
 /**
@@ -764,7 +838,7 @@ export type MonitoringOverview = {
     /**
      * Mode
      */
-    mode: 'PLANTED_DEMO' | 'LIVE';
+    mode: 'PLANTED_DEMO' | 'NO_DATA' | 'LIVE';
     /**
      * Products
      */
@@ -1116,6 +1190,43 @@ export type RunEnvelope = {
 };
 
 /**
+ * RunReceipt
+ *
+ * Lifecycle evidence emitted before and after a scheduled product run.
+ */
+export type RunReceipt = {
+    /**
+     * Detail Code
+     */
+    detail_code: string;
+    /**
+     * Expected Next Run At
+     */
+    expected_next_run_at: string;
+    /**
+     * Observed At
+     */
+    observed_at: string;
+    product: ProductRef;
+    /**
+     * Receipt Id
+     */
+    receipt_id: string;
+    /**
+     * Receipt Version
+     */
+    receipt_version?: '0.1';
+    /**
+     * Run Id
+     */
+    run_id: string;
+    /**
+     * Status
+     */
+    status: 'STARTED' | 'COMPLETED' | 'FAILED';
+};
+
+/**
  * SizeLimitResponse
  *
  * The 413 body — one documented shape for either size boundary: the
@@ -1304,6 +1415,47 @@ export type HealthApiHealthGetResponses = {
 
 export type HealthApiHealthGetResponse = HealthApiHealthGetResponses[keyof HealthApiHealthGetResponses];
 
+export type IngestMonitoringAdjudicationApiMonitoringAdjudicationsPostData = {
+    body: AdjudicationRecord;
+    path?: never;
+    query?: never;
+    url: '/api/monitoring/adjudications';
+};
+
+export type IngestMonitoringAdjudicationApiMonitoringAdjudicationsPostErrors = {
+    /**
+     * A privileged adjudication credential is required.
+     */
+    401: unknown;
+    /**
+     * The adjudication identity exists with different evidence.
+     */
+    409: unknown;
+    /**
+     * The request exceeds a size limit — the whole-request cap (enforced before parsing) or an individual file's cap.
+     */
+    413: SizeLimitResponse;
+    /**
+     * A validation failure: one or more named per-source problems.
+     */
+    422: ValidationErrorResponse;
+    /**
+     * Monitoring persistence or adjudication is not configured.
+     */
+    503: unknown;
+};
+
+export type IngestMonitoringAdjudicationApiMonitoringAdjudicationsPostError = IngestMonitoringAdjudicationApiMonitoringAdjudicationsPostErrors[keyof IngestMonitoringAdjudicationApiMonitoringAdjudicationsPostErrors];
+
+export type IngestMonitoringAdjudicationApiMonitoringAdjudicationsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: AppendResponse;
+};
+
+export type IngestMonitoringAdjudicationApiMonitoringAdjudicationsPostResponse = IngestMonitoringAdjudicationApiMonitoringAdjudicationsPostResponses[keyof IngestMonitoringAdjudicationApiMonitoringAdjudicationsPostResponses];
+
 export type EvaluateMonitoringRunApiMonitoringEvaluatePostData = {
     body: RunEnvelope;
     path?: never;
@@ -1349,6 +1501,51 @@ export type MonitoringOverviewApiMonitoringOverviewGetResponses = {
 
 export type MonitoringOverviewApiMonitoringOverviewGetResponse = MonitoringOverviewApiMonitoringOverviewGetResponses[keyof MonitoringOverviewApiMonitoringOverviewGetResponses];
 
+export type IngestMonitoringReceiptApiMonitoringReceiptsPostData = {
+    body: RunReceipt;
+    path?: never;
+    query?: never;
+    url: '/api/monitoring/receipts';
+};
+
+export type IngestMonitoringReceiptApiMonitoringReceiptsPostErrors = {
+    /**
+     * A valid monitoring ingestion credential is required.
+     */
+    401: unknown;
+    /**
+     * The credential belongs to another product identity.
+     */
+    403: unknown;
+    /**
+     * The receipt identity exists with different evidence.
+     */
+    409: unknown;
+    /**
+     * The request exceeds a size limit — the whole-request cap (enforced before parsing) or an individual file's cap.
+     */
+    413: SizeLimitResponse;
+    /**
+     * A validation failure: one or more named per-source problems.
+     */
+    422: ValidationErrorResponse;
+    /**
+     * Monitoring persistence is not configured.
+     */
+    503: unknown;
+};
+
+export type IngestMonitoringReceiptApiMonitoringReceiptsPostError = IngestMonitoringReceiptApiMonitoringReceiptsPostErrors[keyof IngestMonitoringReceiptApiMonitoringReceiptsPostErrors];
+
+export type IngestMonitoringReceiptApiMonitoringReceiptsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: AppendResponse;
+};
+
+export type IngestMonitoringReceiptApiMonitoringReceiptsPostResponse = IngestMonitoringReceiptApiMonitoringReceiptsPostResponses[keyof IngestMonitoringReceiptApiMonitoringReceiptsPostResponses];
+
 export type IngestMonitoringRunApiMonitoringRunsPostData = {
     body: RunEnvelope;
     path?: never;
@@ -1361,6 +1558,10 @@ export type IngestMonitoringRunApiMonitoringRunsPostErrors = {
      * A valid monitoring ingestion credential is required.
      */
     401: unknown;
+    /**
+     * The credential belongs to another product identity.
+     */
+    403: unknown;
     /**
      * The run identity already exists with different evidence.
      */

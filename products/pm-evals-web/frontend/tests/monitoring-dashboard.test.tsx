@@ -123,6 +123,21 @@ function fetchOverview(overview: MonitoringOverview = OVERVIEW): typeof fetch {
 }
 
 describe("MonitoringDashboard", () => {
+  it("shows an explicit no-data state instead of a planted demo", async () => {
+    const empty: MonitoringOverview = {
+      ...OVERVIEW,
+      mode: "NO_DATA",
+      products: [],
+      incidents: [],
+      trend: [],
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(empty)} />);
+
+    expect(await screen.findByText(/no production eval data received/i)).toBeInTheDocument();
+    expect(screen.getByText(/products will appear after their first lifecycle receipt/i)).toBeInTheDocument();
+    expect(screen.queryByText(/simulation, not production/i)).not.toBeInTheDocument();
+  });
   it("shows the exact case, earned cause, and fix location in plain language", async () => {
     render(<MonitoringDashboard fetcher={fetchOverview()} />);
 

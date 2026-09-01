@@ -1,0 +1,77 @@
+"""Durable product-side outbox for monitoring receipts and run envelopes."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from collections.abc import Callable
+from pathlib import Path
+
+MAX_OUTBOX_ITEM_BYTES = 5 * 1024 * 1024
+
+
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def enqueue(outbox_dir: Path, *, route: str, identity: str, payload: object) -> Path:
+    outbox_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(outbox_dir, 0o700)
+    item = {"outbox_version": "0.1", "route": route, "payload": payload}
+    canonical = (json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    if len(canonical) > MAX_OUTBOX_ITEM_BYTES:
+        raise ValueError("monitoring outbox item exceeds the 5 MB limit")
+    digest = hashlib.sha256(identity.encode()).hexdigest()
+    target = outbox_dir / f"{digest}.pending.json"
+    flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(target, flags, 0o600)
+    except FileExistsError:
+        if target.read_bytes() != canonical:
+            raise ValueError("outbox identity already exists with different evidence") from None
+        return target
+    try:
+        view = memoryview(canonical)
+        while view:
+            written = os.write(descriptor, view)
+            if written <= 0:
+                raise OSError("short outbox write")
+            view = view[written:]
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+    return target
+
+
+def flush(
+    outbox_dir: Path,
+    *,
+    sender: Callable[[str, dict[str, object]], None],
+) -> int:
+    sent = 0
+    for path in sorted(outbox_dir.glob("*.pending.json")):
+        data = path.read_bytes()
+        if len(data) > MAX_OUTBOX_ITEM_BYTES:
+            raise ValueError("monitoring outbox item exceeds the 5 MB limit")
+        payload = json.loads(data)
+        if (
+            not isinstance(payload, dict)
+            or set(payload) != {"outbox_version", "route", "payload"}
+            or payload.get("outbox_version") != "0.1"
+            or not isinstance(payload.get("route"), str)
+            or not isinstance(payload.get("payload"), dict)
+        ):
+            raise ValueError("monitoring outbox item has an invalid schema")
+        sender(payload["route"], payload["payload"])
+        sent_path = path.with_name(path.name.replace(".pending.json", ".sent.json"))
+        os.replace(path, sent_path)
+        _fsync_directory(outbox_dir)
+        sent += 1
+    return sent

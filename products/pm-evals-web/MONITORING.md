@@ -64,6 +64,9 @@ these human-readable versions.
 
 Raw private inputs and outputs must not enter the monitoring contract. Store
 redacted summaries, opaque identifiers, hashes, and approved evidence URIs.
+The API rejects common private-path, email, credential-assignment, and
+high-entropy-token shapes in dashboard-visible free text. This is defense in
+depth; product exporters must still use an allowlist and never send raw content.
 
 The dashboard shows an expected value, difference, and comparison changes only
 when the referenced earlier run is healthy and contains the same passing case
@@ -105,6 +108,10 @@ comparison ancestry therefore fails closed as unavailable.
 A controlled replay must classify every change dimension as either intentionally
 varied or held constant, with no overlap or omission. Its asserted cause must
 match the varied dimensions; otherwise the contract rejects it before diagnosis.
+On ingestion, `control_ref` must resolve to a stored `run_id#observation_id` and
+`candidate_ref` must resolve to the current observation. Product credentials
+cannot submit `HUMAN_ADJUDICATION`; only the privileged adjudication endpoint can
+record human truth.
 
 The supported cause categories are product regression, model regression,
 prompt/config/tool change, use-case drift, eval deterioration, approved-dataset
@@ -120,9 +127,16 @@ coverage. A falling score alone changes neither asset.
 - `POST /api/monitoring/evaluate` diagnoses an envelope without storing it,
   resolving its exact stored comparison when available.
 - `POST /api/monitoring/runs` appends an envelope to immutable local history.
-  It requires `Authorization: Bearer <token>` matching the server-side
-  `PM_EVALS_INGEST_TOKEN`; writes fail closed when no credential is configured,
-  and the response diagnosis uses the exact stored comparison.
+  It requires a product/environment-scoped bearer credential from
+  `PM_EVALS_INGEST_CREDENTIALS_JSON`; cross-product writes are refused.
+  Requests are atomically rate-limited per product/environment through the
+  shared SQLite index (`PM_EVALS_INGEST_LIMIT_PER_MINUTE`, default 120).
+- `POST /api/monitoring/receipts` appends `STARTED`, `COMPLETED`, or `FAILED`
+  lifecycle evidence. A started or overdue product is visible as blocked even
+  when no eval envelope completed.
+- `POST /api/monitoring/adjudications` uses a separate privileged credential and
+  appends ground truth after verifying the run, observation, and server-computed
+  predicted root.
 - `GET /api/monitoring/overview` returns product health, exact-case incidents,
   trends, two-axis coverage, and attribution calibration.
 
@@ -142,13 +156,30 @@ evidence while canonical history remains complete. When producer observation
 times tie, the server's append order determines recency; opaque run IDs never
 decide which result is current.
 
+Receipts and adjudications use separate append-only JSONL ledgers. Attribution
+coverage, correct-localization rate, and false-attribution rate are computed only
+from these adjudications. The below-2% guardrail remains unproven until at least
+149 resolved production adjudications exist and the observed false-attribution
+rate is below the target.
+
 ## First run
 
 ```bash
 python backend/scripts/run_monitoring_demo.py
 ```
 
-The empty-store dashboard uses a clearly labelled planted scenario. One exact
+An empty production store shows **No production eval data received**. It never
+falls back to a planted scenario. Demo data is available only when
+`PM_EVALS_DEMO_MODE=1`. Production mode refuses `/tmp` storage or a missing
+ingestion credential.
+
+Deployments register every expected product with
+`PM_EVALS_EXPECTED_PRODUCTS_JSON`, a JSON array of `ProductRef` objects. A
+registered product appears as `BLOCKED / NOT_RECEIVED` before its first receipt,
+so a producer that never starts cannot disappear from the dashboard. Dream Job
+and LinkedIn OS must both be registered in production.
+
+The opt-in demo uses a clearly labelled planted scenario. One exact
 Dream Job case fails after a connector change. A controlled replay supports the
 connector as the cause while five later failures remain downstream symptoms.
 LinkedIn Research OS stays healthy.
@@ -157,10 +188,38 @@ This proves the data flow, localization, and UI behaviour. It does not prove the
 below-2% production false-attribution guardrail; that requires adjudicated live
 incidents.
 
-## Before live data
+## Product integration
 
-1. Add a Dream Job adapter that maps existing run artifacts into V0.2 without
-   private content.
-2. Approve an opt-in, redacted LinkedIn Research OS export with the same contract.
-3. Add controlled-replay evidence only when relevant variables are held fixed.
-4. Keep planted-fault and adjudicated-production calibration visibly separate.
+The mapper is horizontal. It reads a product settings file plus a strict
+`normalized-eval-run/0.1` artifact. Settings own stages, dependency edges,
+thresholds, owners, safe summaries, and remediation; runtime facts cannot
+override them. Missing required checks become `BLOCKED`. Dream Job and LinkedIn
+settings are under `adapters/`; a third product adds settings and a narrow native
+exporter, not a dashboard code branch.
+
+The outbox CLI persists receipts and runs before delivery and retains failed
+sends for retry. LinkedIn's native exporter is opt-in and local-only. It emits
+opaque identities, statuses, bounded values, version labels, and hashes—never
+post text, research bodies, local paths, or credentials.
+
+Dependency edges are intra-case and intra-run. A coincident independent defect
+downstream of a real upstream failure cannot be separated without controlled
+replay. LinkedIn's existing decision ledger does not yet carry cross-stage case
+lineage, so its stage case types are localized independently rather than
+inventing propagation.
+
+The monitoring settings are the production threshold authority. The provisional
+`evals/thresholds.yaml` file remains limited to the pre-release drift engine; the
+two numbers must never be rendered as one metric.
+
+When a referenced comparison exists in the store, ingestion requires its
+canonical SHA-256 and rejects a missing or mismatched digest. Bootstrap runs may
+reference a comparison not yet present; such a reference is shown as unavailable
+and cannot support a regression claim.
+
+Retention is an infrastructure policy, not an adapter decision: the mounted
+monitoring volume and its backups must have an approved TTL before rollout.
+Automatic deletion is intentionally not embedded in the API because doing so
+would silently remove append-only adjudication evidence. The dashboard contracts
+contain only opaque case identifiers, but this does not remove the obligation to
+set and audit that storage TTL.

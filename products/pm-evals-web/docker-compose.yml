@@ -6,8 +6,12 @@ services:
     build: ./backend
     environment:
       PM_EVALS_MONITORING_DATA_DIR: /data/monitoring
+      PM_EVALS_PRODUCTION_MONITORING: "1"
       # Writes fail closed when this secret is absent; set it only on trusted producers.
-      PM_EVALS_INGEST_TOKEN: ${PM_EVALS_INGEST_TOKEN:-}
+      PM_EVALS_INGEST_CREDENTIALS_JSON: ${PM_EVALS_INGEST_CREDENTIALS_JSON:-}
+      PM_EVALS_ADJUDICATION_TOKEN: ${PM_EVALS_ADJUDICATION_TOKEN:-}
+      PM_EVALS_EXPECTED_PRODUCTS_JSON: ${PM_EVALS_EXPECTED_PRODUCTS_JSON:-}
+      PM_EVALS_INGEST_LIMIT_PER_MINUTE: ${PM_EVALS_INGEST_LIMIT_PER_MINUTE:-120}
     volumes:
       - monitoring-data:/data/monitoring
     ports:

@@ -16,7 +16,9 @@ from pathlib import Path
 from .models import (
     MAX_FUTURE_CLOCK_SKEW,
     OVERVIEW_TREND_RUNS_PER_PRODUCT,
+    AdjudicationRecord,
     RunEnvelope,
+    RunReceipt,
 )
 
 
@@ -30,10 +32,14 @@ class MonitoringStore:
         self.log_path = data_dir / "observations.jsonl"
         self.index_path = data_dir / "observations.sqlite3"
         self.lock_path = data_dir / "observations.lock"
+        self.receipt_path = data_dir / "run-receipts.jsonl"
+        self.adjudication_path = data_dir / "adjudications.jsonl"
         self._lock = threading.Lock()
         data_dir.mkdir(parents=True, exist_ok=True)
         self.log_path.touch(exist_ok=True)
         self.lock_path.touch(exist_ok=True)
+        self.receipt_path.touch(exist_ok=True)
+        self.adjudication_path.touch(exist_ok=True)
         self._initialize_index()
 
     def _connect(self) -> sqlite3.Connection:
@@ -74,9 +80,42 @@ class MonitoringStore:
                         ON runs(product_id, environment, observed_at DESC, run_id DESC);
                     CREATE INDEX IF NOT EXISTS runs_product_arrival
                         ON runs(product_id, environment, observed_at DESC, byte_offset DESC);
+                    CREATE TABLE IF NOT EXISTS ingest_rate (
+                        product_id TEXT NOT NULL,
+                        environment TEXT NOT NULL,
+                        minute_epoch INTEGER NOT NULL,
+                        request_count INTEGER NOT NULL,
+                        PRIMARY KEY(product_id, environment, minute_epoch)
+                    );
                     """
                 )
             self._reconcile_index_unlocked()
+
+    def admit_ingest(self, *, product_id: str, environment: str, limit_per_minute: int) -> bool:
+        """Atomically enforce a product-scoped, store-shared ingestion limit."""
+
+        if limit_per_minute < 1:
+            raise ValueError("limit_per_minute must be positive")
+        minute_epoch = int(datetime.now(UTC).timestamp()) // 60
+        with self._exclusive_store_lock(), self._connect() as connection:
+            connection.execute(
+                "DELETE FROM ingest_rate WHERE minute_epoch < ?", (minute_epoch - 2,)
+            )
+            current = connection.execute(
+                """SELECT request_count FROM ingest_rate
+                   WHERE product_id = ? AND environment = ? AND minute_epoch = ?""",
+                (product_id, environment, minute_epoch),
+            ).fetchone()
+            if current is not None and current[0] >= limit_per_minute:
+                return False
+            connection.execute(
+                """INSERT INTO ingest_rate(product_id, environment, minute_epoch, request_count)
+                   VALUES (?, ?, ?, 1)
+                   ON CONFLICT(product_id, environment, minute_epoch)
+                   DO UPDATE SET request_count = request_count + 1""",
+                (product_id, environment, minute_epoch),
+            )
+        return True
 
     def _reconcile_index_unlocked(self) -> None:
         with self._connect() as connection:
@@ -117,6 +156,76 @@ class MonitoringStore:
             handle.truncate(byte_offset)
             handle.flush()
             os.fsync(handle.fileno())
+
+    @staticmethod
+    def _canonical_record(record: object) -> bytes:
+        payload = record.model_dump(mode="json")  # type: ignore[attr-defined]
+        return (
+            json.dumps(payload, allow_nan=False, sort_keys=True, separators=(",", ":")) + "\n"
+        ).encode()
+
+    def _append_auxiliary_record(
+        self,
+        path: Path,
+        *,
+        identity_field: str,
+        identity: str,
+        record: object,
+    ) -> bool:
+        line = self._canonical_record(record)
+        with self._exclusive_store_lock():
+            if path.stat().st_size > 50 * 1024 * 1024:
+                raise ValueError("auxiliary monitoring ledger exceeds the 50 MB safety limit")
+            for existing_line in path.read_bytes().splitlines(keepends=True):
+                if not existing_line.endswith(b"\n"):
+                    raise ValueError("auxiliary monitoring ledger has an incomplete record")
+                payload = json.loads(existing_line)
+                if payload.get(identity_field) != identity:
+                    continue
+                if existing_line != line:
+                    raise ValueError(f"{identity_field} already exists with different evidence")
+                return False
+            with path.open("ab") as handle:
+                handle.write(line)
+                handle.flush()
+                os.fsync(handle.fileno())
+        return True
+
+    def append_receipt(self, receipt: RunReceipt) -> bool:
+        receipt = RunReceipt.model_validate(receipt.model_dump(mode="python"))
+        if receipt.observed_at > datetime.now(UTC) + MAX_FUTURE_CLOCK_SKEW:
+            raise FutureObservationError("observed_at exceeds the allowed five-minute clock skew")
+        return self._append_auxiliary_record(
+            self.receipt_path,
+            identity_field="receipt_id",
+            identity=receipt.receipt_id,
+            record=receipt,
+        )
+
+    def list_receipts(self) -> list[RunReceipt]:
+        with self._exclusive_store_lock():
+            return [
+                RunReceipt.model_validate_json(line)
+                for line in self.receipt_path.read_bytes().splitlines()
+                if line.strip()
+            ]
+
+    def append_adjudication(self, record: AdjudicationRecord) -> bool:
+        record = AdjudicationRecord.model_validate(record.model_dump(mode="python"))
+        return self._append_auxiliary_record(
+            self.adjudication_path,
+            identity_field="adjudication_id",
+            identity=record.adjudication_id,
+            record=record,
+        )
+
+    def list_adjudications(self) -> list[AdjudicationRecord]:
+        with self._exclusive_store_lock():
+            return [
+                AdjudicationRecord.model_validate_json(line)
+                for line in self.adjudication_path.read_bytes().splitlines()
+                if line.strip()
+            ]
 
     def append(self, run: RunEnvelope) -> bool:
         """Append one immutable run. Return False for an exact duplicate.
@@ -279,6 +388,23 @@ class MonitoringStore:
                     (product_id, environment, run_id),
                 ).fetchone()
             return self._read_rows([row])[0] if row is not None else None
+
+    def get_run_digest(
+        self,
+        *,
+        product_id: str,
+        environment: str,
+        run_id: str,
+    ) -> str | None:
+        with self._exclusive_store_lock():
+            self._reconcile_index_unlocked()
+            with self._connect() as connection:
+                row = connection.execute(
+                    "SELECT sha256 FROM runs WHERE product_id = ? AND environment = ? "
+                    "AND run_id = ?",
+                    (product_id, environment, run_id),
+                ).fetchone()
+            return f"sha256:{row[0]}" if row is not None else None
 
     def list_runs_for_overview(
         self,

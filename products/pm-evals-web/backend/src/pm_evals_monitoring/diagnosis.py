@@ -10,6 +10,7 @@ from math import isfinite
 
 from .models import (
     OVERVIEW_TREND_RUNS_PER_PRODUCT,
+    AdjudicationRecord,
     Attribution,
     AttributionMetrics,
     CauseCategory,
@@ -24,9 +25,11 @@ from .models import (
     Observation,
     ObservationDiagnosis,
     ProductHealth,
+    ProductRef,
     RunDiagnosis,
     RunEnvelope,
     RunHealth,
+    RunReceipt,
     TrendPoint,
 )
 
@@ -477,12 +480,131 @@ def _maintenance(category: CauseCategory) -> MaintenanceAssessment:
     )
 
 
+def attribution_metrics_from_adjudications(
+    records: list[AdjudicationRecord],
+) -> AttributionMetrics:
+    resolved = [item for item in records if item.verdict != "UNRESOLVED"]
+    correct = sum(item.verdict == "CORRECT" for item in resolved)
+    incorrect = sum(item.verdict == "INCORRECT" for item in resolved)
+    sample = len(resolved)
+    return AttributionMetrics(
+        correctly_localized_rate=(correct / sample if sample else None),
+        attribution_coverage=(sample / len(records) if records else None),
+        false_attribution_rate=(incorrect / sample if sample else None),
+        known_cause_sample_size=sample,
+        production_adjudicated_sample_size=len(records),
+        guardrail_proven=(sample >= 149 and incorrect / sample < 0.02),
+        label=(
+            f"{sample} resolved production adjudications"
+            if records
+            else "No adjudicated production incidents yet"
+        ),
+    )
+
+
+def _receipt_products(
+    receipts: list[RunReceipt],
+    *,
+    generated_at: datetime,
+    existing: list[ProductHealth],
+) -> list[ProductHealth]:
+    by_identity = {(item.product_id, item.environment): item for item in existing}
+    latest: dict[tuple[str, str], RunReceipt] = {}
+    for receipt in receipts:
+        identity = (receipt.product.id, receipt.product.environment)
+        if identity not in latest or receipt.observed_at >= latest[identity].observed_at:
+            latest[identity] = receipt
+    for identity, receipt in latest.items():
+        current = by_identity.get(identity)
+        overdue = generated_at > receipt.expected_next_run_at
+        completed_run_present = (
+            current is not None
+            and current.latest_run_id == receipt.run_id
+            and receipt.status == "COMPLETED"
+        )
+        if completed_run_present and not overdue:
+            continue
+        by_identity[identity] = ProductHealth(
+            product_id=receipt.product.id,
+            display_name=receipt.product.display_name,
+            version=receipt.product.version,
+            environment=receipt.product.environment,
+            latest_run_id=receipt.run_id,
+            observed_at=receipt.observed_at,
+            health="BLOCKED",
+            is_stale=overdue,
+            freshness_sla_seconds=receipt.product.freshness_sla_seconds,
+            pass_count=0,
+            fail_count=0,
+            blocked_count=1,
+            layers=[],
+            concerns=[],
+        )
+    return [by_identity[key] for key in sorted(by_identity)]
+
+
+def _registered_products(
+    products: list[ProductRef],
+    *,
+    generated_at: datetime,
+    existing: list[ProductHealth],
+) -> list[ProductHealth]:
+    """Make configured products visible before their first producer emission."""
+
+    by_identity = {(item.product_id, item.environment): item for item in existing}
+    for product in products:
+        identity = (product.id, product.environment)
+        if identity in by_identity:
+            continue
+        by_identity[identity] = ProductHealth(
+            product_id=product.id,
+            display_name=product.display_name,
+            version=product.version,
+            environment=product.environment,
+            latest_run_id="NOT_RECEIVED",
+            observed_at=generated_at,
+            health="BLOCKED",
+            is_stale=True,
+            freshness_sla_seconds=product.freshness_sla_seconds,
+            pass_count=0,
+            fail_count=0,
+            blocked_count=1,
+            layers=[],
+            concerns=[],
+        )
+    return [by_identity[key] for key in sorted(by_identity)]
+
+
+def build_empty_overview(
+    *,
+    generated_at: datetime | None = None,
+    receipts: list[RunReceipt] | None = None,
+    adjudications: list[AdjudicationRecord] | None = None,
+    expected_products: list[ProductRef] | None = None,
+) -> MonitoringOverview:
+    reference_time = generated_at or datetime.now(UTC)
+    products = _registered_products(
+        expected_products or [], generated_at=reference_time, existing=[]
+    )
+    return MonitoringOverview(
+        generated_at=reference_time,
+        mode="NO_DATA",
+        products=_receipt_products(receipts or [], generated_at=reference_time, existing=products),
+        incidents=[],
+        trend=[],
+        attribution_metrics=attribution_metrics_from_adjudications(adjudications or []),
+    )
+
+
 def build_overview(
     runs: list[RunEnvelope],
     *,
     mode: str,
     generated_at: datetime | None = None,
     attribution_metrics: AttributionMetrics | None = None,
+    receipts: list[RunReceipt] | None = None,
+    adjudications: list[AdjudicationRecord] | None = None,
+    expected_products: list[ProductRef] | None = None,
     trend_limit_per_product: int = OVERVIEW_TREND_RUNS_PER_PRODUCT,
 ) -> MonitoringOverview:
     if not runs:
@@ -675,19 +797,17 @@ def build_overview(
                 )
             )
 
-    default_metrics = AttributionMetrics(
-        correctly_localized_rate=None,
-        attribution_coverage=None,
-        false_attribution_rate=None,
-        known_cause_sample_size=0,
-        production_adjudicated_sample_size=0,
-        guardrail_proven=False,
-        label="No adjudicated production incidents yet",
-    )
+    default_metrics = attribution_metrics_from_adjudications(adjudications or [])
     return MonitoringOverview(
         generated_at=reference_time,
         mode=mode,  # type: ignore[arg-type]
-        products=products,
+        products=_receipt_products(
+            receipts or [],
+            generated_at=reference_time,
+            existing=_registered_products(
+                expected_products or [], generated_at=reference_time, existing=products
+            ),
+        ),
         incidents=sorted(incidents, key=lambda item: item.observed_at, reverse=True),
         trend=trend,
         attribution_metrics=attribution_metrics or default_metrics,

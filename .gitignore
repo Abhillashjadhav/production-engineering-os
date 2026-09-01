@@ -13,6 +13,7 @@ dist/
 .venv/
 .mypy_cache/
 .pytest_cache/
+pytest-of-root/
 .ruff_cache/
 
 # javascript workspaces (each has its own lockfile-driven install)

@@ -1124,17 +1124,32 @@ def test_monitoring_api_bounds_live_trend_history(tmp_path: Path) -> None:
     assert len(response.json()["trend"]) == 30
 
 
-def test_monitoring_api_runs_planted_demo_and_persists_live_run(tmp_path: Path) -> None:
+def test_monitoring_api_shows_no_data_then_persists_live_run(tmp_path: Path) -> None:
     client = TestClient(
         create_app(monitoring_data_dir=tmp_path, monitoring_ingest_token=INGEST_TOKEN)
     )
 
-    demo = client.get("/api/monitoring/overview")
-    assert demo.status_code == 200
-    assert demo.json()["mode"] == "PLANTED_DEMO"
+    empty = client.get("/api/monitoring/overview")
+    assert empty.status_code == 200
+    assert empty.json()["mode"] == "NO_DATA"
 
     run = _failed_dream_job_run().model_copy(deep=True)
     run.observed_at = datetime.now(UTC)
+    baseline = next(
+        item for item in build_demo_runs() if item.run_id == run.comparison.run_id
+    ).model_copy(deep=True)
+    baseline.observed_at = run.observed_at - timedelta(minutes=1)
+    baseline_response = client.post(
+        "/api/monitoring/runs",
+        json=baseline.model_dump(mode="json"),
+        headers=_ingest_headers(),
+    )
+    assert baseline_response.status_code == 200
+    run.comparison.sha256 = MonitoringStore(tmp_path).get_run_digest(
+        product_id=baseline.product.id,
+        environment=baseline.product.environment,
+        run_id=baseline.run_id,
+    )
     ingested = client.post(
         "/api/monitoring/runs",
         json=run.model_dump(mode="json"),
@@ -1184,6 +1199,11 @@ def test_ingest_diagnosis_uses_the_exact_stored_comparison(tmp_path: Path) -> No
         json=baseline.model_dump(mode="json"),
         headers=_ingest_headers(),
     )
+    current.comparison.sha256 = MonitoringStore(tmp_path).get_run_digest(
+        product_id=baseline.product.id,
+        environment=baseline.product.environment,
+        run_id=baseline.run_id,
+    )
     current_response = client.post(
         "/api/monitoring/runs",
         json=current.model_dump(mode="json"),
@@ -1215,7 +1235,7 @@ def test_monitoring_ingestion_rejects_missing_or_wrong_credentials(tmp_path: Pat
     assert missing.status_code == 401
     assert missing.headers["www-authenticate"] == "Bearer"
     assert wrong.status_code == 401
-    assert client.get("/api/monitoring/overview").json()["mode"] == "PLANTED_DEMO"
+    assert client.get("/api/monitoring/overview").json()["mode"] == "NO_DATA"
 
 
 def test_monitoring_ingestion_fails_closed_without_configured_credential(
@@ -1230,7 +1250,7 @@ def test_monitoring_ingestion_fails_closed_without_configured_credential(
     )
 
     assert response.status_code == 503
-    assert client.get("/api/monitoring/overview").json()["mode"] == "PLANTED_DEMO"
+    assert client.get("/api/monitoring/overview").json()["mode"] == "NO_DATA"
 
 
 def test_monitoring_body_routes_document_and_return_custom_validation_shape(

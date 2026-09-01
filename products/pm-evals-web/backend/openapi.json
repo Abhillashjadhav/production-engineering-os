@@ -1,6 +1,117 @@
 {
   "components": {
     "schemas": {
+      "AdjudicationRecord": {
+        "additionalProperties": false,
+        "description": "Privileged, append-only ground truth for localization accuracy.",
+        "properties": {
+          "actual_root_observation_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Actual Root Observation Ids",
+            "type": "array"
+          },
+          "adjudicated_at": {
+            "format": "date-time",
+            "title": "Adjudicated At",
+            "type": "string"
+          },
+          "adjudication_id": {
+            "minLength": 1,
+            "title": "Adjudication Id",
+            "type": "string"
+          },
+          "adjudication_version": {
+            "const": "0.1",
+            "default": "0.1",
+            "title": "Adjudication Version",
+            "type": "string"
+          },
+          "adjudicator_id": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Adjudicator Id",
+            "type": "string"
+          },
+          "environment": {
+            "minLength": 1,
+            "title": "Environment",
+            "type": "string"
+          },
+          "observation_id": {
+            "minLength": 1,
+            "title": "Observation Id",
+            "type": "string"
+          },
+          "predicted_root_observation_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Predicted Root Observation Ids",
+            "type": "array"
+          },
+          "product_id": {
+            "minLength": 1,
+            "title": "Product Id",
+            "type": "string"
+          },
+          "reason_code": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "run_id": {
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "verdict": {
+            "enum": [
+              "CORRECT",
+              "INCORRECT",
+              "UNRESOLVED"
+            ],
+            "title": "Verdict",
+            "type": "string"
+          }
+        },
+        "required": [
+          "adjudication_id",
+          "product_id",
+          "environment",
+          "run_id",
+          "observation_id",
+          "predicted_root_observation_ids",
+          "actual_root_observation_ids",
+          "verdict",
+          "adjudicated_at",
+          "adjudicator_id",
+          "reason_code"
+        ],
+        "title": "AdjudicationRecord",
+        "type": "object"
+      },
+      "AppendResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "duplicate": {
+            "title": "Duplicate",
+            "type": "boolean"
+          },
+          "stored": {
+            "title": "Stored",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "stored",
+          "duplicate"
+        ],
+        "title": "AppendResponse",
+        "type": "object"
+      },
       "AttributionMetrics": {
         "additionalProperties": false,
         "properties": {
@@ -590,6 +701,18 @@
             "minLength": 1,
             "title": "Run Id",
             "type": "string"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "pattern": "^sha256:[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sha256"
           }
         },
         "required": [
@@ -1357,6 +1480,7 @@
           "mode": {
             "enum": [
               "PLANTED_DEMO",
+              "NO_DATA",
               "LIVE"
             ],
             "title": "Mode",
@@ -1970,6 +2094,68 @@
         "title": "RunEnvelope",
         "type": "object"
       },
+      "RunReceipt": {
+        "additionalProperties": false,
+        "description": "Lifecycle evidence emitted before and after a scheduled product run.",
+        "properties": {
+          "detail_code": {
+            "maxLength": 120,
+            "minLength": 1,
+            "pattern": "^[A-Z0-9_:-]+$",
+            "title": "Detail Code",
+            "type": "string"
+          },
+          "expected_next_run_at": {
+            "format": "date-time",
+            "title": "Expected Next Run At",
+            "type": "string"
+          },
+          "observed_at": {
+            "format": "date-time",
+            "title": "Observed At",
+            "type": "string"
+          },
+          "product": {
+            "$ref": "#/components/schemas/ProductRef"
+          },
+          "receipt_id": {
+            "minLength": 1,
+            "title": "Receipt Id",
+            "type": "string"
+          },
+          "receipt_version": {
+            "const": "0.1",
+            "default": "0.1",
+            "title": "Receipt Version",
+            "type": "string"
+          },
+          "run_id": {
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "STARTED",
+              "COMPLETED",
+              "FAILED"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "receipt_id",
+          "run_id",
+          "product",
+          "status",
+          "observed_at",
+          "expected_next_run_at",
+          "detail_code"
+        ],
+        "title": "RunReceipt",
+        "type": "object"
+      },
       "SizeLimitResponse": {
         "description": "The 413 body \u2014 one documented shape for either size boundary: the\nwhole-request cap (the middleware, before parsing) and the per-file cap\n(``_read_capped``, at read-back) both emit ``{\"detail\": str}``.",
         "properties": {
@@ -2247,6 +2433,68 @@
         "summary": "Health"
       }
     },
+    "/api/monitoring/adjudications": {
+      "post": {
+        "operationId": "ingest_monitoring_adjudication_api_monitoring_adjudications_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdjudicationRecord"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppendResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "A privileged adjudication credential is required."
+          },
+          "409": {
+            "description": "The adjudication identity exists with different evidence."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SizeLimitResponse"
+                }
+              }
+            },
+            "description": "The request exceeds a size limit \u2014 the whole-request cap (enforced before parsing) or an individual file's cap."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "A validation failure: one or more named per-source problems."
+          },
+          "503": {
+            "description": "Monitoring persistence or adjudication is not configured."
+          }
+        },
+        "security": [
+          {
+            "MonitoringIngestionBearer": []
+          }
+        ],
+        "summary": "Ingest Monitoring Adjudication"
+      }
+    },
     "/api/monitoring/evaluate": {
       "post": {
         "description": "Replay diagnosis without mutating monitoring history.",
@@ -2314,6 +2562,71 @@
         "summary": "Monitoring Overview"
       }
     },
+    "/api/monitoring/receipts": {
+      "post": {
+        "operationId": "ingest_monitoring_receipt_api_monitoring_receipts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunReceipt"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppendResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "description": "A valid monitoring ingestion credential is required."
+          },
+          "403": {
+            "description": "The credential belongs to another product identity."
+          },
+          "409": {
+            "description": "The receipt identity exists with different evidence."
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SizeLimitResponse"
+                }
+              }
+            },
+            "description": "The request exceeds a size limit \u2014 the whole-request cap (enforced before parsing) or an individual file's cap."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidationErrorResponse"
+                }
+              }
+            },
+            "description": "A validation failure: one or more named per-source problems."
+          },
+          "503": {
+            "description": "Monitoring persistence is not configured."
+          }
+        },
+        "security": [
+          {
+            "MonitoringIngestionBearer": []
+          }
+        ],
+        "summary": "Ingest Monitoring Receipt"
+      }
+    },
     "/api/monitoring/runs": {
       "post": {
         "operationId": "ingest_monitoring_run_api_monitoring_runs_post",
@@ -2340,6 +2653,9 @@
           },
           "401": {
             "description": "A valid monitoring ingestion credential is required."
+          },
+          "403": {
+            "description": "The credential belongs to another product identity."
           },
           "409": {
             "description": "The run identity already exists with different evidence."

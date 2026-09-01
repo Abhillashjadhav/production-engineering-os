@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import secrets
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -39,16 +40,21 @@ from pm_evals_compare import (
     render_markdown,
 )
 from pm_evals_monitoring import (
+    AdjudicationRecord,
+    AppendResponse,
     FutureObservationError,
     MonitoringOverview,
     MonitoringStore,
+    ProductRef,
     RunDiagnosis,
     RunEnvelope,
+    RunReceipt,
     build_demo_overview,
+    build_empty_overview,
     build_overview,
     diagnose_run,
 )
-from pm_evals_monitoring.models import IngestResponse
+from pm_evals_monitoring.models import MAX_FUTURE_CLOCK_SKEW, IngestResponse
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # per file; capped at read-back (T3)
 # Whole-request outer bound, enforced at the transport boundary before the
@@ -225,8 +231,48 @@ def create_app(
     *,
     monitoring_data_dir: Path | None = None,
     monitoring_ingest_token: str | None = None,
+    monitoring_ingest_credentials: dict[tuple[str, str], str] | None = None,
+    monitoring_adjudication_token: str | None = None,
+    monitoring_demo_mode: bool = False,
+    monitoring_expected_products: list[ProductRef] | None = None,
+    monitoring_ingest_limit_per_minute: int = 120,
 ) -> FastAPI:
     monitoring_store = MonitoringStore(monitoring_data_dir) if monitoring_data_dir else None
+    scoped_credentials = monitoring_ingest_credentials or {}
+    expected_products = monitoring_expected_products or []
+    if monitoring_ingest_token and scoped_credentials:
+        raise ValueError("legacy and product-scoped monitoring credentials cannot be mixed")
+    if len(set(scoped_credentials.values())) != len(scoped_credentials):
+        raise ValueError("each product monitoring identity requires a distinct credential")
+    if monitoring_ingest_limit_per_minute < 1:
+        raise ValueError("monitoring ingest limit must be positive")
+
+    def authorize_product(
+        credentials: HTTPAuthorizationCredentials | None,
+        *,
+        product_id: str,
+        environment: str,
+    ) -> None:
+        supplied = credentials.credentials if credentials is not None else ""
+        if monitoring_ingest_token:
+            if secrets.compare_digest(supplied, monitoring_ingest_token):
+                return
+        else:
+            expected = scoped_credentials.get((product_id, environment))
+            if expected is not None and secrets.compare_digest(supplied, expected):
+                return
+            if any(
+                secrets.compare_digest(supplied, token) for token in scoped_credentials.values()
+            ):
+                raise HTTPException(
+                    status_code=403,
+                    detail="Monitoring credential is not authorized for this product identity",
+                )
+        raise HTTPException(
+            status_code=401,
+            detail="Valid monitoring ingestion credentials are required",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     def stored_comparison(run: RunEnvelope) -> RunEnvelope | None:
         if monitoring_store is None:
@@ -236,6 +282,16 @@ def create_app(
             environment=run.product.environment,
             run_id=run.comparison.run_id,
         )
+
+    def admit_product(product_id: str, environment: str) -> None:
+        if monitoring_store is None:
+            return
+        if not monitoring_store.admit_ingest(
+            product_id=product_id,
+            environment=environment,
+            limit_per_minute=monitoring_ingest_limit_per_minute,
+        ):
+            raise HTTPException(status_code=429, detail="Product ingestion rate limit exceeded")
 
     app = FastAPI(
         title="pm-evals Web API",
@@ -363,6 +419,7 @@ def create_app(
         responses={
             **validation_responses,
             401: {"description": "A valid monitoring ingestion credential is required."},
+            403: {"description": "The credential belongs to another product identity."},
             409: {"description": "The run identity already exists with different evidence."},
             503: {
                 "description": "Monitoring persistence or its ingestion credential is not configured."
@@ -378,18 +435,85 @@ def create_app(
     ) -> IngestResponse:
         if monitoring_store is None:
             raise HTTPException(status_code=503, detail="Monitoring persistence is not configured")
-        if not monitoring_ingest_token:
+        if not monitoring_ingest_token and not scoped_credentials:
             raise HTTPException(
                 status_code=503,
                 detail="Monitoring ingestion credential is not configured",
             )
-        supplied = credentials.credentials if credentials is not None else ""
-        if not secrets.compare_digest(supplied, monitoring_ingest_token):
-            raise HTTPException(
-                status_code=401,
-                detail="Valid monitoring ingestion credentials are required",
-                headers={"WWW-Authenticate": "Bearer"},
+        authorize_product(
+            credentials,
+            product_id=run.product.id,
+            environment=run.product.environment,
+        )
+        admit_product(run.product.id, run.product.environment)
+        if run.observed_at > datetime.now(UTC) + MAX_FUTURE_CLOCK_SKEW:
+            raise _validation_error(
+                "observed_at", "observed_at exceeds the allowed five-minute clock skew"
             )
+        for observation in run.observations:
+            for signal in observation.cause_signals:
+                if signal.evidence_level == "HUMAN_ADJUDICATION":
+                    raise _validation_error(
+                        "cause_signals",
+                        "product ingestion cannot assert human adjudication",
+                    )
+                if signal.evidence_level != "CONTROLLED_REPLAY":
+                    continue
+                candidate_ref = f"{run.run_id}#{observation.observation_id}"
+                if (
+                    signal.candidate_ref != candidate_ref
+                    or signal.candidate_status != observation.status
+                ):
+                    raise _validation_error(
+                        "candidate_ref",
+                        "controlled replay candidate must resolve to the ingested observation",
+                    )
+                assert signal.control_ref is not None
+                try:
+                    control_run_id, control_observation_id = signal.control_ref.split("#", 1)
+                except ValueError as exc:
+                    raise _validation_error(
+                        "control_ref", "controlled replay reference must be run_id#observation_id"
+                    ) from exc
+                control_run = monitoring_store.get_run(
+                    product_id=run.product.id,
+                    environment=run.product.environment,
+                    run_id=control_run_id,
+                )
+                control_observation = (
+                    next(
+                        (
+                            item
+                            for item in control_run.observations
+                            if item.observation_id == control_observation_id
+                        ),
+                        None,
+                    )
+                    if control_run is not None
+                    else None
+                )
+                if (
+                    control_observation is None
+                    or signal.control_status != control_observation.status
+                ):
+                    raise _validation_error(
+                        "control_ref",
+                        "controlled replay control does not resolve in stored evidence",
+                    )
+        stored_digest = monitoring_store.get_run_digest(
+            product_id=run.product.id,
+            environment=run.product.environment,
+            run_id=run.comparison.run_id,
+        )
+        if stored_digest is not None:
+            if run.comparison.sha256 is None:
+                raise _validation_error(
+                    "comparison.sha256", "stored comparison references require a digest"
+                )
+            if stored_digest != run.comparison.sha256:
+                raise _validation_error(
+                    "comparison.sha256", "comparison digest does not match stored evidence"
+                )
         try:
             stored = monitoring_store.append(run)
         except FutureObservationError as exc:
@@ -402,10 +526,127 @@ def create_app(
             diagnosis=diagnose_run(run, comparison=stored_comparison(run)),
         )
 
+    @app.post(
+        "/api/monitoring/receipts",
+        response_model=AppendResponse,
+        responses={
+            **validation_responses,
+            401: {"description": "A valid monitoring ingestion credential is required."},
+            403: {"description": "The credential belongs to another product identity."},
+            409: {"description": "The receipt identity exists with different evidence."},
+            503: {"description": "Monitoring persistence is not configured."},
+        },
+    )
+    def ingest_monitoring_receipt(
+        receipt: RunReceipt,
+        credentials: Annotated[
+            HTTPAuthorizationCredentials | None,
+            Security(_monitoring_ingestion_bearer),
+        ],
+    ) -> AppendResponse:
+        if monitoring_store is None:
+            raise HTTPException(status_code=503, detail="Monitoring persistence is not configured")
+        if not monitoring_ingest_token and not scoped_credentials:
+            raise HTTPException(
+                status_code=503,
+                detail="Monitoring ingestion credential is not configured",
+            )
+        authorize_product(
+            credentials,
+            product_id=receipt.product.id,
+            environment=receipt.product.environment,
+        )
+        admit_product(receipt.product.id, receipt.product.environment)
+        try:
+            stored = monitoring_store.append_receipt(receipt)
+        except FutureObservationError as exc:
+            raise _validation_error("observed_at", str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return AppendResponse(stored=stored, duplicate=not stored)
+
+    @app.post(
+        "/api/monitoring/adjudications",
+        response_model=AppendResponse,
+        responses={
+            **validation_responses,
+            401: {"description": "A privileged adjudication credential is required."},
+            409: {"description": "The adjudication identity exists with different evidence."},
+            503: {"description": "Monitoring persistence or adjudication is not configured."},
+        },
+    )
+    def ingest_monitoring_adjudication(
+        record: AdjudicationRecord,
+        credentials: Annotated[
+            HTTPAuthorizationCredentials | None,
+            Security(_monitoring_ingestion_bearer),
+        ],
+    ) -> AppendResponse:
+        if monitoring_store is None or not monitoring_adjudication_token:
+            raise HTTPException(
+                status_code=503, detail="Monitoring adjudication is not configured"
+            )
+        supplied = credentials.credentials if credentials is not None else ""
+        if not secrets.compare_digest(supplied, monitoring_adjudication_token):
+            raise HTTPException(
+                status_code=401,
+                detail="Valid adjudication credentials are required",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        run = monitoring_store.get_run(
+            product_id=record.product_id,
+            environment=record.environment,
+            run_id=record.run_id,
+        )
+        if run is None:
+            raise _validation_error("run_id", "adjudication run does not exist")
+        observation_ids = {item.observation_id for item in run.observations}
+        if record.observation_id not in observation_ids or not set(
+            record.actual_root_observation_ids
+        ).issubset(observation_ids):
+            raise _validation_error(
+                "observation_id", "adjudication observations do not exist in the stored run"
+            )
+        diagnosis = diagnose_run(run, comparison=stored_comparison(run))
+        diagnosed = next(
+            item for item in diagnosis.diagnoses if item.observation_id == record.observation_id
+        )
+        predicted = (
+            diagnosed.root_observation_ids
+            if diagnosed.root_observation_ids
+            else [diagnosed.observation_id]
+        )
+        if sorted(record.predicted_root_observation_ids) != sorted(predicted):
+            raise _validation_error(
+                "predicted_root_observation_ids",
+                "predicted roots must match the server diagnosis",
+            )
+        try:
+            stored = monitoring_store.append_adjudication(record)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return AppendResponse(stored=stored, duplicate=not stored)
+
     @app.get("/api/monitoring/overview", response_model=MonitoringOverview)
     def monitoring_overview() -> MonitoringOverview:
         runs = monitoring_store.list_runs_for_overview() if monitoring_store else []
-        return build_overview(runs, mode="LIVE") if runs else build_demo_overview()
+        receipts = monitoring_store.list_receipts() if monitoring_store else []
+        adjudications = monitoring_store.list_adjudications() if monitoring_store else []
+        if runs:
+            return build_overview(
+                runs,
+                mode="LIVE",
+                receipts=receipts,
+                adjudications=adjudications,
+                expected_products=expected_products,
+            )
+        if monitoring_demo_mode:
+            return build_demo_overview()
+        return build_empty_overview(
+            receipts=receipts,
+            adjudications=adjudications,
+            expected_products=expected_products,
+        )
 
     frontend_dist = os.environ.get("PM_EVALS_FRONTEND_DIST")
     if frontend_dist and Path(frontend_dist).is_dir():
@@ -416,8 +657,68 @@ def create_app(
     return app
 
 
+def _scoped_credentials_from_environment() -> dict[tuple[str, str], str]:
+    raw = os.environ.get("PM_EVALS_INGEST_CREDENTIALS_JSON", "")
+    if not raw:
+        return {}
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("PM_EVALS_INGEST_CREDENTIALS_JSON must be valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise TypeError("PM_EVALS_INGEST_CREDENTIALS_JSON must be an object")
+    result: dict[tuple[str, str], str] = {}
+    for identity, token in payload.items():
+        if not isinstance(identity, str) or not isinstance(token, str) or not token:
+            raise RuntimeError("monitoring credential entries must be non-empty strings")
+        parts = identity.split("|", 1)
+        if len(parts) != 2 or not all(parts):
+            raise RuntimeError("monitoring credential keys must use product_id|environment")
+        result[(parts[0], parts[1])] = token
+    if len(set(result.values())) != len(result):
+        raise RuntimeError("monitoring credentials must be unique per product identity")
+    return result
+
+
+def _expected_products_from_environment() -> list[ProductRef]:
+    raw = os.environ.get("PM_EVALS_EXPECTED_PRODUCTS_JSON", "")
+    if not raw:
+        return []
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("PM_EVALS_EXPECTED_PRODUCTS_JSON must be valid JSON") from exc
+    if not isinstance(payload, list):
+        raise TypeError("PM_EVALS_EXPECTED_PRODUCTS_JSON must be an array")
+    products = [ProductRef.model_validate(item) for item in payload]
+    identities = [(item.id, item.environment) for item in products]
+    if len(identities) != len(set(identities)):
+        raise RuntimeError("expected product identities must be unique")
+    return products
+
+
 _monitoring_dir = Path(os.environ.get("PM_EVALS_MONITORING_DATA_DIR", "/tmp/pm-evals-monitoring"))
+_production_monitoring = os.environ.get("PM_EVALS_PRODUCTION_MONITORING") == "1"
+_scoped_credentials = _scoped_credentials_from_environment()
+_expected_products = _expected_products_from_environment()
+if _production_monitoring and (
+    str(_monitoring_dir).startswith("/tmp/")
+    or not _scoped_credentials
+    or not _expected_products
+    or bool(os.environ.get("PM_EVALS_INGEST_TOKEN"))
+):
+    raise RuntimeError(
+        "production monitoring requires durable non-/tmp storage, product-scoped credentials, "
+        "and an expected-product registry"
+    )
 app = create_app(
     monitoring_data_dir=_monitoring_dir,
     monitoring_ingest_token=os.environ.get("PM_EVALS_INGEST_TOKEN"),
+    monitoring_ingest_credentials=_scoped_credentials,
+    monitoring_adjudication_token=os.environ.get("PM_EVALS_ADJUDICATION_TOKEN"),
+    monitoring_demo_mode=os.environ.get("PM_EVALS_DEMO_MODE") == "1",
+    monitoring_expected_products=_expected_products,
+    monitoring_ingest_limit_per_minute=int(
+        os.environ.get("PM_EVALS_INGEST_LIMIT_PER_MINUTE", "120")
+    ),
 )
