@@ -67,22 +67,22 @@ class AdapterProduct(StrictModel):
 
 
 class CheckDefinition(StrictModel):
-    id: str = Field(min_length=1)
+    id: str = Field(min_length=1, max_length=120)
     layer: EvalLayer
     concern: EvalConcern
-    suite_id: str = Field(min_length=1)
-    suite_version: str = Field(min_length=1)
+    suite_id: str = Field(min_length=1, max_length=120)
+    suite_version: str = Field(min_length=1, max_length=120)
     method: EvalMethod
-    component_id: str = Field(min_length=1)
-    stage_id: str = Field(min_length=1)
+    component_id: str = Field(min_length=1, max_length=120)
+    stage_id: str = Field(min_length=1, max_length=120)
     stage_index: int = Field(ge=1)
-    parameter_id: str = Field(min_length=1)
-    owner_id: str = Field(min_length=1)
+    parameter_id: str = Field(min_length=1, max_length=120)
+    owner_id: str = Field(min_length=1, max_length=120)
     fix_location: str = Field(min_length=1, max_length=240)
     depends_on: list[str] = Field(default_factory=list)
     threshold: float | None = None
     tolerance: float = Field(default=0.0, ge=0.0)
-    unit: str = ""
+    unit: str = Field(default="", max_length=120)
     higher_is_better: bool = True
     required: bool = True
     current_summary_by_status: dict[ObservationStatus, str]

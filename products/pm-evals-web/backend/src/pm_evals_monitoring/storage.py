@@ -215,13 +215,21 @@ class MonitoringStore:
             run_id=run.comparison.run_id,
         )
         if comparison is not None:
-            comparison_digest = self._get_run_digest_unlocked(
-                product_id=run.product.id,
-                environment=run.product.environment,
-                run_id=run.comparison.run_id,
-            )
-            if run.comparison.sha256 is not None and comparison_digest != run.comparison.sha256:
-                comparison = None
+            if run.comparison.sha256 is None:
+                if not self._comparison_digest_field_was_absent_unlocked(
+                    product_id=run.product.id,
+                    environment=run.product.environment,
+                    run_id=run.run_id,
+                ):
+                    comparison = None
+            else:
+                comparison_digest = self._get_run_digest_unlocked(
+                    product_id=run.product.id,
+                    environment=run.product.environment,
+                    run_id=run.comparison.run_id,
+                )
+                if comparison_digest != run.comparison.sha256:
+                    comparison = None
         diagnosis = diagnose_run(run, comparison=comparison)
         diagnosed = next(
             (item for item in diagnosis.diagnoses if item.observation_id == legacy.observation_id),
@@ -702,6 +710,21 @@ class MonitoringStore:
         payload = json.loads(line)
         comparison = payload.get("comparison")
         return isinstance(comparison, dict) and "sha256" not in comparison
+
+    def comparison_digest_field_was_absent(
+        self,
+        *,
+        product_id: str,
+        environment: str,
+        run_id: str,
+    ) -> bool:
+        with self._exclusive_store_lock():
+            self._reconcile_index_unlocked()
+            return self._comparison_digest_field_was_absent_unlocked(
+                product_id=product_id,
+                environment=environment,
+                run_id=run_id,
+            )
 
     def get_run_digest(
         self,

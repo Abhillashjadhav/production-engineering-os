@@ -329,7 +329,14 @@ def create_app(
             environment=run.product.environment,
             run_id=run.comparison.run_id,
         )
-        if run.comparison.sha256 is not None and stored_digest != run.comparison.sha256:
+        if run.comparison.sha256 is None:
+            if not monitoring_store.comparison_digest_field_was_absent(
+                product_id=run.product.id,
+                environment=run.product.environment,
+                run_id=run.run_id,
+            ):
+                return None
+        elif stored_digest != run.comparison.sha256:
             return None
         return comparison
 

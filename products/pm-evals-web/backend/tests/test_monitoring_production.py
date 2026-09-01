@@ -1107,6 +1107,28 @@ def test_digestless_late_comparison_remains_unavailable() -> None:
     assert incident.expected_summary.startswith("The referenced comparison does not contain")
 
 
+@pytest.mark.parametrize(
+    "field",
+    [
+        "id",
+        "suite_id",
+        "suite_version",
+        "component_id",
+        "stage_id",
+        "parameter_id",
+        "owner_id",
+        "unit",
+    ],
+)
+def test_repeated_adapter_definition_labels_are_bounded(field: str) -> None:
+    root = Path(__file__).resolve().parents[2]
+    payload = json.loads((root / "adapters/dream-job.settings.json").read_text())
+    payload["definitions"][0][field] = "x" * 121
+
+    with pytest.raises(ValidationError, match="at most 120 characters"):
+        AdapterSettings.model_validate(payload)
+
+
 def test_late_comparison_is_used_only_when_its_digest_matches() -> None:
     baseline = _run()
     baseline.run_id = "late-baseline"
@@ -1128,8 +1150,13 @@ def test_late_comparison_is_used_only_when_its_digest_matches() -> None:
     assert incident.changes_since_comparison == []
 
 
-def test_late_mismatched_comparison_cannot_create_an_adjudicable_regression(
+@pytest.mark.parametrize(
+    "comparison_sha256",
+    [None, "sha256:" + "0" * 64],
+)
+def test_late_unbound_comparison_cannot_create_an_adjudicable_regression(
     tmp_path: Path,
+    comparison_sha256: str | None,
 ) -> None:
     client = TestClient(
         create_app(
@@ -1146,7 +1173,7 @@ def test_late_mismatched_comparison_cannot_create_an_adjudicable_regression(
     candidate.run_id = "late-candidate"
     candidate.observed_at = baseline.observed_at - timedelta(minutes=1)
     candidate.comparison.run_id = baseline.run_id
-    candidate.comparison.sha256 = "sha256:" + "0" * 64
+    candidate.comparison.sha256 = comparison_sha256
     baseline.observations[0].threshold = 0.8
     candidate.observations[0].threshold = 0.8
     candidate.observations[0].current_value = 0.9
