@@ -587,12 +587,12 @@ class _AdjudicationRecordBase(_LegacyAdjudicationRecordBase):
     adjudication_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
     product_id: str = Field(min_length=1, max_length=160)
     environment: str = Field(min_length=1, max_length=160)
-    observation_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
-    predicted_root_observation_ids: list[
-        Annotated[str, Field(pattern=OPAQUE_IDENTIFIER_PATTERN)]
-    ] = Field(max_length=2000)
-    actual_root_observation_ids: list[Annotated[str, Field(pattern=OPAQUE_IDENTIFIER_PATTERN)]] = (
+    observation_id: str = Field(min_length=1, max_length=160)
+    predicted_root_observation_ids: list[Annotated[str, Field(min_length=1, max_length=160)]] = (
         Field(max_length=2000)
+    )
+    actual_root_observation_ids: list[Annotated[str, Field(min_length=1, max_length=160)]] = Field(
+        max_length=2000
     )
 
     @field_validator(

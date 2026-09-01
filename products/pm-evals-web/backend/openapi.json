@@ -7,7 +7,8 @@
         "properties": {
           "actual_root_observation_ids": {
             "items": {
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+              "maxLength": 160,
+              "minLength": 1,
               "type": "string"
             },
             "maxItems": 2000,
@@ -48,13 +49,15 @@
             "type": "string"
           },
           "observation_id": {
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+            "maxLength": 160,
+            "minLength": 1,
             "title": "Observation Id",
             "type": "string"
           },
           "predicted_root_observation_ids": {
             "items": {
-              "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+              "maxLength": 160,
+              "minLength": 1,
               "type": "string"
             },
             "maxItems": 2000,

@@ -1448,10 +1448,17 @@ def test_store_syncs_new_directories_and_rejects_a_symlink_index(
 def test_v01_adjudication_is_verified_and_migrated_on_read(tmp_path: Path) -> None:
     store = MonitoringStore(tmp_path)
     run = _run()
-    run.observations[0].status = "FAIL"
-    run.observations[0].current_value = 0.0
-    assert store.append(run)
     observation = run.observations[0]
+    original_observation_id = observation.observation_id
+    observation.observation_id = "root check"
+    observation.status = "FAIL"
+    observation.current_value = 0.0
+    for item in run.observations:
+        item.depends_on = [
+            observation.observation_id if dependency == original_observation_id else dependency
+            for dependency in item.depends_on
+        ]
+    assert store.append(run)
     current = AdjudicationRecord(
         adjudication_id="legacy-adjudication",
         product_id=run.product.id,
