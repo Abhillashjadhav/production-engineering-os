@@ -692,8 +692,7 @@ def build_overview(
             run,
             runs_by_identity.get(comparison_identity),
             stored_digest=(run_digests or {}).get(comparison_identity),
-            allow_digestless_legacy=run_identity
-            in (legacy_digestless_run_identities or set()),
+            allow_digestless_legacy=run_identity in (legacy_digestless_run_identities or set()),
         )
         diagnosis = diagnose_run(
             run,
@@ -774,8 +773,7 @@ def build_overview(
             run,
             runs_by_identity.get(comparison_identity),
             stored_digest=(run_digests or {}).get(comparison_identity),
-            allow_digestless_legacy=run_identity
-            in (legacy_digestless_run_identities or set()),
+            allow_digestless_legacy=run_identity in (legacy_digestless_run_identities or set()),
         )
         comparison_health = _certified_comparison_health(comparison)
         run_changes = _changes(run, comparison)
