@@ -212,6 +212,19 @@ def test_production_monitoring_rejects_demo_mode(tmp_path: Path) -> None:
         )
 
 
+def test_production_monitoring_requires_durable_store() -> None:
+    product = _run().product
+
+    with pytest.raises(ValueError, match="requires a durable monitoring data directory"):
+        create_app(
+            monitoring_ingest_credentials={
+                (product.id, product.environment): "producer-token"
+            },
+            monitoring_expected_products=[product],
+            monitoring_production=True,
+        )
+
+
 def test_production_registry_must_match_scoped_credential_identities(tmp_path: Path) -> None:
     expected = _run().product.model_copy(update={"id": "linkedin-research-os"})
 

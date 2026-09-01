@@ -272,6 +272,8 @@ def create_app(
         raise ValueError("the monitoring adjudication credential must be distinct from producers")
     if monitoring_production and monitoring_demo_mode:
         raise ValueError("production monitoring cannot enable demo mode")
+    if monitoring_production and monitoring_store is None:
+        raise ValueError("production monitoring requires a durable monitoring data directory")
     expected_identities = {(product.id, product.environment) for product in expected_products}
     expected_by_identity = {
         (product.id, product.environment): product for product in expected_products
