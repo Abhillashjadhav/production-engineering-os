@@ -41,6 +41,88 @@ def test_compiles_structured_given_when_then_without_model_interpretation(
     assert plan.plan_digest.startswith("sha256:")
 
 
+def test_compiles_canonical_product_contract_arrays(tmp_path: Path) -> None:
+    contract = {
+        "functional_requirements": [
+            {
+                "id": "FR-001",
+                "title": "Health status",
+                "description": "The service reports its health.",
+            }
+        ],
+        "acceptance_criteria": [
+            {
+                "id": "AC-001",
+                "requirement": "FR-001",
+                "criterion": "A running service reports OK.",
+                "given": [{"path": "service.running", "operator": "eq", "value": True}],
+                "when": {"action": "health", "arguments": {}},
+                "then": [{"path": "result.status", "operator": "eq", "value": "ok"}],
+            }
+        ],
+    }
+
+    plan = compile_acceptance_plan(
+        contract,
+        repository_root=tmp_path,
+        registered_actions=frozenset({"health"}),
+        template_version="barebones-1",
+        template_test_digests={},
+    )
+
+    assert plan.requirements == ("FR-001",)
+    assert plan.criteria[0].criterion_id == "AC-001"
+    assert plan.criteria[0].requirement_refs == ("FR-001",)
+
+
+@pytest.mark.parametrize(
+    ("field", "code"),
+    [
+        ("functional_requirements", "REQUIREMENT_ID_DUPLICATE"),
+        ("acceptance_criteria", "CRITERION_ID_DUPLICATE"),
+    ],
+)
+def test_canonical_contract_arrays_reject_duplicate_ids(
+    tmp_path: Path, field: str, code: str
+) -> None:
+    contract = {
+        "functional_requirements": [
+            {"id": "FR-001", "title": "Health"},
+            {"id": "FR-002", "title": "Other"},
+        ],
+        "acceptance_criteria": [
+            {
+                "id": "AC-001",
+                "requirement": "FR-001",
+                "criterion": "Health passes.",
+                "given": [{"path": "service.running", "operator": "eq", "value": True}],
+                "when": {"action": "health", "arguments": {}},
+                "then": [{"path": "result.status", "operator": "eq", "value": "ok"}],
+            },
+            {
+                "id": "AC-002",
+                "requirement": "FR-002",
+                "criterion": "Other passes.",
+                "given": [{"path": "service.running", "operator": "eq", "value": True}],
+                "when": {"action": "health", "arguments": {}},
+                "then": [{"path": "result.status", "operator": "eq", "value": "ok"}],
+            },
+        ],
+    }
+    contract[field][1]["id"] = contract[field][0]["id"]
+
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_acceptance_plan(
+            contract,
+            repository_root=tmp_path,
+            registered_actions=frozenset({"health"}),
+            template_version="barebones-1",
+            template_test_digests={},
+        )
+
+    assert any(item.code == code for item in failure.value.diagnostics)
+
+
 def test_free_text_criterion_fails_before_build(tmp_path: Path) -> None:
     contract = _contract(
         {

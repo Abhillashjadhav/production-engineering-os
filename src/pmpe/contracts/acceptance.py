@@ -111,6 +111,49 @@ def _mapping(value: Any) -> Mapping[str, Any] | None:
     return value if isinstance(value, Mapping) else None
 
 
+def _id_keyed_collection(
+    value: Any,
+    *,
+    collection: str,
+    diagnostics: list[AcceptanceDiagnostic],
+) -> Mapping[str, Any] | None:
+    """Accept both compiler-native maps and canonical PDC ID-keyed arrays."""
+
+    if isinstance(value, Mapping):
+        return value
+    if not isinstance(value, list):
+        return None
+    keyed: dict[str, Any] = {}
+    for index, raw in enumerate(value):
+        item = _mapping(raw)
+        item_id = "" if item is None else item.get("id")
+        if item is None or not isinstance(item_id, str) or not item_id:
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    f"{collection.upper()}_ID_MISSING",
+                    f"{collection}[{index}]",
+                    f"{collection} item requires a non-empty id",
+                )
+            )
+            continue
+        if item_id in keyed:
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    f"{collection.upper()}_ID_DUPLICATE",
+                    item_id,
+                    f"{collection} contains a duplicate id",
+                )
+            )
+            continue
+        normalized = dict(item)
+        if collection == "criterion" and "requirement_refs" not in normalized:
+            requirement = normalized.get("requirement")
+            if isinstance(requirement, str) and requirement:
+                normalized["requirement_refs"] = [requirement]
+        keyed[item_id] = normalized
+    return keyed
+
+
 def _assertions(
     value: Any,
     *,
@@ -491,8 +534,16 @@ def compile_acceptance_plan(
     """Compile typed criteria and prove task/test coverage before any build."""
 
     diagnostics: list[AcceptanceDiagnostic] = []
-    requirements_raw = _mapping(contract.get("functional_requirements"))
-    criteria_raw = _mapping(contract.get("acceptance_criteria"))
+    requirements_raw = _id_keyed_collection(
+        contract.get("functional_requirements"),
+        collection="requirement",
+        diagnostics=diagnostics,
+    )
+    criteria_raw = _id_keyed_collection(
+        contract.get("acceptance_criteria"),
+        collection="criterion",
+        diagnostics=diagnostics,
+    )
     if not requirements_raw:
         diagnostics.append(
             AcceptanceDiagnostic(
