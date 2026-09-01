@@ -217,9 +217,7 @@ def test_production_monitoring_requires_durable_store() -> None:
 
     with pytest.raises(ValueError, match="requires a durable monitoring data directory"):
         create_app(
-            monitoring_ingest_credentials={
-                (product.id, product.environment): "producer-token"
-            },
+            monitoring_ingest_credentials={(product.id, product.environment): "producer-token"},
             monitoring_expected_products=[product],
             monitoring_production=True,
         )
