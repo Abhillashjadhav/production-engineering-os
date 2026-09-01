@@ -958,6 +958,65 @@ def test_outbox_rejects_shared_root_before_mutating_it() -> None:
     assert stat.S_IMODE(Path("/tmp").stat().st_mode) == before
 
 
+def test_outbox_flush_rejects_shared_root_before_scanning_it() -> None:
+    sent = False
+
+    def sender(_: str, __: dict[str, object]) -> None:
+        nonlocal sent
+        sent = True
+
+    with pytest.raises(ValueError, match="shared system root"):
+        flush(Path("/tmp"), sender=sender)
+
+    assert not sent
+
+
+def test_sent_outbox_identity_is_not_reenqueued(tmp_path: Path) -> None:
+    outbox = tmp_path / "monitoring-outbox"
+    identity = "run:dream-job-agent:production:delivered"
+    payload = {"run_id": "delivered"}
+    pending = enqueue(
+        outbox,
+        route="/api/monitoring/runs",
+        identity=identity,
+        payload=payload,
+    )
+    delivered: list[dict[str, object]] = []
+    assert flush(outbox, sender=lambda _route, item: delivered.append(item)) == 1
+
+    sent = enqueue(
+        outbox,
+        route="/api/monitoring/runs",
+        identity=identity,
+        payload=payload,
+    )
+
+    assert sent.name.endswith(".sent.json")
+    assert not pending.exists()
+    assert flush(outbox, sender=lambda _route, item: delivered.append(item)) == 0
+    assert delivered == [payload]
+    with pytest.raises(ValueError, match="different evidence"):
+        enqueue(
+            outbox,
+            route="/api/monitoring/runs",
+            identity=identity,
+            payload={"run_id": "changed"},
+        )
+
+
+@pytest.mark.parametrize("shared_root", [Path("/"), Path("/tmp"), Path("/var/tmp")])
+def test_monitoring_store_rejects_shared_roots_before_mutating_them(
+    shared_root: Path,
+) -> None:
+    before = stat.S_IMODE(shared_root.stat().st_mode) if shared_root.exists() else None
+
+    with pytest.raises(ValueError, match="shared system root"):
+        MonitoringStore(shared_root)
+
+    after = stat.S_IMODE(shared_root.stat().st_mode) if shared_root.exists() else None
+    assert after == before
+
+
 def test_outbox_does_not_publish_a_partial_item(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1074,7 +1133,7 @@ def test_store_syncs_new_directories_and_rejects_a_symlink_index(
     with pytest.raises(ValueError, match="must not be a symlink"):
         MonitoringStore(unsafe)
 
-    with pytest.raises(ValueError, match="shared /tmp root"):
+    with pytest.raises(ValueError, match="shared system root"):
         MonitoringStore(Path("/tmp"))
 
 
