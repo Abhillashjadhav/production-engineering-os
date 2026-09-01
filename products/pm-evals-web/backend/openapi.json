@@ -77,7 +77,8 @@
             "type": "string"
           },
           "run_id": {
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+            "maxLength": 160,
+            "minLength": 1,
             "title": "Run Id",
             "type": "string"
           },
@@ -722,7 +723,8 @@
             "type": "string"
           },
           "run_id": {
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+            "maxLength": 160,
+            "minLength": 1,
             "title": "Run Id",
             "type": "string"
           },
@@ -2118,7 +2120,8 @@
             "$ref": "#/components/schemas/Provenance"
           },
           "run_id": {
-            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
+            "maxLength": 160,
+            "minLength": 1,
             "title": "Run Id",
             "type": "string"
           }

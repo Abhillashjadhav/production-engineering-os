@@ -185,6 +185,18 @@ def test_production_monitoring_rejects_demo_mode(tmp_path: Path) -> None:
         )
 
 
+def test_production_registry_must_match_scoped_credential_identities(tmp_path: Path) -> None:
+    expected = _run().product.model_copy(update={"id": "linkedin-research-os"})
+
+    with pytest.raises(ValueError, match="expected-product identities must match"):
+        create_app(
+            monitoring_data_dir=tmp_path,
+            monitoring_ingest_credentials={("dream-job-agent", "production"): "dream-token"},
+            monitoring_expected_products=[expected],
+            monitoring_production=True,
+        )
+
+
 def test_started_receipt_makes_missing_product_visible(tmp_path: Path) -> None:
     client = TestClient(
         create_app(
@@ -1448,6 +1460,7 @@ def test_store_syncs_new_directories_and_rejects_a_symlink_index(
 def test_v01_adjudication_is_verified_and_migrated_on_read(tmp_path: Path) -> None:
     store = MonitoringStore(tmp_path)
     run = _run()
+    run.run_id = "run 1"
     observation = run.observations[0]
     original_observation_id = observation.observation_id
     observation.observation_id = "root check"

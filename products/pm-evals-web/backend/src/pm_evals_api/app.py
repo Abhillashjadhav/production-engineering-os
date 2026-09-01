@@ -255,6 +255,15 @@ def create_app(
         raise ValueError("the monitoring adjudication credential must be distinct from producers")
     if monitoring_production and monitoring_demo_mode:
         raise ValueError("production monitoring cannot enable demo mode")
+    expected_identities = {(product.id, product.environment) for product in expected_products}
+    if monitoring_production and (
+        monitoring_ingest_token or not scoped_credentials or not expected_identities
+    ):
+        raise ValueError("production monitoring requires scoped credentials and expected products")
+    if monitoring_production and set(scoped_credentials) != expected_identities:
+        raise ValueError(
+            "production monitoring credentials and expected-product identities must match"
+        )
     if monitoring_ingest_limit_per_minute < 1:
         raise ValueError("monitoring ingest limit must be positive")
 
@@ -810,6 +819,8 @@ if _production_monitoring and (
     or not _scoped_credentials
     or not _expected_products
     or bool(os.environ.get("PM_EVALS_INGEST_TOKEN"))
+    or set(_scoped_credentials)
+    != {(product.id, product.environment) for product in _expected_products}
 ):
     raise RuntimeError(
         "production monitoring requires durable non-/tmp storage, product-scoped credentials, "

@@ -496,7 +496,7 @@ class Observation(StrictModel):
 
 
 class ComparisonRef(StrictModel):
-    run_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
+    run_id: str = Field(min_length=1, max_length=160)
     label: str = Field(default="Last approved good run", min_length=1, max_length=120)
     sha256: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
 
@@ -541,7 +541,7 @@ class _LegacyAdjudicationRecordBase(StrictModel):
     adjudication_id: str = Field(min_length=1)
     product_id: str = Field(min_length=1)
     environment: str = Field(min_length=1)
-    run_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
+    run_id: str = Field(min_length=1)
     observation_id: str = Field(min_length=1)
     predicted_root_observation_ids: list[str]
     actual_root_observation_ids: list[str]
@@ -587,6 +587,7 @@ class _AdjudicationRecordBase(_LegacyAdjudicationRecordBase):
     adjudication_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
     product_id: str = Field(min_length=1, max_length=160)
     environment: str = Field(min_length=1, max_length=160)
+    run_id: str = Field(min_length=1, max_length=160)
     observation_id: str = Field(min_length=1, max_length=160)
     predicted_root_observation_ids: list[Annotated[str, Field(min_length=1, max_length=160)]] = (
         Field(max_length=2000)
@@ -623,7 +624,7 @@ class AdjudicationRecord(_AdjudicationRecordBase):
 
 class RunEnvelope(StrictModel):
     contract_version: Literal["0.2"] = "0.2"
-    run_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
+    run_id: str = Field(min_length=1, max_length=160)
     comparison: ComparisonRef
     observed_at: AwareDatetime
     product: ProductRef
