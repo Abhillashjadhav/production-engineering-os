@@ -484,15 +484,11 @@ class RunReceipt(StrictModel):
         return self
 
 
-class AdjudicationRecord(StrictModel):
-    """Privileged, append-only ground truth for localization accuracy."""
-
-    adjudication_version: Literal["0.2"] = "0.2"
+class _AdjudicationRecordBase(StrictModel):
     adjudication_id: str = Field(min_length=1)
     product_id: str = Field(min_length=1)
     environment: str = Field(min_length=1)
     run_id: str = Field(min_length=1)
-    case_incident_id: str = Field(pattern=r"^case-sha256:[0-9a-f]{64}$")
     observation_id: str = Field(min_length=1)
     predicted_root_observation_ids: list[str]
     actual_root_observation_ids: list[str]
@@ -512,7 +508,7 @@ class AdjudicationRecord(StrictModel):
         return value.astimezone(UTC)
 
     @model_validator(mode="after")
-    def validate_roots(self) -> AdjudicationRecord:
+    def validate_roots(self) -> _AdjudicationRecordBase:
         if len(self.predicted_root_observation_ids) != len(
             set(self.predicted_root_observation_ids)
         ):
@@ -524,6 +520,19 @@ class AdjudicationRecord(StrictModel):
         if self.verdict == "UNRESOLVED" and self.actual_root_observation_ids:
             raise ValueError("unresolved adjudication cannot assert actual roots")
         return self
+
+
+class LegacyAdjudicationRecord(_AdjudicationRecordBase):
+    """Persisted v0.1 record accepted only by the verified storage migration."""
+
+    adjudication_version: Literal["0.1"] = "0.1"
+
+
+class AdjudicationRecord(_AdjudicationRecordBase):
+    """Privileged, append-only ground truth for localization accuracy."""
+
+    adjudication_version: Literal["0.2"] = "0.2"
+    case_incident_id: str = Field(pattern=r"^case-sha256:[0-9a-f]{64}$")
 
 
 class RunEnvelope(StrictModel):

@@ -87,14 +87,14 @@
           "product_id",
           "environment",
           "run_id",
-          "case_incident_id",
           "observation_id",
           "predicted_root_observation_ids",
           "actual_root_observation_ids",
           "verdict",
           "adjudicated_at",
           "adjudicator_id",
-          "reason_code"
+          "reason_code",
+          "case_incident_id"
         ],
         "title": "AdjudicationRecord",
         "type": "object"

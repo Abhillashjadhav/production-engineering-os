@@ -827,6 +827,17 @@ def test_outbox_retries_without_losing_evidence(
     )
     assert outbox in synced
 
+    existing_outbox = tmp_path / "already-created-outbox"
+    existing_outbox.mkdir()
+    synced.clear()
+    enqueue(
+        existing_outbox,
+        route="/api/monitoring/receipts",
+        identity="receipt:dream-job-agent:production:existing",
+        payload={"receipt_id": "existing"},
+    )
+    assert tmp_path in synced
+
     def fail(_: str, __: dict[str, object]) -> None:
         raise RuntimeError("offline")
 
@@ -953,3 +964,32 @@ def test_store_syncs_new_directories_and_rejects_a_symlink_index(
 
     with pytest.raises(ValueError, match="shared /tmp root"):
         MonitoringStore(Path("/tmp"))
+
+
+def test_v01_adjudication_is_verified_and_migrated_on_read(tmp_path: Path) -> None:
+    store = MonitoringStore(tmp_path)
+    run = _run()
+    assert store.append(run)
+    observation = run.observations[0]
+    current = AdjudicationRecord(
+        adjudication_id="legacy-adjudication",
+        product_id=run.product.id,
+        environment=run.product.environment,
+        run_id=run.run_id,
+        case_incident_id=_case_incident(run, observation.observation_id),
+        observation_id=observation.observation_id,
+        predicted_root_observation_ids=[observation.observation_id],
+        actual_root_observation_ids=[observation.observation_id],
+        verdict="CORRECT",
+        adjudicated_at=datetime.now(UTC),
+        adjudicator_id="legacy-reviewer",
+        reason_code="LEGACY_KNOWN_CAUSE",
+    )
+    legacy = current.model_dump(mode="json", exclude={"case_incident_id"})
+    legacy["adjudication_version"] = "0.1"
+    store.adjudication_path.write_text(json.dumps(legacy, sort_keys=True) + "\n")
+
+    recovered = MonitoringStore(tmp_path)
+    migrated = recovered.list_adjudications()
+    assert migrated == [current]
+    assert migrated[0].adjudication_version == "0.2"

@@ -19,9 +19,11 @@ from .models import (
     MAX_FUTURE_CLOCK_SKEW,
     OVERVIEW_TREND_RUNS_PER_PRODUCT,
     AdjudicationRecord,
+    LegacyAdjudicationRecord,
     RunEnvelope,
     RunReceipt,
     canonical_run_line,
+    case_incident_id,
 )
 
 
@@ -68,10 +70,10 @@ class MonitoringStore:
             self.index_path,
         ):
             self._ensure_private_file(path)
+        self._initialize_index()
         with self._exclusive_store_lock():
             self._reconcile_auxiliary_unlocked(self.receipt_path, "receipt")
             self._reconcile_auxiliary_unlocked(self.adjudication_path, "adjudication")
-        self._initialize_index()
 
     @staticmethod
     def _ensure_private_file(path: Path) -> None:
@@ -122,13 +124,45 @@ class MonitoringStore:
             self._truncate_path(path, boundary)
             data = data[:boundary]
         lines = data.splitlines(keepends=True)
-        model = RunReceipt if kind == "receipt" else AdjudicationRecord
         for line in lines:
             try:
-                model.model_validate_json(line)
+                if kind == "receipt":
+                    RunReceipt.model_validate_json(line)
+                else:
+                    self._parse_adjudication_line(line)
             except ValueError as exc:
                 raise ValueError(f"completed {kind} ledger record is invalid") from exc
         return lines
+
+    def _parse_adjudication_line(self, line: bytes) -> AdjudicationRecord:
+        try:
+            return AdjudicationRecord.model_validate_json(line)
+        except ValueError:
+            legacy = LegacyAdjudicationRecord.model_validate_json(line)
+        run = self._get_run_unlocked(
+            product_id=legacy.product_id,
+            environment=legacy.environment,
+            run_id=legacy.run_id,
+        )
+        if run is None:
+            raise ValueError("legacy adjudication run does not exist")
+        observations = {item.observation_id: item for item in run.observations}
+        observation = observations.get(legacy.observation_id)
+        referenced_roots = set(legacy.predicted_root_observation_ids) | set(
+            legacy.actual_root_observation_ids
+        )
+        if observation is None or not referenced_roots.issubset(observations):
+            raise ValueError("legacy adjudication references missing observations")
+        payload = legacy.model_dump(mode="python", exclude={"adjudication_version"})
+        return AdjudicationRecord(
+            **payload,
+            case_incident_id=case_incident_id(
+                product_id=legacy.product_id,
+                environment=legacy.environment,
+                run_id=legacy.run_id,
+                case=observation.case,
+            ),
+        )
 
     @contextmanager
     def _exclusive_store_lock(self) -> Iterator[None]:
@@ -298,7 +332,7 @@ class MonitoringStore:
     def list_adjudications(self) -> list[AdjudicationRecord]:
         with self._exclusive_store_lock():
             return [
-                AdjudicationRecord.model_validate_json(line)
+                self._parse_adjudication_line(line)
                 for line in self._reconcile_auxiliary_unlocked(
                     self.adjudication_path, "adjudication"
                 )
@@ -455,17 +489,26 @@ class MonitoringStore:
         """Load one exact stored identity after reconciling and checking its evidence."""
 
         with self._exclusive_store_lock():
-            self._reconcile_index_unlocked()
-            with self._connect() as connection:
-                row = connection.execute(
-                    """
-                    SELECT byte_offset, byte_length, sha256
-                    FROM runs
-                    WHERE product_id = ? AND environment = ? AND run_id = ?
-                    """,
-                    (product_id, environment, run_id),
-                ).fetchone()
-            return self._read_rows([row])[0] if row is not None else None
+            return self._get_run_unlocked(
+                product_id=product_id,
+                environment=environment,
+                run_id=run_id,
+            )
+
+    def _get_run_unlocked(
+        self, *, product_id: str, environment: str, run_id: str
+    ) -> RunEnvelope | None:
+        self._reconcile_index_unlocked()
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT byte_offset, byte_length, sha256
+                FROM runs
+                WHERE product_id = ? AND environment = ? AND run_id = ?
+                """,
+                (product_id, environment, run_id),
+            ).fetchone()
+        return self._read_rows([row])[0] if row is not None else None
 
     def get_run_digest(
         self,

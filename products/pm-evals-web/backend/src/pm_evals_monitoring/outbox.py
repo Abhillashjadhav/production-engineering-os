@@ -84,6 +84,7 @@ def enqueue(outbox_dir: Path, *, route: str, identity: str, payload: object) -> 
         os.chmod(directory, 0o700)
         _fsync_directory(directory.parent)
     os.chmod(outbox_dir, 0o700)
+    _fsync_directory(outbox_dir.parent)
     item = {"outbox_version": "0.1", "route": route, "payload": payload}
     canonical = (json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n").encode()
     if len(canonical) > MAX_OUTBOX_ITEM_BYTES:
