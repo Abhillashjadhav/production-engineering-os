@@ -45,10 +45,14 @@ def _read_private_file(path: Path) -> bytes:
         if not stat.S_ISREG(os.fstat(descriptor).st_mode):
             raise ValueError("monitoring outbox item must be a regular file")
         chunks: list[bytes] = []
+        total = 0
         while True:
             chunk = os.read(descriptor, 64 * 1024)
             if not chunk:
                 return b"".join(chunks)
+            total += len(chunk)
+            if total > MAX_OUTBOX_ITEM_BYTES:
+                raise ValueError("monitoring outbox item exceeds the 5 MB limit")
             chunks.append(chunk)
     finally:
         os.close(descriptor)
@@ -156,8 +160,6 @@ def flush(
     with _exclusive_outbox_lock(outbox_dir):
         for path in sorted(outbox_dir.glob("*.pending.json")):
             data = _read_private_file(path)
-            if len(data) > MAX_OUTBOX_ITEM_BYTES:
-                raise ValueError("monitoring outbox item exceeds the 5 MB limit")
             payload = json.loads(data)
             if (
                 not isinstance(payload, dict)
@@ -167,8 +169,14 @@ def flush(
                 or not isinstance(payload.get("payload"), dict)
             ):
                 raise ValueError("monitoring outbox item has an invalid schema")
-            sender(payload["route"], payload["payload"])
             sent_path = path.with_name(path.name.replace(".pending.json", ".sent.json"))
+            if sent_path.exists():
+                if _read_private_file(sent_path) != data:
+                    raise ValueError("outbox identity already exists with different evidence")
+                path.unlink()
+                _fsync_directory(outbox_dir)
+                continue
+            sender(payload["route"], payload["payload"])
             os.replace(path, sent_path)
             _fsync_directory(outbox_dir)
             sent += 1

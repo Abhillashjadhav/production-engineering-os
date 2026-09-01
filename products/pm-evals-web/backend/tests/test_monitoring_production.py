@@ -84,6 +84,38 @@ def test_dashboard_free_text_rejects_private_paths_and_credentials() -> None:
     with pytest.raises(ValidationError):
         RunEnvelope.model_validate(payload)
 
+
+@pytest.mark.parametrize(
+    ("path", "value"),
+    [
+        (("product", "version"), "candidate@example.com"),
+        (("change_manifest", "prompt_version"), "/private/raw-prompt"),
+        (("change_manifest", "model", "snapshot"), "api_key=raw-secret"),
+        (("observations", 0, "location", "owner_id"), "candidate@example.com"),
+        (("observations", 0, "evaluation", "suite_version"), "/private/suite"),
+        (("observations", 0, "reason_code"), "password=raw-secret"),
+    ],
+)
+def test_every_exporter_controlled_dashboard_label_is_redacted(
+    path: tuple[str | int, ...], value: str
+) -> None:
+    payload = _run().model_dump(mode="json")
+    target: object = payload
+    for part in path[:-1]:
+        if isinstance(part, int):
+            assert isinstance(target, list)
+            target = target[part]
+        else:
+            assert isinstance(target, dict)
+            target = target[part]
+    assert isinstance(target, dict)
+    final = path[-1]
+    assert isinstance(final, str)
+    target[final] = value
+
+    with pytest.raises(ValidationError):
+        RunEnvelope.model_validate(payload)
+
     payload = _run().model_dump(mode="json")
     payload["observations"][0]["case"]["use_case_id"] = "/private/raw-case"
     with pytest.raises(ValidationError):
@@ -1002,6 +1034,26 @@ def test_sent_outbox_identity_is_not_reenqueued(tmp_path: Path) -> None:
             identity=identity,
             payload={"run_id": "changed"},
         )
+
+
+def test_flush_reconciles_legacy_pending_and_sent_duplicate(tmp_path: Path) -> None:
+    outbox = tmp_path / "monitoring-outbox"
+    pending = enqueue(
+        outbox,
+        route="/api/monitoring/runs",
+        identity="run:dream-job-agent:production:legacy-duplicate",
+        payload={"run_id": "legacy-duplicate"},
+    )
+    sent = pending.with_name(pending.name.replace(".pending.json", ".sent.json"))
+    sent.write_bytes(pending.read_bytes())
+    sent.chmod(0o600)
+    delivered: list[dict[str, object]] = []
+
+    assert flush(outbox, sender=lambda _route, item: delivered.append(item)) == 0
+
+    assert delivered == []
+    assert not pending.exists()
+    assert sent.exists()
 
 
 @pytest.mark.parametrize("shared_root", [Path("/"), Path("/tmp"), Path("/var/tmp")])

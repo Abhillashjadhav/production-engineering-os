@@ -155,41 +155,61 @@ def validate_redacted_text(value: str) -> str:
 
 
 class ProductRef(StrictModel):
-    id: str = Field(min_length=1)
-    display_name: str = Field(min_length=1)
-    version: str = Field(min_length=1)
-    environment: str = Field(min_length=1)
+    id: str = Field(min_length=1, max_length=160)
+    display_name: str = Field(min_length=1, max_length=160)
+    version: str = Field(min_length=1, max_length=160)
+    environment: str = Field(min_length=1, max_length=160)
     freshness_sla_seconds: int = Field(
         default=DEFAULT_FRESHNESS_SLA_SECONDS,
         ge=60,
         le=31 * 24 * 60 * 60,
     )
 
-    @field_validator("display_name")
+    @field_validator("id", "display_name", "version", "environment")
     @classmethod
-    def redact_display_name(cls, value: str) -> str:
+    def redact_product_label(cls, value: str) -> str:
         return validate_redacted_text(value)
 
 
 class ModelRef(StrictModel):
-    provider: str = Field(min_length=1)
-    name: str = Field(min_length=1)
-    snapshot: str = Field(min_length=1)
+    provider: str = Field(min_length=1, max_length=160)
+    name: str = Field(min_length=1, max_length=160)
+    snapshot: str = Field(min_length=1, max_length=160)
+
+    @field_validator("provider", "name", "snapshot")
+    @classmethod
+    def redact_model_label(cls, value: str) -> str:
+        return validate_redacted_text(value)
 
 
 class ChangeManifest(StrictModel):
     """Human-readable versions needed to explain what changed between runs."""
 
-    use_case_version: str = Field(min_length=1)
-    deployment_id: str = Field(min_length=1)
+    use_case_version: str = Field(min_length=1, max_length=160)
+    deployment_id: str = Field(min_length=1, max_length=160)
     model: ModelRef
-    prompt_version: str = Field(min_length=1)
-    config_version: str = Field(min_length=1)
-    toolset_version: str = Field(min_length=1)
-    evaluator_version: str = Field(min_length=1)
-    rubric_version: str = Field(min_length=1)
-    golden_dataset_version: str = Field(min_length=1)
-    production_cohort: str = Field(min_length=1)
+    prompt_version: str = Field(min_length=1, max_length=160)
+    config_version: str = Field(min_length=1, max_length=160)
+    toolset_version: str = Field(min_length=1, max_length=160)
+    evaluator_version: str = Field(min_length=1, max_length=160)
+    rubric_version: str = Field(min_length=1, max_length=160)
+    golden_dataset_version: str = Field(min_length=1, max_length=160)
+    production_cohort: str = Field(min_length=1, max_length=160)
+
+    @field_validator(
+        "use_case_version",
+        "deployment_id",
+        "prompt_version",
+        "config_version",
+        "toolset_version",
+        "evaluator_version",
+        "rubric_version",
+        "golden_dataset_version",
+        "production_cohort",
+    )
+    @classmethod
+    def redact_manifest_label(cls, value: str) -> str:
+        return validate_redacted_text(value)
 
 
 def manifest_values(manifest: ChangeManifest) -> dict[ChangeDimension, str]:
@@ -277,22 +297,27 @@ def case_incident_id(*, product_id: str, environment: str, run_id: str, case: Ca
 class EvaluationRef(StrictModel):
     layer: EvalLayer
     concern: EvalConcern
-    suite_id: str = Field(min_length=1)
-    suite_version: str = Field(min_length=1)
+    suite_id: str = Field(min_length=1, max_length=160)
+    suite_version: str = Field(min_length=1, max_length=160)
     method: EvalMethod
+
+    @field_validator("suite_id", "suite_version")
+    @classmethod
+    def redact_evaluation_label(cls, value: str) -> str:
+        return validate_redacted_text(value)
 
 
 class Location(StrictModel):
-    component_id: str = Field(min_length=1)
-    stage_id: str = Field(min_length=1)
+    component_id: str = Field(min_length=1, max_length=160)
+    stage_id: str = Field(min_length=1, max_length=160)
     stage_index: int = Field(ge=1)
-    parameter_id: str = Field(min_length=1)
-    owner_id: str = Field(min_length=1)
+    parameter_id: str = Field(min_length=1, max_length=160)
+    owner_id: str = Field(min_length=1, max_length=160)
     fix_location: str = Field(min_length=1, max_length=240)
 
-    @field_validator("fix_location")
+    @field_validator("component_id", "stage_id", "parameter_id", "owner_id", "fix_location")
     @classmethod
-    def redact_fix_location(cls, value: str) -> str:
+    def redact_location_label(cls, value: str) -> str:
         return validate_redacted_text(value)
 
 
@@ -384,7 +409,7 @@ class Remediation(StrictModel):
 
 
 class Observation(StrictModel):
-    observation_id: str = Field(min_length=1)
+    observation_id: str = Field(min_length=1, max_length=160)
     case: CaseRef
     evaluation: EvaluationRef
     location: Location
@@ -395,10 +420,10 @@ class Observation(StrictModel):
     expected_summary: str = Field(min_length=1, max_length=500)
     threshold: float | None = None
     tolerance: float = Field(default=0.0, ge=0.0)
-    unit: str = ""
+    unit: str = Field(default="", max_length=40)
     higher_is_better: bool = True
     required: bool = True
-    reason_code: str = Field(min_length=1)
+    reason_code: str = Field(min_length=1, max_length=160)
     depends_on: list[str] = Field(default_factory=list)
     evidence_refs: list[EvidenceRef] = Field(default_factory=list)
     cause_signals: list[CauseSignal] = Field(default_factory=list)
@@ -408,6 +433,11 @@ class Observation(StrictModel):
     @field_validator("current_summary", "expected_summary")
     @classmethod
     def redact_summaries(cls, value: str) -> str:
+        return validate_redacted_text(value)
+
+    @field_validator("observation_id", "unit", "reason_code")
+    @classmethod
+    def redact_observation_label(cls, value: str) -> str:
         return validate_redacted_text(value)
 
     @field_validator("extensions")
