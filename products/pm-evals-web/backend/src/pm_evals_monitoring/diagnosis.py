@@ -515,12 +515,11 @@ def _digest_verified_comparison(
 ) -> RunEnvelope | None:
     if comparison is None:
         return None
-    # Legacy V0.2 envelopes did not require a comparison digest. Overview inputs
-    # come from digest-checked ledger rows, so keep those comparisons readable.
-    if (
-        run.comparison.sha256 is not None
-        and canonical_run_digest(comparison) != run.comparison.sha256
-    ):
+    # Store-loaded runs carry the digest of their original verified ledger bytes.
+    # This preserves references to V0.2 rows whose parsed form now contains new
+    # defaulted fields and therefore has a different reserialized digest.
+    comparison_digest = comparison._stored_sha256 or canonical_run_digest(comparison)
+    if run.comparison.sha256 is not None and comparison_digest != run.comparison.sha256:
         return None
     return comparison
 

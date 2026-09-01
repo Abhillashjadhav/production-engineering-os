@@ -215,11 +215,13 @@ class MonitoringStore:
             environment=run.product.environment,
             run_id=run.comparison.run_id,
         )
-        if comparison is None or (
-            run.comparison.sha256 is not None
-            and canonical_run_digest(comparison) != run.comparison.sha256
-        ):
-            comparison = None
+        if comparison is not None:
+            comparison_digest = comparison._stored_sha256 or canonical_run_digest(comparison)
+            if (
+                run.comparison.sha256 is not None
+                and comparison_digest != run.comparison.sha256
+            ):
+                comparison = None
         diagnosis = diagnose_run(run, comparison=comparison)
         diagnosed = next(
             (item for item in diagnosis.diagnoses if item.observation_id == legacy.observation_id),
@@ -597,7 +599,9 @@ class MonitoringStore:
                 line = handle.read(length)
                 if hashlib.sha256(line).hexdigest() != expected_digest:
                     raise ValueError("stored monitoring evidence failed its digest check")
-                runs.append(RunEnvelope.model_validate_json(line))
+                run = RunEnvelope.model_validate_json(line)
+                run._stored_sha256 = f"sha256:{expected_digest}"
+                runs.append(run)
         return runs
 
     def list_runs(self) -> list[RunEnvelope]:

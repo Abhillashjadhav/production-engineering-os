@@ -1008,6 +1008,41 @@ def test_adapter_metadata_is_bounded_before_observation_expansion(field: str) ->
         AdapterSettings.model_validate(payload)
 
 
+def test_stored_legacy_comparison_uses_verified_ledger_digest(tmp_path: Path) -> None:
+    baseline = _run()
+    baseline.run_id = "stored-legacy-baseline"
+    baseline.observed_at = datetime.now(UTC) - timedelta(minutes=1)
+    payload = baseline.model_dump(mode="json")
+    payload["comparison"].pop("sha256")
+    legacy_line = (
+        json.dumps(payload, allow_nan=False, sort_keys=True, separators=(",", ":")) + "\n"
+    ).encode()
+
+    store_dir = tmp_path / "legacy-v02"
+    store_dir.mkdir(mode=0o700)
+    legacy_log = store_dir / "observations.jsonl"
+    legacy_log.write_bytes(legacy_line)
+    legacy_log.chmod(0o600)
+    store = MonitoringStore(store_dir)
+
+    candidate = baseline.model_copy(deep=True)
+    candidate.run_id = "stored-legacy-candidate"
+    candidate.observed_at = datetime.now(UTC)
+    candidate.comparison.run_id = baseline.run_id
+    candidate.comparison.sha256 = store.get_run_digest(
+        product_id=baseline.product.id,
+        environment=baseline.product.environment,
+        run_id=baseline.run_id,
+    )
+    candidate.observations[0].status = "FAIL"
+    candidate.observations[0].current_value = 0.0
+    assert store.append(candidate)
+
+    overview = build_overview(store.list_runs(), mode="LIVE")
+    incident = next(item for item in overview.incidents if item.run_id == candidate.run_id)
+    assert not incident.expected_summary.startswith("The referenced comparison does not contain")
+
+
 def test_legacy_comparison_without_digest_remains_available() -> None:
     baseline = _run()
     baseline.run_id = "legacy-baseline"
