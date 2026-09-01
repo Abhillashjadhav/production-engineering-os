@@ -168,9 +168,7 @@ def test_older_receipt_does_not_override_newer_completed_run() -> None:
         ("comparison.label", "Owner candidate@example.com"),
     ],
 )
-def test_run_and_comparison_references_enforce_privacy_boundary(
-    field: str, value: str
-) -> None:
+def test_run_and_comparison_references_enforce_privacy_boundary(field: str, value: str) -> None:
     payload = _run().model_dump(mode="json")
     target: dict[str, object] = payload
     path = field.split(".")
