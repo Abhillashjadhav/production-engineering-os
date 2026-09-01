@@ -138,14 +138,15 @@ def test_started_receipt_makes_missing_product_visible(tmp_path: Path) -> None:
     assert overview["products"][0]["latest_run_id"] == "scheduled-run-1"
 
 
-def test_older_receipt_does_not_override_newer_completed_run() -> None:
+@pytest.mark.parametrize("receipt_run_id", ["older-run", "newer-completed-run"])
+def test_older_receipt_does_not_override_newer_completed_run(receipt_run_id: str) -> None:
     run = _run()
     run.run_id = "newer-completed-run"
     now = datetime.now(UTC)
     run.observed_at = now
     receipt = RunReceipt(
         receipt_id="older-receipt",
-        run_id="older-run",
+        run_id=receipt_run_id,
         product=run.product,
         status="FAILED",
         observed_at=now - timedelta(minutes=5),
@@ -157,6 +158,38 @@ def test_older_receipt_does_not_override_newer_completed_run() -> None:
 
     assert overview.products[0].latest_run_id == run.run_id
     assert overview.products[0].health != "BLOCKED"
+
+
+def test_first_receipt_replaces_registered_not_received_placeholder(tmp_path: Path) -> None:
+    product = _run().product
+    client = TestClient(
+        create_app(
+            monitoring_data_dir=tmp_path,
+            monitoring_ingest_credentials={(product.id, product.environment): "dream-token"},
+            monitoring_expected_products=[product],
+        )
+    )
+    now = datetime.now(UTC)
+    receipt = RunReceipt(
+        receipt_id="first-real-receipt",
+        run_id="first-scheduled-run",
+        product=product,
+        status="STARTED",
+        observed_at=now,
+        expected_next_run_at=now + timedelta(days=1),
+        detail_code="RUN_STARTED",
+    )
+
+    response = client.post(
+        "/api/monitoring/receipts",
+        json=receipt.model_dump(mode="json"),
+        headers={"Authorization": "Bearer dream-token"},
+    )
+
+    assert response.status_code == 200
+    overview = client.get("/api/monitoring/overview").json()
+    assert overview["products"][0]["latest_run_id"] == receipt.run_id
+    assert datetime.fromisoformat(overview["products"][0]["observed_at"]) == receipt.observed_at
 
 
 @pytest.mark.parametrize(
