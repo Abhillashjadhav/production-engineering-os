@@ -255,7 +255,13 @@ class MonitoringStore:
                         ON runs(product_id, environment, observed_at DESC, run_id DESC);
                     CREATE INDEX IF NOT EXISTS runs_product_arrival
                         ON runs(product_id, environment, observed_at DESC, byte_offset DESC);
-                    DROP TABLE IF EXISTS ingest_rate;
+                    CREATE TABLE IF NOT EXISTS ingest_rate (
+                        product_id TEXT NOT NULL,
+                        environment TEXT NOT NULL,
+                        minute_epoch INTEGER NOT NULL,
+                        request_count INTEGER NOT NULL,
+                        PRIMARY KEY(product_id, environment, minute_epoch)
+                    );
                     CREATE TABLE IF NOT EXISTS ingest_rate_events (
                         product_id TEXT NOT NULL,
                         environment TEXT NOT NULL,
@@ -274,21 +280,46 @@ class MonitoringStore:
             raise ValueError("limit_per_minute must be positive")
         request_epoch = datetime.now(UTC).timestamp()
         window_start = request_epoch - 60.0
+        minute_epoch = int(request_epoch) // 60
+        legacy_window_start = (minute_epoch - 1) * 60.0
         with self._exclusive_store_lock(), self._connect() as connection:
             connection.execute(
-                "DELETE FROM ingest_rate_events WHERE request_epoch <= ?", (window_start,)
+                "DELETE FROM ingest_rate_events WHERE request_epoch < ?",
+                (legacy_window_start,),
             )
-            current = connection.execute(
+            connection.execute(
+                "DELETE FROM ingest_rate WHERE minute_epoch < ?", (minute_epoch - 1,)
+            )
+            rolling_count = connection.execute(
                 """SELECT COUNT(*) FROM ingest_rate_events
                    WHERE product_id = ? AND environment = ? AND request_epoch > ?""",
                 (product_id, environment, window_start),
             ).fetchone()[0]
+            mirrored_bucket_count = connection.execute(
+                """SELECT COUNT(*) FROM ingest_rate_events
+                   WHERE product_id = ? AND environment = ? AND request_epoch >= ?""",
+                (product_id, environment, legacy_window_start),
+            ).fetchone()[0]
+            legacy_bucket_count = connection.execute(
+                """SELECT COALESCE(SUM(request_count), 0) FROM ingest_rate
+                   WHERE product_id = ? AND environment = ? AND minute_epoch >= ?""",
+                (product_id, environment, minute_epoch - 1),
+            ).fetchone()[0]
+            legacy_only_count = max(0, legacy_bucket_count - mirrored_bucket_count)
+            current = rolling_count + legacy_only_count
             if current >= limit_per_minute:
                 return False
             connection.execute(
                 """INSERT INTO ingest_rate_events(product_id, environment, request_epoch)
                    VALUES (?, ?, ?)""",
                 (product_id, environment, request_epoch),
+            )
+            connection.execute(
+                """INSERT INTO ingest_rate(product_id, environment, minute_epoch, request_count)
+                   VALUES (?, ?, ?, 1)
+                   ON CONFLICT(product_id, environment, minute_epoch)
+                   DO UPDATE SET request_count = request_count + 1""",
+                (product_id, environment, minute_epoch),
             )
         return True
 

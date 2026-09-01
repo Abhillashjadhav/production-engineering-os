@@ -91,6 +91,9 @@ def test_dashboard_free_text_rejects_private_paths_and_credentials() -> None:
         "C:/Users/customer/private.json",
         r"\\server\share\customer.json",
         "//server/share/customer.json",
+        r"[\\server\share\customer.json]",
+        "[//server/share/customer.json]",
+        "[C:/Users/customer/private.json]",
     ):
         payload = _run().model_dump(mode="json")
         payload["observations"][0]["current_summary"] = f"proof at {absolute_path}"
@@ -344,6 +347,39 @@ def test_ingestion_rate_limit_uses_a_rolling_window_across_minute_boundary(
     assert store.admit_ingest(
         product_id="dream-job-agent", environment="production", limit_per_minute=1
     )
+
+
+def test_ingestion_rate_limit_preserves_legacy_counts_during_rolling_deploy(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = MonitoringStore(tmp_path)
+    with store._connect() as connection:
+        connection.execute(
+            """INSERT INTO ingest_rate(product_id, environment, minute_epoch, request_count)
+               VALUES (?, ?, ?, ?)""",
+            ("dream-job-agent", "production", 2, 1),
+        )
+
+    class TestClock:
+        @classmethod
+        def now(cls, tz: object) -> datetime:
+            assert tz is UTC
+            return datetime.fromtimestamp(120.1, UTC)
+
+    monkeypatch.setattr(storage_module, "datetime", TestClock)
+    assert store.admit_ingest(
+        product_id="dream-job-agent", environment="production", limit_per_minute=2
+    )
+    assert not store.admit_ingest(
+        product_id="dream-job-agent", environment="production", limit_per_minute=2
+    )
+    with store._connect() as connection:
+        legacy_count = connection.execute(
+            "SELECT request_count FROM ingest_rate WHERE minute_epoch = 2"
+        ).fetchone()[0]
+        event_count = connection.execute("SELECT COUNT(*) FROM ingest_rate_events").fetchone()[0]
+    assert legacy_count == 2
+    assert event_count == 1
 
 
 def test_stored_comparison_requires_matching_digest(tmp_path: Path) -> None:
