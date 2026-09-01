@@ -220,10 +220,7 @@ class MonitoringStore:
                 environment=run.product.environment,
                 run_id=run.comparison.run_id,
             )
-            if (
-                run.comparison.sha256 is not None
-                and comparison_digest != run.comparison.sha256
-            ):
+            if run.comparison.sha256 is not None and comparison_digest != run.comparison.sha256:
                 comparison = None
         diagnosis = diagnose_run(run, comparison=comparison)
         diagnosed = next(
@@ -655,8 +652,7 @@ class MonitoringStore:
     ) -> str | None:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT sha256 FROM runs WHERE product_id = ? AND environment = ? "
-                "AND run_id = ?",
+                "SELECT sha256 FROM runs WHERE product_id = ? AND environment = ? AND run_id = ?",
                 (product_id, environment, run_id),
             ).fetchone()
         return f"sha256:{row[0]}" if row is not None else None
