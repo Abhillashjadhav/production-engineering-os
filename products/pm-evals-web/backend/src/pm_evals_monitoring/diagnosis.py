@@ -469,34 +469,41 @@ def _maintenance(category: CauseCategory) -> MaintenanceAssessment:
 def attribution_metrics_from_adjudications(
     records: list[AdjudicationRecord],
 ) -> AttributionMetrics:
-    latest: dict[tuple[str, str, str, str], tuple[AdjudicationRecord, int]] = {}
+    latest: dict[tuple[str, str], tuple[AdjudicationRecord, int]] = {}
     for index, item in enumerate(records):
-        identity = (
-            item.product_id,
-            item.environment,
-            item.run_id,
-            item.observation_id,
-        )
+        identity = (item.case_incident_id, item.observation_id)
         current = latest.get(identity)
         if current is None or (item.adjudicated_at, index) >= (
             current[0].adjudicated_at,
             current[1],
         ):
             latest[identity] = (item, index)
-    incidents = [item for item, _ in latest.values()]
-    resolved = [item for item in incidents if item.verdict != "UNRESOLVED"]
-    correct = sum(item.verdict == "CORRECT" for item in resolved)
-    incorrect = sum(item.verdict == "INCORRECT" for item in resolved)
+    case_records: dict[str, list[AdjudicationRecord]] = defaultdict(list)
+    for item, _ in latest.values():
+        case_records[item.case_incident_id].append(item)
+    case_verdicts = {
+        incident_id: (
+            "INCORRECT"
+            if any(item.verdict == "INCORRECT" for item in items)
+            else "CORRECT"
+            if all(item.verdict == "CORRECT" for item in items)
+            else "UNRESOLVED"
+        )
+        for incident_id, items in case_records.items()
+    }
+    resolved = [verdict for verdict in case_verdicts.values() if verdict != "UNRESOLVED"]
+    correct = resolved.count("CORRECT")
+    incorrect = resolved.count("INCORRECT")
     sample = len(resolved)
     return AttributionMetrics(
         correctly_localized_rate=(correct / sample if sample else None),
-        attribution_coverage=(sample / len(incidents) if incidents else None),
+        attribution_coverage=(sample / len(case_verdicts) if case_verdicts else None),
         false_attribution_rate=(incorrect / sample if sample else None),
         known_cause_sample_size=sample,
-        production_adjudicated_sample_size=len(incidents),
+        production_adjudicated_sample_size=len(case_verdicts),
         guardrail_proven=(sample >= 149 and incorrect / sample < 0.02),
         label=(
-            f"{sample} resolved production adjudications"
+            f"{sample} resolved independent case incidents"
             if records
             else "No adjudicated production incidents yet"
         ),

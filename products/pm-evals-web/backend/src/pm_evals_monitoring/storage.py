@@ -39,6 +39,8 @@ def _fsync_directory(path: Path) -> None:
 
 class MonitoringStore:
     def __init__(self, data_dir: Path) -> None:
+        if data_dir.resolve(strict=False) == Path("/tmp"):
+            raise ValueError("monitoring data directory must not be the shared /tmp root")
         self.data_dir = data_dir
         self.log_path = data_dir / "observations.jsonl"
         self.index_path = data_dir / "observations.sqlite3"

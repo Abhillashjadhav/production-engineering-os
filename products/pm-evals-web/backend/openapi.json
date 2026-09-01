@@ -23,8 +23,8 @@
             "type": "string"
           },
           "adjudication_version": {
-            "const": "0.1",
-            "default": "0.1",
+            "const": "0.2",
+            "default": "0.2",
             "title": "Adjudication Version",
             "type": "string"
           },
@@ -32,6 +32,11 @@
             "maxLength": 120,
             "minLength": 1,
             "title": "Adjudicator Id",
+            "type": "string"
+          },
+          "case_incident_id": {
+            "pattern": "^case-sha256:[0-9a-f]{64}$",
+            "title": "Case Incident Id",
             "type": "string"
           },
           "environment": {
@@ -82,6 +87,7 @@
           "product_id",
           "environment",
           "run_id",
+          "case_incident_id",
           "observation_id",
           "predicted_root_observation_ids",
           "actual_root_observation_ids",

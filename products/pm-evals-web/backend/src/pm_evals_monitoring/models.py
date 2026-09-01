@@ -219,6 +219,26 @@ class Provenance(StrictModel):
     toolset_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
 
 
+def replay_dimension_values(
+    manifest: ChangeManifest, provenance: Provenance
+) -> dict[ChangeDimension, tuple[str, ...]]:
+    """Bind replay labels to the artifact digests available for each dimension."""
+
+    labels = manifest_values(manifest)
+    digests: dict[ChangeDimension, str] = {
+        "USE_CASE": provenance.contract_digest,
+        "PROMPT": provenance.prompt_digest,
+        "CONFIGURATION": provenance.config_digest,
+        "TOOLSET": provenance.toolset_digest,
+        "GOLDEN_DATASET": provenance.golden_dataset_digest,
+        "PRODUCTION_COHORT": provenance.production_data_digest,
+    }
+    return {
+        dimension: ((label, digests[dimension]) if dimension in digests else (label,))
+        for dimension, label in labels.items()
+    }
+
+
 class CaseRef(StrictModel):
     case_id: str = Field(min_length=1)
     display_name: str = Field(min_length=1, max_length=160)
@@ -230,6 +250,22 @@ class CaseRef(StrictModel):
     @classmethod
     def redact_case_text(cls, value: str) -> str:
         return validate_redacted_text(value)
+
+
+def case_incident_id(*, product_id: str, environment: str, run_id: str, case: CaseRef) -> str:
+    canonical = json.dumps(
+        [
+            product_id,
+            environment,
+            run_id,
+            case.case_id,
+            case.use_case_id,
+            case.segment,
+            case.input_fingerprint,
+        ],
+        separators=(",", ":"),
+    ).encode()
+    return "case-sha256:" + hashlib.sha256(canonical).hexdigest()
 
 
 class EvaluationRef(StrictModel):
@@ -451,11 +487,12 @@ class RunReceipt(StrictModel):
 class AdjudicationRecord(StrictModel):
     """Privileged, append-only ground truth for localization accuracy."""
 
-    adjudication_version: Literal["0.1"] = "0.1"
+    adjudication_version: Literal["0.2"] = "0.2"
     adjudication_id: str = Field(min_length=1)
     product_id: str = Field(min_length=1)
     environment: str = Field(min_length=1)
     run_id: str = Field(min_length=1)
+    case_incident_id: str = Field(pattern=r"^case-sha256:[0-9a-f]{64}$")
     observation_id: str = Field(min_length=1)
     predicted_root_observation_ids: list[str]
     actual_root_observation_ids: list[str]

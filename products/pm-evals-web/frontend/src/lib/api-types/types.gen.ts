@@ -25,11 +25,15 @@ export type AdjudicationRecord = {
     /**
      * Adjudication Version
      */
-    adjudication_version?: '0.1';
+    adjudication_version?: '0.2';
     /**
      * Adjudicator Id
      */
     adjudicator_id: string;
+    /**
+     * Case Incident Id
+     */
+    case_incident_id: string;
     /**
      * Environment
      */

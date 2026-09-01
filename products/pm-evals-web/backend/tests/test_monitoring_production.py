@@ -23,6 +23,7 @@ from pm_evals_monitoring import (
     build_demo_runs,
     build_overview,
     canonical_run_digest,
+    case_incident_id,
     map_normalized_run,
 )
 from pm_evals_monitoring import outbox as outbox_module
@@ -38,6 +39,16 @@ def _run() -> RunEnvelope:
     result.run_id = "production-test-run"
     result.observed_at = datetime.now(UTC)
     return result
+
+
+def _case_incident(run: RunEnvelope, observation_id: str) -> str:
+    observation = next(item for item in run.observations if item.observation_id == observation_id)
+    return case_incident_id(
+        product_id=run.product.id,
+        environment=run.product.environment,
+        run_id=run.run_id,
+        case=observation.case,
+    )
 
 
 def test_dashboard_free_text_rejects_private_paths_and_credentials() -> None:
@@ -235,6 +246,7 @@ def test_adjudication_is_privileged_and_drives_metrics(tmp_path: Path) -> None:
         product_id=run.product.id,
         environment=run.product.environment,
         run_id=run.run_id,
+        case_incident_id=_case_incident(run, observation_id),
         observation_id=observation_id,
         predicted_root_observation_ids=[observation_id],
         actual_root_observation_ids=[observation_id],
@@ -274,6 +286,20 @@ def test_adjudication_is_privileged_and_drives_metrics(tmp_path: Path) -> None:
     assert rejected.status_code == 422
     assert rejected.json()["detail"][0]["source"] == "verdict"
 
+    wrong_incident = record.model_copy(
+        update={
+            "adjudication_id": "adjudication-wrong-case",
+            "case_incident_id": "case-sha256:" + "0" * 64,
+        }
+    )
+    rejected = client.post(
+        "/api/monitoring/adjudications",
+        json=wrong_incident.model_dump(mode="json"),
+        headers={"Authorization": "Bearer review-token"},
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"][0]["source"] == "case_incident_id"
+
     future = record.model_copy(
         update={
             "adjudication_id": "adjudication-from-future",
@@ -312,6 +338,7 @@ def test_adjudication_metrics_count_latest_incident_once() -> None:
         product_id="product",
         environment="production",
         run_id="run",
+        case_incident_id="case-sha256:" + "1" * 64,
         observation_id="observation",
         predicted_root_observation_ids=["root-a"],
         actual_root_observation_ids=["root-a"],
@@ -328,6 +355,15 @@ def test_adjudication_metrics_count_latest_incident_once() -> None:
             "adjudicated_at": now + timedelta(seconds=1),
         }
     )
+    sibling_check = first.model_copy(
+        update={
+            "adjudication_id": "same-case-second-check",
+            "observation_id": "observation-two",
+        }
+    )
+    one_case = attribution_metrics_from_adjudications([first, sibling_check])
+    assert one_case.production_adjudicated_sample_size == 1
+    assert one_case.known_cause_sample_size == 1
     metrics = attribution_metrics_from_adjudications([first, correction])
     assert metrics.production_adjudicated_sample_size == 1
     assert metrics.known_cause_sample_size == 1
@@ -366,6 +402,7 @@ def test_unconfirmed_diagnosis_cannot_invent_a_resolved_root(tmp_path: Path) -> 
         product_id=run.product.id,
         environment=run.product.environment,
         run_id=run.run_id,
+        case_incident_id=_case_incident(run, downstream.observation_id),
         observation_id=downstream.observation_id,
         predicted_root_observation_ids=[downstream.observation_id],
         actual_root_observation_ids=[downstream.observation_id],
@@ -436,6 +473,7 @@ def test_downstream_symptom_cannot_count_as_an_independent_localization(
         product_id=run.product.id,
         environment=run.product.environment,
         run_id=run.run_id,
+        case_incident_id=_case_incident(run, downstream.observation_id),
         observation_id=downstream.observation_id,
         predicted_root_observation_ids=[upstream.observation_id],
         actual_root_observation_ids=[upstream.observation_id],
@@ -471,6 +509,7 @@ def test_controlled_replay_must_match_case_check_and_manifest_changes(
     candidate.comparison.run_id = control.run_id
     candidate.comparison.sha256 = canonical_run_digest(control)
     candidate.change_manifest.toolset_version = "connectors@replay"
+    candidate.provenance.toolset_digest = "sha256:" + "3" * 64
     candidate_source = next(
         item
         for item in candidate.observations
@@ -530,6 +569,25 @@ def test_controlled_replay_must_match_case_check_and_manifest_changes(
     rejected = client.post(
         "/api/monitoring/runs",
         json=wrong_manifest.model_dump(mode="json"),
+        headers=headers,
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"][0]["source"] == "cause_signals"
+
+    hidden_digest_change = candidate.model_copy(deep=True)
+    hidden_digest_change.run_id = "replay-hidden-config-change"
+    hidden_digest_change.provenance.config_digest = "sha256:" + "4" * 64
+    hidden_digest_source = next(
+        item
+        for item in hidden_digest_change.observations
+        if item.observation_id == candidate_source.observation_id
+    )
+    hidden_digest_source.cause_signals[
+        0
+    ].candidate_ref = f"{hidden_digest_change.run_id}#{hidden_digest_source.observation_id}"
+    rejected = client.post(
+        "/api/monitoring/runs",
+        json=hidden_digest_change.model_dump(mode="json"),
         headers=headers,
     )
     assert rejected.status_code == 422
@@ -677,6 +735,7 @@ def test_late_mismatched_comparison_cannot_create_an_adjudicable_regression(
         product_id=candidate.product.id,
         environment=candidate.product.environment,
         run_id=candidate.run_id,
+        case_incident_id=_case_incident(candidate, candidate.observations[0].observation_id),
         observation_id=candidate.observations[0].observation_id,
         predicted_root_observation_ids=[candidate.observations[0].observation_id],
         actual_root_observation_ids=[candidate.observations[0].observation_id],
@@ -807,6 +866,8 @@ def test_outbox_does_not_publish_a_partial_item(
             )
     assert not list(outbox.glob("*.pending.json"))
     assert not list(outbox.glob("*.tmp"))
+    crash_leftover = outbox / f".{('a' * 64)}.{('b' * 16)}.tmp"
+    crash_leftover.write_bytes(b"partial crash evidence")
     path = enqueue(
         outbox,
         route="/api/monitoring/runs",
@@ -814,6 +875,7 @@ def test_outbox_does_not_publish_a_partial_item(
         payload={"run_id": "partial"},
     )
     assert path.exists()
+    assert not crash_leftover.exists()
 
 
 def test_auxiliary_ledgers_are_private_and_recover_a_torn_tail(tmp_path: Path) -> None:
@@ -833,6 +895,7 @@ def test_auxiliary_ledgers_are_private_and_recover_a_torn_tail(tmp_path: Path) -
         product_id="dream-job-agent",
         environment="production",
         run_id="run",
+        case_incident_id="case-sha256:" + "2" * 64,
         observation_id="observation",
         predicted_root_observation_ids=["root"],
         actual_root_observation_ids=["root"],
@@ -887,3 +950,6 @@ def test_store_syncs_new_directories_and_rejects_a_symlink_index(
     (unsafe / "observations.sqlite3").symlink_to(target)
     with pytest.raises(ValueError, match="must not be a symlink"):
         MonitoringStore(unsafe)
+
+    with pytest.raises(ValueError, match="shared /tmp root"):
+        MonitoringStore(Path("/tmp"))

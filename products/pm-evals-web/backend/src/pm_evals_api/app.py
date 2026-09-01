@@ -53,8 +53,9 @@ from pm_evals_monitoring import (
     build_empty_overview,
     build_overview,
     canonical_run_digest,
+    case_incident_id,
     diagnose_run,
-    manifest_values,
+    replay_dimension_values,
 )
 from pm_evals_monitoring.models import MAX_FUTURE_CLOCK_SKEW, IngestResponse
 
@@ -519,8 +520,10 @@ def create_app(
                         "controlled replay must compare the same case, evaluation, and location",
                     )
                 assert control_run is not None
-                control_manifest = manifest_values(control_run.change_manifest)
-                candidate_manifest = manifest_values(run.change_manifest)
+                control_manifest = replay_dimension_values(
+                    control_run.change_manifest, control_run.provenance
+                )
+                candidate_manifest = replay_dimension_values(run.change_manifest, run.provenance)
                 actual_varied = {
                     dimension
                     for dimension, candidate_value in candidate_manifest.items()
@@ -637,6 +640,20 @@ def create_app(
         ).issubset(observation_ids):
             raise _validation_error(
                 "observation_id", "adjudication observations do not exist in the stored run"
+            )
+        observation = next(
+            item for item in run.observations if item.observation_id == record.observation_id
+        )
+        expected_case_incident_id = case_incident_id(
+            product_id=run.product.id,
+            environment=run.product.environment,
+            run_id=run.run_id,
+            case=observation.case,
+        )
+        if record.case_incident_id != expected_case_incident_id:
+            raise _validation_error(
+                "case_incident_id",
+                "case incident identity must match the stored run and exact case",
             )
         diagnosis = diagnose_run(run, comparison=stored_comparison(run))
         diagnosed = next(
@@ -756,8 +773,11 @@ _monitoring_dir = Path(os.environ.get("PM_EVALS_MONITORING_DATA_DIR", "/tmp/pm-e
 _production_monitoring = os.environ.get("PM_EVALS_PRODUCTION_MONITORING") == "1"
 _scoped_credentials = _scoped_credentials_from_environment()
 _expected_products = _expected_products_from_environment()
+_resolved_monitoring_dir = _monitoring_dir.resolve(strict=False)
+_tmp_root = Path("/tmp")
 if _production_monitoring and (
-    str(_monitoring_dir).startswith("/tmp/")
+    _resolved_monitoring_dir == _tmp_root
+    or _tmp_root in _resolved_monitoring_dir.parents
     or not _scoped_credentials
     or not _expected_products
     or bool(os.environ.get("PM_EVALS_INGEST_TOKEN"))
