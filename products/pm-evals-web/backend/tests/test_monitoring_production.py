@@ -318,7 +318,7 @@ def test_started_receipt_makes_missing_product_visible(tmp_path: Path) -> None:
     )
     assert response.status_code == 200
     overview = client.get("/api/monitoring/overview").json()
-    assert overview["mode"] == "NO_DATA"
+    assert overview["mode"] == "LIVE"
     assert overview["products"][0]["health"] == "BLOCKED"
     assert overview["products"][0]["latest_run_id"] == "scheduled run 1"
 
@@ -1552,6 +1552,27 @@ def test_existing_store_and_outbox_must_already_be_private(tmp_path: Path) -> No
 
     assert stat.S_IMODE(store_dir.stat().st_mode) == 0o755
     assert stat.S_IMODE(outbox_dir.stat().st_mode) == 0o755
+
+
+@pytest.mark.parametrize(
+    ("directory_mode", "marker_mode"),
+    [(0o777, 0o600), (0o755, 0o666)],
+)
+def test_unsafe_legacy_store_permissions_are_rejected(
+    tmp_path: Path, directory_mode: int, marker_mode: int
+) -> None:
+    store_dir = tmp_path / "unsafe-legacy-store"
+    store_dir.mkdir(mode=0o700)
+    marker = store_dir / "observations.jsonl"
+    marker.touch(mode=0o600)
+    marker.chmod(marker_mode)
+    store_dir.chmod(directory_mode)
+
+    with pytest.raises(ValueError, match="owner-only mode 0700"):
+        MonitoringStore(store_dir)
+
+    assert stat.S_IMODE(store_dir.stat().st_mode) == directory_mode
+    assert stat.S_IMODE(marker.stat().st_mode) == marker_mode
 
 
 def test_owned_legacy_store_permissions_are_migrated(tmp_path: Path) -> None:

@@ -632,7 +632,7 @@ def build_empty_overview(
     )
     return MonitoringOverview(
         generated_at=reference_time,
-        mode="NO_DATA",
+        mode="LIVE" if receipts else "NO_DATA",
         products=_receipt_products(receipts or [], generated_at=reference_time, existing=products),
         incidents=[],
         trend=[],

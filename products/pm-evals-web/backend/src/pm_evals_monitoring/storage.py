@@ -71,16 +71,23 @@ def _validate_store_directory(data_dir: Path, *, migrate_legacy_permissions: boo
         directory_stat = os.fstat(descriptor)
         if directory_stat.st_uid != os.getuid():
             raise ValueError("existing monitoring data directory must be owned by this process")
-        if stat.S_IMODE(directory_stat.st_mode) == 0o700:
+        directory_mode = stat.S_IMODE(directory_stat.st_mode)
+        if directory_mode == 0o700:
             return
         legacy_store = False
-        if migrate_legacy_permissions:
+        legacy_mode_is_safe = directory_mode & 0o022 == 0 and directory_mode & 0o700 == 0o700
+        if migrate_legacy_permissions and legacy_mode_is_safe:
             for marker in _LEGACY_STORE_MARKERS:
                 try:
                     marker_stat = os.stat(marker, dir_fd=descriptor, follow_symlinks=False)
                 except FileNotFoundError:
                     continue
-                if stat.S_ISREG(marker_stat.st_mode):
+                marker_mode = stat.S_IMODE(marker_stat.st_mode)
+                if (
+                    stat.S_ISREG(marker_stat.st_mode)
+                    and marker_stat.st_uid == os.getuid()
+                    and marker_mode & 0o022 == 0
+                ):
                     legacy_store = True
                     break
         if not legacy_store:
