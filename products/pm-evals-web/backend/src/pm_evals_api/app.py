@@ -480,6 +480,7 @@ def create_app(
             401: {"description": "A valid monitoring ingestion credential is required."},
             403: {"description": "The credential belongs to another product identity."},
             409: {"description": "The run identity already exists with different evidence."},
+            429: {"description": "Monitoring ingestion rate limit exceeded."},
             503: {
                 "description": "Monitoring persistence or its ingestion credential is not configured."
             },
@@ -647,6 +648,7 @@ def create_app(
             401: {"description": "A valid monitoring ingestion credential is required."},
             403: {"description": "The credential belongs to another product identity."},
             409: {"description": "The receipt identity exists with different evidence."},
+            429: {"description": "Monitoring ingestion rate limit exceeded."},
             503: {"description": "Monitoring persistence is not configured."},
         },
     )
@@ -781,9 +783,13 @@ def create_app(
     @app.get("/api/monitoring/overview", response_model=MonitoringOverview)
     def monitoring_overview() -> MonitoringOverview:
         if monitoring_store:
-            runs, run_digests = monitoring_store.list_runs_for_overview_with_digests()
+            (
+                runs,
+                run_digests,
+                legacy_digestless_run_identities,
+            ) = monitoring_store.list_runs_for_overview_with_digests()
         else:
-            runs, run_digests = [], {}
+            runs, run_digests, legacy_digestless_run_identities = [], {}, set()
         receipts = monitoring_store.list_receipts() if monitoring_store else []
         adjudications = monitoring_store.list_adjudications() if monitoring_store else []
         if runs:
@@ -794,6 +800,7 @@ def create_app(
                 adjudications=adjudications,
                 expected_products=expected_products,
                 run_digests=run_digests,
+                legacy_digestless_run_identities=legacy_digestless_run_identities,
             )
         if monitoring_demo_mode:
             return build_demo_overview()

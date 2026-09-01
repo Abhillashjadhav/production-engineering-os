@@ -1526,6 +1526,10 @@ export type IngestMonitoringReceiptApiMonitoringReceiptsPostErrors = {
      */
     409: unknown;
     /**
+     * Monitoring ingestion rate limit exceeded.
+     */
+    429: unknown;
+    /**
      * The request exceeds a size limit — the whole-request cap (enforced before parsing) or an individual file's cap.
      */
     413: SizeLimitResponse;
@@ -1570,6 +1574,10 @@ export type IngestMonitoringRunApiMonitoringRunsPostErrors = {
      * The run identity already exists with different evidence.
      */
     409: unknown;
+    /**
+     * Monitoring ingestion rate limit exceeded.
+     */
+    429: unknown;
     /**
      * The request exceeds a size limit — the whole-request cap (enforced before parsing) or an individual file's cap.
      */

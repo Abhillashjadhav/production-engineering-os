@@ -515,8 +515,11 @@ def _digest_verified_comparison(
     comparison: RunEnvelope | None,
     *,
     stored_digest: str | None = None,
+    allow_digestless_legacy: bool = False,
 ) -> RunEnvelope | None:
     if comparison is None:
+        return None
+    if run.comparison.sha256 is None and not allow_digestless_legacy:
         return None
     # Prefer the verified original ledger bytes. This preserves references to
     # V0.2 rows whose parsed form now includes newly defaulted fields.
@@ -647,6 +650,7 @@ def build_overview(
     adjudications: list[AdjudicationRecord] | None = None,
     expected_products: list[ProductRef] | None = None,
     run_digests: dict[tuple[str, str, str], str] | None = None,
+    legacy_digestless_run_identities: set[tuple[str, str, str]] | None = None,
     trend_limit_per_product: int = OVERVIEW_TREND_RUNS_PER_PRODUCT,
 ) -> MonitoringOverview:
     if not runs:
@@ -688,6 +692,8 @@ def build_overview(
             run,
             runs_by_identity.get(comparison_identity),
             stored_digest=(run_digests or {}).get(comparison_identity),
+            allow_digestless_legacy=run_identity
+            in (legacy_digestless_run_identities or set()),
         )
         diagnosis = diagnose_run(
             run,
@@ -768,6 +774,8 @@ def build_overview(
             run,
             runs_by_identity.get(comparison_identity),
             stored_digest=(run_digests or {}).get(comparison_identity),
+            allow_digestless_legacy=run_identity
+            in (legacy_digestless_run_identities or set()),
         )
         comparison_health = _certified_comparison_health(comparison)
         run_changes = _changes(run, comparison)

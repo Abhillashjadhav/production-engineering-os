@@ -678,6 +678,31 @@ class MonitoringStore:
             ).fetchone()
         return f"sha256:{row[0]}" if row is not None else None
 
+    def _comparison_digest_field_was_absent_unlocked(
+        self,
+        *,
+        product_id: str,
+        environment: str,
+        run_id: str,
+    ) -> bool:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT byte_offset, byte_length, sha256 FROM runs "
+                "WHERE product_id = ? AND environment = ? AND run_id = ?",
+                (product_id, environment, run_id),
+            ).fetchone()
+        if row is None:
+            return False
+        offset, length, expected_digest = row
+        with self.log_path.open("rb") as handle:
+            handle.seek(offset)
+            line = handle.read(length)
+        if hashlib.sha256(line).hexdigest() != expected_digest:
+            raise ValueError("stored monitoring evidence failed its digest check")
+        payload = json.loads(line)
+        comparison = payload.get("comparison")
+        return isinstance(comparison, dict) and "sha256" not in comparison
+
     def get_run_digest(
         self,
         *,
@@ -710,8 +735,12 @@ class MonitoringStore:
         self,
         *,
         trend_limit_per_product: int = OVERVIEW_TREND_RUNS_PER_PRODUCT,
-    ) -> tuple[list[RunEnvelope], dict[tuple[str, str, str], str]]:
-        """Load overview runs and their verified original ledger digests."""
+    ) -> tuple[
+        list[RunEnvelope],
+        dict[tuple[str, str, str], str],
+        set[tuple[str, str, str]],
+    ]:
+        """Load overview runs, verified digests, and legacy comparison shapes."""
 
         if trend_limit_per_product < 1:
             raise ValueError("trend_limit_per_product must be at least one")
@@ -719,6 +748,7 @@ class MonitoringStore:
             self._reconcile_index_unlocked()
             runs = self._list_runs_for_overview_unlocked(trend_limit_per_product)
             digests: dict[tuple[str, str, str], str] = {}
+            legacy_digestless_run_identities: set[tuple[str, str, str]] = set()
             for run in runs:
                 identity = (run.product.id, run.product.environment, run.run_id)
                 digest = self._get_run_digest_unlocked(
@@ -728,7 +758,13 @@ class MonitoringStore:
                 )
                 if digest is not None:
                     digests[identity] = digest
-        return runs, digests
+                if self._comparison_digest_field_was_absent_unlocked(
+                    product_id=run.product.id,
+                    environment=run.product.environment,
+                    run_id=run.run_id,
+                ):
+                    legacy_digestless_run_identities.add(identity)
+        return runs, digests, legacy_digestless_run_identities
 
     def _list_runs_for_overview_unlocked(
         self,

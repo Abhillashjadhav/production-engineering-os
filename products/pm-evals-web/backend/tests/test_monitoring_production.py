@@ -1049,8 +1049,17 @@ def test_stored_legacy_comparison_uses_verified_ledger_digest(tmp_path: Path) ->
     candidate.observations[0].current_value = 0.0
     assert store.append(candidate)
 
-    runs, run_digests = store.list_runs_for_overview_with_digests()
-    overview = build_overview(runs, mode="LIVE", run_digests=run_digests)
+    (
+        runs,
+        run_digests,
+        legacy_digestless_run_identities,
+    ) = store.list_runs_for_overview_with_digests()
+    overview = build_overview(
+        runs,
+        mode="LIVE",
+        run_digests=run_digests,
+        legacy_digestless_run_identities=legacy_digestless_run_identities,
+    )
     incident = next(item for item in overview.incidents if item.run_id == candidate.run_id)
     assert not incident.expected_summary.startswith("The referenced comparison does not contain")
 
@@ -1067,9 +1076,35 @@ def test_legacy_comparison_without_digest_remains_available() -> None:
     candidate.observations[0].status = "FAIL"
     candidate.observations[0].current_value = 0.0
 
-    overview = build_overview([baseline, candidate], mode="LIVE")
+    candidate_identity = (
+        candidate.product.id,
+        candidate.product.environment,
+        candidate.run_id,
+    )
+    overview = build_overview(
+        [baseline, candidate],
+        mode="LIVE",
+        legacy_digestless_run_identities={candidate_identity},
+    )
     incident = next(item for item in overview.incidents if item.run_id == candidate.run_id)
     assert not incident.expected_summary.startswith("The referenced comparison does not contain")
+
+
+def test_digestless_late_comparison_remains_unavailable() -> None:
+    baseline = _run()
+    baseline.run_id = "digestless-late-baseline"
+    baseline.observed_at = datetime.now(UTC) - timedelta(minutes=1)
+    candidate = baseline.model_copy(deep=True)
+    candidate.run_id = "digestless-late-candidate"
+    candidate.observed_at = datetime.now(UTC)
+    candidate.comparison.run_id = baseline.run_id
+    candidate.comparison.sha256 = None
+    candidate.observations[0].status = "FAIL"
+    candidate.observations[0].current_value = 0.0
+
+    overview = build_overview([baseline, candidate], mode="LIVE")
+    incident = next(item for item in overview.incidents if item.run_id == candidate.run_id)
+    assert incident.expected_summary.startswith("The referenced comparison does not contain")
 
 
 def test_late_comparison_is_used_only_when_its_digest_matches() -> None:
