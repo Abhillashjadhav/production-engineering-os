@@ -7,6 +7,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import sqlite3
 import stat
 import threading
@@ -18,6 +19,7 @@ from pathlib import Path
 from .diagnosis import diagnose_run
 from .models import (
     MAX_FUTURE_CLOCK_SKEW,
+    OPAQUE_IDENTIFIER_PATTERN,
     OVERVIEW_TREND_RUNS_PER_PRODUCT,
     AdjudicationRecord,
     LegacyAdjudicationRecord,
@@ -26,6 +28,7 @@ from .models import (
     canonical_run_digest,
     canonical_run_line,
     case_incident_id,
+    validate_redacted_text,
 )
 
 _SHARED_STORE_ROOTS = frozenset(
@@ -244,6 +247,14 @@ class MonitoringStore:
         if legacy.adjudicated_at > datetime.now(UTC) + MAX_FUTURE_CLOCK_SKEW:
             raise ValueError("legacy adjudication timestamp exceeds allowed clock skew")
         payload = legacy.model_dump(mode="python", exclude={"adjudication_version"})
+        migrated_id = legacy.adjudication_id
+        try:
+            if re.fullmatch(OPAQUE_IDENTIFIER_PATTERN, migrated_id) is None:
+                raise ValueError("legacy identifier is not opaque")
+            validate_redacted_text(migrated_id)
+        except ValueError:
+            migrated_id = "legacy-sha256:" + hashlib.sha256(migrated_id.encode()).hexdigest()
+        payload["adjudication_id"] = migrated_id
         return AdjudicationRecord(
             **payload,
             case_incident_id=case_incident_id(

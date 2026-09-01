@@ -1475,6 +1475,16 @@ def test_v01_adjudication_is_verified_and_migrated_on_read(tmp_path: Path) -> No
     assert migrated == [current]
     assert migrated[0].adjudication_version == "0.2"
 
+    legacy_id_store = MonitoringStore(tmp_path / "legacy-id")
+    assert legacy_id_store.append(run)
+    legacy_with_old_id = dict(legacy)
+    legacy_with_old_id["adjudication_id"] = "decision 1"
+    legacy_id_store.adjudication_path.write_text(
+        json.dumps(legacy_with_old_id, sort_keys=True) + "\n"
+    )
+    migrated_old_id = MonitoringStore(tmp_path / "legacy-id").list_adjudications()
+    assert migrated_old_id[0].adjudication_id.startswith("legacy-sha256:")
+
     rejected_dir = tmp_path / "contradictory"
     rejected_store = MonitoringStore(rejected_dir)
     assert rejected_store.append(run)

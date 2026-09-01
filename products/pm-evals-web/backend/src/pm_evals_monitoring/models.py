@@ -535,11 +535,58 @@ class RunReceipt(StrictModel):
         return self
 
 
-class _AdjudicationRecordBase(StrictModel):
+class _LegacyAdjudicationRecordBase(StrictModel):
+    """The original v0.1 shape, retained only for verified ledger migration."""
+
+    adjudication_id: str = Field(min_length=1)
+    product_id: str = Field(min_length=1)
+    environment: str = Field(min_length=1)
+    run_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
+    observation_id: str = Field(min_length=1)
+    predicted_root_observation_ids: list[str]
+    actual_root_observation_ids: list[str]
+    verdict: AdjudicationVerdict
+    adjudicated_at: AwareDatetime
+    adjudicator_id: str = Field(min_length=1, max_length=120)
+    reason_code: str = Field(min_length=1, max_length=120)
+
+    @field_validator("adjudicator_id")
+    @classmethod
+    def redact_adjudicator(cls, value: str) -> str:
+        return validate_redacted_text(value)
+
+    @field_validator("adjudicated_at")
+    @classmethod
+    def normalize_adjudication_time(cls, value: datetime) -> datetime:
+        return value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def validate_roots(self) -> _LegacyAdjudicationRecordBase:
+        if len(self.predicted_root_observation_ids) != len(
+            set(self.predicted_root_observation_ids)
+        ):
+            raise ValueError("predicted root observation IDs must be unique")
+        if len(self.actual_root_observation_ids) != len(set(self.actual_root_observation_ids)):
+            raise ValueError("actual root observation IDs must be unique")
+        if self.verdict != "UNRESOLVED" and not self.actual_root_observation_ids:
+            raise ValueError("resolved adjudication requires at least one actual root")
+        if self.verdict == "UNRESOLVED" and self.actual_root_observation_ids:
+            raise ValueError("unresolved adjudication cannot assert actual roots")
+        return self
+
+
+class LegacyAdjudicationRecord(_LegacyAdjudicationRecordBase):
+    """Persisted v0.1 record accepted only by the verified storage migration."""
+
+    adjudication_version: Literal["0.1"] = "0.1"
+
+
+class _AdjudicationRecordBase(_LegacyAdjudicationRecordBase):
+    """Bounded v0.2 shape used for every newly persisted adjudication."""
+
     adjudication_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
     product_id: str = Field(min_length=1, max_length=160)
     environment: str = Field(min_length=1, max_length=160)
-    run_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
     observation_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
     predicted_root_observation_ids: list[
         Annotated[str, Field(pattern=OPAQUE_IDENTIFIER_PATTERN)]
@@ -547,10 +594,6 @@ class _AdjudicationRecordBase(StrictModel):
     actual_root_observation_ids: list[Annotated[str, Field(pattern=OPAQUE_IDENTIFIER_PATTERN)]] = (
         Field(max_length=2000)
     )
-    verdict: AdjudicationVerdict
-    adjudicated_at: AwareDatetime
-    adjudicator_id: str = Field(min_length=1, max_length=120)
-    reason_code: str = Field(min_length=1, max_length=120)
 
     @field_validator(
         "adjudication_id",
@@ -569,31 +612,6 @@ class _AdjudicationRecordBase(StrictModel):
     @classmethod
     def redact_adjudication_roots(cls, value: list[str]) -> list[str]:
         return [validate_redacted_text(item) for item in value]
-
-    @field_validator("adjudicated_at")
-    @classmethod
-    def normalize_adjudication_time(cls, value: datetime) -> datetime:
-        return value.astimezone(UTC)
-
-    @model_validator(mode="after")
-    def validate_roots(self) -> _AdjudicationRecordBase:
-        if len(self.predicted_root_observation_ids) != len(
-            set(self.predicted_root_observation_ids)
-        ):
-            raise ValueError("predicted root observation IDs must be unique")
-        if len(self.actual_root_observation_ids) != len(set(self.actual_root_observation_ids)):
-            raise ValueError("actual root observation IDs must be unique")
-        if self.verdict != "UNRESOLVED" and not self.actual_root_observation_ids:
-            raise ValueError("resolved adjudication requires at least one actual root")
-        if self.verdict == "UNRESOLVED" and self.actual_root_observation_ids:
-            raise ValueError("unresolved adjudication cannot assert actual roots")
-        return self
-
-
-class LegacyAdjudicationRecord(_AdjudicationRecordBase):
-    """Persisted v0.1 record accepted only by the verified storage migration."""
-
-    adjudication_version: Literal["0.1"] = "0.1"
 
 
 class AdjudicationRecord(_AdjudicationRecordBase):
