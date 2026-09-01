@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import secrets
+import stat
 from collections.abc import Callable
 from pathlib import Path
 
@@ -15,6 +17,24 @@ def _fsync_directory(path: Path) -> None:
     descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
     try:
         os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _read_private_file(path: Path) -> bytes:
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0)
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(path, flags)
+    try:
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise ValueError("monitoring outbox item must be a regular file")
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(descriptor, 64 * 1024)
+            if not chunk:
+                return b"".join(chunks)
+            chunks.append(chunk)
     finally:
         os.close(descriptor)
 
@@ -36,15 +56,15 @@ def enqueue(outbox_dir: Path, *, route: str, identity: str, payload: object) -> 
         raise ValueError("monitoring outbox item exceeds the 5 MB limit")
     digest = hashlib.sha256(identity.encode()).hexdigest()
     target = outbox_dir / f"{digest}.pending.json"
+    if target.exists():
+        if _read_private_file(target) != canonical:
+            raise ValueError("outbox identity already exists with different evidence")
+        return target
+    temporary = outbox_dir / f".{digest}.{secrets.token_hex(8)}.tmp"
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0)
     if hasattr(os, "O_NOFOLLOW"):
         flags |= os.O_NOFOLLOW
-    try:
-        descriptor = os.open(target, flags, 0o600)
-    except FileExistsError:
-        if target.read_bytes() != canonical:
-            raise ValueError("outbox identity already exists with different evidence") from None
-        return target
+    descriptor = os.open(temporary, flags, 0o600)
     try:
         view = memoryview(canonical)
         while view:
@@ -55,7 +75,17 @@ def enqueue(outbox_dir: Path, *, route: str, identity: str, payload: object) -> 
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
-    _fsync_directory(outbox_dir)
+    try:
+        try:
+            os.link(temporary, target, follow_symlinks=False)
+        except FileExistsError:
+            if _read_private_file(target) != canonical:
+                raise ValueError(
+                    "outbox identity already exists with different evidence"
+                ) from None
+    finally:
+        temporary.unlink(missing_ok=True)
+        _fsync_directory(outbox_dir)
     return target
 
 

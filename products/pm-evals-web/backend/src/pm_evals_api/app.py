@@ -625,11 +625,7 @@ def create_app(
                 "observation_id",
                 "observation does not represent an adjudicable diagnosis",
             )
-        predicted = (
-            diagnosed.root_observation_ids
-            if diagnosed.root_observation_ids
-            else [diagnosed.observation_id]
-        )
+        predicted = diagnosed.root_observation_ids
         if sorted(record.predicted_root_observation_ids) != sorted(predicted):
             raise _validation_error(
                 "predicted_root_observation_ids",

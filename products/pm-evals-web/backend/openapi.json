@@ -988,6 +988,7 @@
             "type": "string"
           },
           "uri": {
+            "maxLength": 256,
             "minLength": 1,
             "title": "Uri",
             "type": "string"

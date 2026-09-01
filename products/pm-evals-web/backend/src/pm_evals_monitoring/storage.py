@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import fcntl
 import hashlib
 import json
@@ -28,6 +29,14 @@ class FutureObservationError(ValueError):
     """New evidence is too far ahead of the server's current clock."""
 
 
+def _fsync_directory(path: Path) -> None:
+    descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    try:
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
+
+
 class MonitoringStore:
     def __init__(self, data_dir: Path) -> None:
         self.data_dir = data_dir
@@ -37,15 +46,24 @@ class MonitoringStore:
         self.receipt_path = data_dir / "run-receipts.jsonl"
         self.adjudication_path = data_dir / "adjudications.jsonl"
         self._lock = threading.Lock()
+        missing_directories: list[Path] = []
+        cursor = data_dir
+        while not cursor.exists():
+            missing_directories.append(cursor)
+            cursor = cursor.parent
         data_dir.mkdir(parents=True, exist_ok=True)
         if data_dir.is_symlink() or not data_dir.is_dir():
             raise ValueError("monitoring data directory must be a real directory")
+        for directory in reversed(missing_directories):
+            os.chmod(directory, 0o700)
+            _fsync_directory(directory.parent)
         os.chmod(data_dir, 0o700)
         for path in (
             self.log_path,
             self.lock_path,
             self.receipt_path,
             self.adjudication_path,
+            self.index_path,
         ):
             self._ensure_private_file(path)
         with self._exclusive_store_lock():
@@ -55,16 +73,31 @@ class MonitoringStore:
 
     @staticmethod
     def _ensure_private_file(path: Path) -> None:
-        flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0)
+        flags = os.O_RDWR | os.O_CREAT | os.O_EXCL | getattr(os, "O_CLOEXEC", 0)
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
-        descriptor = os.open(path, flags, 0o600)
+        created = False
+        try:
+            descriptor = os.open(path, flags, 0o600)
+            created = True
+        except FileExistsError:
+            flags &= ~os.O_EXCL
+            try:
+                descriptor = os.open(path, flags, 0o600)
+            except OSError as exc:
+                if exc.errno == errno.ELOOP:
+                    raise ValueError("monitoring ledger must not be a symlink") from exc
+                raise
         try:
             if not stat.S_ISREG(os.fstat(descriptor).st_mode):
                 raise ValueError("monitoring ledger must be a regular file")
             os.fchmod(descriptor, 0o600)
+            if created:
+                os.fsync(descriptor)
         finally:
             os.close(descriptor)
+        if created:
+            _fsync_directory(path.parent)
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.index_path)

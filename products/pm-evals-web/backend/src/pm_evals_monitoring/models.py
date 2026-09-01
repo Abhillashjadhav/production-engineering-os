@@ -238,8 +238,20 @@ class Location(StrictModel):
 
 
 class EvidenceRef(StrictModel):
-    uri: str = Field(min_length=1)
+    uri: str = Field(min_length=1, max_length=256)
     sha256: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+    @field_validator("uri")
+    @classmethod
+    def validate_safe_uri(cls, value: str) -> str:
+        validate_redacted_text(value)
+        if not re.fullmatch(
+            r"(?:artifact://[a-z0-9][a-z0-9._/-]*|"
+            r"urn:[a-z0-9][a-z0-9-]{0,31}:[A-Za-z0-9][A-Za-z0-9._:-]*)",
+            value,
+        ):
+            raise ValueError("evidence URI must be an opaque artifact:// or urn: reference")
+        return value
 
 
 class CauseSignal(StrictModel):

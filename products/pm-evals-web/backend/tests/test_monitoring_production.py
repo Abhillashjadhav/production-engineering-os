@@ -26,6 +26,7 @@ from pm_evals_monitoring import (
     map_normalized_run,
 )
 from pm_evals_monitoring import outbox as outbox_module
+from pm_evals_monitoring import storage as storage_module
 from pm_evals_monitoring.diagnosis import attribution_metrics_from_adjudications
 from pm_evals_monitoring.outbox import enqueue, flush
 from pm_evals_monitoring.storage import MonitoringStore
@@ -55,6 +56,16 @@ def test_dashboard_free_text_rejects_private_paths_and_credentials() -> None:
         "native_metadata": {"contact": "candidate@example.com"}
     }
     with pytest.raises(ValidationError, match="email address"):
+        RunEnvelope.model_validate(payload)
+
+    payload = _run().model_dump(mode="json")
+    payload["observations"][0]["evidence_refs"][0]["uri"] = "/private/eval.json"
+    with pytest.raises(ValidationError, match="private or absolute path"):
+        RunEnvelope.model_validate(payload)
+
+    payload = _run().model_dump(mode="json")
+    payload["observations"][0]["evidence_refs"][0]["uri"] = "https://user:secret@example.com/eval"
+    with pytest.raises(ValidationError, match="email address|opaque artifact"):
         RunEnvelope.model_validate(payload)
 
 
@@ -323,6 +334,74 @@ def test_adjudication_metrics_count_latest_incident_once() -> None:
     assert metrics.false_attribution_rate == 1.0
 
 
+def test_unconfirmed_diagnosis_cannot_invent_a_resolved_root(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(
+            monitoring_data_dir=tmp_path,
+            monitoring_ingest_token="producer-token",
+            monitoring_adjudication_token="review-token",
+        )
+    )
+    run = _run()
+    upstream = next(
+        item for item in run.observations if item.observation_id == "source-linkedin-coverage"
+    )
+    downstream = next(
+        item for item in run.observations if item.observation_id == "eligible-job-coverage"
+    )
+    upstream.status = "BLOCKED"
+    upstream.current_value = None
+    downstream.status = "FAIL"
+    downstream.current_value = 0.0
+    assert (
+        client.post(
+            "/api/monitoring/runs",
+            json=run.model_dump(mode="json"),
+            headers={"Authorization": "Bearer producer-token"},
+        ).status_code
+        == 200
+    )
+    claimed = AdjudicationRecord(
+        adjudication_id="invented-root",
+        product_id=run.product.id,
+        environment=run.product.environment,
+        run_id=run.run_id,
+        observation_id=downstream.observation_id,
+        predicted_root_observation_ids=[downstream.observation_id],
+        actual_root_observation_ids=[downstream.observation_id],
+        verdict="CORRECT",
+        adjudicated_at=datetime.now(UTC),
+        adjudicator_id="eval-reviewer",
+        reason_code="KNOWN_CAUSE_CONFIRMED",
+    )
+    rejected = client.post(
+        "/api/monitoring/adjudications",
+        json=claimed.model_dump(mode="json"),
+        headers={"Authorization": "Bearer review-token"},
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"][0]["source"] == "predicted_root_observation_ids"
+
+    unresolved = claimed.model_copy(
+        update={
+            "adjudication_id": "unresolved-root",
+            "predicted_root_observation_ids": [],
+            "actual_root_observation_ids": [],
+            "verdict": "UNRESOLVED",
+        }
+    )
+    accepted = client.post(
+        "/api/monitoring/adjudications",
+        json=unresolved.model_dump(mode="json"),
+        headers={"Authorization": "Bearer review-token"},
+    )
+    assert accepted.status_code == 200
+    metrics = client.get("/api/monitoring/overview").json()["attribution_metrics"]
+    assert metrics["production_adjudicated_sample_size"] == 1
+    assert metrics["known_cause_sample_size"] == 0
+    assert metrics["guardrail_proven"] is False
+
+
 def test_horizontal_mapper_uses_settings_without_product_branches() -> None:
     root = Path(__file__).resolve().parents[2]
     payload = json.loads((root / "adapters/dream-job.settings.json").read_text())
@@ -547,6 +626,39 @@ def test_outbox_retries_without_losing_evidence(
     assert list(outbox.glob("*.sent.json"))
 
 
+def test_outbox_does_not_publish_a_partial_item(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    outbox = tmp_path / "monitoring-outbox"
+    real_write = outbox_module.os.write
+    calls = 0
+
+    def interrupted_write(descriptor: int, data: object) -> int:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return real_write(descriptor, memoryview(data)[:8])
+        raise OSError("simulated full filesystem")
+
+    with monkeypatch.context() as context:
+        context.setattr(outbox_module.os, "write", interrupted_write)
+        with pytest.raises(OSError, match="simulated full filesystem"):
+            enqueue(
+                outbox,
+                route="/api/monitoring/runs",
+                identity="run:dream-job-agent:production:partial",
+                payload={"run_id": "partial"},
+            )
+    assert not list(outbox.glob("*.pending.json"))
+    path = enqueue(
+        outbox,
+        route="/api/monitoring/runs",
+        identity="run:dream-job-agent:production:partial",
+        payload={"run_id": "partial"},
+    )
+    assert path.exists()
+
+
 def test_auxiliary_ledgers_are_private_and_recover_a_torn_tail(tmp_path: Path) -> None:
     store = MonitoringStore(tmp_path)
     now = datetime.now(UTC)
@@ -592,3 +704,29 @@ def test_auxiliary_ledgers_are_private_and_recover_a_torn_tail(tmp_path: Path) -
         recovered.index_path,
     ):
         assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+
+
+def test_store_syncs_new_directories_and_rejects_a_symlink_index(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    synced: list[Path] = []
+    real_fsync_directory = storage_module._fsync_directory
+
+    def record_fsync(path: Path) -> None:
+        synced.append(path)
+        real_fsync_directory(path)
+
+    monkeypatch.setattr(storage_module, "_fsync_directory", record_fsync)
+    data_dir = tmp_path / "nested" / "monitoring"
+    MonitoringStore(data_dir)
+    assert tmp_path in synced
+    assert tmp_path / "nested" in synced
+    assert data_dir in synced
+
+    unsafe = tmp_path / "unsafe"
+    unsafe.mkdir()
+    target = tmp_path / "outside.sqlite3"
+    target.touch()
+    (unsafe / "observations.sqlite3").symlink_to(target)
+    with pytest.raises(ValueError, match="must not be a symlink"):
+        MonitoringStore(unsafe)
