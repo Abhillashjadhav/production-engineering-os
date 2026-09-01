@@ -1,0 +1,93 @@
+{
+  "mapper_version": "0.1",
+  "adapter_id": "dream-job-monitoring",
+  "adapter_version": "1",
+  "product": {
+    "id": "dream-job-agent",
+    "display_name": "Dream Job Search Agent",
+    "environment": "production",
+    "freshness_sla_seconds": 93600
+  },
+  "case_types": {
+    "job-search": ["input-constraint-completeness", "source-coverage", "tool-trajectory", "ranking-quality", "resume-evidence", "pii-disclosure", "successful-job-outcome"]
+  },
+  "definitions": [
+    {
+      "id": "input-constraint-completeness", "layer": "INPUT", "concern": "INVARIANT",
+      "suite_id": "dream-job-invariants", "suite_version": "1", "method": "DETERMINISTIC",
+      "component_id": "request-normalizer", "stage_id": "input", "stage_index": 1,
+      "parameter_id": "required-search-constraints", "owner_id": "dream-job-input-owner",
+      "fix_location": "request normalizer constraint mapping", "depends_on": [],
+      "threshold": 1.0, "tolerance": 0.0, "unit": "ratio", "higher_is_better": true, "required": true,
+      "current_summary_by_status": {"PASS":"Search constraints are complete.","FAIL":"Search constraints are incomplete.","BLOCKED":"Search constraint evidence is missing.","NOT_EVALUATED":"Search constraints were not evaluated."},
+      "expected_summary": "Every required search constraint is present.",
+      "remediation": "Inspect role, location, and work-mode normalization."
+    },
+    {
+      "id": "source-coverage", "layer": "RETRIEVAL_TOOL", "concern": "INVARIANT",
+      "suite_id": "dream-job-invariants", "suite_version": "1", "method": "DETERMINISTIC",
+      "component_id": "source-acquisition", "stage_id": "retrieval", "stage_index": 2,
+      "parameter_id": "eligible-source-coverage", "owner_id": "dream-job-source-owner",
+      "fix_location": "source connector mapping", "depends_on": ["input-constraint-completeness"],
+      "threshold": 0.85, "tolerance": 0.0, "unit": "ratio", "higher_is_better": true, "required": true,
+      "current_summary_by_status": {"PASS":"Source coverage meets the approved bar.","FAIL":"Source coverage is below the approved bar.","BLOCKED":"Source coverage evidence is missing.","NOT_EVALUATED":"Source coverage was not evaluated."},
+      "expected_summary": "Eligible source coverage is at least 85 percent.",
+      "remediation": "Inspect source credentials, connector responses, and mapping before downstream checks."
+    },
+    {
+      "id": "tool-trajectory", "layer": "TOOL_TRAJECTORY", "concern": "INVARIANT",
+      "suite_id": "dream-job-trajectory", "suite_version": "1", "method": "DETERMINISTIC",
+      "component_id": "search-orchestrator", "stage_id": "orchestration", "stage_index": 3,
+      "parameter_id": "required-tool-sequence", "owner_id": "dream-job-orchestration-owner",
+      "fix_location": "search orchestration policy", "depends_on": ["source-coverage"],
+      "threshold": 1.0, "tolerance": 0.0, "unit": "ratio", "higher_is_better": true, "required": true,
+      "current_summary_by_status": {"PASS":"Tool trajectory follows the approved sequence.","FAIL":"Tool trajectory departed from the approved sequence.","BLOCKED":"Tool trajectory evidence is missing.","NOT_EVALUATED":"Tool trajectory was not evaluated."},
+      "expected_summary": "All required tools execute in the approved order.",
+      "remediation": "Inspect the first missing or reordered tool call."
+    },
+    {
+      "id": "ranking-quality", "layer": "SYSTEM", "concern": "CAPABILITY",
+      "suite_id": "dream-job-capability", "suite_version": "1", "method": "DETERMINISTIC",
+      "component_id": "job-ranking", "stage_id": "ranking", "stage_index": 4,
+      "parameter_id": "relevant-job-rate", "owner_id": "dream-job-ranking-owner",
+      "fix_location": "job ranking policy", "depends_on": ["tool-trajectory"],
+      "threshold": 0.8, "tolerance": 0.0, "unit": "ratio", "higher_is_better": true, "required": true,
+      "current_summary_by_status": {"PASS":"Job ranking meets the relevance bar.","FAIL":"Job ranking is below the relevance bar.","BLOCKED":"Ranking evidence is missing.","NOT_EVALUATED":"Ranking was not evaluated."},
+      "expected_summary": "Relevant-job rate is at least 80 percent.",
+      "remediation": "Inspect ranking features only after retrieval and trajectory are healthy."
+    },
+    {
+      "id": "resume-evidence", "layer": "OUTPUT", "concern": "QUALITY",
+      "suite_id": "dream-job-output", "suite_version": "1", "method": "DETERMINISTIC",
+      "component_id": "resume-tailoring", "stage_id": "output", "stage_index": 5,
+      "parameter_id": "supported-resume-claims", "owner_id": "dream-job-resume-owner",
+      "fix_location": "resume evidence binding", "depends_on": ["ranking-quality"],
+      "threshold": 1.0, "tolerance": 0.0, "unit": "ratio", "higher_is_better": true, "required": true,
+      "current_summary_by_status": {"PASS":"Resume claims are evidence-supported.","FAIL":"One or more resume claims lack evidence.","BLOCKED":"Resume evidence is missing.","NOT_EVALUATED":"Resume evidence was not evaluated."},
+      "expected_summary": "Every generated resume claim is supported.",
+      "remediation": "Inspect claim-to-profile evidence binding."
+    },
+    {
+      "id": "pii-disclosure", "layer": "OUTPUT", "concern": "PRIVACY",
+      "suite_id": "dream-job-privacy", "suite_version": "1", "method": "DETERMINISTIC",
+      "component_id": "output-safety", "stage_id": "safety", "stage_index": 6,
+      "parameter_id": "unauthorized-pii-rate", "owner_id": "dream-job-safety-owner",
+      "fix_location": "output privacy filter", "depends_on": ["resume-evidence"],
+      "threshold": 0.0, "tolerance": 0.0, "unit": "ratio", "higher_is_better": false, "required": true,
+      "current_summary_by_status": {"PASS":"No unauthorized personal data was disclosed.","FAIL":"Unauthorized personal data was detected.","BLOCKED":"Privacy evidence is missing.","NOT_EVALUATED":"Privacy was not evaluated."},
+      "expected_summary": "Unauthorized personal-data disclosure remains zero.",
+      "remediation": "Stop release and inspect the output privacy filter."
+    },
+    {
+      "id": "successful-job-outcome", "layer": "OUTCOME", "concern": "CAPABILITY",
+      "suite_id": "dream-job-outcome", "suite_version": "1", "method": "HYBRID",
+      "component_id": "job-search-outcome", "stage_id": "outcome", "stage_index": 7,
+      "parameter_id": "qualified-application-rate", "owner_id": "dream-job-product-owner",
+      "fix_location": "job search outcome review", "depends_on": ["pii-disclosure"],
+      "threshold": 0.7, "tolerance": 0.0, "unit": "ratio", "higher_is_better": true, "required": true,
+      "current_summary_by_status": {"PASS":"Qualified application outcome meets the bar.","FAIL":"Qualified application outcome is below the bar.","BLOCKED":"Outcome evidence is not yet available.","NOT_EVALUATED":"Outcome was not evaluated."},
+      "expected_summary": "Qualified application rate is at least 70 percent.",
+      "remediation": "Review outcomes after all upstream stages are healthy."
+    }
+  ]
+}

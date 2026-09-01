@@ -20,6 +20,7 @@ from pm_evals_monitoring import (
     build_demo_overview,
     build_demo_runs,
     build_overview,
+    canonical_run_digest,
     diagnose_run,
 )
 from pm_evals_monitoring.models import CauseSignal, RunEnvelope
@@ -117,6 +118,7 @@ def test_implausibly_future_observation_time_is_rejected(tmp_path: Path) -> None
     accepted_before_clock_correction = RunEnvelope.model_validate(payload)
     rollback_dir = tmp_path / "clock-rollback"
     rollback_dir.mkdir()
+    rollback_dir.chmod(0o700)
     (rollback_dir / "observations.jsonl").write_bytes(
         MonitoringStore._canonical_line(accepted_before_clock_correction)
     )
@@ -216,6 +218,7 @@ def test_overflowing_passing_regression_fails_closed(
 
     baseline = RunEnvelope.model_validate(baseline.model_dump(mode="python"))
     current = RunEnvelope.model_validate(current.model_dump(mode="python"))
+    current.comparison.sha256 = canonical_run_digest(baseline)
     diagnosis = diagnose_run(current, comparison=baseline)
     degraded = next(
         item
@@ -445,6 +448,7 @@ def test_degraded_passing_check_is_projected_as_an_exact_case() -> None:
         item for item in current.observations if item.observation_id == "source-linkedin-coverage"
     )
     regressed.current_value = 0.85
+    current.comparison.sha256 = canonical_run_digest(baseline)
 
     diagnosis = diagnose_run(
         current,
@@ -1000,6 +1004,7 @@ def test_missing_comparison_ancestry_cannot_certify_a_degraded_baseline(
         item for item in degraded.observations if item.observation_id == "source-linkedin-coverage"
     )
     degraded_source.current_value = 0.85
+    degraded.comparison.sha256 = canonical_run_digest(approved)
 
     current = degraded.model_copy(deep=True)
     current.run_id = "latest-failure"
@@ -1013,6 +1018,7 @@ def test_missing_comparison_ancestry_cannot_certify_a_degraded_baseline(
     current_source.status = "FAIL"
     current_source.current_value = 0.42
     current_source.expected_value = degraded_source.current_value
+    current.comparison.sha256 = canonical_run_digest(degraded)
 
     store = MonitoringStore(tmp_path)
     for run in (approved, degraded, current):
@@ -1056,10 +1062,12 @@ def test_bounded_history_loads_comparisons_for_every_retained_trend_run(
         if item.observation_id == "source-linkedin-coverage"
     )
     historical_source.current_value = 0.85
+    historical.comparison.sha256 = canonical_run_digest(first_baseline)
 
     latest = latest_baseline.model_copy(deep=True)
     latest.run_id = "latest-healthy-run"
     latest.comparison.run_id = latest_baseline.run_id
+    latest.comparison.sha256 = canonical_run_digest(latest_baseline)
     latest.observed_at = first_baseline.observed_at + timedelta(days=2)
 
     store = MonitoringStore(tmp_path)
@@ -1124,17 +1132,34 @@ def test_monitoring_api_bounds_live_trend_history(tmp_path: Path) -> None:
     assert len(response.json()["trend"]) == 30
 
 
-def test_monitoring_api_runs_planted_demo_and_persists_live_run(tmp_path: Path) -> None:
+def test_monitoring_api_shows_no_data_then_persists_live_run(tmp_path: Path) -> None:
     client = TestClient(
         create_app(monitoring_data_dir=tmp_path, monitoring_ingest_token=INGEST_TOKEN)
     )
 
-    demo = client.get("/api/monitoring/overview")
-    assert demo.status_code == 200
-    assert demo.json()["mode"] == "PLANTED_DEMO"
+    empty = client.get("/api/monitoring/overview")
+    assert empty.status_code == 200
+    assert empty.json()["mode"] == "NO_DATA"
 
     run = _failed_dream_job_run().model_copy(deep=True)
     run.observed_at = datetime.now(UTC)
+    for observation in run.observations:
+        observation.cause_signals = []
+    baseline = next(
+        item for item in build_demo_runs() if item.run_id == run.comparison.run_id
+    ).model_copy(deep=True)
+    baseline.observed_at = run.observed_at - timedelta(minutes=1)
+    baseline_response = client.post(
+        "/api/monitoring/runs",
+        json=baseline.model_dump(mode="json"),
+        headers=_ingest_headers(),
+    )
+    assert baseline_response.status_code == 200
+    run.comparison.sha256 = MonitoringStore(tmp_path).get_run_digest(
+        product_id=baseline.product.id,
+        environment=baseline.product.environment,
+        run_id=baseline.run_id,
+    )
     ingested = client.post(
         "/api/monitoring/runs",
         json=run.model_dump(mode="json"),
@@ -1184,6 +1209,11 @@ def test_ingest_diagnosis_uses_the_exact_stored_comparison(tmp_path: Path) -> No
         json=baseline.model_dump(mode="json"),
         headers=_ingest_headers(),
     )
+    current.comparison.sha256 = MonitoringStore(tmp_path).get_run_digest(
+        product_id=baseline.product.id,
+        environment=baseline.product.environment,
+        run_id=baseline.run_id,
+    )
     current_response = client.post(
         "/api/monitoring/runs",
         json=current.model_dump(mode="json"),
@@ -1215,7 +1245,7 @@ def test_monitoring_ingestion_rejects_missing_or_wrong_credentials(tmp_path: Pat
     assert missing.status_code == 401
     assert missing.headers["www-authenticate"] == "Bearer"
     assert wrong.status_code == 401
-    assert client.get("/api/monitoring/overview").json()["mode"] == "PLANTED_DEMO"
+    assert client.get("/api/monitoring/overview").json()["mode"] == "NO_DATA"
 
 
 def test_monitoring_ingestion_fails_closed_without_configured_credential(
@@ -1230,7 +1260,7 @@ def test_monitoring_ingestion_fails_closed_without_configured_credential(
     )
 
     assert response.status_code == 503
-    assert client.get("/api/monitoring/overview").json()["mode"] == "PLANTED_DEMO"
+    assert client.get("/api/monitoring/overview").json()["mode"] == "NO_DATA"
 
 
 def test_monitoring_body_routes_document_and_return_custom_validation_shape(

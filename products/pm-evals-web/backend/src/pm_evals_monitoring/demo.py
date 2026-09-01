@@ -22,6 +22,7 @@ from .models import (
     Provenance,
     Remediation,
     RunEnvelope,
+    canonical_run_digest,
 )
 
 DEMO_NOW = datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
@@ -162,8 +163,8 @@ def _dream_job_run(day: int, *, planted_failure: bool) -> RunEnvelope:
             CauseSignal(
                 category="PROMPT_CONFIG_TOOL_CHANGE",
                 evidence_level="CONTROLLED_REPLAY",
-                control_ref="connectors@1:same-case",
-                candidate_ref="connectors@2:same-case",
+                control_ref="dream-job-2026-08-24#source-linkedin-coverage",
+                candidate_ref=f"{run_id}#source-linkedin-coverage",
                 control_status="PASS",
                 candidate_status="FAIL",
                 held_constant=[
@@ -566,6 +567,15 @@ def build_demo_runs() -> list[RunEnvelope]:
     for day in range(5):
         runs.append(_dream_job_run(day, planted_failure=day == 4))
         runs.append(_linkedin_run(day))
+    baselines = {
+        (run.product.id, run.product.environment, run.run_id): run
+        for run in runs
+        if run.run_id in {"dream-job-2026-08-24", "linkedin-os-2026-08-24"}
+    }
+    for run in runs:
+        baseline = baselines.get((run.product.id, run.product.environment, run.comparison.run_id))
+        if baseline is not None and baseline is not run:
+            run.comparison.sha256 = canonical_run_digest(baseline)
     return runs
 
 

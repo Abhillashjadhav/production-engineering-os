@@ -123,6 +123,21 @@ function fetchOverview(overview: MonitoringOverview = OVERVIEW): typeof fetch {
 }
 
 describe("MonitoringDashboard", () => {
+  it("shows an explicit no-data state instead of a planted demo", async () => {
+    const empty: MonitoringOverview = {
+      ...OVERVIEW,
+      mode: "NO_DATA",
+      products: [],
+      incidents: [],
+      trend: [],
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(empty)} />);
+
+    expect(await screen.findByText(/no production eval data received/i)).toBeInTheDocument();
+    expect(screen.getByText(/products will appear after their first lifecycle receipt/i)).toBeInTheDocument();
+    expect(screen.queryByText(/simulation, not production/i)).not.toBeInTheDocument();
+  });
   it("shows the exact case, earned cause, and fix location in plain language", async () => {
     render(<MonitoringDashboard fetcher={fetchOverview()} />);
 
@@ -143,6 +158,26 @@ describe("MonitoringDashboard", () => {
     expect(screen.queryByText("Observed")).not.toBeInTheDocument();
     expect(screen.queryByText("Baseline")).not.toBeInTheDocument();
     expect(screen.queryByText("Propagation")).not.toBeInTheDocument();
+  });
+
+  it("renders the production guardrail as proven when calibration earns it", async () => {
+    const proven: MonitoringOverview = {
+      ...OVERVIEW,
+      attribution_metrics: {
+        ...OVERVIEW.attribution_metrics,
+        known_cause_sample_size: 149,
+        production_adjudicated_sample_size: 149,
+        false_attribution_rate: 0.01,
+        guardrail_proven: true,
+        label: "149 resolved independent case incidents",
+      },
+    };
+
+    render(<MonitoringDashboard fetcher={fetchOverview(proven)} />);
+
+    expect(await screen.findByText("target <2% · proven")).toBeInTheDocument();
+    expect(screen.getByText("Production guardrail proven")).toBeInTheDocument();
+    expect(screen.queryByText(/production guardrail not proven/i)).not.toBeInTheDocument();
   });
 
   it("shows missing comparison evidence without asserting an expected value", async () => {

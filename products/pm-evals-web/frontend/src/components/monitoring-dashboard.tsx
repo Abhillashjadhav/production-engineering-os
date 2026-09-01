@@ -484,8 +484,8 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
           </p>
         </div>
         <div className="run-context">
-          <span className={`mode-pill ${overview.mode === "PLANTED_DEMO" ? "mode-demo" : "mode-live"}`}>
-            {overview.mode === "PLANTED_DEMO" ? "Planted demo run" : "Live observations"}
+          <span className={`mode-pill ${overview.mode === "PLANTED_DEMO" ? "mode-demo" : overview.mode === "NO_DATA" ? "mode-empty" : "mode-live"}`}>
+            {overview.mode === "PLANTED_DEMO" ? "Planted demo run" : overview.mode === "NO_DATA" ? "No production data" : "Live observations"}
           </span>
           <span>Updated {currentTime(overview.generated_at)}</span>
           <button
@@ -502,6 +502,13 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
       {overview.mode === "PLANTED_DEMO" && (
         <div className="demo-banner" role="note">
           <strong>Simulation, not production.</strong> One known Dream Job connector failure is planted to prove exact-case localization, controlled-replay attribution, and downstream suppression.
+        </div>
+      )}
+
+      {overview.mode === "NO_DATA" && (
+        <div className="refresh-error" role="status">
+          <strong>No production eval data received.</strong>
+          <span>Products will appear after their first lifecycle receipt or completed eval run.</span>
         </div>
       )}
 
@@ -523,7 +530,7 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
         <div><span>Product health</span><strong>{healthyProducts}/{overview.products.length}</strong><small>healthy now</small></div>
         <div><span>Localized cases</span><strong>{exactCases}</strong><small>starting failures or degradations</small></div>
         <div><span>Correct localization</span><strong>{pct(metrics.correctly_localized_rate)}</strong><small>{metrics.known_cause_sample_size} known-cause sample</small></div>
-        <div className="guardrail-metric"><span>False attribution</span><strong>{pct(metrics.false_attribution_rate)}</strong><small>target &lt;2% · not proven</small></div>
+        <div className="guardrail-metric"><span>False attribution</span><strong>{pct(metrics.false_attribution_rate)}</strong><small>target &lt;2% · {metrics.guardrail_proven ? "proven" : "not proven"}</small></div>
       </div>
 
       <div className="section-heading">
@@ -579,7 +586,9 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
           <div className="confidence-number">{metrics.known_cause_sample_size}</div>
           <p>known-cause case tested</p>
           <div className="confidence-rule" />
-          <strong className="not-proven">Production guardrail not proven</strong>
+          <strong className={metrics.guardrail_proven ? undefined : "not-proven"}>
+            Production guardrail {metrics.guardrail_proven ? "proven" : "not proven"}
+          </strong>
           <p>{metrics.label}</p>
           <dl className="confidence-details">
             <div><dt>Cases localized</dt><dd>{pct(metrics.attribution_coverage)}</dd></div>

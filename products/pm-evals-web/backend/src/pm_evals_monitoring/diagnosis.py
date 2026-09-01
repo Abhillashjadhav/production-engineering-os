@@ -10,12 +10,12 @@ from math import isfinite
 
 from .models import (
     OVERVIEW_TREND_RUNS_PER_PRODUCT,
+    AdjudicationRecord,
     Attribution,
     AttributionMetrics,
     CauseCategory,
     CauseConfidence,
     ChangeItem,
-    ChangeManifest,
     CoverageHealth,
     EvidenceLevel,
     Incident,
@@ -24,10 +24,14 @@ from .models import (
     Observation,
     ObservationDiagnosis,
     ProductHealth,
+    ProductRef,
     RunDiagnosis,
     RunEnvelope,
     RunHealth,
+    RunReceipt,
     TrendPoint,
+    canonical_run_digest,
+    manifest_values,
 )
 
 _EVIDENCE_RANK: dict[str, int] = {
@@ -418,28 +422,13 @@ def _coverage_health(
     return result
 
 
-def _manifest_values(manifest: ChangeManifest) -> dict[str, str]:
-    return {
-        "USE_CASE": manifest.use_case_version,
-        "DEPLOYMENT": manifest.deployment_id,
-        "MODEL": f"{manifest.model.provider}/{manifest.model.name}@{manifest.model.snapshot}",
-        "PROMPT": manifest.prompt_version,
-        "CONFIGURATION": manifest.config_version,
-        "TOOLSET": manifest.toolset_version,
-        "EVALUATOR": manifest.evaluator_version,
-        "RUBRIC": manifest.rubric_version,
-        "GOLDEN_DATASET": manifest.golden_dataset_version,
-        "PRODUCTION_COHORT": manifest.production_cohort,
-    }
-
-
 def _changes(run: RunEnvelope, comparison: RunEnvelope | None) -> list[ChangeItem]:
     if comparison is None:
         return []
-    current = _manifest_values(run.change_manifest)
-    previous = _manifest_values(comparison.change_manifest)
+    current = manifest_values(run.change_manifest)
+    previous = manifest_values(comparison.change_manifest)
     return [
-        ChangeItem(dimension=dimension, previous=previous[dimension], current=value)  # type: ignore[arg-type]
+        ChangeItem(dimension=dimension, previous=previous[dimension], current=value)
         for dimension, value in current.items()
         if value != previous[dimension]
     ]
@@ -477,12 +466,191 @@ def _maintenance(category: CauseCategory) -> MaintenanceAssessment:
     )
 
 
+def attribution_metrics_from_adjudications(
+    records: list[AdjudicationRecord],
+) -> AttributionMetrics:
+    latest: dict[tuple[str, str], tuple[AdjudicationRecord, int]] = {}
+    for index, item in enumerate(records):
+        identity = (item.case_incident_id, item.observation_id)
+        current = latest.get(identity)
+        if current is None or (item.adjudicated_at, index) >= (
+            current[0].adjudicated_at,
+            current[1],
+        ):
+            latest[identity] = (item, index)
+    case_records: dict[str, list[AdjudicationRecord]] = defaultdict(list)
+    for item, _ in latest.values():
+        case_records[item.case_incident_id].append(item)
+    case_verdicts = {
+        incident_id: (
+            "INCORRECT"
+            if any(item.verdict == "INCORRECT" for item in items)
+            else "CORRECT"
+            if all(item.verdict == "CORRECT" for item in items)
+            else "UNRESOLVED"
+        )
+        for incident_id, items in case_records.items()
+    }
+    resolved = [verdict for verdict in case_verdicts.values() if verdict != "UNRESOLVED"]
+    correct = resolved.count("CORRECT")
+    incorrect = resolved.count("INCORRECT")
+    sample = len(resolved)
+    return AttributionMetrics(
+        correctly_localized_rate=(correct / sample if sample else None),
+        attribution_coverage=(sample / len(case_verdicts) if case_verdicts else None),
+        false_attribution_rate=(incorrect / sample if sample else None),
+        known_cause_sample_size=sample,
+        production_adjudicated_sample_size=len(case_verdicts),
+        guardrail_proven=(sample >= 149 and incorrect / sample < 0.02),
+        label=(
+            f"{sample} resolved independent case incidents"
+            if records
+            else "No adjudicated production incidents yet"
+        ),
+    )
+
+
+def _digest_verified_comparison(
+    run: RunEnvelope,
+    comparison: RunEnvelope | None,
+    *,
+    stored_digest: str | None = None,
+    allow_digestless_legacy: bool = False,
+) -> RunEnvelope | None:
+    if comparison is None:
+        return None
+    if run.comparison.sha256 is None and not allow_digestless_legacy:
+        return None
+    # Prefer the verified original ledger bytes. This preserves references to
+    # V0.2 rows whose parsed form now includes newly defaulted fields.
+    comparison_digest = stored_digest or canonical_run_digest(comparison)
+    if run.comparison.sha256 is not None and comparison_digest != run.comparison.sha256:
+        return None
+    return comparison
+
+
+def _receipt_products(
+    receipts: list[RunReceipt],
+    *,
+    generated_at: datetime,
+    existing: list[ProductHealth],
+) -> list[ProductHealth]:
+    by_identity = {(item.product_id, item.environment): item for item in existing}
+    latest: dict[tuple[str, str], RunReceipt] = {}
+    for receipt in receipts:
+        identity = (receipt.product.id, receipt.product.environment)
+        if identity not in latest or receipt.observed_at >= latest[identity].observed_at:
+            latest[identity] = receipt
+    for identity, receipt in latest.items():
+        current = by_identity.get(identity)
+        if (
+            current is not None
+            and current.latest_run_id != "NOT_RECEIVED"
+            and receipt.observed_at <= current.observed_at
+        ):
+            # Lifecycle evidence older than an actual completed envelope must
+            # not replace that envelope, even when it reuses the same run ID.
+            # Registered NOT_RECEIVED placeholders are not run evidence and
+            # must accept their first real lifecycle receipt.
+            continue
+        overdue = generated_at > receipt.expected_next_run_at
+        completed_run_present = (
+            current is not None
+            and current.latest_run_id == receipt.run_id
+            and receipt.status == "COMPLETED"
+        )
+        if completed_run_present and not overdue:
+            continue
+        by_identity[identity] = ProductHealth(
+            product_id=receipt.product.id,
+            display_name=receipt.product.display_name,
+            version=receipt.product.version,
+            environment=receipt.product.environment,
+            latest_run_id=receipt.run_id,
+            observed_at=receipt.observed_at,
+            health="BLOCKED",
+            is_stale=overdue,
+            freshness_sla_seconds=(
+                current.freshness_sla_seconds
+                if current is not None
+                else receipt.product.freshness_sla_seconds
+            ),
+            pass_count=0,
+            fail_count=0,
+            blocked_count=1,
+            layers=[],
+            concerns=[],
+        )
+    return [by_identity[key] for key in sorted(by_identity)]
+
+
+def _registered_products(
+    products: list[ProductRef],
+    *,
+    generated_at: datetime,
+    existing: list[ProductHealth],
+) -> list[ProductHealth]:
+    """Make configured products visible before their first producer emission."""
+
+    by_identity = {(item.product_id, item.environment): item for item in existing}
+    for product in products:
+        identity = (product.id, product.environment)
+        if identity in by_identity:
+            by_identity[identity] = by_identity[identity].model_copy(
+                update={"freshness_sla_seconds": product.freshness_sla_seconds}
+            )
+            continue
+        by_identity[identity] = ProductHealth(
+            product_id=product.id,
+            display_name=product.display_name,
+            version=product.version,
+            environment=product.environment,
+            latest_run_id="NOT_RECEIVED",
+            observed_at=generated_at,
+            health="BLOCKED",
+            is_stale=True,
+            freshness_sla_seconds=product.freshness_sla_seconds,
+            pass_count=0,
+            fail_count=0,
+            blocked_count=1,
+            layers=[],
+            concerns=[],
+        )
+    return [by_identity[key] for key in sorted(by_identity)]
+
+
+def build_empty_overview(
+    *,
+    generated_at: datetime | None = None,
+    receipts: list[RunReceipt] | None = None,
+    adjudications: list[AdjudicationRecord] | None = None,
+    expected_products: list[ProductRef] | None = None,
+) -> MonitoringOverview:
+    reference_time = generated_at or datetime.now(UTC)
+    products = _registered_products(
+        expected_products or [], generated_at=reference_time, existing=[]
+    )
+    return MonitoringOverview(
+        generated_at=reference_time,
+        mode="NO_DATA",
+        products=_receipt_products(receipts or [], generated_at=reference_time, existing=products),
+        incidents=[],
+        trend=[],
+        attribution_metrics=attribution_metrics_from_adjudications(adjudications or []),
+    )
+
+
 def build_overview(
     runs: list[RunEnvelope],
     *,
     mode: str,
     generated_at: datetime | None = None,
     attribution_metrics: AttributionMetrics | None = None,
+    receipts: list[RunReceipt] | None = None,
+    adjudications: list[AdjudicationRecord] | None = None,
+    expected_products: list[ProductRef] | None = None,
+    run_digests: dict[tuple[str, str, str], str] | None = None,
+    legacy_digestless_run_identities: set[tuple[str, str, str]] | None = None,
     trend_limit_per_product: int = OVERVIEW_TREND_RUNS_PER_PRODUCT,
 ) -> MonitoringOverview:
     if not runs:
@@ -490,6 +658,9 @@ def build_overview(
     if trend_limit_per_product < 1:
         raise ValueError("trend_limit_per_product must be at least one")
     reference_time = generated_at or datetime.now(UTC)
+    registered_by_identity = {
+        (product.id, product.environment): product for product in expected_products or []
+    }
     # The store returns runs in append order, which is the authoritative
     # server-owned tie-break when producer observation timestamps are equal.
     ordered = [
@@ -517,7 +688,12 @@ def build_overview(
             run.product.environment,
             run.comparison.run_id,
         )
-        comparison = runs_by_identity.get(comparison_identity)
+        comparison = _digest_verified_comparison(
+            run,
+            runs_by_identity.get(comparison_identity),
+            stored_digest=(run_digests or {}).get(comparison_identity),
+            allow_digestless_legacy=run_identity in (legacy_digestless_run_identities or set()),
+        )
         diagnosis = diagnose_run(
             run,
             comparison=comparison,
@@ -555,9 +731,13 @@ def build_overview(
             for item in diagnosis.diagnoses
             if by_id[item.observation_id].status == "PASS"
         }
-        is_stale = (
-            reference_time - run.observed_at
-        ).total_seconds() > run.product.freshness_sla_seconds
+        registered = registered_by_identity.get((product_id, environment))
+        freshness_sla_seconds = (
+            registered.freshness_sla_seconds
+            if registered is not None
+            else run.product.freshness_sla_seconds
+        )
+        is_stale = (reference_time - run.observed_at).total_seconds() > freshness_sla_seconds
         products.append(
             ProductHealth(
                 product_id=product_id,
@@ -568,7 +748,7 @@ def build_overview(
                 observed_at=run.observed_at,
                 health=("BLOCKED" if is_stale else diagnosis.health),
                 is_stale=is_stale,
-                freshness_sla_seconds=run.product.freshness_sla_seconds,
+                freshness_sla_seconds=freshness_sla_seconds,
                 pass_count=diagnosis.pass_count,
                 fail_count=diagnosis.fail_count,
                 blocked_count=diagnosis.blocked_count,
@@ -589,7 +769,12 @@ def build_overview(
         if is_stale:
             continue
         comparison_identity = (product_id, environment, run.comparison.run_id)
-        comparison = runs_by_identity.get(comparison_identity)
+        comparison = _digest_verified_comparison(
+            run,
+            runs_by_identity.get(comparison_identity),
+            stored_digest=(run_digests or {}).get(comparison_identity),
+            allow_digestless_legacy=run_identity in (legacy_digestless_run_identities or set()),
+        )
         comparison_health = _certified_comparison_health(comparison)
         run_changes = _changes(run, comparison)
         projected_diagnoses = [
@@ -675,19 +860,17 @@ def build_overview(
                 )
             )
 
-    default_metrics = AttributionMetrics(
-        correctly_localized_rate=None,
-        attribution_coverage=None,
-        false_attribution_rate=None,
-        known_cause_sample_size=0,
-        production_adjudicated_sample_size=0,
-        guardrail_proven=False,
-        label="No adjudicated production incidents yet",
-    )
+    default_metrics = attribution_metrics_from_adjudications(adjudications or [])
     return MonitoringOverview(
         generated_at=reference_time,
         mode=mode,  # type: ignore[arg-type]
-        products=products,
+        products=_receipt_products(
+            receipts or [],
+            generated_at=reference_time,
+            existing=_registered_products(
+                expected_products or [], generated_at=reference_time, existing=products
+            ),
+        ),
         incidents=sorted(incidents, key=lambda item: item.observed_at, reverse=True),
         trend=trend,
         attribution_metrics=attribution_metrics or default_metrics,

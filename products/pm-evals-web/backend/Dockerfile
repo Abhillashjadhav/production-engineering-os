@@ -11,6 +11,10 @@ COPY src ./src
 RUN pip install --no-cache-dir --require-hashes -r requirements.lock \
  && pip install --no-cache-dir --no-deps .
 
+# The service refuses to chmod pre-existing directories. Seed the dedicated
+# named-volume target with owner-only permissions for first production boot.
+RUN mkdir -p /data/monitoring && chmod 0700 /data /data/monitoring
+
 EXPOSE 8000
 # slim has no curl; health-check with the stdlib
 HEALTHCHECK --interval=5s --timeout=3s --retries=12 \

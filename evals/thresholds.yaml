@@ -1,6 +1,9 @@
 # Drift thresholds — PROVISIONAL example defaults.
 # These values are not production-calibrated; tune them against your own run
 # history before treating WATCH/HOLD boundaries as meaningful.
+# Scope: pre-release barebones drift evaluation only. Production monitoring
+# thresholds are versioned in product adapter settings and are authoritative for
+# dashboard observations.
 provisional: true
 note: "Provisional example defaults — not production-calibrated."
 pass_rate_drop_max: 0.05

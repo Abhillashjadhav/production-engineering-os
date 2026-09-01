@@ -7,10 +7,13 @@ failure happened.
 
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
 from math import isfinite
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import (
     AwareDatetime,
@@ -31,6 +34,8 @@ Attribution = Literal[
 ]
 IncidentAttribution = Literal["LIKELY_STARTING_FAILURE", "DEGRADED_CHECK"]
 RunHealth = Literal["HEALTHY", "DEGRADED", "FAILING", "BLOCKED"]
+ReceiptStatus = Literal["STARTED", "COMPLETED", "FAILED"]
+AdjudicationVerdict = Literal["CORRECT", "INCORRECT", "UNRESOLVED"]
 EvalLayer = Literal[
     "INPUT",
     "SYSTEM",
@@ -113,6 +118,47 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
+_PRIVATE_PATH = re.compile(
+    r"(?:file://|(?<![A-Za-z0-9_./+:-])/(?=\S)\S*|"
+    r"(?<![A-Za-z0-9_./+-])[A-Za-z]:[\\/])",
+    re.IGNORECASE,
+)
+_UNC_PATH = re.compile(
+    r"(?<![A-Za-z0-9_./+:-])(?:\\\\|//)[^\s\\/]+[\\/]",
+    re.IGNORECASE,
+)
+_EMAIL = re.compile(r"\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b", re.IGNORECASE)
+_SECRET_ASSIGNMENT = re.compile(
+    r"\b(?:api[_-]?key|access[_-]?token|password|secret)\s*[:=]\s*\S+",
+    re.IGNORECASE,
+)
+_TOKEN = re.compile(r"\b[A-Za-z0-9_-]{40,}\b")
+OPAQUE_IDENTIFIER_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$"
+
+
+def validate_redacted_text(value: str) -> str:
+    """Reject common private-data shapes from dashboard-visible free text.
+
+    Product exporters remain responsible for allowlisting what they send. This
+    validator is a central defense in depth, not a claim of perfect redaction.
+    """
+
+    if _PRIVATE_PATH.search(value) or _UNC_PATH.search(value):
+        raise ValueError("dashboard text must not contain a private or absolute path")
+    if _EMAIL.search(value):
+        raise ValueError("dashboard text must not contain an email address")
+    if _SECRET_ASSIGNMENT.search(value):
+        raise ValueError("dashboard text must not contain a credential assignment")
+    for token in _TOKEN.findall(value):
+        if (
+            any(character.islower() for character in token)
+            and any(character.isupper() for character in token)
+            and any(character.isdigit() for character in token)
+        ):
+            raise ValueError("dashboard text must not contain a high-entropy token")
+    return value
+
+
 class ProductRef(StrictModel):
     id: str = Field(min_length=1)
     display_name: str = Field(min_length=1)
@@ -124,11 +170,21 @@ class ProductRef(StrictModel):
         le=31 * 24 * 60 * 60,
     )
 
+    @field_validator("id", "display_name", "version", "environment")
+    @classmethod
+    def redact_product_label(cls, value: str) -> str:
+        return validate_redacted_text(value)
+
 
 class ModelRef(StrictModel):
     provider: str = Field(min_length=1)
     name: str = Field(min_length=1)
     snapshot: str = Field(min_length=1)
+
+    @field_validator("provider", "name", "snapshot")
+    @classmethod
+    def redact_model_label(cls, value: str) -> str:
+        return validate_redacted_text(value)
 
 
 class ChangeManifest(StrictModel):
@@ -145,6 +201,38 @@ class ChangeManifest(StrictModel):
     golden_dataset_version: str = Field(min_length=1)
     production_cohort: str = Field(min_length=1)
 
+    @field_validator(
+        "use_case_version",
+        "deployment_id",
+        "prompt_version",
+        "config_version",
+        "toolset_version",
+        "evaluator_version",
+        "rubric_version",
+        "golden_dataset_version",
+        "production_cohort",
+    )
+    @classmethod
+    def redact_manifest_label(cls, value: str) -> str:
+        return validate_redacted_text(value)
+
+
+def manifest_values(manifest: ChangeManifest) -> dict[ChangeDimension, str]:
+    """Return the canonical value for each controlled-replay change dimension."""
+
+    return {
+        "USE_CASE": manifest.use_case_version,
+        "DEPLOYMENT": manifest.deployment_id,
+        "MODEL": f"{manifest.model.provider}/{manifest.model.name}@{manifest.model.snapshot}",
+        "PROMPT": manifest.prompt_version,
+        "CONFIGURATION": manifest.config_version,
+        "TOOLSET": manifest.toolset_version,
+        "EVALUATOR": manifest.evaluator_version,
+        "RUBRIC": manifest.rubric_version,
+        "GOLDEN_DATASET": manifest.golden_dataset_version,
+        "PRODUCTION_COHORT": manifest.production_cohort,
+    }
+
 
 class Provenance(StrictModel):
     """Tamper-evident identifiers; no raw private case content belongs here."""
@@ -157,12 +245,58 @@ class Provenance(StrictModel):
     toolset_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
 
 
+def replay_dimension_values(
+    manifest: ChangeManifest, provenance: Provenance
+) -> dict[ChangeDimension, tuple[str, ...]]:
+    """Bind replay labels to the artifact digests available for each dimension."""
+
+    labels = manifest_values(manifest)
+    digests: dict[ChangeDimension, str] = {
+        "USE_CASE": provenance.contract_digest,
+        "PROMPT": provenance.prompt_digest,
+        "CONFIGURATION": provenance.config_digest,
+        "TOOLSET": provenance.toolset_digest,
+        "GOLDEN_DATASET": provenance.golden_dataset_digest,
+        "PRODUCTION_COHORT": provenance.production_data_digest,
+    }
+    return {
+        dimension: ((label, digests[dimension]) if dimension in digests else (label,))
+        for dimension, label in labels.items()
+    }
+
+
 class CaseRef(StrictModel):
     case_id: str = Field(min_length=1)
     display_name: str = Field(min_length=1, max_length=160)
     use_case_id: str = Field(min_length=1)
     segment: str = Field(min_length=1, max_length=160)
     input_fingerprint: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+
+    @field_validator("display_name", "segment")
+    @classmethod
+    def redact_case_text(cls, value: str) -> str:
+        return validate_redacted_text(value)
+
+    @field_validator("case_id", "use_case_id")
+    @classmethod
+    def redact_case_identifier(cls, value: str) -> str:
+        return validate_redacted_text(value)
+
+
+def case_incident_id(*, product_id: str, environment: str, run_id: str, case: CaseRef) -> str:
+    canonical = json.dumps(
+        [
+            product_id,
+            environment,
+            run_id,
+            case.case_id,
+            case.use_case_id,
+            case.segment,
+            case.input_fingerprint,
+        ],
+        separators=(",", ":"),
+    ).encode()
+    return "case-sha256:" + hashlib.sha256(canonical).hexdigest()
 
 
 class EvaluationRef(StrictModel):
@@ -171,6 +305,11 @@ class EvaluationRef(StrictModel):
     suite_id: str = Field(min_length=1)
     suite_version: str = Field(min_length=1)
     method: EvalMethod
+
+    @field_validator("suite_id", "suite_version")
+    @classmethod
+    def redact_evaluation_label(cls, value: str) -> str:
+        return validate_redacted_text(value)
 
 
 class Location(StrictModel):
@@ -181,10 +320,22 @@ class Location(StrictModel):
     owner_id: str = Field(min_length=1)
     fix_location: str = Field(min_length=1, max_length=240)
 
+    @field_validator("component_id", "stage_id", "parameter_id", "owner_id", "fix_location")
+    @classmethod
+    def redact_location_label(cls, value: str) -> str:
+        return validate_redacted_text(value)
+
 
 class EvidenceRef(StrictModel):
     uri: str = Field(min_length=1)
     sha256: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+    @field_validator("uri")
+    @classmethod
+    def validate_safe_uri(cls, value: str) -> str:
+        # V0.2 allowed redacted HTTPS evidence links. Preserve that persisted
+        # contract while rejecting credentials, local paths, and private data.
+        return validate_redacted_text(value)
 
 
 class CauseSignal(StrictModel):
@@ -199,6 +350,11 @@ class CauseSignal(StrictModel):
     held_constant: list[ChangeDimension] = Field(default_factory=list)
     varied_dimensions: list[ChangeDimension] = Field(default_factory=list)
     evidence_refs: list[EvidenceRef] = Field(min_length=1)
+
+    @field_validator("summary")
+    @classmethod
+    def redact_summary(cls, value: str) -> str:
+        return validate_redacted_text(value)
 
     @model_validator(mode="after")
     def validate_controlled_replay(self) -> CauseSignal:
@@ -246,6 +402,11 @@ class CauseSignal(StrictModel):
 class Remediation(StrictModel):
     action: str = Field(min_length=1, max_length=500)
 
+    @field_validator("action")
+    @classmethod
+    def redact_action(cls, value: str) -> str:
+        return validate_redacted_text(value)
+
 
 class Observation(StrictModel):
     observation_id: str = Field(min_length=1)
@@ -269,6 +430,16 @@ class Observation(StrictModel):
     remediation: Remediation
     extensions: dict[str, JsonValue] = Field(default_factory=dict)
 
+    @field_validator("current_summary", "expected_summary")
+    @classmethod
+    def redact_summaries(cls, value: str) -> str:
+        return validate_redacted_text(value)
+
+    @field_validator("observation_id", "unit", "reason_code")
+    @classmethod
+    def redact_observation_label(cls, value: str) -> str:
+        return validate_redacted_text(value)
+
     @field_validator("extensions")
     @classmethod
     def validate_extensions(cls, value: dict[str, JsonValue]) -> dict[str, JsonValue]:
@@ -278,12 +449,18 @@ class Observation(StrictModel):
         pending: list[JsonValue] = list(value.values())
         while pending:
             item = pending.pop()
+            if isinstance(item, str):
+                validate_redacted_text(item)
             if isinstance(item, float) and not isfinite(item):
                 raise ValueError("extensions must contain only finite JSON numbers")
             if isinstance(item, list):
                 pending.extend(item)
             elif isinstance(item, dict):
+                for key in item:
+                    validate_redacted_text(key)
                 pending.extend(item.values())
+        for key in value:
+            validate_redacted_text(key)
         return value
 
     @model_validator(mode="after")
@@ -316,6 +493,126 @@ class Observation(StrictModel):
 class ComparisonRef(StrictModel):
     run_id: str = Field(min_length=1)
     label: str = Field(default="Last approved good run", min_length=1, max_length=120)
+    sha256: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
+
+    @field_validator("run_id", "label")
+    @classmethod
+    def redact_comparison_text(cls, value: str) -> str:
+        return validate_redacted_text(value)
+
+
+class RunReceipt(StrictModel):
+    """Lifecycle evidence emitted before and after a scheduled product run."""
+
+    receipt_version: Literal["0.1"] = "0.1"
+    receipt_id: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    product: ProductRef
+    status: ReceiptStatus
+    observed_at: AwareDatetime
+    expected_next_run_at: AwareDatetime
+    detail_code: str = Field(min_length=1, max_length=120, pattern=r"^[A-Z0-9_:-]+$")
+
+    @field_validator("receipt_id", "run_id", "detail_code")
+    @classmethod
+    def redact_receipt_identifier(cls, value: str) -> str:
+        return validate_redacted_text(value)
+
+    @field_validator("observed_at", "expected_next_run_at")
+    @classmethod
+    def normalize_receipt_time(cls, value: datetime) -> datetime:
+        return value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def validate_schedule(self) -> RunReceipt:
+        if self.expected_next_run_at <= self.observed_at:
+            raise ValueError("expected_next_run_at must be after observed_at")
+        return self
+
+
+class _LegacyAdjudicationRecordBase(StrictModel):
+    """The original v0.1 shape, retained only for verified ledger migration."""
+
+    adjudication_id: str = Field(min_length=1)
+    product_id: str = Field(min_length=1)
+    environment: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    observation_id: str = Field(min_length=1)
+    predicted_root_observation_ids: list[str]
+    actual_root_observation_ids: list[str]
+    verdict: AdjudicationVerdict
+    adjudicated_at: AwareDatetime
+    adjudicator_id: str = Field(min_length=1, max_length=120)
+    reason_code: str = Field(min_length=1, max_length=120)
+
+    @field_validator("adjudicator_id")
+    @classmethod
+    def redact_adjudicator(cls, value: str) -> str:
+        return validate_redacted_text(value)
+
+    @field_validator("adjudicated_at")
+    @classmethod
+    def normalize_adjudication_time(cls, value: datetime) -> datetime:
+        return value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def validate_roots(self) -> _LegacyAdjudicationRecordBase:
+        if len(self.predicted_root_observation_ids) != len(
+            set(self.predicted_root_observation_ids)
+        ):
+            raise ValueError("predicted root observation IDs must be unique")
+        if len(self.actual_root_observation_ids) != len(set(self.actual_root_observation_ids)):
+            raise ValueError("actual root observation IDs must be unique")
+        if self.verdict != "UNRESOLVED" and not self.actual_root_observation_ids:
+            raise ValueError("resolved adjudication requires at least one actual root")
+        if self.verdict == "UNRESOLVED" and self.actual_root_observation_ids:
+            raise ValueError("unresolved adjudication cannot assert actual roots")
+        return self
+
+
+class LegacyAdjudicationRecord(_LegacyAdjudicationRecordBase):
+    """Persisted v0.1 record accepted only by the verified storage migration."""
+
+    adjudication_version: Literal["0.1"] = "0.1"
+
+
+class _AdjudicationRecordBase(_LegacyAdjudicationRecordBase):
+    """Bounded v0.2 shape used for every newly persisted adjudication."""
+
+    adjudication_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
+    product_id: str = Field(min_length=1)
+    environment: str = Field(min_length=1)
+    run_id: str = Field(min_length=1)
+    observation_id: str = Field(min_length=1)
+    predicted_root_observation_ids: list[Annotated[str, Field(min_length=1)]] = Field(
+        max_length=2000
+    )
+    actual_root_observation_ids: list[Annotated[str, Field(min_length=1)]] = Field(max_length=2000)
+
+    @field_validator(
+        "adjudication_id",
+        "product_id",
+        "environment",
+        "run_id",
+        "observation_id",
+        "adjudicator_id",
+        "reason_code",
+    )
+    @classmethod
+    def redact_adjudication_identifier(cls, value: str) -> str:
+        return validate_redacted_text(value)
+
+    @field_validator("predicted_root_observation_ids", "actual_root_observation_ids")
+    @classmethod
+    def redact_adjudication_roots(cls, value: list[str]) -> list[str]:
+        return [validate_redacted_text(item) for item in value]
+
+
+class AdjudicationRecord(_AdjudicationRecordBase):
+    """Privileged, append-only ground truth for localization accuracy."""
+
+    adjudication_version: Literal["0.2"] = "0.2"
+    case_incident_id: str = Field(pattern=r"^case-sha256:[0-9a-f]{64}$")
 
 
 class RunEnvelope(StrictModel):
@@ -327,6 +624,11 @@ class RunEnvelope(StrictModel):
     change_manifest: ChangeManifest
     provenance: Provenance
     observations: list[Observation] = Field(min_length=1, max_length=2000)
+
+    @field_validator("run_id")
+    @classmethod
+    def redact_run_identifier(cls, value: str) -> str:
+        return validate_redacted_text(value)
 
     @field_validator("observed_at")
     @classmethod
@@ -368,6 +670,24 @@ class RunEnvelope(StrictModel):
         if visited_count != len(by_id):
             raise ValueError("observation dependency graph contains a cycle")
         return self
+
+
+def canonical_run_line(run: RunEnvelope) -> bytes:
+    """Return the single canonical representation used for evidence digests."""
+
+    return (
+        json.dumps(
+            run.model_dump(mode="json"),
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode()
+
+
+def canonical_run_digest(run: RunEnvelope) -> str:
+    return "sha256:" + hashlib.sha256(canonical_run_line(run)).hexdigest()
 
 
 class ObservationDiagnosis(StrictModel):
@@ -493,7 +813,7 @@ class AttributionMetrics(StrictModel):
 
 class MonitoringOverview(StrictModel):
     generated_at: datetime
-    mode: Literal["PLANTED_DEMO", "LIVE"]
+    mode: Literal["PLANTED_DEMO", "NO_DATA", "LIVE"]
     products: list[ProductHealth]
     incidents: list[Incident]
     trend: list[TrendPoint]
@@ -504,3 +824,8 @@ class IngestResponse(StrictModel):
     stored: bool
     duplicate: bool
     diagnosis: RunDiagnosis
+
+
+class AppendResponse(StrictModel):
+    stored: bool
+    duplicate: bool
