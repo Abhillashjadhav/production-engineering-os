@@ -240,15 +240,20 @@ def replay_dimension_values(
 
 
 class CaseRef(StrictModel):
-    case_id: str = Field(min_length=1)
+    case_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
     display_name: str = Field(min_length=1, max_length=160)
-    use_case_id: str = Field(min_length=1)
+    use_case_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$")
     segment: str = Field(min_length=1, max_length=160)
     input_fingerprint: str | None = Field(default=None, pattern=r"^sha256:[0-9a-f]{64}$")
 
     @field_validator("display_name", "segment")
     @classmethod
     def redact_case_text(cls, value: str) -> str:
+        return validate_redacted_text(value)
+
+    @field_validator("case_id", "use_case_id")
+    @classmethod
+    def redact_case_identifier(cls, value: str) -> str:
         return validate_redacted_text(value)
 
 

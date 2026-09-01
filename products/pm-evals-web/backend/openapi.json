@@ -263,7 +263,7 @@
         "additionalProperties": false,
         "properties": {
           "case_id": {
-            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
             "title": "Case Id",
             "type": "string"
           },
@@ -292,7 +292,7 @@
             "type": "string"
           },
           "use_case_id": {
-            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$",
             "title": "Use Case Id",
             "type": "string"
           }

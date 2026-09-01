@@ -79,6 +79,16 @@ def test_dashboard_free_text_rejects_private_paths_and_credentials() -> None:
     with pytest.raises(ValidationError, match="email address|opaque artifact"):
         RunEnvelope.model_validate(payload)
 
+    payload = _run().model_dump(mode="json")
+    payload["observations"][0]["case"]["case_id"] = "candidate@example.com"
+    with pytest.raises(ValidationError):
+        RunEnvelope.model_validate(payload)
+
+    payload = _run().model_dump(mode="json")
+    payload["observations"][0]["case"]["use_case_id"] = "/private/raw-case"
+    with pytest.raises(ValidationError):
+        RunEnvelope.model_validate(payload)
+
 
 def test_product_scoped_credentials_refuse_cross_namespace_write(tmp_path: Path) -> None:
     client = TestClient(
@@ -954,6 +964,12 @@ def test_store_syncs_new_directories_and_rejects_a_symlink_index(
     assert tmp_path / "nested" in synced
     assert data_dir in synced
 
+    existing_data_dir = tmp_path / "already-created-store"
+    existing_data_dir.mkdir()
+    synced.clear()
+    MonitoringStore(existing_data_dir)
+    assert tmp_path in synced
+
     unsafe = tmp_path / "unsafe"
     unsafe.mkdir()
     target = tmp_path / "outside.sqlite3"
@@ -969,6 +985,8 @@ def test_store_syncs_new_directories_and_rejects_a_symlink_index(
 def test_v01_adjudication_is_verified_and_migrated_on_read(tmp_path: Path) -> None:
     store = MonitoringStore(tmp_path)
     run = _run()
+    run.observations[0].status = "FAIL"
+    run.observations[0].current_value = 0.0
     assert store.append(run)
     observation = run.observations[0]
     current = AdjudicationRecord(
@@ -993,3 +1011,12 @@ def test_v01_adjudication_is_verified_and_migrated_on_read(tmp_path: Path) -> No
     migrated = recovered.list_adjudications()
     assert migrated == [current]
     assert migrated[0].adjudication_version == "0.2"
+
+    rejected_dir = tmp_path / "contradictory"
+    rejected_store = MonitoringStore(rejected_dir)
+    assert rejected_store.append(run)
+    contradictory = dict(legacy)
+    contradictory["actual_root_observation_ids"] = [run.observations[1].observation_id]
+    rejected_store.adjudication_path.write_text(json.dumps(contradictory, sort_keys=True) + "\n")
+    with pytest.raises(ValueError, match="completed adjudication ledger record is invalid"):
+        MonitoringStore(rejected_dir)

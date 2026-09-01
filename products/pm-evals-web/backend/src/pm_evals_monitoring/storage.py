@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from .diagnosis import diagnose_run
 from .models import (
     MAX_FUTURE_CLOCK_SKEW,
     OVERVIEW_TREND_RUNS_PER_PRODUCT,
@@ -22,6 +23,7 @@ from .models import (
     LegacyAdjudicationRecord,
     RunEnvelope,
     RunReceipt,
+    canonical_run_digest,
     canonical_run_line,
     case_incident_id,
 )
@@ -62,6 +64,7 @@ class MonitoringStore:
             os.chmod(directory, 0o700)
             _fsync_directory(directory.parent)
         os.chmod(data_dir, 0o700)
+        _fsync_directory(data_dir.parent)
         for path in (
             self.log_path,
             self.lock_path,
@@ -153,6 +156,42 @@ class MonitoringStore:
         )
         if observation is None or not referenced_roots.issubset(observations):
             raise ValueError("legacy adjudication references missing observations")
+        comparison = self._get_run_unlocked(
+            product_id=run.product.id,
+            environment=run.product.environment,
+            run_id=run.comparison.run_id,
+        )
+        if (
+            comparison is None
+            or run.comparison.sha256 is None
+            or canonical_run_digest(comparison) != run.comparison.sha256
+        ):
+            comparison = None
+        diagnosis = diagnose_run(run, comparison=comparison)
+        diagnosed = next(
+            (item for item in diagnosis.diagnoses if item.observation_id == legacy.observation_id),
+            None,
+        )
+        if diagnosed is None:
+            raise ValueError("legacy adjudication observation is not diagnosable")
+        if sorted(legacy.predicted_root_observation_ids) != sorted(diagnosed.root_observation_ids):
+            raise ValueError("legacy adjudication predicted roots do not match diagnosis")
+        if (
+            diagnosed.attribution not in {"LIKELY_STARTING_FAILURE", "DEGRADED_CHECK"}
+            and legacy.verdict != "UNRESOLVED"
+        ):
+            raise ValueError("legacy adjudication resolved a non-independent diagnosis")
+        derived_verdict = (
+            "UNRESOLVED"
+            if not legacy.actual_root_observation_ids
+            else "CORRECT"
+            if set(diagnosed.root_observation_ids) == set(legacy.actual_root_observation_ids)
+            else "INCORRECT"
+        )
+        if legacy.verdict != derived_verdict:
+            raise ValueError("legacy adjudication verdict contradicts its root sets")
+        if legacy.adjudicated_at > datetime.now(UTC) + MAX_FUTURE_CLOCK_SKEW:
+            raise ValueError("legacy adjudication timestamp exceeds allowed clock skew")
         payload = legacy.model_dump(mode="python", exclude={"adjudication_version"})
         return AdjudicationRecord(
             **payload,
