@@ -1038,7 +1038,8 @@ def test_stored_legacy_comparison_uses_verified_ledger_digest(tmp_path: Path) ->
     candidate.observations[0].current_value = 0.0
     assert store.append(candidate)
 
-    overview = build_overview(store.list_runs(), mode="LIVE")
+    runs, run_digests = store.list_runs_for_overview_with_digests()
+    overview = build_overview(runs, mode="LIVE", run_digests=run_digests)
     incident = next(item for item in overview.incidents if item.run_id == candidate.run_id)
     assert not incident.expected_summary.startswith("The referenced comparison does not contain")
 

@@ -511,14 +511,16 @@ def attribution_metrics_from_adjudications(
 
 
 def _digest_verified_comparison(
-    run: RunEnvelope, comparison: RunEnvelope | None
+    run: RunEnvelope,
+    comparison: RunEnvelope | None,
+    *,
+    stored_digest: str | None = None,
 ) -> RunEnvelope | None:
     if comparison is None:
         return None
-    # Store-loaded runs carry the digest of their original verified ledger bytes.
-    # This preserves references to V0.2 rows whose parsed form now contains new
-    # defaulted fields and therefore has a different reserialized digest.
-    comparison_digest = comparison._stored_sha256 or canonical_run_digest(comparison)
+    # Prefer the verified original ledger bytes. This preserves references to
+    # V0.2 rows whose parsed form now includes newly defaulted fields.
+    comparison_digest = stored_digest or canonical_run_digest(comparison)
     if run.comparison.sha256 is not None and comparison_digest != run.comparison.sha256:
         return None
     return comparison
@@ -644,6 +646,7 @@ def build_overview(
     receipts: list[RunReceipt] | None = None,
     adjudications: list[AdjudicationRecord] | None = None,
     expected_products: list[ProductRef] | None = None,
+    run_digests: dict[tuple[str, str, str], str] | None = None,
     trend_limit_per_product: int = OVERVIEW_TREND_RUNS_PER_PRODUCT,
 ) -> MonitoringOverview:
     if not runs:
@@ -681,7 +684,11 @@ def build_overview(
             run.product.environment,
             run.comparison.run_id,
         )
-        comparison = _digest_verified_comparison(run, runs_by_identity.get(comparison_identity))
+        comparison = _digest_verified_comparison(
+            run,
+            runs_by_identity.get(comparison_identity),
+            stored_digest=(run_digests or {}).get(comparison_identity),
+        )
         diagnosis = diagnose_run(
             run,
             comparison=comparison,
@@ -757,7 +764,11 @@ def build_overview(
         if is_stale:
             continue
         comparison_identity = (product_id, environment, run.comparison.run_id)
-        comparison = _digest_verified_comparison(run, runs_by_identity.get(comparison_identity))
+        comparison = _digest_verified_comparison(
+            run,
+            runs_by_identity.get(comparison_identity),
+            stored_digest=(run_digests or {}).get(comparison_identity),
+        )
         comparison_health = _certified_comparison_health(comparison)
         run_changes = _changes(run, comparison)
         projected_diagnoses = [

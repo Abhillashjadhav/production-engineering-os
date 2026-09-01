@@ -25,7 +25,6 @@ from .models import (
     LegacyAdjudicationRecord,
     RunEnvelope,
     RunReceipt,
-    canonical_run_digest,
     canonical_run_line,
     case_incident_id,
     validate_redacted_text,
@@ -216,7 +215,11 @@ class MonitoringStore:
             run_id=run.comparison.run_id,
         )
         if comparison is not None:
-            comparison_digest = comparison._stored_sha256 or canonical_run_digest(comparison)
+            comparison_digest = self._get_run_digest_unlocked(
+                product_id=run.product.id,
+                environment=run.product.environment,
+                run_id=run.comparison.run_id,
+            )
             if (
                 run.comparison.sha256 is not None
                 and comparison_digest != run.comparison.sha256
@@ -599,9 +602,7 @@ class MonitoringStore:
                 line = handle.read(length)
                 if hashlib.sha256(line).hexdigest() != expected_digest:
                     raise ValueError("stored monitoring evidence failed its digest check")
-                run = RunEnvelope.model_validate_json(line)
-                run._stored_sha256 = f"sha256:{expected_digest}"
-                runs.append(run)
+                runs.append(RunEnvelope.model_validate_json(line))
         return runs
 
     def list_runs(self) -> list[RunEnvelope]:
@@ -645,6 +646,21 @@ class MonitoringStore:
             ).fetchone()
         return self._read_rows([row])[0] if row is not None else None
 
+    def _get_run_digest_unlocked(
+        self,
+        *,
+        product_id: str,
+        environment: str,
+        run_id: str,
+    ) -> str | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT sha256 FROM runs WHERE product_id = ? AND environment = ? "
+                "AND run_id = ?",
+                (product_id, environment, run_id),
+            ).fetchone()
+        return f"sha256:{row[0]}" if row is not None else None
+
     def get_run_digest(
         self,
         *,
@@ -654,13 +670,11 @@ class MonitoringStore:
     ) -> str | None:
         with self._exclusive_store_lock():
             self._reconcile_index_unlocked()
-            with self._connect() as connection:
-                row = connection.execute(
-                    "SELECT sha256 FROM runs WHERE product_id = ? AND environment = ? "
-                    "AND run_id = ?",
-                    (product_id, environment, run_id),
-                ).fetchone()
-            return f"sha256:{row[0]}" if row is not None else None
+            return self._get_run_digest_unlocked(
+                product_id=product_id,
+                environment=environment,
+                run_id=run_id,
+            )
 
     def list_runs_for_overview(
         self,
@@ -674,6 +688,30 @@ class MonitoringStore:
         with self._exclusive_store_lock():
             self._reconcile_index_unlocked()
             return self._list_runs_for_overview_unlocked(trend_limit_per_product)
+
+    def list_runs_for_overview_with_digests(
+        self,
+        *,
+        trend_limit_per_product: int = OVERVIEW_TREND_RUNS_PER_PRODUCT,
+    ) -> tuple[list[RunEnvelope], dict[tuple[str, str, str], str]]:
+        """Load overview runs and their verified original ledger digests."""
+
+        if trend_limit_per_product < 1:
+            raise ValueError("trend_limit_per_product must be at least one")
+        with self._exclusive_store_lock():
+            self._reconcile_index_unlocked()
+            runs = self._list_runs_for_overview_unlocked(trend_limit_per_product)
+            digests: dict[tuple[str, str, str], str] = {}
+            for run in runs:
+                identity = (run.product.id, run.product.environment, run.run_id)
+                digest = self._get_run_digest_unlocked(
+                    product_id=run.product.id,
+                    environment=run.product.environment,
+                    run_id=run.run_id,
+                )
+                if digest is not None:
+                    digests[identity] = digest
+        return runs, digests
 
     def _list_runs_for_overview_unlocked(
         self,

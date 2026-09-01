@@ -21,7 +21,6 @@ from pydantic import (
     ConfigDict,
     Field,
     JsonValue,
-    PrivateAttr,
     field_validator,
     model_validator,
 )
@@ -617,8 +616,6 @@ class AdjudicationRecord(_AdjudicationRecordBase):
 
 
 class RunEnvelope(StrictModel):
-    _stored_sha256: str | None = PrivateAttr(default=None)
-
     contract_version: Literal["0.2"] = "0.2"
     run_id: str = Field(min_length=1)
     comparison: ComparisonRef
