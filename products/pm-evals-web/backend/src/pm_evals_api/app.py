@@ -272,6 +272,9 @@ def create_app(
     if monitoring_production and monitoring_demo_mode:
         raise ValueError("production monitoring cannot enable demo mode")
     expected_identities = {(product.id, product.environment) for product in expected_products}
+    expected_by_identity = {
+        (product.id, product.environment): product for product in expected_products
+    }
     if monitoring_production and (
         monitoring_ingest_token or not scoped_credentials or not expected_identities
     ):
@@ -326,12 +329,21 @@ def create_app(
             return None
         return comparison
 
-    def admit_product(product_id: str, environment: str) -> None:
+    def admit_product(product: ProductRef) -> None:
         if monitoring_store is None:
             return
+        registered = expected_by_identity.get((product.id, product.environment))
+        if (
+            registered is not None
+            and product.freshness_sla_seconds != registered.freshness_sla_seconds
+        ):
+            raise _validation_error(
+                "product.freshness_sla_seconds",
+                "producer freshness SLA must match the expected-product registry",
+            )
         if not monitoring_store.admit_ingest(
-            product_id=product_id,
-            environment=environment,
+            product_id=product.id,
+            environment=product.environment,
             limit_per_minute=monitoring_ingest_limit_per_minute,
         ):
             raise HTTPException(status_code=429, detail="Product ingestion rate limit exceeded")
@@ -488,7 +500,7 @@ def create_app(
             product_id=run.product.id,
             environment=run.product.environment,
         )
-        admit_product(run.product.id, run.product.environment)
+        admit_product(run.product)
         if run.observed_at > datetime.now(UTC) + MAX_FUTURE_CLOCK_SKEW:
             raise _validation_error(
                 "observed_at", "observed_at exceeds the allowed five-minute clock skew"
@@ -653,7 +665,7 @@ def create_app(
             product_id=receipt.product.id,
             environment=receipt.product.environment,
         )
-        admit_product(receipt.product.id, receipt.product.environment)
+        admit_product(receipt.product)
         try:
             stored = monitoring_store.append_receipt(receipt)
         except FutureObservationError as exc:

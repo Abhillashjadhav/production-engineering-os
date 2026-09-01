@@ -563,7 +563,11 @@ def _receipt_products(
             observed_at=receipt.observed_at,
             health="BLOCKED",
             is_stale=overdue,
-            freshness_sla_seconds=receipt.product.freshness_sla_seconds,
+            freshness_sla_seconds=(
+                current.freshness_sla_seconds
+                if current is not None
+                else receipt.product.freshness_sla_seconds
+            ),
             pass_count=0,
             fail_count=0,
             blocked_count=1,
@@ -585,6 +589,9 @@ def _registered_products(
     for product in products:
         identity = (product.id, product.environment)
         if identity in by_identity:
+            by_identity[identity] = by_identity[identity].model_copy(
+                update={"freshness_sla_seconds": product.freshness_sla_seconds}
+            )
             continue
         by_identity[identity] = ProductHealth(
             product_id=product.id,
@@ -642,6 +649,9 @@ def build_overview(
     if trend_limit_per_product < 1:
         raise ValueError("trend_limit_per_product must be at least one")
     reference_time = generated_at or datetime.now(UTC)
+    registered_by_identity = {
+        (product.id, product.environment): product for product in expected_products or []
+    }
     # The store returns runs in append order, which is the authoritative
     # server-owned tie-break when producer observation timestamps are equal.
     ordered = [
@@ -707,9 +717,13 @@ def build_overview(
             for item in diagnosis.diagnoses
             if by_id[item.observation_id].status == "PASS"
         }
-        is_stale = (
-            reference_time - run.observed_at
-        ).total_seconds() > run.product.freshness_sla_seconds
+        registered = registered_by_identity.get((product_id, environment))
+        freshness_sla_seconds = (
+            registered.freshness_sla_seconds
+            if registered is not None
+            else run.product.freshness_sla_seconds
+        )
+        is_stale = (reference_time - run.observed_at).total_seconds() > freshness_sla_seconds
         products.append(
             ProductHealth(
                 product_id=product_id,
@@ -720,7 +734,7 @@ def build_overview(
                 observed_at=run.observed_at,
                 health=("BLOCKED" if is_stale else diagnosis.health),
                 is_stale=is_stale,
-                freshness_sla_seconds=run.product.freshness_sla_seconds,
+                freshness_sla_seconds=freshness_sla_seconds,
                 pass_count=diagnosis.pass_count,
                 fail_count=diagnosis.fail_count,
                 blocked_count=diagnosis.blocked_count,

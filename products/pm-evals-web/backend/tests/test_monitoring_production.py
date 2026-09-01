@@ -197,6 +197,36 @@ def test_production_registry_must_match_scoped_credential_identities(tmp_path: P
         )
 
 
+def test_registered_freshness_sla_is_authoritative(tmp_path: Path) -> None:
+    run = _run()
+    now = datetime.now(UTC)
+    run.observed_at = now - timedelta(hours=2)
+    run.product.freshness_sla_seconds = 31 * 24 * 60 * 60
+    registered = run.product.model_copy(update={"freshness_sla_seconds": 60 * 60})
+
+    overview = build_overview([run], mode="LIVE", generated_at=now, expected_products=[registered])
+    assert overview.products[0].is_stale is True
+    assert overview.products[0].health == "BLOCKED"
+    assert overview.products[0].freshness_sla_seconds == 60 * 60
+
+    client = TestClient(
+        create_app(
+            monitoring_data_dir=tmp_path,
+            monitoring_ingest_credentials={
+                (registered.id, registered.environment): "producer-token"
+            },
+            monitoring_expected_products=[registered],
+        )
+    )
+    rejected = client.post(
+        "/api/monitoring/runs",
+        json=run.model_dump(mode="json"),
+        headers={"Authorization": "Bearer producer-token"},
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"][0]["source"] == "product.freshness_sla_seconds"
+
+
 def test_started_receipt_makes_missing_product_visible(tmp_path: Path) -> None:
     client = TestClient(
         create_app(
