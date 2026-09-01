@@ -348,12 +348,18 @@ class Observation(StrictModel):
         pending: list[JsonValue] = list(value.values())
         while pending:
             item = pending.pop()
+            if isinstance(item, str):
+                validate_redacted_text(item)
             if isinstance(item, float) and not isfinite(item):
                 raise ValueError("extensions must contain only finite JSON numbers")
             if isinstance(item, list):
                 pending.extend(item)
             elif isinstance(item, dict):
+                for key in item:
+                    validate_redacted_text(key)
                 pending.extend(item.values())
+        for key in value:
+            validate_redacted_text(key)
         return value
 
     @model_validator(mode="after")

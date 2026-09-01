@@ -52,6 +52,7 @@ from pm_evals_monitoring import (
     build_demo_overview,
     build_empty_overview,
     build_overview,
+    canonical_run_digest,
     diagnose_run,
 )
 from pm_evals_monitoring.models import MAX_FUTURE_CLOCK_SKEW, IngestResponse
@@ -277,11 +278,18 @@ def create_app(
     def stored_comparison(run: RunEnvelope) -> RunEnvelope | None:
         if monitoring_store is None:
             return None
-        return monitoring_store.get_run(
+        comparison = monitoring_store.get_run(
             product_id=run.product.id,
             environment=run.product.environment,
             run_id=run.comparison.run_id,
         )
+        if (
+            comparison is None
+            or run.comparison.sha256 is None
+            or canonical_run_digest(comparison) != run.comparison.sha256
+        ):
+            return None
+        return comparison
 
     def admit_product(product_id: str, environment: str) -> None:
         if monitoring_store is None:
@@ -641,6 +649,8 @@ def create_app(
             )
         try:
             stored = monitoring_store.append_adjudication(record)
+        except FutureObservationError as exc:
+            raise _validation_error("adjudicated_at", str(exc)) from exc
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return AppendResponse(stored=stored, duplicate=not stored)

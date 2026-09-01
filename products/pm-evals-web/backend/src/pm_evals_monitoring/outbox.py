@@ -20,7 +20,15 @@ def _fsync_directory(path: Path) -> None:
 
 
 def enqueue(outbox_dir: Path, *, route: str, identity: str, payload: object) -> Path:
+    missing_directories: list[Path] = []
+    cursor = outbox_dir
+    while not cursor.exists():
+        missing_directories.append(cursor)
+        cursor = cursor.parent
     outbox_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    for directory in reversed(missing_directories):
+        os.chmod(directory, 0o700)
+        _fsync_directory(directory.parent)
     os.chmod(outbox_dir, 0o700)
     item = {"outbox_version": "0.1", "route": route, "payload": payload}
     canonical = (json.dumps(item, sort_keys=True, separators=(",", ":")) + "\n").encode()
@@ -47,6 +55,7 @@ def enqueue(outbox_dir: Path, *, route: str, identity: str, payload: object) -> 
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
+    _fsync_directory(outbox_dir)
     return target
 
 

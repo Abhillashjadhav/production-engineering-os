@@ -176,7 +176,6 @@ class NormalizedCheck(StrictModel):
     expected_value: float | None = None
     reason_code: str = Field(min_length=1)
     evidence_refs: list[EvidenceRef] = Field(default_factory=list)
-    extensions: dict[str, JsonValue] = Field(default_factory=dict)
 
     @model_validator(mode="after")
     def validate_value(self) -> NormalizedCheck:
@@ -261,15 +260,13 @@ def map_normalized_run(settings: AdapterSettings, run: NormalizedRun) -> RunEnve
                     else "ADAPTER_OPTIONAL_CHECK_NOT_EVALUATED"
                 )
                 evidence_refs: list[EvidenceRef] = []
-                extensions: dict[str, JsonValue] = {}
             else:
                 status = check.status
                 current_value = check.current_value
                 expected_value = check.expected_value
                 reason_code = check.reason_code
                 evidence_refs = check.evidence_refs
-                extensions = dict(check.extensions)
-            extensions["adapter"] = metadata
+            extensions: dict[str, JsonValue] = {"adapter": metadata}
             observations.append(
                 Observation(
                     observation_id=_observation_id(normalized_case.case, definition.id),

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -23,8 +25,10 @@ from pm_evals_monitoring import (
     canonical_run_digest,
     map_normalized_run,
 )
+from pm_evals_monitoring import outbox as outbox_module
 from pm_evals_monitoring.diagnosis import attribution_metrics_from_adjudications
 from pm_evals_monitoring.outbox import enqueue, flush
+from pm_evals_monitoring.storage import MonitoringStore
 
 
 def _run() -> RunEnvelope:
@@ -44,6 +48,13 @@ def test_dashboard_free_text_rejects_private_paths_and_credentials() -> None:
     payload = _run().model_dump(mode="json")
     payload["observations"][0]["expected_summary"] = "api_key=bad"
     with pytest.raises(ValidationError, match="credential assignment"):
+        RunEnvelope.model_validate(payload)
+
+    payload = _run().model_dump(mode="json")
+    payload["observations"][0]["extensions"] = {
+        "native_metadata": {"contact": "candidate@example.com"}
+    }
+    with pytest.raises(ValidationError, match="email address"):
         RunEnvelope.model_validate(payload)
 
 
@@ -174,8 +185,6 @@ def test_stored_comparison_requires_matching_digest(tmp_path: Path) -> None:
     assert missing.status_code == 422
     assert missing.json()["detail"][0]["source"] == "comparison.sha256"
 
-    from pm_evals_monitoring import MonitoringStore
-
     candidate.comparison.sha256 = MonitoringStore(tmp_path).get_run_digest(
         product_id=baseline.product.id,
         environment=baseline.product.environment,
@@ -253,6 +262,20 @@ def test_adjudication_is_privileged_and_drives_metrics(tmp_path: Path) -> None:
     )
     assert rejected.status_code == 422
     assert rejected.json()["detail"][0]["source"] == "verdict"
+
+    future = record.model_copy(
+        update={
+            "adjudication_id": "adjudication-from-future",
+            "adjudicated_at": datetime.now(UTC) + timedelta(minutes=6),
+        }
+    )
+    rejected = client.post(
+        "/api/monitoring/adjudications",
+        json=future.model_dump(mode="json"),
+        headers={"Authorization": "Bearer review-token"},
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"][0]["source"] == "adjudicated_at"
 
     passing = next(item for item in run.observations if item.status == "PASS")
     non_diagnosis = record.model_copy(
@@ -359,6 +382,13 @@ def test_horizontal_mapper_uses_settings_without_product_branches() -> None:
         repeated.observations
     )
 
+    normalized_payload = normalized.model_dump(mode="json")
+    normalized_payload["cases"][0]["checks"][0]["extensions"] = {
+        "native_private_data": "candidate@example.com"
+    }
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
+        NormalizedRun.model_validate(normalized_payload)
+
 
 def test_late_comparison_is_used_only_when_its_digest_matches() -> None:
     baseline = _run()
@@ -379,6 +409,65 @@ def test_late_comparison_is_used_only_when_its_digest_matches() -> None:
     incident = next(item for item in overview.incidents if item.run_id == candidate.run_id)
     assert incident.expected_summary.startswith("The referenced comparison does not contain")
     assert incident.changes_since_comparison == []
+
+
+def test_late_mismatched_comparison_cannot_create_an_adjudicable_regression(
+    tmp_path: Path,
+) -> None:
+    client = TestClient(
+        create_app(
+            monitoring_data_dir=tmp_path,
+            monitoring_ingest_token="producer-token",
+            monitoring_adjudication_token="review-token",
+        )
+    )
+    baseline = _run()
+    baseline.run_id = "late-baseline"
+    baseline.observed_at = datetime.now(UTC)
+    baseline.comparison.run_id = "bootstrap"
+    candidate = baseline.model_copy(deep=True)
+    candidate.run_id = "late-candidate"
+    candidate.observed_at = baseline.observed_at - timedelta(minutes=1)
+    candidate.comparison.run_id = baseline.run_id
+    candidate.comparison.sha256 = "sha256:" + "0" * 64
+    baseline.observations[0].threshold = 0.8
+    candidate.observations[0].threshold = 0.8
+    candidate.observations[0].current_value = 0.9
+
+    headers = {"Authorization": "Bearer producer-token"}
+    assert (
+        client.post(
+            "/api/monitoring/runs", json=candidate.model_dump(mode="json"), headers=headers
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            "/api/monitoring/runs", json=baseline.model_dump(mode="json"), headers=headers
+        ).status_code
+        == 200
+    )
+
+    record = AdjudicationRecord(
+        adjudication_id="late-comparison-adjudication",
+        product_id=candidate.product.id,
+        environment=candidate.product.environment,
+        run_id=candidate.run_id,
+        observation_id=candidate.observations[0].observation_id,
+        predicted_root_observation_ids=[candidate.observations[0].observation_id],
+        actual_root_observation_ids=[candidate.observations[0].observation_id],
+        verdict="CORRECT",
+        adjudicated_at=datetime.now(UTC),
+        adjudicator_id="eval-reviewer",
+        reason_code="KNOWN_CAUSE_CONFIRMED",
+    )
+    rejected = client.post(
+        "/api/monitoring/adjudications",
+        json=record.model_dump(mode="json"),
+        headers={"Authorization": "Bearer review-token"},
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"][0]["source"] == "observation_id"
 
 
 def test_both_product_settings_map_through_the_same_contract() -> None:
@@ -421,24 +510,85 @@ def test_both_product_settings_map_through_the_same_contract() -> None:
     assert products == ["dream-job-agent", "linkedin-research-os"]
 
 
-def test_outbox_retries_without_losing_evidence(tmp_path: Path) -> None:
+def test_outbox_retries_without_losing_evidence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    synced: list[Path] = []
+    real_fsync_directory = outbox_module._fsync_directory
+
+    def record_fsync(path: Path) -> None:
+        synced.append(path)
+        real_fsync_directory(path)
+
+    monkeypatch.setattr(outbox_module, "_fsync_directory", record_fsync)
+    outbox = tmp_path / "nested" / "monitoring-outbox"
     path = enqueue(
-        tmp_path,
+        outbox,
         route="/api/monitoring/runs",
         identity="run:dream-job-agent:production:1",
         payload={"run_id": "1"},
     )
     assert path.exists()
+    assert tmp_path in synced
+    assert tmp_path / "nested" in synced
+    assert outbox in synced
 
     def fail(_: str, __: dict[str, object]) -> None:
         raise RuntimeError("offline")
 
     with pytest.raises(RuntimeError, match="offline"):
-        flush(tmp_path, sender=fail)
+        flush(outbox, sender=fail)
     assert path.exists()
 
     delivered: list[tuple[str, dict[str, object]]] = []
-    assert flush(tmp_path, sender=lambda route, payload: delivered.append((route, payload))) == 1
+    assert flush(outbox, sender=lambda route, payload: delivered.append((route, payload))) == 1
     assert delivered == [("/api/monitoring/runs", {"run_id": "1"})]
     assert not path.exists()
-    assert list(tmp_path.glob("*.sent.json"))
+    assert list(outbox.glob("*.sent.json"))
+
+
+def test_auxiliary_ledgers_are_private_and_recover_a_torn_tail(tmp_path: Path) -> None:
+    store = MonitoringStore(tmp_path)
+    now = datetime.now(UTC)
+    receipt = RunReceipt(
+        receipt_id="private-receipt",
+        run_id="scheduled-run",
+        product=_run().product,
+        status="STARTED",
+        observed_at=now,
+        expected_next_run_at=now + timedelta(days=1),
+        detail_code="RUN_STARTED",
+    )
+    adjudication = AdjudicationRecord(
+        adjudication_id="private-adjudication",
+        product_id="dream-job-agent",
+        environment="production",
+        run_id="run",
+        observation_id="observation",
+        predicted_root_observation_ids=["root"],
+        actual_root_observation_ids=["root"],
+        verdict="CORRECT",
+        adjudicated_at=now,
+        adjudicator_id="reviewer",
+        reason_code="KNOWN_CAUSE_CONFIRMED",
+    )
+    assert store.append_receipt(receipt)
+    assert store.append_adjudication(adjudication)
+
+    with store.receipt_path.open("ab") as handle:
+        handle.write(b'{"receipt_version":')
+    with store.adjudication_path.open("ab") as handle:
+        handle.write(b'{"adjudication_version":')
+
+    recovered = MonitoringStore(tmp_path)
+    assert recovered.list_receipts() == [receipt]
+    assert recovered.list_adjudications() == [adjudication]
+    assert stat.S_IMODE(os.stat(tmp_path).st_mode) == 0o700
+    for path in (
+        recovered.log_path,
+        recovered.lock_path,
+        recovered.receipt_path,
+        recovered.adjudication_path,
+        recovered.index_path,
+    ):
+        assert stat.S_IMODE(os.stat(path).st_mode) == 0o600

@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import stat
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -37,17 +38,62 @@ class MonitoringStore:
         self.adjudication_path = data_dir / "adjudications.jsonl"
         self._lock = threading.Lock()
         data_dir.mkdir(parents=True, exist_ok=True)
-        self.log_path.touch(exist_ok=True)
-        self.lock_path.touch(exist_ok=True)
-        self.receipt_path.touch(exist_ok=True)
-        self.adjudication_path.touch(exist_ok=True)
+        if data_dir.is_symlink() or not data_dir.is_dir():
+            raise ValueError("monitoring data directory must be a real directory")
+        os.chmod(data_dir, 0o700)
+        for path in (
+            self.log_path,
+            self.lock_path,
+            self.receipt_path,
+            self.adjudication_path,
+        ):
+            self._ensure_private_file(path)
+        with self._exclusive_store_lock():
+            self._reconcile_auxiliary_unlocked(self.receipt_path, "receipt")
+            self._reconcile_auxiliary_unlocked(self.adjudication_path, "adjudication")
         self._initialize_index()
+
+    @staticmethod
+    def _ensure_private_file(path: Path) -> None:
+        flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_CLOEXEC", 0)
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = os.open(path, flags, 0o600)
+        try:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise ValueError("monitoring ledger must be a regular file")
+            os.fchmod(descriptor, 0o600)
+        finally:
+            os.close(descriptor)
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.index_path)
+        os.chmod(self.index_path, 0o600)
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=FULL")
         return connection
+
+    @staticmethod
+    def _truncate_path(path: Path, byte_offset: int) -> None:
+        with path.open("r+b") as handle:
+            handle.truncate(byte_offset)
+            handle.flush()
+            os.fsync(handle.fileno())
+
+    def _reconcile_auxiliary_unlocked(self, path: Path, kind: str) -> list[bytes]:
+        data = path.read_bytes()
+        if data and not data.endswith(b"\n"):
+            boundary = data.rfind(b"\n") + 1
+            self._truncate_path(path, boundary)
+            data = data[:boundary]
+        lines = data.splitlines(keepends=True)
+        model = RunReceipt if kind == "receipt" else AdjudicationRecord
+        for line in lines:
+            try:
+                model.model_validate_json(line)
+            except ValueError as exc:
+                raise ValueError(f"completed {kind} ledger record is invalid") from exc
+        return lines
 
     @contextmanager
     def _exclusive_store_lock(self) -> Iterator[None]:
@@ -168,9 +214,8 @@ class MonitoringStore:
         with self._exclusive_store_lock():
             if path.stat().st_size > 50 * 1024 * 1024:
                 raise ValueError("auxiliary monitoring ledger exceeds the 50 MB safety limit")
-            for existing_line in path.read_bytes().splitlines(keepends=True):
-                if not existing_line.endswith(b"\n"):
-                    raise ValueError("auxiliary monitoring ledger has an incomplete record")
+            kind = "receipt" if path == self.receipt_path else "adjudication"
+            for existing_line in self._reconcile_auxiliary_unlocked(path, kind):
                 payload = json.loads(existing_line)
                 if payload.get(identity_field) != identity:
                     continue
@@ -198,12 +243,16 @@ class MonitoringStore:
         with self._exclusive_store_lock():
             return [
                 RunReceipt.model_validate_json(line)
-                for line in self.receipt_path.read_bytes().splitlines()
+                for line in self._reconcile_auxiliary_unlocked(self.receipt_path, "receipt")
                 if line.strip()
             ]
 
     def append_adjudication(self, record: AdjudicationRecord) -> bool:
         record = AdjudicationRecord.model_validate(record.model_dump(mode="python"))
+        if record.adjudicated_at > datetime.now(UTC) + MAX_FUTURE_CLOCK_SKEW:
+            raise FutureObservationError(
+                "adjudicated_at exceeds the allowed five-minute clock skew"
+            )
         return self._append_auxiliary_record(
             self.adjudication_path,
             identity_field="adjudication_id",
@@ -215,7 +264,9 @@ class MonitoringStore:
         with self._exclusive_store_lock():
             return [
                 AdjudicationRecord.model_validate_json(line)
-                for line in self.adjudication_path.read_bytes().splitlines()
+                for line in self._reconcile_auxiliary_unlocked(
+                    self.adjudication_path, "adjudication"
+                )
                 if line.strip()
             ]
 
