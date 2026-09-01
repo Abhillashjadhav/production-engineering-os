@@ -19,6 +19,7 @@ from .models import (
     AdjudicationRecord,
     RunEnvelope,
     RunReceipt,
+    canonical_run_line,
 )
 
 
@@ -138,16 +139,7 @@ class MonitoringStore:
 
     @staticmethod
     def _canonical_line(run: RunEnvelope) -> bytes:
-        payload = run.model_dump(mode="json")
-        return (
-            json.dumps(
-                payload,
-                allow_nan=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-            + "\n"
-        ).encode()
+        return canonical_run_line(run)
 
     def _truncate_log(self, byte_offset: int) -> None:
         """Durably roll the canonical log back to a known record boundary."""

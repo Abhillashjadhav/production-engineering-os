@@ -7,6 +7,8 @@ failure happened.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from collections import defaultdict, deque
 from datetime import UTC, datetime, timedelta
@@ -447,6 +449,8 @@ class AdjudicationRecord(StrictModel):
             raise ValueError("actual root observation IDs must be unique")
         if self.verdict != "UNRESOLVED" and not self.actual_root_observation_ids:
             raise ValueError("resolved adjudication requires at least one actual root")
+        if self.verdict == "UNRESOLVED" and self.actual_root_observation_ids:
+            raise ValueError("unresolved adjudication cannot assert actual roots")
         return self
 
 
@@ -500,6 +504,24 @@ class RunEnvelope(StrictModel):
         if visited_count != len(by_id):
             raise ValueError("observation dependency graph contains a cycle")
         return self
+
+
+def canonical_run_line(run: RunEnvelope) -> bytes:
+    """Return the single canonical representation used for evidence digests."""
+
+    return (
+        json.dumps(
+            run.model_dump(mode="json"),
+            allow_nan=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        + "\n"
+    ).encode()
+
+
+def canonical_run_digest(run: RunEnvelope) -> str:
+    return "sha256:" + hashlib.sha256(canonical_run_line(run)).hexdigest()
 
 
 class ObservationDiagnosis(StrictModel):

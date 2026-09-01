@@ -217,8 +217,17 @@ def load_normalized_run(path: Path) -> NormalizedRun:
     return NormalizedRun.model_validate(_load_json(path))
 
 
-def _observation_id(case_id: str, definition_id: str) -> str:
-    canonical = json.dumps([case_id, definition_id], separators=(",", ":")).encode()
+def _observation_id(case: CaseRef, definition_id: str) -> str:
+    canonical = json.dumps(
+        [
+            case.case_id,
+            case.use_case_id,
+            case.segment,
+            case.input_fingerprint,
+            definition_id,
+        ],
+        separators=(",", ":"),
+    ).encode()
     return "obs-" + hashlib.sha256(canonical).hexdigest()
 
 
@@ -263,7 +272,7 @@ def map_normalized_run(settings: AdapterSettings, run: NormalizedRun) -> RunEnve
             extensions["adapter"] = metadata
             observations.append(
                 Observation(
-                    observation_id=_observation_id(normalized_case.case.case_id, definition.id),
+                    observation_id=_observation_id(normalized_case.case, definition.id),
                     case=normalized_case.case,
                     evaluation=EvaluationRef(
                         layer=definition.layer,
@@ -292,7 +301,7 @@ def map_normalized_run(settings: AdapterSettings, run: NormalizedRun) -> RunEnve
                     required=definition.required,
                     reason_code=reason_code,
                     depends_on=[
-                        _observation_id(normalized_case.case.case_id, dependency_id)
+                        _observation_id(normalized_case.case, dependency_id)
                         for dependency_id in definition.depends_on
                     ],
                     evidence_refs=evidence_refs,

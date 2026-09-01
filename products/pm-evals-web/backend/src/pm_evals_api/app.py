@@ -609,8 +609,14 @@ def create_app(
             )
         diagnosis = diagnose_run(run, comparison=stored_comparison(run))
         diagnosed = next(
-            item for item in diagnosis.diagnoses if item.observation_id == record.observation_id
+            (item for item in diagnosis.diagnoses if item.observation_id == record.observation_id),
+            None,
         )
+        if diagnosed is None:
+            raise _validation_error(
+                "observation_id",
+                "observation does not represent an adjudicable diagnosis",
+            )
         predicted = (
             diagnosed.root_observation_ids
             if diagnosed.root_observation_ids
@@ -620,6 +626,18 @@ def create_app(
             raise _validation_error(
                 "predicted_root_observation_ids",
                 "predicted roots must match the server diagnosis",
+            )
+        derived_verdict = (
+            "UNRESOLVED"
+            if not record.actual_root_observation_ids
+            else "CORRECT"
+            if set(predicted) == set(record.actual_root_observation_ids)
+            else "INCORRECT"
+        )
+        if record.verdict != derived_verdict:
+            raise _validation_error(
+                "verdict",
+                "verdict must match the server comparison of predicted and actual roots",
             )
         try:
             stored = monitoring_store.append_adjudication(record)

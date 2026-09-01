@@ -20,6 +20,7 @@ from pm_evals_monitoring import (
     build_demo_overview,
     build_demo_runs,
     build_overview,
+    canonical_run_digest,
     diagnose_run,
 )
 from pm_evals_monitoring.models import CauseSignal, RunEnvelope
@@ -216,6 +217,7 @@ def test_overflowing_passing_regression_fails_closed(
 
     baseline = RunEnvelope.model_validate(baseline.model_dump(mode="python"))
     current = RunEnvelope.model_validate(current.model_dump(mode="python"))
+    current.comparison.sha256 = canonical_run_digest(baseline)
     diagnosis = diagnose_run(current, comparison=baseline)
     degraded = next(
         item
@@ -445,6 +447,7 @@ def test_degraded_passing_check_is_projected_as_an_exact_case() -> None:
         item for item in current.observations if item.observation_id == "source-linkedin-coverage"
     )
     regressed.current_value = 0.85
+    current.comparison.sha256 = canonical_run_digest(baseline)
 
     diagnosis = diagnose_run(
         current,
@@ -1000,6 +1003,7 @@ def test_missing_comparison_ancestry_cannot_certify_a_degraded_baseline(
         item for item in degraded.observations if item.observation_id == "source-linkedin-coverage"
     )
     degraded_source.current_value = 0.85
+    degraded.comparison.sha256 = canonical_run_digest(approved)
 
     current = degraded.model_copy(deep=True)
     current.run_id = "latest-failure"
@@ -1013,6 +1017,7 @@ def test_missing_comparison_ancestry_cannot_certify_a_degraded_baseline(
     current_source.status = "FAIL"
     current_source.current_value = 0.42
     current_source.expected_value = degraded_source.current_value
+    current.comparison.sha256 = canonical_run_digest(degraded)
 
     store = MonitoringStore(tmp_path)
     for run in (approved, degraded, current):
@@ -1056,10 +1061,12 @@ def test_bounded_history_loads_comparisons_for_every_retained_trend_run(
         if item.observation_id == "source-linkedin-coverage"
     )
     historical_source.current_value = 0.85
+    historical.comparison.sha256 = canonical_run_digest(first_baseline)
 
     latest = latest_baseline.model_copy(deep=True)
     latest.run_id = "latest-healthy-run"
     latest.comparison.run_id = latest_baseline.run_id
+    latest.comparison.sha256 = canonical_run_digest(latest_baseline)
     latest.observed_at = first_baseline.observed_at + timedelta(days=2)
 
     store = MonitoringStore(tmp_path)

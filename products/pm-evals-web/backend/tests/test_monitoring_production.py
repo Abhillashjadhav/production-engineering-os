@@ -19,8 +19,11 @@ from pm_evals_monitoring import (
     RunEnvelope,
     RunReceipt,
     build_demo_runs,
+    build_overview,
+    canonical_run_digest,
     map_normalized_run,
 )
+from pm_evals_monitoring.diagnosis import attribution_metrics_from_adjudications
 from pm_evals_monitoring.outbox import enqueue, flush
 
 
@@ -237,6 +240,65 @@ def test_adjudication_is_privileged_and_drives_metrics(tmp_path: Path) -> None:
     assert metrics["false_attribution_rate"] == 0.0
     assert metrics["guardrail_proven"] is False
 
+    contradictory = record.model_copy(
+        update={
+            "adjudication_id": "adjudication-contradictory",
+            "actual_root_observation_ids": [run.observations[-1].observation_id],
+        }
+    )
+    rejected = client.post(
+        "/api/monitoring/adjudications",
+        json=contradictory.model_dump(mode="json"),
+        headers={"Authorization": "Bearer review-token"},
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"][0]["source"] == "verdict"
+
+    passing = next(item for item in run.observations if item.status == "PASS")
+    non_diagnosis = record.model_copy(
+        update={
+            "adjudication_id": "adjudication-pass",
+            "observation_id": passing.observation_id,
+            "predicted_root_observation_ids": [passing.observation_id],
+            "actual_root_observation_ids": [passing.observation_id],
+        }
+    )
+    rejected = client.post(
+        "/api/monitoring/adjudications",
+        json=non_diagnosis.model_dump(mode="json"),
+        headers={"Authorization": "Bearer review-token"},
+    )
+    assert rejected.status_code == 422
+
+
+def test_adjudication_metrics_count_latest_incident_once() -> None:
+    now = datetime.now(UTC)
+    first = AdjudicationRecord(
+        adjudication_id="first",
+        product_id="product",
+        environment="production",
+        run_id="run",
+        observation_id="observation",
+        predicted_root_observation_ids=["root-a"],
+        actual_root_observation_ids=["root-a"],
+        verdict="CORRECT",
+        adjudicated_at=now,
+        adjudicator_id="reviewer",
+        reason_code="INITIAL",
+    )
+    correction = first.model_copy(
+        update={
+            "adjudication_id": "correction",
+            "actual_root_observation_ids": ["root-b"],
+            "verdict": "INCORRECT",
+            "adjudicated_at": now + timedelta(seconds=1),
+        }
+    )
+    metrics = attribution_metrics_from_adjudications([first, correction])
+    assert metrics.production_adjudicated_sample_size == 1
+    assert metrics.known_cause_sample_size == 1
+    assert metrics.false_attribution_rate == 1.0
+
 
 def test_horizontal_mapper_uses_settings_without_product_branches() -> None:
     root = Path(__file__).resolve().parents[2]
@@ -285,6 +347,38 @@ def test_horizontal_mapper_uses_settings_without_product_branches() -> None:
         item.status for item in product_three.observations
     ]
     assert first.observations[1].status == "BLOCKED"
+
+    second_case = normalized.cases[0].model_copy(deep=True)
+    second_case.case.segment = "different-segment"
+    second_case.case.input_fingerprint = "sha256:" + "1" * 64
+    repeated_case_id = normalized.model_copy(
+        deep=True, update={"cases": [normalized.cases[0], second_case]}
+    )
+    repeated = map_normalized_run(settings, repeated_case_id)
+    assert len({item.observation_id for item in repeated.observations}) == len(
+        repeated.observations
+    )
+
+
+def test_late_comparison_is_used_only_when_its_digest_matches() -> None:
+    baseline = _run()
+    baseline.run_id = "late-baseline"
+    baseline.observed_at = datetime.now(UTC) - timedelta(minutes=1)
+    different = baseline.model_copy(deep=True)
+    different.product.version = "different-evidence"
+    candidate = baseline.model_copy(deep=True)
+    candidate.run_id = "late-candidate"
+    candidate.observed_at = datetime.now(UTC)
+    candidate.comparison.run_id = baseline.run_id
+    candidate.comparison.sha256 = canonical_run_digest(different)
+    failure = candidate.observations[0]
+    failure.status = "FAIL"
+    failure.current_value = 0.0
+
+    overview = build_overview([baseline, candidate], mode="LIVE")
+    incident = next(item for item in overview.incidents if item.run_id == candidate.run_id)
+    assert incident.expected_summary.startswith("The referenced comparison does not contain")
+    assert incident.changes_since_comparison == []
 
 
 def test_both_product_settings_map_through_the_same_contract() -> None:

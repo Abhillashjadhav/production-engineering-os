@@ -31,6 +31,7 @@ from .models import (
     RunHealth,
     RunReceipt,
     TrendPoint,
+    canonical_run_digest,
 )
 
 _EVIDENCE_RANK: dict[str, int] = {
@@ -483,16 +484,31 @@ def _maintenance(category: CauseCategory) -> MaintenanceAssessment:
 def attribution_metrics_from_adjudications(
     records: list[AdjudicationRecord],
 ) -> AttributionMetrics:
-    resolved = [item for item in records if item.verdict != "UNRESOLVED"]
+    latest: dict[tuple[str, str, str, str], tuple[AdjudicationRecord, int]] = {}
+    for index, item in enumerate(records):
+        identity = (
+            item.product_id,
+            item.environment,
+            item.run_id,
+            item.observation_id,
+        )
+        current = latest.get(identity)
+        if current is None or (item.adjudicated_at, index) >= (
+            current[0].adjudicated_at,
+            current[1],
+        ):
+            latest[identity] = (item, index)
+    incidents = [item for item, _ in latest.values()]
+    resolved = [item for item in incidents if item.verdict != "UNRESOLVED"]
     correct = sum(item.verdict == "CORRECT" for item in resolved)
     incorrect = sum(item.verdict == "INCORRECT" for item in resolved)
     sample = len(resolved)
     return AttributionMetrics(
         correctly_localized_rate=(correct / sample if sample else None),
-        attribution_coverage=(sample / len(records) if records else None),
+        attribution_coverage=(sample / len(incidents) if incidents else None),
         false_attribution_rate=(incorrect / sample if sample else None),
         known_cause_sample_size=sample,
-        production_adjudicated_sample_size=len(records),
+        production_adjudicated_sample_size=len(incidents),
         guardrail_proven=(sample >= 149 and incorrect / sample < 0.02),
         label=(
             f"{sample} resolved production adjudications"
@@ -500,6 +516,18 @@ def attribution_metrics_from_adjudications(
             else "No adjudicated production incidents yet"
         ),
     )
+
+
+def _digest_verified_comparison(
+    run: RunEnvelope, comparison: RunEnvelope | None
+) -> RunEnvelope | None:
+    if (
+        comparison is None
+        or run.comparison.sha256 is None
+        or canonical_run_digest(comparison) != run.comparison.sha256
+    ):
+        return None
+    return comparison
 
 
 def _receipt_products(
@@ -639,7 +667,7 @@ def build_overview(
             run.product.environment,
             run.comparison.run_id,
         )
-        comparison = runs_by_identity.get(comparison_identity)
+        comparison = _digest_verified_comparison(run, runs_by_identity.get(comparison_identity))
         diagnosis = diagnose_run(
             run,
             comparison=comparison,
@@ -711,7 +739,7 @@ def build_overview(
         if is_stale:
             continue
         comparison_identity = (product_id, environment, run.comparison.run_id)
-        comparison = runs_by_identity.get(comparison_identity)
+        comparison = _digest_verified_comparison(run, runs_by_identity.get(comparison_identity))
         comparison_health = _certified_comparison_health(comparison)
         run_changes = _changes(run, comparison)
         projected_diagnoses = [
