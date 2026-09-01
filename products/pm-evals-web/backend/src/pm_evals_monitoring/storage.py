@@ -75,9 +75,7 @@ def _validate_store_directory(data_dir: Path, *, migrate_legacy_permissions: boo
         if directory_mode == 0o700:
             return
         legacy_store = False
-        legacy_mode_is_safe = (
-            directory_mode & 0o022 == 0 and directory_mode & 0o700 == 0o700
-        )
+        legacy_mode_is_safe = directory_mode & 0o022 == 0 and directory_mode & 0o700 == 0o700
         if migrate_legacy_permissions and legacy_mode_is_safe:
             existing_markers = 0
             all_markers_are_safe = True
