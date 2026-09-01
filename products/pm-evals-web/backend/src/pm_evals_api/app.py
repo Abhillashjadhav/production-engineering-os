@@ -267,11 +267,6 @@ def create_app(
     monitoring_expected_products: list[ProductRef] | None = None,
     monitoring_ingest_limit_per_minute: int = 120,
 ) -> FastAPI:
-    if monitoring_production and (
-        monitoring_data_dir is None or _uses_temporary_monitoring_storage(monitoring_data_dir)
-    ):
-        raise ValueError("production monitoring requires a durable non-temporary data directory")
-    monitoring_store = MonitoringStore(monitoring_data_dir) if monitoring_data_dir else None
     scoped_credentials = monitoring_ingest_credentials or {}
     expected_products = monitoring_expected_products or []
     if monitoring_ingest_token and scoped_credentials:
@@ -301,6 +296,14 @@ def create_app(
         )
     if monitoring_ingest_limit_per_minute < 1:
         raise ValueError("monitoring ingest limit must be positive")
+    if monitoring_production and (
+        monitoring_data_dir is None or _uses_temporary_monitoring_storage(monitoring_data_dir)
+    ):
+        raise ValueError(
+            "production monitoring requires a durable monitoring data directory "
+            "outside temporary roots"
+        )
+    monitoring_store = MonitoringStore(monitoring_data_dir) if monitoring_data_dir else None
 
     def authorize_product(
         credentials: HTTPAuthorizationCredentials | None,

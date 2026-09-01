@@ -237,7 +237,7 @@ def test_production_monitoring_requires_durable_store() -> None:
 def test_production_monitoring_rejects_temporary_store(temporary_dir: Path) -> None:
     product = _run().product
 
-    with pytest.raises(ValueError, match="durable non-temporary data directory"):
+    with pytest.raises(ValueError, match="durable monitoring data directory"):
         create_app(
             monitoring_data_dir=temporary_dir,
             monitoring_ingest_credentials={(product.id, product.environment): "producer-token"},
