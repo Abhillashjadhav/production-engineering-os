@@ -782,6 +782,26 @@ def test_controlled_replay_must_match_case_check_and_manifest_changes(
     assert rejected.status_code == 422
     assert rejected.json()["detail"][0]["source"] == "control_ref"
 
+    changed_measurement = candidate.model_copy(deep=True)
+    changed_measurement.run_id = "replay-changed-measurement"
+    changed_measurement_source = next(
+        item
+        for item in changed_measurement.observations
+        if item.observation_id == candidate_source.observation_id
+    )
+    changed_measurement_source.threshold = (changed_measurement_source.threshold or 0.0) + 0.1
+    changed_measurement_source.cause_signals[
+        0
+    ].candidate_ref = f"{changed_measurement.run_id}#{changed_measurement_source.observation_id}"
+    rejected = client.post(
+        "/api/monitoring/runs",
+        json=changed_measurement.model_dump(mode="json"),
+        headers=headers,
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"][0]["source"] == "control_ref"
+    assert "measurement definition" in rejected.json()["detail"][0]["issues"][0]["message"]
+
     wrong_manifest = candidate.model_copy(deep=True)
     wrong_manifest.run_id = "replay-wrong-manifest"
     wrong_manifest.change_manifest.deployment_id = "changed-deployment"

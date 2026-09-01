@@ -527,6 +527,27 @@ def create_app(
                         "control_ref",
                         "controlled replay must compare the same case, evaluation, and location",
                     )
+                control_measurement = (
+                    control_observation.threshold,
+                    control_observation.higher_is_better,
+                    control_observation.unit,
+                    control_observation.tolerance,
+                    control_observation.required,
+                    control_observation.depends_on,
+                )
+                candidate_measurement = (
+                    observation.threshold,
+                    observation.higher_is_better,
+                    observation.unit,
+                    observation.tolerance,
+                    observation.required,
+                    observation.depends_on,
+                )
+                if control_measurement != candidate_measurement:
+                    raise _validation_error(
+                        "control_ref",
+                        "controlled replay must preserve the measurement definition",
+                    )
                 assert control_run is not None
                 control_manifest = replay_dimension_values(
                     control_run.change_manifest, control_run.provenance
