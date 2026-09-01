@@ -511,7 +511,7 @@ class RunReceipt(StrictModel):
 
     receipt_version: Literal["0.1"] = "0.1"
     receipt_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
-    run_id: str = Field(pattern=OPAQUE_IDENTIFIER_PATTERN)
+    run_id: str = Field(min_length=1, max_length=160)
     product: ProductRef
     status: ReceiptStatus
     observed_at: AwareDatetime

@@ -20,6 +20,7 @@ import secrets
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any, Literal
+from urllib.parse import quote, unquote
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, Security, UploadFile
 from fastapi.exceptions import RequestValidationError
@@ -220,6 +221,21 @@ def _validation_error(source: str, message: str, *, location: str | None = None)
         source=source, issues=[ParseIssue(location=location or source, message=message)]
     )
     return HTTPException(status_code=422, detail=[problem.model_dump()])
+
+
+def _encode_replay_reference(run_id: str, observation_id: str) -> str:
+    """Encode two otherwise-free identifiers into one unambiguous replay reference."""
+
+    return f"{quote(run_id, safe='')}#{quote(observation_id, safe='')}"
+
+
+def _decode_replay_reference(value: str) -> tuple[str, str]:
+    if value.count("#") != 1:
+        raise ValueError("controlled replay reference must contain one encoded delimiter")
+    run_id, observation_id = value.split("#", 1)
+    if not run_id or not observation_id:
+        raise ValueError("controlled replay reference components must not be empty")
+    return unquote(run_id), unquote(observation_id)
 
 
 def _config(min_matched_traces: int | None) -> CompareConfig:
@@ -486,10 +502,16 @@ def create_app(
                     )
                 if signal.evidence_level != "CONTROLLED_REPLAY":
                     continue
-                candidate_ref = f"{run.run_id}#{observation.observation_id}"
-                if (
-                    signal.candidate_ref != candidate_ref
-                    or signal.candidate_status != observation.status
+                assert signal.candidate_ref is not None
+                try:
+                    candidate_reference = _decode_replay_reference(signal.candidate_ref)
+                except ValueError as exc:
+                    raise _validation_error(
+                        "candidate_ref",
+                        "controlled replay candidate must use encoded run_id#observation_id",
+                    ) from exc
+                if candidate_reference != (run.run_id, observation.observation_id) or (
+                    signal.candidate_status != observation.status
                 ):
                     raise _validation_error(
                         "candidate_ref",
@@ -497,10 +519,13 @@ def create_app(
                     )
                 assert signal.control_ref is not None
                 try:
-                    control_run_id, control_observation_id = signal.control_ref.split("#", 1)
+                    control_run_id, control_observation_id = _decode_replay_reference(
+                        signal.control_ref
+                    )
                 except ValueError as exc:
                     raise _validation_error(
-                        "control_ref", "controlled replay reference must be run_id#observation_id"
+                        "control_ref",
+                        "controlled replay control must use encoded run_id#observation_id",
                     ) from exc
                 control_run = monitoring_store.get_run(
                     product_id=run.product.id,

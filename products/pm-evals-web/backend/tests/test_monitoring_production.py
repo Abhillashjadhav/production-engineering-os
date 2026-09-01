@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from pm_evals_api.app import create_app
+from pm_evals_api.app import _encode_replay_reference, create_app
 from pm_evals_monitoring import (
     AdapterSettings,
     AdjudicationRecord,
@@ -207,7 +207,7 @@ def test_started_receipt_makes_missing_product_visible(tmp_path: Path) -> None:
     now = datetime.now(UTC)
     receipt = RunReceipt(
         receipt_id="receipt-1",
-        run_id="scheduled-run-1",
+        run_id="scheduled run 1",
         product=_run().product,
         status="STARTED",
         observed_at=now,
@@ -223,7 +223,7 @@ def test_started_receipt_makes_missing_product_visible(tmp_path: Path) -> None:
     overview = client.get("/api/monitoring/overview").json()
     assert overview["mode"] == "NO_DATA"
     assert overview["products"][0]["health"] == "BLOCKED"
-    assert overview["products"][0]["latest_run_id"] == "scheduled-run-1"
+    assert overview["products"][0]["latest_run_id"] == "scheduled run 1"
 
 
 @pytest.mark.parametrize("receipt_run_id", ["older-run", "newer-completed-run"])
@@ -737,14 +737,14 @@ def test_controlled_replay_must_match_case_check_and_manifest_changes(
         create_app(monitoring_data_dir=tmp_path, monitoring_ingest_token="producer-token")
     )
     control = _run()
-    control.run_id = "replay-control"
+    control.run_id = "replay#control"
     control.observed_at = datetime.now(UTC) - timedelta(seconds=1)
     source = next(
         item for item in control.observations if item.observation_id == "source-linkedin-coverage"
     )
     source.depends_on.append("pii-disclosure-rate")
     candidate = control.model_copy(deep=True)
-    candidate.run_id = "replay-candidate"
+    candidate.run_id = "replay#candidate"
     candidate.observed_at = datetime.now(UTC)
     candidate.comparison.run_id = control.run_id
     candidate.comparison.sha256 = canonical_run_digest(control)
@@ -766,8 +766,10 @@ def test_controlled_replay_must_match_case_check_and_manifest_changes(
         signal.model_copy(
             deep=True,
             update={
-                "control_ref": f"{control.run_id}#{source.observation_id}",
-                "candidate_ref": f"{candidate.run_id}#{candidate_source.observation_id}",
+                "control_ref": _encode_replay_reference(control.run_id, source.observation_id),
+                "candidate_ref": _encode_replay_reference(
+                    candidate.run_id, candidate_source.observation_id
+                ),
             },
         )
     ]
@@ -786,10 +788,12 @@ def test_controlled_replay_must_match_case_check_and_manifest_changes(
         for item in wrong_check.observations
         if item.observation_id == candidate_source.observation_id
     )
-    wrong_source.cause_signals[
-        0
-    ].candidate_ref = f"{wrong_check.run_id}#{wrong_source.observation_id}"
-    wrong_source.cause_signals[0].control_ref = f"{control.run_id}#input-constraint-completeness"
+    wrong_source.cause_signals[0].candidate_ref = _encode_replay_reference(
+        wrong_check.run_id, wrong_source.observation_id
+    )
+    wrong_source.cause_signals[0].control_ref = _encode_replay_reference(
+        control.run_id, "input-constraint-completeness"
+    )
     rejected = client.post(
         "/api/monitoring/runs", json=wrong_check.model_dump(mode="json"), headers=headers
     )
@@ -804,9 +808,9 @@ def test_controlled_replay_must_match_case_check_and_manifest_changes(
         if item.observation_id == candidate_source.observation_id
     )
     changed_measurement_source.threshold = (changed_measurement_source.threshold or 0.0) + 0.1
-    changed_measurement_source.cause_signals[
-        0
-    ].candidate_ref = f"{changed_measurement.run_id}#{changed_measurement_source.observation_id}"
+    changed_measurement_source.cause_signals[0].candidate_ref = _encode_replay_reference(
+        changed_measurement.run_id, changed_measurement_source.observation_id
+    )
     rejected = client.post(
         "/api/monitoring/runs",
         json=changed_measurement.model_dump(mode="json"),
@@ -824,9 +828,9 @@ def test_controlled_replay_must_match_case_check_and_manifest_changes(
         for item in wrong_manifest.observations
         if item.observation_id == candidate_source.observation_id
     )
-    wrong_manifest_source.cause_signals[
-        0
-    ].candidate_ref = f"{wrong_manifest.run_id}#{wrong_manifest_source.observation_id}"
+    wrong_manifest_source.cause_signals[0].candidate_ref = _encode_replay_reference(
+        wrong_manifest.run_id, wrong_manifest_source.observation_id
+    )
     rejected = client.post(
         "/api/monitoring/runs",
         json=wrong_manifest.model_dump(mode="json"),
@@ -843,9 +847,9 @@ def test_controlled_replay_must_match_case_check_and_manifest_changes(
         for item in hidden_digest_change.observations
         if item.observation_id == candidate_source.observation_id
     )
-    hidden_digest_source.cause_signals[
-        0
-    ].candidate_ref = f"{hidden_digest_change.run_id}#{hidden_digest_source.observation_id}"
+    hidden_digest_source.cause_signals[0].candidate_ref = _encode_replay_reference(
+        hidden_digest_change.run_id, hidden_digest_source.observation_id
+    )
     rejected = client.post(
         "/api/monitoring/runs",
         json=hidden_digest_change.model_dump(mode="json"),
