@@ -1287,7 +1287,7 @@ def test_both_product_settings_map_through_the_same_contract() -> None:
     products: list[str] = []
     for filename, case_type, definition_id in (
         ("dream-job.settings.json", "job-search", "input-constraint-completeness"),
-        ("linkedin-os.settings.json", "critic", "critic-anchor-integrity"),
+        ("linkedin-os.settings.json", "linkedin-run", "critic-anchor-integrity"),
     ):
         settings = AdapterSettings.model_validate(
             json.loads((root / "adapters" / filename).read_text())
@@ -1867,3 +1867,46 @@ def test_v01_adjudication_is_verified_and_migrated_on_read(tmp_path: Path) -> No
     rejected_store.adjudication_path.write_text(json.dumps(contradictory, sort_keys=True) + "\n")
     with pytest.raises(ValueError, match="completed adjudication ledger record is invalid"):
         MonitoringStore(rejected_dir)
+
+
+def test_linkedin_adapter_maps_complete_seven_stage_run() -> None:
+    root = Path(__file__).resolve().parents[2]
+    template = _run()
+    settings = AdapterSettings.model_validate(
+        json.loads((root / "adapters" / "linkedin-os.settings.json").read_text())
+    )
+    definition_ids = settings.case_types["linkedin-run"]
+    normalized = NormalizedRun.model_validate(
+        {
+            "run_id": "linkedin-complete-run",
+            "observed_at": template.observed_at,
+            "product_version": "release-1",
+            "comparison": template.comparison.model_dump(mode="json"),
+            "change_manifest": template.change_manifest.model_dump(mode="json"),
+            "provenance": template.provenance.model_dump(mode="json"),
+            "cases": [
+                {
+                    "case_type": "linkedin-run",
+                    "case": template.observations[0].case.model_dump(mode="json"),
+                    "checks": [
+                        {
+                            "definition_id": definition_id,
+                            "status": "PASS",
+                            "current_value": 1.0,
+                            "expected_value": 1.0,
+                            "reason_code": "CHECK_PASSED",
+                        }
+                        for definition_id in definition_ids
+                    ],
+                }
+            ],
+        }
+    )
+
+    mapped = map_normalized_run(settings, normalized)
+
+    assert len(mapped.observations) == 7
+    assert [item.location.stage_index for item in mapped.observations] == list(range(1, 8))
+    assert mapped.observations[0].depends_on == []
+    for previous, current in zip(mapped.observations, mapped.observations[1:]):
+        assert current.depends_on == [previous.observation_id]
