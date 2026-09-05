@@ -13,8 +13,10 @@ from pydantic import AwareDatetime, Field, JsonValue, field_validator, model_val
 from .models import (
     OPAQUE_IDENTIFIER_PATTERN,
     CaseRef,
+    CauseSignal,
     ChangeManifest,
     ComparisonRef,
+    DeliveryOutcome,
     EvalConcern,
     EvalLayer,
     EvalMethod,
@@ -27,6 +29,7 @@ from .models import (
     Provenance,
     Remediation,
     RunEnvelope,
+    SourceFact,
     StrictModel,
     validate_redacted_text,
 )
@@ -172,13 +175,22 @@ class AdapterSettings(StrictModel):
         return "sha256:" + hashlib.sha256(canonical).hexdigest()
 
 
+class RecordedThreshold(StrictModel):
+    """A saved policy value, including an explicit absence of a floor."""
+
+    value: float | None
+
+
 class NormalizedCheck(StrictModel):
     definition_id: str = Field(min_length=1)
+    suite_version: str | None = Field(default=None, min_length=1, max_length=120)
+    recorded_threshold: RecordedThreshold | None = None
     status: ObservationStatus
     current_value: float | None = None
     expected_value: float | None = None
     reason_code: str = Field(min_length=1)
     evidence_refs: list[EvidenceRef] = Field(default_factory=list)
+    cause_signals: list[CauseSignal] = Field(default_factory=list, max_length=20)
 
     @model_validator(mode="after")
     def validate_value(self) -> NormalizedCheck:
@@ -216,6 +228,8 @@ class NormalizedRun(StrictModel):
     change_manifest: ChangeManifest
     provenance: Provenance
     cases: list[NormalizedCase] = Field(min_length=1, max_length=2000)
+    delivery_outcome: DeliveryOutcome | None = None
+    source_facts: list[SourceFact] = Field(default_factory=list, max_length=2000)
 
     @field_validator("run_id")
     @classmethod
@@ -298,7 +312,9 @@ def map_normalized_run(settings: AdapterSettings, run: NormalizedRun) -> RunEnve
                         layer=definition.layer,
                         concern=definition.concern,
                         suite_id=definition.suite_id,
-                        suite_version=definition.suite_version,
+                        suite_version=check.suite_version
+                        if check is not None and check.suite_version is not None
+                        else definition.suite_version,
                         method=definition.method,
                     ),
                     location=Location(
@@ -314,7 +330,9 @@ def map_normalized_run(settings: AdapterSettings, run: NormalizedRun) -> RunEnve
                     expected_value=expected_value,
                     current_summary=definition.current_summary_by_status[status],
                     expected_summary=definition.expected_summary,
-                    threshold=definition.threshold,
+                    threshold=check.recorded_threshold.value
+                    if check is not None and check.recorded_threshold is not None
+                    else definition.threshold,
                     tolerance=definition.tolerance,
                     unit=definition.unit,
                     higher_is_better=definition.higher_is_better,
@@ -325,7 +343,7 @@ def map_normalized_run(settings: AdapterSettings, run: NormalizedRun) -> RunEnve
                         for dependency_id in definition.depends_on
                     ],
                     evidence_refs=evidence_refs,
-                    cause_signals=[],
+                    cause_signals=check.cause_signals if check is not None else [],
                     remediation=Remediation(action=definition.remediation),
                     extensions=extensions,
                 )
@@ -346,4 +364,6 @@ def map_normalized_run(settings: AdapterSettings, run: NormalizedRun) -> RunEnve
         change_manifest=run.change_manifest,
         provenance=run.provenance,
         observations=observations,
+        delivery_outcome=run.delivery_outcome,
+        source_facts=run.source_facts,
     )

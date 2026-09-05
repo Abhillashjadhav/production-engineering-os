@@ -428,6 +428,8 @@ def test_expected_product_is_visible_before_first_emission(tmp_path: Path) -> No
             "blocked_count": 1,
             "layers": [],
             "concerns": [],
+            "delivery_outcome": None,
+            "source_facts": [],
         }
     ]
 
@@ -1064,6 +1066,8 @@ def test_stored_legacy_comparison_uses_verified_ledger_digest(tmp_path: Path) ->
     baseline.observed_at = datetime.now(UTC) - timedelta(minutes=1)
     payload = baseline.model_dump(mode="json")
     payload["comparison"].pop("sha256")
+    payload.pop("delivery_outcome", None)
+    payload.pop("source_facts", None)
     legacy_line = (
         json.dumps(payload, allow_nan=False, sort_keys=True, separators=(",", ":")) + "\n"
     ).encode()
@@ -1905,8 +1909,8 @@ def test_linkedin_adapter_maps_complete_seven_stage_run() -> None:
 
     mapped = map_normalized_run(settings, normalized)
 
-    assert len(mapped.observations) == 7
-    assert [item.location.stage_index for item in mapped.observations] == list(range(1, 8))
+    assert len(mapped.observations) == 8
+    assert [item.location.stage_index for item in mapped.observations] == list(range(1, 9))
     assert mapped.observations[0].depends_on == []
-    for previous, current in zip(mapped.observations, mapped.observations[1:]):
+    for previous, current in zip(mapped.observations[:7], mapped.observations[1:7]):
         assert current.depends_on == [previous.observation_id]

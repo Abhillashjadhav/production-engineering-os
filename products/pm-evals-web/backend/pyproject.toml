@@ -4,10 +4,16 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pm-evals-web-backend"
-version = "0.1.0"
-description = "pm-evals Web backend: deterministic eval-run comparison engine and its FastAPI transport"
+version = "0.2.0"
+description = "Product evaluation dashboard, evidence-preserving connections, and local delivery tools"
 requires-python = ">=3.11,<3.13"
 dependencies = ["pydantic>=2.5", "fastapi>=0.115", "python-multipart>=0.0.9", "uvicorn>=0.30"]
+
+[project.scripts]
+pm-evals = "pm_evals_monitoring.cli:main"
+
+[tool.setuptools.package-data]
+pm_evals_monitoring = ["web/*", "web/assets/*"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8", "mypy>=1.8", "ruff==0.16.0", "httpx>=0.27"]
