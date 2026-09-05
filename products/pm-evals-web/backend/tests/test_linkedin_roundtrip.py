@@ -259,18 +259,30 @@ def test_completed_dashboard_worker_binds_scores_without_touching_generation(tmp
             before[path] = path.read_bytes()
         (folder / "eval-dashboard.html").write_text("Completed synthetic dashboard")
     queue = tmp_path / "queue"
-    selected = repo / "data/private/draft-runs/a-baseline"
-    assert collect_linkedin(repo, template, settings, queue, run_folder=selected) == {
+    # Selecting a candidate before its baseline was exported must not create
+    # an immutable unresolved cache/queue entry. Repeating the same selection
+    # after baseline export must recover without inventing a new run identity.
+    selected_candidate = repo / "data/private/draft-runs/b-candidate"
+    assert collect_linkedin(repo, template, settings, queue, run_folder=selected_candidate) == {
+        "queued": 0,
+        "invalid": 1,
+        "incomplete": 0,
+    }
+    assert not list(queue.glob("*.pending.json"))
+    assert not list((queue / "bound-envelopes").glob("*.json"))
+    selected_baseline = repo / "data/private/draft-runs/a-baseline"
+    assert not (selected_baseline / "monitoring-export-context.json").exists()
+    assert collect_linkedin(repo, template, settings, queue, run_folder=selected_baseline) == {
         "queued": 1,
         "invalid": 0,
         "incomplete": 0,
     }
-    assert not (
-        repo / "data/private/draft-runs/b-candidate/monitoring-export-context.json"
-    ).exists()
-    assert not (
-        repo / "data/private/v1-evals/monitoring-dashboard-v2-b-candidate.normalized.json"
-    ).exists()
+    assert collect_linkedin(repo, template, settings, queue, run_folder=selected_candidate) == {
+        "queued": 1,
+        "invalid": 0,
+        "incomplete": 0,
+    }
+    assert not (repo / "data/private/draft-runs/c-later/monitoring-export-context.json").exists()
     assert all(path.read_bytes() == content for path, content in before.items())
     result = collect_linkedin(repo, template, settings, queue)
     assert result == {"queued": 3, "invalid": 0, "incomplete": 0}

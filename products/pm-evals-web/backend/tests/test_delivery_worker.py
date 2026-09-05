@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from test_monitoring_production import _run
 
@@ -114,7 +116,7 @@ def test_explicit_baseline_cycle_is_rejected_without_partial_cache(tmp_path):
 def test_recursive_baseline_digest_survives_restart_and_rejects_changed_input(tmp_path):
     first = _run()
     first.run_id = "first"
-    first.comparison.run_id = "no-baseline"
+    first.comparison.run_id = "NO_BASELINE"
     first.comparison.sha256 = None
     second = first.model_copy(deep=True)
     second.run_id = "second"
@@ -135,3 +137,62 @@ def test_recursive_baseline_digest_survives_restart_and_rejects_changed_input(tm
     third.product.version = "changed-input"
     with pytest.raises(ValueError, match="inputs changed"):
         restarted.bind(third)
+
+
+@pytest.mark.parametrize("declared_digest", [None, "sha256:" + "a" * 64])
+def test_missing_selected_baseline_waits_without_freezing_candidate(tmp_path, declared_digest):
+    baseline = _run()
+    baseline.run_id = "baseline"
+    baseline.comparison.run_id = "NO_BASELINE"
+    baseline.comparison.sha256 = None
+    candidate = baseline.model_copy(deep=True)
+    candidate.run_id = "candidate"
+    candidate.comparison.run_id = baseline.run_id
+    candidate.comparison.sha256 = declared_digest
+    source_digest = canonical_run_digest(candidate)
+    runs = {}
+    binder = EnvelopeBinder(tmp_path / "queue", runs.get)
+    with pytest.raises(ValueError, match="retry after export"):
+        binder.bind(candidate)
+    assert binder.resolving == set()
+    assert not list(binder.directory.glob("*.json"))
+    assert not list((tmp_path / "queue").glob("*.pending.json"))
+    runs[baseline.run_id] = baseline
+    bound = EnvelopeBinder(tmp_path / "queue", runs.get).bind(candidate)
+    assert bound.run_id == candidate.run_id
+    assert bound.comparison.sha256 == (declared_digest or canonical_run_digest(baseline))
+    assert canonical_run_digest(candidate) == source_digest
+
+
+@pytest.mark.parametrize("unresolved", [False, True])
+def test_legacy_baseline_cache_requires_verification_without_rewriting(tmp_path, unresolved):
+    baseline = _run()
+    baseline.run_id = "baseline"
+    baseline.comparison.run_id = "NO_BASELINE"
+    baseline.comparison.sha256 = None
+    candidate = baseline.model_copy(deep=True)
+    candidate.run_id = "candidate"
+    candidate.comparison.run_id = baseline.run_id
+    runs = {baseline.run_id: baseline}
+    root = tmp_path / "queue"
+    binder = EnvelopeBinder(root, runs.get)
+    binder.bind(candidate)
+    target = next(
+        path
+        for path in binder.directory.glob("*.json")
+        if json.loads(path.read_bytes())["envelope"]["run_id"] == "candidate"
+    )
+    cached = json.loads(target.read_bytes())
+    cached.pop("binding_version")
+    if unresolved:
+        cached["envelope"] = candidate.model_dump(mode="json")
+        cached["envelope_sha256"] = canonical_run_digest(candidate)
+    target.write_text(json.dumps(cached))
+    previous = target.read_bytes()
+    restarted = EnvelopeBinder(root, runs.get)
+    if unresolved:
+        with pytest.raises(ValueError, match="resolution is unverified"):
+            restarted.bind(candidate)
+    else:
+        assert restarted.bind(candidate).comparison.sha256 == canonical_run_digest(baseline)
+    assert target.read_bytes() == previous
