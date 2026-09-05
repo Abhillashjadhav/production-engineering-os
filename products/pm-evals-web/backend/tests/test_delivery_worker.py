@@ -9,6 +9,33 @@ from pm_evals_monitoring.outbox import (
     enqueue,
     flush_resilient,
 )
+from pm_evals_monitoring.worker import collect_linkedin
+
+
+def test_selected_linkedin_folder_rejects_outside_and_missing_dashboard(tmp_path):
+    repo = tmp_path / "native"
+    private = repo / "data/private"
+    private.mkdir(parents=True)
+    context = tmp_path / "context.json"
+    context.write_text("{}")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "eval-dashboard.html").write_text("completed")
+    with pytest.raises(ValueError, match="beneath"):
+        collect_linkedin(
+            repo, context, tmp_path / "settings", tmp_path / "queue", run_folder=outside
+        )
+    alias = private / "alias"
+    alias.symlink_to(outside, target_is_directory=True)
+    with pytest.raises(ValueError, match="beneath"):
+        collect_linkedin(
+            repo, context, tmp_path / "settings", tmp_path / "queue", run_folder=alias
+        )
+    with pytest.raises(ValueError, match="completed dashboard"):
+        collect_linkedin(
+            repo, context, tmp_path / "settings", tmp_path / "queue", run_folder=private
+        )
+    assert not (tmp_path / "queue").exists()
 
 
 def test_invalid_item_does_not_block_valid_delivery(tmp_path):

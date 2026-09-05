@@ -161,3 +161,11 @@ Give another model the two proposed repository revisions and this prompt:
 The LinkedIn proposal is [draft PR 157](https://github.com/Abhillashjadhav/Linkedin-research-posts/pull/157).
 The shared CI connection check pins its native exporter revision rather than
 following a moving branch. All experiments used synthetic data.
+
+## Final setup review correction
+
+The LinkedIn worker accepts `--run-folder` to select one completed run beneath
+its private data directory. Use this for initial acceptance and mixed-version
+histories. Whole-checkout collection is appropriate only when every included
+run shares the supplied version context; separate worker processes do not
+automatically partition that history.

@@ -87,6 +87,11 @@ def main() -> int:
         "linkedin", help="Export completed native dashboards without rerunning LinkedIn"
     )
     linkedin.add_argument("--repo", type=Path, required=True)
+    linkedin.add_argument(
+        "--run-folder",
+        type=Path,
+        help="Collect only this completed folder beneath repo/data/private",
+    )
     linkedin.add_argument("--context", type=Path, required=True)
     linkedin.add_argument("--settings", type=Path, required=True)
     linkedin.add_argument("--outbox", type=Path, required=True)
@@ -175,7 +180,9 @@ def main() -> int:
             raise ValueError("LinkedIn local export requires --allow-monitoring-export")
         while True:
             if args.command == "linkedin":
-                collection = collect_linkedin(args.repo, args.context, args.settings, args.outbox)
+                collection = collect_linkedin(
+                    args.repo, args.context, args.settings, args.outbox, run_folder=args.run_folder
+                )
             else:
                 collection = collect_exports(args.directory, args.settings, args.outbox)
             result = flush_resilient(args.outbox, sender=sender)

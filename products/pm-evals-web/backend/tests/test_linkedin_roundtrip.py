@@ -259,6 +259,19 @@ def test_completed_dashboard_worker_binds_scores_without_touching_generation(tmp
             before[path] = path.read_bytes()
         (folder / "eval-dashboard.html").write_text("Completed synthetic dashboard")
     queue = tmp_path / "queue"
+    selected = repo / "data/private/draft-runs/a-baseline"
+    assert collect_linkedin(repo, template, settings, queue, run_folder=selected) == {
+        "queued": 1,
+        "invalid": 0,
+        "incomplete": 0,
+    }
+    assert not (
+        repo / "data/private/draft-runs/b-candidate/monitoring-export-context.json"
+    ).exists()
+    assert not (
+        repo / "data/private/v1-evals/monitoring-dashboard-v2-b-candidate.normalized.json"
+    ).exists()
+    assert all(path.read_bytes() == content for path, content in before.items())
     result = collect_linkedin(repo, template, settings, queue)
     assert result == {"queued": 3, "invalid": 0, "incomplete": 0}
     assert all(path.read_bytes() == content for path, content in before.items())

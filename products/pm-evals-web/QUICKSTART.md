@@ -22,7 +22,7 @@ includes the dashboard, so the receiving machine does not need Node.
 ```bash
 python3 -m venv .evals-venv
 source .evals-venv/bin/activate
-python -m pip install /absolute/path/to/pm_evals_web_backend-0.2.0-py3-none-any.whl
+python -m pip install /absolute/path/to/pm_evals_web_backend-0.2.1-py3-none-any.whl
 pm-evals serve --demo
 ```
 
@@ -72,7 +72,8 @@ It does not start research, drafting, repair, or a model call.
 First create a private JSON context file outside git. Replace every version
 placeholder below with the public-safe identifier of the **actual saved run's**
 configuration. These labels describe what already ran; they do not change models
-or acceptance rules. Use one worker/context for runs with that configuration.
+or acceptance rules. Select one completed run with `--run-folder` for the first
+test. Its context must describe that particular run.
 
 ```json
 {
@@ -104,6 +105,7 @@ credential. Run one collection/delivery pass first:
 export PM_EVALS_INGEST_TOKEN='<same-producer-secret-as-server>'
 pm-evals linkedin \
   --repo /absolute/path/to/Linkedin-research-posts \
+  --run-folder /absolute/path/to/Linkedin-research-posts/data/private/draft-runs/completed-run \
   --context /absolute/path/to/private-monitoring-context.json \
   --settings /absolute/path/to/production-engineering-os/products/pm-evals-web/adapters/linkedin-os.settings.json \
   --outbox /absolute/path/to/private-evals-outbox \
@@ -118,8 +120,11 @@ includes exports seen again; duplicate delivery does not create duplicate runs.
 Compare the dashboard's candidate scores, warnings, and delivery outcome with
 the saved native dashboard. Missing checks remain **NOT_EVALUATED**.
 
-Remove `--once` to keep collecting automatically while this separate process
-runs. `--interval 30` controls delivery polling in seconds; it is not the cadence
+For automatic collection of future runs, omit `--run-folder` and remove `--once`
+only when every completed run under that checkout uses the supplied version
+context. Mixed-version histories must use explicit run-folder selections with
+each run's correct context. Separate workers alone do not separate run histories.
+The separate collection process must remain running. `--interval 30` controls delivery polling in seconds; it is not the cadence
 for investigating failures or changing the golden dataset. To stop collection,
 stop this process. LinkedIn generation continues independently.
 

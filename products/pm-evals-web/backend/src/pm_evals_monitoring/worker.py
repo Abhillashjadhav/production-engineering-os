@@ -28,7 +28,12 @@ def collect_exports(directory: Path, settings: Path | None, outbox: Path) -> dic
 
 
 def collect_linkedin(
-    repo: Path, context_path: Path, settings: Path, outbox: Path
+    repo: Path,
+    context_path: Path,
+    settings: Path,
+    outbox: Path,
+    *,
+    run_folder: Path | None = None,
 ) -> dict[str, int]:
     """Export only folders with a completed HTML/JSON set; never call drafting.
 
@@ -48,8 +53,18 @@ def collect_linkedin(
         )
     repo = repo.resolve()
     private = repo / "data" / "private"
+    if run_folder is not None:
+        selected = run_folder.resolve()
+        if not selected.is_relative_to(private.resolve()):
+            raise ValueError("selected run folder must be beneath repo/data/private")
+        html = selected / "eval-dashboard.html"
+        if not html.is_file() or html.is_symlink():
+            raise ValueError("selected run folder must contain a completed dashboard")
+        dashboards = [html]
+    else:
+        dashboards = sorted(private.glob("**/eval-dashboard.html"))
     collected: list[RunEnvelope] = []
-    for html in sorted(private.glob("**/eval-dashboard.html")):
+    for html in dashboards:
         folder = html.parent
         try:
             run_file = folder / "run-dashboard.json"
