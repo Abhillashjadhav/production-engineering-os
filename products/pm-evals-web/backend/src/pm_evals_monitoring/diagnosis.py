@@ -8,6 +8,7 @@ from collections import Counter, defaultdict, deque
 from datetime import UTC, datetime
 from math import isfinite
 
+from .integration import comparison_reason
 from .models import (
     OVERVIEW_TREND_RUNS_PER_PRODUCT,
     AdjudicationRecord,
@@ -67,11 +68,20 @@ def _verified_comparison_observation(
 
     if (
         comparison is None
-        or comparison_health != "HEALTHY"
         or comparison.observed_at >= run.observed_at
         or observation.expected_value is None
     ):
         return None
+    if comparison_health != "HEALTHY":
+        case_observations = [
+            item for item in comparison.observations if item.case == observation.case
+        ]
+        if (
+            not case_observations
+            or _health(case_observations) != "HEALTHY"
+            or any(_exceeds_degradation_tolerance(item) for item in case_observations)
+        ):
+            return None
     candidate = next(
         (
             item
@@ -745,6 +755,8 @@ def build_overview(
                 version=run.product.version,
                 environment=environment,
                 latest_run_id=run.run_id,
+                delivery_outcome=run.delivery_outcome,
+                source_facts=run.source_facts,
                 observed_at=run.observed_at,
                 health=("BLOCKED" if is_stale else diagnosis.health),
                 is_stale=is_stale,
@@ -816,6 +828,11 @@ def build_overview(
                     environment=environment,
                     run_id=run.run_id,
                     comparison_run_id=run.comparison.run_id,
+                    comparison_unavailable_reason=(
+                        None
+                        if comparison_available
+                        else comparison_reason(run, observation, comparison)
+                    ),
                     comparison_label=(
                         run.comparison.label if comparison_available else "Comparison unavailable"
                     ),

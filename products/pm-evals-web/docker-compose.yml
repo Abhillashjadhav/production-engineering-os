@@ -12,20 +12,21 @@ services:
       PM_EVALS_PRODUCTION_MONITORING: ${PM_EVALS_PRODUCTION_MONITORING:-0}
       # Writes fail closed when this secret is absent; set it only on trusted producers.
       PM_EVALS_INGEST_CREDENTIALS_JSON: ${PM_EVALS_INGEST_CREDENTIALS_JSON:-}
+      PM_EVALS_VIEWER_TOKEN: ${PM_EVALS_VIEWER_TOKEN:-}
       PM_EVALS_ADJUDICATION_TOKEN: ${PM_EVALS_ADJUDICATION_TOKEN:-}
       PM_EVALS_EXPECTED_PRODUCTS_JSON: ${PM_EVALS_EXPECTED_PRODUCTS_JSON:-}
       PM_EVALS_INGEST_LIMIT_PER_MINUTE: ${PM_EVALS_INGEST_LIMIT_PER_MINUTE:-120}
     volumes:
       - monitoring-data:/data/monitoring
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
   frontend:
     build:
       context: ./frontend
       args:
         BACKEND_URL: http://backend:8000
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       backend:
         condition: service_healthy

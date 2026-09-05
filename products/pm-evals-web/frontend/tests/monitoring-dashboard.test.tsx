@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { MonitoringDashboard } from "@/components/monitoring-dashboard";
@@ -123,6 +123,36 @@ function fetchOverview(overview: MonitoringOverview = OVERVIEW): typeof fetch {
 }
 
 describe("MonitoringDashboard", () => {
+  it("uses a viewer key only in request headers and forgets it when the page unmounts", async () => {
+    const persist = vi.spyOn(Storage.prototype, "setItem");
+    const locationBefore = window.location.href;
+    const fetcher = vi.fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("", { status: 401 }))
+      .mockImplementation(async () => new Response(JSON.stringify(OVERVIEW), { status: 200 }));
+    const view = render(<MonitoringDashboard fetcher={fetcher} />);
+    const input = await screen.findByLabelText("Viewer access key");
+    expect(input).toHaveAttribute("type", "password");
+    fireEvent.change(input, { target: { value: "viewer-test-secret" } });
+    fireEvent.click(screen.getByRole("button", { name: "Open dashboard" }));
+    await screen.findByText("1/2");
+    expect(fetcher).toHaveBeenLastCalledWith("/api/monitoring/overview", {
+      headers: { Authorization: "Bearer viewer-test-secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /refresh data/i }));
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(3));
+    expect(fetcher).toHaveBeenLastCalledWith("/api/monitoring/overview", {
+      headers: { Authorization: "Bearer viewer-test-secret" },
+    });
+    expect(persist).not.toHaveBeenCalled();
+    expect(window.location.href).toBe(locationBefore);
+    expect(document.body.textContent).not.toContain("viewer-test-secret");
+    view.unmount();
+    render(<MonitoringDashboard fetcher={fetcher} />);
+    await screen.findByText("1/2");
+    expect(fetcher).toHaveBeenLastCalledWith("/api/monitoring/overview");
+    persist.mockRestore();
+  });
+
   it("shows an explicit no-data state instead of a planted demo", async () => {
     const empty: MonitoringOverview = {
       ...OVERVIEW,
@@ -154,13 +184,13 @@ describe("MonitoringDashboard", () => {
     expect(within(diagnosis!).getByText("49 percentage points")).toBeInTheDocument();
     expect(within(diagnosis!).getByText("LinkedIn source adapter / connector-v2 mapping")).toBeInTheDocument();
     expect(within(diagnosis!).getByText("Supported cause")).toBeInTheDocument();
-    expect(screen.getByText(/production guardrail not proven/i)).toBeInTheDocument();
+    expect(screen.getByText(/localization audit: target not established/i)).toBeInTheDocument();
     expect(screen.queryByText("Observed")).not.toBeInTheDocument();
     expect(screen.queryByText("Baseline")).not.toBeInTheDocument();
     expect(screen.queryByText("Propagation")).not.toBeInTheDocument();
   });
 
-  it("renders the production guardrail as proven when calibration earns it", async () => {
+  it("labels the existing localization audit as observed rather than proven", async () => {
     const proven: MonitoringOverview = {
       ...OVERVIEW,
       attribution_metrics: {
@@ -175,9 +205,9 @@ describe("MonitoringDashboard", () => {
 
     render(<MonitoringDashboard fetcher={fetchOverview(proven)} />);
 
-    expect(await screen.findByText("target <2% · proven")).toBeInTheDocument();
-    expect(screen.getByText("Production guardrail proven")).toBeInTheDocument();
-    expect(screen.queryByText(/production guardrail not proven/i)).not.toBeInTheDocument();
+    expect(await screen.findByText("existing target <2% · observed target met")).toBeInTheDocument();
+    expect(screen.getByText("Localization audit: observed target met")).toBeInTheDocument();
+    expect(screen.queryByText(/localization audit: target not established/i)).not.toBeInTheDocument();
   });
 
   it("shows missing comparison evidence without asserting an expected value", async () => {
@@ -187,6 +217,7 @@ describe("MonitoringDashboard", () => {
       incidents: [{
         ...OVERVIEW.incidents[0],
         comparison_label: "Comparison unavailable",
+        comparison_unavailable_reason: "The evaluation versions differ; these results cannot be compared.",
         expected_value: null,
         expected_summary: "The referenced comparison run is not stored, so this expectation is not verified.",
         regression_magnitude: null,
@@ -199,6 +230,7 @@ describe("MonitoringDashboard", () => {
     expect(await screen.findByText("Difference unavailable")).toBeInTheDocument();
     expect(screen.getByText(/expectation is not verified/i)).toBeInTheDocument();
     expect(screen.getByText(/comparison unavailable: dream-approved/i)).toBeInTheDocument();
+    expect(screen.getByText("The evaluation versions differ; these results cannot be compared.")).toBeInTheDocument();
   });
 
   it("labels a passing regression as a degraded check, not a failed check", async () => {

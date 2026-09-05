@@ -930,6 +930,212 @@
         "title": "CriterionDelta",
         "type": "object"
       },
+      "DetectionMetric": {
+        "additionalProperties": false,
+        "properties": {
+          "dataset_version": {
+            "title": "Dataset Version",
+            "type": "string"
+          },
+          "detected_silent_failures": {
+            "title": "Detected Silent Failures",
+            "type": "integer"
+          },
+          "environment": {
+            "title": "Environment",
+            "type": "string"
+          },
+          "evidence_scope": {
+            "enum": [
+              "TEST",
+              "PRODUCTION"
+            ],
+            "title": "Evidence Scope",
+            "type": "string"
+          },
+          "layer": {
+            "enum": [
+              "TOOL_TRAJECTORY",
+              "SYSTEM",
+              "OUTPUT"
+            ],
+            "title": "Layer",
+            "type": "string"
+          },
+          "missed_silent_failures": {
+            "title": "Missed Silent Failures",
+            "type": "integer"
+          },
+          "product_id": {
+            "title": "Product Id",
+            "type": "string"
+          },
+          "reviewed_cases": {
+            "title": "Reviewed Cases",
+            "type": "integer"
+          },
+          "silent_failure_recall": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Silent Failure Recall"
+          },
+          "silent_failures": {
+            "title": "Silent Failures",
+            "type": "integer"
+          },
+          "status": {
+            "enum": [
+              "UNPROVEN",
+              "BELOW_TARGET",
+              "OBSERVED_ABOVE_TARGET"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "target": {
+            "default": 0.9,
+            "title": "Target",
+            "type": "number"
+          }
+        },
+        "required": [
+          "product_id",
+          "environment",
+          "layer",
+          "evidence_scope",
+          "dataset_version",
+          "reviewed_cases",
+          "silent_failures",
+          "detected_silent_failures",
+          "missed_silent_failures",
+          "silent_failure_recall",
+          "status"
+        ],
+        "title": "DetectionMetric",
+        "type": "object"
+      },
+      "DetectionReview": {
+        "additionalProperties": false,
+        "properties": {
+          "actual_failure": {
+            "title": "Actual Failure",
+            "type": "boolean"
+          },
+          "case_id": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Case Id",
+            "type": "string"
+          },
+          "dataset_version": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Dataset Version",
+            "type": "string"
+          },
+          "environment": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Environment",
+            "type": "string"
+          },
+          "evidence_refs": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRef"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "evidence_scope": {
+            "enum": [
+              "TEST",
+              "PRODUCTION"
+            ],
+            "title": "Evidence Scope",
+            "type": "string"
+          },
+          "layer": {
+            "enum": [
+              "TOOL_TRAJECTORY",
+              "SYSTEM",
+              "OUTPUT"
+            ],
+            "title": "Layer",
+            "type": "string"
+          },
+          "observation_id": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation Id"
+          },
+          "product_id": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Product Id",
+            "type": "string"
+          },
+          "review_id": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Review Id",
+            "type": "string"
+          },
+          "reviewed_at": {
+            "format": "date-time",
+            "title": "Reviewed At",
+            "type": "string"
+          },
+          "reviewer_id": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Reviewer Id",
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Run Id",
+            "type": "string"
+          },
+          "silent": {
+            "title": "Silent",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "review_id",
+          "product_id",
+          "environment",
+          "run_id",
+          "case_id",
+          "layer",
+          "actual_failure",
+          "silent",
+          "evidence_scope",
+          "dataset_version",
+          "reviewer_id",
+          "reviewed_at",
+          "evidence_refs"
+        ],
+        "title": "DetectionReview",
+        "type": "object"
+      },
       "EvaluationRef": {
         "additionalProperties": false,
         "properties": {
@@ -1058,6 +1264,19 @@
         "title": "GuardrailGovernance",
         "type": "object"
       },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
       "HealthResponse": {
         "properties": {
           "api_version": {
@@ -1132,6 +1351,17 @@
           "comparison_run_id": {
             "title": "Comparison Run Id",
             "type": "string"
+          },
+          "comparison_unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comparison Unavailable Reason"
           },
           "component_id": {
             "title": "Component Id",
@@ -1475,6 +1705,13 @@
           "attribution_metrics": {
             "$ref": "#/components/schemas/AttributionMetrics"
           },
+          "detection_metrics": {
+            "items": {
+              "$ref": "#/components/schemas/DetectionMetric"
+            },
+            "title": "Detection Metrics",
+            "type": "array"
+          },
           "generated_at": {
             "format": "date-time",
             "title": "Generated At",
@@ -1799,6 +2036,23 @@
             "title": "Concerns",
             "type": "array"
           },
+          "delivery_outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "PASS",
+                  "FAIL",
+                  "BLOCKED",
+                  "COMPLETED_WITH_WARNINGS"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Outcome"
+          },
           "display_name": {
             "title": "Display Name",
             "type": "string"
@@ -1852,6 +2106,13 @@
           "product_id": {
             "title": "Product Id",
             "type": "string"
+          },
+          "source_facts": {
+            "items": {
+              "$ref": "#/components/schemas/SourceFact"
+            },
+            "title": "Source Facts",
+            "type": "array"
           },
           "version": {
             "title": "Version",
@@ -2066,6 +2327,23 @@
             "title": "Contract Version",
             "type": "string"
           },
+          "delivery_outcome": {
+            "anyOf": [
+              {
+                "enum": [
+                  "PASS",
+                  "FAIL",
+                  "BLOCKED",
+                  "COMPLETED_WITH_WARNINGS"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Outcome"
+          },
           "observations": {
             "items": {
               "$ref": "#/components/schemas/Observation"
@@ -2090,6 +2368,14 @@
             "minLength": 1,
             "title": "Run Id",
             "type": "string"
+          },
+          "source_facts": {
+            "items": {
+              "$ref": "#/components/schemas/SourceFact"
+            },
+            "maxItems": 2000,
+            "title": "Source Facts",
+            "type": "array"
           }
         },
         "required": [
@@ -2178,6 +2464,89 @@
           "detail"
         ],
         "title": "SizeLimitResponse",
+        "type": "object"
+      },
+      "SourceFact": {
+        "additionalProperties": false,
+        "description": "Allowlisted native facts; delivery and diagnostic findings are independent.",
+        "properties": {
+          "contract": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Contract",
+            "type": "string"
+          },
+          "cycle": {
+            "default": 0,
+            "maximum": 10000.0,
+            "minimum": 0.0,
+            "title": "Cycle",
+            "type": "integer"
+          },
+          "evidence_refs": {
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRef"
+            },
+            "maxItems": 20,
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "mode": {
+            "enum": [
+              "enforce",
+              "diagnostic",
+              "shadow"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "observed_status": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Observed Status",
+            "type": "string"
+          },
+          "reason_codes": {
+            "items": {
+              "pattern": "^[A-Za-z0-9_-]{1,120}$",
+              "type": "string"
+            },
+            "maxItems": 40,
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "recorded_status": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Recorded Status",
+            "type": "string"
+          },
+          "subject_id": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Subject Id",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "contract",
+          "subject_id",
+          "recorded_status",
+          "observed_status",
+          "mode"
+        ],
+        "title": "SourceFact",
         "type": "object"
       },
       "TraceComparison": {
@@ -2283,6 +2652,46 @@
         "title": "TrendPoint",
         "type": "object"
       },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
       "ValidationErrorResponse": {
         "description": "The single 422 envelope: every validation failure \u2014 malformed upload,\nout-of-range config, or a native transport type error \u2014 is reported as\n``{\"detail\": [ValidationProblem, ...]}`` so one committed schema matches\nthe wire for all of them (P-4).",
         "properties": {
@@ -2363,7 +2772,7 @@
   "info": {
     "description": "Compare two eval runs or inspect versioned production-eval observations. Comparison uploads are processed in memory and never stored.",
     "title": "pm-evals Web API",
-    "version": "1.3.0"
+    "version": "1.4.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -2505,9 +2914,51 @@
         "summary": "Ingest Monitoring Adjudication"
       }
     },
+    "/api/monitoring/detection-reviews": {
+      "post": {
+        "operationId": "ingest_detection_review_api_monitoring_detection_reviews_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DetectionReview"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppendResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "MonitoringIngestionBearer": []
+          }
+        ],
+        "summary": "Ingest Detection Review"
+      }
+    },
     "/api/monitoring/evaluate": {
       "post": {
-        "description": "Replay diagnosis without mutating monitoring history.",
         "operationId": "evaluate_monitoring_run_api_monitoring_evaluate_post",
         "requestBody": {
           "content": {
@@ -2551,6 +3002,11 @@
             "description": "A validation failure: one or more named per-source problems."
           }
         },
+        "security": [
+          {
+            "MonitoringIngestionBearer": []
+          }
+        ],
         "summary": "Evaluate Monitoring Run"
       }
     },
@@ -2569,6 +3025,11 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "MonitoringIngestionBearer": []
+          }
+        ],
         "summary": "Monitoring Overview"
       }
     },

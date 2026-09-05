@@ -615,6 +615,30 @@ class AdjudicationRecord(_AdjudicationRecordBase):
     case_incident_id: str = Field(pattern=r"^case-sha256:[0-9a-f]{64}$")
 
 
+class SourceFact(StrictModel):
+    """Allowlisted native facts; delivery and diagnostic findings are independent."""
+
+    contract: str = Field(min_length=1, max_length=120)
+    subject_id: str = Field(min_length=1, max_length=120)
+    cycle: int = Field(default=0, ge=0, le=10000)
+    recorded_status: str = Field(min_length=1, max_length=40)
+    observed_status: str = Field(min_length=1, max_length=40)
+    reason_codes: list[Annotated[str, Field(pattern=r"^[A-Za-z0-9_-]{1,120}$")]] = Field(
+        default_factory=list, max_length=40
+    )
+    mode: Literal["enforce", "diagnostic", "shadow"]
+    value: float | None = None
+    evidence_refs: list[EvidenceRef] = Field(default_factory=list, max_length=20)
+
+    @field_validator("contract", "subject_id", "recorded_status", "observed_status")
+    @classmethod
+    def redact_labels(cls, value: str) -> str:
+        return validate_redacted_text(value)
+
+
+DeliveryOutcome = Literal["PASS", "FAIL", "BLOCKED", "COMPLETED_WITH_WARNINGS"]
+
+
 class RunEnvelope(StrictModel):
     contract_version: Literal["0.2"] = "0.2"
     run_id: str = Field(min_length=1)
@@ -624,6 +648,8 @@ class RunEnvelope(StrictModel):
     change_manifest: ChangeManifest
     provenance: Provenance
     observations: list[Observation] = Field(min_length=1, max_length=2000)
+    delivery_outcome: DeliveryOutcome | None = None
+    source_facts: list[SourceFact] = Field(default_factory=list, max_length=2000)
 
     @field_validator("run_id")
     @classmethod
@@ -675,9 +701,15 @@ class RunEnvelope(StrictModel):
 def canonical_run_line(run: RunEnvelope) -> bytes:
     """Return the single canonical representation used for evidence digests."""
 
+    payload = run.model_dump(mode="json")
+    # Additive fields must not change the digest of previously stored envelopes.
+    if not run.source_facts:
+        payload.pop("source_facts", None)
+    if run.delivery_outcome is None:
+        payload.pop("delivery_outcome", None)
     return (
         json.dumps(
-            run.model_dump(mode="json"),
+            payload,
             allow_nan=False,
             sort_keys=True,
             separators=(",", ":"),
@@ -739,6 +771,8 @@ class ProductHealth(StrictModel):
     blocked_count: int
     layers: list[CoverageHealth]
     concerns: list[CoverageHealth]
+    delivery_outcome: DeliveryOutcome | None = None
+    source_facts: list[SourceFact] = Field(default_factory=list)
 
 
 class ChangeItem(StrictModel):
@@ -762,6 +796,7 @@ class Incident(StrictModel):
     run_id: str
     comparison_run_id: str
     comparison_label: str
+    comparison_unavailable_reason: str | None = None
     observed_at: datetime
     observation_id: str
     case: CaseRef
@@ -811,6 +846,21 @@ class AttributionMetrics(StrictModel):
     label: str
 
 
+class DetectionMetric(StrictModel):
+    product_id: str
+    environment: str
+    layer: Literal["TOOL_TRAJECTORY", "SYSTEM", "OUTPUT"]
+    evidence_scope: Literal["TEST", "PRODUCTION"]
+    dataset_version: str
+    reviewed_cases: int
+    silent_failures: int
+    detected_silent_failures: int
+    missed_silent_failures: int
+    silent_failure_recall: float | None
+    target: float = 0.9
+    status: Literal["UNPROVEN", "BELOW_TARGET", "OBSERVED_ABOVE_TARGET"]
+
+
 class MonitoringOverview(StrictModel):
     generated_at: datetime
     mode: Literal["PLANTED_DEMO", "NO_DATA", "LIVE"]
@@ -818,6 +868,7 @@ class MonitoringOverview(StrictModel):
     incidents: list[Incident]
     trend: list[TrendPoint]
     attribution_metrics: AttributionMetrics
+    detection_metrics: list[DetectionMetric] = Field(default_factory=list)
 
 
 class IngestResponse(StrictModel):

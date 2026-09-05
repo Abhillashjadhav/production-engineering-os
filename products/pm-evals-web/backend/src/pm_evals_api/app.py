@@ -57,6 +57,11 @@ from pm_evals_monitoring import (
     diagnose_run,
     replay_dimension_values,
 )
+from pm_evals_monitoring.detection import (
+    DetectionReview,
+    RecordedDetectionReview,
+    detection_metrics,
+)
 from pm_evals_monitoring.models import MAX_FUTURE_CLOCK_SKEW, IngestResponse
 
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # per file; capped at read-back (T3)
@@ -77,7 +82,7 @@ def _uses_temporary_monitoring_storage(path: Path) -> bool:
     )
 
 
-API_VERSION = "1.3.0"
+API_VERSION = "1.4.0"
 
 _monitoring_ingestion_bearer = HTTPBearer(
     auto_error=False,
@@ -263,6 +268,7 @@ def create_app(
     monitoring_ingest_token: str | None = None,
     monitoring_ingest_credentials: dict[tuple[str, str], str] | None = None,
     monitoring_adjudication_token: str | None = None,
+    monitoring_viewer_token: str | None = None,
     monitoring_demo_mode: bool = False,
     monitoring_production: bool = False,
     monitoring_expected_products: list[ProductRef] | None = None,
@@ -281,6 +287,10 @@ def create_app(
         producer_tokens.add(monitoring_ingest_token)
     if monitoring_adjudication_token in producer_tokens:
         raise ValueError("the monitoring adjudication credential must be distinct from producers")
+    if monitoring_viewer_token and monitoring_viewer_token in producer_tokens | {
+        monitoring_adjudication_token
+    }:
+        raise ValueError("the monitoring viewer credential must be distinct from writers")
     if monitoring_production and monitoring_demo_mode:
         raise ValueError("production monitoring cannot enable demo mode")
     expected_identities = {(product.id, product.environment) for product in expected_products}
@@ -304,6 +314,8 @@ def create_app(
             "production monitoring requires a durable monitoring data directory "
             "outside temporary roots"
         )
+    if monitoring_production and not monitoring_viewer_token:
+        raise ValueError("production monitoring requires a viewer credential")
     monitoring_store = MonitoringStore(monitoring_data_dir) if monitoring_data_dir else None
 
     def authorize_product(
@@ -494,7 +506,16 @@ def create_app(
         response_model=RunDiagnosis,
         responses=validation_responses,
     )
-    def evaluate_monitoring_run(run: RunEnvelope) -> RunDiagnosis:
+    def evaluate_monitoring_run(
+        run: RunEnvelope,
+        credentials: Annotated[
+            HTTPAuthorizationCredentials | None, Security(_monitoring_ingestion_bearer)
+        ] = None,
+    ) -> RunDiagnosis:
+        if monitoring_viewer_token and not secrets.compare_digest(
+            credentials.credentials if credentials else "", monitoring_viewer_token
+        ):
+            raise HTTPException(status_code=401, detail="Viewer access is required")
         """Replay diagnosis without mutating monitoring history."""
         return diagnose_run(run, comparison=stored_comparison(run))
 
@@ -806,8 +827,69 @@ def create_app(
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return AppendResponse(stored=stored, duplicate=not stored)
 
+    @app.post("/api/monitoring/detection-reviews", response_model=AppendResponse)
+    def ingest_detection_review(
+        review: DetectionReview,
+        credentials: Annotated[
+            HTTPAuthorizationCredentials | None, Security(_monitoring_ingestion_bearer)
+        ],
+    ) -> AppendResponse:
+        if monitoring_store is None or not monitoring_adjudication_token:
+            raise HTTPException(
+                status_code=503, detail="Independent review storage is not configured"
+            )
+        if not secrets.compare_digest(
+            credentials.credentials if credentials else "", monitoring_adjudication_token
+        ):
+            raise HTTPException(status_code=401, detail="Independent reviewer access is required")
+        run = monitoring_store.get_run(
+            product_id=review.product_id, environment=review.environment, run_id=review.run_id
+        )
+        if run is None:
+            raise _validation_error("run_id", "reviewed run is not stored")
+        if review.reviewed_at < run.observed_at:
+            raise _validation_error("reviewed_at", "review predates the run")
+        observation = next(
+            (o for o in run.observations if o.observation_id == review.observation_id), None
+        )
+        if review.observation_id is not None and observation is None:
+            raise _validation_error(
+                "observation_id", "unknown observation; omit the ID for an uninstrumented failure"
+            )
+        if observation is not None and observation.case.case_id != review.case_id:
+            raise _validation_error("case_id", "review case must match its stored observation")
+        if observation is not None and observation.evaluation.layer != review.layer:
+            raise _validation_error("layer", "review layer differs from the recorded observation")
+        diagnosis = diagnose_run(run, comparison=stored_comparison(run))
+        flagged = {item.observation_id for item in diagnosis.diagnoses}
+        detected = observation is not None and (
+            observation.status == "FAIL"
+            or observation.observation_id in flagged
+            and observation.status == "PASS"
+        )
+        record = RecordedDetectionReview(**review.model_dump(), detected=detected)
+        try:
+            stored = monitoring_store.append_detection_review(record)
+        except FutureObservationError as exc:
+            raise _validation_error("reviewed_at", str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return AppendResponse(stored=stored, duplicate=not stored)
+
     @app.get("/api/monitoring/overview", response_model=MonitoringOverview)
-    def monitoring_overview() -> MonitoringOverview:
+    def monitoring_overview(
+        credentials: Annotated[
+            HTTPAuthorizationCredentials | None, Security(_monitoring_ingestion_bearer)
+        ] = None,
+    ) -> MonitoringOverview:
+        if monitoring_viewer_token and not secrets.compare_digest(
+            credentials.credentials if credentials else "", monitoring_viewer_token
+        ):
+            raise HTTPException(
+                status_code=401,
+                detail="Viewer access is required",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         if monitoring_store:
             (
                 runs,
@@ -819,7 +901,7 @@ def create_app(
         receipts = monitoring_store.list_receipts() if monitoring_store else []
         adjudications = monitoring_store.list_adjudications() if monitoring_store else []
         if runs:
-            return build_overview(
+            overview = build_overview(
                 runs,
                 mode="LIVE",
                 receipts=receipts,
@@ -828,6 +910,12 @@ def create_app(
                 run_digests=run_digests,
                 legacy_digestless_run_identities=legacy_digestless_run_identities,
             )
+            overview.detection_metrics = (
+                detection_metrics(monitoring_store.list_detection_reviews())
+                if monitoring_store
+                else []
+            )
+            return overview
         if monitoring_demo_mode:
             return build_demo_overview()
         return build_empty_overview(
@@ -906,6 +994,7 @@ app = create_app(
     monitoring_ingest_token=os.environ.get("PM_EVALS_INGEST_TOKEN"),
     monitoring_ingest_credentials=_scoped_credentials,
     monitoring_adjudication_token=os.environ.get("PM_EVALS_ADJUDICATION_TOKEN"),
+    monitoring_viewer_token=os.environ.get("PM_EVALS_VIEWER_TOKEN"),
     monitoring_demo_mode=os.environ.get("PM_EVALS_DEMO_MODE") == "1",
     monitoring_production=_production_monitoring,
     monitoring_expected_products=_expected_products,

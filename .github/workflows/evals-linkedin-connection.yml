@@ -1,0 +1,30 @@
+name: evals-linkedin-connection
+
+on:
+  pull_request:
+    paths:
+      - 'products/pm-evals-web/**'
+      - '.github/workflows/evals-linkedin-connection.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  completed-run-connection:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: Abhillashjadhav/Linkedin-research-posts
+          ref: bf1c4302b2d889d3280a0001421a0754eb673724
+          path: native-linkedin
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12'
+      - run: pip install -e 'products/pm-evals-web/backend[dev]'
+      - name: Verify native export, HTTP delivery, and baseline restart
+        env:
+          LINKEDIN_OS_REPO: ${{ github.workspace }}/native-linkedin
+        run: pytest products/pm-evals-web/backend/tests/test_linkedin_roundtrip.py -q

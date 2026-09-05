@@ -519,6 +519,122 @@ export type CriterionDelta = {
 };
 
 /**
+ * DetectionMetric
+ */
+export type DetectionMetric = {
+    /**
+     * Dataset Version
+     */
+    dataset_version: string;
+    /**
+     * Detected Silent Failures
+     */
+    detected_silent_failures: number;
+    /**
+     * Environment
+     */
+    environment: string;
+    /**
+     * Evidence Scope
+     */
+    evidence_scope: 'TEST' | 'PRODUCTION';
+    /**
+     * Layer
+     */
+    layer: 'TOOL_TRAJECTORY' | 'SYSTEM' | 'OUTPUT';
+    /**
+     * Missed Silent Failures
+     */
+    missed_silent_failures: number;
+    /**
+     * Product Id
+     */
+    product_id: string;
+    /**
+     * Reviewed Cases
+     */
+    reviewed_cases: number;
+    /**
+     * Silent Failure Recall
+     */
+    silent_failure_recall: number | null;
+    /**
+     * Silent Failures
+     */
+    silent_failures: number;
+    /**
+     * Status
+     */
+    status: 'UNPROVEN' | 'BELOW_TARGET' | 'OBSERVED_ABOVE_TARGET';
+    /**
+     * Target
+     */
+    target?: number;
+};
+
+/**
+ * DetectionReview
+ */
+export type DetectionReview = {
+    /**
+     * Actual Failure
+     */
+    actual_failure: boolean;
+    /**
+     * Case Id
+     */
+    case_id: string;
+    /**
+     * Dataset Version
+     */
+    dataset_version: string;
+    /**
+     * Environment
+     */
+    environment: string;
+    /**
+     * Evidence Refs
+     */
+    evidence_refs: Array<EvidenceRef>;
+    /**
+     * Evidence Scope
+     */
+    evidence_scope: 'TEST' | 'PRODUCTION';
+    /**
+     * Layer
+     */
+    layer: 'TOOL_TRAJECTORY' | 'SYSTEM' | 'OUTPUT';
+    /**
+     * Observation Id
+     */
+    observation_id?: string | null;
+    /**
+     * Product Id
+     */
+    product_id: string;
+    /**
+     * Review Id
+     */
+    review_id: string;
+    /**
+     * Reviewed At
+     */
+    reviewed_at: string;
+    /**
+     * Reviewer Id
+     */
+    reviewer_id: string;
+    /**
+     * Run Id
+     */
+    run_id: string;
+    /**
+     * Silent
+     */
+    silent: boolean;
+};
+
+/**
  * EvaluationRef
  */
 export type EvaluationRef = {
@@ -593,6 +709,16 @@ export type GuardrailGovernance = {
 };
 
 /**
+ * HTTPValidationError
+ */
+export type HttpValidationError = {
+    /**
+     * Detail
+     */
+    detail?: Array<ValidationError>;
+};
+
+/**
  * HealthResponse
  */
 export type HealthResponse = {
@@ -639,6 +765,10 @@ export type Incident = {
      * Comparison Run Id
      */
     comparison_run_id: string;
+    /**
+     * Comparison Unavailable Reason
+     */
+    comparison_unavailable_reason?: string | null;
     /**
      * Component Id
      */
@@ -832,6 +962,10 @@ export type ModelRef = {
 export type MonitoringOverview = {
     attribution_metrics: AttributionMetrics;
     /**
+     * Detection Metrics
+     */
+    detection_metrics?: Array<DetectionMetric>;
+    /**
      * Generated At
      */
     generated_at: string;
@@ -1004,6 +1138,10 @@ export type ProductHealth = {
      */
     concerns: Array<CoverageHealth>;
     /**
+     * Delivery Outcome
+     */
+    delivery_outcome?: 'PASS' | 'FAIL' | 'BLOCKED' | 'COMPLETED_WITH_WARNINGS' | null;
+    /**
      * Display Name
      */
     display_name: string;
@@ -1047,6 +1185,10 @@ export type ProductHealth = {
      * Product Id
      */
     product_id: string;
+    /**
+     * Source Facts
+     */
+    source_facts?: Array<SourceFact>;
     /**
      * Version
      */
@@ -1178,6 +1320,10 @@ export type RunEnvelope = {
      */
     contract_version?: '0.2';
     /**
+     * Delivery Outcome
+     */
+    delivery_outcome?: 'PASS' | 'FAIL' | 'BLOCKED' | 'COMPLETED_WITH_WARNINGS' | null;
+    /**
      * Observations
      */
     observations: Array<Observation>;
@@ -1191,6 +1337,10 @@ export type RunEnvelope = {
      * Run Id
      */
     run_id: string;
+    /**
+     * Source Facts
+     */
+    source_facts?: Array<SourceFact>;
 };
 
 /**
@@ -1242,6 +1392,50 @@ export type SizeLimitResponse = {
      * Detail
      */
     detail: string;
+};
+
+/**
+ * SourceFact
+ *
+ * Allowlisted native facts; delivery and diagnostic findings are independent.
+ */
+export type SourceFact = {
+    /**
+     * Contract
+     */
+    contract: string;
+    /**
+     * Cycle
+     */
+    cycle?: number;
+    /**
+     * Evidence Refs
+     */
+    evidence_refs?: Array<EvidenceRef>;
+    /**
+     * Mode
+     */
+    mode: 'enforce' | 'diagnostic' | 'shadow';
+    /**
+     * Observed Status
+     */
+    observed_status: string;
+    /**
+     * Reason Codes
+     */
+    reason_codes?: Array<string>;
+    /**
+     * Recorded Status
+     */
+    recorded_status: string;
+    /**
+     * Subject Id
+     */
+    subject_id: string;
+    /**
+     * Value
+     */
+    value?: number | null;
 };
 
 /**
@@ -1312,6 +1506,34 @@ export type TrendPoint = {
      * Run Id
      */
     run_id: string;
+};
+
+/**
+ * ValidationError
+ */
+export type ValidationError = {
+    /**
+     * Context
+     */
+    ctx?: {
+        [key: string]: unknown;
+    };
+    /**
+     * Input
+     */
+    input?: unknown;
+    /**
+     * Location
+     */
+    loc: Array<string | number>;
+    /**
+     * Message
+     */
+    msg: string;
+    /**
+     * Error Type
+     */
+    type: string;
 };
 
 /**
@@ -1459,6 +1681,31 @@ export type IngestMonitoringAdjudicationApiMonitoringAdjudicationsPostResponses 
 };
 
 export type IngestMonitoringAdjudicationApiMonitoringAdjudicationsPostResponse = IngestMonitoringAdjudicationApiMonitoringAdjudicationsPostResponses[keyof IngestMonitoringAdjudicationApiMonitoringAdjudicationsPostResponses];
+
+export type IngestDetectionReviewApiMonitoringDetectionReviewsPostData = {
+    body: DetectionReview;
+    path?: never;
+    query?: never;
+    url: '/api/monitoring/detection-reviews';
+};
+
+export type IngestDetectionReviewApiMonitoringDetectionReviewsPostErrors = {
+    /**
+     * Validation Error
+     */
+    422: HttpValidationError;
+};
+
+export type IngestDetectionReviewApiMonitoringDetectionReviewsPostError = IngestDetectionReviewApiMonitoringDetectionReviewsPostErrors[keyof IngestDetectionReviewApiMonitoringDetectionReviewsPostErrors];
+
+export type IngestDetectionReviewApiMonitoringDetectionReviewsPostResponses = {
+    /**
+     * Successful Response
+     */
+    200: AppendResponse;
+};
+
+export type IngestDetectionReviewApiMonitoringDetectionReviewsPostResponse = IngestDetectionReviewApiMonitoringDetectionReviewsPostResponses[keyof IngestDetectionReviewApiMonitoringDetectionReviewsPostResponses];
 
 export type EvaluateMonitoringRunApiMonitoringEvaluatePostData = {
     body: RunEnvelope;

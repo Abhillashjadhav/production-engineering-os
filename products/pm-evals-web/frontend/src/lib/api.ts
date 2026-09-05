@@ -172,10 +172,13 @@ export async function health(fetcher: typeof fetch = fetch): Promise<ApiResult<H
 
 export async function monitoringOverview(
   fetcher: typeof fetch = fetch,
+  viewerToken = "",
 ): Promise<ApiResult<MonitoringOverview>> {
   let response: Response;
   try {
-    response = await fetcher("/api/monitoring/overview");
+    response = viewerToken
+      ? await fetcher("/api/monitoring/overview", { headers: { Authorization: `Bearer ${viewerToken}` } })
+      : await fetcher("/api/monitoring/overview");
   } catch {
     return { kind: "error", message: "The monitoring service is unreachable." };
   }
