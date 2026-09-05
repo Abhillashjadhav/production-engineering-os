@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
+from .detection import RecordedDetectionReview
 from .diagnosis import diagnose_run
 from .models import (
     MAX_FUTURE_CLOCK_SKEW,
@@ -114,6 +115,7 @@ class MonitoringStore:
         self.lock_path = data_dir / "observations.lock"
         self.receipt_path = data_dir / "run-receipts.jsonl"
         self.adjudication_path = data_dir / "adjudications.jsonl"
+        self.detection_path = data_dir / "detection-reviews.jsonl"
         self._lock = threading.Lock()
         missing_directories: list[Path] = []
         cursor = data_dir
@@ -137,6 +139,7 @@ class MonitoringStore:
             self.lock_path,
             self.receipt_path,
             self.adjudication_path,
+            self.detection_path,
             self.index_path,
         ):
             self._ensure_private_file(path)
@@ -144,6 +147,7 @@ class MonitoringStore:
         with self._exclusive_store_lock():
             self._reconcile_auxiliary_unlocked(self.receipt_path, "receipt")
             self._reconcile_auxiliary_unlocked(self.adjudication_path, "adjudication")
+            self._reconcile_auxiliary_unlocked(self.detection_path, "detection")
 
     @staticmethod
     def _ensure_private_file(path: Path) -> None:
@@ -198,6 +202,8 @@ class MonitoringStore:
             try:
                 if kind == "receipt":
                     RunReceipt.model_validate_json(line)
+                elif kind == "detection":
+                    RecordedDetectionReview.model_validate_json(line)
                 else:
                     self._parse_adjudication_line(line)
             except ValueError as exc:
@@ -417,7 +423,7 @@ class MonitoringStore:
 
         if run.comparison.sha256 is not None:
             return None
-        payload = run.model_dump(mode="json")
+        payload = json.loads(canonical_run_line(run))
         comparison = payload.get("comparison")
         if not isinstance(comparison, dict):
             return None
@@ -451,9 +457,30 @@ class MonitoringStore:
     ) -> bool:
         line = self._canonical_record(record)
         with self._exclusive_store_lock():
-            kind = "receipt" if path == self.receipt_path else "adjudication"
+            kind = (
+                "receipt"
+                if path == self.receipt_path
+                else "detection"
+                if path == self.detection_path
+                else "adjudication"
+            )
             for existing_line in self._reconcile_auxiliary_unlocked(path, kind):
                 payload = json.loads(existing_line)
+                if kind == "detection":
+                    incoming = json.loads(line)
+                    semantic_fields = (
+                        "product_id",
+                        "environment",
+                        "run_id",
+                        "layer",
+                        "case_id",
+                        "dataset_version",
+                        "evidence_scope",
+                    )
+                    if all(payload.get(key) == incoming.get(key) for key in semantic_fields):
+                        if existing_line == line:
+                            return False
+                        raise ValueError("this reviewed case already has immutable evidence")
                 if payload.get(identity_field) != identity:
                     continue
                 if existing_line != line:
@@ -506,6 +533,25 @@ class MonitoringStore:
                 for line in self._reconcile_auxiliary_unlocked(
                     self.adjudication_path, "adjudication"
                 )
+                if line.strip()
+            ]
+
+    def append_detection_review(self, record: RecordedDetectionReview) -> bool:
+        record = RecordedDetectionReview.model_validate(record.model_dump(mode="python"))
+        if record.reviewed_at > datetime.now(UTC) + MAX_FUTURE_CLOCK_SKEW:
+            raise FutureObservationError("reviewed_at exceeds the allowed clock skew")
+        return self._append_auxiliary_record(
+            self.detection_path,
+            identity_field="review_id",
+            identity=record.review_id,
+            record=record,
+        )
+
+    def list_detection_reviews(self) -> list[RecordedDetectionReview]:
+        with self._exclusive_store_lock():
+            return [
+                RecordedDetectionReview.model_validate_json(line)
+                for line in self._reconcile_auxiliary_unlocked(self.detection_path, "detection")
                 if line.strip()
             ]
 

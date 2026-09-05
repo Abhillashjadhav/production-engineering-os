@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from http.client import HTTPMessage
 from pathlib import Path
 from typing import IO
+from urllib.parse import urlparse
 
 MAX_OUTBOX_ITEM_BYTES = 5 * 1024 * 1024
 MAX_SENT_MARKERS = 10_000
@@ -44,11 +45,28 @@ class _RejectRedirects(urllib.request.HTTPRedirectHandler):
         return None
 
 
+class PermanentDeliveryError(RuntimeError):
+    """The server rejected an item that requires operator repair."""
+
+
 def http_post_sender(base_url: str, token: str) -> Callable[[str, dict[str, object]], None]:
     """Build a sender that acknowledges only a direct 2xx ingestion response."""
+    destination = urlparse(base_url)
+    if destination.username or destination.password or destination.query or destination.fragment:
+        raise ValueError("monitoring destination must not contain credentials, query, or fragment")
+    if destination.scheme != "https" and not (
+        destination.scheme == "http" and destination.hostname in {"127.0.0.1", "localhost", "::1"}
+    ):
+        raise ValueError("monitoring delivery requires HTTPS except on loopback")
     opener = urllib.request.build_opener(_RejectRedirects())
 
     def send(route: str, payload: dict[str, object]) -> None:
+        if route not in {
+            "/api/monitoring/runs",
+            "/api/monitoring/receipts",
+            "/api/monitoring/detection-reviews",
+        }:
+            raise PermanentDeliveryError("unsupported monitoring route")
         request = urllib.request.Request(
             base_url.rstrip("/") + route,
             data=json.dumps(payload, separators=(",", ":")).encode(),
@@ -59,6 +77,12 @@ def http_post_sender(base_url: str, token: str) -> Callable[[str, dict[str, obje
             with opener.open(request, timeout=30) as response:
                 if response.status // 100 != 2:
                     raise RuntimeError(f"monitoring delivery failed with HTTP {response.status}")
+        except urllib.error.HTTPError as exc:
+            if exc.code in {400, 404, 405, 409, 413, 415, 422}:
+                raise PermanentDeliveryError(
+                    f"monitoring item rejected with HTTP {exc.code}"
+                ) from exc
+            raise RuntimeError("monitoring delivery unavailable; evidence remains queued") from exc
         except urllib.error.URLError as exc:
             raise RuntimeError(
                 "monitoring delivery failed; evidence remains in the outbox"
@@ -236,6 +260,11 @@ def enqueue(outbox_dir: Path, *, route: str, identity: str, payload: object) -> 
         _prune_sent_markers(outbox_dir)
         target = outbox_dir / f"{digest}.pending.json"
         sent_target = outbox_dir / f"{digest}.sent.json"
+        rejected_target = outbox_dir / f"{digest}.quarantined.json"
+        if rejected_target.exists():
+            if _read_private_file(rejected_target) != canonical:
+                raise ValueError("quarantined identity already exists with different evidence")
+            return rejected_target
         if sent_target.exists():
             if not _sent_matches(sent_target, canonical):
                 raise ValueError("outbox identity already exists with different evidence")
@@ -308,3 +337,56 @@ def flush(
             sent += 1
         _prune_sent_markers(outbox_dir)
     return sent
+
+
+def flush_resilient(
+    outbox_dir: Path, *, sender: Callable[[str, dict[str, object]], None]
+) -> dict[str, int]:
+    """A bounded pass: quarantine permanent failures; retain transient failures.
+
+    The worker owns this queue outside the product process. The lock intentionally
+    serializes workers; no drafting command may enqueue into this network-held lock.
+    """
+    _validate_outbox_root(outbox_dir)
+    result = {"sent": 0, "pending": 0, "quarantined": 0}
+    if not outbox_dir.exists():
+        return result
+    with _exclusive_outbox_lock(outbox_dir):
+        _reconcile_temporary_items(outbox_dir)
+        for path in sorted(outbox_dir.glob("*.pending.json")):
+            try:
+                data = _read_private_file(path)
+                payload = json.loads(data)
+                if (
+                    not isinstance(payload, dict)
+                    or set(payload) != {"outbox_version", "route", "payload"}
+                    or payload["outbox_version"] != "0.1"
+                    or not isinstance(payload["route"], str)
+                    or not isinstance(payload["payload"], dict)
+                ):
+                    raise ValueError("invalid outbox item")
+                sent_path = path.with_name(path.name.replace(".pending.json", ".sent.json"))
+                if sent_path.exists():
+                    if not _sent_matches(sent_path, data):
+                        raise ValueError("outbox identity conflicts with sent evidence")
+                    path.unlink()
+                    _fsync_directory(outbox_dir)
+                    continue
+                sender(payload["route"], payload["payload"])
+                _publish_sent_marker(outbox_dir, path, sent_path, data)
+                result["sent"] += 1
+            except (ValueError, PermanentDeliveryError):
+                quarantine = path.with_name(
+                    path.name.replace(".pending.json", ".quarantined.json")
+                )
+                # Never overwrite an earlier rejected payload.
+                if not quarantine.exists():
+                    os.link(path, quarantine, follow_symlinks=False)
+                    path.unlink()
+                    _fsync_directory(outbox_dir)
+                result["quarantined"] += 1
+            except (RuntimeError, OSError):
+                result["pending"] += 1
+        _prune_sent_markers(outbox_dir)
+        result["quarantined"] = len(list(outbox_dir.glob("*.quarantined.json")))
+    return result

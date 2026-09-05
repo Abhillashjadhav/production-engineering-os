@@ -10,6 +10,8 @@ import {
   type TrendPoint,
 } from "@/lib/api";
 
+import { ProductEvidence } from "./product-evidence";
+
 interface MonitoringDashboardProps {
   fetcher?: typeof fetch;
 }
@@ -278,6 +280,7 @@ function IncidentCard({ incident }: { incident: Incident }) {
             <span>Difference</span>
             <strong>{magnitude(incident, numberFormat)}</strong>
             <small>{incident.comparison_label}: {incident.comparison_run_id}</small>
+            {incident.comparison_unavailable_reason && <p>{incident.comparison_unavailable_reason}</p>}
           </div>
         </div>
 
@@ -403,12 +406,19 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
   const [selectedProduct, setSelectedProduct] = useState<string>("all");
   const [requestKey, setRequestKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const [viewerToken, setViewerToken] = useState("");
+  const [accessInput, setAccessInput] = useState("");
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setRequestKey((key) => key + 1), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     let active = true;
     setError(null);
     setRefreshing(true);
-    void monitoringOverview(fetcher).then((result) => {
+    void monitoringOverview(fetcher, viewerToken).then((result) => {
       if (!active) return;
       if (result.kind === "ok") {
         setOverview(result.value);
@@ -423,7 +433,7 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
       setRefreshing(false);
     });
     return () => { active = false; };
-  }, [fetcher, requestKey]);
+  }, [fetcher, requestKey, viewerToken]);
 
   const filteredIncidents = useMemo(
     () => overview?.incidents.filter(
@@ -446,6 +456,12 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
         <p className="eyebrow">Eval observability</p>
         <h1 id="monitoring-error-heading">Production health is unavailable</h1>
         <p>{error}</p>
+        <form onSubmit={(event) => { event.preventDefault(); setViewerToken(accessInput); setAccessInput(""); setRequestKey((key) => key + 1); }}>
+          <label htmlFor="viewer-access">Viewer access key</label>
+          <input id="viewer-access" type="password" autoComplete="off" value={accessInput} onChange={(event) => setAccessInput(event.target.value)} />
+          <button type="submit">Open dashboard</button>
+          <p>Use a viewer key. It stays in this page’s memory and cannot submit or change evaluations.</p>
+        </form>
         <button type="button" onClick={() => setRequestKey((key) => key + 1)}>Try again</button>
       </section>
     );
@@ -530,7 +546,7 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
         <div><span>Product health</span><strong>{healthyProducts}/{overview.products.length}</strong><small>healthy now</small></div>
         <div><span>Localized cases</span><strong>{exactCases}</strong><small>starting failures or degradations</small></div>
         <div><span>Correct localization</span><strong>{pct(metrics.correctly_localized_rate)}</strong><small>{metrics.known_cause_sample_size} known-cause sample</small></div>
-        <div className="guardrail-metric"><span>False attribution</span><strong>{pct(metrics.false_attribution_rate)}</strong><small>target &lt;2% · {metrics.guardrail_proven ? "proven" : "not proven"}</small></div>
+        <div className="guardrail-metric"><span>False attribution</span><strong>{pct(metrics.false_attribution_rate)}</strong><small>existing target &lt;2% · {metrics.guardrail_proven ? "observed target met" : "target not established"}</small></div>
       </div>
 
       <div className="section-heading">
@@ -555,6 +571,8 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
           />
         ))}
       </div>
+
+      <ProductEvidence products={overview.products.filter((product) => selectedProduct === "all" || productIdentity(product) === selectedProduct)} metrics={overview.detection_metrics ?? []} />
 
       <div className="dashboard-grid">
         <section aria-labelledby="incidents-heading" className="incidents-panel">
@@ -587,12 +605,13 @@ export function MonitoringDashboard({ fetcher }: MonitoringDashboardProps) {
           <p>known-cause case tested</p>
           <div className="confidence-rule" />
           <strong className={metrics.guardrail_proven ? undefined : "not-proven"}>
-            Production guardrail {metrics.guardrail_proven ? "proven" : "not proven"}
+            Localization audit: {metrics.guardrail_proven ? "observed target met" : "target not established"}
           </strong>
           <p>{metrics.label}</p>
+          <p>This audit does not establish silent-failure detection accuracy.</p>
           <dl className="confidence-details">
             <div><dt>Cases localized</dt><dd>{pct(metrics.attribution_coverage)}</dd></div>
-            <div><dt>False-attribution target</dt><dd>&lt;2%</dd></div>
+            <div><dt>Existing localization target</dt><dd>&lt;2%</dd></div>
             <div><dt>Human-confirmed production cases</dt><dd>{metrics.production_adjudicated_sample_size}</dd></div>
           </dl>
         </aside>
