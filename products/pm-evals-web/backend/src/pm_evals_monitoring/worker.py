@@ -109,7 +109,7 @@ def collect_linkedin(
                 write_private(context_file, encoded)
             elif context_file.is_symlink() or context_file.read_bytes() != encoded:
                 raise ValueError("completed run context changed; review it before re-export")
-            exported = private / "v1-evals" / f"monitoring-dashboard-v2-{run_id}.normalized.json"
+            exported = private / "v1-evals" / f"monitoring-dashboard-v3-{run_id}.normalized.json"
             if not exported.exists():
                 completed = subprocess.run(
                     [
@@ -160,7 +160,7 @@ def collect_linkedin(
             for c in run_id
         ):
             raise ValueError("invalid baseline identifier")
-        path = private / "v1-evals" / f"monitoring-dashboard-v2-{run_id}.normalized.json"
+        path = private / "v1-evals" / f"monitoring-dashboard-v3-{run_id}.normalized.json"
         return load_envelope(path, settings) if path.exists() else None
 
     binder = EnvelopeBinder(outbox, load_named)

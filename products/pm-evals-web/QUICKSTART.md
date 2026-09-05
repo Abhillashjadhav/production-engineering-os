@@ -22,7 +22,7 @@ includes the dashboard, so the receiving machine does not need Node.
 ```bash
 python3 -m venv .evals-venv
 source .evals-venv/bin/activate
-python -m pip install /absolute/path/to/pm_evals_web_backend-0.2.1-py3-none-any.whl
+python -m pip install /absolute/path/to/pm_evals_web_backend-0.2.2-py3-none-any.whl
 pm-evals serve --demo
 ```
 
@@ -186,3 +186,15 @@ Tool behavior, system behavior, and output quality are reported individually.
 Silent-failure recall requires independently labeled failures, including missed
 ones, and must exceed 90% in **each** layer. An empty layer is unproven; a working
 connection or synthetic demo does not establish that accuracy.
+
+### Missing baselines and older exports
+
+A named baseline must be exported before its candidate is queued. If it is
+missing, collection reports an invalid item and leaves the source for retry;
+collect the baseline, then retry the same candidate. Use `NO_BASELINE` only
+when no comparison is intended. Missing comparisons are never cached as final.
+
+Version0.2.2 uses corrected v3 LinkedIn exports. Older v2 exports remain intact.
+Correctly bound older caches are reverified before reuse; unresolved or changed
+immutable evidence requires a migration review. Do not delete queue history or
+change a real run identity simply to make a conflict disappear.

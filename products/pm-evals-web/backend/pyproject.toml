@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pm-evals-web-backend"
-version = "0.2.1"
+version = "0.2.2"
 description = "Product evaluation dashboard, evidence-preserving connections, and local delivery tools"
 requires-python = ">=3.11,<3.13"
 dependencies = ["pydantic>=2.5", "fastapi>=0.115", "python-multipart>=0.0.9", "uvicorn>=0.30"]
