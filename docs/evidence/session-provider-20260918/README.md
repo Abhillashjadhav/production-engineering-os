@@ -84,3 +84,26 @@ Reproduction requires an active agent session. There is no headless model backen
 paid API call, CLI authentication dependency, or independent evaluator established
 by this adapter. The shim does not protect approval or evaluator authority; those
 remain separate audit and acceptance requirements.
+
+## Owner-requested lint correction
+
+The first provider PR check reported UP017, two E501 findings, I001 and RET503.
+The owner authorized a new correction with a two-attempt limit. Attempt 1 cleared
+all five findings: use `UTC`, wrap two statements, normalize import spacing and
+explicitly raise the same unittest failure exception on a missing handoff.
+No transport assertion or acceptance outcome changed.
+
+Ruff 0.16.4 installed successfully on this later attempt; the earlier dev-install
+failure remains historical evidence, not a claim that the package is unavailable.
+Commands run from the provider worktree:
+
+```bash
+../peos/.venv/bin/ruff check examples/barebones/session-file-provider.py tests/unit/test_session_file_provider.py
+../peos/.venv/bin/ruff format --check tests/unit/test_session_file_provider.py
+python3 -m unittest discover -s tests/unit -p test_session_file_provider.py -v
+git diff --check
+```
+
+Results: `All checks passed!`; `1 file already formatted`; six tests passed in
+`2.263s`; diff check exited 0. The six responses remain transport fixtures, not
+additional live model calls. The existing two live handoff records are unchanged.

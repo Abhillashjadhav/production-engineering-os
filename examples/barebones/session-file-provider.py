@@ -17,7 +17,7 @@ import stat
 import sys
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -55,7 +55,7 @@ def main() -> int:
     started = time.monotonic()
     call_dir: Path | None = None
     record: dict[str, Any] = {
-        "started_at": datetime.now(timezone.utc).isoformat(),
+        "started_at": datetime.now(UTC).isoformat(),
         "status": "waiting",
         "responder": "current-agent-session",
         "headless_reproduction": False,
@@ -69,7 +69,9 @@ def main() -> int:
         if len(source) > LIMIT:
             raise ValueError("REQUEST_TOO_LARGE")
         message = decode(source)
-        if not isinstance(message, dict) or message.get("purpose") not in {"code", "advisory_review"}:
+        if not isinstance(message, dict) or message.get("purpose") not in {
+            "code", "advisory_review"
+        }:
             raise ValueError("REQUEST_INVALID")
         request = message.get("request")
         digest = request.get("request_digest") if isinstance(request, dict) else None
@@ -115,7 +117,11 @@ def main() -> int:
         print(output)
         return 0
     except (OSError, ValueError) as exc:
-        record.update({"status": "failed", "error": str(exc), "elapsed_ms": (time.monotonic() - started) * 1000})
+        record.update({
+            "status": "failed",
+            "error": str(exc),
+            "elapsed_ms": (time.monotonic() - started) * 1000,
+        })
         if call_dir is not None:
             atomic_json(call_dir / "call.json", record)
         print(str(exc), file=sys.stderr)

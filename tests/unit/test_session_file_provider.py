@@ -11,7 +11,6 @@ import time
 import unittest
 from pathlib import Path
 
-
 PROVIDER = Path(__file__).resolve().parents[2] / "examples/barebones/session-file-provider.py"
 DIGEST = "sha256:" + "a" * 64
 
@@ -55,7 +54,7 @@ class SessionFileProviderTests(unittest.TestCase):
                 _, stderr = process.communicate()
                 self.fail(f"provider exited before handoff: {stderr}")
             time.sleep(0.01)
-        self.fail("request file was not published")
+        raise self.failureException("request file was not published")
 
     @staticmethod
     def write_response(request_path: Path, payload: object) -> None:
