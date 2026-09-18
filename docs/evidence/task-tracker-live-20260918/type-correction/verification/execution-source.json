@@ -1,0 +1,22 @@
+{
+  "argv": [
+    "examples/barebones/contract-file.py",
+    "verify",
+    "--packet",
+    "/workspace/scratch/f9ac546f3a50/pmos/reviews/task-tracker-v1",
+    "--root",
+    "PM-agent-OS=/workspace/scratch/f9ac546f3a50/pmos",
+    "--root",
+    "production-engineering-os=/workspace/scratch/f9ac546f3a50/peos-feature",
+    "--freeze-digest",
+    "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+    "--candidate",
+    "docs/evidence/task-tracker-live-20260918/live/candidate",
+    "--output",
+    "docs/evidence/task-tracker-live-20260918/type-correction/verification",
+    "--authorized-host-fallback"
+  ],
+  "entry_digest": "sha256:08d590186663d48a1ecfd34cb169240d07c9d65e132e4791c6816171f7ccf387",
+  "freeze_digest": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+  "kind": "new engineering adapter; frozen source/evaluator not modified"
+}

@@ -19,9 +19,11 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 from pmpe.barebones import (
     BudgetCaps,
@@ -34,30 +36,31 @@ from pmpe.barebones import (
     run_to_release_ready,
 )
 from pmpe.cli.barebones_cmd import CommandModelProvider, _require_approved_contract
+from pmpe.contracts.acceptance import AcceptanceBuildPlan, CompiledCriterion
 from pmpe.contracts.canonical import canonical_digest, strict_loads
 from pmpe.contracts.model import load_contract
 
 LIMIT = 1_000_000
 
 
-def read_json(path):
+def read_json(path: Path) -> Any:
     return strict_loads(Path(path).read_bytes(), "application/json")
 
 
-def write_json(path, value):
+def write_json(path: Path, value: object) -> None:
     Path(path).write_text(json.dumps(value, sort_keys=True, indent=2, default=str) + "\n")
 
 
-def digest(path):
+def digest(path: Path | str) -> str:
     return "sha256:" + hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def append(path, value):
+def append(path: Path, value: object) -> None:
     with Path(path).open("a") as stream:
         stream.write(json.dumps(value, sort_keys=True, default=str) + "\n")
 
 
-def load_template(path):
+def load_template(path: Path) -> Template:
     """Admit only explicit files and protected action/measure targets; never import them here."""
     data = read_json(path)
     if set(data) - {"version", "files", "actions", "measures", "context"}:
@@ -87,13 +90,15 @@ class TamperDetectedError(RuntimeError):
 
 
 class DigestGuard:
-    def __init__(self, manifest, roots, expected, log):
+    def __init__(
+        self, manifest: Path, roots: Mapping[str, Path | str], expected: str, log: Path
+    ) -> None:
         self.manifest = Path(manifest)
         self.expected = expected
         data = read_json(self.manifest)
         if canonical_digest(data) != expected:
             raise TamperDetectedError("FREEZE_DIGEST_MISMATCH")
-        self.entries = []
+        self.entries: list[tuple[Path, str]] = []
         for item in data["artifacts"]:
             root = Path(roots[item["repository"]]).resolve()
             path = _safe_path(root, item["path"])
@@ -103,7 +108,9 @@ class DigestGuard:
         self.log.parent.mkdir(parents=True, exist_ok=True)
         self.inventory = canonical_digest([(str(path), sha) for path, sha in self.entries])
 
-    def check(self, stage, subject="bundle", extra=None):
+    def check(
+        self, stage: str, subject: str = "bundle", extra: Mapping[Path, str] | None = None
+    ) -> None:
         mismatches = []
         entries = self.entries + list((extra or {}).items())
         observed = []
@@ -132,7 +139,7 @@ class DigestGuard:
             raise TamperDetectedError("APPROVAL_BOUND_ARTIFACT_CHANGED: " + str(mismatches))
 
     @contextmanager
-    def boundary(self, subject, extra=None):
+    def boundary(self, subject: str, extra: Mapping[Path, str] | None = None) -> Iterator[None]:
         self.check("before", subject, extra)
         try:
             yield
@@ -143,12 +150,26 @@ class DigestGuard:
 class HostExecution:
     """Explicitly authorized container-process fallback, not an isolation boundary."""
 
-    def __init__(self, guard, template, caps, criteria, log):
+    def __init__(
+        self,
+        guard: DigestGuard,
+        template: Template,
+        caps: Mapping[str, int],
+        criteria: Sequence[CompiledCriterion],
+        log: Path,
+    ) -> None:
         self.guard, self.template, self.caps = guard, template, caps
         self.criteria, self.log, self.count = criteria, Path(log), 0
         self.entry_digest = digest(__file__)
 
-    def run(self, workspace, argv, *, timeout_seconds, environment):
+    def run(
+        self,
+        workspace: Path,
+        argv: Sequence[str],
+        *,
+        timeout_seconds: float,
+        environment: Mapping[str, str],
+    ) -> subprocess.CompletedProcess[str]:
         protected = {
             _safe_path(workspace, path): "sha256:" + hashlib.sha256(source.encode()).hexdigest()
             for path, source in self.template.files.items()
@@ -157,7 +178,7 @@ class HostExecution:
         protected[Path(__file__).resolve()] = self.entry_digest
         criterion = self.criteria[self.count % len(self.criteria)] if self.criteria else None
         subject = criterion.criterion_id if criterion else "fixture"
-        record = {
+        record: dict[str, Any] = {
             "check_index": self.count,
             "criterion_id": subject,
             "mode": "AUTHORIZED_HOST_FALLBACK_NO_ADDITIONAL_ISOLATION",
@@ -234,7 +255,9 @@ class HostExecution:
                 append(self.log, record)
 
 
-def compatibility(packet, template, profile, repository_root, fallback):
+def compatibility(
+    packet: Path, template: Template, profile: dict[str, Any], repository_root: Path, fallback: bool
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], AcceptanceBuildPlan]:
     reasons = []
     if not fallback:
         reasons.append(
@@ -282,7 +305,7 @@ def compatibility(packet, template, profile, repository_root, fallback):
     )
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=["check", "build", "verify"])
     parser.add_argument("--packet", type=Path, required=True)
@@ -368,15 +391,15 @@ def main():
             snapshot = _workspace_snapshot(args.candidate)
             findings = _verify_snapshot(plan, snapshot, template, execution)
             failed = {finding.subject_id for finding in findings}
-            result = {
+            verification_result = {
                 "criteria": {
                     c.criterion_id: "FAIL" if c.criterion_id in failed else "PASS"
                     for c in plan.criteria
                 },
                 "findings": [asdict(f) for f in findings],
             }
-            write_json(args.output / "result.json", result)
-            print(json.dumps(result))
+            write_json(args.output / "result.json", verification_result)
+            print(json.dumps(verification_result))
             return 1 if findings else 0
     except Exception as exc:
         write_json(args.output / "failure.json", {"error": type(exc).__name__, "detail": str(exc)})

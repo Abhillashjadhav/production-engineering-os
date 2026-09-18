@@ -88,3 +88,26 @@ All 58 live digest observations matched. Clean clones plus a standard venv insta
 replayed all 14 criteria and an eight-command user journey; this was retained-
 artifact verification, not another live model build. No bwrap attempt occurred.
 Evidence and exact commands are in docs/evidence/task-tracker-live-20260918/REPORT.md.
+
+## Unit — clear the new entry's strict typing gate
+
+Start local `3f74a2d798a38552c0dfdf3fc205f30586b4b6ba`, published as
+`90c1bd1ef1f4ae518a6873c08671cee2c2d2f07c`. GitHub CI job 105659768387
+reported 39 typing errors in the new example entry; this gate was missed by the
+initial local validation. Correction attempt one of two. Behavioral success does
+not excuse a failing PR gate. The separate review-admission job refuses draft PRs;
+that is not an independent review, and it is not bypassed.
+
+1. **Yes, restructured.** Correct the existing entry's annotations and one reused local variable; no new execution path.
+2. **Yes.** Actual strict-mypy CI failure at the published head requires this correction.
+3. **No.** Type annotations and a local result-variable name preserve behavior; verify normalized executable AST and replay the exact candidate.
+4. **Yes.** CI mypy failed with 39 errors before correction. Run the same strict command, six guard tests and unchanged acceptance replay afterward.
+5. **Yes.** One isolated correction commit can be reverted independently of the live evidence and frozen approval.
+6. **No.** No package dependency, setting, evaluator, contract, sandbox or approval mechanism changes. Install only the already-declared dev checker locally.
+
+Correction attempt 1 passed: exact strict-mypy command reports no issues in 199
+source files; six guard tests, Ruff/format/diff and unchanged 14/14 candidate replay
+pass. The first local full check needed packaging==26.3 already in requirements.lock;
+its environment failure is retained. Normalized executable AST is unchanged after
+erasing annotations/imports and normalizing the local result variable. No frozen
+artifact or product was altered; live-build evidence retains its original entry hash.

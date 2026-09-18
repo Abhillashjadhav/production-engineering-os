@@ -1,0 +1,11 @@
+test_after_check_runs_on_execution_exception (test_contract_file_entry.ContractFileEntryTest.test_after_check_runs_on_execution_exception) ... ok
+test_changed_approved_artifact_rejected (test_contract_file_entry.ContractFileEntryTest.test_changed_approved_artifact_rejected) ... ok
+test_changed_manifest_rejected (test_contract_file_entry.ContractFileEntryTest.test_changed_manifest_rejected) ... ok
+test_evaluator_replacement_rejected (test_contract_file_entry.ContractFileEntryTest.test_evaluator_replacement_rejected) ... ok
+test_nonprotected_evaluator_binding_rejected (test_contract_file_entry.ContractFileEntryTest.test_nonprotected_evaluator_binding_rejected) ... ok
+test_unsafe_template_path_rejected (test_contract_file_entry.ContractFileEntryTest.test_unsafe_template_path_rejected) ... ok
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.031s
+
+OK
