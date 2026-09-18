@@ -1,5 +1,11 @@
 # PMOS → PEOS — Phase 1 halt evidence
 
+This is the historical Phase 1 snapshot. The owner subsequently replaced its halt
+condition and authorized continuation. See [owner-amendment.md](owner-amendment.md)
+for the current authority model, sandbox observations and Phase 2 boundary. The
+original findings below remain evidence; root access and receipt forgery are now
+permanent stated limitations, not blockers for this bounded run.
+
 Terminal status: **BLOCKED**. The owner required a halt if acceptance checks were
 reachable by the builder. The actual session and a provider child both opened
 evaluator source for writing. No bytes were written; all recorded before/after
