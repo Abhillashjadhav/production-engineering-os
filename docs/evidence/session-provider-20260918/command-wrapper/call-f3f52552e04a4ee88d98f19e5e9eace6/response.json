@@ -1,0 +1,4 @@
+{
+  "request_digest": "sha256:21aac16e9a328030728baa451f261f21cc9db5d1ebaff8c8cd33ff4dc8ad3168",
+  "summary": "The approved task-tracker contract still needs a real build, protected acceptance checks, and evidence that broken persistence and filtering fail those unchanged checks. WRAPPER-P0-6555a582e1d1424e9e42ea28bbb007c1"
+}
