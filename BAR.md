@@ -25,3 +25,24 @@ Branch: `feat/in-session-provider`. The owner explicitly approved this transport
 6. **No.** The handoff directory is required by the owner-approved transport; reuse the existing provider timeout environment variable and add no package dependency.
 
 Implementation validation attempts: 1. Six transport checks passed. The actual in-session round trip exited 0; request, response, output and elapsed-time evidence are retained under docs/evidence/session-provider-20260918/. Expected pre-implementation RED does not count as an implementation failure.
+
+## Unit — Phase 1 current-seam reproduction
+
+Branch: `audit/task-tracker-seam`. Output is evidence from the existing compiler,
+approval verifier and sandbox; it introduces no runtime behaviour.
+
+1. **No.** This owner-requested task-tracker audit record does not exist. Reuse the shipped fixtures and verification functions; do not create a parallel evaluator.
+2. **Yes.** Phase 1 explicitly requires current action/measure, provider, approval, sandbox and installation evidence before a feature contract is proposed.
+3. **No.** Run existing entry points and isolated probes; do not modify engine, approval or acceptance code.
+4. **Yes.** The existing compiler and approval tests supply executable checks; reproduce the approved feature's unsupported behaviour before any repair. A later repair must demonstrate the corresponding failing check passing in its own BAR unit.
+5. **Yes.** Audit evidence is an independent documentation concern on its own branch.
+6. **No.** No runtime setting, dependency, schema or extension is introduced by this unit.
+
+If an explicit owner halt condition is reproduced, stop feature work and report the
+evidence. Do not fix or weaken an acceptance check to obtain a passing run.
+
+Outcome: one diagnostic run completed and triggered the owner's halt condition.
+The session and provider could open evaluator/approval source for writing; no
+bytes were written. Receipt forgery was reproduced on a synthetic fixture.
+The real sandbox failed to establish isolation. No repair was attempted; the
+failed safety properties remain failures. Phase 2 onward was not started.
