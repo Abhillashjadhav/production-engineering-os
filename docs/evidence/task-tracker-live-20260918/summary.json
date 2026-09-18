@@ -1,0 +1,730 @@
+{
+  "attempts": 1,
+  "cost": null,
+  "criteria": [
+    {
+      "baseline": "FAIL",
+      "clean_replay": "PASS",
+      "criterion": "AC-001",
+      "filter_mutation": "PASS",
+      "live": "PASS",
+      "live_observation": {
+        "observations": [
+          {
+            "exit_code": 0,
+            "output": {
+              "tasks": []
+            }
+          }
+        ],
+        "process_count": 1,
+        "setup_observations": [],
+        "store_unchanged": true
+      },
+      "persistence_mutation": "PASS",
+      "severity": "major"
+    },
+    {
+      "baseline": "FAIL",
+      "clean_replay": "PASS",
+      "criterion": "AC-002",
+      "filter_mutation": "PASS",
+      "live": "PASS",
+      "live_observation": {
+        "observations": [
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 1,
+                "status": "open",
+                "title": "  Caf\u00e9 notes  "
+              }
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "tasks": [
+                {
+                  "id": 1,
+                  "status": "open",
+                  "title": "  Caf\u00e9 notes  "
+                }
+              ]
+            }
+          }
+        ],
+        "process_count": 2,
+        "setup_observations": [],
+        "store_unchanged": false
+      },
+      "persistence_mutation": "FAIL",
+      "severity": "major"
+    },
+    {
+      "baseline": "FAIL",
+      "clean_replay": "PASS",
+      "criterion": "AC-003",
+      "filter_mutation": "PASS",
+      "live": "PASS",
+      "live_observation": {
+        "observations": [
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 1,
+                "status": "completed",
+                "title": "Buy milk"
+              }
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "tasks": [
+                {
+                  "id": 1,
+                  "status": "completed",
+                  "title": "Buy milk"
+                },
+                {
+                  "id": 2,
+                  "status": "open",
+                  "title": "Read book"
+                }
+              ]
+            }
+          }
+        ],
+        "process_count": 4,
+        "setup_observations": [
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 1,
+                "status": "open",
+                "title": "Buy milk"
+              }
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 2,
+                "status": "open",
+                "title": "Read book"
+              }
+            }
+          }
+        ],
+        "store_unchanged": false
+      },
+      "persistence_mutation": "FAIL",
+      "severity": "major"
+    },
+    {
+      "baseline": "FAIL",
+      "clean_replay": "PASS",
+      "criterion": "AC-004",
+      "filter_mutation": "FAIL",
+      "live": "PASS",
+      "live_observation": {
+        "observations": [
+          {
+            "exit_code": 0,
+            "output": {
+              "tasks": [
+                {
+                  "id": 2,
+                  "status": "open",
+                  "title": "Read book"
+                }
+              ]
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "tasks": [
+                {
+                  "id": 1,
+                  "status": "completed",
+                  "title": "Buy milk"
+                }
+              ]
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "tasks": [
+                {
+                  "id": 1,
+                  "status": "completed",
+                  "title": "Buy milk"
+                },
+                {
+                  "id": 2,
+                  "status": "open",
+                  "title": "Read book"
+                }
+              ]
+            }
+          }
+        ],
+        "process_count": 6,
+        "setup_observations": [
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 1,
+                "status": "open",
+                "title": "Buy milk"
+              }
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 2,
+                "status": "open",
+                "title": "Read book"
+              }
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 1,
+                "status": "completed",
+                "title": "Buy milk"
+              }
+            }
+          }
+        ],
+        "store_unchanged": true
+      },
+      "persistence_mutation": "FAIL",
+      "severity": "major"
+    },
+    {
+      "baseline": "FAIL",
+      "clean_replay": "PASS",
+      "criterion": "AC-005",
+      "filter_mutation": "FAIL",
+      "live": "PASS",
+      "live_observation": {
+        "observations": [
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 1,
+                "status": "open",
+                "title": "Buy milk"
+              }
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 2,
+                "status": "open",
+                "title": "Read book"
+              }
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 1,
+                "status": "completed",
+                "title": "Buy milk"
+              }
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "tasks": [
+                {
+                  "id": 1,
+                  "status": "completed",
+                  "title": "Buy milk"
+                },
+                {
+                  "id": 2,
+                  "status": "open",
+                  "title": "Read book"
+                }
+              ]
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 3,
+                "status": "open",
+                "title": "Water plants"
+              }
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "tasks": [
+                {
+                  "id": 1,
+                  "status": "completed",
+                  "title": "Buy milk"
+                }
+              ]
+            }
+          }
+        ],
+        "process_count": 6,
+        "setup_observations": [],
+        "store_unchanged": false
+      },
+      "persistence_mutation": "FAIL",
+      "severity": "critical"
+    },
+    {
+      "baseline": "FAIL",
+      "clean_replay": "PASS",
+      "criterion": "AC-006",
+      "filter_mutation": "PASS",
+      "live": "PASS",
+      "live_observation": {
+        "observations": [
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 1,
+                "status": "open",
+                "title": "Buy milk"
+              }
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 2,
+                "status": "open",
+                "title": "Buy milk"
+              }
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "tasks": [
+                {
+                  "id": 1,
+                  "status": "open",
+                  "title": "Buy milk"
+                },
+                {
+                  "id": 2,
+                  "status": "open",
+                  "title": "Buy milk"
+                }
+              ]
+            }
+          }
+        ],
+        "process_count": 3,
+        "setup_observations": [],
+        "store_unchanged": false
+      },
+      "persistence_mutation": "FAIL",
+      "severity": "major"
+    },
+    {
+      "baseline": "FAIL",
+      "clean_replay": "PASS",
+      "criterion": "AC-007",
+      "filter_mutation": "PASS",
+      "live": "PASS",
+      "live_observation": {
+        "observations": [
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 1,
+                "status": "completed",
+                "title": "Buy milk"
+              }
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 1,
+                "status": "completed",
+                "title": "Buy milk"
+              }
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "tasks": [
+                {
+                  "id": 1,
+                  "status": "completed",
+                  "title": "Buy milk"
+                },
+                {
+                  "id": 2,
+                  "status": "open",
+                  "title": "Read book"
+                }
+              ]
+            }
+          }
+        ],
+        "process_count": 6,
+        "setup_observations": [
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 1,
+                "status": "open",
+                "title": "Buy milk"
+              }
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 2,
+                "status": "open",
+                "title": "Read book"
+              }
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 1,
+                "status": "completed",
+                "title": "Buy milk"
+              }
+            }
+          }
+        ],
+        "store_unchanged": true
+      },
+      "persistence_mutation": "FAIL",
+      "severity": "major"
+    },
+    {
+      "baseline": "FAIL",
+      "clean_replay": "PASS",
+      "criterion": "AC-008",
+      "filter_mutation": "PASS",
+      "live": "PASS",
+      "live_observation": {
+        "observations": [
+          {
+            "exit_code": 2,
+            "output": {
+              "error": "INVALID_TITLE"
+            }
+          },
+          {
+            "exit_code": 2,
+            "output": {
+              "error": "INVALID_TITLE"
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "tasks": []
+            }
+          }
+        ],
+        "process_count": 3,
+        "setup_observations": [],
+        "store_unchanged": true
+      },
+      "persistence_mutation": "PASS",
+      "severity": "major"
+    },
+    {
+      "baseline": "FAIL",
+      "clean_replay": "PASS",
+      "criterion": "AC-009",
+      "filter_mutation": "PASS",
+      "live": "PASS",
+      "live_observation": {
+        "observations": [
+          {
+            "exit_code": 2,
+            "output": {
+              "error": "INVALID_ID"
+            }
+          },
+          {
+            "exit_code": 2,
+            "output": {
+              "error": "INVALID_ID"
+            }
+          },
+          {
+            "exit_code": 2,
+            "output": {
+              "error": "INVALID_ID"
+            }
+          },
+          {
+            "exit_code": 2,
+            "output": {
+              "error": "NOT_FOUND"
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "tasks": [
+                {
+                  "id": 1,
+                  "status": "open",
+                  "title": "Buy milk"
+                }
+              ]
+            }
+          }
+        ],
+        "process_count": 6,
+        "setup_observations": [
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 1,
+                "status": "open",
+                "title": "Buy milk"
+              }
+            }
+          }
+        ],
+        "store_unchanged": true
+      },
+      "persistence_mutation": "FAIL",
+      "severity": "major"
+    },
+    {
+      "baseline": "FAIL",
+      "clean_replay": "PASS",
+      "criterion": "AC-010",
+      "filter_mutation": "PASS",
+      "live": "PASS",
+      "live_observation": {
+        "observations": [
+          {
+            "exit_code": 2,
+            "output": {
+              "error": "INVALID_STATUS"
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "tasks": [
+                {
+                  "id": 1,
+                  "status": "open",
+                  "title": "Buy milk"
+                }
+              ]
+            }
+          }
+        ],
+        "process_count": 3,
+        "setup_observations": [
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 1,
+                "status": "open",
+                "title": "Buy milk"
+              }
+            }
+          }
+        ],
+        "store_unchanged": true
+      },
+      "persistence_mutation": "FAIL",
+      "severity": "major"
+    },
+    {
+      "baseline": "FAIL",
+      "clean_replay": "PASS",
+      "criterion": "AC-011",
+      "filter_mutation": "PASS",
+      "live": "PASS",
+      "live_observation": {
+        "observations": [
+          {
+            "exit_code": 1,
+            "output": {
+              "error": "STORE_INVALID"
+            }
+          }
+        ],
+        "process_count": 1,
+        "setup_observations": [],
+        "store_unchanged": true
+      },
+      "persistence_mutation": "PASS",
+      "severity": "critical"
+    },
+    {
+      "baseline": "FAIL",
+      "clean_replay": "PASS",
+      "criterion": "AC-012",
+      "filter_mutation": "PASS",
+      "live": "PASS",
+      "live_observation": {
+        "observations": [
+          {
+            "exit_code": 1,
+            "output": {
+              "error": "STORE_IO"
+            }
+          }
+        ],
+        "process_count": 1,
+        "setup_observations": [],
+        "store_unchanged": true
+      },
+      "persistence_mutation": "PASS",
+      "severity": "critical"
+    },
+    {
+      "baseline": "FAIL",
+      "clean_replay": "PASS",
+      "criterion": "AC-013",
+      "filter_mutation": "PASS",
+      "live": "PASS",
+      "live_observation": {
+        "missing_ids": [],
+        "sample_size": 10,
+        "units": "records",
+        "value": 0,
+        "workload_size": 10
+      },
+      "persistence_mutation": "FAIL",
+      "severity": "critical"
+    },
+    {
+      "baseline": "FAIL",
+      "clean_replay": "PASS",
+      "criterion": "AC-014",
+      "filter_mutation": "PASS",
+      "live": "PASS",
+      "live_observation": {
+        "observations": [
+          {
+            "exit_code": 2,
+            "output": {
+              "error": "INVALID_TITLE"
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "task": {
+                "id": 1,
+                "status": "open",
+                "title": "Buy milk"
+              }
+            }
+          },
+          {
+            "exit_code": 0,
+            "output": {
+              "tasks": [
+                {
+                  "id": 1,
+                  "status": "open",
+                  "title": "Buy milk"
+                }
+              ]
+            }
+          }
+        ],
+        "process_count": 3,
+        "setup_observations": [],
+        "store_unchanged": false
+      },
+      "persistence_mutation": "FAIL",
+      "severity": "critical"
+    }
+  ],
+  "digest_checks": {
+    "clean-install/verification": {
+      "boundaries": 30,
+      "mismatches": 0
+    },
+    "live": {
+      "boundaries": 58,
+      "mismatches": 0
+    },
+    "mutations/filtering/verification": {
+      "boundaries": 30,
+      "mismatches": 0
+    },
+    "mutations/persistence/verification": {
+      "boundaries": 30,
+      "mismatches": 0
+    }
+  },
+  "extension_fixture": "greeting.echo; 1 passing criterion, 0 engine edits, 0 model calls",
+  "freeze_digest": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+  "generation_reproduction": "Requires active agent; clean replay reused exact generated artifact, not a new model build.",
+  "known_bad_candidates_detected": 2,
+  "live_engine_elapsed_ms": 75131,
+  "manual_product_repairs": 0,
+  "measure": {
+    "missing_ids": [],
+    "sample_size": 10,
+    "units": "records",
+    "value": 0,
+    "workload_size": 10
+  },
+  "model_call_roles": [
+    "code",
+    "non-blocking advisory review"
+  ],
+  "model_calls": 2,
+  "model_identity": "session-model-unreported",
+  "owner_decisions": "Approved semantics and two amendments; confirmed freeze before generation.",
+  "product_sha256": "sha256:5ef500b5304cc7a5ba1a0e8498675cb01641b71c9c3e5e38bf01d5226e24ade5",
+  "real_sandbox_leg": "BLOCKED_BY_ENVIRONMENT; owner closed retries",
+  "status": "DEMONSTRATED FOR THE APPROVED FEATURE",
+  "tamper_probes_rejected": 2,
+  "tokens": null,
+  "usage_note": "Provider supplied no usage. Engine zero-valued counters are defaults, not measured zero tokens or cost."
+}

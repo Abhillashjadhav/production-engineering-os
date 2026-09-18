@@ -1,0 +1,9 @@
+{
+  "criteria_passed": 1,
+  "engine_source_changes": 0,
+  "findings": [],
+  "fixture_only": true,
+  "model_calls": 0,
+  "new_business_action": "greeting.echo",
+  "owner_product_approval": false
+}

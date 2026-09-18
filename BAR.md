@@ -65,3 +65,26 @@ exception-naming findings; these were corrected before execution. Six focused
 infrastructure tests pass, Ruff/format/diff checks pass, and the approved packet
 compiles with zero compatibility diagnostics. Existing src/ and frozen evaluator
 bytes are unchanged. No live product generation has occurred at this checkpoint.
+
+## Unit — real feature run and deliberate failures
+
+Start `02a718d`, branch `feat/contract-file-run`. Frozen owner approval is in PMOS
+commit `88bc530e0a100c11988ce7d38349b14a038cd0cc` and freeze digest
+`sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2`.
+
+1. **Yes, restructured.** Execute the existing engine and new file entry; no alternate builder or evaluator.
+2. **Yes.** Phase 4 and AC-001..014 require live generation, all actual observations, controlled mutations, tamper rejection and one separate extension fixture.
+3. **No.** Evidence and generated candidate only; any infrastructure repair would return to its own BAR unit and attempt count.
+4. **Yes.** The engine requires every criterion to fail by assertion on the unchanged baseline before a provider request; known-bad variants must fail the same frozen checks afterward.
+5. **Yes.** Evidence/generated candidate commit is separate from infrastructure and owner approval.
+6. **No.** No new semantics, settings, dependencies, sandbox attempt or signing change.
+
+Phase 4 observed result: one live code response and one non-blocking advisory,
+1 build attempt, 14/14 criteria passed, no manual product repair. Baseline 14/14
+assertion failures; persistence and filtering mutants both failed by assertion.
+Changed contract replica and evaluator replacement were rejected before execution.
+A separate DRAFT greeting.echo fixture passed without engine edits or model calls.
+All 58 live digest observations matched. Clean clones plus a standard venv install
+replayed all 14 criteria and an eight-command user journey; this was retained-
+artifact verification, not another live model build. No bwrap attempt occurred.
+Evidence and exact commands are in docs/evidence/task-tracker-live-20260918/REPORT.md.
