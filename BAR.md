@@ -13,6 +13,47 @@ Unit: install the exact six-question policy from the owner's 2026-09-18 cloud-ru
 Expected pre-change RED is prerequisite evidence, not a failed implementation attempt.
 Implementation validation attempts: 1; exact-text comparison and six-question check passed; git diff --check passed.
 
+## Unit — Phase 1 current-seam reproduction
+
+Branch: `audit/task-tracker-seam`. Output is evidence from the existing compiler,
+approval verifier and sandbox; it introduces no runtime behaviour.
+
+1. **No.** This owner-requested task-tracker audit record does not exist. Reuse the shipped fixtures and verification functions; do not create a parallel evaluator.
+2. **Yes.** Phase 1 explicitly requires current action/measure, provider, approval, sandbox and installation evidence before a feature contract is proposed.
+3. **No.** Run existing entry points and isolated probes; do not modify engine, approval or acceptance code.
+4. **Yes.** The existing compiler and approval tests supply executable checks; reproduce the approved feature's unsupported behaviour before any repair. A later repair must demonstrate the corresponding failing check passing in its own BAR unit.
+5. **Yes.** Audit evidence is an independent documentation concern on its own branch.
+6. **No.** No runtime setting, dependency, schema or extension is introduced by this unit.
+
+If an explicit owner halt condition is reproduced, stop feature work and report the
+evidence. Do not fix or weaken an acceptance check to obtain a passing run.
+
+Outcome: one diagnostic run completed and triggered the owner's halt condition.
+The session and provider could open evaluator/approval source for writing; no
+bytes were written. Receipt forgery was reproduced on a synthetic fixture.
+The real sandbox failed to establish isolation. No repair was attempted; the
+failed safety properties remain failures. Phase 2 onward was not started.
+
+## Unit — owner-amended sandbox and authority evidence
+
+The previous halt is historical. The owner now accepts before/after artifact
+digest checks, retains root access and receipt forgery as limitations, and approves
+testing the existing sandbox with only network unsharing removed. No signing fix
+or second sandbox is authorized. Branch: `audit/task-tracker-seam`.
+
+1. **Yes, restructured.** Reuse the exact command built by `BubblewrapCandidateSandbox.run`; do not add a sandbox implementation.
+2. **Yes.** The owner amended the reproduced NETLINK_ROUTE failure and authority halt explicitly.
+3. **No.** This unit adds diagnostic evidence; shipped sandbox defaults and acceptance behavior remain unchanged.
+4. **Yes.** The retained Phase 1 real command fails before candidate execution; run the same command with only the approved network namespace change and record whether it passes.
+5. **Yes.** One audit follow-up commit contains the amended evidence and can be reverted independently.
+6. **No.** No engine flag, dependency or extension is introduced; this is the explicitly requested diagnostic variation.
+
+Observed: the network-only amended command failed at UID-map setup (exit 1).
+The separately labelled host/container resource probe exited 0 and reported the
+requested prlimit values; enforcement was not stress-tested. No product ran.
+The owner permits the weaker-isolation continuation, so the environment failure
+is retained as a real-sandbox limitation and Phase 2 proceeds.
+
 ## Unit — Phase 0 in-session provider
 
 Branch: `feat/in-session-provider`. The owner explicitly approved this transport in Phase 0.

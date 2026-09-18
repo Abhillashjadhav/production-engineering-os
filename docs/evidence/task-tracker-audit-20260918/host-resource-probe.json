@@ -1,0 +1,58 @@
+{
+  "additional_namespaces_created": false,
+  "argv": [
+    "/usr/bin/prlimit",
+    "--as=1073741824",
+    "--cpu=11",
+    "--fsize=67108864",
+    "--nofile=256",
+    "--nproc=128",
+    "--",
+    "/workspace/scratch/f9ac546f3a50/peos/.venv/bin/python",
+    "-I",
+    "-B",
+    "-c",
+    "import json,os,resource; print(json.dumps({'effective_uid':os.geteuid(),'limits':{n:resource.getrlimit(getattr(resource,n)) for n in ('RLIMIT_AS','RLIMIT_CPU','RLIMIT_FSIZE','RLIMIT_NOFILE','RLIMIT_NPROC')},'namespaces':{n:os.readlink('/proc/self/ns/'+n) for n in ('user','pid','mnt','ipc','uts','cgroup','net')}}))"
+  ],
+  "elapsed_ms": 24.443382004392333,
+  "exit_code": 0,
+  "observations": {
+    "effective_uid": 0,
+    "limits": {
+      "RLIMIT_AS": [
+        1073741824,
+        1073741824
+      ],
+      "RLIMIT_CPU": [
+        11,
+        11
+      ],
+      "RLIMIT_FSIZE": [
+        67108864,
+        67108864
+      ],
+      "RLIMIT_NOFILE": [
+        256,
+        256
+      ],
+      "RLIMIT_NPROC": [
+        128,
+        128
+      ]
+    },
+    "namespaces": {
+      "cgroup": "cgroup:[4026532232]",
+      "ipc": "ipc:[4026532304]",
+      "mnt": "mnt:[4026532303]",
+      "net": "net:[4026532306]",
+      "pid": "pid:[4026532305]",
+      "user": "user:[4026532234]",
+      "uts": "uts:[4026532220]"
+    }
+  },
+  "private_tmpfs_created": false,
+  "product_generated": false,
+  "purpose": "Owner-authorized fallback resource diagnostic; not a candidate or feature run",
+  "readonly_candidate_or_runtime_mounts_created": false,
+  "stderr": ""
+}
