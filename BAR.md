@@ -43,3 +43,25 @@ starts this correction at attempt one of two. Starting head is local
 Attempt 1: PASS. Ruff 0.16.4 reported `All checks passed!` on both changed
 Python files; its formatting check reported `1 file already formatted` for the
 test file. All six unchanged transport tests passed in 2.263 seconds.
+
+## Unit — approved contract file entry and tamper-evident host execution
+
+Branch `feat/contract-file-run`, isolated worktree from local
+`863fc449051033d3b51627e95ab50b7f301edd1f` (remote provider base
+`1abfbd47061a947e8ce077523a60516a0b6cdcb0`). Issue #202.
+
+1. **Yes, restructured.** Reuse Template, compile_barebones_plan, run_to_release_ready, CandidateSandbox protocol and CommandModelProvider. Add one example CLI entry, not an alternate engine or sandbox.
+2. **Yes.** Approved AC-001..014 and Phase 3 require file bindings, compatibility checks and before/after frozen-artifact verification. The owner explicitly authorized host fallback and closed bwrap testing.
+3. **No.** Existing source, callers, defaults and evaluator bytes stay unchanged. The added entry invokes existing APIs with explicit host-fallback authorization.
+4. **Yes.** Focused checks first fail because the loader/guard entry is absent; cover path permissions, tamper rejection before execution and after exceptional execution, and actual unchanged-engine evaluation.
+5. **Yes.** The adapter, its tests and evidence form one independently revertible unit on their own branch.
+6. **No.** Only required file inputs, digest anchor, explicit fallback flag and existing provider transport; no new dependency, product setting or plugin surface.
+
+Expected pre-implementation RED is not an implementation attempt. Two failed
+implementation validations require a clean restart; no third debugging attempt.
+
+Implementation validation: the first lint preparation identified formatting and
+exception-naming findings; these were corrected before execution. Six focused
+infrastructure tests pass, Ruff/format/diff checks pass, and the approved packet
+compiles with zero compatibility diagnostics. Existing src/ and frozen evaluator
+bytes are unchanged. No live product generation has occurred at this checkpoint.
