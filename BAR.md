@@ -111,3 +111,27 @@ pass. The first local full check needed packaging==26.3 already in requirements.
 its environment failure is retained. Normalized executable AST is unchanged after
 erasing annotations/imports and normalizing the local result variable. No frozen
 artifact or product was altered; live-build evidence retains its original entry hash.
+
+## Unit — Phase 5 reproduction and closeout, 2026-09-21
+
+Start local `1e625ce4b06a0a7fcaf02e1d5f98b28d7db096d1`, remote
+`02959731e06d977e9ed61cfd15c962e5ebb85ee5` (identical tree). Issue #202.
+PMOS remote `9d55bf650d6586d90a0028241b468559349487c3`.
+
+1. **Yes, restructured.** Reuse the existing verification entry, retained generated artifact and eight-command journey; add only missing exact checkout instructions and closeout evidence.
+2. **Yes.** Phase 5 requires every documented step from fresh clone through installation and user journey. The owner now asks to finish the remaining work and identify product decisions.
+3. **No.** Documentation and evidence only. No engine, candidate, evaluator, approval or execution-profile behavior changes.
+4. **Yes.** Check for the currently absent pinned-clone walkthrough first, then execute its steps against fresh clones and require all 14 frozen criteria and the existing journey to pass.
+5. **Yes.** A single closeout commit can be reverted without changing the previous feature, freeze or evidence.
+6. **No.** No new dependency, product semantics, provider, sandbox or signing mechanism. The owner closed sandbox retries; its unavailable leg stays explicitly blocked.
+
+The original Phase 5 requests installation and user-journey reproduction, not a
+second live generation. The previous conversational status added that requirement
+incorrectly. Keep the original live-build evidence separate from this replay.
+
+Walkthrough attempt 1 passed from fresh published GitHub clones and a standard
+venv: 14/14 criteria, 8/8 sequential journey commands, 30 verification plus 16
+journey digest observations with no mismatches. The copied journey script and
+product bytes are unchanged. Exact commands and evidence are retained under
+docs/evidence/task-tracker-live-20260918/phase5-closeout/. No new product decision,
+second live generation, sandbox retry or approval-forgery fix was introduced.

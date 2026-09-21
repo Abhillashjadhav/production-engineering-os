@@ -162,3 +162,39 @@ The initial local checker setup lacked the already-locked packaging dependency;
 that environment finding is retained in type-correction/mypy-environment.log.
 The automated review-admission job rejects draft PRs; it was not bypassed or
 represented as an independent review.
+
+## Phase 5 closeout — 2026-09-21
+
+The original Phase 5 asks for a fresh clone, standard venv installation and the
+documented user journey, with unavailable checks reported as blocked. It does
+not require a second live-model build. The earlier conversational status added
+that requirement incorrectly; no new generation was needed to close this gap.
+
+The [complete walkthrough](REPRODUCE.md) now gives the missing GitHub clone,
+exact checkout, prerequisites, installation, verification and journey commands.
+Its first command block was executed verbatim from a new directory against
+published PEOS `02959731e06d977e9ed61cfd15c962e5ebb85ee5` and PMOS
+`9d55bf650d6586d90a0028241b468559349487c3`. A standard isolated venv installed
+successfully. All 14 frozen criteria and the existing eight-command journey
+passed on walkthrough attempt 1. Verification recorded 30 matching digest
+observations; the journey recorded 16. No candidate, contract, evaluator or
+approved rule changed. This is artifact reproduction, not a new model run.
+
+Sources: [executed commands](phase5-closeout/commands.sh),
+[complete transcript](phase5-closeout/commands.log),
+[validation](phase5-closeout/validation.json),
+[criterion results](phase5-closeout/verification/result.json),
+[journey](phase5-closeout/journey/journey.json),
+[resolved dependencies](phase5-closeout/pip-freeze.txt).
+
+There are **zero remaining implementation stages in this approved experiment**.
+The **one unverified execution leg**, the real sandbox, remains
+**BLOCKED_BY_ENVIRONMENT**, under the owner's closed exception. No Bubblewrap
+attempt was made. Every absent isolation and permanent limitation above still
+applies. There is no new product judgment needed to reproduce this feature.
+
+Independent review and owner-authorized merge are separate integration gates;
+they are not extra product-development phases or delivery evidence. Their live
+status is retained on [PMOS #58](https://github.com/Abhillashjadhav/PM-agent-OS/pull/58)
+and [PEOS #203](https://github.com/Abhillashjadhav/production-engineering-os/pull/203).
+The operating prompt prohibits merge, deployment and release in this run.

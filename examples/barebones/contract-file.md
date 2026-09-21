@@ -30,6 +30,9 @@ is explicitly non-blocking. Requests, responses and elapsed times are retained.
 The command waits at most 600 seconds per call, bounded by the existing provider.
 There is no paid API or claim of headless generation.
 
+For exact GitHub clone/checkout, install, verification and user-journey commands,
+follow the [pinned reproduction walkthrough](../../docs/evidence/task-tracker-live-20260918/REPRODUCE.md).
+
 Use `verify --candidate PATH` to recheck an existing candidate with the identical
 approved criteria and source artifacts. It does not call a model. Compatibility
 is rechecked before execution. A clean install can reproduce verification and the
