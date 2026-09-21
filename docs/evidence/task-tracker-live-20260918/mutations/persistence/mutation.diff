@@ -1,0 +1,11 @@
+--- generated/product.py
++++ persistence/product.py
+@@ -70,7 +70,7 @@
+             stream.write("\n")
+             stream.flush()
+             os.fsync(stream.fileno())
+-        os.replace(temporary, path)
++        temporary.unlink()  # Deliberate mutation: discard acknowledged writes.
+         temporary = None
+     except OSError as error:
+         raise StoreError("STORE_IO") from error

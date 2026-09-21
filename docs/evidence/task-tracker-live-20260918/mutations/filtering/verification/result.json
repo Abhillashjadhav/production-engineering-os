@@ -1,0 +1,36 @@
+{
+  "criteria": {
+    "AC-001": "PASS",
+    "AC-002": "PASS",
+    "AC-003": "PASS",
+    "AC-004": "FAIL",
+    "AC-005": "FAIL",
+    "AC-006": "PASS",
+    "AC-007": "PASS",
+    "AC-008": "PASS",
+    "AC-009": "PASS",
+    "AC-010": "PASS",
+    "AC-011": "PASS",
+    "AC-012": "PASS",
+    "AC-013": "PASS",
+    "AC-014": "PASS"
+  },
+  "findings": [
+    {
+      "code": "ASSERTION_FAILED",
+      "files": [
+        "tests/acceptance/task_tracker.py"
+      ],
+      "message": "compiled acceptance assertion failed",
+      "subject_id": "AC-004"
+    },
+    {
+      "code": "ASSERTION_FAILED",
+      "files": [
+        "tests/acceptance/task_tracker.py"
+      ],
+      "message": "compiled acceptance assertion failed",
+      "subject_id": "AC-005"
+    }
+  ]
+}
