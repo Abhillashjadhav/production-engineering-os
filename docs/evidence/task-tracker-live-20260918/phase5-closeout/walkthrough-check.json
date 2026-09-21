@@ -1,0 +1,34 @@
+{
+  "recorded_at": "2026-09-21T05:24:41.466656+00:00",
+  "chronology": "Retrospective executable reconstruction added after review; not a claim that this script ran or was committed before the original change. The original session did run a Python path-existence check and reported MISSING before creating REPRODUCE.md.",
+  "original_session_check": "p=Path('docs/evidence/task-tracker-live-20260918/REPRODUCE.md'); print('BEFORE: pinned checkout-to-journey walkthrough', 'PRESENT' if p.exists() else 'MISSING')",
+  "original_session_output": "BEFORE: pinned checkout-to-journey walkthrough MISSING",
+  "checks": {
+    "before": {
+      "revision": "02959731e06d977e9ed61cfd15c962e5ebb85ee5",
+      "tree": "b06ada3174e6b8e36f5172ba028621c422290ceb",
+      "command": [
+        "bash",
+        "/workspace/scratch/f9ac546f3a50/peos-feature/docs/evidence/task-tracker-live-20260918/phase5-closeout/walkthrough-check.sh",
+        "02959731e06d977e9ed61cfd15c962e5ebb85ee5"
+      ],
+      "exit_code": 128,
+      "stdout": "",
+      "stderr": "fatal: path 'docs/evidence/task-tracker-live-20260918/REPRODUCE.md' exists on disk, but not in '02959731e06d977e9ed61cfd15c962e5ebb85ee5'\n"
+    },
+    "after": {
+      "revision": "d800d42abafe1b40e27e1a28763c1471643c6b61",
+      "tree": "f4bdabb225e86ac2dd75f8b1b4364786ef886dbd",
+      "command": [
+        "bash",
+        "/workspace/scratch/f9ac546f3a50/peos-feature/docs/evidence/task-tracker-live-20260918/phase5-closeout/walkthrough-check.sh",
+        "d800d42abafe1b40e27e1a28763c1471643c6b61"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    }
+  },
+  "correction_attempt": 1,
+  "product_or_frozen_artifact_changes": false
+}

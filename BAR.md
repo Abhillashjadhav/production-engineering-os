@@ -121,7 +121,7 @@ PMOS remote `9d55bf650d6586d90a0028241b468559349487c3`.
 1. **Yes, restructured.** Reuse the existing verification entry, retained generated artifact and eight-command journey; add only missing exact checkout instructions and closeout evidence.
 2. **Yes.** Phase 5 requires every documented step from fresh clone through installation and user journey. The owner now asks to finish the remaining work and identify product decisions.
 3. **No.** Documentation and evidence only. No engine, candidate, evaluator, approval or execution-profile behavior changes.
-4. **Yes.** Check for the currently absent pinned-clone walkthrough first, then execute its steps against fresh clones and require all 14 frozen criteria and the existing journey to pass.
+4. **Yes, evidence retention corrected after review.** The pre-edit session check reported `BEFORE: pinned checkout-to-journey walkthrough MISSING`. Its command was not initially retained in the repository. `phase5-closeout/walkthrough-check.sh` now reproduces absence at the unchanged pre-change commit and presence at the closeout commit; the later reconstruction is explicitly dated in `walkthrough-check.json`. The documented steps also passed all 14 frozen criteria and the existing journey.
 5. **Yes.** A single closeout commit can be reverted without changing the previous feature, freeze or evidence.
 6. **No.** No new dependency, product semantics, provider, sandbox or signing mechanism. The owner closed sandbox retries; its unavailable leg stays explicitly blocked.
 
@@ -135,3 +135,18 @@ journey digest observations with no mismatches. The copied journey script and
 product bytes are unchanged. Exact commands and evidence are retained under
 docs/evidence/task-tracker-live-20260918/phase5-closeout/. No new product decision,
 second live generation, sandbox retry or approval-forgery fix was introduced.
+
+## Unit — retain the missing before-check evidence
+
+Start local `f360d6bf2dad9436cbc80d27988f6a10e0171b80`, remote
+`d800d42abafe1b40e27e1a28763c1471643c6b61`. Independent review finding
+4059440816 identified the absent retained automated check for the walkthrough.
+Correction attempt one of two. This reconstruction does not claim that its
+script was committed or executed before the original documentation change.
+
+1. **Yes, restructured.** Reuse Git's immutable object lookup and the original session's existence check; no new test framework or product capability.
+2. **Yes.** The BAR evidence-retention finding requires a runnable check and accurate chronology.
+3. **No.** Evidence and BAR wording only; no product, engine, evaluator or workflow changes.
+4. **Yes.** Run the same check against the unchanged pre-change commit (nonzero) and closeout commit (zero), recording both commands, outputs and exact source identities.
+5. **Yes.** One independently revertible evidence correction commit.
+6. **No.** No dependency, product setting, acceptance change or new execution surface.
