@@ -559,7 +559,6 @@ def compile_acceptance_plan(
 
     requirements = tuple(sorted(str(item) for item in requirements_raw))
     requirement_set = frozenset(requirements)
-    covered: set[str] = set()
     compiled: list[CompiledCriterion] = []
 
     for criterion_id, raw in sorted(criteria_raw.items(), key=lambda item: str(item[0])):
@@ -589,8 +588,6 @@ def compile_acceptance_plan(
                 AcceptanceDiagnostic("UNKNOWN_REQUIREMENT_REF", cid, ", ".join(unknown))
             )
             continue
-        covered.update(refs)
-
         forms = {
             "given_when_then": all(key in item for key in ("given", "when", "then")),
             "measure": all(key in item for key in ("measure", "operator", "value")),
@@ -704,16 +701,11 @@ def compile_acceptance_plan(
                 )
             )
         elif form == "human_test":
-            human_raw = _mapping(item.get("human_test"))
-            human = (
-                None
-                if human_raw is None
-                else _human_test(
-                    human_raw,
-                    criterion_id=cid,
-                    repository_root=repository_root,
-                    diagnostics=diagnostics,
-                )
+            human = _human_test(
+                _mapping(item.get("human_test")) or {},
+                criterion_id=cid,
+                repository_root=repository_root,
+                diagnostics=diagnostics,
             )
             if human is not None:
                 compiled.append(CompiledCriterion(cid, refs, form, human_test=human))
@@ -740,6 +732,7 @@ def compile_acceptance_plan(
                 )
             )
 
+    covered = {ref for criterion in compiled for ref in criterion.requirement_refs}
     for requirement_id in sorted(requirement_set - covered):
         diagnostics.append(
             AcceptanceDiagnostic(
