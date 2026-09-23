@@ -140,7 +140,6 @@ _SPDX_SCHEMA: dict[str, Any] = {
     },
     "additionalProperties": False,
 }
-
 _REQUIRED_CAPABILITIES = frozenset(
     {
         "ticket_intake",
