@@ -206,13 +206,14 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
     )
     try:
         documented_health = None
-        documented_url = None
         documented_deadline = time.monotonic() + startup_timeout
         while time.monotonic() < documented_deadline:
             try:
-                if documented_url is None:
-                    with open(documented_port_file, encoding="utf-8") as handle:
-                        documented_url = "http://127.0.0.1:" + handle.read() + "/health"
+                with open(documented_port_file, encoding="utf-8") as handle:
+                    documented_port = int(handle.read())
+                if not 1 <= documented_port <= 65535:
+                    raise ValueError("invalid runtime port")
+                documented_url = "http://127.0.0.1:" + str(documented_port) + "/health"
                 with urllib.request.urlopen(documented_url, timeout=0.1) as response:
                     documented_health = json.loads(response.read())
                 assert documented.poll() is None
