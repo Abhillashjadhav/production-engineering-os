@@ -10,6 +10,8 @@ from __future__ import annotations
 import argparse
 import sys
 
+from pmpe.beacon_integration import observe_command, record_result
+
 from pmpe.cli import barebones_cmd
 from pmpe.domain.errors import PmpeError, SpecError
 
@@ -111,6 +113,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    with observe_command(args) as recording:
+        result = _dispatch(args)
+        record_result(recording, result)
+        return result
+
+
+def _dispatch(args: argparse.Namespace) -> int:
     try:
         result: int = args.fn(args)
     except SpecError as exc:
