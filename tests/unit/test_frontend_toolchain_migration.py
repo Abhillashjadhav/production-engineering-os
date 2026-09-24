@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
+import re
+import shlex
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,6 +17,33 @@ PREVIEW_EVIDENCE = ROOT / "products" / "pm-evals-web" / "scripts" / "preview_evi
 
 def _manifest() -> dict[str, object]:
     return json.loads((FRONTEND / "package.json").read_text())
+
+
+def test_local_frontend_defaults_bind_only_to_loopback() -> None:
+    """Check both host sources: npm CLI arguments override the Vite config."""
+    scripts = _manifest()["scripts"]
+    assert isinstance(scripts, dict)
+    config = (FRONTEND / "vite.config.ts").read_text()
+
+    for script_name, config_section in (("dev", "server"), ("start", "preview")):
+        block = re.search(rf"\b{config_section}:\s*\{{([^}}]+)", config)
+        assert block is not None, f"Missing {config_section} configuration"
+        configured = re.search(r'\bhost:\s*[\"\']([^\"\']+)[\"\']', block.group(1))
+        assert configured is not None, f"Missing explicit {config_section} host"
+        hosts = [configured.group(1)]
+
+        arguments = shlex.split(scripts[script_name])
+        for index, argument in enumerate(arguments):
+            if argument == "--host":
+                assert index + 1 < len(arguments), "Bare --host enables network access"
+                hosts.append(arguments[index + 1])
+            elif argument.startswith("--host="):
+                hosts.append(argument.partition("=")[2])
+
+        for host in hosts:
+            assert host == "localhost" or ipaddress.ip_address(host).is_loopback, (
+                f"{script_name} defaults to non-loopback host {host}"
+            )
 
 
 def test_manifest_uses_stable_vite_and_audit_safe_types_only_codegen() -> None:
