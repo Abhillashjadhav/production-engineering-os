@@ -1,0 +1,5 @@
+{"candidate_and_gate_blobs_verified": true, "case": "all-pass", "criteria": ["PASS", "PASS", "PASS"], "gate": "PASS", "state": "RELEASE_READY"}
+{"candidate_and_gate_blobs_verified": true, "case": "second-assertion-fails", "criteria": ["PASS", "FAIL", "PASS"], "gate": "FAIL", "state": "HALTED"}
+{"candidate_and_gate_blobs_verified": true, "case": "second-crashes", "criteria": ["PASS", "FAIL", "NOT_EVALUATED"], "gate": "FAIL", "state": "HALTED"}
+{"candidate_and_gate_blobs_verified": true, "case": "security-blocked", "criteria": ["NOT_EVALUATED", "NOT_EVALUATED", "NOT_EVALUATED"], "gate": "NOT_EVALUATED", "state": "HALTED"}
+INDEPENDENT ADVERSARIAL PROBES: PASS (4 cases)
