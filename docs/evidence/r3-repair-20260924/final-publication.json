@@ -1,0 +1,91 @@
+{
+  "status": "IMPLEMENTED_NOT_MERGED",
+  "peos_admission_final": {
+    "local": "23ca4cbb4cc474fe6fe65d479029c8deb8a152cb",
+    "remote": "db605aa48898cfd6f1a045b6e51f3a7972eda714",
+    "tree": "a52e9a44362fef95bd2d6ab3ad2ce9134ab4d3d0",
+    "files": 2
+  },
+  "peos_admission_evidence": {
+    "local": "6a9a1ec73ce9248040956d1b5b0f86ddbfc97cc8",
+    "remote": "3f43b663f1dc8d88b9764c299414c4bcb2048138",
+    "tree": "6254182a902753ef3e747f53206ee1974fce129e",
+    "files": 12
+  },
+  "peos_migration_commits": [
+    {
+      "local": "0c9a6072b8ae31a5fd82efb31e0b6175bb3aab26",
+      "remote": "6e77e21948048df3c74f580ce36dbd81988343b5",
+      "tree": "e4a38b4dee828ce09a60c35153408472fe7bb88d",
+      "files": 4
+    },
+    {
+      "local": "dfd1790c5ccc21aab4232d8c2db6cd479c8f5880",
+      "remote": "55231c28142af91bbd1427e617273f1a1bd1e203",
+      "tree": "429df2e5d355fb08f5dcc2ffbec7bff0f58c9af6",
+      "files": 23
+    },
+    {
+      "local": "24c8682af1cc3640c7d483efb44ac0e8c251fa67",
+      "remote": "1552b2db638e3fa1e0b93368f618c3c57291c01e",
+      "tree": "0badf2d1c4b55e8dbce66810244d25569f7ddf36",
+      "files": 2
+    },
+    {
+      "local": "9465ce8311b6fdfd8f5887dad47ebe5b9ab94a4e",
+      "remote": "b3efaae8ac78723453e29792ee08d7a388d5f9a6",
+      "tree": "c0235f5109e85294d8a2862841e5a89fef7ae2d8",
+      "files": 2
+    },
+    {
+      "local": "98d71a6f1dcd56d7bd19e788a98ba56c1e68b195",
+      "remote": "5bbf6732a378f294351eca2247e2e2d4ea71690b",
+      "tree": "46c42b70c3f23838db838e588603d5a7e696710d",
+      "files": 12
+    },
+    {
+      "local": "6c91875cb44a520097581b054c7ea40245fe9c11",
+      "remote": "9c18e0ae1b2c40540e07f44807f150b1a0b15c40",
+      "tree": "564e6890f1f15bb6abb252a26ccb0888dad1ae9b",
+      "files": 2
+    },
+    {
+      "local": "b3283e59154a6b72948bfa07e606bc1b7e1e7aaa",
+      "remote": "0875567faeb38b2cd4dc87e1837aab466b2d975c",
+      "tree": "81b792b89424fb8af489bee6a0e64e41e744a2b5",
+      "files": 3
+    },
+    {
+      "local": "58a53421b1089aaba27b9399d0ac46e23adb362e",
+      "remote": "bd87a2456d0c5a1fc45515b35a85901d61971ace",
+      "tree": "6ac9e5fc827abb3ac63134cfe4d835e64c840e58",
+      "files": 3
+    },
+    {
+      "local": "cd227aa6a4ffc6e44f6820a31a2b5f167ef027fd",
+      "remote": "fe08321d4e9123cdbac2182d42b761e64e3a56ea",
+      "tree": "b554c74aefa24e44784cf71d1c74489ab0e9d790",
+      "files": 2
+    },
+    {
+      "local": "c209e7d9ff00f94ece14bdd5238b5891c84d59dc",
+      "remote": "e091917babec860aea7e789c00fd22e4ea2a43c9",
+      "tree": "460d443b7f5cae7585d6182db661c991193e7d38",
+      "files": 9
+    }
+  ],
+  "peos_migration_final": {
+    "local": "fd367478ac42f3d876393c1782379bd9a9c09579",
+    "remote": "524fee6f8ab7ab33d745d26b4c2ed63356d68e90",
+    "tree": "db2b29b173aaec89cec5fb43688419fc9f96aef2",
+    "files": 311,
+    "new_content_bytes": 968451,
+    "known_blobs": 221
+  },
+  "source_equivalence": {
+    "worker_final_commit": "d148f105187e3efaa594f5663a61839d31c61d65",
+    "published_final_commit": "524fee6f8ab7ab33d745d26b4c2ed63356d68e90",
+    "exact_tree": "db2b29b173aaec89cec5fb43688419fc9f96aef2",
+    "note": "Migration commits were replayed onto the final admission branch; the final entire Git tree equals the worker's final tree. The two evidence-only duplicate/add-remove commits were combined without changing the final tree."
+  }
+}
