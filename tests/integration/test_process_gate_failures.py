@@ -262,6 +262,9 @@ def test_mechanical_process_subset_reaches_release_ready(tmp_path: Path) -> None
     )
     assert [gate["status"] for gate in gates] == ["PASS"] * 3
     assert events[-1]["event_type"] == "release_ready"
+    from pmpe.evidence.release_gates import validate_release_gate_evidence
+
+    validate_release_gate_evidence(EvidenceLedger.open_existing(tmp_path, result.run_id), events)
 
 
 def test_repair_attempt_preserves_prior_applied_response_provenance(tmp_path: Path) -> None:
