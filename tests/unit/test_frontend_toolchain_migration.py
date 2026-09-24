@@ -28,7 +28,7 @@ def test_local_frontend_defaults_bind_only_to_loopback() -> None:
     for script_name, config_section in (("dev", "server"), ("start", "preview")):
         block = re.search(rf"\b{config_section}:\s*\{{([^}}]+)", config)
         assert block is not None, f"Missing {config_section} configuration"
-        configured = re.search(r'\bhost:\s*[\"\']([^\"\']+)[\"\']', block.group(1))
+        configured = re.search(r"\bhost:\s*[\"\']([^\"\']+)[\"\']", block.group(1))
         assert configured is not None, f"Missing explicit {config_section} host"
         hosts = [configured.group(1)]
 
@@ -63,7 +63,7 @@ def test_manifest_uses_stable_vite_and_audit_safe_types_only_codegen() -> None:
     assert "openapi-typescript" not in dev_dependencies
     assert "@redocly/openapi-core" not in dev_dependencies
     assert scripts["build"] == "vite build && node scripts/write-build-id.mjs"
-    assert scripts["start"] == "vite preview --host 0.0.0.0 --port 3000"
+    assert scripts["start"] == "vite preview --port 3000"
     assert scripts["generate:api-types"] == (
         "openapi-ts -i ../backend/openapi.json -o src/lib/api-types "
         "-p @hey-api/typescript --no-log-file"

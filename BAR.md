@@ -26,3 +26,11 @@ launch path, its regression contract, and explicit sharing instructions.
 Prompt: Make the existing local frontend default to loopback, preserve explicit
 CLI sharing and the Docker nginx/Compose behavior, record RED before the fix,
 commit locally only, and hand off for independent review before remote actions.
+
+Verification: the new regression failed on the unmodified wildcard default
+before test commit `d151a5e`. After the fix, all six existing/new toolchain tests
+pass. Temporary-copy mutations restoring a wildcard in each of the two npm
+scripts and the two Vite modes were all rejected. Ruff check, Ruff format check
+and `git diff --check` pass. No server was started and no network or laptop probe
+was run. Frontend build/browser E2E were not run for this configuration-only
+change. Independent review and remote publication remain pending.
