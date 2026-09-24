@@ -1,0 +1,8 @@
+{
+  "candidate_sha": "b87856dce869e4590f34be67b6de9e9afc9a6c4a",
+  "recorded_at_utc": "2026-09-24T16:42:24.954786+00:00",
+  "policy_commit": "f18395a3edb53d7c450fc87660e55b1dc1ce073b",
+  "policy_sha256": "417ddd1deaea43983901e8577dc42920a8979a98b7755d8510e74fa755af081a",
+  "scope": "full local SAST component, not external composed CI",
+  "findings": []
+}
