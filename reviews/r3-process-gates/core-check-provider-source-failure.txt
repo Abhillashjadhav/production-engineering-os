@@ -1,0 +1,52 @@
+...............FFF...................................................... [ 54%]
+............................................................             [100%]
+=================================== FAILURES ===================================
+_______ test_provenance_detects_manual_changes_after_verification[added] _______
+src/pmpe/process_gates.py:86: in validate_process_inputs
+    validate_sources(
+src/pmpe/process_sources.py:116: in validate_sources
+    raise ValueError("process gate manifest omits provider/sandbox implementation")
+E   ValueError: process gate manifest omits provider/sandbox implementation
+
+The above exception was the direct cause of the following exception:
+tests/integration/test_process_gate_failures.py:110: in test_provenance_detects_manual_changes_after_verification
+    result = run_to_release_ready(
+src/pmpe/barebones.py:1084: in run_to_release_ready
+    validate_process_inputs(plan, process_gate_inputs, active_template, provider, active_sandbox)
+src/pmpe/process_gates.py:175: in validate_process_inputs
+    raise ContractInvalidError("process gate input invalid: " + str(exc)) from exc
+E   pmpe.barebones.ContractInvalidError: process gate input invalid: process gate manifest omits provider/sandbox implementation
+_____ test_provenance_detects_manual_changes_after_verification[modified] ______
+src/pmpe/process_gates.py:86: in validate_process_inputs
+    validate_sources(
+src/pmpe/process_sources.py:116: in validate_sources
+    raise ValueError("process gate manifest omits provider/sandbox implementation")
+E   ValueError: process gate manifest omits provider/sandbox implementation
+
+The above exception was the direct cause of the following exception:
+tests/integration/test_process_gate_failures.py:110: in test_provenance_detects_manual_changes_after_verification
+    result = run_to_release_ready(
+src/pmpe/barebones.py:1084: in run_to_release_ready
+    validate_process_inputs(plan, process_gate_inputs, active_template, provider, active_sandbox)
+src/pmpe/process_gates.py:175: in validate_process_inputs
+    raise ContractInvalidError("process gate input invalid: " + str(exc)) from exc
+E   pmpe.barebones.ContractInvalidError: process gate input invalid: process gate manifest omits provider/sandbox implementation
+______ test_provenance_detects_manual_changes_after_verification[deleted] ______
+src/pmpe/process_gates.py:86: in validate_process_inputs
+    validate_sources(
+src/pmpe/process_sources.py:116: in validate_sources
+    raise ValueError("process gate manifest omits provider/sandbox implementation")
+E   ValueError: process gate manifest omits provider/sandbox implementation
+
+The above exception was the direct cause of the following exception:
+tests/integration/test_process_gate_failures.py:110: in test_provenance_detects_manual_changes_after_verification
+    result = run_to_release_ready(
+src/pmpe/barebones.py:1084: in run_to_release_ready
+    validate_process_inputs(plan, process_gate_inputs, active_template, provider, active_sandbox)
+src/pmpe/process_gates.py:175: in validate_process_inputs
+    raise ContractInvalidError("process gate input invalid: " + str(exc)) from exc
+E   pmpe.barebones.ContractInvalidError: process gate input invalid: process gate manifest omits provider/sandbox implementation
+=========================== short test summary info ============================
+FAILED tests/integration/test_process_gate_failures.py::test_provenance_detects_manual_changes_after_verification[added]
+FAILED tests/integration/test_process_gate_failures.py::test_provenance_detects_manual_changes_after_verification[modified]
+FAILED tests/integration/test_process_gate_failures.py::test_provenance_detects_manual_changes_after_verification[deleted]

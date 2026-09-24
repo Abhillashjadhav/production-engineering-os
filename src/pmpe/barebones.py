@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import nullcontext
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from pathlib import Path
@@ -32,6 +33,8 @@ from pmpe.domain.errors import ContractViolation
 from pmpe.evals.barebones_drift import observe_provider_behavior
 from pmpe.evidence.ledger import EvidenceLedger
 from pmpe.model_provider import ModelProvider
+from pmpe.process_collection import RecordingSandbox
+from pmpe.process_gates import ProcessGateInputs, ProcessGateRuntime, validate_process_inputs
 from pmpe.release_gates import release_gate_results
 
 
@@ -145,6 +148,9 @@ class BubblewrapCandidateSandbox:
     def __init__(self, executable: str = "bwrap", limiter: str = "prlimit") -> None:
         self.executable = executable
         self.limiter = limiter
+
+    def isolation_report(self) -> dict[str, Any]:
+        return {"mode": "bubblewrap", "missing_isolations": [], "full_isolation_claimed": False}
 
     @staticmethod
     def _runtime_roots() -> tuple[Path, ...]:
@@ -819,14 +825,20 @@ def _verify_snapshot(
             isolated = Path(temporary)
             _materialize_snapshot(isolated, snapshot)
             try:
-                findings.extend(
-                    _criterion_findings(
-                        criterion,
-                        workspace=isolated,
-                        template=template,
-                        sandbox=sandbox,
-                    )
+                context = (
+                    sandbox.criterion(criterion.criterion_id, isolated)
+                    if isinstance(sandbox, RecordingSandbox)
+                    else nullcontext()
                 )
+                with context:
+                    findings.extend(
+                        _criterion_findings(
+                            criterion,
+                            workspace=isolated,
+                            template=template,
+                            sandbox=sandbox,
+                        )
+                    )
             except ContractInvalidError as exc:
                 if criterion.human_test is None:
                     if criterion_results is not None:
@@ -1010,6 +1022,7 @@ def run_to_release_ready(
     approval_receipt: Mapping[str, Any] | None = None,
     approval_authority: str | None = None,
     approval_receipt_bytes: bytes | None = None,
+    process_gate_inputs: ProcessGateInputs | None = None,
 ) -> RunResult:
     """Run the frozen core. It never deploys and stops at RELEASE_READY."""
 
@@ -1068,6 +1081,7 @@ def run_to_release_ready(
     )
     counters["structured_criteria_count"] = sum(item.form != "human_test" for item in plan.criteria)
     counters["human_test_count"] = sum(item.form == "human_test" for item in plan.criteria)
+    validate_process_inputs(plan, process_gate_inputs, active_template, provider, active_sandbox)
     workspace_root = workspace.resolve()
     evidence_root = (repository_root / ".pmpe").resolve()
     if workspace_root.is_relative_to(evidence_root) or evidence_root.is_relative_to(workspace_root):
@@ -1076,6 +1090,16 @@ def run_to_release_ready(
         raise ContractInvalidError("candidate workspace must be empty")
     workspace.mkdir(parents=True, exist_ok=True)
     ledger = EvidenceLedger(repository_root, run_id)
+    process_runtime = (
+        ProcessGateRuntime(
+            plan, process_gate_inputs, active_template, provider, active_sandbox, ledger
+        )
+        if process_gate_inputs is not None
+        and any(gate.binding is not None for gate in plan.release_gates)
+        else None
+    )
+    if process_runtime is not None:
+        active_sandbox = process_runtime.sandbox
 
     def _terminal_telemetry() -> dict[str, Any]:
         counters["elapsed_ms"] = int((time.monotonic() - started) * 1000)
@@ -1104,7 +1128,14 @@ def run_to_release_ready(
     ) -> tuple[str, list[dict[str, Any]]]:
         if not plan.release_gates:
             return "", []
-        gates = release_gate_results(plan.release_gates, criterion_results)
+        process_results = (
+            process_runtime.results(_workspace_snapshot(workspace), criterion_results, attempt)
+            if process_runtime is not None
+            else None
+        )
+        gates = release_gate_results(
+            plan.release_gates, criterion_results, process_results=process_results
+        )
         candidate_blob, candidate_file_blobs = _candidate_manifest(snapshot, ledger)
         evidence = {
             "attempt": attempt,
@@ -1118,7 +1149,12 @@ def run_to_release_ready(
             event_type="release_gates_evaluated",
             state=state,
             subject_digest=subject_digest,
-            blob_digests=(blob, candidate_blob, *candidate_file_blobs),
+            blob_digests=(
+                blob,
+                candidate_blob,
+                *candidate_file_blobs,
+                *(process_runtime.sandbox.blobs if process_runtime else ()),
+            ),
             payload=evidence,
         )
         return blob, gates
@@ -1169,10 +1205,13 @@ def run_to_release_ready(
             continue
         relative = criterion.human_test.path
         source = repository_root / relative
-        digest = "sha256:" + hashlib.sha256(source.read_bytes()).hexdigest()
+        source_bytes = source.read_bytes()
+        digest = "sha256:" + hashlib.sha256(source_bytes).hexdigest()
         if digest != criterion.human_test.file_digest:
             raise ContractInvalidError("human test changed after compilation")
-        _write_files(workspace, {relative: source.read_text()})
+        trusted_path = _safe_path(workspace, relative)
+        trusted_path.parent.mkdir(parents=True, exist_ok=True)
+        trusted_path.write_bytes(source_bytes)
         protected_tests.add(_safe_path(workspace, relative))
     protected_package_initializers: set[Path] = set()
     for protected_test in protected_tests:
@@ -1181,6 +1220,10 @@ def run_to_release_ready(
             protected_package_initializers.add(parent / "__init__.py")
             parent = parent.parent
     protected_tests.update(protected_package_initializers)
+    if process_runtime is not None:
+        protected_names = {str(path.relative_to(workspace)) for path in protected_tests}
+        protected_names.update(path for path in active_template.files if path.startswith("tests/"))
+        process_runtime.materialized(_workspace_snapshot(workspace), protected_names)
     baseline = _verify_snapshot(
         plan,
         _workspace_snapshot(workspace),
@@ -1206,6 +1249,8 @@ def run_to_release_ready(
         payload={"findings": [asdict(item) for item in baseline]},
     )
 
+    if process_runtime is not None:
+        process_runtime.baseline_complete(baseline)
     findings: tuple[Finding, ...] = baseline
     previous_finding_digest = ""
     for attempt in range(1, active_budget.max_attempts + 1):
@@ -1217,6 +1262,8 @@ def run_to_release_ready(
                 payload={"cause": "STOP_REQUESTED", "telemetry": _terminal_telemetry()},
             )
             return finish(RunState.STOPPED, "STOP_REQUESTED", attempt - 1)
+        if process_runtime is not None:
+            process_runtime.start_attempt(attempt)
         request = _model_request(
             contract=contract,
             plan=plan,
@@ -1390,6 +1437,41 @@ def run_to_release_ready(
                         implicated_files,
                     ),
                 )
+            process_annotation: Mapping[str, Any] | None = None
+            if process_runtime is not None and not findings:
+                process_runtime.evaluate_controls(verification_snapshot)
+                # The advisory call precedes final command-after/release-before checks.
+                # It cannot create a gap after the integrity gate has already passed.
+                review_body = {
+                    "contract_digest": subject_digest,
+                    "plan_digest": plan.plan_digest,
+                    "instruction": "Return one non-blocking advisory annotation.",
+                }
+                review_request = {**review_body, "request_digest": canonical_digest(review_body)}
+                try:
+                    process_annotation = _invoke_bound(
+                        provider,
+                        purpose="advisory_review",
+                        request=review_request,
+                        budget=active_budget,
+                        counters=counters,
+                    )
+                except RuntimeError as exc:
+                    process_annotation = {
+                        "status": "unavailable",
+                        "cause": _classify_provider_error(exc),
+                    }
+            if (
+                process_runtime is not None
+                and _workspace_snapshot(workspace) != verification_snapshot
+            ):
+                findings += (
+                    Finding(
+                        "OUT_OF_BAND_CHANGE",
+                        "candidate",
+                        "workspace changed after candidate verification",
+                    ),
+                )
             gate_evidence_digest, gates = record_release_gates(
                 verification_snapshot, criterion_results, attempt, RunState.VERIFYING
             )
@@ -1399,7 +1481,7 @@ def run_to_release_ready(
                     if gate["status"] == "FAIL"
                     else "RELEASE_GATE_NOT_EVALUATED",
                     gate["gate_id"],
-                    "every bound acceptance criterion must have explicit PASS evidence",
+                    "every bound release obligation must have explicit PASS evidence",
                 )
                 for gate in gates
                 if gate["status"] != "PASS"
@@ -1425,16 +1507,22 @@ def run_to_release_ready(
                     **review_body,
                     "request_digest": canonical_digest(review_body),
                 }
-                try:
-                    annotation = _invoke_bound(
-                        provider,
-                        purpose="advisory_review",
-                        request=review_request,
-                        budget=active_budget,
-                        counters=counters,
-                    )
-                except RuntimeError as exc:
-                    annotation = {"status": "unavailable", "cause": _classify_provider_error(exc)}
+                if process_runtime is not None:
+                    annotation = process_annotation or {"status": "unavailable"}
+                else:
+                    try:
+                        annotation = _invoke_bound(
+                            provider,
+                            purpose="advisory_review",
+                            request=review_request,
+                            budget=active_budget,
+                            counters=counters,
+                        )
+                    except RuntimeError as exc:
+                        annotation = {
+                            "status": "unavailable",
+                            "cause": _classify_provider_error(exc),
+                        }
                 release_payload: dict[str, Any] = {
                     "annotation": dict(annotation),
                     "candidate_digest": candidate_blob,

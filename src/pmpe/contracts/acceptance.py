@@ -109,6 +109,8 @@ class AcceptanceBuildPlan:
         result = asdict(self)
         if not self.release_gates:
             result.pop("release_gates")
+        else:
+            result["release_gates"] = tuple(gate.as_dict() for gate in self.release_gates)
         return result
 
 
@@ -775,7 +777,7 @@ def compile_acceptance_plan(
         "trusted_test_digests": sorted(trusted_digests.items()),
     }
     if release_gates:
-        shell["release_gates"] = [asdict(item) for item in release_gates]
+        shell["release_gates"] = [item.as_dict() for item in release_gates]
     return AcceptanceBuildPlan(
         contract_digest=str(shell["contract_digest"]),
         requirements=requirements,

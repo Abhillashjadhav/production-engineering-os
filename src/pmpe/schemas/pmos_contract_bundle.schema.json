@@ -112,6 +112,173 @@
       "minLength": 1,
       "type": "string"
     },
+    "process_release_gate_binding": {
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "baseline": {
+              "const": {
+                "event": "meaningful_red_confirmed",
+                "required_failure_code": "ASSERTION_FAILED"
+              }
+            },
+            "kind": {
+              "const": "negative_controls"
+            },
+            "mutants": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "id": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "must_fail": {
+                    "items": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  },
+                  "must_not_touch": {
+                    "items": {
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": true
+                  }
+                },
+                "required": [
+                  "id",
+                  "must_fail",
+                  "must_not_touch"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "required_failure_code": {
+              "const": "ASSERTION_FAILED"
+            }
+          },
+          "required": [
+            "kind",
+            "baseline",
+            "required_failure_code",
+            "mutants"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "digest_boundaries"
+            },
+            "per_check": {
+              "const": [
+                "before",
+                "after"
+              ]
+            },
+            "require_command_boundary": {
+              "const": true
+            },
+            "require_release_boundary": {
+              "const": true
+            },
+            "source_manifest_digest": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "source_manifest_digest",
+            "per_check",
+            "require_command_boundary",
+            "require_release_boundary"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "generation_provenance"
+            },
+            "mode": {
+              "const": "fresh"
+            },
+            "require": {
+              "const": [
+                "request_blob",
+                "response_blob",
+                "candidate_equals_applied_responses",
+                "process_record_per_criterion",
+                "criterion_result_per_criterion"
+              ]
+            },
+            "roles": {
+              "const": [
+                "code"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "mode",
+            "roles",
+            "require"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "execution_profile_sha256": {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "forbid": {
+              "const": {
+                "full_isolation_claimed": true,
+                "readiness_scope": "general"
+              }
+            },
+            "kind": {
+              "const": "execution_disclosure"
+            },
+            "required": {
+              "const": [
+                "effective_uid",
+                "is_root",
+                "sandbox_class",
+                "isolation_mode",
+                "missing_isolations",
+                "approval_receipt_authentication",
+                "generation_mode",
+                "real_sandbox_leg",
+                "readiness_scope"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "execution_profile_sha256",
+            "required",
+            "forbid"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "reporting_policy_id": {
       "pattern": "^POLICY-REPORTING-[A-Z0-9]+(?:-[A-Z0-9]+)*(?![\\s\\S])",
       "type": "string"
@@ -1862,9 +2029,18 @@
         "release_gates": {
           "additionalProperties": {
             "additionalProperties": false,
+            "not": {
+              "required": [
+                "acceptance_criterion_refs",
+                "binding"
+              ]
+            },
             "properties": {
               "acceptance_criterion_refs": {
                 "$ref": "#/$defs/acceptance_reference_list"
+              },
+              "binding": {
+                "$ref": "#/$defs/process_release_gate_binding"
               },
               "description": {
                 "$ref": "#/$defs/non_empty_string"

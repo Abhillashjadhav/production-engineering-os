@@ -7,17 +7,21 @@ from dataclasses import dataclass
 from typing import Any
 
 from pmpe.contracts.gate_declarations import validate_gate_declaration_placement
+from pmpe.contracts.process_gate_bindings import validate_process_binding
 
 
 @dataclass(frozen=True)
 class CompiledReleaseGate:
     gate_id: str
-    acceptance_criterion_refs: tuple[str, ...]
+    acceptance_criterion_refs: tuple[str, ...] = ()
+    binding: Mapping[str, Any] | None = None
 
     def as_dict(self) -> dict[str, Any]:
+        if self.binding is not None:
+            return {"gate_id": self.gate_id, "binding": dict(self.binding)}
         return {
             "gate_id": self.gate_id,
-            "acceptance_criterion_refs": list(self.acceptance_criterion_refs),
+            "acceptance_criterion_refs": self.acceptance_criterion_refs,
         }
 
 
@@ -61,7 +65,7 @@ def compile_release_gates(
 
     seen: set[str] = set()
     compiled: list[CompiledReleaseGate] = []
-    allowed = {"id", "description", "evidence_expectation", "acceptance_criterion_refs"}
+    allowed = {"id", "description", "evidence_expectation", "acceptance_criterion_refs", "binding"}
     for index, (gate_id, item) in enumerate(entries):
         if not isinstance(gate_id, str) or not gate_id.strip():
             diagnostic("RELEASE_GATE_ID_INVALID", f"{source}[{index}]", "requires a non-empty ID")
@@ -84,6 +88,17 @@ def compile_release_gates(
             or not item["evidence_expectation"].strip()
         ):
             diagnostic("RELEASE_GATE_INVALID", gate_id, "evidence_expectation must be text")
+            continue
+        if "binding" in item:
+            if "acceptance_criterion_refs" in item:
+                diagnostic("RELEASE_GATE_BINDING_INVALID", gate_id, "bind exactly one gate kind")
+                continue
+            try:
+                binding = validate_process_binding(item["binding"], criterion_ids)
+            except ValueError as exc:
+                diagnostic("RELEASE_GATE_BINDING_INVALID", gate_id, str(exc))
+                continue
+            compiled.append(CompiledReleaseGate(gate_id, binding=binding))
             continue
         refs = item.get("acceptance_criterion_refs")
         if not isinstance(refs, list) or not refs:
