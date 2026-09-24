@@ -1,5 +1,15 @@
 # BAR — install the owner-supplied gate
 
+## Unit — external-review reconciliation and unchanged evidence replay, 2026-09-24
+
+1. **Yes, restructured.** Reuse `examples/barebones/contract-file.py`, the frozen task-store packet, retained candidates and existing negative controls. No parallel execution adapter.
+2. **Yes.** The owner requests confirmed review gaps fixed and concluded on GitHub; F-01/F-02/F-10 are reproduced source incompatibilities, distinct from the historical feature demonstration.
+3. **No.** This unit records read-only verification and cross-repository closeout. Runtime changes live on separate branches with their own checks.
+4. **Yes.** The existing verifier must pass the retained candidate and reject both seeded defective candidates; the gate-change branch separately retains RED-to-GREEN evidence for unbound-gate admission. This report does not invent a failing product test for a documentation-only change.
+5. **Yes.** Revert this evidence-only unit without changing the frozen packet or implementation fixes.
+6. **No.** No dependency, provider, paid invocation, product rule or execution surface is added. Reuse the already authorized process fallback and retain its limitations.
+
+
 Base: `dd4271b70fcb9cb5b9dd279fe516c2fe50806751`. Branch: `docs/pmos-peos-bar-gate`.
 Unit: install the exact six-question policy from the owner's 2026-09-18 cloud-run prompt.
 

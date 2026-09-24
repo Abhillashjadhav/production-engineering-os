@@ -1,0 +1,17 @@
+{
+  "tests": 346,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "kind": "combined proposed branch regression, not merged main",
+  "base": "dd4271b70fcb9cb5b9dd279fe516c2fe50806751",
+  "tested_tree": "046017d372b995c391657fb115378b9c1b859eb0",
+  "includes": [
+    "PEOS PR204 meaningful RED",
+    "PEOS PR205 human-test binding",
+    "PEOS PR206 port readiness",
+    "PEOS PR208 loopback defaults",
+    "PEOS PR209 release gates"
+  ],
+  "command": "PYTHONPATH=src python -m pytest tests/unit/test_release_gate_compiler.py tests/integration/test_release_gate_runtime.py tests/unit/test_acceptance_compiler.py tests/integration/test_barebones_cli.py tests/e2e/test_barebones_e1.py tests/unit/test_pmos_contract_schema.py tests/unit/test_support_package_v1.py tests/unit/test_frontend_toolchain_migration.py"
+}

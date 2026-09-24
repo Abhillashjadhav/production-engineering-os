@@ -1,0 +1,22 @@
+{
+  "reviewer": "separate fresh-context pmos_skill_forward_check agent",
+  "mode": "read-only realistic handoff task; raw skills and approved packet supplied without expected verdict",
+  "input_contract_digest": "sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e",
+  "result": "CONTRACT_BLOCKED",
+  "reasons": [
+    "All five declared gates are unbound in the current compiler",
+    "Current engine differs from the frozen execution-source manifest"
+  ],
+  "receipt_and_loader": "PASS",
+  "coverage": {
+    "requirements": 6,
+    "criteria": 14,
+    "human_tests": 0
+  },
+  "packet_files_verified_unchanged": 32,
+  "next_action": "Preserve original packet; obtain explicit supported bindings and new exact-digest approval before a changed-engine live run",
+  "provider_calls": 0,
+  "approval_issued": false,
+  "candidate_executed": false,
+  "limitations": "One forward task demonstrates the documented fail-closed path; not a general skill-reliability certification"
+}

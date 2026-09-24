@@ -1,0 +1,36 @@
+{
+  "kind": "strict compiler compatibility only; no execution or reapproval",
+  "status": "CONTRACT_BLOCKED",
+  "contract_digest": "sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e",
+  "contract_file_sha256": "41f93f23ca57cef11201fe685b18d66be882c122e5a3c7192e37e9018de0f0e2",
+  "diagnostics": [
+    {
+      "code": "RELEASE_GATE_UNBOUND",
+      "subject_id": "GATE-001",
+      "message": "requires explicit non-empty acceptance_criterion_refs; prose is not executable"
+    },
+    {
+      "code": "RELEASE_GATE_UNBOUND",
+      "subject_id": "GATE-002",
+      "message": "requires explicit non-empty acceptance_criterion_refs; prose is not executable"
+    },
+    {
+      "code": "RELEASE_GATE_UNBOUND",
+      "subject_id": "GATE-003",
+      "message": "requires explicit non-empty acceptance_criterion_refs; prose is not executable"
+    },
+    {
+      "code": "RELEASE_GATE_UNBOUND",
+      "subject_id": "GATE-004",
+      "message": "requires explicit non-empty acceptance_criterion_refs; prose is not executable"
+    },
+    {
+      "code": "RELEASE_GATE_UNBOUND",
+      "subject_id": "GATE-005",
+      "message": "requires explicit non-empty acceptance_criterion_refs; prose is not executable"
+    }
+  ],
+  "note": "Preserves original frozen contract and historical DEMONSTRATED result. All five gates lack explicit executable bindings; process/evidence gates must not be mapped to unrelated ACs.",
+  "peos_runtime_remote_head": "b1d1fa7c86d016d518005368c96a07f44e881fbc",
+  "peos_runtime_source_tree": "be48f33c466b6f0f2f50658d4a1c17764038dc92"
+}
