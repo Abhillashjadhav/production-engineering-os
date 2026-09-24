@@ -106,3 +106,51 @@ def test_competing_gate_declarations_are_not_merged_by_guessing(tmp_path: Path) 
 def test_contract_without_release_gates_still_compiles(tmp_path: Path) -> None:
     plan = compile_barebones_plan(contract=_contract(), repository_root=tmp_path)
     assert [criterion.criterion_id for criterion in plan.criteria] == ["AC-001"]
+
+
+@pytest.mark.parametrize(
+    ("container", "key"),
+    [
+        (None, "release_gates"),
+        (None, "binary_release_gate"),
+        (None, "binary_release_gatez"),
+        (None, "gates"),
+        ("quality_assurance", "binary_release_gates"),
+        ("quality_assurance", "release_gate"),
+        ("release", "gates"),
+    ],
+)
+@pytest.mark.parametrize("with_valid_gate", [False, True])
+def test_misplaced_gate_does_not_disappear_beside_valid_gate(
+    tmp_path: Path, container: str | None, key: str, with_valid_gate: bool
+) -> None:
+    contract = _contract()
+    if with_valid_gate:
+        contract["binary_release_gates"] = {"GATE-001": _gate()}
+    target = contract if container is None else contract.setdefault(container, {})
+    target[key] = {"GATE-002": _gate()}
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_barebones_plan(contract=contract, repository_root=tmp_path)
+    assert any(
+        item.code == "RELEASE_GATE_DECLARATIONS_IGNORED" for item in failure.value.diagnostics
+    )
+
+
+@pytest.mark.parametrize("shape", ["native-map", "native-list", "canonical"])
+def test_empty_declared_gate_collection_is_not_absent(tmp_path: Path, shape: str) -> None:
+    contract = _contract()
+    if shape == "canonical":
+        contract["quality_assurance"] = {"release_gates": {}}
+    else:
+        contract["binary_release_gates"] = [] if shape == "native-list" else {}
+    with pytest.raises(AcceptanceCompileError) as failure:
+        compile_barebones_plan(contract=contract, repository_root=tmp_path)
+    assert any(item.code == "RELEASE_GATE_COLLECTION_EMPTY" for item in failure.value.diagnostics)
+
+
+def test_gate_words_in_prose_or_action_data_are_not_declarations(tmp_path: Path) -> None:
+    contract = _contract()
+    contract["notes"] = {"gates": "These are physical railway gates, not release metadata."}
+    contract["acceptance_criteria"]["AC-001"]["when"]["arguments"] = {"gates": []}
+    plan = compile_barebones_plan(contract=contract, repository_root=tmp_path)
+    assert "release_gates" not in plan.as_dict()
