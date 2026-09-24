@@ -1,0 +1,16 @@
+{
+  "kind": "exact original integration tree, published for reproducibility; not merged main",
+  "repository": "Abhillashjadhav/production-engineering-os",
+  "branch": "repro/review-346-exact-tree-20260924",
+  "commit": "766e13d553705b8465701bb97f9949bb58f4c415",
+  "tree": "046017d372b995c391657fb115378b9c1b859eb0",
+  "local_commit": "796385c7002ea1e04b38871a9d0f6f518dcd0f1f",
+  "base": "dd4271b70fcb9cb5b9dd279fe516c2fe50806751",
+  "correction": "Previously valid local tree was not available from published refs. The exact original tree is now published rather than substituted with a different combination.",
+  "checkout": [
+    "git clone https://github.com/Abhillashjadhav/production-engineering-os.git",
+    "cd production-engineering-os",
+    "git checkout --detach 766e13d553705b8465701bb97f9949bb58f4c415",
+    "git rev-parse HEAD^{tree}"
+  ]
+}

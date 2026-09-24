@@ -1,5 +1,15 @@
 # BAR — install the owner-supplied gate
 
+## Unit — external-review reconciliation and unchanged evidence replay, 2026-09-24
+
+1. **Yes, restructured.** Reuse `examples/barebones/contract-file.py`, the frozen task-store packet, retained candidates and existing negative controls. No parallel execution adapter.
+2. **Yes.** The owner requests confirmed review gaps fixed and concluded on GitHub; F-01/F-02/F-10 are reproduced source incompatibilities, distinct from the historical feature demonstration.
+3. **No.** This unit records read-only verification and cross-repository closeout. Runtime changes live on separate branches with their own checks.
+4. **Yes.** The existing verifier must pass the retained candidate and reject both seeded defective candidates; the gate-change branch separately retains RED-to-GREEN evidence for unbound-gate admission. This report does not invent a failing product test for a documentation-only change.
+5. **Yes.** Revert this evidence-only unit without changing the frozen packet or implementation fixes.
+6. **No.** No dependency, provider, paid invocation, product rule or execution surface is added. Reuse the already authorized process fallback and retain its limitations.
+
+
 Base: `dd4271b70fcb9cb5b9dd279fe516c2fe50806751`. Branch: `docs/pmos-peos-bar-gate`.
 Unit: install the exact six-question policy from the owner's 2026-09-18 cloud-run prompt.
 
@@ -150,3 +160,30 @@ script was committed or executed before the original documentation change.
 4. **Yes.** Run the same check against the unchanged pre-change commit (nonzero) and closeout commit (zero), recording both commands, outputs and exact source identities.
 5. **Yes.** One independently revertible evidence correction commit.
 6. **No.** No dependency, product setting, acceptance change or new execution surface.
+
+## Unit — external implementation-review handoff, 2026-09-24
+
+1. **Yes, restructured.** Extend the existing review-closure packet with the owner's requested standalone reviewer prompt; do not introduce a new review system.
+2. **Yes.** Owner explicitly requests the implementation, accepted/rejected recommendations and reasons in a shareable review prompt.
+3. **No.** Documentation and a point-in-time GitHub status receipt only; no runtime, contract, skill or approval behavior changes.
+4. **Yes.** Before edit, `test -e docs/evidence/integration-review-20260924/INDEPENDENT_REVIEW_PROMPT.md` exited 1; after edit, verify the file, its pinned source references and disposition coverage. No product test suite is needed for this document.
+5. **Yes.** One documentation-only commit on the existing review-closure branch can be reverted independently.
+6. **No.** No setting, dependency, paid invocation, new evaluator, release tag or execution surface.
+
+## Unit — correct review dispositions after external feedback, 2026-09-24
+
+1. **Yes, restructured.** Revise the existing review packet and add a focused follow-up prompt; no new review system.
+2. **Yes.** Owner asks for critique and a proposed-change prompt after feedback identifying missing current task-store proof and incorrect source-availability framing.
+3. **No.** Documentation only; no runtime, frozen contract, approval, evaluator or integration behavior changes.
+4. **Yes.** Before-edit inspection shows no implemented-not-merged lead, historical F-03 partial-disagreement wording, an unsupported source-not-supplied assertion and career requirements inside the repair prompt. Check these are corrected, all five gate IDs preserved and source pins unchanged afterward.
+5. **Yes.** A single documentation commit can be reverted independently.
+6. **No.** The proposed evidence-gate work is explicitly for independent review, not implemented or approved by this document.
+
+## Unit — R3 evidence completeness and reproducible integration source
+
+1. **Yes, restructured.** Repair existing replay evidence and publish the exact retained combined tree; no alternative evaluator.
+2. **Yes.** Owner authorizes implementation of R3; retained logs have only 28/28/26 boundaries instead of the runner's complete 30 each.
+3. **No.** Evidence/checker only, frozen source and contract untouched.
+4. **Yes.** Check existing boundary/process coverage before regeneration, rerun to terminal exit and require full ordered coverage before copying.
+5. **Yes.** One evidence repair commit can be reverted separately.
+6. **No.** No dependency, signing, sandbox change or new approval.
