@@ -64,6 +64,8 @@ def _packet(
                 "test_id": "health-proof",
             }
         contract["acceptance_criteria"]["AC-001"] = criterion
+    elif form == "rewritten-contract":
+        contract["contract_id"] = "PMOS-E1-REWRITTEN"
     subject = canonical_digest(contract)
     plan = (
         compile_barebones_plan(contract=contract, repository_root=root).as_dict()
@@ -98,10 +100,16 @@ def _packet(
     ledger = EvidenceLedger(root, "inspection")
     contract_blob = ledger.put_blob(canonical_json_bytes(contract))
     plan_blob = ledger.put_blob(canonical_json_bytes(plan))
+    draft = {**contract, "contract_status": "DRAFT", "approved_by": "", "approved_at": ""}
     receipt = {
+        "schema_version": "1.0.0",
         "decision": "APPROVED",
         "approved_by": "fixture-human",
+        "approved_at": contract["approved_at"],
         "approved_contract_digest": subject,
+        "contract_id": contract["contract_id"],
+        "contract_version": contract["contract_version"],
+        "draft_digest": canonical_digest(draft),
     }
     receipt["receipt_digest"] = canonical_digest(receipt)
     receipt_blob = ledger.put_blob(canonical_json_bytes(receipt))
@@ -140,6 +148,18 @@ def _packet(
     candidate = ledger.put_blob(canonical_json_bytes(manifest))
     payload: dict[str, Any] = {"candidate_digest": candidate}
     terminal_blobs = [candidate, *manifest.values()]
+    ledger.append(
+        event_type="coder_completed",
+        state="BUILDING",
+        subject_digest=subject,
+        payload={"attempt": 1},
+    )
+    ledger.append(
+        event_type="verification_started",
+        state="VERIFYING",
+        subject_digest=subject,
+        payload={"attempt": 1},
+    )
     if gated:
         evidence = {
             "attempt": 1,

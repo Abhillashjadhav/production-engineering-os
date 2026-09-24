@@ -1,0 +1,186 @@
+..............................................F..FFF...F                 [100%]
+=================================== FAILURES ===================================
+_______________ test_status_and_evidence_verify_the_sealed_chain _______________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-42/test_status_and_evidence_verif0')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f67eaf23740>
+
+    def test_status_and_evidence_verify_the_sealed_chain(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+        _sealed_run(tmp_path)
+    
+>       assert main(["barebones", "status", "sealed", "--repository-root", str(tmp_path)]) == 0
+E       AssertionError: assert 3 == 0
+E        +  where 3 = main(['barebones', 'status', 'sealed', '--repository-root', '/tmp/pytest-of-root/pytest-42/test_status_and_evidence_verif0'])
+
+tests/unit/test_barebones_cli_journey.py:107: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"cause": "EVIDENCE_INVALID", "detail": "release gate evidence requires one contract validation", "state": "HALTED"}
+___ test_inspect_reads_only_the_sealed_candidate_and_checks_workspace_drift ____
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-42/test_inspect_reads_only_the_se0')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f67eb37a690>
+
+    def test_inspect_reads_only_the_sealed_candidate_and_checks_workspace_drift(
+        tmp_path: Path, capsys
+    ) -> None:  # type: ignore[no-untyped-def]
+        manifest_digest, file_digest = _sealed_run(tmp_path)
+        workspace = tmp_path / "candidate"
+        workspace.mkdir()
+        content = "def health():\n    return {'status': 'ok'}\n"
+        (workspace / "product.py").write_text(content)
+    
+        result = main(
+            [
+                "barebones",
+                "inspect",
+                "sealed",
+                "--repository-root",
+                str(tmp_path),
+                "--workspace",
+                str(workspace),
+                "--file",
+                "product.py",
+            ]
+        )
+    
+>       assert result == 0
+E       assert 3 == 0
+
+tests/unit/test_barebones_cli_journey.py:194: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"cause": "EVIDENCE_INVALID", "detail": "release gate evidence requires one contract validation", "state": "HALTED"}
+_______________ test_inspect_rejects_a_symlinked_workspace_root ________________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-42/test_inspect_rejects_a_symlink0')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f67ebfb82c0>
+
+    def test_inspect_rejects_a_symlinked_workspace_root(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+        _sealed_run(tmp_path)
+        workspace = tmp_path / "candidate"
+        workspace.mkdir()
+        (workspace / "product.py").write_text("def health():\n    return {'status': 'ok'}\n")
+        workspace_link = tmp_path / "candidate-link"
+        workspace_link.symlink_to(workspace, target_is_directory=True)
+    
+        result = main(
+            [
+                "barebones",
+                "inspect",
+                "sealed",
+                "--repository-root",
+                str(tmp_path),
+                "--workspace",
+                str(workspace_link),
+            ]
+        )
+    
+        assert result == 3
+        output = json.loads(capsys.readouterr().out)
+>       assert output["workspace"] == {
+               ^^^^^^^^^^^^^^^^^^^
+            "changed": [],
+            "missing": ["product.py"],
+            "symlinks": ["."],
+            "status": "DRIFT",
+            "untracked": [],
+        }
+E       KeyError: 'workspace'
+
+tests/unit/test_barebones_cli_journey.py:253: KeyError
+_____ test_inspect_fails_closed_when_a_workspace_subtree_cannot_be_scanned _____
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-42/test_inspect_fails_closed_when0')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f67eb49ee40>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f67eb49c740>
+
+    def test_inspect_fails_closed_when_a_workspace_subtree_cannot_be_scanned(
+        tmp_path: Path, capsys, monkeypatch
+    ) -> None:  # type: ignore[no-untyped-def]
+        _sealed_run(tmp_path)
+        workspace = tmp_path / "candidate"
+        workspace.mkdir()
+        (workspace / "product.py").write_text("def health():\n    return {'status': 'ok'}\n")
+        blocked = workspace / "blocked"
+        blocked.mkdir()
+        (blocked / "untracked.py").write_text("hidden = True\n")
+        original_scandir = os.scandir
+    
+        def guarded_scandir(path):  # type: ignore[no-untyped-def]
+            if Path(path) == blocked:
+                raise PermissionError("denied")
+            return original_scandir(path)
+    
+        monkeypatch.setattr(os, "scandir", guarded_scandir)
+    
+        result = main(
+            [
+                "barebones",
+                "inspect",
+                "sealed",
+                "--repository-root",
+                str(tmp_path),
+                "--workspace",
+                str(workspace),
+            ]
+        )
+    
+        assert result == 3
+        output = json.loads(capsys.readouterr().out)
+>       assert output == {
+            "cause": "EVIDENCE_INVALID",
+            "detail": "candidate workspace cannot be inspected",
+            "state": "HALTED",
+        }
+E       AssertionError: assert {'cause': 'EV...te': 'HALTED'} == {'cause': 'EV...te': 'HALTED'}
+E         
+E         Omitting 2 identical items, use -vv to show
+E         Differing items:
+E         {'detail': 'release gate evidence requires one contract validation'} != {'detail': 'candidate workspace cannot be inspected'}
+E         Use -v to get more diff
+
+tests/unit/test_barebones_cli_journey.py:295: AssertionError
+_________ test_inspection_rejects_duplicate_candidate_manifest_members _________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-42/test_inspection_rejects_duplic0')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f67eb4c0500>
+
+    def test_inspection_rejects_duplicate_candidate_manifest_members(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
+        ledger = EvidenceLedger(tmp_path, "duplicate-manifest")
+        file_digest = ledger.put_blob(b"first")
+        manifest_digest = ledger.put_blob(
+            ('{"product.py":"' + file_digest + '","product.py":"' + file_digest + '"}').encode()
+        )
+        ledger.append(
+            event_type="release_ready",
+            state="RELEASE_READY",
+            subject_digest="sha256:" + "2" * 64,
+            blob_digests=(manifest_digest, file_digest),
+            payload={"candidate_digest": manifest_digest},
+        )
+    
+        result = main(
+            [
+                "barebones",
+                "inspect",
+                "duplicate-manifest",
+                "--repository-root",
+                str(tmp_path),
+            ]
+        )
+    
+        assert result == 3
+        output = json.loads(capsys.readouterr().out)
+        assert output["cause"] == "EVIDENCE_INVALID"
+>       assert output["detail"] == "candidate manifest is malformed"
+E       AssertionError: assert 'release gate...ct validation' == 'candidate ma... is malformed'
+E         
+E         - candidate manifest is malformed
+E         + release gate evidence requires one contract validation
+
+tests/unit/test_barebones_cli_journey.py:396: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_barebones_cli_journey.py::test_status_and_evidence_verify_the_sealed_chain
+FAILED tests/unit/test_barebones_cli_journey.py::test_inspect_reads_only_the_sealed_candidate_and_checks_workspace_drift
+FAILED tests/unit/test_barebones_cli_journey.py::test_inspect_rejects_a_symlinked_workspace_root
+FAILED tests/unit/test_barebones_cli_journey.py::test_inspect_fails_closed_when_a_workspace_subtree_cannot_be_scanned
+FAILED tests/unit/test_barebones_cli_journey.py::test_inspection_rejects_duplicate_candidate_manifest_members

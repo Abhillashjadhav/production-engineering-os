@@ -1,0 +1,2316 @@
+FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF........................... [ 80%]
+.................                                                        [100%]
+=================================== FAILURES ===================================
+_ test_r4_contradictions_are_rejected_without_an_external_head[authority-status] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej0')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1baef77ef0>
+mutation = 'authority', command = 'status'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej0'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "contradictory-fixture-authority", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "cause": "PASS", "events": 5, "head_event_digest": "sha256:3ea8d423eb1631efefea3d01e9332e16cae8494d2468a0ffe379412118b30d44", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_r4_contradictions_are_rejected_without_an_external_head[authority-evidence] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej1')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1baea095e0>
+mutation = 'authority', command = 'evidence'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'evidence', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej1'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "contradictory-fixture-authority", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "blobs_directory": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej1/.pmpe/blobs", "events": 5, "events_path": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej1/.pmpe/runs/inspection/events.jsonl", "head_event_digest": "sha256:3ea8d423eb1631efefea3d01e9332e16cae8494d2468a0ffe379412118b30d44", "integrity": "PASS", "referenced_blobs": 7, "run_id": "inspection"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[authority-inspect] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej2')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae8a8800>
+mutation = 'authority', command = 'inspect'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej2'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "contradictory-fixture-authority", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "candidate_digest": "sha256:05f3f31a12435f4d89b727f1814b9f775fb79e554e12398cd9024fe20e8d272b", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:4f42ebd22ce4eb2195de95716143e77e30f86042351fcf4cb6daa6d4bcb61564"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[deleted-gate-key-status] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej3')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae913680>
+mutation = 'deleted-gate-key', command = 'status'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej3'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "cause": "PASS", "events": 4, "head_event_digest": "sha256:12fd6ff4adcb37e49c841ff75a1e1776a0e690823ceb59f38ae6b8fbd10a6734", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_r4_contradictions_are_rejected_without_an_external_head[deleted-gate-key-evidence] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej4')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae913980>
+mutation = 'deleted-gate-key', command = 'evidence'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'evidence', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej4'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "blobs_directory": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej4/.pmpe/blobs", "events": 4, "events_path": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej4/.pmpe/runs/inspection/events.jsonl", "head_event_digest": "sha256:12fd6ff4adcb37e49c841ff75a1e1776a0e690823ceb59f38ae6b8fbd10a6734", "integrity": "PASS", "referenced_blobs": 7, "run_id": "inspection"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[deleted-gate-key-inspect] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej5')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae7dcc80>
+mutation = 'deleted-gate-key', command = 'inspect'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej5'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "candidate_digest": "sha256:05f3f31a12435f4d89b727f1814b9f775fb79e554e12398cd9024fe20e8d272b", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:4f42ebd22ce4eb2195de95716143e77e30f86042351fcf4cb6daa6d4bcb61564"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[ungated-subject-status] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej6')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae7d7650>
+mutation = 'ungated-subject', command = 'status'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej6'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6c65d2b3e388b8bcc861833ce557c135ba2c13eec439986a60a86ccad699b04d", "status": "VERIFIED"}, "cause": "PASS", "events": 4, "head_event_digest": "sha256:38fee3bc564d2e31a921ceaffdb3719d1afef6b9998ac8937bd259d198285f9a", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_r4_contradictions_are_rejected_without_an_external_head[ungated-subject-evidence] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej7')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae91adb0>
+mutation = 'ungated-subject', command = 'evidence'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'evidence', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej7'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6c65d2b3e388b8bcc861833ce557c135ba2c13eec439986a60a86ccad699b04d", "status": "VERIFIED"}, "blobs_directory": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej7/.pmpe/blobs", "events": 4, "events_path": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej7/.pmpe/runs/inspection/events.jsonl", "head_event_digest": "sha256:38fee3bc564d2e31a921ceaffdb3719d1afef6b9998ac8937bd259d198285f9a", "integrity": "PASS", "referenced_blobs": 6, "run_id": "inspection"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[ungated-subject-inspect] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej8')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae91a000>
+mutation = 'ungated-subject', command = 'inspect'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej8'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6c65d2b3e388b8bcc861833ce557c135ba2c13eec439986a60a86ccad699b04d", "status": "VERIFIED"}, "candidate_digest": "sha256:52363d45b15b9cf9ad259546526bcf1fe5539a8bc9e88cbe740aa64e565e14a7", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:9d6faec6a5407209b684aae21718d88a6807b15a76b1010b921bbc6c633a8dc0"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[ungated-plan-status] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej9')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae829c70>
+mutation = 'ungated-plan', command = 'status'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej9'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6c65d2b3e388b8bcc861833ce557c135ba2c13eec439986a60a86ccad699b04d", "status": "VERIFIED"}, "cause": "PASS", "events": 4, "head_event_digest": "sha256:3b433d55ac72a5710fcf0da0db5732b33129e561ae244f6e2fcfca7867669c9c", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_r4_contradictions_are_rejected_without_an_external_head[ungated-plan-evidence] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej10')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae918b90>
+mutation = 'ungated-plan', command = 'evidence'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'evidence', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej10'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6c65d2b3e388b8bcc861833ce557c135ba2c13eec439986a60a86ccad699b04d", "status": "VERIFIED"}, "blobs_directory": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej10/.pmpe/blobs", "events": 4, "events_path": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej10/.pmpe/runs/inspection/events.jsonl", "head_event_digest": "sha256:3b433d55ac72a5710fcf0da0db5732b33129e561ae244f6e2fcfca7867669c9c", "integrity": "PASS", "referenced_blobs": 6, "run_id": "inspection"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[ungated-plan-inspect] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej11')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae918ad0>
+mutation = 'ungated-plan', command = 'inspect'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej11'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6c65d2b3e388b8bcc861833ce557c135ba2c13eec439986a60a86ccad699b04d", "status": "VERIFIED"}, "candidate_digest": "sha256:52363d45b15b9cf9ad259546526bcf1fe5539a8bc9e88cbe740aa64e565e14a7", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:9d6faec6a5407209b684aae21718d88a6807b15a76b1010b921bbc6c633a8dc0"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[ungated-receipt-status] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej12')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae6cba40>
+mutation = 'ungated-receipt', command = 'status'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej12'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:82ce2ccef2bdb5c315a1ae95e3d30c9095c1d25b446c9a0d726b7161154b1455", "status": "VERIFIED"}, "cause": "PASS", "events": 4, "head_event_digest": "sha256:33c9bc4a30b29c290842f93c3e1d7e001842cdef88431b9675a3246cbe8643f0", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_r4_contradictions_are_rejected_without_an_external_head[ungated-receipt-evidence] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej13')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae9723f0>
+mutation = 'ungated-receipt', command = 'evidence'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'evidence', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej13'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:82ce2ccef2bdb5c315a1ae95e3d30c9095c1d25b446c9a0d726b7161154b1455", "status": "VERIFIED"}, "blobs_directory": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej13/.pmpe/blobs", "events": 4, "events_path": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej13/.pmpe/runs/inspection/events.jsonl", "head_event_digest": "sha256:33c9bc4a30b29c290842f93c3e1d7e001842cdef88431b9675a3246cbe8643f0", "integrity": "PASS", "referenced_blobs": 6, "run_id": "inspection"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[ungated-receipt-inspect] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej14')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae9195b0>
+mutation = 'ungated-receipt', command = 'inspect'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej14'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:82ce2ccef2bdb5c315a1ae95e3d30c9095c1d25b446c9a0d726b7161154b1455", "status": "VERIFIED"}, "candidate_digest": "sha256:52363d45b15b9cf9ad259546526bcf1fe5539a8bc9e88cbe740aa64e565e14a7", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:9d6faec6a5407209b684aae21718d88a6807b15a76b1010b921bbc6c633a8dc0"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[failed-then-pass-status] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej15')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae6ba3c0>
+mutation = 'failed-then-pass', command = 'status'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej15'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "cause": "PASS", "events": 6, "head_event_digest": "sha256:c43b8fbd5fb3e2fa07e8faf0f28eac2f0fd68454e5968e86557798fc14a30a76", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_r4_contradictions_are_rejected_without_an_external_head[failed-then-pass-evidence] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej16')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae8a6600>
+mutation = 'failed-then-pass', command = 'evidence'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'evidence', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej16'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "blobs_directory": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej16/.pmpe/blobs", "events": 6, "events_path": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej16/.pmpe/runs/inspection/events.jsonl", "head_event_digest": "sha256:c43b8fbd5fb3e2fa07e8faf0f28eac2f0fd68454e5968e86557798fc14a30a76", "integrity": "PASS", "referenced_blobs": 8, "run_id": "inspection"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[failed-then-pass-inspect] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej17')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae8a7f50>
+mutation = 'failed-then-pass', command = 'inspect'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej17'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "candidate_digest": "sha256:05f3f31a12435f4d89b727f1814b9f775fb79e554e12398cd9024fe20e8d272b", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:4f42ebd22ce4eb2195de95716143e77e30f86042351fcf4cb6daa6d4bcb61564"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[failed-event-then-pass-status] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej18')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae7de330>
+mutation = 'failed-event-then-pass', command = 'status'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej18'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "cause": "PASS", "events": 7, "head_event_digest": "sha256:435a7b096a9b6747995a4a31c4221e0c2dc469d2c831731c16697a76df786c77", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_r4_contradictions_are_rejected_without_an_external_head[failed-event-then-pass-evidence] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej19')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae7dfa40>
+mutation = 'failed-event-then-pass', command = 'evidence'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'evidence', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej19'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "blobs_directory": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej19/.pmpe/blobs", "events": 7, "events_path": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej19/.pmpe/runs/inspection/events.jsonl", "head_event_digest": "sha256:435a7b096a9b6747995a4a31c4221e0c2dc469d2c831731c16697a76df786c77", "integrity": "PASS", "referenced_blobs": 8, "run_id": "inspection"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[failed-event-then-pass-inspect] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej20')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae77f7a0>
+mutation = 'failed-event-then-pass', command = 'inspect'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej20'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "candidate_digest": "sha256:05f3f31a12435f4d89b727f1814b9f775fb79e554e12398cd9024fe20e8d272b", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:4f42ebd22ce4eb2195de95716143e77e30f86042351fcf4cb6daa6d4bcb61564"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[duplicate-pass-status] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej21')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae763ce0>
+mutation = 'duplicate-pass', command = 'status'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej21'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "cause": "PASS", "events": 6, "head_event_digest": "sha256:7dbcdd83c3ad5dba2a3d786458cecd3441c70e7f4072f3b5b6b5bfe6b1548a38", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_r4_contradictions_are_rejected_without_an_external_head[duplicate-pass-evidence] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej22')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae760f20>
+mutation = 'duplicate-pass', command = 'evidence'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'evidence', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej22'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "blobs_directory": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej22/.pmpe/blobs", "events": 6, "events_path": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej22/.pmpe/runs/inspection/events.jsonl", "head_event_digest": "sha256:7dbcdd83c3ad5dba2a3d786458cecd3441c70e7f4072f3b5b6b5bfe6b1548a38", "integrity": "PASS", "referenced_blobs": 7, "run_id": "inspection"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[duplicate-pass-inspect] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej23')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae919310>
+mutation = 'duplicate-pass', command = 'inspect'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej23'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "candidate_digest": "sha256:05f3f31a12435f4d89b727f1814b9f775fb79e554e12398cd9024fe20e8d272b", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:4f42ebd22ce4eb2195de95716143e77e30f86042351fcf4cb6daa6d4bcb61564"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[unknown-event-status] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej24')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae5f3290>
+mutation = 'unknown-event', command = 'status'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej24'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "cause": "PASS", "events": 6, "head_event_digest": "sha256:92e7422630a99be24884a16fabb116185160603be624b7aa91e3a43b94e6967d", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_r4_contradictions_are_rejected_without_an_external_head[unknown-event-evidence] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej25')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae5f01a0>
+mutation = 'unknown-event', command = 'evidence'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'evidence', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej25'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "blobs_directory": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej25/.pmpe/blobs", "events": 6, "events_path": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej25/.pmpe/runs/inspection/events.jsonl", "head_event_digest": "sha256:92e7422630a99be24884a16fabb116185160603be624b7aa91e3a43b94e6967d", "integrity": "PASS", "referenced_blobs": 7, "run_id": "inspection"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[unknown-event-inspect] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej26')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae9190a0>
+mutation = 'unknown-event', command = 'inspect'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej26'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "candidate_digest": "sha256:05f3f31a12435f4d89b727f1814b9f775fb79e554e12398cd9024fe20e8d272b", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:4f42ebd22ce4eb2195de95716143e77e30f86042351fcf4cb6daa6d4bcb61564"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[ungated-unknown-status] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej27')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae605820>
+mutation = 'ungated-unknown', command = 'status'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej27'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6c65d2b3e388b8bcc861833ce557c135ba2c13eec439986a60a86ccad699b04d", "status": "VERIFIED"}, "cause": "PASS", "events": 5, "head_event_digest": "sha256:70d1b9132a2c700a06a5eb1aa43cb29840f4f540adc45b420b0fed65999fc86c", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_r4_contradictions_are_rejected_without_an_external_head[ungated-unknown-evidence] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej28')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae817710>
+mutation = 'ungated-unknown', command = 'evidence'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'evidence', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej28'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6c65d2b3e388b8bcc861833ce557c135ba2c13eec439986a60a86ccad699b04d", "status": "VERIFIED"}, "blobs_directory": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej28/.pmpe/blobs", "events": 5, "events_path": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej28/.pmpe/runs/inspection/events.jsonl", "head_event_digest": "sha256:70d1b9132a2c700a06a5eb1aa43cb29840f4f540adc45b420b0fed65999fc86c", "integrity": "PASS", "referenced_blobs": 6, "run_id": "inspection"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[ungated-unknown-inspect] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej29')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae816360>
+mutation = 'ungated-unknown', command = 'inspect'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej29'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6c65d2b3e388b8bcc861833ce557c135ba2c13eec439986a60a86ccad699b04d", "status": "VERIFIED"}, "candidate_digest": "sha256:52363d45b15b9cf9ad259546526bcf1fe5539a8bc9e88cbe740aa64e565e14a7", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:9d6faec6a5407209b684aae21718d88a6807b15a76b1010b921bbc6c633a8dc0"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[ungated-failure-status] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej30')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae630440>
+mutation = 'ungated-failure', command = 'status'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej30'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6c65d2b3e388b8bcc861833ce557c135ba2c13eec439986a60a86ccad699b04d", "status": "VERIFIED"}, "cause": "PASS", "events": 5, "head_event_digest": "sha256:edafa09f8dc23b40a7af5e705c6b86b876ee5a9ea7681a17d00b4926ac18d2c8", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_r4_contradictions_are_rejected_without_an_external_head[ungated-failure-evidence] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej31')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae6302f0>
+mutation = 'ungated-failure', command = 'evidence'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'evidence', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej31'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6c65d2b3e388b8bcc861833ce557c135ba2c13eec439986a60a86ccad699b04d", "status": "VERIFIED"}, "blobs_directory": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej31/.pmpe/blobs", "events": 5, "events_path": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej31/.pmpe/runs/inspection/events.jsonl", "head_event_digest": "sha256:edafa09f8dc23b40a7af5e705c6b86b876ee5a9ea7681a17d00b4926ac18d2c8", "integrity": "PASS", "referenced_blobs": 6, "run_id": "inspection"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[ungated-failure-inspect] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej32')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae77c0b0>
+mutation = 'ungated-failure', command = 'inspect'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej32'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6c65d2b3e388b8bcc861833ce557c135ba2c13eec439986a60a86ccad699b04d", "status": "VERIFIED"}, "candidate_digest": "sha256:52363d45b15b9cf9ad259546526bcf1fe5539a8bc9e88cbe740aa64e565e14a7", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:9d6faec6a5407209b684aae21718d88a6807b15a76b1010b921bbc6c633a8dc0"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[missing-start-status] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej33')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae8f5bb0>
+mutation = 'missing-start', command = 'status'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej33'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "cause": "PASS", "events": 4, "head_event_digest": "sha256:655c474d7c396ee877392acf6c8c34396b494382f7e80ebe14925c636acdb58a", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_r4_contradictions_are_rejected_without_an_external_head[missing-start-evidence] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej34')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae8f7b00>
+mutation = 'missing-start', command = 'evidence'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'evidence', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej34'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "blobs_directory": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej34/.pmpe/blobs", "events": 4, "events_path": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej34/.pmpe/runs/inspection/events.jsonl", "head_event_digest": "sha256:655c474d7c396ee877392acf6c8c34396b494382f7e80ebe14925c636acdb58a", "integrity": "PASS", "referenced_blobs": 7, "run_id": "inspection"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[missing-start-inspect] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej35')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae8f4650>
+mutation = 'missing-start', command = 'inspect'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej35'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "candidate_digest": "sha256:05f3f31a12435f4d89b727f1814b9f775fb79e554e12398cd9024fe20e8d272b", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:4f42ebd22ce4eb2195de95716143e77e30f86042351fcf4cb6daa6d4bcb61564"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[coder-attempt-status] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej36')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae6f7c80>
+mutation = 'coder-attempt', command = 'status'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej36'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "cause": "PASS", "events": 5, "head_event_digest": "sha256:e5620303442465b5f53d35f21a6ecbe0fe70474abcda2cb9b1224bf218818ab9", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_r4_contradictions_are_rejected_without_an_external_head[coder-attempt-evidence] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej37')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae6064b0>
+mutation = 'coder-attempt', command = 'evidence'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'evidence', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej37'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "blobs_directory": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej37/.pmpe/blobs", "events": 5, "events_path": "/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej37/.pmpe/runs/inspection/events.jsonl", "head_event_digest": "sha256:e5620303442465b5f53d35f21a6ecbe0fe70474abcda2cb9b1224bf218818ab9", "integrity": "PASS", "referenced_blobs": 7, "run_id": "inspection"}
+_ test_r4_contradictions_are_rejected_without_an_external_head[coder-attempt-inspect] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej38')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae5a68d0>
+mutation = 'coder-attempt', command = 'inspect'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "authority",
+            "deleted-gate-key",
+            "ungated-subject",
+            "ungated-plan",
+            "ungated-receipt",
+            "failed-then-pass",
+            "failed-event-then-pass",
+            "duplicate-pass",
+            "unknown-event",
+            "ungated-unknown",
+            "ungated-failure",
+            "missing-start",
+            "coder-attempt",
+        ],
+    )
+    def test_r4_contradictions_are_rejected_without_an_external_head(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _mutated_packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_contradictions_are_rej38'])
+
+tests/unit/test_r4_release_gate_inspection.py:139: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "candidate_digest": "sha256:05f3f31a12435f4d89b727f1814b9f775fb79e554e12398cd9024fe20e8d272b", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:4f42ebd22ce4eb2195de95716143e77e30f86042351fcf4cb6daa6d4bcb61564"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+______________ test_r4_halted_approval_is_also_reverified[status] ______________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_halted_approval_is_als0')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae74f8c0>
+command = 'status'
+
+    @pytest.mark.parametrize("command", ["status", "evidence"])
+    def test_r4_halted_approval_is_also_reverified(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], command: str
+    ) -> None:
+        _mutated_packet(tmp_path, "halted-authority")
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_halted_approval_is_als0'])
+
+tests/unit/test_r4_release_gate_inspection.py:148: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "contradictory-fixture-authority", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "cause": "IN_PROGRESS", "events": 5, "head_event_digest": "sha256:78f58a9cf4baa44f15b8c3faec8e1d951872ddd6983306e02a628b14bf0ad27f", "run_id": "inspection", "state": "HALTED", "telemetry": {}}
+_____________ test_r4_halted_approval_is_also_reverified[evidence] _____________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_halted_approval_is_als1')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae718710>
+command = 'evidence'
+
+    @pytest.mark.parametrize("command", ["status", "evidence"])
+    def test_r4_halted_approval_is_also_reverified(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], command: str
+    ) -> None:
+        _mutated_packet(tmp_path, "halted-authority")
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'evidence', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_halted_approval_is_als1'])
+
+tests/unit/test_r4_release_gate_inspection.py:148: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "contradictory-fixture-authority", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "blobs_directory": "/tmp/pytest-of-root/pytest-48/test_r4_halted_approval_is_als1/.pmpe/blobs", "events": 5, "events_path": "/tmp/pytest-of-root/pytest-48/test_r4_halted_approval_is_als1/.pmpe/runs/inspection/events.jsonl", "head_event_digest": "sha256:78f58a9cf4baa44f15b8c3faec8e1d951872ddd6983306e02a628b14bf0ad27f", "integrity": "PASS", "referenced_blobs": 7, "run_id": "inspection"}
+____ test_r4_status_does_not_trust_release_ready_state_on_an_unknown_event _____
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_status_does_not_trust_0')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae74ce90>
+
+    def test_r4_status_does_not_trust_release_ready_state_on_an_unknown_event(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        _packet(tmp_path)
+        ledger = EvidenceLedger.open_existing(tmp_path, "inspection")
+        events = [dict(event) for event in ledger.verify()]
+        override = copy.deepcopy(events[-1])
+        override["event_type"] = "operator_override"
+        events.append(override)
+        _rechain(ledger, events)
+>       assert main(["barebones", "status", "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-48/test_r4_status_does_not_trust_0'])
+
+tests/unit/test_r4_release_gate_inspection.py:162: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:5cfad48a0b1f41b92ca24f10417de7cbdbefd62b8cd9d180ba79e072f7c1bf88", "status": "VERIFIED"}, "cause": "IN_PROGRESS", "events": 6, "head_event_digest": "sha256:49c549f8887f2c26fb343ed612cfb5c64d8a1a8dc68d473e5c40f68f7c846b63", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_r4_head_anchor_is_explicit_and_a_genuine_original_head_rejects_rewrite[status] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_head_anchor_is_explici0')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae6bbcb0>
+command = 'status'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    def test_r4_head_anchor_is_explicit_and_a_genuine_original_head_rejects_rewrite(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], command: str
+    ) -> None:
+        original, rewritten = tmp_path / "original", tmp_path / "rewritten"
+        original.mkdir()
+        rewritten.mkdir()
+        original_head, _ = _packet(original)
+>       rewritten_head, _ = _packet(rewritten, form="rewritten-contract")
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_r4_release_gate_inspection.py:174: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_release_gate_inspection.py:73: in _packet
+    else compile_acceptance_plan(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'PMOS-E1-REWRITTEN', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': 'The g...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+repository_root = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_head_anchor_is_explici0/rewritten')
+registered_actions = frozenset({'custom_health'})
+template_version = 'fixture-1', template_test_digests = {}
+registered_measures = frozenset({'custom_latency'}), trusted_test_digests = {}
+
+    def compile_acceptance_plan(
+        contract: Mapping[str, Any],
+        *,
+        repository_root: Path,
+        registered_actions: frozenset[str],
+        template_version: str,
+        template_test_digests: Mapping[str, str],
+        registered_measures: frozenset[str] = frozenset(),
+        trusted_test_digests: Mapping[str, str] | None = None,
+    ) -> AcceptanceBuildPlan:
+        """Compile typed criteria and prove task/test coverage before any build."""
+    
+        diagnostics: list[AcceptanceDiagnostic] = []
+        requirements_raw = _id_keyed_collection(
+            contract.get("functional_requirements"),
+            collection="requirement",
+            diagnostics=diagnostics,
+        )
+        criteria_raw = _id_keyed_collection(
+            contract.get("acceptance_criteria"),
+            collection="criterion",
+            diagnostics=diagnostics,
+        )
+        if not requirements_raw:
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "REQUIREMENTS_MISSING", "contract", "functional requirements are required"
+                )
+            )
+            requirements_raw = {}
+        if not criteria_raw:
+            diagnostics.append(
+                AcceptanceDiagnostic("CRITERIA_MISSING", "contract", "acceptance criteria are required")
+            )
+            criteria_raw = {}
+    
+        requirements = tuple(sorted(str(item) for item in requirements_raw))
+        requirement_set = frozenset(requirements)
+        covered: set[str] = set()
+        compiled: list[CompiledCriterion] = []
+    
+        for criterion_id, raw in sorted(criteria_raw.items(), key=lambda item: str(item[0])):
+            cid = str(criterion_id)
+            item = _mapping(raw)
+            if item is None:
+                diagnostics.append(
+                    AcceptanceDiagnostic("INVALID_CRITERION", cid, "criterion must be an object")
+                )
+                continue
+            refs_raw = item.get("requirement_refs")
+            if (
+                not isinstance(refs_raw, list)
+                or not refs_raw
+                or not all(isinstance(ref, str) and ref for ref in refs_raw)
+            ):
+                diagnostics.append(
+                    AcceptanceDiagnostic(
+                        "REQUIREMENT_REFS_MISSING", cid, "criterion needs requirement_refs"
+                    )
+                )
+                continue
+            refs = tuple(sorted(set(refs_raw)))
+            unknown = sorted(set(refs) - requirement_set)
+            if unknown:
+                diagnostics.append(
+                    AcceptanceDiagnostic("UNKNOWN_REQUIREMENT_REF", cid, ", ".join(unknown))
+                )
+                continue
+            covered.update(refs)
+    
+            forms = {
+                "given_when_then": all(key in item for key in ("given", "when", "then")),
+                "measure": all(key in item for key in ("measure", "operator", "value")),
+                "human_test": "human_test" in item,
+                "satisfied_by_template": "satisfied_by_template" in item,
+            }
+            selected = [name for name, present in forms.items() if present]
+            if len(selected) != 1:
+                diagnostics.append(
+                    AcceptanceDiagnostic(
+                        "CRITERION_FORM_INVALID",
+                        cid,
+                        "criterion must select exactly one executable form",
+                    )
+                )
+                continue
+            form = selected[0]
+            if form == "given_when_then":
+                when_raw = _mapping(item.get("when"))
+                action = "" if when_raw is None else str(when_raw.get("action", ""))
+                arguments = {} if when_raw is None else when_raw.get("arguments", {})
+                if action not in registered_actions or not isinstance(arguments, Mapping):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "ACTION_NOT_REGISTERED", cid, "when.action is not registered"
+                        )
+                    )
+                    continue
+                given = _assertions(
+                    item.get("given"), criterion_id=cid, field="given", diagnostics=diagnostics
+                )
+                then = _assertions(
+                    item.get("then"), criterion_id=cid, field="then", diagnostics=diagnostics
+                )
+                if given and then:
+                    compiled.append(
+                        CompiledCriterion(
+                            cid,
+                            refs,
+                            form,
+                            given=given,
+                            when=ActionCall(action, dict(arguments)),
+                            then=then,
+                        )
+                    )
+            elif form == "measure":
+                try:
+                    operator = Operator(str(item.get("operator", "")))
+                except ValueError:
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "UNKNOWN_ASSERTION_OPERATOR", cid, "measure operator is unregistered"
+                        )
+                    )
+                    continue
+                measure = item.get("measure")
+                sample = _mapping(item.get("sample")) or {}
+                minimum = sample.get("minimum")
+                if (
+                    not isinstance(measure, str)
+                    or not measure
+                    or measure not in registered_measures
+                    or isinstance(minimum, bool)
+                    or not isinstance(minimum, int)
+                    or minimum <= 0
+                ):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "MEASURE_INVALID",
+                            cid,
+                            "measure needs a registered source and positive sample.minimum",
+                        )
+                    )
+                    continue
+                assertion_value = item.get("value")
+                if operator is Operator.MATCHES:
+                    try:
+                        if not isinstance(assertion_value, str):
+                            raise re.error("pattern must be a string")
+                        re.compile(assertion_value)
+                    except re.error:
+                        diagnostics.append(
+                            AcceptanceDiagnostic(
+                                "INVALID_REGEX_ASSERTION",
+                                cid,
+                                "measure requires a valid string regex",
+                            )
+                        )
+                        continue
+                if operator in {Operator.LT, Operator.LTE, Operator.GT, Operator.GTE} and (
+                    isinstance(assertion_value, bool)
+                    or not isinstance(assertion_value, (int, float, str))
+                ):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "INVALID_ORDERED_ASSERTION_VALUE",
+                            cid,
+                            "measure requires a number or string value",
+                        )
+                    )
+                    continue
+                compiled.append(
+                    CompiledCriterion(
+                        cid,
+                        refs,
+                        form,
+                        measure=measure,
+                        operator=operator,
+                        value=assertion_value,
+                        minimum_sample=minimum,
+                    )
+                )
+            elif form == "human_test":
+                human_raw = _mapping(item.get("human_test"))
+                human = (
+                    None
+                    if human_raw is None
+                    else _human_test(
+                        human_raw,
+                        criterion_id=cid,
+                        repository_root=repository_root,
+                        diagnostics=diagnostics,
+                    )
+                )
+                if human is not None:
+                    compiled.append(CompiledCriterion(cid, refs, form, human_test=human))
+            else:
+                proof_raw = _mapping(item.get("satisfied_by_template"))
+                version = "" if proof_raw is None else str(proof_raw.get("template_version", ""))
+                test_id = "" if proof_raw is None else str(proof_raw.get("test_id", ""))
+                proof_digest = template_test_digests.get(test_id)
+                if version != template_version or proof_digest is None:
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "TEMPLATE_PROOF_INVALID",
+                            cid,
+                            "template proof does not match the pinned template",
+                        )
+                    )
+                    continue
+                compiled.append(
+                    CompiledCriterion(
+                        cid,
+                        refs,
+                        form,
+                        template_proof=TemplateProof(version, test_id, proof_digest),
+                    )
+                )
+    
+        for requirement_id in sorted(requirement_set - covered):
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "REQUIREMENT_UNCOVERED",
+                    requirement_id,
+                    "requirement has no executable criterion",
+                )
+            )
+        release_gates = compile_release_gates(
+            contract,
+            criterion_ids=frozenset(item.criterion_id for item in compiled),
+            diagnostic=lambda code, subject, message: diagnostics.append(
+                AcceptanceDiagnostic(code, subject, message)
+            ),
+        )
+        if diagnostics:
+>           raise AcceptanceCompileError(diagnostics)
+E           pmpe.contracts.acceptance.AcceptanceCompileError: ACTION_NOT_REGISTERED:AC-001; RELEASE_GATE_CRITERION_UNKNOWN:GATE-001
+
+src/pmpe/contracts/acceptance.py:764: AcceptanceCompileError
+_ test_r4_head_anchor_is_explicit_and_a_genuine_original_head_rejects_rewrite[evidence] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_head_anchor_is_explici1')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae8a9490>
+command = 'evidence'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    def test_r4_head_anchor_is_explicit_and_a_genuine_original_head_rejects_rewrite(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], command: str
+    ) -> None:
+        original, rewritten = tmp_path / "original", tmp_path / "rewritten"
+        original.mkdir()
+        rewritten.mkdir()
+        original_head, _ = _packet(original)
+>       rewritten_head, _ = _packet(rewritten, form="rewritten-contract")
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_r4_release_gate_inspection.py:174: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_release_gate_inspection.py:73: in _packet
+    else compile_acceptance_plan(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'PMOS-E1-REWRITTEN', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': 'The g...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+repository_root = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_head_anchor_is_explici1/rewritten')
+registered_actions = frozenset({'custom_health'})
+template_version = 'fixture-1', template_test_digests = {}
+registered_measures = frozenset({'custom_latency'}), trusted_test_digests = {}
+
+    def compile_acceptance_plan(
+        contract: Mapping[str, Any],
+        *,
+        repository_root: Path,
+        registered_actions: frozenset[str],
+        template_version: str,
+        template_test_digests: Mapping[str, str],
+        registered_measures: frozenset[str] = frozenset(),
+        trusted_test_digests: Mapping[str, str] | None = None,
+    ) -> AcceptanceBuildPlan:
+        """Compile typed criteria and prove task/test coverage before any build."""
+    
+        diagnostics: list[AcceptanceDiagnostic] = []
+        requirements_raw = _id_keyed_collection(
+            contract.get("functional_requirements"),
+            collection="requirement",
+            diagnostics=diagnostics,
+        )
+        criteria_raw = _id_keyed_collection(
+            contract.get("acceptance_criteria"),
+            collection="criterion",
+            diagnostics=diagnostics,
+        )
+        if not requirements_raw:
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "REQUIREMENTS_MISSING", "contract", "functional requirements are required"
+                )
+            )
+            requirements_raw = {}
+        if not criteria_raw:
+            diagnostics.append(
+                AcceptanceDiagnostic("CRITERIA_MISSING", "contract", "acceptance criteria are required")
+            )
+            criteria_raw = {}
+    
+        requirements = tuple(sorted(str(item) for item in requirements_raw))
+        requirement_set = frozenset(requirements)
+        covered: set[str] = set()
+        compiled: list[CompiledCriterion] = []
+    
+        for criterion_id, raw in sorted(criteria_raw.items(), key=lambda item: str(item[0])):
+            cid = str(criterion_id)
+            item = _mapping(raw)
+            if item is None:
+                diagnostics.append(
+                    AcceptanceDiagnostic("INVALID_CRITERION", cid, "criterion must be an object")
+                )
+                continue
+            refs_raw = item.get("requirement_refs")
+            if (
+                not isinstance(refs_raw, list)
+                or not refs_raw
+                or not all(isinstance(ref, str) and ref for ref in refs_raw)
+            ):
+                diagnostics.append(
+                    AcceptanceDiagnostic(
+                        "REQUIREMENT_REFS_MISSING", cid, "criterion needs requirement_refs"
+                    )
+                )
+                continue
+            refs = tuple(sorted(set(refs_raw)))
+            unknown = sorted(set(refs) - requirement_set)
+            if unknown:
+                diagnostics.append(
+                    AcceptanceDiagnostic("UNKNOWN_REQUIREMENT_REF", cid, ", ".join(unknown))
+                )
+                continue
+            covered.update(refs)
+    
+            forms = {
+                "given_when_then": all(key in item for key in ("given", "when", "then")),
+                "measure": all(key in item for key in ("measure", "operator", "value")),
+                "human_test": "human_test" in item,
+                "satisfied_by_template": "satisfied_by_template" in item,
+            }
+            selected = [name for name, present in forms.items() if present]
+            if len(selected) != 1:
+                diagnostics.append(
+                    AcceptanceDiagnostic(
+                        "CRITERION_FORM_INVALID",
+                        cid,
+                        "criterion must select exactly one executable form",
+                    )
+                )
+                continue
+            form = selected[0]
+            if form == "given_when_then":
+                when_raw = _mapping(item.get("when"))
+                action = "" if when_raw is None else str(when_raw.get("action", ""))
+                arguments = {} if when_raw is None else when_raw.get("arguments", {})
+                if action not in registered_actions or not isinstance(arguments, Mapping):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "ACTION_NOT_REGISTERED", cid, "when.action is not registered"
+                        )
+                    )
+                    continue
+                given = _assertions(
+                    item.get("given"), criterion_id=cid, field="given", diagnostics=diagnostics
+                )
+                then = _assertions(
+                    item.get("then"), criterion_id=cid, field="then", diagnostics=diagnostics
+                )
+                if given and then:
+                    compiled.append(
+                        CompiledCriterion(
+                            cid,
+                            refs,
+                            form,
+                            given=given,
+                            when=ActionCall(action, dict(arguments)),
+                            then=then,
+                        )
+                    )
+            elif form == "measure":
+                try:
+                    operator = Operator(str(item.get("operator", "")))
+                except ValueError:
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "UNKNOWN_ASSERTION_OPERATOR", cid, "measure operator is unregistered"
+                        )
+                    )
+                    continue
+                measure = item.get("measure")
+                sample = _mapping(item.get("sample")) or {}
+                minimum = sample.get("minimum")
+                if (
+                    not isinstance(measure, str)
+                    or not measure
+                    or measure not in registered_measures
+                    or isinstance(minimum, bool)
+                    or not isinstance(minimum, int)
+                    or minimum <= 0
+                ):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "MEASURE_INVALID",
+                            cid,
+                            "measure needs a registered source and positive sample.minimum",
+                        )
+                    )
+                    continue
+                assertion_value = item.get("value")
+                if operator is Operator.MATCHES:
+                    try:
+                        if not isinstance(assertion_value, str):
+                            raise re.error("pattern must be a string")
+                        re.compile(assertion_value)
+                    except re.error:
+                        diagnostics.append(
+                            AcceptanceDiagnostic(
+                                "INVALID_REGEX_ASSERTION",
+                                cid,
+                                "measure requires a valid string regex",
+                            )
+                        )
+                        continue
+                if operator in {Operator.LT, Operator.LTE, Operator.GT, Operator.GTE} and (
+                    isinstance(assertion_value, bool)
+                    or not isinstance(assertion_value, (int, float, str))
+                ):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "INVALID_ORDERED_ASSERTION_VALUE",
+                            cid,
+                            "measure requires a number or string value",
+                        )
+                    )
+                    continue
+                compiled.append(
+                    CompiledCriterion(
+                        cid,
+                        refs,
+                        form,
+                        measure=measure,
+                        operator=operator,
+                        value=assertion_value,
+                        minimum_sample=minimum,
+                    )
+                )
+            elif form == "human_test":
+                human_raw = _mapping(item.get("human_test"))
+                human = (
+                    None
+                    if human_raw is None
+                    else _human_test(
+                        human_raw,
+                        criterion_id=cid,
+                        repository_root=repository_root,
+                        diagnostics=diagnostics,
+                    )
+                )
+                if human is not None:
+                    compiled.append(CompiledCriterion(cid, refs, form, human_test=human))
+            else:
+                proof_raw = _mapping(item.get("satisfied_by_template"))
+                version = "" if proof_raw is None else str(proof_raw.get("template_version", ""))
+                test_id = "" if proof_raw is None else str(proof_raw.get("test_id", ""))
+                proof_digest = template_test_digests.get(test_id)
+                if version != template_version or proof_digest is None:
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "TEMPLATE_PROOF_INVALID",
+                            cid,
+                            "template proof does not match the pinned template",
+                        )
+                    )
+                    continue
+                compiled.append(
+                    CompiledCriterion(
+                        cid,
+                        refs,
+                        form,
+                        template_proof=TemplateProof(version, test_id, proof_digest),
+                    )
+                )
+    
+        for requirement_id in sorted(requirement_set - covered):
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "REQUIREMENT_UNCOVERED",
+                    requirement_id,
+                    "requirement has no executable criterion",
+                )
+            )
+        release_gates = compile_release_gates(
+            contract,
+            criterion_ids=frozenset(item.criterion_id for item in compiled),
+            diagnostic=lambda code, subject, message: diagnostics.append(
+                AcceptanceDiagnostic(code, subject, message)
+            ),
+        )
+        if diagnostics:
+>           raise AcceptanceCompileError(diagnostics)
+E           pmpe.contracts.acceptance.AcceptanceCompileError: ACTION_NOT_REGISTERED:AC-001; RELEASE_GATE_CRITERION_UNKNOWN:GATE-001
+
+src/pmpe/contracts/acceptance.py:764: AcceptanceCompileError
+_ test_r4_head_anchor_is_explicit_and_a_genuine_original_head_rejects_rewrite[inspect] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_head_anchor_is_explici2')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f1bae77c6b0>
+command = 'inspect'
+
+    @pytest.mark.parametrize("command", ["status", "evidence", "inspect"])
+    def test_r4_head_anchor_is_explicit_and_a_genuine_original_head_rejects_rewrite(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], command: str
+    ) -> None:
+        original, rewritten = tmp_path / "original", tmp_path / "rewritten"
+        original.mkdir()
+        rewritten.mkdir()
+        original_head, _ = _packet(original)
+>       rewritten_head, _ = _packet(rewritten, form="rewritten-contract")
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_r4_release_gate_inspection.py:174: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/unit/test_release_gate_inspection.py:73: in _packet
+    else compile_acceptance_plan(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'PMOS-E1-REWRITTEN', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': 'The g...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+repository_root = PosixPath('/tmp/pytest-of-root/pytest-48/test_r4_head_anchor_is_explici2/rewritten')
+registered_actions = frozenset({'custom_health'})
+template_version = 'fixture-1', template_test_digests = {}
+registered_measures = frozenset({'custom_latency'}), trusted_test_digests = {}
+
+    def compile_acceptance_plan(
+        contract: Mapping[str, Any],
+        *,
+        repository_root: Path,
+        registered_actions: frozenset[str],
+        template_version: str,
+        template_test_digests: Mapping[str, str],
+        registered_measures: frozenset[str] = frozenset(),
+        trusted_test_digests: Mapping[str, str] | None = None,
+    ) -> AcceptanceBuildPlan:
+        """Compile typed criteria and prove task/test coverage before any build."""
+    
+        diagnostics: list[AcceptanceDiagnostic] = []
+        requirements_raw = _id_keyed_collection(
+            contract.get("functional_requirements"),
+            collection="requirement",
+            diagnostics=diagnostics,
+        )
+        criteria_raw = _id_keyed_collection(
+            contract.get("acceptance_criteria"),
+            collection="criterion",
+            diagnostics=diagnostics,
+        )
+        if not requirements_raw:
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "REQUIREMENTS_MISSING", "contract", "functional requirements are required"
+                )
+            )
+            requirements_raw = {}
+        if not criteria_raw:
+            diagnostics.append(
+                AcceptanceDiagnostic("CRITERIA_MISSING", "contract", "acceptance criteria are required")
+            )
+            criteria_raw = {}
+    
+        requirements = tuple(sorted(str(item) for item in requirements_raw))
+        requirement_set = frozenset(requirements)
+        covered: set[str] = set()
+        compiled: list[CompiledCriterion] = []
+    
+        for criterion_id, raw in sorted(criteria_raw.items(), key=lambda item: str(item[0])):
+            cid = str(criterion_id)
+            item = _mapping(raw)
+            if item is None:
+                diagnostics.append(
+                    AcceptanceDiagnostic("INVALID_CRITERION", cid, "criterion must be an object")
+                )
+                continue
+            refs_raw = item.get("requirement_refs")
+            if (
+                not isinstance(refs_raw, list)
+                or not refs_raw
+                or not all(isinstance(ref, str) and ref for ref in refs_raw)
+            ):
+                diagnostics.append(
+                    AcceptanceDiagnostic(
+                        "REQUIREMENT_REFS_MISSING", cid, "criterion needs requirement_refs"
+                    )
+                )
+                continue
+            refs = tuple(sorted(set(refs_raw)))
+            unknown = sorted(set(refs) - requirement_set)
+            if unknown:
+                diagnostics.append(
+                    AcceptanceDiagnostic("UNKNOWN_REQUIREMENT_REF", cid, ", ".join(unknown))
+                )
+                continue
+            covered.update(refs)
+    
+            forms = {
+                "given_when_then": all(key in item for key in ("given", "when", "then")),
+                "measure": all(key in item for key in ("measure", "operator", "value")),
+                "human_test": "human_test" in item,
+                "satisfied_by_template": "satisfied_by_template" in item,
+            }
+            selected = [name for name, present in forms.items() if present]
+            if len(selected) != 1:
+                diagnostics.append(
+                    AcceptanceDiagnostic(
+                        "CRITERION_FORM_INVALID",
+                        cid,
+                        "criterion must select exactly one executable form",
+                    )
+                )
+                continue
+            form = selected[0]
+            if form == "given_when_then":
+                when_raw = _mapping(item.get("when"))
+                action = "" if when_raw is None else str(when_raw.get("action", ""))
+                arguments = {} if when_raw is None else when_raw.get("arguments", {})
+                if action not in registered_actions or not isinstance(arguments, Mapping):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "ACTION_NOT_REGISTERED", cid, "when.action is not registered"
+                        )
+                    )
+                    continue
+                given = _assertions(
+                    item.get("given"), criterion_id=cid, field="given", diagnostics=diagnostics
+                )
+                then = _assertions(
+                    item.get("then"), criterion_id=cid, field="then", diagnostics=diagnostics
+                )
+                if given and then:
+                    compiled.append(
+                        CompiledCriterion(
+                            cid,
+                            refs,
+                            form,
+                            given=given,
+                            when=ActionCall(action, dict(arguments)),
+                            then=then,
+                        )
+                    )
+            elif form == "measure":
+                try:
+                    operator = Operator(str(item.get("operator", "")))
+                except ValueError:
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "UNKNOWN_ASSERTION_OPERATOR", cid, "measure operator is unregistered"
+                        )
+                    )
+                    continue
+                measure = item.get("measure")
+                sample = _mapping(item.get("sample")) or {}
+                minimum = sample.get("minimum")
+                if (
+                    not isinstance(measure, str)
+                    or not measure
+                    or measure not in registered_measures
+                    or isinstance(minimum, bool)
+                    or not isinstance(minimum, int)
+                    or minimum <= 0
+                ):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "MEASURE_INVALID",
+                            cid,
+                            "measure needs a registered source and positive sample.minimum",
+                        )
+                    )
+                    continue
+                assertion_value = item.get("value")
+                if operator is Operator.MATCHES:
+                    try:
+                        if not isinstance(assertion_value, str):
+                            raise re.error("pattern must be a string")
+                        re.compile(assertion_value)
+                    except re.error:
+                        diagnostics.append(
+                            AcceptanceDiagnostic(
+                                "INVALID_REGEX_ASSERTION",
+                                cid,
+                                "measure requires a valid string regex",
+                            )
+                        )
+                        continue
+                if operator in {Operator.LT, Operator.LTE, Operator.GT, Operator.GTE} and (
+                    isinstance(assertion_value, bool)
+                    or not isinstance(assertion_value, (int, float, str))
+                ):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "INVALID_ORDERED_ASSERTION_VALUE",
+                            cid,
+                            "measure requires a number or string value",
+                        )
+                    )
+                    continue
+                compiled.append(
+                    CompiledCriterion(
+                        cid,
+                        refs,
+                        form,
+                        measure=measure,
+                        operator=operator,
+                        value=assertion_value,
+                        minimum_sample=minimum,
+                    )
+                )
+            elif form == "human_test":
+                human_raw = _mapping(item.get("human_test"))
+                human = (
+                    None
+                    if human_raw is None
+                    else _human_test(
+                        human_raw,
+                        criterion_id=cid,
+                        repository_root=repository_root,
+                        diagnostics=diagnostics,
+                    )
+                )
+                if human is not None:
+                    compiled.append(CompiledCriterion(cid, refs, form, human_test=human))
+            else:
+                proof_raw = _mapping(item.get("satisfied_by_template"))
+                version = "" if proof_raw is None else str(proof_raw.get("template_version", ""))
+                test_id = "" if proof_raw is None else str(proof_raw.get("test_id", ""))
+                proof_digest = template_test_digests.get(test_id)
+                if version != template_version or proof_digest is None:
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "TEMPLATE_PROOF_INVALID",
+                            cid,
+                            "template proof does not match the pinned template",
+                        )
+                    )
+                    continue
+                compiled.append(
+                    CompiledCriterion(
+                        cid,
+                        refs,
+                        form,
+                        template_proof=TemplateProof(version, test_id, proof_digest),
+                    )
+                )
+    
+        for requirement_id in sorted(requirement_set - covered):
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "REQUIREMENT_UNCOVERED",
+                    requirement_id,
+                    "requirement has no executable criterion",
+                )
+            )
+        release_gates = compile_release_gates(
+            contract,
+            criterion_ids=frozenset(item.criterion_id for item in compiled),
+            diagnostic=lambda code, subject, message: diagnostics.append(
+                AcceptanceDiagnostic(code, subject, message)
+            ),
+        )
+        if diagnostics:
+>           raise AcceptanceCompileError(diagnostics)
+E           pmpe.contracts.acceptance.AcceptanceCompileError: ACTION_NOT_REGISTERED:AC-001; RELEASE_GATE_CRITERION_UNKNOWN:GATE-001
+
+src/pmpe/contracts/acceptance.py:764: AcceptanceCompileError
+=========================== short test summary info ============================
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[authority-status]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[authority-evidence]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[authority-inspect]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[deleted-gate-key-status]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[deleted-gate-key-evidence]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[deleted-gate-key-inspect]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[ungated-subject-status]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[ungated-subject-evidence]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[ungated-subject-inspect]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[ungated-plan-status]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[ungated-plan-evidence]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[ungated-plan-inspect]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[ungated-receipt-status]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[ungated-receipt-evidence]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[ungated-receipt-inspect]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[failed-then-pass-status]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[failed-then-pass-evidence]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[failed-then-pass-inspect]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[failed-event-then-pass-status]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[failed-event-then-pass-evidence]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[failed-event-then-pass-inspect]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[duplicate-pass-status]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[duplicate-pass-evidence]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[duplicate-pass-inspect]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[unknown-event-status]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[unknown-event-evidence]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[unknown-event-inspect]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[ungated-unknown-status]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[ungated-unknown-evidence]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[ungated-unknown-inspect]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[ungated-failure-status]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[ungated-failure-evidence]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[ungated-failure-inspect]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[missing-start-status]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[missing-start-evidence]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[missing-start-inspect]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[coder-attempt-status]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[coder-attempt-evidence]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_contradictions_are_rejected_without_an_external_head[coder-attempt-inspect]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_halted_approval_is_also_reverified[status]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_halted_approval_is_also_reverified[evidence]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_status_does_not_trust_release_ready_state_on_an_unknown_event
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_head_anchor_is_explicit_and_a_genuine_original_head_rejects_rewrite[status]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_head_anchor_is_explicit_and_a_genuine_original_head_rejects_rewrite[evidence]
+FAILED tests/unit/test_r4_release_gate_inspection.py::test_r4_head_anchor_is_explicit_and_a_genuine_original_head_rejects_rewrite[inspect]
+45 failed, 44 passed in 2.35s
