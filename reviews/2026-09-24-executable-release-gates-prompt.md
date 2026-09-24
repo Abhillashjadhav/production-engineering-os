@@ -34,3 +34,8 @@ optional canonical schema authoring field. Existing A/B/C/template evaluation
 semantics and no-gate contract behavior stay unchanged. Tests precede production
 edits and use the existing test-only local sandbox seam, not a claimed OS
 isolation or live-model evaluation.
+
+Before production edits, the parent pointed out `CONTRIBUTING.md`; it was read
+and the RED test-only phase was committed as
+`1b807a68dd2020bcabad0c5cfd649c236f602219` before implementation. Subsequent
+commits preserve that chronology and use conventional commit prefixes.

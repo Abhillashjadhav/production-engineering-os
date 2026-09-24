@@ -41,9 +41,7 @@ def _contract() -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("status", ["ok", "broken"])
-def test_every_bound_gate_has_snapshot_bound_runtime_evidence(
-    tmp_path: Path, status: str
-) -> None:
+def test_every_bound_gate_has_snapshot_bound_runtime_evidence(tmp_path: Path, status: str) -> None:
     result = run_to_release_ready(
         contract=_contract(),
         repository_root=tmp_path,

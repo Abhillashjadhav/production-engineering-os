@@ -50,9 +50,7 @@ def test_release_gate_bindings_are_preserved_in_the_compiled_plan(
 @pytest.mark.parametrize("refs", [None, [], "AC-001", [""], [1], ["AC-001", "AC-001"]])
 def test_release_gate_invalid_binding_refuses_compilation(tmp_path: Path, refs: Any) -> None:
     contract = _contract()
-    contract["binary_release_gates"] = [
-        {"id": "GATE-001", **_gate(acceptance_criterion_refs=refs)}
-    ]
+    contract["binary_release_gates"] = [{"id": "GATE-001", **_gate(acceptance_criterion_refs=refs)}]
     with pytest.raises(AcceptanceCompileError) as failure:
         compile_barebones_plan(contract=contract, repository_root=tmp_path)
     assert any(item.subject_id == "GATE-001" for item in failure.value.diagnostics)
@@ -100,10 +98,11 @@ def test_competing_gate_declarations_are_not_merged_by_guessing(tmp_path: Path) 
     contract["quality_assurance"] = {"release_gates": {"GATE-002": _gate()}}
     with pytest.raises(AcceptanceCompileError) as failure:
         compile_barebones_plan(contract=contract, repository_root=tmp_path)
-    assert any(item.code == "RELEASE_GATE_DECLARATIONS_CONFLICT" for item in failure.value.diagnostics)
+    assert any(
+        item.code == "RELEASE_GATE_DECLARATIONS_CONFLICT" for item in failure.value.diagnostics
+    )
 
 
 def test_contract_without_release_gates_still_compiles(tmp_path: Path) -> None:
     plan = compile_barebones_plan(contract=_contract(), repository_root=tmp_path)
     assert [criterion.criterion_id for criterion in plan.criteria] == ["AC-001"]
-
