@@ -1,0 +1,564 @@
+F....FFF                                                                 [100%]
+=================================== FAILURES ===================================
+__________ test_four_typed_bindings_compile_without_changing_criteria __________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-9/test_four_typed_bindings_compi0')
+
+    def test_four_typed_bindings_compile_without_changing_criteria(tmp_path: Path) -> None:
+        items = bindings("sha256:" + "a" * 64, "sha256:" + "b" * 64)
+>       plan = compile_barebones_plan(contract=bound_contract(items), repository_root=tmp_path, template=default_template())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_process_gate_runtime.py:71: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/pmpe/barebones.py:465: in compile_barebones_plan
+    return compile_acceptance_plan(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'PMOS-E1', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': 'The generated p...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+repository_root = PosixPath('/tmp/pytest-of-root/pytest-9/test_four_typed_bindings_compi0')
+registered_actions = frozenset({'health'}), template_version = 'barebones-1'
+template_test_digests = {}, registered_measures = frozenset()
+trusted_test_digests = {}
+
+    def compile_acceptance_plan(
+        contract: Mapping[str, Any],
+        *,
+        repository_root: Path,
+        registered_actions: frozenset[str],
+        template_version: str,
+        template_test_digests: Mapping[str, str],
+        registered_measures: frozenset[str] = frozenset(),
+        trusted_test_digests: Mapping[str, str] | None = None,
+    ) -> AcceptanceBuildPlan:
+        """Compile typed criteria and prove task/test coverage before any build."""
+    
+        diagnostics: list[AcceptanceDiagnostic] = []
+        requirements_raw = _id_keyed_collection(
+            contract.get("functional_requirements"),
+            collection="requirement",
+            diagnostics=diagnostics,
+        )
+        criteria_raw = _id_keyed_collection(
+            contract.get("acceptance_criteria"),
+            collection="criterion",
+            diagnostics=diagnostics,
+        )
+        if not requirements_raw:
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "REQUIREMENTS_MISSING", "contract", "functional requirements are required"
+                )
+            )
+            requirements_raw = {}
+        if not criteria_raw:
+            diagnostics.append(
+                AcceptanceDiagnostic("CRITERIA_MISSING", "contract", "acceptance criteria are required")
+            )
+            criteria_raw = {}
+    
+        requirements = tuple(sorted(str(item) for item in requirements_raw))
+        requirement_set = frozenset(requirements)
+        covered: set[str] = set()
+        compiled: list[CompiledCriterion] = []
+    
+        for criterion_id, raw in sorted(criteria_raw.items(), key=lambda item: str(item[0])):
+            cid = str(criterion_id)
+            item = _mapping(raw)
+            if item is None:
+                diagnostics.append(
+                    AcceptanceDiagnostic("INVALID_CRITERION", cid, "criterion must be an object")
+                )
+                continue
+            refs_raw = item.get("requirement_refs")
+            if (
+                not isinstance(refs_raw, list)
+                or not refs_raw
+                or not all(isinstance(ref, str) and ref for ref in refs_raw)
+            ):
+                diagnostics.append(
+                    AcceptanceDiagnostic(
+                        "REQUIREMENT_REFS_MISSING", cid, "criterion needs requirement_refs"
+                    )
+                )
+                continue
+            refs = tuple(sorted(set(refs_raw)))
+            unknown = sorted(set(refs) - requirement_set)
+            if unknown:
+                diagnostics.append(
+                    AcceptanceDiagnostic("UNKNOWN_REQUIREMENT_REF", cid, ", ".join(unknown))
+                )
+                continue
+            covered.update(refs)
+    
+            forms = {
+                "given_when_then": all(key in item for key in ("given", "when", "then")),
+                "measure": all(key in item for key in ("measure", "operator", "value")),
+                "human_test": "human_test" in item,
+                "satisfied_by_template": "satisfied_by_template" in item,
+            }
+            selected = [name for name, present in forms.items() if present]
+            if len(selected) != 1:
+                diagnostics.append(
+                    AcceptanceDiagnostic(
+                        "CRITERION_FORM_INVALID",
+                        cid,
+                        "criterion must select exactly one executable form",
+                    )
+                )
+                continue
+            form = selected[0]
+            if form == "given_when_then":
+                when_raw = _mapping(item.get("when"))
+                action = "" if when_raw is None else str(when_raw.get("action", ""))
+                arguments = {} if when_raw is None else when_raw.get("arguments", {})
+                if action not in registered_actions or not isinstance(arguments, Mapping):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "ACTION_NOT_REGISTERED", cid, "when.action is not registered"
+                        )
+                    )
+                    continue
+                given = _assertions(
+                    item.get("given"), criterion_id=cid, field="given", diagnostics=diagnostics
+                )
+                then = _assertions(
+                    item.get("then"), criterion_id=cid, field="then", diagnostics=diagnostics
+                )
+                if given and then:
+                    compiled.append(
+                        CompiledCriterion(
+                            cid,
+                            refs,
+                            form,
+                            given=given,
+                            when=ActionCall(action, dict(arguments)),
+                            then=then,
+                        )
+                    )
+            elif form == "measure":
+                try:
+                    operator = Operator(str(item.get("operator", "")))
+                except ValueError:
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "UNKNOWN_ASSERTION_OPERATOR", cid, "measure operator is unregistered"
+                        )
+                    )
+                    continue
+                measure = item.get("measure")
+                sample = _mapping(item.get("sample")) or {}
+                minimum = sample.get("minimum")
+                if (
+                    not isinstance(measure, str)
+                    or not measure
+                    or measure not in registered_measures
+                    or isinstance(minimum, bool)
+                    or not isinstance(minimum, int)
+                    or minimum <= 0
+                ):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "MEASURE_INVALID",
+                            cid,
+                            "measure needs a registered source and positive sample.minimum",
+                        )
+                    )
+                    continue
+                assertion_value = item.get("value")
+                if operator is Operator.MATCHES:
+                    try:
+                        if not isinstance(assertion_value, str):
+                            raise re.error("pattern must be a string")
+                        re.compile(assertion_value)
+                    except re.error:
+                        diagnostics.append(
+                            AcceptanceDiagnostic(
+                                "INVALID_REGEX_ASSERTION",
+                                cid,
+                                "measure requires a valid string regex",
+                            )
+                        )
+                        continue
+                if operator in {Operator.LT, Operator.LTE, Operator.GT, Operator.GTE} and (
+                    isinstance(assertion_value, bool)
+                    or not isinstance(assertion_value, (int, float, str))
+                ):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "INVALID_ORDERED_ASSERTION_VALUE",
+                            cid,
+                            "measure requires a number or string value",
+                        )
+                    )
+                    continue
+                compiled.append(
+                    CompiledCriterion(
+                        cid,
+                        refs,
+                        form,
+                        measure=measure,
+                        operator=operator,
+                        value=assertion_value,
+                        minimum_sample=minimum,
+                    )
+                )
+            elif form == "human_test":
+                human_raw = _mapping(item.get("human_test"))
+                human = (
+                    None
+                    if human_raw is None
+                    else _human_test(
+                        human_raw,
+                        criterion_id=cid,
+                        repository_root=repository_root,
+                        diagnostics=diagnostics,
+                    )
+                )
+                if human is not None:
+                    compiled.append(CompiledCriterion(cid, refs, form, human_test=human))
+            else:
+                proof_raw = _mapping(item.get("satisfied_by_template"))
+                version = "" if proof_raw is None else str(proof_raw.get("template_version", ""))
+                test_id = "" if proof_raw is None else str(proof_raw.get("test_id", ""))
+                proof_digest = template_test_digests.get(test_id)
+                if version != template_version or proof_digest is None:
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "TEMPLATE_PROOF_INVALID",
+                            cid,
+                            "template proof does not match the pinned template",
+                        )
+                    )
+                    continue
+                compiled.append(
+                    CompiledCriterion(
+                        cid,
+                        refs,
+                        form,
+                        template_proof=TemplateProof(version, test_id, proof_digest),
+                    )
+                )
+    
+        for requirement_id in sorted(requirement_set - covered):
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "REQUIREMENT_UNCOVERED",
+                    requirement_id,
+                    "requirement has no executable criterion",
+                )
+            )
+        release_gates = compile_release_gates(
+            contract,
+            criterion_ids=frozenset(item.criterion_id for item in compiled),
+            diagnostic=lambda code, subject, message: diagnostics.append(
+                AcceptanceDiagnostic(code, subject, message)
+            ),
+        )
+        if diagnostics:
+>           raise AcceptanceCompileError(diagnostics)
+E           pmpe.contracts.acceptance.AcceptanceCompileError: RELEASE_GATE_UNSUPPORTED:GATE-002; RELEASE_GATE_UNSUPPORTED:GATE-003; RELEASE_GATE_UNSUPPORTED:GATE-004; RELEASE_GATE_UNSUPPORTED:GATE-005
+
+src/pmpe/contracts/acceptance.py:764: AcceptanceCompileError
+______ test_retained_replay_passes_mechanical_gates_but_never_fresh_gate _______
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-9/test_retained_replay_passes_me0')
+
+    def test_retained_replay_passes_mechanical_gates_but_never_fresh_gate(tmp_path: Path) -> None:
+>       inputs, items = make_inputs(tmp_path)
+                        ^^^^^^^^^^^^^^^^^^^^^
+
+tests/integration/test_process_gate_runtime.py:93: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-9/test_retained_replay_passes_me0')
+
+    def make_inputs(tmp_path: Path) -> tuple[Any, list[dict[str, Any]]]:
+>       from pmpe.process_gates import ProcessGateInputs, build_source_manifest, raw_digest
+E       ModuleNotFoundError: No module named 'pmpe.process_gates'
+
+tests/integration/test_process_gate_runtime.py:55: ModuleNotFoundError
+___ test_declared_process_gate_missing_runtime_input_refuses_before_provider ___
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-9/test_declared_process_gate_mis0')
+
+    def test_declared_process_gate_missing_runtime_input_refuses_before_provider(tmp_path: Path) -> None:
+        provider = ReplayProvider()
+        from pmpe.barebones import ContractInvalidError
+        with pytest.raises(ContractInvalidError, match="process gate"):
+>           run_to_release_ready(contract=bound_contract(bindings("sha256:"+"a"*64, "sha256:"+"b"*64)), repository_root=tmp_path, workspace=tmp_path / "candidate", run_id="missing-input", provider=provider)
+
+tests/integration/test_process_gate_runtime.py:117: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/pmpe/barebones.py:1064: in run_to_release_ready
+    plan = compile_barebones_plan(
+src/pmpe/barebones.py:465: in compile_barebones_plan
+    return compile_acceptance_plan(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'PMOS-E1', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': 'The generated p...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+repository_root = PosixPath('/tmp/pytest-of-root/pytest-9/test_declared_process_gate_mis0')
+registered_actions = frozenset({'health'}), template_version = 'barebones-1'
+template_test_digests = {}, registered_measures = frozenset()
+trusted_test_digests = {}
+
+    def compile_acceptance_plan(
+        contract: Mapping[str, Any],
+        *,
+        repository_root: Path,
+        registered_actions: frozenset[str],
+        template_version: str,
+        template_test_digests: Mapping[str, str],
+        registered_measures: frozenset[str] = frozenset(),
+        trusted_test_digests: Mapping[str, str] | None = None,
+    ) -> AcceptanceBuildPlan:
+        """Compile typed criteria and prove task/test coverage before any build."""
+    
+        diagnostics: list[AcceptanceDiagnostic] = []
+        requirements_raw = _id_keyed_collection(
+            contract.get("functional_requirements"),
+            collection="requirement",
+            diagnostics=diagnostics,
+        )
+        criteria_raw = _id_keyed_collection(
+            contract.get("acceptance_criteria"),
+            collection="criterion",
+            diagnostics=diagnostics,
+        )
+        if not requirements_raw:
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "REQUIREMENTS_MISSING", "contract", "functional requirements are required"
+                )
+            )
+            requirements_raw = {}
+        if not criteria_raw:
+            diagnostics.append(
+                AcceptanceDiagnostic("CRITERIA_MISSING", "contract", "acceptance criteria are required")
+            )
+            criteria_raw = {}
+    
+        requirements = tuple(sorted(str(item) for item in requirements_raw))
+        requirement_set = frozenset(requirements)
+        covered: set[str] = set()
+        compiled: list[CompiledCriterion] = []
+    
+        for criterion_id, raw in sorted(criteria_raw.items(), key=lambda item: str(item[0])):
+            cid = str(criterion_id)
+            item = _mapping(raw)
+            if item is None:
+                diagnostics.append(
+                    AcceptanceDiagnostic("INVALID_CRITERION", cid, "criterion must be an object")
+                )
+                continue
+            refs_raw = item.get("requirement_refs")
+            if (
+                not isinstance(refs_raw, list)
+                or not refs_raw
+                or not all(isinstance(ref, str) and ref for ref in refs_raw)
+            ):
+                diagnostics.append(
+                    AcceptanceDiagnostic(
+                        "REQUIREMENT_REFS_MISSING", cid, "criterion needs requirement_refs"
+                    )
+                )
+                continue
+            refs = tuple(sorted(set(refs_raw)))
+            unknown = sorted(set(refs) - requirement_set)
+            if unknown:
+                diagnostics.append(
+                    AcceptanceDiagnostic("UNKNOWN_REQUIREMENT_REF", cid, ", ".join(unknown))
+                )
+                continue
+            covered.update(refs)
+    
+            forms = {
+                "given_when_then": all(key in item for key in ("given", "when", "then")),
+                "measure": all(key in item for key in ("measure", "operator", "value")),
+                "human_test": "human_test" in item,
+                "satisfied_by_template": "satisfied_by_template" in item,
+            }
+            selected = [name for name, present in forms.items() if present]
+            if len(selected) != 1:
+                diagnostics.append(
+                    AcceptanceDiagnostic(
+                        "CRITERION_FORM_INVALID",
+                        cid,
+                        "criterion must select exactly one executable form",
+                    )
+                )
+                continue
+            form = selected[0]
+            if form == "given_when_then":
+                when_raw = _mapping(item.get("when"))
+                action = "" if when_raw is None else str(when_raw.get("action", ""))
+                arguments = {} if when_raw is None else when_raw.get("arguments", {})
+                if action not in registered_actions or not isinstance(arguments, Mapping):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "ACTION_NOT_REGISTERED", cid, "when.action is not registered"
+                        )
+                    )
+                    continue
+                given = _assertions(
+                    item.get("given"), criterion_id=cid, field="given", diagnostics=diagnostics
+                )
+                then = _assertions(
+                    item.get("then"), criterion_id=cid, field="then", diagnostics=diagnostics
+                )
+                if given and then:
+                    compiled.append(
+                        CompiledCriterion(
+                            cid,
+                            refs,
+                            form,
+                            given=given,
+                            when=ActionCall(action, dict(arguments)),
+                            then=then,
+                        )
+                    )
+            elif form == "measure":
+                try:
+                    operator = Operator(str(item.get("operator", "")))
+                except ValueError:
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "UNKNOWN_ASSERTION_OPERATOR", cid, "measure operator is unregistered"
+                        )
+                    )
+                    continue
+                measure = item.get("measure")
+                sample = _mapping(item.get("sample")) or {}
+                minimum = sample.get("minimum")
+                if (
+                    not isinstance(measure, str)
+                    or not measure
+                    or measure not in registered_measures
+                    or isinstance(minimum, bool)
+                    or not isinstance(minimum, int)
+                    or minimum <= 0
+                ):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "MEASURE_INVALID",
+                            cid,
+                            "measure needs a registered source and positive sample.minimum",
+                        )
+                    )
+                    continue
+                assertion_value = item.get("value")
+                if operator is Operator.MATCHES:
+                    try:
+                        if not isinstance(assertion_value, str):
+                            raise re.error("pattern must be a string")
+                        re.compile(assertion_value)
+                    except re.error:
+                        diagnostics.append(
+                            AcceptanceDiagnostic(
+                                "INVALID_REGEX_ASSERTION",
+                                cid,
+                                "measure requires a valid string regex",
+                            )
+                        )
+                        continue
+                if operator in {Operator.LT, Operator.LTE, Operator.GT, Operator.GTE} and (
+                    isinstance(assertion_value, bool)
+                    or not isinstance(assertion_value, (int, float, str))
+                ):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "INVALID_ORDERED_ASSERTION_VALUE",
+                            cid,
+                            "measure requires a number or string value",
+                        )
+                    )
+                    continue
+                compiled.append(
+                    CompiledCriterion(
+                        cid,
+                        refs,
+                        form,
+                        measure=measure,
+                        operator=operator,
+                        value=assertion_value,
+                        minimum_sample=minimum,
+                    )
+                )
+            elif form == "human_test":
+                human_raw = _mapping(item.get("human_test"))
+                human = (
+                    None
+                    if human_raw is None
+                    else _human_test(
+                        human_raw,
+                        criterion_id=cid,
+                        repository_root=repository_root,
+                        diagnostics=diagnostics,
+                    )
+                )
+                if human is not None:
+                    compiled.append(CompiledCriterion(cid, refs, form, human_test=human))
+            else:
+                proof_raw = _mapping(item.get("satisfied_by_template"))
+                version = "" if proof_raw is None else str(proof_raw.get("template_version", ""))
+                test_id = "" if proof_raw is None else str(proof_raw.get("test_id", ""))
+                proof_digest = template_test_digests.get(test_id)
+                if version != template_version or proof_digest is None:
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "TEMPLATE_PROOF_INVALID",
+                            cid,
+                            "template proof does not match the pinned template",
+                        )
+                    )
+                    continue
+                compiled.append(
+                    CompiledCriterion(
+                        cid,
+                        refs,
+                        form,
+                        template_proof=TemplateProof(version, test_id, proof_digest),
+                    )
+                )
+    
+        for requirement_id in sorted(requirement_set - covered):
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "REQUIREMENT_UNCOVERED",
+                    requirement_id,
+                    "requirement has no executable criterion",
+                )
+            )
+        release_gates = compile_release_gates(
+            contract,
+            criterion_ids=frozenset(item.criterion_id for item in compiled),
+            diagnostic=lambda code, subject, message: diagnostics.append(
+                AcceptanceDiagnostic(code, subject, message)
+            ),
+        )
+        if diagnostics:
+>           raise AcceptanceCompileError(diagnostics)
+E           pmpe.contracts.acceptance.AcceptanceCompileError: RELEASE_GATE_UNSUPPORTED:GATE-002; RELEASE_GATE_UNSUPPORTED:GATE-003; RELEASE_GATE_UNSUPPORTED:GATE-004; RELEASE_GATE_UNSUPPORTED:GATE-005
+
+src/pmpe/contracts/acceptance.py:764: AcceptanceCompileError
+_________ test_no_gate_and_criterion_gate_serialization_are_unchanged __________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-9/test_no_gate_and_criterion_gat0')
+
+    def test_no_gate_and_criterion_gate_serialization_are_unchanged(tmp_path: Path) -> None:
+        original = contract()
+        no_gate = compile_barebones_plan(contract=original, repository_root=tmp_path, template=default_template())
+        assert "release_gates" not in no_gate.as_dict()
+        original["binary_release_gates"] = [{"id": "G1", "description": "health", "acceptance_criterion_refs": ["AC-001"]}]
+        plan = compile_barebones_plan(contract=original, repository_root=tmp_path, template=default_template())
+>       assert plan.as_dict()["release_gates"] == [{"gate_id": "G1", "acceptance_criterion_refs": ("AC-001",)}]
+E       AssertionError: assert ({'gate_id': ...('AC-001',)},) == [{'gate_id': ... ('AC-001',)}]
+E         
+E         Use -v to get more diff
+
+tests/integration/test_process_gate_runtime.py:128: AssertionError
+=========================== short test summary info ============================
+FAILED tests/integration/test_process_gate_runtime.py::test_four_typed_bindings_compile_without_changing_criteria
+FAILED tests/integration/test_process_gate_runtime.py::test_retained_replay_passes_mechanical_gates_but_never_fresh_gate
+FAILED tests/integration/test_process_gate_runtime.py::test_declared_process_gate_missing_runtime_input_refuses_before_provider
+FAILED tests/integration/test_process_gate_runtime.py::test_no_gate_and_criterion_gate_serialization_are_unchanged

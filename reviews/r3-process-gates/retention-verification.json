@@ -1,0 +1,11 @@
+{
+  "all_blobs_raw_digest_verified": true,
+  "all_blobs_utf8": true,
+  "all_referenced_blobs_present": true,
+  "blob_count": 277,
+  "event_count": 8,
+  "fresh_model_calls": 0,
+  "publisher_draft_reproduced_exactly": true,
+  "status": "VERIFIED_FULL_RETAINED_LEDGER",
+  "terminal": "HALTED"
+}

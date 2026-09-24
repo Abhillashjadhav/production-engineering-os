@@ -1,0 +1,7 @@
+src/pmpe/process_approval.py:71:101: E501 Line too long (115 > 100)
+tests/integration/test_process_gate_approval.py:36:101: E501 Line too long (104 > 100)
+tests/integration/test_process_gate_approval.py:37:101: E501 Line too long (108 > 100)
+tests/integration/test_process_gate_approval.py:143:101: E501 Line too long (113 > 100)
+tests/integration/test_process_gate_approval.py:229:101: E501 Line too long (209 > 100)
+tests/integration/test_process_gate_approval.py:232:101: E501 Line too long (338 > 100)
+Found 7 errors (1 fixed, 6 remaining).

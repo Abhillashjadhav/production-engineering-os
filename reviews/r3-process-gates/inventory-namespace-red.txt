@@ -1,0 +1,15 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_ test_source_inventory_reserves_outer_and_protected_namespaces[approval/contract] _
+tests/integration/test_process_gate_approval.py:209: in test_source_inventory_reserves_outer_and_protected_namespaces
+    with pytest.raises(ValueError, match="reserves"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+_ test_source_inventory_reserves_outer_and_protected_namespaces[protected/tests/check.py] _
+tests/integration/test_process_gate_approval.py:209: in test_source_inventory_reserves_outer_and_protected_namespaces
+    with pytest.raises(ValueError, match="reserves"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ValueError
+=========================== short test summary info ============================
+FAILED tests/integration/test_process_gate_approval.py::test_source_inventory_reserves_outer_and_protected_namespaces[approval/contract]
+FAILED tests/integration/test_process_gate_approval.py::test_source_inventory_reserves_outer_and_protected_namespaces[protected/tests/check.py]

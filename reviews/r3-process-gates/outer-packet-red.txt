@@ -1,0 +1,83 @@
+FFFFFFF                                                                  [100%]
+=================================== FAILURES ===================================
+___________ test_source_only_checks_are_not_full_approval_integrity ____________
+tests/integration/test_process_gate_approval.py:42: in test_source_only_checks_are_not_full_approval_integrity
+    assert gate["status"] == "NOT_EVALUATED"
+E   AssertionError: assert 'PASS' == 'NOT_EVALUATED'
+E     
+E     - NOT_EVALUATED
+E     + PASS
+________ test_complete_test_only_approval_packet_allows_integrity_pass _________
+tests/integration/test_process_gate_approval.py:48: in test_complete_test_only_approval_packet_allows_integrity_pass
+    inputs, approved, receipt_bytes = approved_fixture(tmp_path)
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/integration/test_process_gate_approval.py:34: in approved_fixture
+    inputs = replace(inputs, approval_freeze=freeze, approval_freeze_expected_digest=raw_digest(freeze), approval_paths=paths)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/dataclasses.py:1588: in replace
+    return obj.__class__(**changes)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: ProcessGateInputs.__init__() got an unexpected keyword argument 'approval_freeze'
+_________ test_changed_outer_packet_refuses_before_provider[contract] __________
+tests/integration/test_process_gate_approval.py:57: in test_changed_outer_packet_refuses_before_provider
+    inputs, approved, receipt_bytes = approved_fixture(tmp_path)
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/integration/test_process_gate_approval.py:34: in approved_fixture
+    inputs = replace(inputs, approval_freeze=freeze, approval_freeze_expected_digest=raw_digest(freeze), approval_paths=paths)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/dataclasses.py:1588: in replace
+    return obj.__class__(**changes)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: ProcessGateInputs.__init__() got an unexpected keyword argument 'approval_freeze'
+__________ test_changed_outer_packet_refuses_before_provider[receipt] __________
+tests/integration/test_process_gate_approval.py:57: in test_changed_outer_packet_refuses_before_provider
+    inputs, approved, receipt_bytes = approved_fixture(tmp_path)
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/integration/test_process_gate_approval.py:34: in approved_fixture
+    inputs = replace(inputs, approval_freeze=freeze, approval_freeze_expected_digest=raw_digest(freeze), approval_paths=paths)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/dataclasses.py:1588: in replace
+    return obj.__class__(**changes)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: ProcessGateInputs.__init__() got an unexpected keyword argument 'approval_freeze'
+___________ test_changed_outer_packet_refuses_before_provider[draft] ___________
+tests/integration/test_process_gate_approval.py:57: in test_changed_outer_packet_refuses_before_provider
+    inputs, approved, receipt_bytes = approved_fixture(tmp_path)
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/integration/test_process_gate_approval.py:34: in approved_fixture
+    inputs = replace(inputs, approval_freeze=freeze, approval_freeze_expected_digest=raw_digest(freeze), approval_paths=paths)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/dataclasses.py:1588: in replace
+    return obj.__class__(**changes)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: ProcessGateInputs.__init__() got an unexpected keyword argument 'approval_freeze'
+___________ test_changed_outer_packet_refuses_before_provider[plan] ____________
+tests/integration/test_process_gate_approval.py:57: in test_changed_outer_packet_refuses_before_provider
+    inputs, approved, receipt_bytes = approved_fixture(tmp_path)
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/integration/test_process_gate_approval.py:34: in approved_fixture
+    inputs = replace(inputs, approval_freeze=freeze, approval_freeze_expected_digest=raw_digest(freeze), approval_paths=paths)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/dataclasses.py:1588: in replace
+    return obj.__class__(**changes)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: ProcessGateInputs.__init__() got an unexpected keyword argument 'approval_freeze'
+______ test_changed_outer_packet_refuses_before_provider[source_manifest] ______
+tests/integration/test_process_gate_approval.py:57: in test_changed_outer_packet_refuses_before_provider
+    inputs, approved, receipt_bytes = approved_fixture(tmp_path)
+                                      ^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/integration/test_process_gate_approval.py:34: in approved_fixture
+    inputs = replace(inputs, approval_freeze=freeze, approval_freeze_expected_digest=raw_digest(freeze), approval_paths=paths)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/dataclasses.py:1588: in replace
+    return obj.__class__(**changes)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: ProcessGateInputs.__init__() got an unexpected keyword argument 'approval_freeze'
+=========================== short test summary info ============================
+FAILED tests/integration/test_process_gate_approval.py::test_source_only_checks_are_not_full_approval_integrity
+FAILED tests/integration/test_process_gate_approval.py::test_complete_test_only_approval_packet_allows_integrity_pass
+FAILED tests/integration/test_process_gate_approval.py::test_changed_outer_packet_refuses_before_provider[contract]
+FAILED tests/integration/test_process_gate_approval.py::test_changed_outer_packet_refuses_before_provider[receipt]
+FAILED tests/integration/test_process_gate_approval.py::test_changed_outer_packet_refuses_before_provider[draft]
+FAILED tests/integration/test_process_gate_approval.py::test_changed_outer_packet_refuses_before_provider[plan]
+FAILED tests/integration/test_process_gate_approval.py::test_changed_outer_packet_refuses_before_provider[source_manifest]

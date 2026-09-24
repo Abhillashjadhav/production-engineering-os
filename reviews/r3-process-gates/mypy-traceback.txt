@@ -1,0 +1,33 @@
+error: INTERNAL ERROR -- Please try using mypy master on GitHub:
+https://mypy.readthedocs.io/en/stable/common_issues.html#using-a-development-mypy-build
+Please report a bug at https://github.com/python/mypy/issues
+version: 2.3.1
+note: use --pdb to drop into pdb
+Traceback (most recent call last):
+  File "mypy/build.py", line 537, in build_inner
+  File "mypy/build.py", line 4146, in dispatch
+  File "mypy/build.py", line 4614, in process_graph
+  File "mypy/build.py", line 1484, in wait_for_done
+  File "mypy/build.py", line 4821, in process_stale_scc
+  File "mypy/build.py", line 3604, in write_cache
+  File "mypy/build.py", line 2367, in write_cache
+  File "mypy/build.py", line 1180, in getmtime
+  File "mypy/metastore.py", line 224, in getmtime
+  File "mypy/metastore.py", line 216, in _query
+sqlite3.DatabaseError: database disk image is malformed
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/workspace/scratch/f9ac546f3a50/overnight-20260923/venv/lib/python3.12/site-packages/mypy/__main__.py", line 16, in console_entry
+    main()
+  File "mypy/main.py", line 154, in main
+  File "mypy/main.py", line 244, in run_build
+  File "mypy/build.py", line 422, in build
+  File "mypy/build.py", line 547, in build_inner
+  File "mypy/build.py", line 1319, in commit
+  File "mypy/metastore.py", line 258, in commit
+sqlite3.DatabaseError: database disk image is malformed
+

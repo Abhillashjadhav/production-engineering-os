@@ -1,0 +1,11 @@
+{
+  "acceptance_grid": "/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved/reviews/task-tracker-v1/ACCEPTANCE.md",
+  "adapter": "/workspace/scratch/f9ac546f3a50/r3-20260924/peos-migration/scripts/r3_task_store_migration.py",
+  "approved_scenarios": "/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved/reviews/task-tracker-v1/scenarios.json",
+  "bindings": "/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved/reviews/task-tracker-v1/bindings.json",
+  "evaluator": "/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved/reviews/task-tracker-v1/evaluator.py",
+  "execution_profile": "/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved/reviews/task-tracker-v1/execution-profile.json",
+  "historical_adapter": "/workspace/scratch/f9ac546f3a50/integration-20260924/peos-proof/examples/barebones/contract-file.py",
+  "historical_freeze_manifest": "/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved/reviews/task-tracker-v1/freeze-manifest.json",
+  "original_publisher_input": "/workspace/scratch/f9ac546f3a50/integration-20260924/pmos-approved/reviews/task-tracker-v1/publisher-input.json"
+}

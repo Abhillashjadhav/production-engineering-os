@@ -1,0 +1,2 @@
+src/pmpe/process_gate_inputs.py:139:17: SIM102 Use a single `if` statement instead of nested `if` statements
+Found 2 errors (1 fixed, 1 remaining).

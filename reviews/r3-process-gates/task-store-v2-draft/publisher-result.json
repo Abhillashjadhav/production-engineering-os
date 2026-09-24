@@ -1,0 +1,25 @@
+{
+  "approval": "NOT_APPROVED",
+  "draft_digest": "sha256:e7af374535ddf236d4298b926caf9de5d5445df4d6b61b62654b90caa81c6a37",
+  "source_digest": "sha256:725484bbefe2a93b87f25ef879a8b6e30387b72d86dea5804bb53c68f0f9663b",
+  "source_map": {
+    "/acceptance_criteria": "/answers/acceptance_criteria",
+    "/binary_release_gates": "/answers/binary_release_gates",
+    "/desired_outcome": "/answers/desired_outcome",
+    "/functional_requirements": "/answers/functional_requirements",
+    "/golden_cases": "/answers/golden_cases",
+    "/guardrails": "/answers/guardrails",
+    "/known_risks": "/answers/known_risks",
+    "/leading_metrics": "/answers/leading_metrics",
+    "/non_functional_requirements": "/answers/non_functional_requirements",
+    "/north_star_metric": "/answers/north_star_metric",
+    "/out_of_scope": "/answers/out_of_scope",
+    "/problem": "/answers/problem",
+    "/product_name": "/answers/product_name",
+    "/required_approvals": "/answers/required_approvals",
+    "/scope": "/answers/scope",
+    "/scored_eval_rubric": "/answers/scored_eval_rubric",
+    "/target_user": "/answers/target_user"
+  },
+  "status": "DRAFT_READY_FOR_APPROVAL"
+}

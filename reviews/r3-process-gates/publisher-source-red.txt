@@ -1,0 +1,9 @@
+.F                                                                       [100%]
+=================================== FAILURES ===================================
+________________ test_outer_packet_cannot_omit_publisher_source ________________
+tests/integration/test_process_gate_approval.py:231: in test_outer_packet_cannot_omit_publisher_source
+    with pytest.raises(ContractInvalidError, match="approval packet"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE ContractInvalidError
+=========================== short test summary info ============================
+FAILED tests/integration/test_process_gate_approval.py::test_outer_packet_cannot_omit_publisher_source

@@ -1,0 +1,45 @@
+{
+  "combined_tests_and_docs_head": "733a409d5b0a72f7ad0550db974f70623e259992",
+  "contract_digest": "sha256:e7af374535ddf236d4298b926caf9de5d5445df4d6b61b62654b90caa81c6a37",
+  "digest_observations": 117,
+  "fresh_model_calls": 0,
+  "frozen_v1": "UNCHANGED; original freeze checks passed before/after and per legacy process",
+  "gates": {
+    "GATE-001": "PASS",
+    "GATE-002": "PASS",
+    "GATE-003": "NOT_EVALUATED",
+    "GATE-004": "NOT_EVALUATED",
+    "GATE-005": "PASS"
+  },
+  "implementation_source_commit": "68ae80fbe85332551b36f2a0b6dfe24d7ba1bc3d",
+  "owner_approval_created": false,
+  "plan_digest": "sha256:4cec05f8341730a45a4a23c06689b942ad5c999a5fd8e96f22ced59605179fb0",
+  "process_records": 56,
+  "publisher_source_digest": "sha256:725484bbefe2a93b87f25ef879a8b6e30387b72d86dea5804bb53c68f0f9663b",
+  "retained_evidence": {
+    "all_blobs_raw_digest_verified": true,
+    "all_blobs_utf8": true,
+    "all_referenced_blobs_present": true,
+    "blob_count": 277,
+    "event_count": 8,
+    "fresh_model_calls": 0,
+    "publisher_draft_reproduced_exactly": true,
+    "status": "VERIFIED_FULL_RETAINED_LEDGER",
+    "terminal": "HALTED"
+  },
+  "runtime_entrypoint": "Python run_to_release_ready with ProcessGateInputs; existing CLI does not supply them",
+  "runtime_state": "HALTED",
+  "source_artifact_count": 226,
+  "source_manifest_digest": "sha256:c2c88600e27ce63a0cc0ba4948fdac8cd988bef4e1b23e620cb945344623bf60",
+  "validation": {
+    "complete_existing_source_sast_findings": 0,
+    "full_composed_dependency_privacy_gate": "NOT_RUN_LOCALLY; GitHub CI required",
+    "mypy_cache_workaround": "--cache-dir /dev/null after independently diagnosed corrupted local SQLite cache",
+    "mypy_files": 199,
+    "post_publisher_process_tests": 41,
+    "pre_publisher_combined_tests": 208,
+    "ruff": "PASS",
+    "secret_findings": 0,
+    "unapproved_architecture_edges": 0
+  }
+}

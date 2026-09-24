@@ -1,0 +1,5 @@
+{
+  "sast_findings": [],
+  "scope": "Existing complete source/execution and architecture probes only; not full composed exact-SHA dependency/privacy gate",
+  "unapproved_architecture_edges": []
+}

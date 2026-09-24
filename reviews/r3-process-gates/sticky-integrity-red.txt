@@ -1,0 +1,9 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__ test_observed_integrity_mismatch_is_terminal_even_after_bytes_are_restored __
+tests/integration/test_process_gate_approval.py:95: in test_observed_integrity_mismatch_is_terminal_even_after_bytes_are_restored
+    assert provider.calls == 1
+E   assert 2 == 1
+E    +  where 2 = <tests.integration.test_process_gate_runtime.ReplayProvider object at 0x7f82f4d29d60>.calls
+=========================== short test summary info ============================
+FAILED tests/integration/test_process_gate_approval.py::test_observed_integrity_mismatch_is_terminal_even_after_bytes_are_restored
