@@ -12,13 +12,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from pmpe.barebones import BudgetCaps, run_to_release_ready
-from pmpe.cli import main
-from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
-from pmpe.evidence.ledger import EvidenceLedger
-
 
 def probe():
+    from pmpe.barebones import BudgetCaps, run_to_release_ready
+    from pmpe.cli import main
+    from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
+    from pmpe.evidence.ledger import EvidenceLedger
+
     helpers = runpy.run_path(
         str(ROOT / "reviews/2026-09-24-independent-gate-review/adversarial_probes.py")
     )
