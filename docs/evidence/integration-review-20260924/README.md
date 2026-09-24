@@ -5,6 +5,12 @@ have separate implementation PRs and reproducible evidence. This is a bounded
 engineering review, not a claim that every project or future AI output is ready.
 Published heads and point-in-time CI outcomes are in `publication-receipt.json`.
 
+For a fresh independent review, copy [INDEPENDENT_REVIEW_PROMPT.md](INDEPENDENT_REVIEW_PROMPT.md).
+It includes the accepted, partial, rejected and deferred recommendations and
+asks the reviewer to inspect the source before reaching a verdict. The newer
+`reviewer-status-snapshot.json` records completed PEOS technical CI, including
+both full test jobs; the original publication receipt remains historical.
+
 ## Agreement and repairs
 
 | Area | Assessment | Work and evidence |

@@ -160,3 +160,12 @@ script was committed or executed before the original documentation change.
 4. **Yes.** Run the same check against the unchanged pre-change commit (nonzero) and closeout commit (zero), recording both commands, outputs and exact source identities.
 5. **Yes.** One independently revertible evidence correction commit.
 6. **No.** No dependency, product setting, acceptance change or new execution surface.
+
+## Unit — external implementation-review handoff, 2026-09-24
+
+1. **Yes, restructured.** Extend the existing review-closure packet with the owner's requested standalone reviewer prompt; do not introduce a new review system.
+2. **Yes.** Owner explicitly requests the implementation, accepted/rejected recommendations and reasons in a shareable review prompt.
+3. **No.** Documentation and a point-in-time GitHub status receipt only; no runtime, contract, skill or approval behavior changes.
+4. **Yes.** Before edit, `test -e docs/evidence/integration-review-20260924/INDEPENDENT_REVIEW_PROMPT.md` exited 1; after edit, verify the file, its pinned source references and disposition coverage. No product test suite is needed for this document.
+5. **Yes.** One documentation-only commit on the existing review-closure branch can be reverted independently.
+6. **No.** No setting, dependency, paid invocation, new evaluator, release tag or execution surface.
