@@ -72,3 +72,28 @@ gated/ungated and unsigned-rewrite controls while rejecting its nine
 contradictions and RELEASE_READY-state override. An additional process-evidence
 context-binding concern is being reproduced with the process worker; N1 is not
 claimed fully closed until that cross-packet integration is checked.
+
+## Process-context follow-up
+
+The independent verifier reproduced two additional N1 contradictions using its
+completed task-store fixture: changing only one mutant's candidate manifest or
+plan digest, re-binding the gate blob, and re-chaining the ledger still passed
+without an external head. The genuine original head rejected both. This was a
+diagnostic composition of the reader archive and process runtime, not a claim
+about a public combined tree.
+
+The shared helper follow-up (process commit `0bba24f`, included here as `b030847`)
+requires expected candidate/plan/contract/receipt identities. The reader passes
+those identities only after verifying its enclosing contract, receipt, compiled
+plan, and released candidate. The helper rechecks mutant context and the frozen
+approval packet against them. This closes internal contradictions, not unsigned
+rewrite authentication.
+
+Final focused command (exit 0), with that helper and reader hook:
+`PYTHONPATH=src python -m pytest -o addopts='' -q tests/unit/test_r4_release_gate_inspection.py tests/unit/test_release_gate_inspection.py tests/unit/test_barebones_cli_journey.py tests/unit/test_process_gate_evidence_r4.py`.
+Result: **113 passed in 2.94s** (`context-green.txt`). This includes preserving
+G2/G3 pure controls and candidate, plan, observer-marker, and frozen-contract
+mutations. Ruff check and mypy on both changed modules pass. The earlier full
+support result remains attributed to pre-context `c517b0f`; it was not repeated
+for this isolated context-argument change. Root owns final combined-tree replay,
+independent verification, exact-SHA CI, and publication.
