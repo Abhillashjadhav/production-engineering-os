@@ -33,4 +33,6 @@ pass. Temporary-copy mutations restoring a wildcard in each of the two npm
 scripts and the two Vite modes were all rejected. Ruff check, Ruff format check
 and `git diff --check` pass. No server was started and no network or laptop probe
 was run. Frontend build/browser E2E were not run for this configuration-only
-change. Independent review and remote publication remain pending.
+change. Independent root review passed; its check and the retained RED/GREEN
+evidence are in `docs/evidence/github-local-access-20260924/`. Remote publication
+is reported separately in the PR.

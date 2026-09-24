@@ -1,0 +1,41 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________ test_local_frontend_defaults_bind_only_to_loopback ______________
+
+    def test_local_frontend_defaults_bind_only_to_loopback() -> None:
+        """Check both host sources: npm CLI arguments override the Vite config."""
+        scripts = _manifest()["scripts"]
+        assert isinstance(scripts, dict)
+        config = (FRONTEND / "vite.config.ts").read_text()
+    
+        for script_name, config_section in (("dev", "server"), ("start", "preview")):
+            block = re.search(rf"\b{config_section}:\s*\{{([^}}]+)", config)
+            assert block is not None, f"Missing {config_section} configuration"
+            configured = re.search(r'\bhost:\s*[\"\']([^\"\']+)[\"\']', block.group(1))
+            assert configured is not None, f"Missing explicit {config_section} host"
+            hosts = [configured.group(1)]
+    
+            arguments = shlex.split(scripts[script_name])
+            for index, argument in enumerate(arguments):
+                if argument == "--host":
+                    assert index + 1 < len(arguments), "Bare --host enables network access"
+                    hosts.append(arguments[index + 1])
+                elif argument.startswith("--host="):
+                    hosts.append(argument.partition("=")[2])
+    
+            for host in hosts:
+>               assert host == "localhost" or ipaddress.ip_address(host).is_loopback, (
+                    f"{script_name} defaults to non-loopback host {host}"
+                )
+E               AssertionError: dev defaults to non-loopback host 0.0.0.0
+E               assert ('0.0.0.0' == 'localhost'
+E                 
+E                 - localhost
+E                 + 0.0.0.0 or False)
+E                +  where False = IPv4Address('0.0.0.0').is_loopback
+E                +    where IPv4Address('0.0.0.0') = <function ip_address at 0x7f45f16c54e0>('0.0.0.0')
+E                +      where <function ip_address at 0x7f45f16c54e0> = ipaddress.ip_address
+
+tests/unit/test_frontend_toolchain_migration.py:44: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_frontend_toolchain_migration.py::test_local_frontend_defaults_bind_only_to_loopback
