@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from pmpe.barebones import BudgetCaps, Template, compile_barebones_plan, run_to_release_ready
+from pmpe.contracts.authoring import build_contract_draft
 from pmpe.contracts.canonical import canonical_digest
 from pmpe.contracts.model import load_contract
 from pmpe.contracts.process_gate_bindings import DISCLOSURE_REQUIREMENTS, PROVENANCE_REQUIREMENTS
@@ -186,6 +187,25 @@ def main() -> int:
         "required": DISCLOSURE_REQUIREMENTS,
         "forbid": {"full_isolation_claimed": True, "readiness_scope": "general"},
     }
+    publisher_input = json.loads((packet / "publisher-input.json").read_bytes())
+    publisher_input.update(
+        contract_id=draft["contract_id"], contract_version=2, binary_release_gates=gates
+    )
+    published = build_contract_draft(publisher_input)
+    if published.status != "DRAFT_READY_FOR_APPROVAL" or published.draft is None:
+        raise ValueError("publisher requires unresolved product input")
+    draft = published.draft
+    write(output / "publisher-input.proposed.json", publisher_input)
+    write(
+        output / "publisher-result.json",
+        {
+            "status": published.status,
+            "draft_digest": published.draft_digest,
+            "source_digest": canonical_digest(publisher_input),
+            "source_map": published.source_map,
+            "approval": "NOT_APPROVED",
+        },
+    )
     for key in ("acceptance_criteria", "functional_requirements", "golden_cases", "guardrails"):
         if draft[key] != original[key]:
             raise ValueError("frozen product semantics changed: " + key)
@@ -210,6 +230,7 @@ def main() -> int:
             ),
             "outer_freeze_after_approval": [
                 "reviewed draft",
+                "updated publisher input",
                 "approved contract",
                 "source manifest",
                 "approval receipt",
@@ -219,6 +240,7 @@ def main() -> int:
             ],
             "excluded_from_source_manifest": [
                 "this draft",
+                "updated publisher input (contains the source-manifest binding)",
                 "approved contract",
                 "approval receipt",
                 "outer freeze",

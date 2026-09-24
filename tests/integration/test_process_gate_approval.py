@@ -33,8 +33,17 @@ def approved_fixture(
 
     inputs, items = make_inputs(tmp_path)
     from pmpe.contracts.authoring import build_contract_draft
-    answers = json.loads((Path(__file__).parents[1] / "fixtures/v2/contract_approved.json").read_text())
-    for field in ("approved_at", "approved_by", "contract_status", "source_digest", "unresolved_questions"):
+
+    answers = json.loads(
+        (Path(__file__).parents[1] / "fixtures/v2/contract_approved.json").read_text()
+    )
+    for field in (
+        "approved_at",
+        "approved_by",
+        "contract_status",
+        "source_digest",
+        "unresolved_questions",
+    ):
         answers.pop(field)
     answers["contract_id"] = "TEST-ONLY-PROCESS-PUBLISHER"
     answers["acceptance_criteria"][0].update(bound_contract(items)["acceptance_criteria"]["AC-001"])
@@ -140,7 +149,9 @@ def test_complete_test_only_approval_packet_allows_integrity_pass(tmp_path: Path
     assert gate["evidence"]["approval_freeze_digest"] == inputs.approval_freeze_expected_digest
 
 
-@pytest.mark.parametrize("field", ["contract", "receipt", "draft", "plan", "source_manifest", "publisher_input"])
+@pytest.mark.parametrize(
+    "field", ["contract", "receipt", "draft", "plan", "source_manifest", "publisher_input"]
+)
 def test_changed_outer_packet_refuses_before_provider(tmp_path: Path, field: str) -> None:
     inputs, approved, receipt_bytes = approved_fixture(tmp_path)
     path = inputs.approval_paths[field]
@@ -222,12 +233,31 @@ def test_source_inventory_reserves_outer_and_protected_namespaces(tmp_path: Path
 
 def test_outer_packet_cannot_omit_publisher_source(tmp_path: Path) -> None:
     from pmpe.process_gates import raw_digest
+
     inputs, approved, receipt_bytes = approved_fixture(tmp_path)
     manifest = json.loads(inputs.approval_freeze)
     del manifest["artifacts"]["publisher_input"]
     payload = json.dumps(manifest).encode()
-    inputs = replace(inputs, approval_freeze=payload, approval_freeze_expected_digest=raw_digest(payload), approval_paths={key: path for key, path in inputs.approval_paths.items() if key != "publisher_input"})
+    inputs = replace(
+        inputs,
+        approval_freeze=payload,
+        approval_freeze_expected_digest=raw_digest(payload),
+        approval_paths={
+            key: path for key, path in inputs.approval_paths.items() if key != "publisher_input"
+        },
+    )
     provider = ReplayProvider()
     with pytest.raises(ContractInvalidError, match="approval packet"):
-        run_to_release_ready(contract=approved, repository_root=tmp_path, workspace=tmp_path / "candidate", run_id="missing-publisher", provider=provider, candidate_sandbox=LocalSandbox(), process_gate_inputs=inputs, approval_receipt=json.loads(receipt_bytes), approval_authority="TEST-ONLY-fixture", approval_receipt_bytes=receipt_bytes)
+        run_to_release_ready(
+            contract=approved,
+            repository_root=tmp_path,
+            workspace=tmp_path / "candidate",
+            run_id="missing-publisher",
+            provider=provider,
+            candidate_sandbox=LocalSandbox(),
+            process_gate_inputs=inputs,
+            approval_receipt=json.loads(receipt_bytes),
+            approval_authority="TEST-ONLY-fixture",
+            approval_receipt_bytes=receipt_bytes,
+        )
     assert provider.calls == 0

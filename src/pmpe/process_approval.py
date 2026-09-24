@@ -6,7 +6,9 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from pmpe.contracts.authoring import build_contract_draft
 from pmpe.contracts.canonical import canonical_digest, strict_loads
+from pmpe.domain.errors import ContractViolation, SpecError
 from pmpe.process_sources import raw_digest
 
 if TYPE_CHECKING:
@@ -41,7 +43,7 @@ def validate_approval_packet(
     ):
         raise ValueError("approval packet manifest shape is invalid")
     expected = freeze["artifacts"]
-    required = {"contract", "receipt", "draft", "plan", "source_manifest"}
+    required = {"contract", "receipt", "draft", "plan", "source_manifest", "publisher_input"}
     if (
         not isinstance(expected, Mapping)
         or not required.issubset(expected)
@@ -59,12 +61,23 @@ def validate_approval_packet(
     receipt = strict_loads(payloads["receipt"], "application/json")
     proposed_plan = strict_loads(payloads["plan"], "application/json")
     draft = strict_loads(payloads["draft"], "application/json")
+    publisher_input = strict_loads(payloads["publisher_input"], "application/json")
     if (
         not isinstance(contract, dict)
         or contract.get("contract_status") != "APPROVED"
         or canonical_digest(contract) != plan.contract_digest
     ):
         raise ValueError("approval packet contract differs from this approved run")
+    if not isinstance(publisher_input, dict) or canonical_digest(publisher_input) != contract.get(
+        "source_digest"
+    ):
+        raise ValueError("approval packet publisher input differs from contract source")
+    try:
+        published = build_contract_draft(publisher_input)
+    except (SpecError, ContractViolation) as exc:
+        raise ValueError("approval packet publisher input is invalid") from exc
+    if published.draft is None or canonical_digest(published.draft) != canonical_digest(draft):
+        raise ValueError("approval packet publisher cannot reconstruct reviewed draft")
     if (
         payloads["receipt"] != receipt_bytes
         or not isinstance(receipt, dict)

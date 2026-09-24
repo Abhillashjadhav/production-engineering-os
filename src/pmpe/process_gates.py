@@ -255,7 +255,8 @@ class ProcessGateRuntime:
                 evidence["source_checks_status"] = status
                 evidence["approval_freeze_digest"] = self.inputs.approval_freeze_expected_digest
                 evidence["approval_anchor_limit"] = (
-                    "Externally supplied digest and unsigned receipt; not cryptographic owner authentication."
+                    "Externally supplied digest and unsigned receipt; "
+                    "not cryptographic owner authentication."
                 )
                 if status == "PASS" and not self.approval_packet_bound:
                     status = "NOT_EVALUATED"
