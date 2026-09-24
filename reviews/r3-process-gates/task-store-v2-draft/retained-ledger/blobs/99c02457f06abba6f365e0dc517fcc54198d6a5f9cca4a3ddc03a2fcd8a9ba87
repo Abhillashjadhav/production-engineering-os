@@ -1,0 +1,1 @@
+{"observations":[{"exit_code":2,"output":{"error":"INVALID_TITLE"}},{"exit_code":0,"output":{"task":{"id":1,"status":"open","title":"Buy milk"}}},{"exit_code":0,"output":{"tasks":[{"id":1,"status":"open","title":"Buy milk"}]}}],"process_count":3,"setup_observations":[],"store_unchanged":false}

@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pmpe.example/schemas/test_plan.schema.json",
+  "title": "PMPE executable TestPlan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "architecture_pack_digest",
+    "artifact_kind",
+    "autonomy_eligible",
+    "class_decisions",
+    "compiler_version",
+    "contract_digest",
+    "coverage_matrix",
+    "disposition",
+    "manual_intervention_refs",
+    "nodes",
+    "plan_digest",
+    "plan_id",
+    "repository_commit",
+    "repository_snapshot_digest",
+    "required_refs",
+    "schema_version",
+    "toolchain_digest"
+  ],
+  "properties": {
+    "architecture_pack_digest": {"$ref": "#/$defs/digest"},
+    "artifact_kind": {"const": "TEST_PLAN"},
+    "autonomy_eligible": {"type": "boolean"},
+    "class_decisions": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["justification", "rule_id", "status", "test_class"],
+        "properties": {
+          "justification": {"type": "string", "minLength": 1},
+          "rule_id": {"type": "string", "minLength": 1},
+          "status": {"enum": ["SELECTED", "NOT_APPLICABLE", "BLOCKED"]},
+          "test_class": {"$ref": "#/$defs/testClass"}
+        }
+      }
+    },
+    "compiler_version": {"type": "string", "minLength": 1},
+    "contract_digest": {"$ref": "#/$defs/digest"},
+    "coverage_matrix": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["plan_node_ids", "status", "target_ref"],
+        "properties": {
+          "plan_node_ids": {"type": "array", "items": {"type": "string"}},
+          "status": {"enum": ["COVERED", "BLOCKED", "MISSING"]},
+          "target_ref": {"type": "string", "minLength": 1}
+        }
+      }
+    },
+    "disposition": {"enum": ["ADMITTED", "BLOCKED"]},
+    "manual_intervention_refs": {"type": "array", "items": {"type": "string"}},
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "assertion", "assertion_id", "blocker_reason", "command", "environment",
+          "evidence_expectation", "execution_mode", "expected_test_node", "fixture",
+          "interpretation_mode", "meaningful_red_required", "node_id", "owner", "status",
+          "target_refs", "test_class", "toolchain_refs"
+        ],
+        "properties": {
+          "assertion": {"type": "string", "minLength": 1},
+          "assertion_id": {"type": "string", "minLength": 1},
+          "blocker_reason": {"type": "string"},
+          "command": {"type": "array", "items": {"type": "string"}},
+          "environment": {"type": "string", "minLength": 1},
+          "evidence_expectation": {"type": "string", "minLength": 1},
+          "execution_mode": {"enum": ["AUTOMATED", "MANUAL"]},
+          "expected_test_node": {"type": "string", "minLength": 1},
+          "fixture": {"type": "string", "minLength": 1},
+          "interpretation_mode": {"enum": ["AUTOMATED", "MANUAL"]},
+          "meaningful_red_required": {"type": "boolean"},
+          "node_id": {"type": "string", "pattern": "^TPN-[0-9]{4}$"},
+          "owner": {"type": "string", "minLength": 1},
+          "status": {"enum": ["PLANNED", "BLOCKED"]},
+          "target_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+          "test_class": {"$ref": "#/$defs/testClass"},
+          "toolchain_refs": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "plan_digest": {"$ref": "#/$defs/digest"},
+    "plan_id": {"type": "string", "pattern": "^TESTPLAN-[A-F0-9]{16}$"},
+    "repository_commit": {"type": "string", "minLength": 7},
+    "repository_snapshot_digest": {"$ref": "#/$defs/digest"},
+    "required_refs": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+    "schema_version": {"const": "1.0.0"},
+    "toolchain_digest": {"$ref": "#/$defs/digest"}
+  },
+  "$defs": {
+    "digest": {"type": "string", "pattern": "^sha256:[a-f0-9]{64}$"},
+    "testClass": {
+      "enum": [
+        "UNIT", "INTEGRATION", "E2E", "MIGRATION", "PERFORMANCE",
+        "ACCESSIBILITY", "SECURITY_PRIVACY", "RELEASE"
+      ]
+    }
+  }
+}
+

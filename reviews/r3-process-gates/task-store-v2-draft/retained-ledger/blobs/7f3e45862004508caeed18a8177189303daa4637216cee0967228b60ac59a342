@@ -1,0 +1,206 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pmpe.local/schemas/phase-b-template-selection-v1.json",
+  "title": "PMPE exact Phase B template selection",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "phase-b-template-selection/v1"
+    },
+    "template_type": {
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "type": "string"
+    },
+    "template_version": {
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "type": "string"
+    },
+    "template_content_digest": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "capability_vocabulary_version": {
+      "const": "phase-b-capabilities/v1"
+    },
+    "capability_ids": {
+      "items": {
+        "pattern": "^[a-z][a-z0-9_.]{0,63}$",
+        "type": "string"
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "capability_bindings": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "acceptance_criterion_ids": {
+            "items": {
+              "pattern": "^[A-Z][A-Z0-9-]{0,63}$",
+              "type": "string"
+            },
+            "maxItems": 16,
+            "minItems": 1,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "capability_id": {
+            "pattern": "^[a-z][a-z0-9_.]{0,63}$",
+            "type": "string"
+          },
+          "verifier_id": {
+            "pattern": "^[a-z][a-z0-9_.-]*/v[0-9]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "acceptance_criterion_ids",
+          "capability_id",
+          "verifier_id"
+        ],
+        "type": "object"
+      },
+      "maxItems": 16,
+      "minItems": 1,
+      "type": "array"
+    },
+    "runtime_model_mode": {
+      "const": "recorded"
+    },
+    "configuration": {
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
+          },
+          {
+            "type": "boolean"
+          }
+        ]
+      },
+      "maxProperties": 16,
+      "minProperties": 1,
+      "propertyNames": {
+        "allOf": [
+          {
+            "pattern": "^[a-z][a-z0-9_]{0,63}$"
+          },
+          {
+            "not": {
+              "pattern": "(?:api_?key|credential|password|secret|token)"
+            }
+          }
+        ]
+      },
+      "type": "object"
+    },
+    "tools": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "resource_scopes": {
+            "items": {
+              "maxLength": 256,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 16,
+            "type": "array",
+            "uniqueItems": true
+          },
+          "tool_id": {
+            "pattern": "^[a-z][a-z0-9_.-]*/v[0-9]+$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource_scopes",
+          "tool_id"
+        ],
+        "type": "object"
+      },
+      "maxItems": 8,
+      "type": "array"
+    },
+    "budgets": {
+      "additionalProperties": false,
+      "properties": {
+        "max_attempts": {
+          "maximum": 8,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_bytes": {
+          "maximum": 1000000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_steps": {
+          "maximum": 64,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_tool_calls": {
+          "maximum": 16,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_wall_time_ms": {
+          "maximum": 120000,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_attempts",
+        "max_bytes",
+        "max_steps",
+        "max_tool_calls",
+        "max_wall_time_ms"
+      ],
+      "type": "object"
+    },
+    "fixture": {
+      "additionalProperties": false,
+      "properties": {
+        "fixture_digest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "fixture_id": {
+          "pattern": "^[a-z0-9][a-z0-9_.-]*/v[0-9]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "fixture_id",
+        "fixture_digest"
+      ],
+      "type": "object"
+    }
+  },
+  "required": [
+    "schema_version",
+    "template_type",
+    "template_version",
+    "template_content_digest",
+    "capability_vocabulary_version",
+    "capability_ids",
+    "capability_bindings",
+    "runtime_model_mode",
+    "configuration",
+    "tools",
+    "budgets",
+    "fixture"
+  ]
+}

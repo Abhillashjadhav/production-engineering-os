@@ -1,0 +1,98 @@
+{
+  "schema_version": "recorded-tool-agent-tool-schemas/v1",
+  "tools": [
+    {
+      "arguments_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "operation": {
+            "const": "single_sentence"
+          },
+          "text": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation",
+          "text"
+        ],
+        "type": "object"
+      },
+      "result_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "text": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "type": "object"
+      },
+      "tool_id": "pure.transform/v1"
+    },
+    {
+      "arguments_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "dataset_id": {
+            "const": "support-kb-v1"
+          },
+          "query": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "query"
+        ],
+        "type": "object"
+      },
+      "result_schema": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": false,
+        "properties": {
+          "matches": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "document_id": {
+                  "maxLength": 128,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "text": {
+                  "maxLength": 2048,
+                  "minLength": 1,
+                  "type": "string"
+                }
+              },
+              "required": [
+                "document_id",
+                "text"
+              ],
+              "type": "object"
+            },
+            "maxItems": 10,
+            "type": "array"
+          }
+        },
+        "required": [
+          "matches"
+        ],
+        "type": "object"
+      },
+      "tool_id": "repository.lookup/v1"
+    }
+  ]
+}

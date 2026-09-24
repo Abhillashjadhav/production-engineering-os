@@ -1,0 +1,6 @@
+{
+  "sast_findings": [],
+  "scope": "Complete existing source/execution and architecture probes; final working tree includes retained uncommitted evidence. Not full composed dependency/privacy gate.",
+  "source_commit": "733a409d5b0a72f7ad0550db974f70623e259992",
+  "unapproved_architecture_edges": []
+}

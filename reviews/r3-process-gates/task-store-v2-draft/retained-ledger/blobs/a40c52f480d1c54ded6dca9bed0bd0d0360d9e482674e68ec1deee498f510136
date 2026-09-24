@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pmpe.local/schemas/support-package-contract-1.0.0.json",
+  "additionalProperties": false,
+  "properties": {
+    "approved_by": {
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$",
+      "type": "string"
+    },
+    "capabilities": {
+      "additionalProperties": false,
+      "properties": {
+        "forbidden": {
+          "items": {
+            "enum": [
+              "autonomous_refund_payment",
+              "credential_collection"
+            ]
+          },
+          "maxItems": 2,
+          "minItems": 1,
+          "type": "array",
+          "uniqueItems": true
+        },
+        "required": {
+          "items": {
+            "enum": [
+              "human_escalation",
+              "policy_bound_decision",
+              "prioritization",
+              "response_drafting",
+              "ticket_intake"
+            ]
+          },
+          "maxItems": 5,
+          "minItems": 5,
+          "type": "array",
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "required",
+        "forbidden"
+      ],
+      "type": "object"
+    },
+    "contract_status": {
+      "const": "APPROVED"
+    },
+    "escalation": {
+      "additionalProperties": false,
+      "properties": {
+        "additional_confidence_below": {
+          "exclusiveMaximum": 1,
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        "contradictory_facts": {
+          "const": true
+        },
+        "forbidden_capability_attempt": {
+          "const": true
+        },
+        "missing_required_fact": {
+          "const": true
+        },
+        "outside_policy_bounds": {
+          "const": true
+        }
+      },
+      "required": [
+        "missing_required_fact",
+        "contradictory_facts",
+        "forbidden_capability_attempt",
+        "outside_policy_bounds",
+        "additional_confidence_below"
+      ],
+      "type": "object"
+    },
+    "limits": {
+      "additionalProperties": false,
+      "properties": {
+        "max_model_calls_per_ticket": {
+          "maximum": 8,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_processing_seconds": {
+          "maximum": 120,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_response_bytes": {
+          "maximum": 1000000,
+          "minimum": 1024,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "max_model_calls_per_ticket",
+        "max_processing_seconds",
+        "max_response_bytes"
+      ],
+      "type": "object"
+    },
+    "product": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "const": "customer-support-agent"
+        },
+        "product_type": {
+          "const": "customer_support"
+        },
+        "product_version": {
+          "const": "1.0.0"
+        }
+      },
+      "required": [
+        "name",
+        "product_type",
+        "product_version"
+      ],
+      "type": "object"
+    },
+    "runtime": {
+      "additionalProperties": false,
+      "properties": {
+        "model_gateway": {
+          "const": "recorded"
+        },
+        "ticket_connector": {
+          "const": "fixture"
+        },
+        "ticket_repository": {
+          "const": "memory"
+        }
+      },
+      "required": [
+        "model_gateway",
+        "ticket_repository",
+        "ticket_connector"
+      ],
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "1.0.0"
+    }
+  },
+  "required": [
+    "schema_version",
+    "contract_status",
+    "approved_by",
+    "product",
+    "capabilities",
+    "runtime",
+    "limits",
+    "escalation"
+  ],
+  "title": "PMPE customer-support portable package contract",
+  "type": "object"
+}

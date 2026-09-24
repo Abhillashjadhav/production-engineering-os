@@ -1,0 +1,29 @@
+{
+  "approval_receipt_created": false,
+  "excluded_from_source_manifest": [
+    "this draft",
+    "updated publisher input (contains the source-manifest binding)",
+    "approved contract",
+    "approval receipt",
+    "outer freeze"
+  ],
+  "fresh_model_calls": 0,
+  "historical_freeze_digest": "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2",
+  "legacy_verify_limit": "Historical adapter verify/_verify_snapshot alone is behavioral replay, not release-gate proof.",
+  "original_contract_canonical_digest": "sha256:501e0fd5eae05bceffeef928d1b731173dd8be87c988340f2761575d29b7e80e",
+  "original_contract_raw_digest": "sha256:41f93f23ca57cef11201fe685b18d66be882c122e5a3c7192e37e9018de0f0e2",
+  "outer_freeze_after_approval": [
+    "reviewed draft",
+    "updated publisher input",
+    "approved contract",
+    "source manifest",
+    "approval receipt",
+    "compiled plan",
+    "current adapter",
+    "profile and evaluator/bindings"
+  ],
+  "proposed_contract_digest": "sha256:e7af374535ddf236d4298b926caf9de5d5445df4d6b61b62654b90caa81c6a37",
+  "source_approval": "Pending owner review of exact new source/adapter/manifest and proposed bindings",
+  "source_manifest_digest": "sha256:c2c88600e27ce63a0cc0ba4948fdac8cd988bef4e1b23e620cb945344623bf60",
+  "status": "DRAFT_NOT_APPROVED"
+}

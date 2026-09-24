@@ -1,0 +1,15 @@
+{
+  "bound_artifact_count": 226,
+  "fresh_model_calls": 0,
+  "provider_invoked": false,
+  "sandbox_identity": {
+    "class": "r3_task_store_migration.HistoricalHostExecution",
+    "delegate": {
+      "class": "frozen_task_store_adapter.HostExecution",
+      "source_digest": "sha256:08d590186663d48a1ecfd34cb169240d07c9d65e132e4791c6816171f7ccf387"
+    },
+    "source_digest": "sha256:9a348ebf77a92eaa51e984e27d44af0a28437d5342e71d9530bdc32d9c6507d8"
+  },
+  "scope": "Clean-import identity and complete source/profile/template preflight only; no approved packet or fresh run asserted",
+  "status": "PASS"
+}

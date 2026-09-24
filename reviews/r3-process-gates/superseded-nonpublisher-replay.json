@@ -1,0 +1,27 @@
+{
+  "limitation": "This preliminary ledger is not published as proof. Final publisher-built draft/replay supersedes it; frozen v1 is unchanged.",
+  "prior_summary": {
+    "approval": {
+      "status": "UNVERIFIED_DIRECT_CALL"
+    },
+    "cause": "ATTEMPT_BUDGET_EXHAUSTED",
+    "contract_digest": "sha256:15e8368fed57d1035a5d3901c6959a6613bdcb28ce2934a7ed6b7d61b7ccd1bd",
+    "digest_boundaries": 117,
+    "fresh_model_calls": 0,
+    "gate_evidence_event_digest": "sha256:3737b8e678a483ab28c6c74ed8044d392bdc2cf9343cc75c053248df45f08ef2",
+    "gates": {
+      "GATE-001": "PASS",
+      "GATE-002": "PASS",
+      "GATE-003": "NOT_EVALUATED",
+      "GATE-004": "NOT_EVALUATED",
+      "GATE-005": "PASS"
+    },
+    "plan_digest": "sha256:027940200eac1beb504c2ee3c000afe68e66b5a171d4a7bfed3a5e66af231b41",
+    "process_records": 56,
+    "run_id": "draft-v2-offline-retained-replay",
+    "state": "HALTED",
+    "status": "OFFLINE_REPLAY_NOT_APPROVED"
+  },
+  "source_commit": "e6724a93aa65fac3f5098fdcec2c34a5ec3406bb",
+  "status": "SUPERSEDED_NONPUBLISHER_PROPOSAL_NOT_FINAL_EVIDENCE"
+}

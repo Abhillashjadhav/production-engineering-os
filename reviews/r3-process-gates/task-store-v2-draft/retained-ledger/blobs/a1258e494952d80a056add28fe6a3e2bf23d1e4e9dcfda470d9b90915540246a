@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Abhillashjadhav/production-engineering-os/schemas/fullstack_product_contract.schema.json",
+  "title": "FullStackProductContract",
+  "description": "The V3 boundary object for full-stack web product delivery (PD-V3). Extends the ProductDecisionContract discipline to browser products: screens, UI states, user journey, backend capabilities, API contracts, accessibility and responsive requirements, release gates, deployment target, and explicit exclusions. Immutable within an engineering run; the canonical digest covers the whole document. Semantic runnability rules live in pmpe.fullstack.contract.",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "contract_id",
+    "contract_status",
+    "approved_at",
+    "approved_by",
+    "product_name",
+    "problem",
+    "target_user",
+    "primary_journey",
+    "screens",
+    "ui_states",
+    "backend_capabilities",
+    "data_entities",
+    "api_contracts",
+    "accessibility_requirements",
+    "responsive_requirements",
+    "binary_release_gates",
+    "guardrails",
+    "deployment_target",
+    "out_of_scope",
+    "unresolved_questions",
+    "required_approvals"
+  ],
+  "properties": {
+    "contract_version": { "type": "integer" },
+    "contract_id": { "type": "string", "minLength": 1 },
+    "contract_status": {
+      "type": "string",
+      "enum": ["DRAFT", "APPROVED", "SUPERSEDED", "REJECTED"]
+    },
+    "approved_at": { "type": "string" },
+    "approved_by": { "type": "string" },
+    "product_name": { "type": "string", "minLength": 1 },
+    "problem": { "type": "string", "minLength": 1 },
+    "target_user": { "type": "string", "minLength": 1 },
+    "primary_journey": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["step_id", "description", "screen_id"],
+        "properties": {
+          "step_id": { "type": "string" },
+          "description": { "type": "string", "minLength": 1 },
+          "screen_id": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "screens": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["screen_id", "name", "purpose", "states"],
+        "properties": {
+          "screen_id": { "type": "string" },
+          "name": { "type": "string", "minLength": 1 },
+          "purpose": { "type": "string", "minLength": 1 },
+          "states": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "ui_states": {
+      "type": "array",
+      "minItems": 1,
+      "description": "The UI-state vocabulary screens draw their declared states from; each screen lists the subset that applies to it.",
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "backend_capabilities": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["capability_id", "description"],
+        "properties": {
+          "capability_id": { "type": "string" },
+          "description": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "data_entities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["entity_id", "name", "persistence"],
+        "properties": {
+          "entity_id": { "type": "string" },
+          "name": { "type": "string", "minLength": 1 },
+          "persistence": {
+            "type": "string",
+            "enum": ["none", "ephemeral_session", "permanent"]
+          }
+        }
+      }
+    },
+    "api_contracts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["api_id", "method", "path", "purpose"],
+        "properties": {
+          "api_id": { "type": "string" },
+          "method": {
+            "type": "string",
+            "enum": ["GET", "POST", "PUT", "PATCH", "DELETE"]
+          },
+          "path": { "type": "string" },
+          "purpose": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "accessibility_requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "responsive_requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "binary_release_gates": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "description"],
+        "properties": {
+          "id": { "type": "string" },
+          "description": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "guardrails": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "deployment_target": {
+      "type": "object",
+      "required": ["kind", "description"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["local_preview", "containerized_preview", "cloud"]
+        },
+        "description": { "type": "string", "minLength": 1 }
+      }
+    },
+    "out_of_scope": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "unresolved_questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "question", "blocking"],
+        "properties": {
+          "id": { "type": "string" },
+          "question": { "type": "string", "minLength": 1 },
+          "blocking": { "type": "boolean" },
+          "resolution": { "type": "string" }
+        }
+      }
+    },
+    "required_approvals": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}
