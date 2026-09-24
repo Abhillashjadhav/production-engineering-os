@@ -47,3 +47,28 @@ Result: **106 passed in 2.51s** (`reader-green.txt`).
 Ruff check and mypy on the changed reader and CLI passed. Final package and
 cross-packet integration results will be appended when complete. No models,
 remote mutation, frozen-input changes, approval fabrication, or release claim.
+
+## Support-package protocol
+
+The real `seal_support_release` producer emits its own package contract and
+five-field receipt with exactly `contract_validated, release_ready`. It has no
+barebones plan or coder attempt. The package-specific reader retains its existing
+exact contract, receipt, fixed file surface, canonical runtime, and external-head
+checks, while a small sequence guard rejects additional events or gate
+declarations. No generic no-gates bypass is introduced. The existing support
+test file is untouched, preserving exact-line synthetic-secret approvals.
+
+RED (exit 1): `PYTHONPATH=/tmp/r4-peos-inspection-red-source/src python -m pytest -o addopts='' -q tests/unit/test_r4_package_release_inspection.py`.
+Result: **1 failed, 3 passed**. The failure is a re-chained unknown interposed
+event; real seal+assembly and already-rejected gate/identity mutations preserve
+the earlier behavior.
+
+GREEN (exit 0): `PYTHONPATH=src python -m pytest -o addopts='' -q tests/unit/test_r4_package_release_inspection.py tests/unit/test_support_package_v1.py`.
+Result: **88 passed in 56.02s**. Ruff format/check, mypy for the package guard and
+reader, and diff-check pass. Raw logs are `package-red.txt` and `package-green.txt`.
+
+Independent review: the verifier's archived `7a9abc1` reader probe preserved
+gated/ungated and unsigned-rewrite controls while rejecting its nine
+contradictions and RELEASE_READY-state override. An additional process-evidence
+context-binding concern is being reproduced with the process worker; N1 is not
+claimed fully closed until that cross-packet integration is checked.
