@@ -188,6 +188,7 @@ def _validate_boundaries(
     criterion_ids: Sequence[str],
     bindings: Sequence[Mapping[str, Any]],
     read_blob: BlobReader,
+    context: Mapping[str, str],
 ) -> None:
     _require(
         evidence["source_manifest_digest"] == binding["source_manifest_digest"],
@@ -195,6 +196,44 @@ def _validate_boundaries(
     )
     manifest = _object(binding["source_manifest_digest"], read_blob)
     freeze = _object(evidence["approval_freeze_digest"], read_blob)
+    contract = _object(freeze["artifacts"]["contract"], read_blob)
+    plan = _object(freeze["artifacts"]["plan"], read_blob)
+    receipt = _object(freeze["artifacts"]["receipt"], read_blob)
+    draft = _object(freeze["artifacts"]["draft"], read_blob)
+    publisher_input = _object(freeze["artifacts"]["publisher_input"], read_blob)
+    plan_body = {key: value for key, value in plan.items() if key != "plan_digest"}
+    receipt_body = {key: value for key, value in receipt.items() if key != "receipt_digest"}
+    _require(
+        canonical_digest(contract)
+        == context["contract_digest"]
+        == plan["contract_digest"]
+        == receipt["approved_contract_digest"],
+        "APPROVAL_CONTRACT_CONTEXT_MISMATCH",
+    )
+    _require(
+        plan["plan_digest"] == context["plan_digest"] == canonical_digest(plan_body),
+        "APPROVAL_PLAN_CONTEXT_MISMATCH",
+    )
+    _require(
+        receipt["receipt_digest"] == context["receipt_digest"] == canonical_digest(receipt_body),
+        "APPROVAL_RECEIPT_CONTEXT_MISMATCH",
+    )
+    _require(
+        canonical_digest(draft) == receipt["draft_digest"]
+        and canonical_digest(publisher_input) == contract["source_digest"],
+        "APPROVAL_SOURCE_CONTEXT_MISMATCH",
+    )
+    _require(
+        freeze["artifacts"]["source_manifest"] == binding["source_manifest_digest"],
+        "APPROVAL_SOURCE_MANIFEST_MISMATCH",
+    )
+    for value in bindings:
+        if value["kind"] == "negative_controls":
+            for mutant in value["mutants"]:
+                _require(
+                    freeze["artifacts"].get("mutant/" + mutant["id"]) == mutant["snapshot_digest"],
+                    "APPROVAL_MUTANT_IDENTITY_MISMATCH",
+                )
     source = evidence["source_inventory"]
     _require(
         source
@@ -335,6 +374,7 @@ def validate_process_gate_evidence(
     criterion_ids: Sequence[str],
     baseline_ids: set[str],
     read_blob: BlobReader,
+    expected: Mapping[str, str],
     bindings: Sequence[Mapping[str, Any]] = (),
 ) -> None:
     """Raise on a claimed PASS that the retained facts cannot support. No owner authentication."""
@@ -349,9 +389,15 @@ def validate_process_gate_evidence(
         )
         kind = binding["kind"]
         if kind == "negative_controls":
+            for control in evidence["mutants"]:
+                _require(
+                    control["candidate_digest"] == expected["candidate_digest"]
+                    and control["plan_digest"] == expected["plan_digest"],
+                    "MUTANT_RELEASE_CONTEXT_MISMATCH",
+                )
             _validate_negative(binding, evidence, criterion_ids, baseline_ids, read_blob)
         elif kind == "digest_boundaries":
-            _validate_boundaries(binding, evidence, criterion_ids, bindings, read_blob)
+            _validate_boundaries(binding, evidence, criterion_ids, bindings, read_blob, expected)
         elif kind == "execution_disclosure":
             _validate_disclosure(binding, evidence, read_blob)
         elif kind == "generation_provenance":
