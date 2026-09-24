@@ -32,7 +32,6 @@ def compile_release_gates(
     validate_gate_declaration_placement(contract, diagnostic)
     quality = contract.get("quality_assurance", {})
     if not isinstance(quality, Mapping):
-        diagnostic("RELEASE_GATE_COLLECTION_INVALID", "quality_assurance", "must be an object")
         return ()
     native = "binary_release_gates" in contract
     canonical = "release_gates" in quality
@@ -63,8 +62,12 @@ def compile_release_gates(
     compiled: list[CompiledReleaseGate] = []
     allowed = {"id", "description", "evidence_expectation", "acceptance_criterion_refs"}
     for index, (gate_id, item) in enumerate(entries):
-        if not isinstance(gate_id, str) or not gate_id.strip():
-            diagnostic("RELEASE_GATE_ID_INVALID", f"{source}[{index}]", "requires a non-empty ID")
+        if not isinstance(gate_id, str) or not gate_id.strip() or gate_id != gate_id.strip():
+            diagnostic(
+                "RELEASE_GATE_ID_INVALID",
+                f"{source}[{index}]",
+                "requires a non-empty ID without surrounding whitespace",
+            )
             continue
         if gate_id in seen:
             diagnostic("RELEASE_GATE_ID_DUPLICATE", gate_id, "release gate ID is duplicated")
