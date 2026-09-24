@@ -61,3 +61,39 @@ def test_changed_outer_packet_refuses_before_provider(tmp_path: Path, field: str
     with pytest.raises(ContractInvalidError, match="approval packet"):
         run_to_release_ready(contract=approved, repository_root=tmp_path, workspace=tmp_path / "candidate", run_id="changed-outer-packet", provider=provider, candidate_sandbox=LocalSandbox(), process_gate_inputs=inputs, approval_receipt=json.loads(receipt_bytes), approval_authority="TEST-ONLY-fixture", approval_receipt_bytes=receipt_bytes)
     assert provider.calls == 0
+
+
+def test_observed_integrity_mismatch_is_terminal_even_after_bytes_are_restored(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from pmpe.process_collection import RecordingSandbox
+    from pmpe.process_gates import build_source_manifest, raw_digest
+
+    inputs, items = make_inputs(tmp_path)
+    guarded = tmp_path / "guarded-source.txt"
+    guarded.write_bytes(b"original")
+    sources = {**inputs.source_paths, "guarded": guarded}
+    manifest = build_source_manifest(default_template(), sources, inputs.execution_profile, sandbox=LocalSandbox())
+    inputs = replace(inputs, source_manifest=manifest, source_paths=sources)
+    items[1]["source_manifest_digest"] = raw_digest(manifest)
+    boundary = RecordingSandbox.boundary
+    changed_once = False
+
+    def change_then_restore(self: Any, stage: str, **kwargs: Any) -> None:
+        nonlocal changed_once
+        if stage == "after" and self.phase == "candidate" and not changed_once:
+            changed_once = True
+            guarded.write_bytes(b"tampered")
+            try:
+                boundary(self, stage, **kwargs)
+            finally:
+                guarded.write_bytes(b"original")
+        else:
+            boundary(self, stage, **kwargs)
+
+    monkeypatch.setattr(RecordingSandbox, "boundary", change_then_restore)
+    provider = ReplayProvider()
+    result = run_to_release_ready(contract=bound_contract(items), repository_root=tmp_path, workspace=tmp_path / "candidate", run_id="sticky-integrity", provider=provider, candidate_sandbox=LocalSandbox(), budget=BudgetCaps(max_attempts=2), process_gate_inputs=inputs)
+    assert provider.calls == 1
+    assert result.cause == "PROCESS_INTEGRITY_MISMATCH"
+    events = list(EvidenceLedger.open_existing(tmp_path, result.run_id).verify())
+    assert events[-1]["state"] == "HALTED"
+    assert not any(event["event_type"] == "release_ready" for event in events)
