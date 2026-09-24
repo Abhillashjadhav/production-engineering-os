@@ -22,3 +22,20 @@ The standalone regression passes: generated proof scanning is clean, the
 reference package runs two passing unittest cases, and the broken app runs the
 same two cases as assertion failures. Both test modules pass Ruff lint and
 format checks. The unchanged original module matches its base Git blob.
+
+The exact-head repository secret scan passes with zero findings at correction
+commit `7ff0540c19158900d705606008c3a40c640112b6`; its complete redacted-format
+receipt is `secret-followup-after.json`. The existing scanner, ruleset and
+protected allowlist are unchanged. This is a local exact-source secret gate,
+not a claim that remote composed CI has finished. Production source is
+unchanged, so the parallel migration's production source manifest is unaffected.
+
+Reproduction:
+
+```sh
+PYTHONPATH=src python -B -m pytest -q tests/unit/test_support_package_portable_proofs.py
+PYTHONPATH=src python -B scripts/ci/verify_repository_secrets.py --candidate-sha 7ff0540c19158900d705606008c3a40c640112b6 --root . --allowlist security/secret-allowlist.json --output /tmp/r3-secret-report.json
+```
+
+Use the checked-out commit's full SHA when repeating the scan at a newer head.
+No synthetic fixture values are reproduced in this note or scanner reports.
