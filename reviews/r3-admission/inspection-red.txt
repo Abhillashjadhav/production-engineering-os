@@ -1,0 +1,423 @@
+..FFFFFFFFFFFFFFFFFF                                                     [100%]
+=================================== FAILURES ===================================
+_ test_self_consistent_chain_does_not_hide_gate_binding_mismatch[status-candidate_digest] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe0')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd496f65640>
+mutation = 'candidate_digest', command = 'status'
+
+    @pytest.mark.parametrize("mutation", [
+        "candidate_digest", "contract_digest", "plan_digest", "blob-only", "missing-pointer",
+        "gate-omitted", "failed-criterion", "plan-stripped",
+    ])
+    @pytest.mark.parametrize("command", ["status", "inspect"])
+    def test_self_consistent_chain_does_not_hide_gate_binding_mismatch(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe0'])
+
+tests/unit/test_release_gate_inspection.py:108: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6766851d16ac70da3b9274c2754886c12a4e227816ae24d99dd2431e83168ceb", "status": "VERIFIED"}, "cause": "PASS", "events": 3, "head_event_digest": "sha256:e8b2eada18750878ef1ca8ae90e75b2e07e4b1031fc439281bc8070053dfd78c", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_self_consistent_chain_does_not_hide_gate_binding_mismatch[status-contract_digest] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe1')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd4968e2b70>
+mutation = 'contract_digest', command = 'status'
+
+    @pytest.mark.parametrize("mutation", [
+        "candidate_digest", "contract_digest", "plan_digest", "blob-only", "missing-pointer",
+        "gate-omitted", "failed-criterion", "plan-stripped",
+    ])
+    @pytest.mark.parametrize("command", ["status", "inspect"])
+    def test_self_consistent_chain_does_not_hide_gate_binding_mismatch(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe1'])
+
+tests/unit/test_release_gate_inspection.py:108: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6766851d16ac70da3b9274c2754886c12a4e227816ae24d99dd2431e83168ceb", "status": "VERIFIED"}, "cause": "PASS", "events": 3, "head_event_digest": "sha256:ab7473cc0a2b602fa57f2412cb1d585960bef6da1d0da705748ff5d2f12c434b", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_self_consistent_chain_does_not_hide_gate_binding_mismatch[status-plan_digest] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe2')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd496911610>
+mutation = 'plan_digest', command = 'status'
+
+    @pytest.mark.parametrize("mutation", [
+        "candidate_digest", "contract_digest", "plan_digest", "blob-only", "missing-pointer",
+        "gate-omitted", "failed-criterion", "plan-stripped",
+    ])
+    @pytest.mark.parametrize("command", ["status", "inspect"])
+    def test_self_consistent_chain_does_not_hide_gate_binding_mismatch(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe2'])
+
+tests/unit/test_release_gate_inspection.py:108: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6766851d16ac70da3b9274c2754886c12a4e227816ae24d99dd2431e83168ceb", "status": "VERIFIED"}, "cause": "PASS", "events": 3, "head_event_digest": "sha256:b7ef8a643a8fe3bbebc1dee29c1af87a63ab6d01c1807761c35e8be5889e3623", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_self_consistent_chain_does_not_hide_gate_binding_mismatch[status-blob-only] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe3')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd4969236e0>
+mutation = 'blob-only', command = 'status'
+
+    @pytest.mark.parametrize("mutation", [
+        "candidate_digest", "contract_digest", "plan_digest", "blob-only", "missing-pointer",
+        "gate-omitted", "failed-criterion", "plan-stripped",
+    ])
+    @pytest.mark.parametrize("command", ["status", "inspect"])
+    def test_self_consistent_chain_does_not_hide_gate_binding_mismatch(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe3'])
+
+tests/unit/test_release_gate_inspection.py:108: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6766851d16ac70da3b9274c2754886c12a4e227816ae24d99dd2431e83168ceb", "status": "VERIFIED"}, "cause": "PASS", "events": 3, "head_event_digest": "sha256:23a2da01cd87051639c3eea3fb5f2b6ed095abe31a509bbed9d6fce1b40e1b7a", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_self_consistent_chain_does_not_hide_gate_binding_mismatch[status-missing-pointer] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe4')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd496a7fdd0>
+mutation = 'missing-pointer', command = 'status'
+
+    @pytest.mark.parametrize("mutation", [
+        "candidate_digest", "contract_digest", "plan_digest", "blob-only", "missing-pointer",
+        "gate-omitted", "failed-criterion", "plan-stripped",
+    ])
+    @pytest.mark.parametrize("command", ["status", "inspect"])
+    def test_self_consistent_chain_does_not_hide_gate_binding_mismatch(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe4'])
+
+tests/unit/test_release_gate_inspection.py:108: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6766851d16ac70da3b9274c2754886c12a4e227816ae24d99dd2431e83168ceb", "status": "VERIFIED"}, "cause": "PASS", "events": 3, "head_event_digest": "sha256:45b6807074fdd8159135c1dcf8fb2acbfa5f974daaf42075ac2a2e5e27dd735a", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_self_consistent_chain_does_not_hide_gate_binding_mismatch[status-gate-omitted] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe5')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd4968c8860>
+mutation = 'gate-omitted', command = 'status'
+
+    @pytest.mark.parametrize("mutation", [
+        "candidate_digest", "contract_digest", "plan_digest", "blob-only", "missing-pointer",
+        "gate-omitted", "failed-criterion", "plan-stripped",
+    ])
+    @pytest.mark.parametrize("command", ["status", "inspect"])
+    def test_self_consistent_chain_does_not_hide_gate_binding_mismatch(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe5'])
+
+tests/unit/test_release_gate_inspection.py:108: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6766851d16ac70da3b9274c2754886c12a4e227816ae24d99dd2431e83168ceb", "status": "VERIFIED"}, "cause": "PASS", "events": 3, "head_event_digest": "sha256:c5808e7f2874d3dc9def1d69d83d0453093a7e71d24b61d7facfa2cbc86a7fdb", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_self_consistent_chain_does_not_hide_gate_binding_mismatch[status-failed-criterion] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe6')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd4968c8d40>
+mutation = 'failed-criterion', command = 'status'
+
+    @pytest.mark.parametrize("mutation", [
+        "candidate_digest", "contract_digest", "plan_digest", "blob-only", "missing-pointer",
+        "gate-omitted", "failed-criterion", "plan-stripped",
+    ])
+    @pytest.mark.parametrize("command", ["status", "inspect"])
+    def test_self_consistent_chain_does_not_hide_gate_binding_mismatch(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe6'])
+
+tests/unit/test_release_gate_inspection.py:108: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6766851d16ac70da3b9274c2754886c12a4e227816ae24d99dd2431e83168ceb", "status": "VERIFIED"}, "cause": "PASS", "events": 3, "head_event_digest": "sha256:2d399908c0bc62ab72185362fce169242410a1e59352095511af2ad2704d5cbf", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_self_consistent_chain_does_not_hide_gate_binding_mismatch[status-plan-stripped] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe7')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd4968c86b0>
+mutation = 'plan-stripped', command = 'status'
+
+    @pytest.mark.parametrize("mutation", [
+        "candidate_digest", "contract_digest", "plan_digest", "blob-only", "missing-pointer",
+        "gate-omitted", "failed-criterion", "plan-stripped",
+    ])
+    @pytest.mark.parametrize("command", ["status", "inspect"])
+    def test_self_consistent_chain_does_not_hide_gate_binding_mismatch(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe7'])
+
+tests/unit/test_release_gate_inspection.py:108: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6766851d16ac70da3b9274c2754886c12a4e227816ae24d99dd2431e83168ceb", "status": "VERIFIED"}, "cause": "PASS", "events": 3, "head_event_digest": "sha256:1a94a6f915fade5c684b678911a9a1c856de777e29b005f271b4446b85d6cc76", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_self_consistent_chain_does_not_hide_gate_binding_mismatch[inspect-candidate_digest] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe8')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd496814530>
+mutation = 'candidate_digest', command = 'inspect'
+
+    @pytest.mark.parametrize("mutation", [
+        "candidate_digest", "contract_digest", "plan_digest", "blob-only", "missing-pointer",
+        "gate-omitted", "failed-criterion", "plan-stripped",
+    ])
+    @pytest.mark.parametrize("command", ["status", "inspect"])
+    def test_self_consistent_chain_does_not_hide_gate_binding_mismatch(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe8'])
+
+tests/unit/test_release_gate_inspection.py:108: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6766851d16ac70da3b9274c2754886c12a4e227816ae24d99dd2431e83168ceb", "status": "VERIFIED"}, "candidate_digest": "sha256:05f3f31a12435f4d89b727f1814b9f775fb79e554e12398cd9024fe20e8d272b", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:4f42ebd22ce4eb2195de95716143e77e30f86042351fcf4cb6daa6d4bcb61564"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_self_consistent_chain_does_not_hide_gate_binding_mismatch[inspect-contract_digest] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe9')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd496922990>
+mutation = 'contract_digest', command = 'inspect'
+
+    @pytest.mark.parametrize("mutation", [
+        "candidate_digest", "contract_digest", "plan_digest", "blob-only", "missing-pointer",
+        "gate-omitted", "failed-criterion", "plan-stripped",
+    ])
+    @pytest.mark.parametrize("command", ["status", "inspect"])
+    def test_self_consistent_chain_does_not_hide_gate_binding_mismatch(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe9'])
+
+tests/unit/test_release_gate_inspection.py:108: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6766851d16ac70da3b9274c2754886c12a4e227816ae24d99dd2431e83168ceb", "status": "VERIFIED"}, "candidate_digest": "sha256:05f3f31a12435f4d89b727f1814b9f775fb79e554e12398cd9024fe20e8d272b", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:4f42ebd22ce4eb2195de95716143e77e30f86042351fcf4cb6daa6d4bcb61564"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_self_consistent_chain_does_not_hide_gate_binding_mismatch[inspect-plan_digest] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe10')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd4968e2690>
+mutation = 'plan_digest', command = 'inspect'
+
+    @pytest.mark.parametrize("mutation", [
+        "candidate_digest", "contract_digest", "plan_digest", "blob-only", "missing-pointer",
+        "gate-omitted", "failed-criterion", "plan-stripped",
+    ])
+    @pytest.mark.parametrize("command", ["status", "inspect"])
+    def test_self_consistent_chain_does_not_hide_gate_binding_mismatch(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe10'])
+
+tests/unit/test_release_gate_inspection.py:108: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6766851d16ac70da3b9274c2754886c12a4e227816ae24d99dd2431e83168ceb", "status": "VERIFIED"}, "candidate_digest": "sha256:05f3f31a12435f4d89b727f1814b9f775fb79e554e12398cd9024fe20e8d272b", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:4f42ebd22ce4eb2195de95716143e77e30f86042351fcf4cb6daa6d4bcb61564"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_self_consistent_chain_does_not_hide_gate_binding_mismatch[inspect-blob-only] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe11')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd4966e9850>
+mutation = 'blob-only', command = 'inspect'
+
+    @pytest.mark.parametrize("mutation", [
+        "candidate_digest", "contract_digest", "plan_digest", "blob-only", "missing-pointer",
+        "gate-omitted", "failed-criterion", "plan-stripped",
+    ])
+    @pytest.mark.parametrize("command", ["status", "inspect"])
+    def test_self_consistent_chain_does_not_hide_gate_binding_mismatch(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe11'])
+
+tests/unit/test_release_gate_inspection.py:108: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6766851d16ac70da3b9274c2754886c12a4e227816ae24d99dd2431e83168ceb", "status": "VERIFIED"}, "candidate_digest": "sha256:05f3f31a12435f4d89b727f1814b9f775fb79e554e12398cd9024fe20e8d272b", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:4f42ebd22ce4eb2195de95716143e77e30f86042351fcf4cb6daa6d4bcb61564"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_self_consistent_chain_does_not_hide_gate_binding_mismatch[inspect-missing-pointer] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe12')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd4966d2720>
+mutation = 'missing-pointer', command = 'inspect'
+
+    @pytest.mark.parametrize("mutation", [
+        "candidate_digest", "contract_digest", "plan_digest", "blob-only", "missing-pointer",
+        "gate-omitted", "failed-criterion", "plan-stripped",
+    ])
+    @pytest.mark.parametrize("command", ["status", "inspect"])
+    def test_self_consistent_chain_does_not_hide_gate_binding_mismatch(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe12'])
+
+tests/unit/test_release_gate_inspection.py:108: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6766851d16ac70da3b9274c2754886c12a4e227816ae24d99dd2431e83168ceb", "status": "VERIFIED"}, "candidate_digest": "sha256:05f3f31a12435f4d89b727f1814b9f775fb79e554e12398cd9024fe20e8d272b", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:4f42ebd22ce4eb2195de95716143e77e30f86042351fcf4cb6daa6d4bcb61564"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_self_consistent_chain_does_not_hide_gate_binding_mismatch[inspect-gate-omitted] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe13')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd496a7ec00>
+mutation = 'gate-omitted', command = 'inspect'
+
+    @pytest.mark.parametrize("mutation", [
+        "candidate_digest", "contract_digest", "plan_digest", "blob-only", "missing-pointer",
+        "gate-omitted", "failed-criterion", "plan-stripped",
+    ])
+    @pytest.mark.parametrize("command", ["status", "inspect"])
+    def test_self_consistent_chain_does_not_hide_gate_binding_mismatch(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe13'])
+
+tests/unit/test_release_gate_inspection.py:108: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6766851d16ac70da3b9274c2754886c12a4e227816ae24d99dd2431e83168ceb", "status": "VERIFIED"}, "candidate_digest": "sha256:05f3f31a12435f4d89b727f1814b9f775fb79e554e12398cd9024fe20e8d272b", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:4f42ebd22ce4eb2195de95716143e77e30f86042351fcf4cb6daa6d4bcb61564"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_self_consistent_chain_does_not_hide_gate_binding_mismatch[inspect-failed-criterion] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe14')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd496957aa0>
+mutation = 'failed-criterion', command = 'inspect'
+
+    @pytest.mark.parametrize("mutation", [
+        "candidate_digest", "contract_digest", "plan_digest", "blob-only", "missing-pointer",
+        "gate-omitted", "failed-criterion", "plan-stripped",
+    ])
+    @pytest.mark.parametrize("command", ["status", "inspect"])
+    def test_self_consistent_chain_does_not_hide_gate_binding_mismatch(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe14'])
+
+tests/unit/test_release_gate_inspection.py:108: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6766851d16ac70da3b9274c2754886c12a4e227816ae24d99dd2431e83168ceb", "status": "VERIFIED"}, "candidate_digest": "sha256:05f3f31a12435f4d89b727f1814b9f775fb79e554e12398cd9024fe20e8d272b", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:4f42ebd22ce4eb2195de95716143e77e30f86042351fcf4cb6daa6d4bcb61564"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+_ test_self_consistent_chain_does_not_hide_gate_binding_mismatch[inspect-plan-stripped] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe15')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd496956f30>
+mutation = 'plan-stripped', command = 'inspect'
+
+    @pytest.mark.parametrize("mutation", [
+        "candidate_digest", "contract_digest", "plan_digest", "blob-only", "missing-pointer",
+        "gate-omitted", "failed-criterion", "plan-stripped",
+    ])
+    @pytest.mark.parametrize("command", ["status", "inspect"])
+    def test_self_consistent_chain_does_not_hide_gate_binding_mismatch(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-10/test_self_consistent_chain_doe15'])
+
+tests/unit/test_release_gate_inspection.py:108: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6766851d16ac70da3b9274c2754886c12a4e227816ae24d99dd2431e83168ceb", "status": "VERIFIED"}, "candidate_digest": "sha256:05f3f31a12435f4d89b727f1814b9f775fb79e554e12398cd9024fe20e8d272b", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:4f42ebd22ce4eb2195de95716143e77e30f86042351fcf4cb6daa6d4bcb61564"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+______ test_support_candidate_rejects_m3_even_with_matching_expected_head ______
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-10/test_support_candidate_rejects0')
+
+    def test_support_candidate_rejects_m3_even_with_matching_expected_head(tmp_path: Path) -> None:
+        head, contract = _packet(tmp_path, "candidate_digest")
+>       with pytest.raises(PackageContractError, match="gate"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE PackageContractError
+
+tests/unit/test_release_gate_inspection.py:114: Failed
+___________ test_inspection_can_check_existing_external_head_anchor ____________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-10/test_inspection_can_check_exis0')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd4966ce840>
+
+    def test_inspection_can_check_existing_external_head_anchor(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        head, _ = _packet(tmp_path)
+        args = ["barebones", "inspect", "inspection", "--repository-root", str(tmp_path),
+                "--expected-head-digest"]
+>       assert main([*args, head]) == 0
+               ^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_release_gate_inspection.py:127: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/pmpe/cli/__init__.py:113: in main
+    args = build_parser().parse_args(argv)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/argparse.py:1908: in parse_args
+    self.error(msg)
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/argparse.py:2650: in error
+    self.exit(2, _('%(prog)s: error: %(message)s\n') % args)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PlatformArgumentParser(prog='pmpe', usage=None, description='Compile a machine-checkable product contract, drive one b...and stop at RELEASE_READY.', formatter_class=<class 'argparse.HelpFormatter'>, conflict_handler='error', add_help=True)
+status = 2
+message = 'pmpe: error: unrecognized arguments: --expected-head-digest sha256:d176dc2f527030d798033f3ac5a14aef535a1e38c56f851ab33a7ae2dd917da1\n'
+
+    def exit(self, status=0, message=None):
+        if message:
+            self._print_message(message, _sys.stderr)
+>       _sys.exit(status)
+E       SystemExit: 2
+
+/opt/codex/runtimes/codex-primary-runtime/dependencies/python/lib/python3.12/argparse.py:2637: SystemExit
+----------------------------- Captured stderr call -----------------------------
+usage: pmpe [-h] {barebones,legacy} ...
+pmpe: error: unrecognized arguments: --expected-head-digest sha256:d176dc2f527030d798033f3ac5a14aef535a1e38c56f851ab33a7ae2dd917da1
+=========================== short test summary info ============================
+FAILED tests/unit/test_release_gate_inspection.py::test_self_consistent_chain_does_not_hide_gate_binding_mismatch[status-candidate_digest]
+FAILED tests/unit/test_release_gate_inspection.py::test_self_consistent_chain_does_not_hide_gate_binding_mismatch[status-contract_digest]
+FAILED tests/unit/test_release_gate_inspection.py::test_self_consistent_chain_does_not_hide_gate_binding_mismatch[status-plan_digest]
+FAILED tests/unit/test_release_gate_inspection.py::test_self_consistent_chain_does_not_hide_gate_binding_mismatch[status-blob-only]
+FAILED tests/unit/test_release_gate_inspection.py::test_self_consistent_chain_does_not_hide_gate_binding_mismatch[status-missing-pointer]
+FAILED tests/unit/test_release_gate_inspection.py::test_self_consistent_chain_does_not_hide_gate_binding_mismatch[status-gate-omitted]
+FAILED tests/unit/test_release_gate_inspection.py::test_self_consistent_chain_does_not_hide_gate_binding_mismatch[status-failed-criterion]
+FAILED tests/unit/test_release_gate_inspection.py::test_self_consistent_chain_does_not_hide_gate_binding_mismatch[status-plan-stripped]
+FAILED tests/unit/test_release_gate_inspection.py::test_self_consistent_chain_does_not_hide_gate_binding_mismatch[inspect-candidate_digest]
+FAILED tests/unit/test_release_gate_inspection.py::test_self_consistent_chain_does_not_hide_gate_binding_mismatch[inspect-contract_digest]
+FAILED tests/unit/test_release_gate_inspection.py::test_self_consistent_chain_does_not_hide_gate_binding_mismatch[inspect-plan_digest]
+FAILED tests/unit/test_release_gate_inspection.py::test_self_consistent_chain_does_not_hide_gate_binding_mismatch[inspect-blob-only]
+FAILED tests/unit/test_release_gate_inspection.py::test_self_consistent_chain_does_not_hide_gate_binding_mismatch[inspect-missing-pointer]
+FAILED tests/unit/test_release_gate_inspection.py::test_self_consistent_chain_does_not_hide_gate_binding_mismatch[inspect-gate-omitted]
+FAILED tests/unit/test_release_gate_inspection.py::test_self_consistent_chain_does_not_hide_gate_binding_mismatch[inspect-failed-criterion]
+FAILED tests/unit/test_release_gate_inspection.py::test_self_consistent_chain_does_not_hide_gate_binding_mismatch[inspect-plan-stripped]
+FAILED tests/unit/test_release_gate_inspection.py::test_support_candidate_rejects_m3_even_with_matching_expected_head
+FAILED tests/unit/test_release_gate_inspection.py::test_inspection_can_check_existing_external_head_anchor
