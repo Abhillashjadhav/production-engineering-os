@@ -12,7 +12,7 @@ def _near_gate_key(key: str) -> bool:
     if normalized in {"gate", "gates"}:
         return True
     for canonical in ("releasegates", "binaryreleasegates"):
-        if normalized == canonical:
+        if canonical in normalized:
             return True
         if len(normalized) == len(canonical):
             if sum(left != right for left, right in zip(normalized, canonical, strict=True)) <= 1:
