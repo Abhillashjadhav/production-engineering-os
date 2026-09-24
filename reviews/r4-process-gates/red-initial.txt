@@ -1,0 +1,252 @@
+.FFFFFFFFF                                                               [100%]
+=================================== FAILURES ===================================
+___ test_task_tracker_negative_controls_reject_observer_crashes[full_crash] ____
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-43/test_task_tracker_negative_con1')
+variant = 'full_crash'
+
+    @pytest.mark.parametrize("variant", ["retained", "full_crash", "missing_prerequisite", "invalid_json", "targeted_crash", "same_mutant"])
+    def test_task_tracker_negative_controls_reject_observer_crashes(tmp_path: Path, variant: str) -> None:
+        contract, template, mutants, product = task_fixture()
+        if variant == "same_mutant":
+            mutants["filtering"] = dict(mutants["persistence"])
+        elif variant != "retained":
+            for name, mutant in mutants.items():
+                if variant == "targeted_crash":
+                    source = product.decode()
+                    if name == "persistence":
+                        source = source.replace("def save_store(path, state):", "def save_store(path, state):\n    raise RuntimeError('targeted persistence crash')")
+                    else:
+                        source = source.replace("args = parser.parse_args()", "args = parser.parse_args()\n    if args.command == 'list' and args.status in ('open', 'completed'):\n        raise RuntimeError('targeted filter crash')")
+                    mutant["product.py"] = source.encode()
+                else:
+                    mutant["product.py"] = {"full_crash": b"raise RuntimeError('arbitrary crash')\n", "missing_prerequisite": b"import absent_r4_prerequisite\n", "invalid_json": b"print('not-json')\n"}[variant]
+        inputs = ProcessGateInputs(negative_controls=mutants)
+        result = run_to_release_ready(contract=contract, repository_root=tmp_path, workspace=tmp_path / "candidate", run_id=variant,
+            provider=TaskReplayProvider(product), template=template, candidate_sandbox=LocalSandbox(), budget=BudgetCaps(max_attempts=1), process_gate_inputs=inputs)
+        gate = gates_for(tmp_path, result.run_id)[0]
+>       assert gate["status"] == ("PASS" if variant == "retained" else "FAIL")
+E       AssertionError: assert 'PASS' == 'FAIL'
+E         
+E         - FAIL
+E         + PASS
+
+tests/integration/test_process_gate_r4.py:75: AssertionError
+_ test_task_tracker_negative_controls_reject_observer_crashes[missing_prerequisite] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-43/test_task_tracker_negative_con2')
+variant = 'missing_prerequisite'
+
+    @pytest.mark.parametrize("variant", ["retained", "full_crash", "missing_prerequisite", "invalid_json", "targeted_crash", "same_mutant"])
+    def test_task_tracker_negative_controls_reject_observer_crashes(tmp_path: Path, variant: str) -> None:
+        contract, template, mutants, product = task_fixture()
+        if variant == "same_mutant":
+            mutants["filtering"] = dict(mutants["persistence"])
+        elif variant != "retained":
+            for name, mutant in mutants.items():
+                if variant == "targeted_crash":
+                    source = product.decode()
+                    if name == "persistence":
+                        source = source.replace("def save_store(path, state):", "def save_store(path, state):\n    raise RuntimeError('targeted persistence crash')")
+                    else:
+                        source = source.replace("args = parser.parse_args()", "args = parser.parse_args()\n    if args.command == 'list' and args.status in ('open', 'completed'):\n        raise RuntimeError('targeted filter crash')")
+                    mutant["product.py"] = source.encode()
+                else:
+                    mutant["product.py"] = {"full_crash": b"raise RuntimeError('arbitrary crash')\n", "missing_prerequisite": b"import absent_r4_prerequisite\n", "invalid_json": b"print('not-json')\n"}[variant]
+        inputs = ProcessGateInputs(negative_controls=mutants)
+        result = run_to_release_ready(contract=contract, repository_root=tmp_path, workspace=tmp_path / "candidate", run_id=variant,
+            provider=TaskReplayProvider(product), template=template, candidate_sandbox=LocalSandbox(), budget=BudgetCaps(max_attempts=1), process_gate_inputs=inputs)
+        gate = gates_for(tmp_path, result.run_id)[0]
+>       assert gate["status"] == ("PASS" if variant == "retained" else "FAIL")
+E       AssertionError: assert 'PASS' == 'FAIL'
+E         
+E         - FAIL
+E         + PASS
+
+tests/integration/test_process_gate_r4.py:75: AssertionError
+__ test_task_tracker_negative_controls_reject_observer_crashes[invalid_json] ___
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-43/test_task_tracker_negative_con3')
+variant = 'invalid_json'
+
+    @pytest.mark.parametrize("variant", ["retained", "full_crash", "missing_prerequisite", "invalid_json", "targeted_crash", "same_mutant"])
+    def test_task_tracker_negative_controls_reject_observer_crashes(tmp_path: Path, variant: str) -> None:
+        contract, template, mutants, product = task_fixture()
+        if variant == "same_mutant":
+            mutants["filtering"] = dict(mutants["persistence"])
+        elif variant != "retained":
+            for name, mutant in mutants.items():
+                if variant == "targeted_crash":
+                    source = product.decode()
+                    if name == "persistence":
+                        source = source.replace("def save_store(path, state):", "def save_store(path, state):\n    raise RuntimeError('targeted persistence crash')")
+                    else:
+                        source = source.replace("args = parser.parse_args()", "args = parser.parse_args()\n    if args.command == 'list' and args.status in ('open', 'completed'):\n        raise RuntimeError('targeted filter crash')")
+                    mutant["product.py"] = source.encode()
+                else:
+                    mutant["product.py"] = {"full_crash": b"raise RuntimeError('arbitrary crash')\n", "missing_prerequisite": b"import absent_r4_prerequisite\n", "invalid_json": b"print('not-json')\n"}[variant]
+        inputs = ProcessGateInputs(negative_controls=mutants)
+        result = run_to_release_ready(contract=contract, repository_root=tmp_path, workspace=tmp_path / "candidate", run_id=variant,
+            provider=TaskReplayProvider(product), template=template, candidate_sandbox=LocalSandbox(), budget=BudgetCaps(max_attempts=1), process_gate_inputs=inputs)
+        gate = gates_for(tmp_path, result.run_id)[0]
+>       assert gate["status"] == ("PASS" if variant == "retained" else "FAIL")
+E       AssertionError: assert 'PASS' == 'FAIL'
+E         
+E         - FAIL
+E         + PASS
+
+tests/integration/test_process_gate_r4.py:75: AssertionError
+_ test_task_tracker_negative_controls_reject_observer_crashes[targeted_crash] __
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-43/test_task_tracker_negative_con4')
+variant = 'targeted_crash'
+
+    @pytest.mark.parametrize("variant", ["retained", "full_crash", "missing_prerequisite", "invalid_json", "targeted_crash", "same_mutant"])
+    def test_task_tracker_negative_controls_reject_observer_crashes(tmp_path: Path, variant: str) -> None:
+        contract, template, mutants, product = task_fixture()
+        if variant == "same_mutant":
+            mutants["filtering"] = dict(mutants["persistence"])
+        elif variant != "retained":
+            for name, mutant in mutants.items():
+                if variant == "targeted_crash":
+                    source = product.decode()
+                    if name == "persistence":
+                        source = source.replace("def save_store(path, state):", "def save_store(path, state):\n    raise RuntimeError('targeted persistence crash')")
+                    else:
+                        source = source.replace("args = parser.parse_args()", "args = parser.parse_args()\n    if args.command == 'list' and args.status in ('open', 'completed'):\n        raise RuntimeError('targeted filter crash')")
+                    mutant["product.py"] = source.encode()
+                else:
+                    mutant["product.py"] = {"full_crash": b"raise RuntimeError('arbitrary crash')\n", "missing_prerequisite": b"import absent_r4_prerequisite\n", "invalid_json": b"print('not-json')\n"}[variant]
+        inputs = ProcessGateInputs(negative_controls=mutants)
+        result = run_to_release_ready(contract=contract, repository_root=tmp_path, workspace=tmp_path / "candidate", run_id=variant,
+            provider=TaskReplayProvider(product), template=template, candidate_sandbox=LocalSandbox(), budget=BudgetCaps(max_attempts=1), process_gate_inputs=inputs)
+        gate = gates_for(tmp_path, result.run_id)[0]
+>       assert gate["status"] == ("PASS" if variant == "retained" else "FAIL")
+E       AssertionError: assert 'PASS' == 'FAIL'
+E         
+E         - FAIL
+E         + PASS
+
+tests/integration/test_process_gate_r4.py:75: AssertionError
+___ test_task_tracker_negative_controls_reject_observer_crashes[same_mutant] ___
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-43/test_task_tracker_negative_con5')
+variant = 'same_mutant'
+
+    @pytest.mark.parametrize("variant", ["retained", "full_crash", "missing_prerequisite", "invalid_json", "targeted_crash", "same_mutant"])
+    def test_task_tracker_negative_controls_reject_observer_crashes(tmp_path: Path, variant: str) -> None:
+        contract, template, mutants, product = task_fixture()
+        if variant == "same_mutant":
+            mutants["filtering"] = dict(mutants["persistence"])
+        elif variant != "retained":
+            for name, mutant in mutants.items():
+                if variant == "targeted_crash":
+                    source = product.decode()
+                    if name == "persistence":
+                        source = source.replace("def save_store(path, state):", "def save_store(path, state):\n    raise RuntimeError('targeted persistence crash')")
+                    else:
+                        source = source.replace("args = parser.parse_args()", "args = parser.parse_args()\n    if args.command == 'list' and args.status in ('open', 'completed'):\n        raise RuntimeError('targeted filter crash')")
+                    mutant["product.py"] = source.encode()
+                else:
+                    mutant["product.py"] = {"full_crash": b"raise RuntimeError('arbitrary crash')\n", "missing_prerequisite": b"import absent_r4_prerequisite\n", "invalid_json": b"print('not-json')\n"}[variant]
+        inputs = ProcessGateInputs(negative_controls=mutants)
+        result = run_to_release_ready(contract=contract, repository_root=tmp_path, workspace=tmp_path / "candidate", run_id=variant,
+            provider=TaskReplayProvider(product), template=template, candidate_sandbox=LocalSandbox(), budget=BudgetCaps(max_attempts=1), process_gate_inputs=inputs)
+        gate = gates_for(tmp_path, result.run_id)[0]
+>       assert gate["status"] == ("PASS" if variant == "retained" else "FAIL")
+E       AssertionError: assert 'PASS' == 'FAIL'
+E         
+E         - FAIL
+E         + PASS
+
+tests/integration/test_process_gate_r4.py:75: AssertionError
+_______________ test_spoofed_canonical_class_identity_is_refused _______________
+
+    def test_spoofed_canonical_class_identity_is_refused() -> None:
+        class Spoof(LocalSandbox):
+            pass
+        Spoof.__module__, Spoof.__qualname__ = LocalSandbox.__module__, LocalSandbox.__qualname__
+>       with pytest.raises(ValueError, match="canonical"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/integration/test_process_gate_r4.py:82: Failed
+_________________ test_isolation_report_is_frozen_at_admission _________________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-43/test_isolation_report_is_froze0')
+
+    def test_isolation_report_is_frozen_at_admission(tmp_path: Path) -> None:
+        from pmpe.barebones import default_template
+        from pmpe.process_sources import build_source_manifest, raw_digest
+        inputs, bindings = make_inputs(tmp_path)
+        sandbox = StatefulSandbox()
+        paths = {**inputs.source_paths, "stateful_adapter": Path(__file__).resolve()}
+        manifest = build_source_manifest(default_template(), paths, inputs.execution_profile, sandbox=sandbox)
+        inputs = replace(inputs, source_paths=paths, source_manifest=manifest)
+        bindings[1]["source_manifest_digest"] = raw_digest(manifest)
+        result = run_to_release_ready(contract=bound_contract(bindings), repository_root=tmp_path, workspace=tmp_path / "candidate", run_id="stateful-report",
+            provider=ReplayProvider(), candidate_sandbox=sandbox, budget=BudgetCaps(max_attempts=1), process_gate_inputs=inputs)
+        evidence = gates_for(tmp_path, result.run_id)[3]["evidence"]
+>       assert sandbox.reports == 1
+E       assert 2 == 1
+E        +  where 2 = <tests.integration.test_process_gate_r4.StatefulSandbox object at 0x7fba28b182c0>.reports
+
+tests/integration/test_process_gate_r4.py:109: AssertionError
+___________ test_attested_fresh_generation_cannot_be_mechanical_pass ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-43/test_attested_fresh_generation0')
+
+    def test_attested_fresh_generation_cannot_be_mechanical_pass(tmp_path: Path) -> None:
+        from pmpe.process_evaluators import generation_provenance_result
+        inputs, bindings = make_inputs(tmp_path)
+        result = run_to_release_ready(contract=bound_contract(bindings), repository_root=tmp_path, workspace=tmp_path / "candidate", run_id="attested-fresh",
+            provider=ReplayProvider(), candidate_sandbox=LocalSandbox(), budget=BudgetCaps(max_attempts=1), process_gate_inputs=inputs)
+        evidence = gates_for(tmp_path, result.run_id)[2]["evidence"]
+        ledger = EvidenceLedger.open_existing(tmp_path, result.run_id)
+        from pmpe.barebones import default_template
+        status, observed = generation_provenance_result(ledger=ledger, snapshot={"product.py": (tmp_path / "candidate/product.py").read_bytes()},
+            origin={key: value.encode() for key, value in default_template().files.items()}, process_records=evidence["process_records"],
+            criterion_ids=["AC-001"], criterion_results={"AC-001": ()}, attempt=1, generation_mode="fresh",
+            provider_attestation={"kind": "live_model", "statement": "Operator attestation only"},
+>           provider_class="pmpe.cli.barebones_cmd.CommandModelProvider", contract_digest=result.contract_digest)
+                                                                                          ^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: 'RunResult' object has no attribute 'contract_digest'
+
+tests/integration/test_process_gate_r4.py:126: AttributeError
+_________ test_uninventoried_adapter_cache_refuses_before_side_effects _________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-43/test_uninventoried_adapter_cac0')
+
+    def test_uninventoried_adapter_cache_refuses_before_side_effects(tmp_path: Path) -> None:
+        from pmpe.barebones import default_template
+        from pmpe.process_sources import build_source_manifest, raw_digest
+        inputs, bindings = make_inputs(tmp_path)
+        adapter_dir = tmp_path / "adapter"
+        adapter_dir.mkdir()
+        adapter = adapter_dir / "runner.py"
+        adapter.write_text("# exact adapter\n")
+        paths = {**inputs.source_paths, "adapter": adapter}
+        manifest = build_source_manifest(default_template(), paths, inputs.execution_profile, sandbox=LocalSandbox())
+        inputs = replace(inputs, source_paths=paths, source_manifest=manifest)
+        bindings[1]["source_manifest_digest"] = raw_digest(manifest)
+        cache = adapter_dir / "__pycache__"
+        cache.mkdir()
+        (cache / "runner.cpython-311.pyc").write_bytes(b"unbound bytecode")
+        provider = ReplayProvider()
+>       with pytest.raises(ContractInvalidError, match="bytecode"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AssertionError: Regex pattern did not match.
+E         Expected regex: 'bytecode'
+E         Actual message: 'process gate input invalid: process gate manifest omits provider/sandbox implementation'
+
+tests/integration/test_process_gate_r4.py:146: AssertionError
+=========================== short test summary info ============================
+FAILED tests/integration/test_process_gate_r4.py::test_task_tracker_negative_controls_reject_observer_crashes[full_crash]
+FAILED tests/integration/test_process_gate_r4.py::test_task_tracker_negative_controls_reject_observer_crashes[missing_prerequisite]
+FAILED tests/integration/test_process_gate_r4.py::test_task_tracker_negative_controls_reject_observer_crashes[invalid_json]
+FAILED tests/integration/test_process_gate_r4.py::test_task_tracker_negative_controls_reject_observer_crashes[targeted_crash]
+FAILED tests/integration/test_process_gate_r4.py::test_task_tracker_negative_controls_reject_observer_crashes[same_mutant]
+FAILED tests/integration/test_process_gate_r4.py::test_spoofed_canonical_class_identity_is_refused
+FAILED tests/integration/test_process_gate_r4.py::test_isolation_report_is_frozen_at_admission
+FAILED tests/integration/test_process_gate_r4.py::test_attested_fresh_generation_cannot_be_mechanical_pass
+FAILED tests/integration/test_process_gate_r4.py::test_uninventoried_adapter_cache_refuses_before_side_effects
