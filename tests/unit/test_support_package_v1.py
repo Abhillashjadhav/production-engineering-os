@@ -1132,9 +1132,7 @@ def test_generated_portable_proofs_import_app_and_catch_broken_behavior(tmp_path
     good = subprocess.run(command, cwd=bundle, capture_output=True, text=True, timeout=10)
     assert good.returncode == 0, good.stderr
     assert "Ran 2 tests" in good.stderr
-    (bundle / "app.py").write_text(
-        "def decide(payload):\n    return 200, {'status': 'DRAFTED'}\n"
-    )
+    (bundle / "app.py").write_text("def decide(payload):\n    return 200, {'status': 'DRAFTED'}\n")
     broken = subprocess.run(command, cwd=bundle, capture_output=True, text=True, timeout=10)
     assert broken.returncode == 1
     assert "FAILED (failures=2)" in broken.stderr

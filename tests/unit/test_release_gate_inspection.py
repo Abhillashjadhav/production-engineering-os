@@ -36,8 +36,11 @@ def _packet(
         contract["acceptance_criteria"]["AC-001"]["when"]["action"] = "custom_health"
     elif form == "measure":
         contract["acceptance_criteria"]["AC-001"] = {
-            "requirement_refs": ["FR-001"], "measure": "custom_latency", "operator": "lte",
-            "value": 200, "sample": {"minimum": 2},
+            "requirement_refs": ["FR-001"],
+            "measure": "custom_latency",
+            "operator": "lte",
+            "value": 200,
+            "sample": {"minimum": 2},
         }
     elif form in {"human-test", "template-proof"}:
         path = "tests/test_health.py"
@@ -48,21 +51,31 @@ def _packet(
         criterion = {"requirement_refs": ["FR-001"]}
         if form == "human-test":
             criterion["human_test"] = {
-                "path": path, "node_id": "test_health", "command": ["pytest", path + "::test_health"]
+                "path": path,
+                "node_id": "test_health",
+                "command": ["pytest", path + "::test_health"],
             }
         else:
             digest = "sha256:" + hashlib.sha256(source.encode()).hexdigest()
             trusted[path] = digest
             proof_digests["health-proof"] = digest
-            criterion["satisfied_by_template"] = {"template_version": "fixture-1", "test_id": "health-proof"}
+            criterion["satisfied_by_template"] = {
+                "template_version": "fixture-1",
+                "test_id": "health-proof",
+            }
         contract["acceptance_criteria"]["AC-001"] = criterion
     subject = canonical_digest(contract)
     plan = (
         compile_barebones_plan(contract=contract, repository_root=root).as_dict()
-        if form == "default" else compile_acceptance_plan(
-            contract, repository_root=root, registered_actions=frozenset({"custom_health"}),
-            registered_measures=frozenset({"custom_latency"}), template_version="fixture-1",
-            template_test_digests=proof_digests, trusted_test_digests=trusted,
+        if form == "default"
+        else compile_acceptance_plan(
+            contract,
+            repository_root=root,
+            registered_actions=frozenset({"custom_health"}),
+            registered_measures=frozenset({"custom_latency"}),
+            template_version="fixture-1",
+            template_test_digests=proof_digests,
+            trusted_test_digests=trusted,
         ).as_dict()
     )
     if mutation == "plan-stripped":
@@ -74,7 +87,9 @@ def _packet(
     if mutation == "plan-assertion-changed":
         plan["criteria"][0]["then"][0]["value"] = "broken"
     if mutation in {
-        "plan-stripped", "plan-criteria-missing", "plan-criterion-malformed",
+        "plan-stripped",
+        "plan-criteria-missing",
+        "plan-criterion-malformed",
         "plan-assertion-changed",
     }:
         plan["plan_digest"] = canonical_digest(
@@ -108,8 +123,19 @@ def _packet(
     )
     app = ledger.put_blob(b"def health():\n    return {'status':'ok'}\n")
     binding = ledger.put_blob((subject + "\n").encode())
-    manifest = {"app.py": app, "package-contract-digest.txt": binding,
-                **{path: ledger.put_blob(source.encode()) for path, source in extra_files.items()}}
+    manifest = {
+        "app.py": app,
+        "package-contract-digest.txt": binding,
+        **{path: ledger.put_blob(source.encode()) for path, source in extra_files.items()},
+    }
+    unsafe_paths = {
+        "unsafe-parent": "../escaped.py",
+        "unsafe-absolute": "/escaped.py",
+        "unsafe-alias": "tests//escaped.py",
+        "unsafe-nul": "tests/\x00escaped.py",
+    }
+    if mutation in unsafe_paths:
+        manifest[unsafe_paths[mutation]] = app
     candidate = ledger.put_blob(canonical_json_bytes(manifest))
     payload: dict[str, Any] = {"candidate_digest": candidate}
     terminal_blobs = [candidate, *manifest.values()]
@@ -137,6 +163,13 @@ def _packet(
         if mutation == "failed-criterion":
             evidence["gates"][0]["criterion_results"][0]["status"] = "FAIL"
         gate_blob = ledger.put_blob(canonical_json_bytes(evidence))
+        if mutation == "verification-attempt-mismatch":
+            ledger.append(
+                event_type="verification_started",
+                state="VERIFYING",
+                subject_digest=subject,
+                payload={"attempt": 2},
+            )
         ledger.append(
             event_type="release_gates_evaluated",
             state="VERIFYING",
@@ -152,9 +185,20 @@ def _packet(
             payload["release_gate_evidence_digest"] = gate_blob
         if mutation == "later-verification-failure":
             ledger.append(
-                event_type="verification_failed", state="BUILDING", subject_digest=subject,
-                payload={"attempt": 1, "findings": [{"code": "ASSERTION_FAILED",
-                         "subject_id": "AC-001", "detail": "seeded later failure", "files": []}]},
+                event_type="verification_failed",
+                state="BUILDING",
+                subject_digest=subject,
+                payload={
+                    "attempt": 1,
+                    "findings": [
+                        {
+                            "code": "ASSERTION_FAILED",
+                            "subject_id": "AC-001",
+                            "detail": "seeded later failure",
+                            "files": [],
+                        }
+                    ],
+                },
             )
     terminal = ledger.append(
         event_type="release_ready",
@@ -202,6 +246,11 @@ def test_semantic_validation_preserves_retained_custom_forms_without_original_fi
         "plan-criterion-malformed",
         "plan-assertion-changed",
         "later-verification-failure",
+        "verification-attempt-mismatch",
+        "unsafe-parent",
+        "unsafe-absolute",
+        "unsafe-alias",
+        "unsafe-nul",
     ],
 )
 @pytest.mark.parametrize("command", ["status", "inspect"])
