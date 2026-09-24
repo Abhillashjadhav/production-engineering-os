@@ -1081,7 +1081,15 @@ def run_to_release_ready(
     )
     counters["structured_criteria_count"] = sum(item.form != "human_test" for item in plan.criteria)
     counters["human_test_count"] = sum(item.form == "human_test" for item in plan.criteria)
-    validate_process_inputs(plan, process_gate_inputs, active_template, provider, active_sandbox)
+    validate_process_inputs(
+        plan,
+        process_gate_inputs,
+        active_template,
+        provider,
+        active_sandbox,
+        receipt_bytes=approval_receipt_bytes,
+        approval_verified=approval_payload["status"] == "VERIFIED",
+    )
     workspace_root = workspace.resolve()
     evidence_root = (repository_root / ".pmpe").resolve()
     if workspace_root.is_relative_to(evidence_root) or evidence_root.is_relative_to(workspace_root):
@@ -1092,7 +1100,14 @@ def run_to_release_ready(
     ledger = EvidenceLedger(repository_root, run_id)
     process_runtime = (
         ProcessGateRuntime(
-            plan, process_gate_inputs, active_template, provider, active_sandbox, ledger
+            plan,
+            process_gate_inputs,
+            active_template,
+            provider,
+            active_sandbox,
+            ledger,
+            receipt_bytes=approval_receipt_bytes,
+            approval_verified=approval_payload["status"] == "VERIFIED",
         )
         if process_gate_inputs is not None
         and any(gate.binding is not None for gate in plan.release_gates)
@@ -1449,6 +1464,8 @@ def run_to_release_ready(
                 }
                 review_request = {**review_body, "request_digest": canonical_digest(review_body)}
                 try:
+                    if process_runtime.sandbox.integrity_failed:
+                        raise RuntimeError("PROCESS_INTEGRITY_MISMATCH")
                     process_annotation = _invoke_bound(
                         provider,
                         purpose="advisory_review",
@@ -1475,6 +1492,19 @@ def run_to_release_ready(
             gate_evidence_digest, gates = record_release_gates(
                 verification_snapshot, criterion_results, attempt, RunState.VERIFYING
             )
+            if process_runtime is not None and process_runtime.sandbox.integrity_failed:
+                ledger.append(
+                    event_type="halted",
+                    state=RunState.HALTED,
+                    subject_digest=subject_digest,
+                    blob_digests=(gate_evidence_digest,),
+                    payload={
+                        "cause": "PROCESS_INTEGRITY_MISMATCH",
+                        "release_gate_evidence_digest": gate_evidence_digest,
+                        "telemetry": _terminal_telemetry(),
+                    },
+                )
+                return finish(RunState.HALTED, "PROCESS_INTEGRITY_MISMATCH", attempt)
             findings += tuple(
                 Finding(
                     "RELEASE_GATE_FAILED"

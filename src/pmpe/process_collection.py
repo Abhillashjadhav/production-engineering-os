@@ -34,6 +34,7 @@ class RecordingSandbox:
         self.protected: dict[str, bytes] = {}
         self.current_workspace: Path | None = None
         self.blobs: set[str] = set()
+        self.integrity_failed = False
 
     def blob(self, payload: bytes) -> str:
         digest = self.ledger.put_blob(payload)
@@ -87,6 +88,7 @@ class RecordingSandbox:
             }
         )
         if mismatches:
+            self.integrity_failed = True
             from pmpe.barebones import ContractInvalidError
 
             raise ContractInvalidError("process gate integrity mismatch: " + ", ".join(mismatches))

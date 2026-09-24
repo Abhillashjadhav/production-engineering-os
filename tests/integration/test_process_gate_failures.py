@@ -237,9 +237,9 @@ def test_fresh_label_on_test_provider_remains_not_evaluated(tmp_path: Path) -> N
 
 
 def test_mechanical_process_subset_reaches_release_ready(tmp_path: Path) -> None:
-    inputs, items = make_inputs(tmp_path)
-    candidate = bound_contract(items)
-    del candidate["binary_release_gates"][2]
+    from tests.integration.test_process_gate_approval import approved_fixture
+
+    inputs, candidate, receipt_bytes = approved_fixture(tmp_path, include_fresh_gate=False)
     result = run_to_release_ready(
         contract=candidate,
         repository_root=tmp_path,
@@ -249,6 +249,9 @@ def test_mechanical_process_subset_reaches_release_ready(tmp_path: Path) -> None
         candidate_sandbox=LocalSandbox(),
         budget=BudgetCaps(max_attempts=1),
         process_gate_inputs=inputs,
+        approval_receipt=json.loads(receipt_bytes),
+        approval_authority="TEST-ONLY-fixture",
+        approval_receipt_bytes=receipt_bytes,
     )
     assert result.state is RunState.RELEASE_READY
     events = list(EvidenceLedger.open_existing(tmp_path, result.run_id).verify())
@@ -309,6 +312,6 @@ def test_repair_attempt_preserves_prior_applied_response_provenance(tmp_path: Pa
         for event in events
         if event["event_type"] == "release_gates_evaluated"
     ][-1]
-    assert [gate["status"] for gate in gates] == ["PASS", "PASS", "NOT_EVALUATED", "PASS"]
+    assert [gate["status"] for gate in gates] == ["PASS", "NOT_EVALUATED", "NOT_EVALUATED", "PASS"]
     assert len(gates[2]["evidence"]["coder_events"]) == 2
     assert result.state is RunState.HALTED

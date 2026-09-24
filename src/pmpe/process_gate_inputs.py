@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from pmpe.contracts.canonical import strict_loads
+from pmpe.process_approval import validate_approval_packet
 from pmpe.process_sources import implementation_identity, raw_digest, validate_sources
 
 if TYPE_CHECKING:
@@ -18,6 +19,9 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ProcessGateInputs:
+    approval_freeze: bytes = b""
+    approval_freeze_expected_digest: str = ""
+    approval_paths: Mapping[str, Path] = field(default_factory=dict)
     generation_mode: str = "unknown"
     provider_attestation: Mapping[str, str] = field(default_factory=dict)
     source_manifest: bytes = b""
@@ -33,6 +37,9 @@ def validate_process_inputs(
     template: Template,
     provider: ModelProvider,
     sandbox: CandidateSandbox,
+    *,
+    receipt_bytes: bytes | None = None,
+    approval_verified: bool = False,
 ) -> None:
     bindings = [gate.binding for gate in plan.release_gates if gate.binding is not None]
     if not bindings:
@@ -65,6 +72,9 @@ def validate_process_inputs(
                     template,
                     inputs.execution_profile,
                     (provider, sandbox),
+                )
+                validate_approval_packet(
+                    inputs, plan, receipt_bytes=receipt_bytes, approval_verified=approval_verified
                 )
             elif kind == "generation_provenance":
                 if (

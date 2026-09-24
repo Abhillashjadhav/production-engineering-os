@@ -8,6 +8,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from pmpe.process_approval import validate_approval_packet
 from pmpe.process_collection import RecordingSandbox
 from pmpe.process_evaluators import (
     criterion_evidence,
@@ -48,6 +49,9 @@ class ProcessGateRuntime:
         provider: ModelProvider,
         sandbox: CandidateSandbox,
         ledger: EvidenceLedger,
+        *,
+        receipt_bytes: bytes | None = None,
+        approval_verified: bool = False,
     ) -> None:
         self.plan, self.inputs, self.template, self.ledger = plan, inputs, template, ledger
         self.bindings = [gate.binding for gate in plan.release_gates if gate.binding is not None]
@@ -61,6 +65,12 @@ class ProcessGateRuntime:
                 inputs.execution_profile,
                 (provider, sandbox),
             )
+        approval_paths, approval_expected = validate_approval_packet(
+            inputs, plan, receipt_bytes=receipt_bytes, approval_verified=approval_verified
+        )
+        self.approval_packet_bound = bool(approval_paths)
+        paths.update(approval_paths)
+        expected.update(approval_expected)
         self.sandbox = RecordingSandbox(sandbox, ledger, paths, expected)
         self.provider_class = type(provider).__module__ + "." + type(provider).__qualname__
         self.origin: dict[str, bytes] = {}
@@ -104,7 +114,11 @@ class ProcessGateRuntime:
         blobs.extend(self.sandbox.blob(path.read_bytes()) for path in self.sandbox.paths.values())
         blobs.extend(
             self.sandbox.blob(value)
-            for value in (self.inputs.source_manifest, self.inputs.execution_profile)
+            for value in (
+                self.inputs.source_manifest,
+                self.inputs.execution_profile,
+                self.inputs.approval_freeze,
+            )
             if value
         )
         evidence = {
@@ -191,6 +205,8 @@ class ProcessGateRuntime:
                     ),
                 }
             )
+            if self.sandbox.integrity_failed:
+                break
         self.sandbox.phase = "candidate"
 
     def results(
@@ -236,6 +252,17 @@ class ProcessGateRuntime:
             elif kind == "digest_boundaries":
                 status, evidence = digest_boundaries_result(self.sandbox, attempt, ids, mutants)
                 evidence["source_manifest_digest"] = raw_digest(self.inputs.source_manifest)
+                evidence["source_checks_status"] = status
+                evidence["approval_freeze_digest"] = self.inputs.approval_freeze_expected_digest
+                evidence["approval_anchor_limit"] = (
+                    "Externally supplied digest and unsigned receipt; not cryptographic owner authentication."
+                )
+                if status == "PASS" and not self.approval_packet_bound:
+                    status = "NOT_EVALUATED"
+                    evidence["reasons"].append("APPROVAL_PACKET_NOT_BOUND")
+                if self.sandbox.integrity_failed:
+                    status = "FAIL"
+                    evidence["reasons"].append("OBSERVED_INTEGRITY_MISMATCH_IS_TERMINAL")
                 if boundary_error:
                     status = "FAIL"
                     evidence["boundary_error"] = boundary_error

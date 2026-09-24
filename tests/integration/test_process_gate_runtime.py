@@ -203,7 +203,7 @@ def test_retained_replay_passes_mechanical_gates_but_never_fresh_gate(tmp_path: 
     events = list(ledger.verify())
     event = next(event for event in events if event["event_type"] == "release_gates_evaluated")
     gates = event["payload"]["gates"]
-    assert [gate["status"] for gate in gates] == ["PASS", "PASS", "NOT_EVALUATED", "PASS"]
+    assert [gate["status"] for gate in gates] == ["PASS", "NOT_EVALUATED", "NOT_EVALUATED", "PASS"]
     assert all(gate["evidence"]["run_id"] == result.run_id for gate in gates)
     assert not any(event["event_type"] == "release_ready" for event in events)
     integrity = gates[1]["evidence"]
