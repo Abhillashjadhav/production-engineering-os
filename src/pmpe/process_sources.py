@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import inspect
 import json
 import sys
@@ -22,7 +23,34 @@ def raw_digest(value: bytes) -> str:
 
 
 def reject_bytecode(roots: Sequence[Path]) -> None:
+    resolved = {root.resolve() for root in roots}
+    roots = tuple(
+        root
+        for root in resolved
+        if not any(root != parent and root.is_relative_to(parent) for parent in resolved)
+    )
+    for module in tuple(sys.modules.values()):
+        location = getattr(module, "__file__", None)
+        cached = getattr(module, "__cached__", None)
+        if (
+            location
+            and cached
+            and any(Path(location).resolve().is_relative_to(root.resolve()) for root in roots)
+            and Path(cached).is_file()
+        ):
+            raise ValueError("process gate active uninventoried bytecode: " + str(cached))
     for root in set(roots):
+        for source in root.rglob("*.py"):
+            for optimization in ("", "1", "2"):
+                cached_path = Path(
+                    importlib.util.cache_from_source(
+                        str(source.resolve()), optimization=optimization
+                    )
+                )
+                if cached_path.is_file():
+                    raise ValueError(
+                        "process gate active or future uninventoried bytecode: " + str(cached_path)
+                    )
         if any(path.is_file() and path.suffix in {".pyc", ".pyo"} for path in root.rglob("*")):
             raise ValueError("process gate uninventoried bytecode under source root: " + str(root))
 
@@ -71,7 +99,12 @@ def build_source_manifest(
         raise ValueError(
             "source manifest requires adapter and reserves engine/, approval/ and protected/ names"
         )
-    reject_bytecode([source_paths["adapter"].parent])
+    reject_bytecode(
+        [
+            source_paths["adapter"].parent,
+            *(path.parent for path in source_paths.values() if path.suffix == ".py"),
+        ]
+    )
     paths = {**engine_sources(), **source_paths}
     value = {
         "schema_version": "1",
@@ -115,7 +148,12 @@ def validate_sources(
         raise ValueError(
             "process gate source manifest requires adapter and reserves evidence namespaces"
         )
-    reject_bytecode([source_paths["adapter"].parent])
+    reject_bytecode(
+        [
+            source_paths["adapter"].parent,
+            *(path.parent for path in source_paths.values() if path.suffix == ".py"),
+        ]
+    )
     paths = {**engine_sources(), **source_paths}
     expected = manifest["artifacts"]
     if not isinstance(expected, dict) or set(expected) != set(paths):

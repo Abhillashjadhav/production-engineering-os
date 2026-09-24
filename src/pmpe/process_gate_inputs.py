@@ -11,7 +11,12 @@ from typing import TYPE_CHECKING, Any
 from pmpe.contracts.canonical import strict_loads
 from pmpe.evidence.process_gate_validation import snapshot_digest
 from pmpe.process_approval import validate_approval_packet
-from pmpe.process_sources import implementation_identity, raw_digest, validate_sources
+from pmpe.process_sources import (
+    implementation_identity,
+    raw_digest,
+    reject_bytecode,
+    validate_sources,
+)
 
 if TYPE_CHECKING:
     from pmpe.barebones import CandidateSandbox, Template
@@ -50,6 +55,7 @@ def validate_process_inputs(
     from pmpe.barebones import ContractInvalidError
 
     try:
+        reject_bytecode([Path(__file__).parent])
         if not isinstance(inputs, ProcessGateInputs):
             raise ValueError("process gate inputs are required")
         for binding in bindings:

@@ -254,18 +254,24 @@ def test_uninventoried_adapter_cache_refuses_before_side_effects(tmp_path: Path)
 
 
 class TaskRepairProvider(TaskReplayProvider):
-    def __init__(self, stub: str, product: bytes) -> None:
+    def __init__(self, stub: str, product: bytes, repair_kind: str = "product") -> None:
         super().__init__(product)
         self.stub = stub
+        self.repair_kind = repair_kind
 
     def invoke(self, *, purpose: str, request: Any) -> dict[str, Any]:
         response = super().invoke(purpose=purpose, request=request)
-        if self.calls == 1:
+        if self.calls == 1 or self.repair_kind == "unchanged":
             response["files"]["product.py"] = self.stub
+        elif self.repair_kind == "unrelated":
+            response["files"] = {"unrelated.py": "# unrelated addition\n"}
         return response
 
 
-def test_task_tracker_repair_targets_product_behind_protected_observer(tmp_path: Path) -> None:
+@pytest.mark.parametrize("repair_kind", ["product", "unchanged", "unrelated"])
+def test_task_tracker_repair_targets_product_behind_protected_observer(
+    tmp_path: Path, repair_kind: str
+) -> None:
     contract, template, mutants, product = task_fixture()
     for binding in contract["binary_release_gates"][0]["binding"]["mutants"]:
         binding["snapshot_digest"] = snapshot_digest(mutants[binding["id"]])
@@ -274,13 +280,17 @@ def test_task_tracker_repair_targets_product_behind_protected_observer(tmp_path:
         repository_root=tmp_path,
         workspace=tmp_path / "candidate",
         run_id="observer-repair",
-        provider=TaskRepairProvider(template.files["product.py"], product),
+        provider=TaskRepairProvider(template.files["product.py"], product, repair_kind),
         template=template,
         candidate_sandbox=LocalSandbox(),
         budget=BudgetCaps(max_attempts=2),
         process_gate_inputs=ProcessGateInputs(negative_controls=mutants),
     )
-    assert result.state == "RELEASE_READY", result.cause
+    if repair_kind == "product":
+        assert result.state == "RELEASE_READY", result.cause
+    else:
+        assert result.state == "HALTED"
+        assert result.cause.startswith("REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE")
 
 
 def test_active_external_bytecode_cache_is_not_outside_guard(
@@ -293,4 +303,29 @@ def test_active_external_bytecode_cache_is_not_outside_guard(
     external_cache.write_bytes(b"unbound external cache")
     monkeypatch.setattr(sources, "__cached__", str(external_cache))
     with pytest.raises(ValueError, match="bytecode"):
-        sources.build_source_manifest(default_template(), {"adapter": Path(__file__)}, b"{}", sandbox=LocalSandbox())
+        sources.build_source_manifest(
+            default_template(), {"adapter": Path(__file__)}, b"{}", sandbox=LocalSandbox()
+        )
+
+
+@pytest.mark.parametrize("optimization", ["", "1", "2"])
+def test_future_external_adapter_cache_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, optimization: str
+) -> None:
+    import importlib.util
+    import sys
+
+    from pmpe.barebones import default_template
+    from pmpe.process_sources import build_source_manifest
+
+    source = tmp_path / "adapter" / "future.py"
+    source.parent.mkdir()
+    source.write_text("# not imported yet\n")
+    monkeypatch.setattr(sys, "pycache_prefix", str(tmp_path / "private-cache"))
+    cache = Path(importlib.util.cache_from_source(str(source), optimization=optimization))
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    cache.write_bytes(b"unbound cache for a future adapter import")
+    with pytest.raises(ValueError, match="bytecode"):
+        build_source_manifest(
+            default_template(), {"adapter": source}, b"{}", sandbox=LocalSandbox()
+        )
