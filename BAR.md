@@ -8,3 +8,12 @@
 6. **Unrequested setting/dependency/extension? No.** Preserve the public validator signature; `head_anchor` explains the existing optional head argument and adds no authority.
 
 No frozen source, trusted policy, scanner, allowlist, model, deployment, merge, or publication changes. A self-consistent unsigned rewrite remains unauthenticated without an independently retained head.
+
+## Distinct support-package caller unit
+
+1. **Existing path? Yes.** Extend the package reader's current contract/receipt/candidate checks; do not synthesize a barebones plan or add another engine.
+2. **Reproduced blocker? Yes.** The real package sealer has a separate two-event format; strict barebones validation would reject it, while its old reader accepted an interposed unknown event.
+3. **Existing behavior affected? Yes.** Package sealing, reuse, and assembly consume this reader; the coordinator explicitly extended this branch's boundary to its call site.
+4. **Executable RED/GREEN? Yes.** The archived baseline gives one failure and three preserving controls in `package-red.txt`; the changed reader and full support file give 88 passes in `package-green.txt`.
+5. **Single-unit revert? Yes.** A pure sequence guard, one import/call substitution, and four direct tests form a separate commit.
+6. **Unrequested setting/dependency? No.** The existing package schema and caller distinguish this format. No marker, policy, scanner, or settings change is added.
