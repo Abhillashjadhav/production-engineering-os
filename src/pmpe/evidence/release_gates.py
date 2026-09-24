@@ -8,6 +8,7 @@ from typing import Any
 
 from pmpe.contracts.canonical import canonical_digest, strict_loads
 from pmpe.contracts.release_gates import compile_release_gates
+from pmpe.evidence.compiled_plan import validate_compiled_plan
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -171,11 +172,46 @@ def validate_release_gate_evidence(
         or canonical_digest(plan.get("release_gates")) != canonical_digest(expected)
     ):
         raise EvidenceIntegrityError("release gate plan binding is inconsistent")
+    candidate_manifest = _object(ledger, payload.get("candidate_digest"))
+    validate_compiled_plan(
+        ledger, contract, plan, candidate_manifest, terminal.get("blob_digests", [])
+    )
     digest = payload.get("release_gate_evidence_digest")
     if digest not in terminal.get("blob_digests", []) or not gate_events:
         raise EvidenceIntegrityError("release gate evidence is missing from release")
     evidence = _object(ledger, digest)
     gate_event = gate_events[-1]
+    following = events[gate_event["sequence"] : -1]
+    if any(
+        event.get("event_type")
+        in {
+            "coder_completed",
+            "verification_started",
+            "verification_failed",
+            "security_failed",
+            "halted",
+            "stopped",
+            "contract_validated",
+            "meaningful_red_confirmed",
+            "release_ready",
+        }
+        or event.get("state") in {"BUILDING", "HALTED", "STOPPED", "VALIDATED", "RELEASE_READY"}
+        or event.get("payload", {}).get("findings")
+        for event in following
+    ):
+        raise EvidenceIntegrityError("release gate PASS is contradicted by later run evidence")
+    starts = [
+        event
+        for event in events[: gate_event["sequence"] - 1]
+        if event.get("event_type") == "verification_started"
+    ]
+    if starts and (
+        starts[-1].get("payload", {}).get("attempt") != evidence.get("attempt")
+        or starts[-1].get("subject_digest") != subject
+    ):
+        raise EvidenceIntegrityError(
+            "release gate evidence does not match the latest verification attempt"
+        )
     if (
         digest not in gate_event.get("blob_digests", [])
         or gate_event.get("state") != "VERIFYING"
