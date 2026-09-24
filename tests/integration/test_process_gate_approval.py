@@ -32,10 +32,18 @@ def approved_fixture(
     from pmpe.process_gates import raw_digest
 
     inputs, items = make_inputs(tmp_path)
-    draft = bound_contract(items)
+    from pmpe.contracts.authoring import build_contract_draft
+    answers = json.loads((Path(__file__).parents[1] / "fixtures/v2/contract_approved.json").read_text())
+    for field in ("approved_at", "approved_by", "contract_status", "source_digest", "unresolved_questions"):
+        answers.pop(field)
+    answers["contract_id"] = "TEST-ONLY-PROCESS-PUBLISHER"
+    answers["acceptance_criteria"][0].update(bound_contract(items)["acceptance_criteria"]["AC-001"])
+    answers["binary_release_gates"] = bound_contract(items)["binary_release_gates"]
     if not include_fresh_gate:
-        del draft["binary_release_gates"][2]
-    draft.update(contract_status="DRAFT", approved_by="", approved_at="")
+        del answers["binary_release_gates"][2]
+    draft_result = build_contract_draft(answers)
+    assert draft_result.draft is not None
+    draft = draft_result.draft
     approved = {
         **draft,
         "contract_status": "APPROVED",
@@ -63,6 +71,7 @@ def approved_fixture(
         "draft": json.dumps(draft).encode(),
         "plan": json.dumps(plan.as_dict()).encode(),
         "source_manifest": inputs.source_manifest,
+        "publisher_input": json.dumps(answers).encode(),
     }
     paths = {}
     for key, value in packet.items():
@@ -131,7 +140,7 @@ def test_complete_test_only_approval_packet_allows_integrity_pass(tmp_path: Path
     assert gate["evidence"]["approval_freeze_digest"] == inputs.approval_freeze_expected_digest
 
 
-@pytest.mark.parametrize("field", ["contract", "receipt", "draft", "plan", "source_manifest"])
+@pytest.mark.parametrize("field", ["contract", "receipt", "draft", "plan", "source_manifest", "publisher_input"])
 def test_changed_outer_packet_refuses_before_provider(tmp_path: Path, field: str) -> None:
     inputs, approved, receipt_bytes = approved_fixture(tmp_path)
     path = inputs.approval_paths[field]
@@ -209,3 +218,16 @@ def test_source_inventory_reserves_outer_and_protected_namespaces(tmp_path: Path
     sources = {"adapter": Path(__file__).resolve(), key: Path(__file__).resolve()}
     with pytest.raises(ValueError, match="reserves"):
         build_source_manifest(default_template(), sources, b"{}", sandbox=LocalSandbox())
+
+
+def test_outer_packet_cannot_omit_publisher_source(tmp_path: Path) -> None:
+    from pmpe.process_gates import raw_digest
+    inputs, approved, receipt_bytes = approved_fixture(tmp_path)
+    manifest = json.loads(inputs.approval_freeze)
+    del manifest["artifacts"]["publisher_input"]
+    payload = json.dumps(manifest).encode()
+    inputs = replace(inputs, approval_freeze=payload, approval_freeze_expected_digest=raw_digest(payload), approval_paths={key: path for key, path in inputs.approval_paths.items() if key != "publisher_input"})
+    provider = ReplayProvider()
+    with pytest.raises(ContractInvalidError, match="approval packet"):
+        run_to_release_ready(contract=approved, repository_root=tmp_path, workspace=tmp_path / "candidate", run_id="missing-publisher", provider=provider, candidate_sandbox=LocalSandbox(), process_gate_inputs=inputs, approval_receipt=json.loads(receipt_bytes), approval_authority="TEST-ONLY-fixture", approval_receipt_bytes=receipt_bytes)
+    assert provider.calls == 0
