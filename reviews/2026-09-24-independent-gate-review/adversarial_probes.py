@@ -34,6 +34,8 @@ class Provider:
 
 def main():
     sandbox = runpy.run_path(str(ROOT / "tests/conftest.py"))["_LocalCandidateTestSandbox"]
+    # Reuse the established planted-security fixture as data; never import or run it.
+    planted_security_source = (ROOT / "src/pmpe/demo/synthetic.py").read_text()
     base = json.loads((ROOT / "examples/barebones/e1-contract.json").read_text())
     base["contract_id"] = "TEST-ONLY-INDEPENDENT-REVIEW"
     base["binary_release_gates"] = [
@@ -83,7 +85,7 @@ def main():
         (
             "security-blocked",
             "def health(mode='first'):\n    return {'status':'ok'}\n",
-            {"unused.py": "eval('1')\n"},
+            {"unused.py": planted_security_source},
             "HALTED",
             ["NOT_EVALUATED"] * 3,
         ),
@@ -115,6 +117,18 @@ def main():
             assert json.loads(ledger.read_blob(digest)) == event["payload"]
             manifest = json.loads(ledger.read_blob(event["payload"]["candidate_digest"]))
             assert ledger.read_blob(manifest["product.py"]).decode() == code
+            for relative, content in extra.items():
+                assert ledger.read_blob(manifest[relative]).decode() == content
+            if name == "security-blocked":
+                security_event = next(
+                    item for item in events if item["event_type"] == "security_failed"
+                )
+                assert any(
+                    finding["code"] == "HIGH_DYNAMIC_EXECUTION"
+                    and finding["subject_id"] == "unused.py"
+                    for finding in security_event["payload"]["findings"]
+                )
+                assert all(item["event_type"] != "verification_started" for item in events)
             assert all(
                 item["event_type"] != "release_ready"
                 or item["payload"]["candidate_digest"] == event["payload"]["candidate_digest"]
@@ -128,6 +142,14 @@ def main():
                         "gate": gate["status"],
                         "criteria": observed,
                         "candidate_and_gate_blobs_verified": True,
+                        "security_fixture_source": (
+                            "src/pmpe/demo/synthetic.py" if name == "security-blocked" else None
+                        ),
+                        "security_fixture_sha256": (
+                            hashlib.sha256(planted_security_source.encode()).hexdigest()
+                            if name == "security-blocked"
+                            else None
+                        ),
                     },
                     sort_keys=True,
                 )

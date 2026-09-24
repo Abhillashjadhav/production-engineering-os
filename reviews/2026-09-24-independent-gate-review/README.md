@@ -41,6 +41,16 @@ manifest and candidate source bytes. The no-gate E1 compiled plan's serialized
 shape and digest also matched the unchanged pre-gate main core:
 `sha256:465768d2560b7cca1c98d1c31695b4b546e5ec8bf77178f97208fc9d05bf7231`.
 
+The security-block probe reads the entire established planted-security source
+from `src/pmpe/demo/synthetic.py` into an unused candidate file. It does not
+import or execute the demonstration. It verifies those exact candidate bytes,
+the real runtime HIGH_DYNAMIC_EXECUTION finding and the absence of acceptance
+execution. No scanner exception applies to that candidate file. This reuses
+the existing fixture without duplicating a security payload into review source;
+`security-repair.md` and the before/after scan receipts record the first repair
+after PR #209's security check flagged the original copied payload. The scanner,
+allowlists, policy, runtime and approved contracts are unchanged.
+
 The initial ad hoc probe assumed the first ledger blob was the gate payload;
 ledger references are sorted. The probe was corrected to compute the payload
 digest and passed. This required no production correction. The saved script

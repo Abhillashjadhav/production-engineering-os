@@ -1,5 +1,5 @@
-{"candidate_and_gate_blobs_verified": true, "case": "all-pass", "criteria": ["PASS", "PASS", "PASS"], "gate": "PASS", "state": "RELEASE_READY"}
-{"candidate_and_gate_blobs_verified": true, "case": "second-assertion-fails", "criteria": ["PASS", "FAIL", "PASS"], "gate": "FAIL", "state": "HALTED"}
-{"candidate_and_gate_blobs_verified": true, "case": "second-crashes", "criteria": ["PASS", "FAIL", "NOT_EVALUATED"], "gate": "FAIL", "state": "HALTED"}
-{"candidate_and_gate_blobs_verified": true, "case": "security-blocked", "criteria": ["NOT_EVALUATED", "NOT_EVALUATED", "NOT_EVALUATED"], "gate": "NOT_EVALUATED", "state": "HALTED"}
+{"candidate_and_gate_blobs_verified": true, "case": "all-pass", "criteria": ["PASS", "PASS", "PASS"], "gate": "PASS", "security_fixture_sha256": null, "security_fixture_source": null, "state": "RELEASE_READY"}
+{"candidate_and_gate_blobs_verified": true, "case": "second-assertion-fails", "criteria": ["PASS", "FAIL", "PASS"], "gate": "FAIL", "security_fixture_sha256": null, "security_fixture_source": null, "state": "HALTED"}
+{"candidate_and_gate_blobs_verified": true, "case": "second-crashes", "criteria": ["PASS", "FAIL", "NOT_EVALUATED"], "gate": "FAIL", "security_fixture_sha256": null, "security_fixture_source": null, "state": "HALTED"}
+{"candidate_and_gate_blobs_verified": true, "case": "security-blocked", "criteria": ["NOT_EVALUATED", "NOT_EVALUATED", "NOT_EVALUATED"], "gate": "NOT_EVALUATED", "security_fixture_sha256": "c8edda78fb3ec7516f344d7da219c6664156383fe605f30bd7386a6f905193f7", "security_fixture_source": "src/pmpe/demo/synthetic.py", "state": "HALTED"}
 INDEPENDENT ADVERSARIAL PROBES: PASS (4 cases)
