@@ -36,6 +36,7 @@ def _check_results(
     ledger: EvidenceLedger,
     criteria: list[dict[str, Any]],
     attempt: int,
+    context: Mapping[str, str],
 ) -> None:
     if not isinstance(results, list) or len(results) != len(expected):
         raise EvidenceIntegrityError("release gate result inventory is incomplete")
@@ -73,6 +74,7 @@ def _check_results(
                     },
                     read_blob=ledger.read_blob,
                     bindings=[item["binding"] for item in expected if "binding" in item],
+                    expected=context,
                 )
             except ValueError as exc:
                 raise EvidenceIntegrityError(
@@ -284,5 +286,17 @@ def validate_release_gate_evidence(
     ):
         raise EvidenceIntegrityError("release gate evidence does not bind the released candidate")
     _check_results(
-        expected, evidence.get("gates"), ledger=ledger, criteria=criteria, attempt=attempt
+        expected,
+        evidence.get("gates"),
+        ledger=ledger,
+        criteria=criteria,
+        attempt=attempt,
+        context={
+            "candidate_digest": payload["candidate_digest"],
+            "contract_digest": subject,
+            "plan_digest": plan_digest,
+            "receipt_digest": (
+                approval["receipt_digest"] if approval["status"] == "VERIFIED" else ""
+            ),
+        },
     )
