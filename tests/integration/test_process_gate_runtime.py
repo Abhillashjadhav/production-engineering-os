@@ -70,8 +70,16 @@ def bindings(manifest_digest: str, profile_digest: str) -> list[dict[str, Any]]:
                 "required_failure_code": "ASSERTION_FAILED",
             },
             "required_failure_code": "ASSERTION_FAILED",
-            "mutants": [{"id": "broken", "must_fail": ["AC-001"], "must_not_touch": ["tests/"],
-                "snapshot_digest": snapshot_digest({"product.py": b"def health():\n    return {'status': 'broken'}\n"})}],
+            "mutants": [
+                {
+                    "id": "broken",
+                    "must_fail": ["AC-001"],
+                    "must_not_touch": ["tests/"],
+                    "snapshot_digest": snapshot_digest(
+                        {"product.py": b"def health():\n    return {'status': 'broken'}\n"}
+                    ),
+                }
+            ],
         },
         {
             "kind": "digest_boundaries",

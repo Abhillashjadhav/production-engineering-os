@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import inspect
 import json
-from collections.abc import Mapping
+import sys
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -20,8 +21,15 @@ def raw_digest(value: bytes) -> str:
     return "sha256:" + hashlib.sha256(value).hexdigest()
 
 
+def reject_bytecode(roots: Sequence[Path]) -> None:
+    for root in set(roots):
+        if any(path.is_file() and path.suffix in {".pyc", ".pyo"} for path in root.rglob("*")):
+            raise ValueError("process gate uninventoried bytecode under source root: " + str(root))
+
+
 def engine_sources() -> dict[str, Path]:
     root = Path(__file__).parent
+    reject_bytecode([root])
     return {
         "engine/" + str(path.relative_to(root)): path.resolve()
         for path in sorted(root.rglob("*"))
@@ -30,7 +38,13 @@ def engine_sources() -> dict[str, Path]:
 
 
 def implementation_identity(implementation: object) -> dict[str, Any]:
-    source = inspect.getsourcefile(type(implementation))
+    cls = type(implementation)
+    canonical: object = sys.modules.get(cls.__module__)
+    for name in cls.__qualname__.split("."):
+        canonical = getattr(canonical, name, None)
+    if canonical is not cls:
+        raise ValueError("process gate implementation is not its canonical module class")
+    source = inspect.getsourcefile(cls)
     if source is None:
         raise ValueError("process gate implementation has no inspectable source")
     identity: dict[str, Any] = {
@@ -57,6 +71,7 @@ def build_source_manifest(
         raise ValueError(
             "source manifest requires adapter and reserves engine/, approval/ and protected/ names"
         )
+    reject_bytecode([source_paths["adapter"].parent])
     paths = {**engine_sources(), **source_paths}
     value = {
         "schema_version": "1",
@@ -100,6 +115,7 @@ def validate_sources(
         raise ValueError(
             "process gate source manifest requires adapter and reserves evidence namespaces"
         )
+    reject_bytecode([source_paths["adapter"].parent])
     paths = {**engine_sources(), **source_paths}
     expected = manifest["artifacts"]
     if not isinstance(expected, dict) or set(expected) != set(paths):

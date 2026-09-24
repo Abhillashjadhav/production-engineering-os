@@ -151,12 +151,16 @@
                     "minItems": 1,
                     "type": "array",
                     "uniqueItems": true
+                  },
+                  "snapshot_digest": {
+                    "$ref": "#/$defs/digest"
                   }
                 },
                 "required": [
                   "id",
                   "must_fail",
-                  "must_not_touch"
+                  "must_not_touch",
+                  "snapshot_digest"
                 ],
                 "type": "object"
               },
@@ -194,7 +198,7 @@
               "const": true
             },
             "source_manifest_digest": {
-              "pattern": "^sha256:[0-9a-f]{64}$",
+              "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])",
               "type": "string"
             }
           },
@@ -243,7 +247,7 @@
           "additionalProperties": false,
           "properties": {
             "execution_profile_sha256": {
-              "pattern": "^sha256:[0-9a-f]{64}$",
+              "pattern": "^sha256:[0-9a-f]{64}(?![\\s\\S])",
               "type": "string"
             },
             "forbid": {

@@ -713,6 +713,24 @@ def _run_pytest_node(
     )
 
 
+def _assertion_source_files(module: str, template: Template) -> tuple[str, ...]:
+    """An immutable observer reports on the writable product files in its template."""
+    if not module.startswith("tests/"):
+        return (module,)
+    return tuple(
+        sorted(
+            {
+                module,
+                *(
+                    path
+                    for path in template.files
+                    if path.endswith(".py") and not path.startswith("tests/")
+                ),
+            }
+        )
+    )
+
+
 def _criterion_findings(
     criterion: CompiledCriterion,
     *,
@@ -779,7 +797,7 @@ def _criterion_findings(
                 "ASSERTION_FAILED",
                 criterion.criterion_id,
                 "compiled measure assertion failed",
-                (module,),
+                _assertion_source_files(module, template),
             ),
         )
     assert criterion.when is not None
@@ -796,7 +814,7 @@ def _criterion_findings(
             "ASSERTION_FAILED",
             criterion.criterion_id,
             "compiled acceptance assertion failed",
-            (module,),
+            _assertion_source_files(module, template),
         ),
     )
 
@@ -1081,7 +1099,7 @@ def run_to_release_ready(
     )
     counters["structured_criteria_count"] = sum(item.form != "human_test" for item in plan.criteria)
     counters["human_test_count"] = sum(item.form == "human_test" for item in plan.criteria)
-    validate_process_inputs(
+    validated_isolation_report = validate_process_inputs(
         plan,
         process_gate_inputs,
         active_template,
@@ -1108,6 +1126,7 @@ def run_to_release_ready(
             ledger,
             receipt_bytes=approval_receipt_bytes,
             approval_verified=approval_payload["status"] == "VERIFIED",
+            validated_isolation_report=validated_isolation_report,
         )
         if process_gate_inputs is not None
         and any(gate.binding is not None for gate in plan.release_gates)

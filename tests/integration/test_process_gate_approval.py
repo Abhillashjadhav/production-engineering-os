@@ -83,7 +83,11 @@ def approved_fixture(
         "publisher_input": json.dumps(answers).encode(),
     }
     for identifier, snapshot in inputs.negative_controls.items():
-        packet["mutant/" + identifier] = json.dumps({path: raw_digest(content) for path, content in snapshot.items()}, sort_keys=True, separators=(",", ":")).encode()
+        packet["mutant/" + identifier] = json.dumps(
+            {path: raw_digest(content) for path, content in snapshot.items()},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
     paths = {}
     for key, value in packet.items():
         path = tmp_path / (key + ".json")

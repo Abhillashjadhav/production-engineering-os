@@ -52,6 +52,7 @@ class ProcessGateRuntime:
         *,
         receipt_bytes: bytes | None = None,
         approval_verified: bool = False,
+        validated_isolation_report: Mapping[str, Any] | None = None,
     ) -> None:
         self.plan, self.inputs, self.template, self.ledger = plan, inputs, template, ledger
         self.bindings = [gate.binding for gate in plan.release_gates if gate.binding is not None]
@@ -78,8 +79,12 @@ class ProcessGateRuntime:
         self.controls: list[dict[str, Any]] = []
         self.disclosure: dict[str, Any] = {}
         if any(binding["kind"] == "execution_disclosure" for binding in self.bindings):
-            report = sandbox.isolation_report()  # type: ignore[attr-defined]
+            if validated_isolation_report is None:
+                raise ValueError("process gate requires admission-validated isolation report")
+            report = dict(validated_isolation_report)
             self.disclosure = {
+                "validated_isolation_report": report,
+                "isolation_report_self_reported": True,
                 "effective_uid": os.geteuid(),
                 "is_root": os.geteuid() == 0,
                 "sandbox_class": type(sandbox).__module__ + "." + type(sandbox).__qualname__,
@@ -200,6 +205,12 @@ class ProcessGateRuntime:
                     "changed_paths": changed,
                     "invalid_mutation": invalid,
                     "error": error,
+                    "process_records": [
+                        record
+                        for record in self.sandbox.records
+                        if record["phase"] == "mutant:" + identifier
+                        and record["attempt"] == self.sandbox.attempt
+                    ],
                     "criterion_results": criterion_evidence(
                         outcomes, [item.criterion_id for item in self.plan.criteria]
                     ),
@@ -248,6 +259,7 @@ class ProcessGateRuntime:
                         for item in self.plan.criteria
                         if item.form != "satisfied_by_template"
                     },
+                    self.ledger.read_blob,
                 )
             elif kind == "digest_boundaries":
                 status, evidence = digest_boundaries_result(self.sandbox, attempt, ids, mutants)

@@ -44,6 +44,13 @@ def validate_approval_packet(
         raise ValueError("approval packet manifest shape is invalid")
     expected = freeze["artifacts"]
     required = {"contract", "receipt", "draft", "plan", "source_manifest", "publisher_input"}
+    mutant_bindings = [
+        mutant
+        for gate in plan.release_gates
+        if gate.binding is not None and gate.binding["kind"] == "negative_controls"
+        for mutant in gate.binding["mutants"]
+    ]
+    required.update("mutant/" + mutant["id"] for mutant in mutant_bindings)
     if (
         not isinstance(expected, Mapping)
         or not required.issubset(expected)
@@ -57,6 +64,9 @@ def validate_approval_packet(
         payloads[key] = path.read_bytes()
         if raw_digest(payloads[key]) != expected[key]:
             raise ValueError("approval packet artifact digest mismatch: " + key)
+    for mutant in mutant_bindings:
+        if raw_digest(payloads["mutant/" + mutant["id"]]) != mutant["snapshot_digest"]:
+            raise ValueError("approval packet mutant identity mismatch")
     contract = strict_loads(payloads["contract"], "application/json")
     receipt = strict_loads(payloads["receipt"], "application/json")
     proposed_plan = strict_loads(payloads["plan"], "application/json")
