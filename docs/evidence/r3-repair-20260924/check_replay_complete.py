@@ -1,27 +1,311 @@
-"""Check full retained replay coverage, not merely zero mismatches in a prefix."""
+"""Check retained v1 observations against pinned sources; never run the candidate.
 
+Supply the historical PMOS packet and PEOS source tree explicitly. Paths recorded
+in the evidence are labels for reconstructing inventory hashes, never read paths.
+This checks consistency of retained data, not historical runtime authentication.
+"""
+
+import argparse
+import ast
+import hashlib
 import json
+import re
 import sys
+import tempfile
 from pathlib import Path
 
+import rfc8785
 
-def check(directory):
-    root = Path(directory)
-    result = json.loads((root / "result.json").read_text())
-    ids = sorted(result["criteria"])
-    assert ids == [f"AC-{i:03d}" for i in range(1, 15)], "criterion coverage"
-    observations = [json.loads(row) for row in (root / "digest-checks.jsonl").read_text().splitlines()]
-    expected = [("before", "command")]
-    expected += [(stage, cid) for cid in ids for stage in ("before", "after")]
-    expected += [("after", "command")]
-    assert [(o["stage"], o["subject"]) for o in observations] == expected, "boundary sequence incomplete"
-    assert all(not o["mismatches"] and o["checked"] > 0 for o in observations), "integrity failed"
-    assert all(o["expected_inventory_digest"] == o["observed_inventory_digest"] for o in observations), "inventory mismatch"
-    processes = [json.loads(row) for row in (root / "processes.jsonl").read_text().splitlines()]
-    assert [p["criterion_id"] for p in processes] == ids, "process coverage incomplete"
-    assert all(p["argv"] and "exit_code" in p and "stdout" in p and "stderr" in p for p in processes), "process fields missing"
-    return {"digest_observations": len(observations), "process_records": len(processes), "digest_mismatches": 0}
+FREEZE = "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2"
+EXPECTED_FAILURES = {
+    "retained": [],
+    "persistence": [
+        "AC-002",
+        "AC-003",
+        "AC-004",
+        "AC-005",
+        "AC-006",
+        "AC-007",
+        "AC-009",
+        "AC-010",
+        "AC-013",
+        "AC-014",
+    ],
+    "filtering": ["AC-004", "AC-005"],
+}
+
+
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
+
+
+def raw(content):
+    return "sha256:" + hashlib.sha256(content).hexdigest()
+
+
+def canonical(value):
+    return raw(rfc8785.dumps(value))
+
+
+def pairs(items):
+    value = {}
+    for key, child in items:
+        require(key not in value, "duplicate JSON key")
+        value[key] = child
+    return value
+
+
+def decode(value):
+    return json.loads(value, object_pairs_hook=pairs)
+
+
+def read(path):
+    return decode(path.read_bytes())
+
+
+def rows(path):
+    return [decode(row) for row in path.read_text().splitlines()]
+
+
+def safe_file(root, relative):
+    path = Path(relative)
+    require(not path.is_absolute() and ".." not in path.parts, "unsafe manifest path")
+    target = root / path
+    require(
+        not target.is_symlink() and target.resolve().is_relative_to(root),
+        "manifest file escapes root or is a symlink",
+    )
+    return target
+
+
+def recorded_paths(argv):
+    roots = {}
+    packet = None
+    for index, value in enumerate(argv[:-1]):
+        if value == "--root":
+            name, path = argv[index + 1].split("=", 1)
+            require(name not in roots and Path(path).is_absolute(), "recorded roots invalid")
+            roots[name] = path
+        elif value == "--packet":
+            require(packet is None, "duplicate recorded packet")
+            packet = argv[index + 1]
+    require(
+        set(roots) == {"PM-agent-OS", "production-engineering-os"} and packet,
+        "recorded source roots incomplete",
+    )
+    return roots, packet
+
+
+def crash_marker(value):
+    if isinstance(value, dict):
+        if value.get("invalid_json") is True or value.get("exit_code") == "timeout":
+            return True
+        return any(crash_marker(child) for child in value.values())
+    return isinstance(value, list) and any(crash_marker(child) for child in value)
+
+
+def check(directory, packet, source, case):
+    root, packet, source = Path(directory), Path(packet).resolve(), Path(source).resolve()
+    local_roots = {"PM-agent-OS": packet.parents[1], "production-engineering-os": source}
+    freeze = read(packet / "freeze-manifest.json")
+    require(canonical(freeze) == FREEZE, "unexpected historical freeze identity")
+    require(
+        (packet / "freeze-bundle.sha256").read_text().strip() == FREEZE,
+        "historical freeze anchor mismatch",
+    )
+    require(len(freeze["artifacts"]) == 218, "frozen inventory incomplete")
+    source_mismatches = []
+    for item in freeze["artifacts"]:
+        actual = raw(safe_file(local_roots[item["repository"]], item["path"]).read_bytes())
+        if actual != item["sha256"]:
+            source_mismatches.append(item["path"])
+    require(not source_mismatches, "frozen source digest mismatches: " + str(source_mismatches))
+    # The command entry is a later adapter, outside the original freeze.
+    entry_relative = "examples/barebones/contract-file.py"
+    entry_hash = raw((source / entry_relative).read_bytes())
+    execution = read(root / "execution-source.json")
+    require(
+        execution["entry_digest"] == entry_hash and execution["freeze_digest"] == FREEZE,
+        "execution source binding mismatch",
+    )
+    recorded_roots, recorded_packet = recorded_paths(execution["argv"])
+    base = [
+        (str(Path(recorded_roots[x["repository"]]) / x["path"]), x["sha256"])
+        for x in freeze["artifacts"]
+    ]
+    base.append(
+        (
+            str(Path(recorded_packet) / "freeze-manifest.json"),
+            raw((packet / "freeze-manifest.json").read_bytes()),
+        )
+    )
+    entry_label = str(Path(recorded_roots["production-engineering-os"]) / entry_relative)
+    sys.path.insert(0, str(source / "src"))
+    # A new empty prefix prevents Python from reading local stale bytecode. -B
+    # alone only prevents writes and is not sufficient for this purpose.
+    with tempfile.TemporaryDirectory(prefix="replay-checker-pycache-") as pycache:
+        sys.pycache_prefix = pycache
+        import pmpe
+        from pmpe.barebones import Template, _assertion_passes, compile_barebones_plan
+        from pmpe.contracts.acceptance import PropertyAssertion
+        from pmpe.contracts.authoring import verify_contract_approval
+
+        require(
+            Path(pmpe.__file__).resolve() == source / "src/pmpe/__init__.py",
+            "checker imported a different PEOS engine",
+        )
+        contract, receipt = (
+            read(packet / "contract.approved.json"),
+            read(packet / "approval-receipt.json"),
+        )
+        require(
+            verify_contract_approval(contract, receipt, expected_approver=freeze["owner"])
+            == receipt["receipt_digest"],
+            "historical receipt inconsistent",
+        )
+        template = Template(**read(packet / "bindings.json"))
+        require(
+            template.files["tests/acceptance/task_tracker.py"].encode()
+            == (packet / "evaluator.py").read_bytes(),
+            "observer binding differs",
+        )
+        plan = compile_barebones_plan(contract=contract, repository_root=source, template=template)
+        require(
+            canonical(plan.as_dict()) == canonical(read(packet / "compiled-plan.json")),
+            "historical plan differs",
+        )
+        require(
+            read(root / "compatibility.json")["plan_digest"] == plan.plan_digest,
+            "recorded plan differs",
+        )
+        result = read(root / "result.json")
+        ids = [c.criterion_id for c in plan.criteria]
+        require(ids == [f"AC-{i:03d}" for i in range(1, 15)], "criterion coverage")
+        observations, processes = rows(root / "digest-checks.jsonl"), rows(root / "processes.jsonl")
+        expected = [("before", "command")]
+        expected += [(stage, cid) for cid in ids for stage in ("before", "after")]
+        expected += [("after", "command")]
+        require(
+            [(o["stage"], o["subject"]) for o in observations] == expected,
+            "boundary sequence incomplete",
+        )
+        require([p["criterion_id"] for p in processes] == ids, "process coverage incomplete")
+        mismatch_count = sum(len(o["mismatches"]) for o in observations)
+        require(mismatch_count == 0, "recorded digest mismatches")
+        inventory_mismatches = 0
+
+        def inventory(record, entries):
+            nonlocal inventory_mismatches
+            expected_digest = canonical(entries)
+            matches = (
+                type(record["checked"]) is int
+                and record["checked"] == len(entries)
+                and record["expected_inventory_digest"] == expected_digest
+                and record["observed_inventory_digest"] == expected_digest
+            )
+            inventory_mismatches += int(not matches)
+
+        inventory(observations[0], base + [(entry_label, entry_hash)])
+        inventory(observations[-1], base + [(entry_label, entry_hash)])
+        semantic = {}
+        for index, (criterion, process) in enumerate(zip(plan.criteria, processes, strict=True)):
+            require(
+                type(process["check_index"]) is int and process["check_index"] == index,
+                "process index mismatch",
+            )
+            require(
+                type(process["exit_code"]) is int
+                and process["exit_code"] == 0
+                and process["stderr"] == "",
+                "observer process failed",
+            )
+            argv = process["argv"]
+            require(isinstance(argv, list) and len(argv) >= 5, "process argv missing")
+            snippets = [x for x in argv if isinstance(x, str) and "sys.path.insert(0," in x]
+            require(len(snippets) == 1, "observer launch context ambiguous")
+            match = re.search(r"sys.path.insert\(0,(.*?)\);", snippets[0])
+            require(match is not None, "observer workspace missing")
+            workspace = ast.literal_eval(match.group(1))
+            require(
+                isinstance(workspace, str) and Path(workspace).is_absolute(),
+                "workspace label invalid",
+            )
+            protected = [
+                (str(Path(workspace) / relative), raw(content.encode()))
+                for relative, content in template.files.items()
+                if relative.startswith("tests/")
+            ]
+            entries = base + protected + [(entry_label, entry_hash)]
+            for record in observations[1 + 2 * index : 3 + 2 * index]:
+                inventory(record, entries)
+            value = decode(process["stdout"])
+            require(not crash_marker(value), "observer crash/timeout marker")
+            if criterion.form == "measure":
+                target = template.measures[criterion.measure]
+                arguments = {}
+                passed = (
+                    type(value.get("sample_size")) is int
+                    and value["sample_size"] >= criterion.minimum_sample
+                    and _assertion_passes(
+                        PropertyAssertion("value", criterion.operator, criterion.value), value
+                    )
+                )
+            else:
+                target = template.actions[criterion.when.action]
+                arguments = dict(criterion.when.arguments)
+                passed = all(
+                    _assertion_passes(x, template.context) for x in criterion.given
+                ) and all(_assertion_passes(x, {"result": value}) for x in criterion.then)
+            require(
+                argv[-3:-1] == target.split(":")
+                and canonical(decode(argv[-1])) == canonical(arguments),
+                "observer target or arguments differ",
+            )
+            semantic[criterion.criterion_id] = "PASS" if passed else "FAIL"
+        require(
+            inventory_mismatches == 0, f"{inventory_mismatches} reconstructed inventories differ"
+        )
+        require(semantic == result["criteria"], "recorded criterion statuses disagree with stdout")
+        failed = [cid for cid, status in semantic.items() if status == "FAIL"]
+        require(failed == EXPECTED_FAILURES[case], "case has unexpected criterion outcomes")
+        findings = result["findings"]
+        require(
+            {f["subject_id"] for f in findings} == set(failed)
+            and all(f["code"] == "ASSERTION_FAILED" for f in findings),
+            "findings mismatch",
+        )
+        return {
+            "digest_observations": len(observations),
+            "process_records": len(processes),
+            "digest_mismatches": mismatch_count + inventory_mismatches + len(source_mismatches),
+            "frozen_source_entries": len(freeze["artifacts"]),
+            "pass_count": 14 - len(failed),
+            "fail_ids": failed,
+            "checker_engine_file": str(Path(pmpe.__file__).resolve()),
+            "checker_engine_file_digest": raw(Path(pmpe.__file__).read_bytes()),
+            "historical_engine_authentication": "NOT_ESTABLISHED_BY_RETAINED_PACKET",
+        }
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("directory", type=Path)
+    parser.add_argument("--packet", type=Path, required=True)
+    parser.add_argument("--peos-source", type=Path, required=True)
+    parser.add_argument("--case", choices=tuple(EXPECTED_FAILURES), required=True)
+    args = parser.parse_args()
+    try:
+        print(
+            json.dumps(
+                check(args.directory, args.packet, args.peos_source, args.case), sort_keys=True
+            )
+        )
+    except (ValueError, OSError, KeyError, TypeError, AttributeError, IndexError) as exc:
+        print(json.dumps({"status": "FAIL", "detail": str(exc)}, sort_keys=True))
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    print(json.dumps(check(sys.argv[1]), sort_keys=True))
+    raise SystemExit(main())
