@@ -1,0 +1,16 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_ordinary_scalar_release_date_is_not_a_two_edit_gate_alias ________
+tests/unit/test_release_gate_admission_boundaries.py:213: in test_ordinary_scalar_release_date_is_not_a_two_edit_gate_alias
+    plan = compile_barebones_plan(contract=contract, repository_root=tmp_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/pmpe/barebones.py:465: in compile_barebones_plan
+    return compile_acceptance_plan(
+src/pmpe/contracts/acceptance.py:764: in compile_acceptance_plan
+    raise AcceptanceCompileError(diagnostics)
+E   pmpe.contracts.acceptance.AcceptanceCompileError: RELEASE_GATE_DECLARATIONS_IGNORED:release_date
+=========================== short test summary info ============================
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_ordinary_scalar_release_date_is_not_a_two_edit_gate_alias
+1 failed in 0.16s
+
+Exit code: 1

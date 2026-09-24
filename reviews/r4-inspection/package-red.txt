@@ -1,0 +1,33 @@
+.F..                                                                     [100%]
+=================================== FAILURES ===================================
+_ test_r4_package_reader_rejects_order_or_identity_mutations[interposed-event] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-56/test_r4_package_reader_rejects0')
+mutation = 'interposed-event'
+
+    @pytest.mark.parametrize("mutation", ["interposed-event", "gate-event", "contract-subject"])
+    def test_r4_package_reader_rejects_order_or_identity_mutations(
+        tmp_path: Path, mutation: str
+    ) -> None:
+        sealed = seal_support_release(CONTRACT, RECEIPT, tmp_path, "package", "fixture-human")
+        assert sealed["state"] == "RELEASE_READY"
+        ledger = EvidenceLedger.open_existing(tmp_path, "package")
+        events = [dict(event) for event in ledger.verify()]
+        if mutation == "contract-subject":
+            events[0]["subject_digest"] = "sha256:" + "f" * 64
+        else:
+            extra = copy.deepcopy(events[0])
+            extra.update(
+                event_type="release_gates_evaluated" if mutation == "gate-event" else "unknown_event",
+                state="VERIFYING", payload={}, blob_digests=[],
+            )
+            events.insert(1, extra)
+        _rechain(ledger, events)
+>       with pytest.raises(PackageContractError):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE PackageContractError
+
+tests/unit/test_r4_package_release_inspection.py:52: Failed
+=========================== short test summary info ============================
+FAILED tests/unit/test_r4_package_release_inspection.py::test_r4_package_reader_rejects_order_or_identity_mutations[interposed-event]
+1 failed, 3 passed in 5.26s

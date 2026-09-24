@@ -4,7 +4,9 @@ import json
 import os
 from pathlib import Path
 
+from pmpe.barebones import compile_barebones_plan
 from pmpe.cli import main
+from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from pmpe.evidence.ledger import EvidenceLedger
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -17,20 +19,60 @@ def _sealed_run(
     approval: dict[str, str] | None = None,
 ) -> tuple[str, str]:
     ledger = EvidenceLedger(repository_root, run_id)
-    if approval is not None:
-        contract_digest = ledger.put_blob(b'{"contract_status":"APPROVED"}')
-        plan_digest = ledger.put_blob(b'{"criteria":[]}')
-        ledger.append(
-            event_type="contract_validated",
-            state="VALIDATED",
-            subject_digest="sha256:" + "1" * 64,
-            blob_digests=(contract_digest, plan_digest),
-            payload={
-                "approval": approval,
-                "contract_digest": contract_digest,
-                "plan_digest": plan_digest,
-            },
-        )
+    contract = json.loads((ROOT / "examples/barebones/e1-contract.json").read_text())
+    authority = (approval or {}).get("authority", "fixture-human")
+    contract["approved_by"] = authority
+    subject = canonical_digest(contract)
+    plan = compile_barebones_plan(contract=contract, repository_root=repository_root).as_dict()
+    contract_blob = ledger.put_blob(canonical_json_bytes(contract))
+    plan_blob = ledger.put_blob(canonical_json_bytes(plan))
+    validation_blobs = [contract_blob, plan_blob]
+    if approval == {"status": "UNVERIFIED_DIRECT_CALL"}:
+        approval_record = dict(approval)
+    else:
+        draft = {**contract, "contract_status": "DRAFT", "approved_by": "", "approved_at": ""}
+        receipt = {
+            "schema_version": "1.0.0",
+            "decision": "APPROVED",
+            "approved_by": authority,
+            "approved_at": contract["approved_at"],
+            "approved_contract_digest": subject,
+            "contract_id": contract["contract_id"],
+            "contract_version": contract["contract_version"],
+            "draft_digest": canonical_digest(draft),
+        }
+        receipt["receipt_digest"] = canonical_digest(receipt)
+        receipt_blob = ledger.put_blob(canonical_json_bytes(receipt))
+        validation_blobs.append(receipt_blob)
+        approval_record = {
+            "status": "VERIFIED",
+            "authority": authority,
+            "receipt_digest": receipt["receipt_digest"],
+            "receipt_blob_digest": receipt_blob,
+        }
+    ledger.append(
+        event_type="contract_validated",
+        state="VALIDATED",
+        subject_digest=subject,
+        blob_digests=validation_blobs,
+        payload={
+            "approval": approval_record,
+            "contract_digest": contract_blob,
+            "plan_digest": plan["plan_digest"],
+        },
+    )
+    ledger.append(
+        event_type="coder_completed",
+        state="BUILDING",
+        subject_digest=subject,
+        payload={"attempt": 1},
+    )
+    ledger.append(
+        event_type="verification_started",
+        state="VERIFYING",
+        subject_digest=subject,
+        payload={"attempt": 1},
+    )
     content = b"def health():\n    return {'status': 'ok'}\n"
     file_digest = ledger.put_blob(content)
     manifest_digest = ledger.put_blob(
@@ -39,7 +81,7 @@ def _sealed_run(
     ledger.append(
         event_type="release_ready",
         state="RELEASE_READY",
-        subject_digest="sha256:" + "1" * 64,
+        subject_digest=subject,
         blob_digests=(manifest_digest, file_digest),
         payload={
             "candidate_digest": manifest_digest,
@@ -108,13 +150,13 @@ def test_status_and_evidence_verify_the_sealed_chain(tmp_path: Path, capsys) -> 
     status = json.loads(capsys.readouterr().out)
     assert status["state"] == "RELEASE_READY"
     assert status["cause"] == "PASS"
-    assert status["events"] == 1
+    assert status["events"] == 4
 
     assert main(["barebones", "evidence", "sealed", "--repository-root", str(tmp_path)]) == 0
     evidence = json.loads(capsys.readouterr().out)
     assert evidence["integrity"] == "PASS"
-    assert evidence["events"] == 1
-    assert evidence["referenced_blobs"] == 2
+    assert evidence["events"] == 4
+    assert evidence["referenced_blobs"] == 5
     assert evidence["head_event_digest"].startswith("sha256:")
 
 
@@ -141,7 +183,9 @@ def test_inspection_commands_surface_verified_approval_authority(tmp_path: Path,
             == 0
         )
         output = json.loads(capsys.readouterr().out)
-        assert output["approval"] == approval
+        assert output["approval"]["status"] == "VERIFIED"
+        assert output["approval"]["authority"] == "pmos-owner"
+        assert output["approval"]["receipt_digest"].startswith("sha256:")
 
 
 def test_inspect_refuses_to_publish_an_unverified_direct_call(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
@@ -272,7 +316,7 @@ def test_inspect_fails_closed_when_a_workspace_subtree_cannot_be_scanned(
     original_scandir = os.scandir
 
     def guarded_scandir(path):  # type: ignore[no-untyped-def]
-        if Path(path) == blocked:
+        if not isinstance(path, int) and Path(path) == blocked:
             raise PermissionError("denied")
         return original_scandir(path)
 
@@ -367,17 +411,24 @@ def test_inspection_fails_closed_when_evidence_is_mutated(tmp_path: Path, capsys
 
 
 def test_inspection_rejects_duplicate_candidate_manifest_members(tmp_path: Path, capsys) -> None:  # type: ignore[no-untyped-def]
-    ledger = EvidenceLedger(tmp_path, "duplicate-manifest")
-    file_digest = ledger.put_blob(b"first")
-    manifest_digest = ledger.put_blob(
-        ('{"product.py":"' + file_digest + '","product.py":"' + file_digest + '"}').encode()
+    _sealed_run(tmp_path, "duplicate-manifest")
+    ledger = EvidenceLedger.open_existing(tmp_path, "duplicate-manifest")
+    events = [dict(event) for event in ledger.verify()]
+    terminal = events[-1]
+    file_digest = next(
+        blob for blob in terminal["blob_digests"] if blob != terminal["payload"]["candidate_digest"]
     )
-    ledger.append(
-        event_type="release_ready",
-        state="RELEASE_READY",
-        subject_digest="sha256:" + "2" * 64,
-        blob_digests=(manifest_digest, file_digest),
-        payload={"candidate_digest": manifest_digest},
+    malformed = ('{"product.py":"' + file_digest + '","product.py":"' + file_digest + '"}').encode()
+    import hashlib
+
+    manifest_digest = "sha256:" + hashlib.sha256(malformed).hexdigest()
+    (ledger.blobs_directory / manifest_digest.removeprefix("sha256:")).write_bytes(malformed)
+    terminal["blob_digests"] = sorted([manifest_digest, file_digest])
+    terminal["payload"]["candidate_digest"] = manifest_digest
+    terminal.pop("event_digest")
+    terminal["event_digest"] = canonical_digest(terminal)
+    ledger.events_path.write_bytes(
+        b"".join(canonical_json_bytes(event) + b"\n" for event in events)
     )
 
     result = main(
@@ -393,4 +444,4 @@ def test_inspection_rejects_duplicate_candidate_manifest_members(tmp_path: Path,
     assert result == 3
     output = json.loads(capsys.readouterr().out)
     assert output["cause"] == "EVIDENCE_INVALID"
-    assert output["detail"] == "candidate manifest is malformed"
+    assert output["detail"] == "release gate evidence blob is malformed"

@@ -1,0 +1,3078 @@
+FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF....... [ 87%]
+..........                                                               [100%]
+=================================== FAILURES ===================================
+________ test_parent_alias_cannot_hide_a_gate[False-quality_assurence] _________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_0')
+parent = 'quality_assurence', with_valid_gate = False
+
+    @pytest.mark.parametrize(
+        "parent",
+        [
+            "quality_assurence",
+            "Quality_Assurance",
+            "quality-assurance",
+            "qualityassurance",
+            "qa",
+            "releases",
+        ],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_parent_alias_cannot_hide_a_gate(
+        tmp_path: Path, parent: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[parent] = {"release_gates": {"GATE-002": _gate()}}
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_MISPLACED", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_0')
+code = 'RELEASE_GATE_CONTAINER_MISPLACED', subject = 'quality_assurence'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+________ test_parent_alias_cannot_hide_a_gate[False-Quality_Assurance] _________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_1')
+parent = 'Quality_Assurance', with_valid_gate = False
+
+    @pytest.mark.parametrize(
+        "parent",
+        [
+            "quality_assurence",
+            "Quality_Assurance",
+            "quality-assurance",
+            "qualityassurance",
+            "qa",
+            "releases",
+        ],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_parent_alias_cannot_hide_a_gate(
+        tmp_path: Path, parent: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[parent] = {"release_gates": {"GATE-002": _gate()}}
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_MISPLACED", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_1')
+code = 'RELEASE_GATE_CONTAINER_MISPLACED', subject = 'Quality_Assurance'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+________ test_parent_alias_cannot_hide_a_gate[False-quality-assurance] _________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_2')
+parent = 'quality-assurance', with_valid_gate = False
+
+    @pytest.mark.parametrize(
+        "parent",
+        [
+            "quality_assurence",
+            "Quality_Assurance",
+            "quality-assurance",
+            "qualityassurance",
+            "qa",
+            "releases",
+        ],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_parent_alias_cannot_hide_a_gate(
+        tmp_path: Path, parent: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[parent] = {"release_gates": {"GATE-002": _gate()}}
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_MISPLACED", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_2')
+code = 'RELEASE_GATE_CONTAINER_MISPLACED', subject = 'quality-assurance'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_________ test_parent_alias_cannot_hide_a_gate[False-qualityassurance] _________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_3')
+parent = 'qualityassurance', with_valid_gate = False
+
+    @pytest.mark.parametrize(
+        "parent",
+        [
+            "quality_assurence",
+            "Quality_Assurance",
+            "quality-assurance",
+            "qualityassurance",
+            "qa",
+            "releases",
+        ],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_parent_alias_cannot_hide_a_gate(
+        tmp_path: Path, parent: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[parent] = {"release_gates": {"GATE-002": _gate()}}
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_MISPLACED", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_3')
+code = 'RELEASE_GATE_CONTAINER_MISPLACED', subject = 'qualityassurance'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+________________ test_parent_alias_cannot_hide_a_gate[False-qa] ________________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_4')
+parent = 'qa', with_valid_gate = False
+
+    @pytest.mark.parametrize(
+        "parent",
+        [
+            "quality_assurence",
+            "Quality_Assurance",
+            "quality-assurance",
+            "qualityassurance",
+            "qa",
+            "releases",
+        ],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_parent_alias_cannot_hide_a_gate(
+        tmp_path: Path, parent: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[parent] = {"release_gates": {"GATE-002": _gate()}}
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_MISPLACED", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_4')
+code = 'RELEASE_GATE_CONTAINER_MISPLACED', subject = 'qa'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_____________ test_parent_alias_cannot_hide_a_gate[False-releases] _____________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_5')
+parent = 'releases', with_valid_gate = False
+
+    @pytest.mark.parametrize(
+        "parent",
+        [
+            "quality_assurence",
+            "Quality_Assurance",
+            "quality-assurance",
+            "qualityassurance",
+            "qa",
+            "releases",
+        ],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_parent_alias_cannot_hide_a_gate(
+        tmp_path: Path, parent: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[parent] = {"release_gates": {"GATE-002": _gate()}}
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_MISPLACED", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_5')
+code = 'RELEASE_GATE_CONTAINER_MISPLACED', subject = 'releases'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_________ test_parent_alias_cannot_hide_a_gate[True-quality_assurence] _________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_6')
+parent = 'quality_assurence', with_valid_gate = True
+
+    @pytest.mark.parametrize(
+        "parent",
+        [
+            "quality_assurence",
+            "Quality_Assurance",
+            "quality-assurance",
+            "qualityassurance",
+            "qa",
+            "releases",
+        ],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_parent_alias_cannot_hide_a_gate(
+        tmp_path: Path, parent: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[parent] = {"release_gates": {"GATE-002": _gate()}}
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_MISPLACED", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_6')
+code = 'RELEASE_GATE_CONTAINER_MISPLACED', subject = 'quality_assurence'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_________ test_parent_alias_cannot_hide_a_gate[True-Quality_Assurance] _________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_7')
+parent = 'Quality_Assurance', with_valid_gate = True
+
+    @pytest.mark.parametrize(
+        "parent",
+        [
+            "quality_assurence",
+            "Quality_Assurance",
+            "quality-assurance",
+            "qualityassurance",
+            "qa",
+            "releases",
+        ],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_parent_alias_cannot_hide_a_gate(
+        tmp_path: Path, parent: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[parent] = {"release_gates": {"GATE-002": _gate()}}
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_MISPLACED", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_7')
+code = 'RELEASE_GATE_CONTAINER_MISPLACED', subject = 'Quality_Assurance'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_________ test_parent_alias_cannot_hide_a_gate[True-quality-assurance] _________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_8')
+parent = 'quality-assurance', with_valid_gate = True
+
+    @pytest.mark.parametrize(
+        "parent",
+        [
+            "quality_assurence",
+            "Quality_Assurance",
+            "quality-assurance",
+            "qualityassurance",
+            "qa",
+            "releases",
+        ],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_parent_alias_cannot_hide_a_gate(
+        tmp_path: Path, parent: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[parent] = {"release_gates": {"GATE-002": _gate()}}
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_MISPLACED", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_8')
+code = 'RELEASE_GATE_CONTAINER_MISPLACED', subject = 'quality-assurance'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_________ test_parent_alias_cannot_hide_a_gate[True-qualityassurance] __________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_9')
+parent = 'qualityassurance', with_valid_gate = True
+
+    @pytest.mark.parametrize(
+        "parent",
+        [
+            "quality_assurence",
+            "Quality_Assurance",
+            "quality-assurance",
+            "qualityassurance",
+            "qa",
+            "releases",
+        ],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_parent_alias_cannot_hide_a_gate(
+        tmp_path: Path, parent: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[parent] = {"release_gates": {"GATE-002": _gate()}}
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_MISPLACED", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_9')
+code = 'RELEASE_GATE_CONTAINER_MISPLACED', subject = 'qualityassurance'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+________________ test_parent_alias_cannot_hide_a_gate[True-qa] _________________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_10')
+parent = 'qa', with_valid_gate = True
+
+    @pytest.mark.parametrize(
+        "parent",
+        [
+            "quality_assurence",
+            "Quality_Assurance",
+            "quality-assurance",
+            "qualityassurance",
+            "qa",
+            "releases",
+        ],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_parent_alias_cannot_hide_a_gate(
+        tmp_path: Path, parent: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[parent] = {"release_gates": {"GATE-002": _gate()}}
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_MISPLACED", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_10')
+code = 'RELEASE_GATE_CONTAINER_MISPLACED', subject = 'qa'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_____________ test_parent_alias_cannot_hide_a_gate[True-releases] ______________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_11')
+parent = 'releases', with_valid_gate = True
+
+    @pytest.mark.parametrize(
+        "parent",
+        [
+            "quality_assurence",
+            "Quality_Assurance",
+            "quality-assurance",
+            "qualityassurance",
+            "qa",
+            "releases",
+        ],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_parent_alias_cannot_hide_a_gate(
+        tmp_path: Path, parent: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[parent] = {"release_gates": {"GATE-002": _gate()}}
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_MISPLACED", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:45: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_parent_alias_cannot_hide_11')
+code = 'RELEASE_GATE_CONTAINER_MISPLACED', subject = 'releases'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_______ test_metadata_parent_requires_an_object[None-quality_assurance] ________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_0')
+parent = 'quality_assurance', value = None
+
+    @pytest.mark.parametrize("parent", ["quality_assurance", "release", "acceptance"])
+    @pytest.mark.parametrize("value", [None, [], [{"release_gates": {}}], False, 0, "all checks"])
+    def test_metadata_parent_requires_an_object(tmp_path: Path, parent: str, value: Any) -> None:
+        contract = _contract()
+        contract[parent] = value
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_INVALID", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_0')
+code = 'RELEASE_GATE_CONTAINER_INVALID', subject = 'quality_assurance'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+        with pytest.raises(AcceptanceCompileError) as failure:
+            compile_barebones_plan(contract=contract, repository_root=root)
+>       assert any(
+            item.code == code and item.subject_id == subject for item in failure.value.diagnostics
+        ), failure.value.diagnostics
+E       AssertionError: (AcceptanceDiagnostic(code='RELEASE_GATE_COLLECTION_INVALID', subject_id='quality_assurance', message='must be an object'),)
+E       assert False
+E        +  where False = any(<generator object _reject.<locals>.<genexpr> at 0x7fdce0c6a340>)
+
+tests/unit/test_release_gate_admission_boundaries.py:22: AssertionError
+____________ test_metadata_parent_requires_an_object[None-release] _____________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_1')
+parent = 'release', value = None
+
+    @pytest.mark.parametrize("parent", ["quality_assurance", "release", "acceptance"])
+    @pytest.mark.parametrize("value", [None, [], [{"release_gates": {}}], False, 0, "all checks"])
+    def test_metadata_parent_requires_an_object(tmp_path: Path, parent: str, value: Any) -> None:
+        contract = _contract()
+        contract[parent] = value
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_INVALID", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_1')
+code = 'RELEASE_GATE_CONTAINER_INVALID', subject = 'release'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+___________ test_metadata_parent_requires_an_object[None-acceptance] ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_2')
+parent = 'acceptance', value = None
+
+    @pytest.mark.parametrize("parent", ["quality_assurance", "release", "acceptance"])
+    @pytest.mark.parametrize("value", [None, [], [{"release_gates": {}}], False, 0, "all checks"])
+    def test_metadata_parent_requires_an_object(tmp_path: Path, parent: str, value: Any) -> None:
+        contract = _contract()
+        contract[parent] = value
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_INVALID", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_2')
+code = 'RELEASE_GATE_CONTAINER_INVALID', subject = 'acceptance'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+______ test_metadata_parent_requires_an_object[value1-quality_assurance] _______
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_3')
+parent = 'quality_assurance', value = []
+
+    @pytest.mark.parametrize("parent", ["quality_assurance", "release", "acceptance"])
+    @pytest.mark.parametrize("value", [None, [], [{"release_gates": {}}], False, 0, "all checks"])
+    def test_metadata_parent_requires_an_object(tmp_path: Path, parent: str, value: Any) -> None:
+        contract = _contract()
+        contract[parent] = value
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_INVALID", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_3')
+code = 'RELEASE_GATE_CONTAINER_INVALID', subject = 'quality_assurance'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+        with pytest.raises(AcceptanceCompileError) as failure:
+            compile_barebones_plan(contract=contract, repository_root=root)
+>       assert any(
+            item.code == code and item.subject_id == subject for item in failure.value.diagnostics
+        ), failure.value.diagnostics
+E       AssertionError: (AcceptanceDiagnostic(code='RELEASE_GATE_COLLECTION_INVALID', subject_id='quality_assurance', message='must be an object'),)
+E       assert False
+E        +  where False = any(<generator object _reject.<locals>.<genexpr> at 0x7fdce0c6bca0>)
+
+tests/unit/test_release_gate_admission_boundaries.py:22: AssertionError
+___________ test_metadata_parent_requires_an_object[value1-release] ____________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_4')
+parent = 'release', value = []
+
+    @pytest.mark.parametrize("parent", ["quality_assurance", "release", "acceptance"])
+    @pytest.mark.parametrize("value", [None, [], [{"release_gates": {}}], False, 0, "all checks"])
+    def test_metadata_parent_requires_an_object(tmp_path: Path, parent: str, value: Any) -> None:
+        contract = _contract()
+        contract[parent] = value
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_INVALID", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_4')
+code = 'RELEASE_GATE_CONTAINER_INVALID', subject = 'release'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+__________ test_metadata_parent_requires_an_object[value1-acceptance] __________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_5')
+parent = 'acceptance', value = []
+
+    @pytest.mark.parametrize("parent", ["quality_assurance", "release", "acceptance"])
+    @pytest.mark.parametrize("value", [None, [], [{"release_gates": {}}], False, 0, "all checks"])
+    def test_metadata_parent_requires_an_object(tmp_path: Path, parent: str, value: Any) -> None:
+        contract = _contract()
+        contract[parent] = value
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_INVALID", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_5')
+code = 'RELEASE_GATE_CONTAINER_INVALID', subject = 'acceptance'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+______ test_metadata_parent_requires_an_object[value2-quality_assurance] _______
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_6')
+parent = 'quality_assurance', value = [{'release_gates': {}}]
+
+    @pytest.mark.parametrize("parent", ["quality_assurance", "release", "acceptance"])
+    @pytest.mark.parametrize("value", [None, [], [{"release_gates": {}}], False, 0, "all checks"])
+    def test_metadata_parent_requires_an_object(tmp_path: Path, parent: str, value: Any) -> None:
+        contract = _contract()
+        contract[parent] = value
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_INVALID", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_6')
+code = 'RELEASE_GATE_CONTAINER_INVALID', subject = 'quality_assurance'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+        with pytest.raises(AcceptanceCompileError) as failure:
+            compile_barebones_plan(contract=contract, repository_root=root)
+>       assert any(
+            item.code == code and item.subject_id == subject for item in failure.value.diagnostics
+        ), failure.value.diagnostics
+E       AssertionError: (AcceptanceDiagnostic(code='RELEASE_GATE_COLLECTION_INVALID', subject_id='quality_assurance', message='must be an object'),)
+E       assert False
+E        +  where False = any(<generator object _reject.<locals>.<genexpr> at 0x7fdce0c6b140>)
+
+tests/unit/test_release_gate_admission_boundaries.py:22: AssertionError
+___________ test_metadata_parent_requires_an_object[value2-release] ____________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_7')
+parent = 'release', value = [{'release_gates': {}}]
+
+    @pytest.mark.parametrize("parent", ["quality_assurance", "release", "acceptance"])
+    @pytest.mark.parametrize("value", [None, [], [{"release_gates": {}}], False, 0, "all checks"])
+    def test_metadata_parent_requires_an_object(tmp_path: Path, parent: str, value: Any) -> None:
+        contract = _contract()
+        contract[parent] = value
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_INVALID", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_7')
+code = 'RELEASE_GATE_CONTAINER_INVALID', subject = 'release'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+__________ test_metadata_parent_requires_an_object[value2-acceptance] __________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_8')
+parent = 'acceptance', value = [{'release_gates': {}}]
+
+    @pytest.mark.parametrize("parent", ["quality_assurance", "release", "acceptance"])
+    @pytest.mark.parametrize("value", [None, [], [{"release_gates": {}}], False, 0, "all checks"])
+    def test_metadata_parent_requires_an_object(tmp_path: Path, parent: str, value: Any) -> None:
+        contract = _contract()
+        contract[parent] = value
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_INVALID", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_8')
+code = 'RELEASE_GATE_CONTAINER_INVALID', subject = 'acceptance'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_______ test_metadata_parent_requires_an_object[False-quality_assurance] _______
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_9')
+parent = 'quality_assurance', value = False
+
+    @pytest.mark.parametrize("parent", ["quality_assurance", "release", "acceptance"])
+    @pytest.mark.parametrize("value", [None, [], [{"release_gates": {}}], False, 0, "all checks"])
+    def test_metadata_parent_requires_an_object(tmp_path: Path, parent: str, value: Any) -> None:
+        contract = _contract()
+        contract[parent] = value
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_INVALID", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_9')
+code = 'RELEASE_GATE_CONTAINER_INVALID', subject = 'quality_assurance'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+        with pytest.raises(AcceptanceCompileError) as failure:
+            compile_barebones_plan(contract=contract, repository_root=root)
+>       assert any(
+            item.code == code and item.subject_id == subject for item in failure.value.diagnostics
+        ), failure.value.diagnostics
+E       AssertionError: (AcceptanceDiagnostic(code='RELEASE_GATE_COLLECTION_INVALID', subject_id='quality_assurance', message='must be an object'),)
+E       assert False
+E        +  where False = any(<generator object _reject.<locals>.<genexpr> at 0x7fdce0c69a80>)
+
+tests/unit/test_release_gate_admission_boundaries.py:22: AssertionError
+____________ test_metadata_parent_requires_an_object[False-release] ____________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_10')
+parent = 'release', value = False
+
+    @pytest.mark.parametrize("parent", ["quality_assurance", "release", "acceptance"])
+    @pytest.mark.parametrize("value", [None, [], [{"release_gates": {}}], False, 0, "all checks"])
+    def test_metadata_parent_requires_an_object(tmp_path: Path, parent: str, value: Any) -> None:
+        contract = _contract()
+        contract[parent] = value
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_INVALID", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_10')
+code = 'RELEASE_GATE_CONTAINER_INVALID', subject = 'release'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+__________ test_metadata_parent_requires_an_object[False-acceptance] ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_11')
+parent = 'acceptance', value = False
+
+    @pytest.mark.parametrize("parent", ["quality_assurance", "release", "acceptance"])
+    @pytest.mark.parametrize("value", [None, [], [{"release_gates": {}}], False, 0, "all checks"])
+    def test_metadata_parent_requires_an_object(tmp_path: Path, parent: str, value: Any) -> None:
+        contract = _contract()
+        contract[parent] = value
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_INVALID", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_11')
+code = 'RELEASE_GATE_CONTAINER_INVALID', subject = 'acceptance'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_________ test_metadata_parent_requires_an_object[0-quality_assurance] _________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_12')
+parent = 'quality_assurance', value = 0
+
+    @pytest.mark.parametrize("parent", ["quality_assurance", "release", "acceptance"])
+    @pytest.mark.parametrize("value", [None, [], [{"release_gates": {}}], False, 0, "all checks"])
+    def test_metadata_parent_requires_an_object(tmp_path: Path, parent: str, value: Any) -> None:
+        contract = _contract()
+        contract[parent] = value
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_INVALID", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_12')
+code = 'RELEASE_GATE_CONTAINER_INVALID', subject = 'quality_assurance'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+        with pytest.raises(AcceptanceCompileError) as failure:
+            compile_barebones_plan(contract=contract, repository_root=root)
+>       assert any(
+            item.code == code and item.subject_id == subject for item in failure.value.diagnostics
+        ), failure.value.diagnostics
+E       AssertionError: (AcceptanceDiagnostic(code='RELEASE_GATE_COLLECTION_INVALID', subject_id='quality_assurance', message='must be an object'),)
+E       assert False
+E        +  where False = any(<generator object _reject.<locals>.<genexpr> at 0x7fdce0edadc0>)
+
+tests/unit/test_release_gate_admission_boundaries.py:22: AssertionError
+______________ test_metadata_parent_requires_an_object[0-release] ______________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_13')
+parent = 'release', value = 0
+
+    @pytest.mark.parametrize("parent", ["quality_assurance", "release", "acceptance"])
+    @pytest.mark.parametrize("value", [None, [], [{"release_gates": {}}], False, 0, "all checks"])
+    def test_metadata_parent_requires_an_object(tmp_path: Path, parent: str, value: Any) -> None:
+        contract = _contract()
+        contract[parent] = value
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_INVALID", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_13')
+code = 'RELEASE_GATE_CONTAINER_INVALID', subject = 'release'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+____________ test_metadata_parent_requires_an_object[0-acceptance] _____________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_14')
+parent = 'acceptance', value = 0
+
+    @pytest.mark.parametrize("parent", ["quality_assurance", "release", "acceptance"])
+    @pytest.mark.parametrize("value", [None, [], [{"release_gates": {}}], False, 0, "all checks"])
+    def test_metadata_parent_requires_an_object(tmp_path: Path, parent: str, value: Any) -> None:
+        contract = _contract()
+        contract[parent] = value
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_INVALID", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_14')
+code = 'RELEASE_GATE_CONTAINER_INVALID', subject = 'acceptance'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+____ test_metadata_parent_requires_an_object[all checks-quality_assurance] _____
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_15')
+parent = 'quality_assurance', value = 'all checks'
+
+    @pytest.mark.parametrize("parent", ["quality_assurance", "release", "acceptance"])
+    @pytest.mark.parametrize("value", [None, [], [{"release_gates": {}}], False, 0, "all checks"])
+    def test_metadata_parent_requires_an_object(tmp_path: Path, parent: str, value: Any) -> None:
+        contract = _contract()
+        contract[parent] = value
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_INVALID", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_15')
+code = 'RELEASE_GATE_CONTAINER_INVALID', subject = 'quality_assurance'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+        with pytest.raises(AcceptanceCompileError) as failure:
+            compile_barebones_plan(contract=contract, repository_root=root)
+>       assert any(
+            item.code == code and item.subject_id == subject for item in failure.value.diagnostics
+        ), failure.value.diagnostics
+E       AssertionError: (AcceptanceDiagnostic(code='RELEASE_GATE_COLLECTION_INVALID', subject_id='quality_assurance', message='must be an object'),)
+E       assert False
+E        +  where False = any(<generator object _reject.<locals>.<genexpr> at 0x7fdce0c6cba0>)
+
+tests/unit/test_release_gate_admission_boundaries.py:22: AssertionError
+_________ test_metadata_parent_requires_an_object[all checks-release] __________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_16')
+parent = 'release', value = 'all checks'
+
+    @pytest.mark.parametrize("parent", ["quality_assurance", "release", "acceptance"])
+    @pytest.mark.parametrize("value", [None, [], [{"release_gates": {}}], False, 0, "all checks"])
+    def test_metadata_parent_requires_an_object(tmp_path: Path, parent: str, value: Any) -> None:
+        contract = _contract()
+        contract[parent] = value
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_INVALID", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_16')
+code = 'RELEASE_GATE_CONTAINER_INVALID', subject = 'release'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+________ test_metadata_parent_requires_an_object[all checks-acceptance] ________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_17')
+parent = 'acceptance', value = 'all checks'
+
+    @pytest.mark.parametrize("parent", ["quality_assurance", "release", "acceptance"])
+    @pytest.mark.parametrize("value", [None, [], [{"release_gates": {}}], False, 0, "all checks"])
+    def test_metadata_parent_requires_an_object(tmp_path: Path, parent: str, value: Any) -> None:
+        contract = _contract()
+        contract[parent] = value
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_INVALID", parent)
+
+tests/unit/test_release_gate_admission_boundaries.py:53: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_metadata_parent_requires_17')
+code = 'RELEASE_GATE_CONTAINER_INVALID', subject = 'acceptance'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_____________ test_nested_release_wrapper_cannot_hide_gate[False] ______________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_nested_release_wrapper_ca0')
+with_valid_gate = False
+
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_nested_release_wrapper_cannot_hide_gate(tmp_path: Path, with_valid_gate: bool) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract["quality_assurance"] = {"release": {"release_gates": {"GATE-002": _gate()}}}
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_MISPLACED", "quality_assurance.release")
+
+tests/unit/test_release_gate_admission_boundaries.py:61: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_nested_release_wrapper_ca0')
+code = 'RELEASE_GATE_CONTAINER_MISPLACED', subject = 'quality_assurance.release'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+______________ test_nested_release_wrapper_cannot_hide_gate[True] ______________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_nested_release_wrapper_ca1')
+with_valid_gate = True
+
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_nested_release_wrapper_cannot_hide_gate(tmp_path: Path, with_valid_gate: bool) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract["quality_assurance"] = {"release": {"release_gates": {"GATE-002": _gate()}}}
+>       _reject(contract, tmp_path, "RELEASE_GATE_CONTAINER_MISPLACED", "quality_assurance.release")
+
+tests/unit/test_release_gate_admission_boundaries.py:61: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_nested_release_wrapper_ca1')
+code = 'RELEASE_GATE_CONTAINER_MISPLACED', subject = 'quality_assurance.release'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_______ test_entry_metadata_gate_cannot_be_dropped[False-criterion-map] ________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno0')
+placement = 'criterion-map', with_valid_gate = False
+
+    @pytest.mark.parametrize(
+        "placement",
+        ["criterion-map", "criterion-array", "requirement-map", "requirement-array", "acceptance"],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_entry_metadata_gate_cannot_be_dropped(
+        tmp_path: Path, placement: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        if placement == "acceptance":
+            target = contract["acceptance"] = {}
+            subject = "acceptance.release_gates"
+        else:
+            collection = (
+                "acceptance_criteria"
+                if placement.startswith("criterion")
+                else "functional_requirements"
+            )
+            identifier = "AC-001" if placement.startswith("criterion") else "FR-001"
+            target = contract[collection][identifier]
+            if placement.endswith("array"):
+                target["id"] = identifier
+                contract[collection] = [target]
+                subject = f"{collection}[0].release_gates"
+            else:
+                subject = f"{collection}.{identifier}.release_gates"
+        target["release_gates"] = {"GATE-002": _gate()}
+>       _reject(contract, tmp_path, "RELEASE_GATE_DECLARATIONS_IGNORED", subject)
+
+tests/unit/test_release_gate_admission_boundaries.py:92: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}], ...}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno0')
+code = 'RELEASE_GATE_DECLARATIONS_IGNORED'
+subject = 'acceptance_criteria.AC-001.release_gates'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+______ test_entry_metadata_gate_cannot_be_dropped[False-criterion-array] _______
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno1')
+placement = 'criterion-array', with_valid_gate = False
+
+    @pytest.mark.parametrize(
+        "placement",
+        ["criterion-map", "criterion-array", "requirement-map", "requirement-array", "acceptance"],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_entry_metadata_gate_cannot_be_dropped(
+        tmp_path: Path, placement: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        if placement == "acceptance":
+            target = contract["acceptance"] = {}
+            subject = "acceptance.release_gates"
+        else:
+            collection = (
+                "acceptance_criteria"
+                if placement.startswith("criterion")
+                else "functional_requirements"
+            )
+            identifier = "AC-001" if placement.startswith("criterion") else "FR-001"
+            target = contract[collection][identifier]
+            if placement.endswith("array"):
+                target["id"] = identifier
+                contract[collection] = [target]
+                subject = f"{collection}[0].release_gates"
+            else:
+                subject = f"{collection}.{identifier}.release_gates"
+        target["release_gates"] = {"GATE-002": _gate()}
+>       _reject(contract, tmp_path, "RELEASE_GATE_DECLARATIONS_IGNORED", subject)
+
+tests/unit/test_release_gate_admission_boundaries.py:92: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}], ...}], ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno1')
+code = 'RELEASE_GATE_DECLARATIONS_IGNORED'
+subject = 'acceptance_criteria[0].release_gates'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+______ test_entry_metadata_gate_cannot_be_dropped[False-requirement-map] _______
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno2')
+placement = 'requirement-map', with_valid_gate = False
+
+    @pytest.mark.parametrize(
+        "placement",
+        ["criterion-map", "criterion-array", "requirement-map", "requirement-array", "acceptance"],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_entry_metadata_gate_cannot_be_dropped(
+        tmp_path: Path, placement: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        if placement == "acceptance":
+            target = contract["acceptance"] = {}
+            subject = "acceptance.release_gates"
+        else:
+            collection = (
+                "acceptance_criteria"
+                if placement.startswith("criterion")
+                else "functional_requirements"
+            )
+            identifier = "AC-001" if placement.startswith("criterion") else "FR-001"
+            target = contract[collection][identifier]
+            if placement.endswith("array"):
+                target["id"] = identifier
+                contract[collection] = [target]
+                subject = f"{collection}[0].release_gates"
+            else:
+                subject = f"{collection}.{identifier}.release_gates"
+        target["release_gates"] = {"GATE-002": _gate()}
+>       _reject(contract, tmp_path, "RELEASE_GATE_DECLARATIONS_IGNORED", subject)
+
+tests/unit/test_release_gate_admission_boundaries.py:92: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno2')
+code = 'RELEASE_GATE_DECLARATIONS_IGNORED'
+subject = 'functional_requirements.FR-001.release_gates'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_____ test_entry_metadata_gate_cannot_be_dropped[False-requirement-array] ______
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno3')
+placement = 'requirement-array', with_valid_gate = False
+
+    @pytest.mark.parametrize(
+        "placement",
+        ["criterion-map", "criterion-array", "requirement-map", "requirement-array", "acceptance"],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_entry_metadata_gate_cannot_be_dropped(
+        tmp_path: Path, placement: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        if placement == "acceptance":
+            target = contract["acceptance"] = {}
+            subject = "acceptance.release_gates"
+        else:
+            collection = (
+                "acceptance_criteria"
+                if placement.startswith("criterion")
+                else "functional_requirements"
+            )
+            identifier = "AC-001" if placement.startswith("criterion") else "FR-001"
+            target = contract[collection][identifier]
+            if placement.endswith("array"):
+                target["id"] = identifier
+                contract[collection] = [target]
+                subject = f"{collection}[0].release_gates"
+            else:
+                subject = f"{collection}.{identifier}.release_gates"
+        target["release_gates"] = {"GATE-002": _gate()}
+>       _reject(contract, tmp_path, "RELEASE_GATE_DECLARATIONS_IGNORED", subject)
+
+tests/unit/test_release_gate_admission_boundaries.py:92: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': [{'statement': 'The gener...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno3')
+code = 'RELEASE_GATE_DECLARATIONS_IGNORED'
+subject = 'functional_requirements[0].release_gates'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_________ test_entry_metadata_gate_cannot_be_dropped[False-acceptance] _________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno4')
+placement = 'acceptance', with_valid_gate = False
+
+    @pytest.mark.parametrize(
+        "placement",
+        ["criterion-map", "criterion-array", "requirement-map", "requirement-array", "acceptance"],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_entry_metadata_gate_cannot_be_dropped(
+        tmp_path: Path, placement: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        if placement == "acceptance":
+            target = contract["acceptance"] = {}
+            subject = "acceptance.release_gates"
+        else:
+            collection = (
+                "acceptance_criteria"
+                if placement.startswith("criterion")
+                else "functional_requirements"
+            )
+            identifier = "AC-001" if placement.startswith("criterion") else "FR-001"
+            target = contract[collection][identifier]
+            if placement.endswith("array"):
+                target["id"] = identifier
+                contract[collection] = [target]
+                subject = f"{collection}[0].release_gates"
+            else:
+                subject = f"{collection}.{identifier}.release_gates"
+        target["release_gates"] = {"GATE-002": _gate()}
+>       _reject(contract, tmp_path, "RELEASE_GATE_DECLARATIONS_IGNORED", subject)
+
+tests/unit/test_release_gate_admission_boundaries.py:92: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno4')
+code = 'RELEASE_GATE_DECLARATIONS_IGNORED', subject = 'acceptance.release_gates'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+________ test_entry_metadata_gate_cannot_be_dropped[True-criterion-map] ________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno5')
+placement = 'criterion-map', with_valid_gate = True
+
+    @pytest.mark.parametrize(
+        "placement",
+        ["criterion-map", "criterion-array", "requirement-map", "requirement-array", "acceptance"],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_entry_metadata_gate_cannot_be_dropped(
+        tmp_path: Path, placement: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        if placement == "acceptance":
+            target = contract["acceptance"] = {}
+            subject = "acceptance.release_gates"
+        else:
+            collection = (
+                "acceptance_criteria"
+                if placement.startswith("criterion")
+                else "functional_requirements"
+            )
+            identifier = "AC-001" if placement.startswith("criterion") else "FR-001"
+            target = contract[collection][identifier]
+            if placement.endswith("array"):
+                target["id"] = identifier
+                contract[collection] = [target]
+                subject = f"{collection}[0].release_gates"
+            else:
+                subject = f"{collection}.{identifier}.release_gates"
+        target["release_gates"] = {"GATE-002": _gate()}
+>       _reject(contract, tmp_path, "RELEASE_GATE_DECLARATIONS_IGNORED", subject)
+
+tests/unit/test_release_gate_admission_boundaries.py:92: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}], ...}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno5')
+code = 'RELEASE_GATE_DECLARATIONS_IGNORED'
+subject = 'acceptance_criteria.AC-001.release_gates'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_______ test_entry_metadata_gate_cannot_be_dropped[True-criterion-array] _______
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno6')
+placement = 'criterion-array', with_valid_gate = True
+
+    @pytest.mark.parametrize(
+        "placement",
+        ["criterion-map", "criterion-array", "requirement-map", "requirement-array", "acceptance"],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_entry_metadata_gate_cannot_be_dropped(
+        tmp_path: Path, placement: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        if placement == "acceptance":
+            target = contract["acceptance"] = {}
+            subject = "acceptance.release_gates"
+        else:
+            collection = (
+                "acceptance_criteria"
+                if placement.startswith("criterion")
+                else "functional_requirements"
+            )
+            identifier = "AC-001" if placement.startswith("criterion") else "FR-001"
+            target = contract[collection][identifier]
+            if placement.endswith("array"):
+                target["id"] = identifier
+                contract[collection] = [target]
+                subject = f"{collection}[0].release_gates"
+            else:
+                subject = f"{collection}.{identifier}.release_gates"
+        target["release_gates"] = {"GATE-002": _gate()}
+>       _reject(contract, tmp_path, "RELEASE_GATE_DECLARATIONS_IGNORED", subject)
+
+tests/unit/test_release_gate_admission_boundaries.py:92: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}], ...}], ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno6')
+code = 'RELEASE_GATE_DECLARATIONS_IGNORED'
+subject = 'acceptance_criteria[0].release_gates'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_______ test_entry_metadata_gate_cannot_be_dropped[True-requirement-map] _______
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno7')
+placement = 'requirement-map', with_valid_gate = True
+
+    @pytest.mark.parametrize(
+        "placement",
+        ["criterion-map", "criterion-array", "requirement-map", "requirement-array", "acceptance"],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_entry_metadata_gate_cannot_be_dropped(
+        tmp_path: Path, placement: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        if placement == "acceptance":
+            target = contract["acceptance"] = {}
+            subject = "acceptance.release_gates"
+        else:
+            collection = (
+                "acceptance_criteria"
+                if placement.startswith("criterion")
+                else "functional_requirements"
+            )
+            identifier = "AC-001" if placement.startswith("criterion") else "FR-001"
+            target = contract[collection][identifier]
+            if placement.endswith("array"):
+                target["id"] = identifier
+                contract[collection] = [target]
+                subject = f"{collection}[0].release_gates"
+            else:
+                subject = f"{collection}.{identifier}.release_gates"
+        target["release_gates"] = {"GATE-002": _gate()}
+>       _reject(contract, tmp_path, "RELEASE_GATE_DECLARATIONS_IGNORED", subject)
+
+tests/unit/test_release_gate_admission_boundaries.py:92: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno7')
+code = 'RELEASE_GATE_DECLARATIONS_IGNORED'
+subject = 'functional_requirements.FR-001.release_gates'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+______ test_entry_metadata_gate_cannot_be_dropped[True-requirement-array] ______
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno8')
+placement = 'requirement-array', with_valid_gate = True
+
+    @pytest.mark.parametrize(
+        "placement",
+        ["criterion-map", "criterion-array", "requirement-map", "requirement-array", "acceptance"],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_entry_metadata_gate_cannot_be_dropped(
+        tmp_path: Path, placement: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        if placement == "acceptance":
+            target = contract["acceptance"] = {}
+            subject = "acceptance.release_gates"
+        else:
+            collection = (
+                "acceptance_criteria"
+                if placement.startswith("criterion")
+                else "functional_requirements"
+            )
+            identifier = "AC-001" if placement.startswith("criterion") else "FR-001"
+            target = contract[collection][identifier]
+            if placement.endswith("array"):
+                target["id"] = identifier
+                contract[collection] = [target]
+                subject = f"{collection}[0].release_gates"
+            else:
+                subject = f"{collection}.{identifier}.release_gates"
+        target["release_gates"] = {"GATE-002": _gate()}
+>       _reject(contract, tmp_path, "RELEASE_GATE_DECLARATIONS_IGNORED", subject)
+
+tests/unit/test_release_gate_admission_boundaries.py:92: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': [{'statement': 'The gener...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno8')
+code = 'RELEASE_GATE_DECLARATIONS_IGNORED'
+subject = 'functional_requirements[0].release_gates'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_________ test_entry_metadata_gate_cannot_be_dropped[True-acceptance] __________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno9')
+placement = 'acceptance', with_valid_gate = True
+
+    @pytest.mark.parametrize(
+        "placement",
+        ["criterion-map", "criterion-array", "requirement-map", "requirement-array", "acceptance"],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_entry_metadata_gate_cannot_be_dropped(
+        tmp_path: Path, placement: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        if placement == "acceptance":
+            target = contract["acceptance"] = {}
+            subject = "acceptance.release_gates"
+        else:
+            collection = (
+                "acceptance_criteria"
+                if placement.startswith("criterion")
+                else "functional_requirements"
+            )
+            identifier = "AC-001" if placement.startswith("criterion") else "FR-001"
+            target = contract[collection][identifier]
+            if placement.endswith("array"):
+                target["id"] = identifier
+                contract[collection] = [target]
+                subject = f"{collection}[0].release_gates"
+            else:
+                subject = f"{collection}.{identifier}.release_gates"
+        target["release_gates"] = {"GATE-002": _gate()}
+>       _reject(contract, tmp_path, "RELEASE_GATE_DECLARATIONS_IGNORED", subject)
+
+tests/unit/test_release_gate_admission_boundaries.py:92: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_entry_metadata_gate_canno9')
+code = 'RELEASE_GATE_DECLARATIONS_IGNORED', subject = 'acceptance.release_gates'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_ test_two_edit_and_named_synonym_gate_fields_are_not_ignored[False-relase_gate] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_two_edit_and_named_synony0')
+key = 'relase_gate', with_valid_gate = False
+
+    @pytest.mark.parametrize("key", ["relase_gate", "relese_gats", "quality_gates", "go_live_gates"])
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_two_edit_and_named_synonym_gate_fields_are_not_ignored(
+        tmp_path: Path, key: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[key] = {"GATE-002": _gate()}
+>       _reject(contract, tmp_path, "RELEASE_GATE_DECLARATIONS_IGNORED", key)
+
+tests/unit/test_release_gate_admission_boundaries.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_two_edit_and_named_synony0')
+code = 'RELEASE_GATE_DECLARATIONS_IGNORED', subject = 'relase_gate'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_ test_two_edit_and_named_synonym_gate_fields_are_not_ignored[False-relese_gats] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_two_edit_and_named_synony1')
+key = 'relese_gats', with_valid_gate = False
+
+    @pytest.mark.parametrize("key", ["relase_gate", "relese_gats", "quality_gates", "go_live_gates"])
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_two_edit_and_named_synonym_gate_fields_are_not_ignored(
+        tmp_path: Path, key: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[key] = {"GATE-002": _gate()}
+>       _reject(contract, tmp_path, "RELEASE_GATE_DECLARATIONS_IGNORED", key)
+
+tests/unit/test_release_gate_admission_boundaries.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_two_edit_and_named_synony1')
+code = 'RELEASE_GATE_DECLARATIONS_IGNORED', subject = 'relese_gats'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_ test_two_edit_and_named_synonym_gate_fields_are_not_ignored[False-quality_gates] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_two_edit_and_named_synony2')
+key = 'quality_gates', with_valid_gate = False
+
+    @pytest.mark.parametrize("key", ["relase_gate", "relese_gats", "quality_gates", "go_live_gates"])
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_two_edit_and_named_synonym_gate_fields_are_not_ignored(
+        tmp_path: Path, key: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[key] = {"GATE-002": _gate()}
+>       _reject(contract, tmp_path, "RELEASE_GATE_DECLARATIONS_IGNORED", key)
+
+tests/unit/test_release_gate_admission_boundaries.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_two_edit_and_named_synony2')
+code = 'RELEASE_GATE_DECLARATIONS_IGNORED', subject = 'quality_gates'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_ test_two_edit_and_named_synonym_gate_fields_are_not_ignored[False-go_live_gates] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_two_edit_and_named_synony3')
+key = 'go_live_gates', with_valid_gate = False
+
+    @pytest.mark.parametrize("key", ["relase_gate", "relese_gats", "quality_gates", "go_live_gates"])
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_two_edit_and_named_synonym_gate_fields_are_not_ignored(
+        tmp_path: Path, key: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[key] = {"GATE-002": _gate()}
+>       _reject(contract, tmp_path, "RELEASE_GATE_DECLARATIONS_IGNORED", key)
+
+tests/unit/test_release_gate_admission_boundaries.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_two_edit_and_named_synony3')
+code = 'RELEASE_GATE_DECLARATIONS_IGNORED', subject = 'go_live_gates'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_ test_two_edit_and_named_synonym_gate_fields_are_not_ignored[True-relase_gate] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_two_edit_and_named_synony4')
+key = 'relase_gate', with_valid_gate = True
+
+    @pytest.mark.parametrize("key", ["relase_gate", "relese_gats", "quality_gates", "go_live_gates"])
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_two_edit_and_named_synonym_gate_fields_are_not_ignored(
+        tmp_path: Path, key: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[key] = {"GATE-002": _gate()}
+>       _reject(contract, tmp_path, "RELEASE_GATE_DECLARATIONS_IGNORED", key)
+
+tests/unit/test_release_gate_admission_boundaries.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_two_edit_and_named_synony4')
+code = 'RELEASE_GATE_DECLARATIONS_IGNORED', subject = 'relase_gate'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_ test_two_edit_and_named_synonym_gate_fields_are_not_ignored[True-relese_gats] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_two_edit_and_named_synony5')
+key = 'relese_gats', with_valid_gate = True
+
+    @pytest.mark.parametrize("key", ["relase_gate", "relese_gats", "quality_gates", "go_live_gates"])
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_two_edit_and_named_synonym_gate_fields_are_not_ignored(
+        tmp_path: Path, key: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[key] = {"GATE-002": _gate()}
+>       _reject(contract, tmp_path, "RELEASE_GATE_DECLARATIONS_IGNORED", key)
+
+tests/unit/test_release_gate_admission_boundaries.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_two_edit_and_named_synony5')
+code = 'RELEASE_GATE_DECLARATIONS_IGNORED', subject = 'relese_gats'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_ test_two_edit_and_named_synonym_gate_fields_are_not_ignored[True-quality_gates] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_two_edit_and_named_synony6')
+key = 'quality_gates', with_valid_gate = True
+
+    @pytest.mark.parametrize("key", ["relase_gate", "relese_gats", "quality_gates", "go_live_gates"])
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_two_edit_and_named_synonym_gate_fields_are_not_ignored(
+        tmp_path: Path, key: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[key] = {"GATE-002": _gate()}
+>       _reject(contract, tmp_path, "RELEASE_GATE_DECLARATIONS_IGNORED", key)
+
+tests/unit/test_release_gate_admission_boundaries.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_two_edit_and_named_synony6')
+code = 'RELEASE_GATE_DECLARATIONS_IGNORED', subject = 'quality_gates'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_ test_two_edit_and_named_synonym_gate_fields_are_not_ignored[True-go_live_gates] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_two_edit_and_named_synony7')
+key = 'go_live_gates', with_valid_gate = True
+
+    @pytest.mark.parametrize("key", ["relase_gate", "relese_gats", "quality_gates", "go_live_gates"])
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_two_edit_and_named_synonym_gate_fields_are_not_ignored(
+        tmp_path: Path, key: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        _valid_gate(contract, with_valid_gate)
+        contract[key] = {"GATE-002": _gate()}
+>       _reject(contract, tmp_path, "RELEASE_GATE_DECLARATIONS_IGNORED", key)
+
+tests/unit/test_release_gate_admission_boundaries.py:103: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+root = PosixPath('/tmp/pytest-of-root/pytest-44/test_two_edit_and_named_synony7')
+code = 'RELEASE_GATE_DECLARATIONS_IGNORED', subject = 'go_live_gates'
+
+    def _reject(contract: dict[str, Any], root: Path, code: str, subject: str) -> None:
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:20: Failed
+_ test_gate_ids_with_surrounding_whitespace_are_rejected[ GATE-001-native-map] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_gate_ids_with_surrounding0')
+shape = 'native-map', padded = ' GATE-001'
+
+    @pytest.mark.parametrize("shape", ["native-map", "native-array", "canonical-map"])
+    @pytest.mark.parametrize("padded", [" GATE-001", "GATE-001 ", "\tGATE-001\n", "\u00a0GATE-001"])
+    def test_gate_ids_with_surrounding_whitespace_are_rejected(
+        tmp_path: Path, shape: str, padded: str
+    ) -> None:
+        contract = _contract()
+        if shape == "native-array":
+            contract["binary_release_gates"] = [
+                {"id": "GATE-001", **_gate()},
+                {"id": padded, **_gate()},
+            ]
+        elif shape == "canonical-map":
+            contract["quality_assurance"] = {"release_gates": {"GATE-001": _gate(), padded: _gate()}}
+        else:
+            contract["binary_release_gates"] = {"GATE-001": _gate(), padded: _gate()}
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:121: Failed
+_ test_gate_ids_with_surrounding_whitespace_are_rejected[ GATE-001-native-array] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_gate_ids_with_surrounding1')
+shape = 'native-array', padded = ' GATE-001'
+
+    @pytest.mark.parametrize("shape", ["native-map", "native-array", "canonical-map"])
+    @pytest.mark.parametrize("padded", [" GATE-001", "GATE-001 ", "\tGATE-001\n", "\u00a0GATE-001"])
+    def test_gate_ids_with_surrounding_whitespace_are_rejected(
+        tmp_path: Path, shape: str, padded: str
+    ) -> None:
+        contract = _contract()
+        if shape == "native-array":
+            contract["binary_release_gates"] = [
+                {"id": "GATE-001", **_gate()},
+                {"id": padded, **_gate()},
+            ]
+        elif shape == "canonical-map":
+            contract["quality_assurance"] = {"release_gates": {"GATE-001": _gate(), padded: _gate()}}
+        else:
+            contract["binary_release_gates"] = {"GATE-001": _gate(), padded: _gate()}
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:121: Failed
+_ test_gate_ids_with_surrounding_whitespace_are_rejected[ GATE-001-canonical-map] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_gate_ids_with_surrounding2')
+shape = 'canonical-map', padded = ' GATE-001'
+
+    @pytest.mark.parametrize("shape", ["native-map", "native-array", "canonical-map"])
+    @pytest.mark.parametrize("padded", [" GATE-001", "GATE-001 ", "\tGATE-001\n", "\u00a0GATE-001"])
+    def test_gate_ids_with_surrounding_whitespace_are_rejected(
+        tmp_path: Path, shape: str, padded: str
+    ) -> None:
+        contract = _contract()
+        if shape == "native-array":
+            contract["binary_release_gates"] = [
+                {"id": "GATE-001", **_gate()},
+                {"id": padded, **_gate()},
+            ]
+        elif shape == "canonical-map":
+            contract["quality_assurance"] = {"release_gates": {"GATE-001": _gate(), padded: _gate()}}
+        else:
+            contract["binary_release_gates"] = {"GATE-001": _gate(), padded: _gate()}
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:121: Failed
+_ test_gate_ids_with_surrounding_whitespace_are_rejected[GATE-001 -native-map] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_gate_ids_with_surrounding3')
+shape = 'native-map', padded = 'GATE-001 '
+
+    @pytest.mark.parametrize("shape", ["native-map", "native-array", "canonical-map"])
+    @pytest.mark.parametrize("padded", [" GATE-001", "GATE-001 ", "\tGATE-001\n", "\u00a0GATE-001"])
+    def test_gate_ids_with_surrounding_whitespace_are_rejected(
+        tmp_path: Path, shape: str, padded: str
+    ) -> None:
+        contract = _contract()
+        if shape == "native-array":
+            contract["binary_release_gates"] = [
+                {"id": "GATE-001", **_gate()},
+                {"id": padded, **_gate()},
+            ]
+        elif shape == "canonical-map":
+            contract["quality_assurance"] = {"release_gates": {"GATE-001": _gate(), padded: _gate()}}
+        else:
+            contract["binary_release_gates"] = {"GATE-001": _gate(), padded: _gate()}
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:121: Failed
+_ test_gate_ids_with_surrounding_whitespace_are_rejected[GATE-001 -native-array] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_gate_ids_with_surrounding4')
+shape = 'native-array', padded = 'GATE-001 '
+
+    @pytest.mark.parametrize("shape", ["native-map", "native-array", "canonical-map"])
+    @pytest.mark.parametrize("padded", [" GATE-001", "GATE-001 ", "\tGATE-001\n", "\u00a0GATE-001"])
+    def test_gate_ids_with_surrounding_whitespace_are_rejected(
+        tmp_path: Path, shape: str, padded: str
+    ) -> None:
+        contract = _contract()
+        if shape == "native-array":
+            contract["binary_release_gates"] = [
+                {"id": "GATE-001", **_gate()},
+                {"id": padded, **_gate()},
+            ]
+        elif shape == "canonical-map":
+            contract["quality_assurance"] = {"release_gates": {"GATE-001": _gate(), padded: _gate()}}
+        else:
+            contract["binary_release_gates"] = {"GATE-001": _gate(), padded: _gate()}
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:121: Failed
+_ test_gate_ids_with_surrounding_whitespace_are_rejected[GATE-001 -canonical-map] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_gate_ids_with_surrounding5')
+shape = 'canonical-map', padded = 'GATE-001 '
+
+    @pytest.mark.parametrize("shape", ["native-map", "native-array", "canonical-map"])
+    @pytest.mark.parametrize("padded", [" GATE-001", "GATE-001 ", "\tGATE-001\n", "\u00a0GATE-001"])
+    def test_gate_ids_with_surrounding_whitespace_are_rejected(
+        tmp_path: Path, shape: str, padded: str
+    ) -> None:
+        contract = _contract()
+        if shape == "native-array":
+            contract["binary_release_gates"] = [
+                {"id": "GATE-001", **_gate()},
+                {"id": padded, **_gate()},
+            ]
+        elif shape == "canonical-map":
+            contract["quality_assurance"] = {"release_gates": {"GATE-001": _gate(), padded: _gate()}}
+        else:
+            contract["binary_release_gates"] = {"GATE-001": _gate(), padded: _gate()}
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:121: Failed
+_ test_gate_ids_with_surrounding_whitespace_are_rejected[\tGATE-001\n-native-map] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_gate_ids_with_surrounding6')
+shape = 'native-map', padded = '\tGATE-001\n'
+
+    @pytest.mark.parametrize("shape", ["native-map", "native-array", "canonical-map"])
+    @pytest.mark.parametrize("padded", [" GATE-001", "GATE-001 ", "\tGATE-001\n", "\u00a0GATE-001"])
+    def test_gate_ids_with_surrounding_whitespace_are_rejected(
+        tmp_path: Path, shape: str, padded: str
+    ) -> None:
+        contract = _contract()
+        if shape == "native-array":
+            contract["binary_release_gates"] = [
+                {"id": "GATE-001", **_gate()},
+                {"id": padded, **_gate()},
+            ]
+        elif shape == "canonical-map":
+            contract["quality_assurance"] = {"release_gates": {"GATE-001": _gate(), padded: _gate()}}
+        else:
+            contract["binary_release_gates"] = {"GATE-001": _gate(), padded: _gate()}
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:121: Failed
+_ test_gate_ids_with_surrounding_whitespace_are_rejected[\tGATE-001\n-native-array] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_gate_ids_with_surrounding7')
+shape = 'native-array', padded = '\tGATE-001\n'
+
+    @pytest.mark.parametrize("shape", ["native-map", "native-array", "canonical-map"])
+    @pytest.mark.parametrize("padded", [" GATE-001", "GATE-001 ", "\tGATE-001\n", "\u00a0GATE-001"])
+    def test_gate_ids_with_surrounding_whitespace_are_rejected(
+        tmp_path: Path, shape: str, padded: str
+    ) -> None:
+        contract = _contract()
+        if shape == "native-array":
+            contract["binary_release_gates"] = [
+                {"id": "GATE-001", **_gate()},
+                {"id": padded, **_gate()},
+            ]
+        elif shape == "canonical-map":
+            contract["quality_assurance"] = {"release_gates": {"GATE-001": _gate(), padded: _gate()}}
+        else:
+            contract["binary_release_gates"] = {"GATE-001": _gate(), padded: _gate()}
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:121: Failed
+_ test_gate_ids_with_surrounding_whitespace_are_rejected[\tGATE-001\n-canonical-map] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_gate_ids_with_surrounding8')
+shape = 'canonical-map', padded = '\tGATE-001\n'
+
+    @pytest.mark.parametrize("shape", ["native-map", "native-array", "canonical-map"])
+    @pytest.mark.parametrize("padded", [" GATE-001", "GATE-001 ", "\tGATE-001\n", "\u00a0GATE-001"])
+    def test_gate_ids_with_surrounding_whitespace_are_rejected(
+        tmp_path: Path, shape: str, padded: str
+    ) -> None:
+        contract = _contract()
+        if shape == "native-array":
+            contract["binary_release_gates"] = [
+                {"id": "GATE-001", **_gate()},
+                {"id": padded, **_gate()},
+            ]
+        elif shape == "canonical-map":
+            contract["quality_assurance"] = {"release_gates": {"GATE-001": _gate(), padded: _gate()}}
+        else:
+            contract["binary_release_gates"] = {"GATE-001": _gate(), padded: _gate()}
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:121: Failed
+_ test_gate_ids_with_surrounding_whitespace_are_rejected[\xa0GATE-001-native-map] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_gate_ids_with_surrounding9')
+shape = 'native-map', padded = '\xa0GATE-001'
+
+    @pytest.mark.parametrize("shape", ["native-map", "native-array", "canonical-map"])
+    @pytest.mark.parametrize("padded", [" GATE-001", "GATE-001 ", "\tGATE-001\n", "\u00a0GATE-001"])
+    def test_gate_ids_with_surrounding_whitespace_are_rejected(
+        tmp_path: Path, shape: str, padded: str
+    ) -> None:
+        contract = _contract()
+        if shape == "native-array":
+            contract["binary_release_gates"] = [
+                {"id": "GATE-001", **_gate()},
+                {"id": padded, **_gate()},
+            ]
+        elif shape == "canonical-map":
+            contract["quality_assurance"] = {"release_gates": {"GATE-001": _gate(), padded: _gate()}}
+        else:
+            contract["binary_release_gates"] = {"GATE-001": _gate(), padded: _gate()}
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:121: Failed
+_ test_gate_ids_with_surrounding_whitespace_are_rejected[\xa0GATE-001-native-array] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_gate_ids_with_surrounding10')
+shape = 'native-array', padded = '\xa0GATE-001'
+
+    @pytest.mark.parametrize("shape", ["native-map", "native-array", "canonical-map"])
+    @pytest.mark.parametrize("padded", [" GATE-001", "GATE-001 ", "\tGATE-001\n", "\u00a0GATE-001"])
+    def test_gate_ids_with_surrounding_whitespace_are_rejected(
+        tmp_path: Path, shape: str, padded: str
+    ) -> None:
+        contract = _contract()
+        if shape == "native-array":
+            contract["binary_release_gates"] = [
+                {"id": "GATE-001", **_gate()},
+                {"id": padded, **_gate()},
+            ]
+        elif shape == "canonical-map":
+            contract["quality_assurance"] = {"release_gates": {"GATE-001": _gate(), padded: _gate()}}
+        else:
+            contract["binary_release_gates"] = {"GATE-001": _gate(), padded: _gate()}
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:121: Failed
+_ test_gate_ids_with_surrounding_whitespace_are_rejected[\xa0GATE-001-canonical-map] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_gate_ids_with_surrounding11')
+shape = 'canonical-map', padded = '\xa0GATE-001'
+
+    @pytest.mark.parametrize("shape", ["native-map", "native-array", "canonical-map"])
+    @pytest.mark.parametrize("padded", [" GATE-001", "GATE-001 ", "\tGATE-001\n", "\u00a0GATE-001"])
+    def test_gate_ids_with_surrounding_whitespace_are_rejected(
+        tmp_path: Path, shape: str, padded: str
+    ) -> None:
+        contract = _contract()
+        if shape == "native-array":
+            contract["binary_release_gates"] = [
+                {"id": "GATE-001", **_gate()},
+                {"id": padded, **_gate()},
+            ]
+        elif shape == "canonical-map":
+            contract["quality_assurance"] = {"release_gates": {"GATE-001": _gate(), padded: _gate()}}
+        else:
+            contract["binary_release_gates"] = {"GATE-001": _gate(), padded: _gate()}
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_admission_boundaries.py:121: Failed
+_ test_legitimate_payload_and_prose_are_not_gate_declarations[root-gate-text] __
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_legitimate_payload_and_pr0')
+location = 'root-gate-text'
+
+    @pytest.mark.parametrize(
+        "location",
+        [
+            "root-gate-text",
+            "root-gates-number",
+            "root-review-notes",
+            "root-notes",
+            "product-data",
+            "root-payload",
+            "quality-notes",
+            "release-notes",
+            "acceptance-notes",
+            "requirement-notes",
+            "criterion-notes",
+            "action-arguments",
+            "nested-action-arguments",
+            "given-value",
+            "then-value",
+            "root-prose",
+            "quality-prose",
+            "release-prose",
+            "requirement-prose",
+            "criterion-prose",
+        ],
+    )
+    def test_legitimate_payload_and_prose_are_not_gate_declarations(
+        tmp_path: Path, location: str
+    ) -> None:
+        contract = _contract()
+        criterion = contract["acceptance_criteria"]["AC-001"]
+        requirement = contract["functional_requirements"]["FR-001"]
+        business_data = {
+            "release_gates": {"physical-north-gate": {"open": True}},
+            "quality_assurence": {"gates": ["north"]},
+            "quality_gates": ["material inspection"],
+        }
+        prose = "Release gates and quality_assurence are words in a railway operations note."
+        if location == "root-gate-text":
+            contract["gate"] = "north"
+        elif location == "root-gates-number":
+            contract["gates"] = 3
+        elif location == "root-review-notes":
+            contract["release_gates_review_notes"] = prose
+        elif location in {"root-notes", "product-data", "root-payload"}:
+            key = {"root-notes": "notes", "product-data": "product", "root-payload": "payload"}[
+                location
+            ]
+            contract[key] = business_data
+        elif location in {"quality-notes", "release-notes", "acceptance-notes"}:
+            parent = {
+                "quality-notes": "quality_assurance",
+                "release-notes": "release",
+                "acceptance-notes": "acceptance",
+            }[location]
+            contract[parent] = {"notes": business_data}
+        elif location == "requirement-notes":
+            requirement["notes"] = business_data
+        elif location == "criterion-notes":
+            criterion["notes"] = business_data
+        elif location == "action-arguments":
+            criterion["when"]["arguments"] = business_data
+        elif location == "nested-action-arguments":
+            criterion["when"]["arguments"] = {"contract": business_data}
+        elif location == "given-value":
+            criterion["given"][0]["value"] = business_data
+        elif location == "then-value":
+            criterion["then"][0]["value"] = business_data
+        elif location == "root-prose":
+            contract["description"] = prose
+        elif location == "quality-prose":
+            contract["quality_assurance"] = {"description": prose}
+        elif location == "release-prose":
+            contract["release"] = {"description": prose}
+        elif location == "requirement-prose":
+            requirement["statement"] = prose
+        else:
+            criterion["description"] = prose
+        original = copy.deepcopy(contract)
+>       plan = compile_barebones_plan(contract=contract, repository_root=tmp_path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_release_gate_admission_boundaries.py:204: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/pmpe/barebones.py:465: in compile_barebones_plan
+    return compile_acceptance_plan(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+repository_root = PosixPath('/tmp/pytest-of-root/pytest-44/test_legitimate_payload_and_pr0')
+registered_actions = frozenset({'health'}), template_version = 'barebones-1'
+template_test_digests = {}, registered_measures = frozenset()
+trusted_test_digests = {}
+
+    def compile_acceptance_plan(
+        contract: Mapping[str, Any],
+        *,
+        repository_root: Path,
+        registered_actions: frozenset[str],
+        template_version: str,
+        template_test_digests: Mapping[str, str],
+        registered_measures: frozenset[str] = frozenset(),
+        trusted_test_digests: Mapping[str, str] | None = None,
+    ) -> AcceptanceBuildPlan:
+        """Compile typed criteria and prove task/test coverage before any build."""
+    
+        diagnostics: list[AcceptanceDiagnostic] = []
+        requirements_raw = _id_keyed_collection(
+            contract.get("functional_requirements"),
+            collection="requirement",
+            diagnostics=diagnostics,
+        )
+        criteria_raw = _id_keyed_collection(
+            contract.get("acceptance_criteria"),
+            collection="criterion",
+            diagnostics=diagnostics,
+        )
+        if not requirements_raw:
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "REQUIREMENTS_MISSING", "contract", "functional requirements are required"
+                )
+            )
+            requirements_raw = {}
+        if not criteria_raw:
+            diagnostics.append(
+                AcceptanceDiagnostic("CRITERIA_MISSING", "contract", "acceptance criteria are required")
+            )
+            criteria_raw = {}
+    
+        requirements = tuple(sorted(str(item) for item in requirements_raw))
+        requirement_set = frozenset(requirements)
+        covered: set[str] = set()
+        compiled: list[CompiledCriterion] = []
+    
+        for criterion_id, raw in sorted(criteria_raw.items(), key=lambda item: str(item[0])):
+            cid = str(criterion_id)
+            item = _mapping(raw)
+            if item is None:
+                diagnostics.append(
+                    AcceptanceDiagnostic("INVALID_CRITERION", cid, "criterion must be an object")
+                )
+                continue
+            refs_raw = item.get("requirement_refs")
+            if (
+                not isinstance(refs_raw, list)
+                or not refs_raw
+                or not all(isinstance(ref, str) and ref for ref in refs_raw)
+            ):
+                diagnostics.append(
+                    AcceptanceDiagnostic(
+                        "REQUIREMENT_REFS_MISSING", cid, "criterion needs requirement_refs"
+                    )
+                )
+                continue
+            refs = tuple(sorted(set(refs_raw)))
+            unknown = sorted(set(refs) - requirement_set)
+            if unknown:
+                diagnostics.append(
+                    AcceptanceDiagnostic("UNKNOWN_REQUIREMENT_REF", cid, ", ".join(unknown))
+                )
+                continue
+            covered.update(refs)
+    
+            forms = {
+                "given_when_then": all(key in item for key in ("given", "when", "then")),
+                "measure": all(key in item for key in ("measure", "operator", "value")),
+                "human_test": "human_test" in item,
+                "satisfied_by_template": "satisfied_by_template" in item,
+            }
+            selected = [name for name, present in forms.items() if present]
+            if len(selected) != 1:
+                diagnostics.append(
+                    AcceptanceDiagnostic(
+                        "CRITERION_FORM_INVALID",
+                        cid,
+                        "criterion must select exactly one executable form",
+                    )
+                )
+                continue
+            form = selected[0]
+            if form == "given_when_then":
+                when_raw = _mapping(item.get("when"))
+                action = "" if when_raw is None else str(when_raw.get("action", ""))
+                arguments = {} if when_raw is None else when_raw.get("arguments", {})
+                if action not in registered_actions or not isinstance(arguments, Mapping):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "ACTION_NOT_REGISTERED", cid, "when.action is not registered"
+                        )
+                    )
+                    continue
+                given = _assertions(
+                    item.get("given"), criterion_id=cid, field="given", diagnostics=diagnostics
+                )
+                then = _assertions(
+                    item.get("then"), criterion_id=cid, field="then", diagnostics=diagnostics
+                )
+                if given and then:
+                    compiled.append(
+                        CompiledCriterion(
+                            cid,
+                            refs,
+                            form,
+                            given=given,
+                            when=ActionCall(action, dict(arguments)),
+                            then=then,
+                        )
+                    )
+            elif form == "measure":
+                try:
+                    operator = Operator(str(item.get("operator", "")))
+                except ValueError:
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "UNKNOWN_ASSERTION_OPERATOR", cid, "measure operator is unregistered"
+                        )
+                    )
+                    continue
+                measure = item.get("measure")
+                sample = _mapping(item.get("sample")) or {}
+                minimum = sample.get("minimum")
+                if (
+                    not isinstance(measure, str)
+                    or not measure
+                    or measure not in registered_measures
+                    or isinstance(minimum, bool)
+                    or not isinstance(minimum, int)
+                    or minimum <= 0
+                ):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "MEASURE_INVALID",
+                            cid,
+                            "measure needs a registered source and positive sample.minimum",
+                        )
+                    )
+                    continue
+                assertion_value = item.get("value")
+                if operator is Operator.MATCHES:
+                    try:
+                        if not isinstance(assertion_value, str):
+                            raise re.error("pattern must be a string")
+                        re.compile(assertion_value)
+                    except re.error:
+                        diagnostics.append(
+                            AcceptanceDiagnostic(
+                                "INVALID_REGEX_ASSERTION",
+                                cid,
+                                "measure requires a valid string regex",
+                            )
+                        )
+                        continue
+                if operator in {Operator.LT, Operator.LTE, Operator.GT, Operator.GTE} and (
+                    isinstance(assertion_value, bool)
+                    or not isinstance(assertion_value, (int, float, str))
+                ):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "INVALID_ORDERED_ASSERTION_VALUE",
+                            cid,
+                            "measure requires a number or string value",
+                        )
+                    )
+                    continue
+                compiled.append(
+                    CompiledCriterion(
+                        cid,
+                        refs,
+                        form,
+                        measure=measure,
+                        operator=operator,
+                        value=assertion_value,
+                        minimum_sample=minimum,
+                    )
+                )
+            elif form == "human_test":
+                human_raw = _mapping(item.get("human_test"))
+                human = (
+                    None
+                    if human_raw is None
+                    else _human_test(
+                        human_raw,
+                        criterion_id=cid,
+                        repository_root=repository_root,
+                        diagnostics=diagnostics,
+                    )
+                )
+                if human is not None:
+                    compiled.append(CompiledCriterion(cid, refs, form, human_test=human))
+            else:
+                proof_raw = _mapping(item.get("satisfied_by_template"))
+                version = "" if proof_raw is None else str(proof_raw.get("template_version", ""))
+                test_id = "" if proof_raw is None else str(proof_raw.get("test_id", ""))
+                proof_digest = template_test_digests.get(test_id)
+                if version != template_version or proof_digest is None:
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "TEMPLATE_PROOF_INVALID",
+                            cid,
+                            "template proof does not match the pinned template",
+                        )
+                    )
+                    continue
+                compiled.append(
+                    CompiledCriterion(
+                        cid,
+                        refs,
+                        form,
+                        template_proof=TemplateProof(version, test_id, proof_digest),
+                    )
+                )
+    
+        for requirement_id in sorted(requirement_set - covered):
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "REQUIREMENT_UNCOVERED",
+                    requirement_id,
+                    "requirement has no executable criterion",
+                )
+            )
+        release_gates = compile_release_gates(
+            contract,
+            criterion_ids=frozenset(item.criterion_id for item in compiled),
+            diagnostic=lambda code, subject, message: diagnostics.append(
+                AcceptanceDiagnostic(code, subject, message)
+            ),
+        )
+        if diagnostics:
+>           raise AcceptanceCompileError(diagnostics)
+E           pmpe.contracts.acceptance.AcceptanceCompileError: RELEASE_GATE_DECLARATIONS_IGNORED:gate
+
+src/pmpe/contracts/acceptance.py:764: AcceptanceCompileError
+_ test_legitimate_payload_and_prose_are_not_gate_declarations[root-gates-number] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_legitimate_payload_and_pr1')
+location = 'root-gates-number'
+
+    @pytest.mark.parametrize(
+        "location",
+        [
+            "root-gate-text",
+            "root-gates-number",
+            "root-review-notes",
+            "root-notes",
+            "product-data",
+            "root-payload",
+            "quality-notes",
+            "release-notes",
+            "acceptance-notes",
+            "requirement-notes",
+            "criterion-notes",
+            "action-arguments",
+            "nested-action-arguments",
+            "given-value",
+            "then-value",
+            "root-prose",
+            "quality-prose",
+            "release-prose",
+            "requirement-prose",
+            "criterion-prose",
+        ],
+    )
+    def test_legitimate_payload_and_prose_are_not_gate_declarations(
+        tmp_path: Path, location: str
+    ) -> None:
+        contract = _contract()
+        criterion = contract["acceptance_criteria"]["AC-001"]
+        requirement = contract["functional_requirements"]["FR-001"]
+        business_data = {
+            "release_gates": {"physical-north-gate": {"open": True}},
+            "quality_assurence": {"gates": ["north"]},
+            "quality_gates": ["material inspection"],
+        }
+        prose = "Release gates and quality_assurence are words in a railway operations note."
+        if location == "root-gate-text":
+            contract["gate"] = "north"
+        elif location == "root-gates-number":
+            contract["gates"] = 3
+        elif location == "root-review-notes":
+            contract["release_gates_review_notes"] = prose
+        elif location in {"root-notes", "product-data", "root-payload"}:
+            key = {"root-notes": "notes", "product-data": "product", "root-payload": "payload"}[
+                location
+            ]
+            contract[key] = business_data
+        elif location in {"quality-notes", "release-notes", "acceptance-notes"}:
+            parent = {
+                "quality-notes": "quality_assurance",
+                "release-notes": "release",
+                "acceptance-notes": "acceptance",
+            }[location]
+            contract[parent] = {"notes": business_data}
+        elif location == "requirement-notes":
+            requirement["notes"] = business_data
+        elif location == "criterion-notes":
+            criterion["notes"] = business_data
+        elif location == "action-arguments":
+            criterion["when"]["arguments"] = business_data
+        elif location == "nested-action-arguments":
+            criterion["when"]["arguments"] = {"contract": business_data}
+        elif location == "given-value":
+            criterion["given"][0]["value"] = business_data
+        elif location == "then-value":
+            criterion["then"][0]["value"] = business_data
+        elif location == "root-prose":
+            contract["description"] = prose
+        elif location == "quality-prose":
+            contract["quality_assurance"] = {"description": prose}
+        elif location == "release-prose":
+            contract["release"] = {"description": prose}
+        elif location == "requirement-prose":
+            requirement["statement"] = prose
+        else:
+            criterion["description"] = prose
+        original = copy.deepcopy(contract)
+>       plan = compile_barebones_plan(contract=contract, repository_root=tmp_path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_release_gate_admission_boundaries.py:204: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/pmpe/barebones.py:465: in compile_barebones_plan
+    return compile_acceptance_plan(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+repository_root = PosixPath('/tmp/pytest-of-root/pytest-44/test_legitimate_payload_and_pr1')
+registered_actions = frozenset({'health'}), template_version = 'barebones-1'
+template_test_digests = {}, registered_measures = frozenset()
+trusted_test_digests = {}
+
+    def compile_acceptance_plan(
+        contract: Mapping[str, Any],
+        *,
+        repository_root: Path,
+        registered_actions: frozenset[str],
+        template_version: str,
+        template_test_digests: Mapping[str, str],
+        registered_measures: frozenset[str] = frozenset(),
+        trusted_test_digests: Mapping[str, str] | None = None,
+    ) -> AcceptanceBuildPlan:
+        """Compile typed criteria and prove task/test coverage before any build."""
+    
+        diagnostics: list[AcceptanceDiagnostic] = []
+        requirements_raw = _id_keyed_collection(
+            contract.get("functional_requirements"),
+            collection="requirement",
+            diagnostics=diagnostics,
+        )
+        criteria_raw = _id_keyed_collection(
+            contract.get("acceptance_criteria"),
+            collection="criterion",
+            diagnostics=diagnostics,
+        )
+        if not requirements_raw:
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "REQUIREMENTS_MISSING", "contract", "functional requirements are required"
+                )
+            )
+            requirements_raw = {}
+        if not criteria_raw:
+            diagnostics.append(
+                AcceptanceDiagnostic("CRITERIA_MISSING", "contract", "acceptance criteria are required")
+            )
+            criteria_raw = {}
+    
+        requirements = tuple(sorted(str(item) for item in requirements_raw))
+        requirement_set = frozenset(requirements)
+        covered: set[str] = set()
+        compiled: list[CompiledCriterion] = []
+    
+        for criterion_id, raw in sorted(criteria_raw.items(), key=lambda item: str(item[0])):
+            cid = str(criterion_id)
+            item = _mapping(raw)
+            if item is None:
+                diagnostics.append(
+                    AcceptanceDiagnostic("INVALID_CRITERION", cid, "criterion must be an object")
+                )
+                continue
+            refs_raw = item.get("requirement_refs")
+            if (
+                not isinstance(refs_raw, list)
+                or not refs_raw
+                or not all(isinstance(ref, str) and ref for ref in refs_raw)
+            ):
+                diagnostics.append(
+                    AcceptanceDiagnostic(
+                        "REQUIREMENT_REFS_MISSING", cid, "criterion needs requirement_refs"
+                    )
+                )
+                continue
+            refs = tuple(sorted(set(refs_raw)))
+            unknown = sorted(set(refs) - requirement_set)
+            if unknown:
+                diagnostics.append(
+                    AcceptanceDiagnostic("UNKNOWN_REQUIREMENT_REF", cid, ", ".join(unknown))
+                )
+                continue
+            covered.update(refs)
+    
+            forms = {
+                "given_when_then": all(key in item for key in ("given", "when", "then")),
+                "measure": all(key in item for key in ("measure", "operator", "value")),
+                "human_test": "human_test" in item,
+                "satisfied_by_template": "satisfied_by_template" in item,
+            }
+            selected = [name for name, present in forms.items() if present]
+            if len(selected) != 1:
+                diagnostics.append(
+                    AcceptanceDiagnostic(
+                        "CRITERION_FORM_INVALID",
+                        cid,
+                        "criterion must select exactly one executable form",
+                    )
+                )
+                continue
+            form = selected[0]
+            if form == "given_when_then":
+                when_raw = _mapping(item.get("when"))
+                action = "" if when_raw is None else str(when_raw.get("action", ""))
+                arguments = {} if when_raw is None else when_raw.get("arguments", {})
+                if action not in registered_actions or not isinstance(arguments, Mapping):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "ACTION_NOT_REGISTERED", cid, "when.action is not registered"
+                        )
+                    )
+                    continue
+                given = _assertions(
+                    item.get("given"), criterion_id=cid, field="given", diagnostics=diagnostics
+                )
+                then = _assertions(
+                    item.get("then"), criterion_id=cid, field="then", diagnostics=diagnostics
+                )
+                if given and then:
+                    compiled.append(
+                        CompiledCriterion(
+                            cid,
+                            refs,
+                            form,
+                            given=given,
+                            when=ActionCall(action, dict(arguments)),
+                            then=then,
+                        )
+                    )
+            elif form == "measure":
+                try:
+                    operator = Operator(str(item.get("operator", "")))
+                except ValueError:
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "UNKNOWN_ASSERTION_OPERATOR", cid, "measure operator is unregistered"
+                        )
+                    )
+                    continue
+                measure = item.get("measure")
+                sample = _mapping(item.get("sample")) or {}
+                minimum = sample.get("minimum")
+                if (
+                    not isinstance(measure, str)
+                    or not measure
+                    or measure not in registered_measures
+                    or isinstance(minimum, bool)
+                    or not isinstance(minimum, int)
+                    or minimum <= 0
+                ):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "MEASURE_INVALID",
+                            cid,
+                            "measure needs a registered source and positive sample.minimum",
+                        )
+                    )
+                    continue
+                assertion_value = item.get("value")
+                if operator is Operator.MATCHES:
+                    try:
+                        if not isinstance(assertion_value, str):
+                            raise re.error("pattern must be a string")
+                        re.compile(assertion_value)
+                    except re.error:
+                        diagnostics.append(
+                            AcceptanceDiagnostic(
+                                "INVALID_REGEX_ASSERTION",
+                                cid,
+                                "measure requires a valid string regex",
+                            )
+                        )
+                        continue
+                if operator in {Operator.LT, Operator.LTE, Operator.GT, Operator.GTE} and (
+                    isinstance(assertion_value, bool)
+                    or not isinstance(assertion_value, (int, float, str))
+                ):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "INVALID_ORDERED_ASSERTION_VALUE",
+                            cid,
+                            "measure requires a number or string value",
+                        )
+                    )
+                    continue
+                compiled.append(
+                    CompiledCriterion(
+                        cid,
+                        refs,
+                        form,
+                        measure=measure,
+                        operator=operator,
+                        value=assertion_value,
+                        minimum_sample=minimum,
+                    )
+                )
+            elif form == "human_test":
+                human_raw = _mapping(item.get("human_test"))
+                human = (
+                    None
+                    if human_raw is None
+                    else _human_test(
+                        human_raw,
+                        criterion_id=cid,
+                        repository_root=repository_root,
+                        diagnostics=diagnostics,
+                    )
+                )
+                if human is not None:
+                    compiled.append(CompiledCriterion(cid, refs, form, human_test=human))
+            else:
+                proof_raw = _mapping(item.get("satisfied_by_template"))
+                version = "" if proof_raw is None else str(proof_raw.get("template_version", ""))
+                test_id = "" if proof_raw is None else str(proof_raw.get("test_id", ""))
+                proof_digest = template_test_digests.get(test_id)
+                if version != template_version or proof_digest is None:
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "TEMPLATE_PROOF_INVALID",
+                            cid,
+                            "template proof does not match the pinned template",
+                        )
+                    )
+                    continue
+                compiled.append(
+                    CompiledCriterion(
+                        cid,
+                        refs,
+                        form,
+                        template_proof=TemplateProof(version, test_id, proof_digest),
+                    )
+                )
+    
+        for requirement_id in sorted(requirement_set - covered):
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "REQUIREMENT_UNCOVERED",
+                    requirement_id,
+                    "requirement has no executable criterion",
+                )
+            )
+        release_gates = compile_release_gates(
+            contract,
+            criterion_ids=frozenset(item.criterion_id for item in compiled),
+            diagnostic=lambda code, subject, message: diagnostics.append(
+                AcceptanceDiagnostic(code, subject, message)
+            ),
+        )
+        if diagnostics:
+>           raise AcceptanceCompileError(diagnostics)
+E           pmpe.contracts.acceptance.AcceptanceCompileError: RELEASE_GATE_DECLARATIONS_IGNORED:gates
+
+src/pmpe/contracts/acceptance.py:764: AcceptanceCompileError
+_ test_legitimate_payload_and_prose_are_not_gate_declarations[root-review-notes] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-44/test_legitimate_payload_and_pr2')
+location = 'root-review-notes'
+
+    @pytest.mark.parametrize(
+        "location",
+        [
+            "root-gate-text",
+            "root-gates-number",
+            "root-review-notes",
+            "root-notes",
+            "product-data",
+            "root-payload",
+            "quality-notes",
+            "release-notes",
+            "acceptance-notes",
+            "requirement-notes",
+            "criterion-notes",
+            "action-arguments",
+            "nested-action-arguments",
+            "given-value",
+            "then-value",
+            "root-prose",
+            "quality-prose",
+            "release-prose",
+            "requirement-prose",
+            "criterion-prose",
+        ],
+    )
+    def test_legitimate_payload_and_prose_are_not_gate_declarations(
+        tmp_path: Path, location: str
+    ) -> None:
+        contract = _contract()
+        criterion = contract["acceptance_criteria"]["AC-001"]
+        requirement = contract["functional_requirements"]["FR-001"]
+        business_data = {
+            "release_gates": {"physical-north-gate": {"open": True}},
+            "quality_assurence": {"gates": ["north"]},
+            "quality_gates": ["material inspection"],
+        }
+        prose = "Release gates and quality_assurence are words in a railway operations note."
+        if location == "root-gate-text":
+            contract["gate"] = "north"
+        elif location == "root-gates-number":
+            contract["gates"] = 3
+        elif location == "root-review-notes":
+            contract["release_gates_review_notes"] = prose
+        elif location in {"root-notes", "product-data", "root-payload"}:
+            key = {"root-notes": "notes", "product-data": "product", "root-payload": "payload"}[
+                location
+            ]
+            contract[key] = business_data
+        elif location in {"quality-notes", "release-notes", "acceptance-notes"}:
+            parent = {
+                "quality-notes": "quality_assurance",
+                "release-notes": "release",
+                "acceptance-notes": "acceptance",
+            }[location]
+            contract[parent] = {"notes": business_data}
+        elif location == "requirement-notes":
+            requirement["notes"] = business_data
+        elif location == "criterion-notes":
+            criterion["notes"] = business_data
+        elif location == "action-arguments":
+            criterion["when"]["arguments"] = business_data
+        elif location == "nested-action-arguments":
+            criterion["when"]["arguments"] = {"contract": business_data}
+        elif location == "given-value":
+            criterion["given"][0]["value"] = business_data
+        elif location == "then-value":
+            criterion["then"][0]["value"] = business_data
+        elif location == "root-prose":
+            contract["description"] = prose
+        elif location == "quality-prose":
+            contract["quality_assurance"] = {"description": prose}
+        elif location == "release-prose":
+            contract["release"] = {"description": prose}
+        elif location == "requirement-prose":
+            requirement["statement"] = prose
+        else:
+            criterion["description"] = prose
+        original = copy.deepcopy(contract)
+>       plan = compile_barebones_plan(contract=contract, repository_root=tmp_path)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/unit/test_release_gate_admission_boundaries.py:204: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+src/pmpe/barebones.py:465: in compile_barebones_plan
+    return compile_acceptance_plan(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+contract = {'contract_id': 'TEST-ONLY-RELEASE-GATES', 'contract_version': 1, 'functional_requirements': {'FR-001': {'statement': ...n': {'action': 'health', 'arguments': {}}, 'then': [{'path': 'result.status', 'operator': 'eq', 'value': 'ok'}]}}, ...}
+repository_root = PosixPath('/tmp/pytest-of-root/pytest-44/test_legitimate_payload_and_pr2')
+registered_actions = frozenset({'health'}), template_version = 'barebones-1'
+template_test_digests = {}, registered_measures = frozenset()
+trusted_test_digests = {}
+
+    def compile_acceptance_plan(
+        contract: Mapping[str, Any],
+        *,
+        repository_root: Path,
+        registered_actions: frozenset[str],
+        template_version: str,
+        template_test_digests: Mapping[str, str],
+        registered_measures: frozenset[str] = frozenset(),
+        trusted_test_digests: Mapping[str, str] | None = None,
+    ) -> AcceptanceBuildPlan:
+        """Compile typed criteria and prove task/test coverage before any build."""
+    
+        diagnostics: list[AcceptanceDiagnostic] = []
+        requirements_raw = _id_keyed_collection(
+            contract.get("functional_requirements"),
+            collection="requirement",
+            diagnostics=diagnostics,
+        )
+        criteria_raw = _id_keyed_collection(
+            contract.get("acceptance_criteria"),
+            collection="criterion",
+            diagnostics=diagnostics,
+        )
+        if not requirements_raw:
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "REQUIREMENTS_MISSING", "contract", "functional requirements are required"
+                )
+            )
+            requirements_raw = {}
+        if not criteria_raw:
+            diagnostics.append(
+                AcceptanceDiagnostic("CRITERIA_MISSING", "contract", "acceptance criteria are required")
+            )
+            criteria_raw = {}
+    
+        requirements = tuple(sorted(str(item) for item in requirements_raw))
+        requirement_set = frozenset(requirements)
+        covered: set[str] = set()
+        compiled: list[CompiledCriterion] = []
+    
+        for criterion_id, raw in sorted(criteria_raw.items(), key=lambda item: str(item[0])):
+            cid = str(criterion_id)
+            item = _mapping(raw)
+            if item is None:
+                diagnostics.append(
+                    AcceptanceDiagnostic("INVALID_CRITERION", cid, "criterion must be an object")
+                )
+                continue
+            refs_raw = item.get("requirement_refs")
+            if (
+                not isinstance(refs_raw, list)
+                or not refs_raw
+                or not all(isinstance(ref, str) and ref for ref in refs_raw)
+            ):
+                diagnostics.append(
+                    AcceptanceDiagnostic(
+                        "REQUIREMENT_REFS_MISSING", cid, "criterion needs requirement_refs"
+                    )
+                )
+                continue
+            refs = tuple(sorted(set(refs_raw)))
+            unknown = sorted(set(refs) - requirement_set)
+            if unknown:
+                diagnostics.append(
+                    AcceptanceDiagnostic("UNKNOWN_REQUIREMENT_REF", cid, ", ".join(unknown))
+                )
+                continue
+            covered.update(refs)
+    
+            forms = {
+                "given_when_then": all(key in item for key in ("given", "when", "then")),
+                "measure": all(key in item for key in ("measure", "operator", "value")),
+                "human_test": "human_test" in item,
+                "satisfied_by_template": "satisfied_by_template" in item,
+            }
+            selected = [name for name, present in forms.items() if present]
+            if len(selected) != 1:
+                diagnostics.append(
+                    AcceptanceDiagnostic(
+                        "CRITERION_FORM_INVALID",
+                        cid,
+                        "criterion must select exactly one executable form",
+                    )
+                )
+                continue
+            form = selected[0]
+            if form == "given_when_then":
+                when_raw = _mapping(item.get("when"))
+                action = "" if when_raw is None else str(when_raw.get("action", ""))
+                arguments = {} if when_raw is None else when_raw.get("arguments", {})
+                if action not in registered_actions or not isinstance(arguments, Mapping):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "ACTION_NOT_REGISTERED", cid, "when.action is not registered"
+                        )
+                    )
+                    continue
+                given = _assertions(
+                    item.get("given"), criterion_id=cid, field="given", diagnostics=diagnostics
+                )
+                then = _assertions(
+                    item.get("then"), criterion_id=cid, field="then", diagnostics=diagnostics
+                )
+                if given and then:
+                    compiled.append(
+                        CompiledCriterion(
+                            cid,
+                            refs,
+                            form,
+                            given=given,
+                            when=ActionCall(action, dict(arguments)),
+                            then=then,
+                        )
+                    )
+            elif form == "measure":
+                try:
+                    operator = Operator(str(item.get("operator", "")))
+                except ValueError:
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "UNKNOWN_ASSERTION_OPERATOR", cid, "measure operator is unregistered"
+                        )
+                    )
+                    continue
+                measure = item.get("measure")
+                sample = _mapping(item.get("sample")) or {}
+                minimum = sample.get("minimum")
+                if (
+                    not isinstance(measure, str)
+                    or not measure
+                    or measure not in registered_measures
+                    or isinstance(minimum, bool)
+                    or not isinstance(minimum, int)
+                    or minimum <= 0
+                ):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "MEASURE_INVALID",
+                            cid,
+                            "measure needs a registered source and positive sample.minimum",
+                        )
+                    )
+                    continue
+                assertion_value = item.get("value")
+                if operator is Operator.MATCHES:
+                    try:
+                        if not isinstance(assertion_value, str):
+                            raise re.error("pattern must be a string")
+                        re.compile(assertion_value)
+                    except re.error:
+                        diagnostics.append(
+                            AcceptanceDiagnostic(
+                                "INVALID_REGEX_ASSERTION",
+                                cid,
+                                "measure requires a valid string regex",
+                            )
+                        )
+                        continue
+                if operator in {Operator.LT, Operator.LTE, Operator.GT, Operator.GTE} and (
+                    isinstance(assertion_value, bool)
+                    or not isinstance(assertion_value, (int, float, str))
+                ):
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "INVALID_ORDERED_ASSERTION_VALUE",
+                            cid,
+                            "measure requires a number or string value",
+                        )
+                    )
+                    continue
+                compiled.append(
+                    CompiledCriterion(
+                        cid,
+                        refs,
+                        form,
+                        measure=measure,
+                        operator=operator,
+                        value=assertion_value,
+                        minimum_sample=minimum,
+                    )
+                )
+            elif form == "human_test":
+                human_raw = _mapping(item.get("human_test"))
+                human = (
+                    None
+                    if human_raw is None
+                    else _human_test(
+                        human_raw,
+                        criterion_id=cid,
+                        repository_root=repository_root,
+                        diagnostics=diagnostics,
+                    )
+                )
+                if human is not None:
+                    compiled.append(CompiledCriterion(cid, refs, form, human_test=human))
+            else:
+                proof_raw = _mapping(item.get("satisfied_by_template"))
+                version = "" if proof_raw is None else str(proof_raw.get("template_version", ""))
+                test_id = "" if proof_raw is None else str(proof_raw.get("test_id", ""))
+                proof_digest = template_test_digests.get(test_id)
+                if version != template_version or proof_digest is None:
+                    diagnostics.append(
+                        AcceptanceDiagnostic(
+                            "TEMPLATE_PROOF_INVALID",
+                            cid,
+                            "template proof does not match the pinned template",
+                        )
+                    )
+                    continue
+                compiled.append(
+                    CompiledCriterion(
+                        cid,
+                        refs,
+                        form,
+                        template_proof=TemplateProof(version, test_id, proof_digest),
+                    )
+                )
+    
+        for requirement_id in sorted(requirement_set - covered):
+            diagnostics.append(
+                AcceptanceDiagnostic(
+                    "REQUIREMENT_UNCOVERED",
+                    requirement_id,
+                    "requirement has no executable criterion",
+                )
+            )
+        release_gates = compile_release_gates(
+            contract,
+            criterion_ids=frozenset(item.criterion_id for item in compiled),
+            diagnostic=lambda code, subject, message: diagnostics.append(
+                AcceptanceDiagnostic(code, subject, message)
+            ),
+        )
+        if diagnostics:
+>           raise AcceptanceCompileError(diagnostics)
+E           pmpe.contracts.acceptance.AcceptanceCompileError: RELEASE_GATE_DECLARATIONS_IGNORED:release_gates_review_notes
+
+src/pmpe/contracts/acceptance.py:764: AcceptanceCompileError
+=========================== short test summary info ============================
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_parent_alias_cannot_hide_a_gate[False-quality_assurence]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_parent_alias_cannot_hide_a_gate[False-Quality_Assurance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_parent_alias_cannot_hide_a_gate[False-quality-assurance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_parent_alias_cannot_hide_a_gate[False-qualityassurance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_parent_alias_cannot_hide_a_gate[False-qa]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_parent_alias_cannot_hide_a_gate[False-releases]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_parent_alias_cannot_hide_a_gate[True-quality_assurence]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_parent_alias_cannot_hide_a_gate[True-Quality_Assurance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_parent_alias_cannot_hide_a_gate[True-quality-assurance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_parent_alias_cannot_hide_a_gate[True-qualityassurance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_parent_alias_cannot_hide_a_gate[True-qa]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_parent_alias_cannot_hide_a_gate[True-releases]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_metadata_parent_requires_an_object[None-quality_assurance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_metadata_parent_requires_an_object[None-release]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_metadata_parent_requires_an_object[None-acceptance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_metadata_parent_requires_an_object[value1-quality_assurance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_metadata_parent_requires_an_object[value1-release]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_metadata_parent_requires_an_object[value1-acceptance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_metadata_parent_requires_an_object[value2-quality_assurance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_metadata_parent_requires_an_object[value2-release]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_metadata_parent_requires_an_object[value2-acceptance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_metadata_parent_requires_an_object[False-quality_assurance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_metadata_parent_requires_an_object[False-release]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_metadata_parent_requires_an_object[False-acceptance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_metadata_parent_requires_an_object[0-quality_assurance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_metadata_parent_requires_an_object[0-release]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_metadata_parent_requires_an_object[0-acceptance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_metadata_parent_requires_an_object[all checks-quality_assurance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_metadata_parent_requires_an_object[all checks-release]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_metadata_parent_requires_an_object[all checks-acceptance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_nested_release_wrapper_cannot_hide_gate[False]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_nested_release_wrapper_cannot_hide_gate[True]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_entry_metadata_gate_cannot_be_dropped[False-criterion-map]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_entry_metadata_gate_cannot_be_dropped[False-criterion-array]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_entry_metadata_gate_cannot_be_dropped[False-requirement-map]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_entry_metadata_gate_cannot_be_dropped[False-requirement-array]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_entry_metadata_gate_cannot_be_dropped[False-acceptance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_entry_metadata_gate_cannot_be_dropped[True-criterion-map]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_entry_metadata_gate_cannot_be_dropped[True-criterion-array]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_entry_metadata_gate_cannot_be_dropped[True-requirement-map]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_entry_metadata_gate_cannot_be_dropped[True-requirement-array]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_entry_metadata_gate_cannot_be_dropped[True-acceptance]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_two_edit_and_named_synonym_gate_fields_are_not_ignored[False-relase_gate]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_two_edit_and_named_synonym_gate_fields_are_not_ignored[False-relese_gats]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_two_edit_and_named_synonym_gate_fields_are_not_ignored[False-quality_gates]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_two_edit_and_named_synonym_gate_fields_are_not_ignored[False-go_live_gates]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_two_edit_and_named_synonym_gate_fields_are_not_ignored[True-relase_gate]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_two_edit_and_named_synonym_gate_fields_are_not_ignored[True-relese_gats]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_two_edit_and_named_synonym_gate_fields_are_not_ignored[True-quality_gates]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_two_edit_and_named_synonym_gate_fields_are_not_ignored[True-go_live_gates]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_gate_ids_with_surrounding_whitespace_are_rejected[ GATE-001-native-map]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_gate_ids_with_surrounding_whitespace_are_rejected[ GATE-001-native-array]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_gate_ids_with_surrounding_whitespace_are_rejected[ GATE-001-canonical-map]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_gate_ids_with_surrounding_whitespace_are_rejected[GATE-001 -native-map]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_gate_ids_with_surrounding_whitespace_are_rejected[GATE-001 -native-array]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_gate_ids_with_surrounding_whitespace_are_rejected[GATE-001 -canonical-map]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_gate_ids_with_surrounding_whitespace_are_rejected[\tGATE-001\n-native-map]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_gate_ids_with_surrounding_whitespace_are_rejected[\tGATE-001\n-native-array]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_gate_ids_with_surrounding_whitespace_are_rejected[\tGATE-001\n-canonical-map]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_gate_ids_with_surrounding_whitespace_are_rejected[\xa0GATE-001-native-map]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_gate_ids_with_surrounding_whitespace_are_rejected[\xa0GATE-001-native-array]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_gate_ids_with_surrounding_whitespace_are_rejected[\xa0GATE-001-canonical-map]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_legitimate_payload_and_prose_are_not_gate_declarations[root-gate-text]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_legitimate_payload_and_prose_are_not_gate_declarations[root-gates-number]
+FAILED tests/unit/test_release_gate_admission_boundaries.py::test_legitimate_payload_and_prose_are_not_gate_declarations[root-review-notes]
