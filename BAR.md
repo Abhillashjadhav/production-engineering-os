@@ -1,5 +1,14 @@
 # BAR — install the owner-supplied gate
 
+## Unit — resume R4, retain ordinary replay and publish review snapshots
+
+1. **Yes, restructured.** Continue the existing R4 source branches, migration and checker; no new engine or evaluator.
+2. **Yes.** The owner asked to continue PMOS review, and the retained work contract authorizes engineering repair and draft publication.
+3. **No.** This evidence unit changes no runtime, scanner, security policy, frozen v1 input or approval. Any remaining implementation repair requires its own unit.
+4. **Yes.** Retain exact outputs of the existing ordinary replay and static gates. The architecture gate fails; blocked adversarial rechecks remain unverified. No new test is needed for this evidence-only record.
+5. **Yes.** The resumed evidence and publication record are a separate reversible commit.
+6. **No.** No dependency, provider, permission, security exception, sandbox retry or owner decision is introduced. Review-only branches preserve source without restarting the blocked adversarial checks through a PR update.
+
 ## Unit — external-review reconciliation and unchanged evidence replay, 2026-09-24
 
 1. **Yes, restructured.** Reuse `examples/barebones/contract-file.py`, the frozen task-store packet, retained candidates and existing negative controls. No parallel execution adapter.
