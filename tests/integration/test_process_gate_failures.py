@@ -8,6 +8,7 @@ import pytest
 
 from pmpe.barebones import BudgetCaps, RunState, run_to_release_ready
 from pmpe.evidence.ledger import EvidenceLedger
+from pmpe.evidence.process_gate_validation import snapshot_digest
 from tests.integration.test_process_gate_runtime import (
     LocalSandbox,
     ReplayProvider,
@@ -32,6 +33,7 @@ def test_negative_control_cannot_pass_by_crash_or_invalid_mutation(
     elif variant == "extra_test":
         mutant["tests/extra.py"] = b"# unauthorized evaluator addition"
     inputs = replace(inputs, negative_controls={"broken": mutant})
+    items[0]["mutants"][0]["snapshot_digest"] = snapshot_digest(mutant)
     result = run_to_release_ready(
         contract=bound_contract(items),
         repository_root=tmp_path,
@@ -198,7 +200,7 @@ def test_unknown_plausible_sandbox_report_is_not_admitted(tmp_path: Path) -> Non
 
     inputs, items = make_inputs(tmp_path)
     provider = ReplayProvider()
-    with pytest.raises(ContractInvalidError, match="sandbox identity is not declared"):
+    with pytest.raises(ContractInvalidError, match="canonical module class"):
         run_to_release_ready(
             contract=bound_contract(items),
             repository_root=tmp_path,
@@ -299,6 +301,7 @@ def test_repair_attempt_preserves_prior_applied_response_provenance(tmp_path: Pa
     )
     inputs = replace(inputs, source_manifest=manifest)
     items[1]["source_manifest_digest"] = raw_digest(manifest)
+    items[0]["mutants"][0]["snapshot_digest"] = snapshot_digest(inputs.negative_controls["broken"])
     result = run_to_release_ready(
         contract=bound_contract(items),
         repository_root=tmp_path,

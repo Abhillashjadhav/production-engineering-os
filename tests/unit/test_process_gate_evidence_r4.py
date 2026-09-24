@@ -34,7 +34,8 @@ import pytest
 def test_claimed_process_pass_is_rederived(kind: str, evidence: dict[str, Any]) -> None:
     from pmpe.evidence.process_gate_validation import validate_process_gate_evidence
 
-    with pytest.raises(ValueError):
+    evidence = {"run_id": "test-only", "attempt": 1, **evidence}
+    with pytest.raises(ValueError) as raised:
         validate_process_gate_evidence(
             {"kind": kind},
             evidence,
@@ -42,3 +43,35 @@ def test_claimed_process_pass_is_rederived(kind: str, evidence: dict[str, Any]) 
             baseline_ids={"AC-001"},
             read_blob=lambda digest: b"{}",
         )
+    assert "PROCESS_RUN_IDENTITY_INVALID" not in str(raised.value)
+
+
+@pytest.mark.parametrize("marker", [None, {"invalid_json": True}, {"exit_code": "timeout"}])
+def test_negative_control_rederives_observer_markers(marker: Any) -> None:
+    import hashlib
+    import json
+    from pmpe.evidence.process_gate_validation import validate_process_gate_evidence
+
+    blobs: dict[str, bytes] = {}
+    def put(value: Any) -> str:
+        payload = value if isinstance(value, bytes) else json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+        digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+        blobs[digest] = payload
+        return digest
+    candidate = put({"product.py": put(b"original")})
+    mutant = put({"product.py": put(b"mutated")})
+    binding = {"kind": "negative_controls", "mutants": [{"id": "m", "snapshot_digest": mutant,
+        "must_fail": ["AC-1"], "must_not_touch": ["tests/"]}]}
+    finding = {"code": "ASSERTION_FAILED", "subject_id": "AC-1"}
+    evidence = {"run_id": "test-only", "attempt": 1, "reasons": [], "baseline_findings": [finding],
+        "mutants": [{"mutant_id": "m", "run_id": "test-only", "attempt": 1, "mutant_digest": mutant,
+            "candidate_digest": candidate, "changed_paths": ["product.py"], "invalid_mutation": False, "error": "",
+            "criterion_results": [{"criterion_id": "AC-1", "status": "FAIL", "findings": [finding]}],
+            "process_records": [{"criterion_id": "AC-1", "phase": "mutant:m", "run_id": "test-only", "attempt": 1,
+                "executed_argv": ["observer"], "exit_code": 0, "stdout_digest": put({"observations": [marker or {"value": "wrong"}]}),
+                "stderr_digest": put(b"") }]}]}
+    if marker is None:
+        validate_process_gate_evidence(binding, evidence, criterion_ids=["AC-1"], baseline_ids={"AC-1"}, read_blob=blobs.__getitem__)
+    else:
+        with pytest.raises(ValueError, match="MUTANT_OBSERVER_CRASH_OR_TIMEOUT"):
+            validate_process_gate_evidence(binding, evidence, criterion_ids=["AC-1"], baseline_ids={"AC-1"}, read_blob=blobs.__getitem__)

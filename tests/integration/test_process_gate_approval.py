@@ -82,9 +82,12 @@ def approved_fixture(
         "source_manifest": inputs.source_manifest,
         "publisher_input": json.dumps(answers).encode(),
     }
+    for identifier, snapshot in inputs.negative_controls.items():
+        packet["mutant/" + identifier] = json.dumps({path: raw_digest(content) for path, content in snapshot.items()}, sort_keys=True, separators=(",", ":")).encode()
     paths = {}
     for key, value in packet.items():
         path = tmp_path / (key + ".json")
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(value)
         paths[key] = path
     freeze = json.dumps(

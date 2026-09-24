@@ -1,0 +1,25 @@
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______ test_task_tracker_repair_targets_product_behind_protected_observer ______
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-55/test_task_tracker_repair_targe0')
+
+    def test_task_tracker_repair_targets_product_behind_protected_observer(tmp_path: Path) -> None:
+        contract, template, mutants, product = task_fixture()
+        for binding in contract["binary_release_gates"][0]["binding"]["mutants"]:
+            binding["snapshot_digest"] = snapshot_digest(mutants[binding["id"]])
+        result = run_to_release_ready(contract=contract, repository_root=tmp_path,
+            workspace=tmp_path / "candidate", run_id="observer-repair",
+            provider=TaskRepairProvider(template.files["product.py"], product), template=template,
+            candidate_sandbox=LocalSandbox(), budget=BudgetCaps(max_attempts=2),
+            process_gate_inputs=ProcessGateInputs(negative_controls=mutants))
+>       assert result.state == "RELEASE_READY", result.cause
+E       AssertionError: REPEAT_FINDING_WITHOUT_RELEVANT_CHANGE:AC-001,AC-002,AC-003,AC-004,AC-005,AC-006,AC-007,AC-008,AC-009,AC-010,AC-011,AC-012,AC-013,AC-014,GATE-002
+E       assert <RunState.HALTED: 'HALTED'> == 'RELEASE_READY'
+E         
+E         - RELEASE_READY
+E         + HALTED
+
+tests/integration/test_process_gate_r4.py:183: AssertionError
+=========================== short test summary info ============================
+FAILED tests/integration/test_process_gate_r4.py::test_task_tracker_repair_targets_product_behind_protected_observer

@@ -12,6 +12,8 @@ from pmpe.barebones import BudgetCaps, ContractInvalidError, Template, run_to_re
 from pmpe.evidence.ledger import EvidenceLedger
 from pmpe.contracts.canonical import canonical_digest
 from pmpe.process_gate_inputs import ProcessGateInputs
+from pmpe.evidence.process_gate_validation import snapshot_digest
+from pmpe.contracts.acceptance import AcceptanceCompileError
 from pmpe.process_sources import implementation_identity
 from tests.integration.test_process_gate_runtime import LocalSandbox, ReplayProvider, bound_contract, make_inputs
 
@@ -67,8 +69,15 @@ def test_task_tracker_negative_controls_reject_observer_crashes(tmp_path: Path, 
                     source = source.replace("args = parser.parse_args()", "args = parser.parse_args()\n    if args.command == 'list' and args.status in ('open', 'completed'):\n        raise RuntimeError('targeted filter crash')")
                 mutant["product.py"] = source.encode()
             else:
-                mutant["product.py"] = {"full_crash": b"raise RuntimeError('arbitrary crash')\n", "missing_prerequisite": b"import absent_r4_prerequisite\n", "invalid_json": b"print('not-json')\n"}[variant]
+                mutant["product.py"] = {"full_crash": b"raise RuntimeError('arbitrary crash')\n", "missing_prerequisite": b"import absent_r4_prerequisite\n", "invalid_json": b"print('not-json')\n"}[variant] + ("# " + name + "\n").encode()
+    for binding in contract["binary_release_gates"][0]["binding"]["mutants"]:
+        binding["snapshot_digest"] = snapshot_digest(mutants[binding["id"]])
     inputs = ProcessGateInputs(negative_controls=mutants)
+    if variant == "same_mutant":
+        with pytest.raises(AcceptanceCompileError, match="RELEASE_GATE_BINDING_INVALID"):
+            run_to_release_ready(contract=contract, repository_root=tmp_path, workspace=tmp_path / "candidate", run_id=variant,
+                provider=TaskReplayProvider(product), template=template, candidate_sandbox=LocalSandbox(), budget=BudgetCaps(max_attempts=1), process_gate_inputs=inputs)
+        return
     result = run_to_release_ready(contract=contract, repository_root=tmp_path, workspace=tmp_path / "candidate", run_id=variant,
         provider=TaskReplayProvider(product), template=template, candidate_sandbox=LocalSandbox(), budget=BudgetCaps(max_attempts=1), process_gate_inputs=inputs)
     gate = gates_for(tmp_path, result.run_id)[0]
@@ -148,3 +157,27 @@ def test_uninventoried_adapter_cache_refuses_before_side_effects(tmp_path: Path)
             provider=provider, candidate_sandbox=LocalSandbox(), process_gate_inputs=inputs)
     assert provider.calls == 0
     assert not (tmp_path / "candidate").exists()
+
+
+class TaskRepairProvider(TaskReplayProvider):
+    def __init__(self, stub: str, product: bytes) -> None:
+        super().__init__(product)
+        self.stub = stub
+
+    def invoke(self, *, purpose: str, request: Any) -> dict[str, Any]:
+        response = super().invoke(purpose=purpose, request=request)
+        if self.calls == 1:
+            response["files"]["product.py"] = self.stub
+        return response
+
+
+def test_task_tracker_repair_targets_product_behind_protected_observer(tmp_path: Path) -> None:
+    contract, template, mutants, product = task_fixture()
+    for binding in contract["binary_release_gates"][0]["binding"]["mutants"]:
+        binding["snapshot_digest"] = snapshot_digest(mutants[binding["id"]])
+    result = run_to_release_ready(contract=contract, repository_root=tmp_path,
+        workspace=tmp_path / "candidate", run_id="observer-repair",
+        provider=TaskRepairProvider(template.files["product.py"], product), template=template,
+        candidate_sandbox=LocalSandbox(), budget=BudgetCaps(max_attempts=2),
+        process_gate_inputs=ProcessGateInputs(negative_controls=mutants))
+    assert result.state == "RELEASE_READY", result.cause

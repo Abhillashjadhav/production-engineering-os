@@ -1,0 +1,89 @@
+F..........F............................................................ [ 53%]
+........................................................F.....           [100%]
+=================================== FAILURES ===================================
+____ test_documentation_covers_the_versioned_contract_and_operator_workflow ____
+
+    def test_documentation_covers_the_versioned_contract_and_operator_workflow() -> None:
+        text = DOC.read_text()
+        required_headings = {
+            "# PMOS contract authoring, validation, and migration",
+            "## Ownership boundary",
+            "## Canonical bundle 1.0.0",
+            "## Canonical manifest 1.0.0",
+            "## Approvals and open questions",
+            "## Validate and interpret diagnostics",
+            "## Migrate V1, V2, and V3 inputs",
+            "## Extensions",
+            "## Security and privacy",
+            "## Observability, release, and rollback",
+        }
+        assert required_headings <= set(text.splitlines())
+        assert "PRODUCT_INPUT_REQUIRED" in text
+        assert "UNSUPPORTED_SOURCE_VERSION" in text
+        assert "SOURCE_SCHEMA_INVALID" in text
+        assert "Direct canonical-bundle intake is not implemented" in text
+        assert "AMBIGUOUS_SOURCE_FORMAT" in text
+        assert "`members` is a required registry; it may be empty" in text
+        assert (
+            "`schema_version` must remain `1.0.0`; `bundle_version` is the "
+            "author-controlled semantic version of this immutable bundle instance." in text
+        )
+        assert (
+            "Every unresolved question blocks semantic admission, regardless of its "
+            "declared `blocking` value." in text
+        )
+    
+        schemas = (
+            _schema("pmos_contract_bundle.schema.json"),
+            _schema("pmos_contract_manifest.schema.json"),
+        )
+        documented_fields = set().union(
+            *(set(schema["properties"]) | _required_field_names(schema) for schema in schemas)
+        )
+        for field in documented_fields:
+>           assert f"`{field}`" in text, f"undocumented canonical field: {field}"
+E           AssertionError: undocumented canonical field: roles
+E           assert '`roles`' in '# PMOS contract authoring, validation, and migration\n\nThis guide describes the PM Agent OS (PMOS) contract accepted...onstrations only. They authorize no real\nproduct, customer, environment, deployment, monitoring claim, or rollback.\n'
+
+tests/unit/test_pmos_contract_documentation.py:103: AssertionError
+__ test_schema_is_canonical_json_and_uses_a_covered_vocabulary[schema_path0] ___
+
+schema_path = PosixPath('/workspace/scratch/f9ac546f3a50/r4-20260924/peos-process/schemas/pmos_contract_bundle.schema.json')
+
+    @pytest.mark.parametrize("schema_path", [BUNDLE_SCHEMA, MANIFEST_SCHEMA])
+    def test_schema_is_canonical_json_and_uses_a_covered_vocabulary(schema_path: Path) -> None:
+        schema = _load_json(schema_path)
+        rendered = json.dumps(schema, indent=2, sort_keys=True) + "\n"
+        assert schema_path.read_text() == rendered
+    
+        unsupported = _schema_keywords(schema) - _VALIDATION_KEYWORDS - _ANNOTATION_KEYWORDS
+>       assert unsupported == set()
+E       AssertionError: assert {'event', 'fu...failure_code'} == set()
+E         
+E         Extra items in the left set:
+E         'not'
+E         'full_isolation_claimed'
+E         'readiness_scope'
+E         'event'
+E         'required_failure_code'
+E         Use -v to get more diff
+
+tests/unit/test_pmos_contract_schema.py:257: AssertionError
+______ test_every_exact_pattern_requires_true_end_of_string[schema_path0] ______
+
+schema_path = PosixPath('/workspace/scratch/f9ac546f3a50/r4-20260924/peos-process/schemas/pmos_contract_bundle.schema.json')
+
+    @pytest.mark.parametrize("schema_path", [BUNDLE_SCHEMA, MANIFEST_SCHEMA])
+    def test_every_exact_pattern_requires_true_end_of_string(schema_path: Path) -> None:
+        schema = _load_json(schema_path)
+        patterns = _schema_patterns(schema)
+        assert patterns
+>       assert all(pattern.endswith(r"(?![\s\S])") for pattern in patterns)
+E       assert False
+E        +  where False = all(<generator object test_every_exact_pattern_requires_true_end_of_string.<locals>.<genexpr> at 0x7f41ea413e00>)
+
+tests/unit/test_pmos_contract_schema.py:1024: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_pmos_contract_documentation.py::test_documentation_covers_the_versioned_contract_and_operator_workflow
+FAILED tests/unit/test_pmos_contract_schema.py::test_schema_is_canonical_json_and_uses_a_covered_vocabulary[schema_path0]
+FAILED tests/unit/test_pmos_contract_schema.py::test_every_exact_pattern_requires_true_end_of_string[schema_path0]
