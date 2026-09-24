@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from pmpe.contracts.canonical import canonical_digest
+from pmpe.contracts.release_gates import CompiledReleaseGate, compile_release_gates
 
 
 class AcceptanceCompileError(ValueError):
@@ -102,9 +103,13 @@ class AcceptanceBuildPlan:
     criteria: tuple[CompiledCriterion, ...]
     trusted_test_digests: tuple[tuple[str, str], ...]
     plan_digest: str
+    release_gates: tuple[CompiledReleaseGate, ...] = ()
 
     def as_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        result = asdict(self)
+        if not self.release_gates:
+            result.pop("release_gates")
+        return result
 
 
 def _mapping(value: Any) -> Mapping[str, Any] | None:
@@ -559,7 +564,6 @@ def compile_acceptance_plan(
 
     requirements = tuple(sorted(str(item) for item in requirements_raw))
     requirement_set = frozenset(requirements)
-    covered: set[str] = set()
     compiled: list[CompiledCriterion] = []
 
     for criterion_id, raw in sorted(criteria_raw.items(), key=lambda item: str(item[0])):
@@ -589,8 +593,6 @@ def compile_acceptance_plan(
                 AcceptanceDiagnostic("UNKNOWN_REQUIREMENT_REF", cid, ", ".join(unknown))
             )
             continue
-        covered.update(refs)
-
         forms = {
             "given_when_then": all(key in item for key in ("given", "when", "then")),
             "measure": all(key in item for key in ("measure", "operator", "value")),
@@ -704,16 +706,11 @@ def compile_acceptance_plan(
                 )
             )
         elif form == "human_test":
-            human_raw = _mapping(item.get("human_test"))
-            human = (
-                None
-                if human_raw is None
-                else _human_test(
-                    human_raw,
-                    criterion_id=cid,
-                    repository_root=repository_root,
-                    diagnostics=diagnostics,
-                )
+            human = _human_test(
+                _mapping(item.get("human_test")) or {},
+                criterion_id=cid,
+                repository_root=repository_root,
+                diagnostics=diagnostics,
             )
             if human is not None:
                 compiled.append(CompiledCriterion(cid, refs, form, human_test=human))
@@ -740,6 +737,7 @@ def compile_acceptance_plan(
                 )
             )
 
+    covered = {ref for criterion in compiled for ref in criterion.requirement_refs}
     for requirement_id in sorted(requirement_set - covered):
         diagnostics.append(
             AcceptanceDiagnostic(
@@ -748,6 +746,13 @@ def compile_acceptance_plan(
                 "requirement has no executable criterion",
             )
         )
+    release_gates = compile_release_gates(
+        contract,
+        criterion_ids=frozenset(item.criterion_id for item in compiled),
+        diagnostic=lambda code, subject, message: diagnostics.append(
+            AcceptanceDiagnostic(code, subject, message)
+        ),
+    )
     if diagnostics:
         raise AcceptanceCompileError(diagnostics)
 
@@ -762,6 +767,8 @@ def compile_acceptance_plan(
         "criteria": [asdict(item) for item in compiled],
         "trusted_test_digests": sorted(trusted_digests.items()),
     }
+    if release_gates:
+        shell["release_gates"] = [asdict(item) for item in release_gates]
     return AcceptanceBuildPlan(
         contract_digest=str(shell["contract_digest"]),
         requirements=requirements,
@@ -769,4 +776,5 @@ def compile_acceptance_plan(
         criteria=tuple(compiled),
         trusted_test_digests=tuple(sorted(trusted_digests.items())),
         plan_digest=canonical_digest(shell),
+        release_gates=release_gates,
     )
