@@ -1,0 +1,21 @@
+{
+  "source_commit": "e719157ac43de6721f572d2c1eb7467c922bb883",
+  "source_tree": "b1d1f1f9b1865da895040ebb41f60630b910a4e5",
+  "recorded_at_utc": "2026-09-24T10:15:00.414206+00:00",
+  "policy_commit": "f18395a3edb53d7c450fc87660e55b1dc1ce073b",
+  "policy_sha256": "417ddd1deaea43983901e8577dc42920a8979a98b7755d8510e74fa755af081a",
+  "scope": "full repository _scan_sast with unchanged trusted allowlist; not the composed external CI profile",
+  "findings": [],
+  "source_sha256": {
+    "src/pmpe/cli/barebones_cmd.py": "461882863d4795a48c9c9fa142e2f2a5c8351ad6ad175dda3da7e165c94d7581",
+    "src/pmpe/contracts/gate_declarations.py": "2a26956d8a46d547b40de9dd0b2ac9e2c4cb73e5e99b8420dc4fa83f427d444b",
+    "src/pmpe/contracts/release_gates.py": "b473904de879ded4c9207dae54be976eaa0dc598a2e3a111e4ac62cfe6c9dcc3",
+    "src/pmpe/evidence/compiled_plan.py": "4b8940ace2e2b18d901fbb1ae667707a186d866708d7ca958e3d83765a98944f",
+    "src/pmpe/evidence/release_gates.py": "50bc2ae4c2785698013c41efdcc43010b9de6cc906f61c09271487dda048393c",
+    "src/pmpe/support_package.py": "554e725c33774f86fd6b8ffd0a3ba7805e986ec818496704eeeac44bdfe91897",
+    "tests/unit/test_release_gate_compiler.py": "cb33bd800df7e28d48dd642623500e760f22de11c14f850cea18a22b50e8c6fc",
+    "tests/unit/test_release_gate_inspection.py": "90949eba53b7d31eb9c31235d8e5b01fac2ca4271708c86dde464215dcf3d31c",
+    "tests/unit/test_support_package_v1.py": "0cc707a3beba2252a0b900719660eac20b7ee13c313a015e414c60dba2547858"
+  },
+  "evidence_probe_sha256": "41e85cde51f14943e5e56c92b062e9718678efbc486686dcef424bc436b2ec3b"
+}

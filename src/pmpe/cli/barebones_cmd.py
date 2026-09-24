@@ -30,6 +30,7 @@ from pmpe.evals.barebones_drift import (
     observe_provider_behavior,
 )
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
+from pmpe.evidence.release_gates import validate_release_gate_evidence
 
 _PROVIDER_OUTPUT_LIMIT_BYTES = 1_000_000
 _SHA256 = re.compile(r"sha256:[0-9a-f]{64}\Z")
@@ -310,7 +311,7 @@ def _run(args: argparse.Namespace) -> int:
 
 
 def _open_verified_events(
-    repository_root: Path, run_id: str
+    repository_root: Path, run_id: str, *, expected_head_digest: str | None = None
 ) -> tuple[EvidenceLedger, tuple[Mapping[str, Any], ...]]:
     try:
         ledger = EvidenceLedger.open_existing(repository_root.resolve(), run_id)
@@ -319,13 +320,18 @@ def _open_verified_events(
     events = tuple(ledger.verify())
     if not events:
         raise EvidenceIntegrityError("evidence ledger is empty")
+    validate_release_gate_evidence(ledger, events, expected_head_digest=expected_head_digest)
     return ledger, events
 
 
 def _verified_events(
     args: argparse.Namespace,
 ) -> tuple[EvidenceLedger, tuple[Mapping[str, Any], ...]]:
-    return _open_verified_events(Path(args.repository_root), args.run_id)
+    return _open_verified_events(
+        Path(args.repository_root),
+        args.run_id,
+        expected_head_digest=getattr(args, "expected_head_digest", None),
+    )
 
 
 def _evidence_invalid(exc: EvidenceIntegrityError) -> int:
@@ -889,6 +895,7 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
         inspection = commands.add_parser(name, help=help_text)
         inspection.add_argument("run_id")
         inspection.add_argument("--repository-root", default=".")
+        inspection.add_argument("--expected-head-digest")
         inspection.set_defaults(fn=function)
 
     inspect_parser = commands.add_parser(
@@ -896,6 +903,7 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     )
     inspect_parser.add_argument("run_id")
     inspect_parser.add_argument("--repository-root", default=".")
+    inspect_parser.add_argument("--expected-head-digest")
     inspect_parser.add_argument("--workspace")
     inspect_parser.add_argument("--file")
     inspect_parser.set_defaults(fn=_inspect)

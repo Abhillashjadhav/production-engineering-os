@@ -1,0 +1,4 @@
+PASS: real TEST-ONLY current run; intact gate evidence inspects successfully.
+PASS: M3 gate-blob substitution with valid chain is rejected without an external anchor.
+PASS: separately supplied original head rejects the rewritten chain.
+LIMIT: no live model, OS-isolation, owner-approval or unanchored M4 authenticity claim.

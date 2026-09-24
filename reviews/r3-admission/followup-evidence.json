@@ -1,0 +1,54 @@
+{
+  "source_commit": "e719157ac43de6721f572d2c1eb7467c922bb883",
+  "source_tree": "b1d1f1f9b1865da895040ebb41f60630b910a4e5",
+  "recorded_at_utc": "2026-09-24T10:15:00.414206+00:00",
+  "broad_stage_tests": {
+    "passed": 209,
+    "before_final_drive_path_cases": true
+  },
+  "final_focused_inspection_tests": {
+    "passed": 44,
+    "overlaps_broad_stage": true
+  },
+  "final_single_211_case_run_claimed": false,
+  "independent_review": {
+    "source_commit": "e719157ac43de6721f572d2c1eb7467c922bb883",
+    "compiler_inspection_passed": 88,
+    "original_findings_closed": true
+  },
+  "mypy_source_files": 192,
+  "full_local_protected_policy_sast_findings": 0,
+  "external_composed_ci_claimed": false,
+  "unanchored_m4_authentication_claimed": false,
+  "proof_byte_compatibility": "Pinned prior verifiers remain applicable to prior bundles; current-source verification requires reassembly, without mutating frozen bundles.",
+  "logs": {
+    "final-bounded-green.txt": {
+      "sha256": "4d4bf9283594e2e61a345c1e9bf46e35b3e58f810e46a7ab7899780fe67b565c",
+      "filesystem_modified_at_utc": "2026-09-24T10:10:42.947875+00:00"
+    },
+    "inspection-final-green.txt": {
+      "sha256": "70bd93f29a65727e5cc0991aac37bb59b433f6d667824853361ad51e262a38ec",
+      "filesystem_modified_at_utc": "2026-09-24T10:10:53.240119+00:00"
+    },
+    "followup-mypy.txt": {
+      "sha256": "94882b1e63fe8106bb88760dee36f04ff9da4c04c4a227407a77f38bb94eada1",
+      "filesystem_modified_at_utc": "2026-09-24T10:13:49.660331+00:00"
+    },
+    "followup-ruff.txt": {
+      "sha256": "dbbc151b04b61d60452d8e21226a32e1c497fc1ec16d7f6e70245ef7ea4a6993",
+      "filesystem_modified_at_utc": "2026-09-24T10:14:21.737094+00:00"
+    },
+    "independent-probe-after.txt": {
+      "sha256": "0a1c2e338e227ce295e8b808e5b0eff8c8ba81a0c0e12cd6d5c2c92022e85a0a",
+      "filesystem_modified_at_utc": "2026-09-24T10:08:02.952186+00:00"
+    },
+    "probe-followup-results.txt": {
+      "sha256": "f4271936c1956566a41671a434de1f03bd271f27a76aae06d3d76b22f33e116e",
+      "filesystem_modified_at_utc": "2026-09-24T10:14:22.361109+00:00"
+    },
+    "security-after.json": {
+      "sha256": "16b63e13e5bc7af23649d0d573f487e81b71e9cd59b219f752ca3e7b79457284",
+      "filesystem_modified_at_utc": "2026-09-24T10:15:00.716995+00:00"
+    }
+  }
+}

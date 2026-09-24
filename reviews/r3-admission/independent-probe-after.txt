@@ -1,0 +1,3 @@
+{"probe": "control", "inspect_exit": 0, "release_eligible": true, "cause": null, "original_head_exit": 0, "original_head_detail": null}
+{"probe": "compiled_id_without_executable_form", "inspect_exit": 3, "release_eligible": null, "cause": "EVIDENCE_INVALID", "original_head_exit": 3, "original_head_detail": "release evidence does not match trusted expected head"}
+{"probe": "verification_failed_after_gate_pass", "inspect_exit": 3, "release_eligible": null, "cause": "EVIDENCE_INVALID", "original_head_exit": 3, "original_head_detail": "release evidence does not match trusted expected head"}

@@ -6,11 +6,19 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
+from pmpe.contracts.gate_declarations import validate_gate_declaration_placement
+
 
 @dataclass(frozen=True)
 class CompiledReleaseGate:
     gate_id: str
     acceptance_criterion_refs: tuple[str, ...]
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "gate_id": self.gate_id,
+            "acceptance_criterion_refs": list(self.acceptance_criterion_refs),
+        }
 
 
 def compile_release_gates(
@@ -21,6 +29,7 @@ def compile_release_gates(
 ) -> tuple[CompiledReleaseGate, ...]:
     """Resolve declared conjunctions against executable criteria, failing closed."""
 
+    validate_gate_declaration_placement(contract, diagnostic)
     quality = contract.get("quality_assurance", {})
     if not isinstance(quality, Mapping):
         diagnostic("RELEASE_GATE_COLLECTION_INVALID", "quality_assurance", "must be an object")
@@ -45,6 +54,9 @@ def compile_release_gates(
         entries = [(item.get("id") if isinstance(item, Mapping) else None, item) for item in raw]
     else:
         diagnostic("RELEASE_GATE_COLLECTION_INVALID", source, "requires ID-keyed gate objects")
+        return ()
+    if not entries:
+        diagnostic("RELEASE_GATE_COLLECTION_EMPTY", source, "a declared gate collection is empty")
         return ()
 
     seen: set[str] = set()

@@ -1,0 +1,18 @@
+{
+  "candidate_commit": "4ea81251093dc6fc6e19562b7d84dea1e8f2a222",
+  "policy_commit": "f18395a3edb53d7c450fc87660e55b1dc1ce073b",
+  "scope": "full repository _scan_sast with unchanged trusted allowlist",
+  "findings": [
+    {
+      "finding_id": "SAST-0001",
+      "category": "SAST",
+      "severity": "CRITICAL",
+      "rule_id": "SEC_EXEC",
+      "path": "src/pmpe/support_package.py",
+      "line": 934,
+      "message": "exec() on dynamic input enables code injection",
+      "subject_sha": "4ea81251093dc6fc6e19562b7d84dea1e8f2a222",
+      "evidence_digest": "sha256:66f7034341fc8f4b3b84f52cd10f8b5c3d2f3ce9a01cf2db1e45e6c37d6585eb"
+    }
+  ]
+}

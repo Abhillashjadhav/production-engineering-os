@@ -22,6 +22,7 @@ from jsonschema import Draft7Validator
 
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes, strict_loads
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
+from pmpe.evidence.release_gates import validate_release_gate_evidence
 from pmpe.quality.security_scan import contains_hardcoded_secret
 from pmpe.repository.redaction import contains_known_credential, is_sensitive_credential_field
 from pmpe.security_patterns import contains_prohibited_secret
@@ -557,6 +558,10 @@ def _load_release_candidate(
         raise PackageContractError("RELEASE_READY evidence is invalid") from exc
     if not events:
         raise PackageContractError("RELEASE_READY evidence is empty")
+    try:
+        validate_release_gate_evidence(ledger, events, expected_head_digest=expected_head_digest)
+    except EvidenceIntegrityError as exc:
+        raise PackageContractError("release gate evidence is invalid: " + str(exc)) from exc
     validation_events = [
         event for event in events if event.get("event_type") == "contract_validated"
     ]
@@ -882,8 +887,9 @@ if __name__ == "__main__":
 _FORBIDDEN_TESTS = """from __future__ import annotations
 
 import unittest
-import types
 from pathlib import Path
+
+import app
 
 
 class ForbiddenCapabilityTests(unittest.TestCase):
@@ -894,7 +900,6 @@ class ForbiddenCapabilityTests(unittest.TestCase):
         source = self.source()
         self.assertNotIn("payment_provider", source)
         self.assertNotIn("execute_refund", source)
-        app = self.load_app()
         status, result = app.decide(
             {
                 "ticket_id": "FORBIDDEN-1",
@@ -911,7 +916,6 @@ class ForbiddenCapabilityTests(unittest.TestCase):
         source = self.source()
         self.assertNotIn("OPENAI_API_KEY", source)
         self.assertNotIn("DATABASE_URL", source)
-        app = self.load_app()
         status, result = app.decide(
             {"ticket_id": "FORBIDDEN-2", "text": "My password is secret", "facts": ["request"]}
         )
@@ -919,16 +923,6 @@ class ForbiddenCapabilityTests(unittest.TestCase):
         self.assertEqual(result["status"], "NEEDS_HUMAN_DECISION")
         self.assertIn("forbidden_capability_attempt", result["reasons"])
         self.assertNotIn("credentials", result)
-
-    def load_app(self):
-        path = Path(__file__).parents[1] / "app.py"
-        module = types.SimpleNamespace()
-        namespace = vars(module)
-        namespace["__file__"] = str(path)
-        namespace["__name__"] = "reference_support_app"
-        exec(compile(path.read_text(), str(path), "exec"), namespace)
-        return module
-
 
 if __name__ == "__main__":
     unittest.main()
@@ -969,6 +963,8 @@ This package runs with in-memory storage, recorded model responses, and a fixtur
 It requires no paid account and makes no live-model, vendor-connector, hosting, or production claim.
 
 Run: `python app.py --port 8080`
+
+Verify from the package root: `python -m unittest discover -s tests -v`
 
 Endpoints: `GET /health`, `GET /ready`, `GET /version`, and `POST /tickets`.
 """
