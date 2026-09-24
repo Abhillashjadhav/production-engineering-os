@@ -366,6 +366,13 @@ def _approval_summary(events: tuple[Mapping[str, Any], ...]) -> dict[str, str]:
     return {"status": "NOT_RECORDED"}
 
 
+def _head_anchor(args: argparse.Namespace) -> dict[str, str]:
+    expected = getattr(args, "expected_head_digest", None)
+    if expected is None:
+        return {"status": "NOT_PROVIDED"}
+    return {"status": "VERIFIED", "expected_head_digest": expected}
+
+
 def _status(args: argparse.Namespace) -> int:
     try:
         _, events = _verified_events(args)
@@ -387,6 +394,7 @@ def _status(args: argparse.Namespace) -> int:
             "cause": cause,
             "events": len(events),
             "head_event_digest": terminal.get("event_digest"),
+            "head_anchor": _head_anchor(args),
             "telemetry": dict(telemetry) if isinstance(telemetry, Mapping) else {},
             "approval": approval,
         }
@@ -413,6 +421,7 @@ def _evidence(args: argparse.Namespace) -> int:
             "events": len(events),
             "referenced_blobs": len(referenced),
             "head_event_digest": events[-1].get("event_digest"),
+            "head_anchor": _head_anchor(args),
             "events_path": str(ledger.events_path),
             "blobs_directory": str(ledger.blobs_directory),
             "approval": approval,
@@ -822,6 +831,7 @@ def _inspect(args: argparse.Namespace) -> int:
             "candidate_digest": candidate_digest,
             "files": manifest,
             "approval": approval,
+            "head_anchor": _head_anchor(args),
         }
         if args.file is not None:
             digest = manifest.get(args.file)
