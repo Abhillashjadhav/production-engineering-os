@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ import pytest
 
 from pmpe.barebones import compile_barebones_plan
 from pmpe.cli import main
+from pmpe.contracts.acceptance import compile_acceptance_plan
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from pmpe.evidence.ledger import EvidenceLedger
 from pmpe.support_package import (
@@ -19,14 +21,50 @@ from pmpe.support_package import (
 )
 
 
-def _packet(root: Path, mutation: str = "", *, gated: bool = True) -> tuple[str, dict[str, Any]]:
+def _packet(
+    root: Path, mutation: str = "", *, gated: bool = True, form: str = "default"
+) -> tuple[str, dict[str, Any]]:
     contract = json.loads(Path("examples/barebones/e1-contract.json").read_text())
     if gated:
         contract["binary_release_gates"] = {
             "GATE-001": {"description": "TEST ONLY", "acceptance_criterion_refs": ["AC-001"]}
         }
+    extra_files: dict[str, str] = {}
+    trusted: dict[str, str] = {}
+    proof_digests: dict[str, str] = {}
+    if form == "custom-action":
+        contract["acceptance_criteria"]["AC-001"]["when"]["action"] = "custom_health"
+    elif form == "measure":
+        contract["acceptance_criteria"]["AC-001"] = {
+            "requirement_refs": ["FR-001"], "measure": "custom_latency", "operator": "lte",
+            "value": 200, "sample": {"minimum": 2},
+        }
+    elif form in {"human-test", "template-proof"}:
+        path = "tests/test_health.py"
+        source = "def test_health():\n    assert True\n"
+        extra_files[path] = source
+        (root / "tests").mkdir()
+        (root / path).write_text(source)
+        criterion = {"requirement_refs": ["FR-001"]}
+        if form == "human-test":
+            criterion["human_test"] = {
+                "path": path, "node_id": "test_health", "command": ["pytest", path + "::test_health"]
+            }
+        else:
+            digest = "sha256:" + hashlib.sha256(source.encode()).hexdigest()
+            trusted[path] = digest
+            proof_digests["health-proof"] = digest
+            criterion["satisfied_by_template"] = {"template_version": "fixture-1", "test_id": "health-proof"}
+        contract["acceptance_criteria"]["AC-001"] = criterion
     subject = canonical_digest(contract)
-    plan = compile_barebones_plan(contract=contract, repository_root=root).as_dict()
+    plan = (
+        compile_barebones_plan(contract=contract, repository_root=root).as_dict()
+        if form == "default" else compile_acceptance_plan(
+            contract, repository_root=root, registered_actions=frozenset({"custom_health"}),
+            registered_measures=frozenset({"custom_latency"}), template_version="fixture-1",
+            template_test_digests=proof_digests, trusted_test_digests=trusted,
+        ).as_dict()
+    )
     if mutation == "plan-stripped":
         plan.pop("release_gates")
     if mutation == "plan-criteria-missing":
@@ -70,11 +108,11 @@ def _packet(root: Path, mutation: str = "", *, gated: bool = True) -> tuple[str,
     )
     app = ledger.put_blob(b"def health():\n    return {'status':'ok'}\n")
     binding = ledger.put_blob((subject + "\n").encode())
-    candidate = ledger.put_blob(
-        canonical_json_bytes({"app.py": app, "package-contract-digest.txt": binding})
-    )
+    manifest = {"app.py": app, "package-contract-digest.txt": binding,
+                **{path: ledger.put_blob(source.encode()) for path, source in extra_files.items()}}
+    candidate = ledger.put_blob(canonical_json_bytes(manifest))
     payload: dict[str, Any] = {"candidate_digest": candidate}
-    terminal_blobs = [candidate, app, binding]
+    terminal_blobs = [candidate, *manifest.values()]
     if gated:
         evidence = {
             "attempt": 1,
@@ -103,7 +141,7 @@ def _packet(root: Path, mutation: str = "", *, gated: bool = True) -> tuple[str,
             event_type="release_gates_evaluated",
             state="VERIFYING",
             subject_digest=subject,
-            blob_digests=(gate_blob, candidate, app, binding),
+            blob_digests=(gate_blob, candidate, *manifest.values()),
             payload=evidence,
         )
         if mutation == "blob-only":
@@ -134,6 +172,17 @@ def test_consistent_release_packets_remain_inspectable(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], gated: bool
 ) -> None:
     _packet(tmp_path, gated=gated)
+    assert main(["barebones", "inspect", "inspection", "--repository-root", str(tmp_path)]) == 0
+    assert json.loads(capsys.readouterr().out)["release_eligible"] is True
+
+
+@pytest.mark.parametrize("form", ["custom-action", "measure", "human-test", "template-proof"])
+def test_semantic_validation_preserves_retained_custom_forms_without_original_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], form: str
+) -> None:
+    _packet(tmp_path, form=form)
+    if form in {"human-test", "template-proof"}:
+        (tmp_path / "tests/test_health.py").unlink()
     assert main(["barebones", "inspect", "inspection", "--repository-root", str(tmp_path)]) == 0
     assert json.loads(capsys.readouterr().out)["release_eligible"] is True
 
