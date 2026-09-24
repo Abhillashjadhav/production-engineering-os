@@ -1,0 +1,205 @@
+.........................FF.......FF..................F........F..       [100%]
+=================================== FAILURES ===================================
+_ test_misplaced_gate_does_not_disappear_beside_valid_gate[False-None-binary_release_gates_v2] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-12/test_misplaced_gate_does_not_d3')
+container = None, key = 'binary_release_gates_v2', with_valid_gate = False
+
+    @pytest.mark.parametrize(
+        ("container", "key"),
+        [
+            (None, "release_gates"),
+            (None, "binary_release_gate"),
+            (None, "binary_release_gatez"),
+            (None, "binary_release_gates_v2"),
+            (None, "release_gates_extra"),
+            (None, "gates"),
+            ("quality_assurance", "binary_release_gates"),
+            ("quality_assurance", "release_gate"),
+            ("release", "gates"),
+        ],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_misplaced_gate_does_not_disappear_beside_valid_gate(
+        tmp_path: Path, container: str | None, key: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        if with_valid_gate:
+            contract["binary_release_gates"] = {"GATE-001": _gate()}
+        target = contract if container is None else contract.setdefault(container, {})
+        target[key] = {"GATE-002": _gate()}
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_compiler.py:134: Failed
+_ test_misplaced_gate_does_not_disappear_beside_valid_gate[False-None-release_gates_extra] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-12/test_misplaced_gate_does_not_d4')
+container = None, key = 'release_gates_extra', with_valid_gate = False
+
+    @pytest.mark.parametrize(
+        ("container", "key"),
+        [
+            (None, "release_gates"),
+            (None, "binary_release_gate"),
+            (None, "binary_release_gatez"),
+            (None, "binary_release_gates_v2"),
+            (None, "release_gates_extra"),
+            (None, "gates"),
+            ("quality_assurance", "binary_release_gates"),
+            ("quality_assurance", "release_gate"),
+            ("release", "gates"),
+        ],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_misplaced_gate_does_not_disappear_beside_valid_gate(
+        tmp_path: Path, container: str | None, key: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        if with_valid_gate:
+            contract["binary_release_gates"] = {"GATE-001": _gate()}
+        target = contract if container is None else contract.setdefault(container, {})
+        target[key] = {"GATE-002": _gate()}
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_compiler.py:134: Failed
+_ test_misplaced_gate_does_not_disappear_beside_valid_gate[True-None-binary_release_gates_v2] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-12/test_misplaced_gate_does_not_d12')
+container = None, key = 'binary_release_gates_v2', with_valid_gate = True
+
+    @pytest.mark.parametrize(
+        ("container", "key"),
+        [
+            (None, "release_gates"),
+            (None, "binary_release_gate"),
+            (None, "binary_release_gatez"),
+            (None, "binary_release_gates_v2"),
+            (None, "release_gates_extra"),
+            (None, "gates"),
+            ("quality_assurance", "binary_release_gates"),
+            ("quality_assurance", "release_gate"),
+            ("release", "gates"),
+        ],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_misplaced_gate_does_not_disappear_beside_valid_gate(
+        tmp_path: Path, container: str | None, key: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        if with_valid_gate:
+            contract["binary_release_gates"] = {"GATE-001": _gate()}
+        target = contract if container is None else contract.setdefault(container, {})
+        target[key] = {"GATE-002": _gate()}
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_compiler.py:134: Failed
+_ test_misplaced_gate_does_not_disappear_beside_valid_gate[True-None-release_gates_extra] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-12/test_misplaced_gate_does_not_d13')
+container = None, key = 'release_gates_extra', with_valid_gate = True
+
+    @pytest.mark.parametrize(
+        ("container", "key"),
+        [
+            (None, "release_gates"),
+            (None, "binary_release_gate"),
+            (None, "binary_release_gatez"),
+            (None, "binary_release_gates_v2"),
+            (None, "release_gates_extra"),
+            (None, "gates"),
+            ("quality_assurance", "binary_release_gates"),
+            ("quality_assurance", "release_gate"),
+            ("release", "gates"),
+        ],
+    )
+    @pytest.mark.parametrize("with_valid_gate", [False, True])
+    def test_misplaced_gate_does_not_disappear_beside_valid_gate(
+        tmp_path: Path, container: str | None, key: str, with_valid_gate: bool
+    ) -> None:
+        contract = _contract()
+        if with_valid_gate:
+            contract["binary_release_gates"] = {"GATE-001": _gate()}
+        target = contract if container is None else contract.setdefault(container, {})
+        target[key] = {"GATE-002": _gate()}
+>       with pytest.raises(AcceptanceCompileError) as failure:
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE AcceptanceCompileError
+
+tests/unit/test_release_gate_compiler.py:134: Failed
+_ test_self_consistent_chain_does_not_hide_gate_binding_mismatch[status-plan-criteria-missing] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-12/test_self_consistent_chain_doe8')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd0776d80b0>
+mutation = 'plan-criteria-missing', command = 'status'
+
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "candidate_digest",
+            "contract_digest",
+            "plan_digest",
+            "blob-only",
+            "missing-pointer",
+            "gate-omitted",
+            "failed-criterion",
+            "plan-stripped",
+            "plan-criteria-missing",
+        ],
+    )
+    @pytest.mark.parametrize("command", ["status", "inspect"])
+    def test_self_consistent_chain_does_not_hide_gate_binding_mismatch(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'status', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-12/test_self_consistent_chain_doe8'])
+
+tests/unit/test_release_gate_inspection.py:147: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6766851d16ac70da3b9274c2754886c12a4e227816ae24d99dd2431e83168ceb", "status": "VERIFIED"}, "cause": "PASS", "events": 3, "head_event_digest": "sha256:7bb576d52eed651e67e3fca2b511b255654896c9f783dae38d21935aaa7c3442", "run_id": "inspection", "state": "RELEASE_READY", "telemetry": {}}
+_ test_self_consistent_chain_does_not_hide_gate_binding_mismatch[inspect-plan-criteria-missing] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-12/test_self_consistent_chain_doe17')
+capsys = <_pytest.capture.CaptureFixture object at 0x7fd0773e0c50>
+mutation = 'plan-criteria-missing', command = 'inspect'
+
+    @pytest.mark.parametrize(
+        "mutation",
+        [
+            "candidate_digest",
+            "contract_digest",
+            "plan_digest",
+            "blob-only",
+            "missing-pointer",
+            "gate-omitted",
+            "failed-criterion",
+            "plan-stripped",
+            "plan-criteria-missing",
+        ],
+    )
+    @pytest.mark.parametrize("command", ["status", "inspect"])
+    def test_self_consistent_chain_does_not_hide_gate_binding_mismatch(
+        tmp_path: Path, capsys: pytest.CaptureFixture[str], mutation: str, command: str
+    ) -> None:
+        _packet(tmp_path, mutation)
+>       assert main(["barebones", command, "inspection", "--repository-root", str(tmp_path)]) == 3
+E       AssertionError: assert 0 == 3
+E        +  where 0 = main(['barebones', 'inspect', 'inspection', '--repository-root', '/tmp/pytest-of-root/pytest-12/test_self_consistent_chain_doe17'])
+
+tests/unit/test_release_gate_inspection.py:147: AssertionError
+----------------------------- Captured stdout call -----------------------------
+{"approval": {"authority": "fixture-human", "receipt_digest": "sha256:6766851d16ac70da3b9274c2754886c12a4e227816ae24d99dd2431e83168ceb", "status": "VERIFIED"}, "candidate_digest": "sha256:05f3f31a12435f4d89b727f1814b9f775fb79e554e12398cd9024fe20e8d272b", "files": {"app.py": "sha256:d905d39e0ae7327294b9f3fee98d9af5abac09ef9100213b1c16c94890f3ff11", "package-contract-digest.txt": "sha256:4f42ebd22ce4eb2195de95716143e77e30f86042351fcf4cb6daa6d4bcb61564"}, "release_eligible": true, "run_id": "inspection", "state": "RELEASE_READY"}
+=========================== short test summary info ============================
+FAILED tests/unit/test_release_gate_compiler.py::test_misplaced_gate_does_not_disappear_beside_valid_gate[False-None-binary_release_gates_v2]
+FAILED tests/unit/test_release_gate_compiler.py::test_misplaced_gate_does_not_disappear_beside_valid_gate[False-None-release_gates_extra]
+FAILED tests/unit/test_release_gate_compiler.py::test_misplaced_gate_does_not_disappear_beside_valid_gate[True-None-binary_release_gates_v2]
+FAILED tests/unit/test_release_gate_compiler.py::test_misplaced_gate_does_not_disappear_beside_valid_gate[True-None-release_gates_extra]
+FAILED tests/unit/test_release_gate_inspection.py::test_self_consistent_chain_does_not_hide_gate_binding_mismatch[status-plan-criteria-missing]
+FAILED tests/unit/test_release_gate_inspection.py::test_self_consistent_chain_does_not_hide_gate_binding_mismatch[inspect-plan-criteria-missing]

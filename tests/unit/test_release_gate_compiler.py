@@ -114,6 +114,8 @@ def test_contract_without_release_gates_still_compiles(tmp_path: Path) -> None:
         (None, "release_gates"),
         (None, "binary_release_gate"),
         (None, "binary_release_gatez"),
+        (None, "binary_release_gates_v2"),
+        (None, "release_gates_extra"),
         (None, "gates"),
         ("quality_assurance", "binary_release_gates"),
         ("quality_assurance", "release_gate"),
