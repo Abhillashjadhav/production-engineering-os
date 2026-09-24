@@ -31,7 +31,14 @@ def _packet(root: Path, mutation: str = "", *, gated: bool = True) -> tuple[str,
         plan.pop("release_gates")
     if mutation == "plan-criteria-missing":
         plan["criteria"] = []
-    if mutation in {"plan-stripped", "plan-criteria-missing"}:
+    if mutation == "plan-criterion-malformed":
+        plan["criteria"] = [{"criterion_id": "AC-001"}]
+    if mutation == "plan-assertion-changed":
+        plan["criteria"][0]["then"][0]["value"] = "broken"
+    if mutation in {
+        "plan-stripped", "plan-criteria-missing", "plan-criterion-malformed",
+        "plan-assertion-changed",
+    }:
         plan["plan_digest"] = canonical_digest(
             {key: value for key, value in plan.items() if key != "plan_digest"}
         )
@@ -105,6 +112,12 @@ def _packet(root: Path, mutation: str = "", *, gated: bool = True) -> tuple[str,
         terminal_blobs.append(gate_blob)
         if mutation != "missing-pointer":
             payload["release_gate_evidence_digest"] = gate_blob
+        if mutation == "later-verification-failure":
+            ledger.append(
+                event_type="verification_failed", state="BUILDING", subject_digest=subject,
+                payload={"attempt": 1, "findings": [{"code": "ASSERTION_FAILED",
+                         "subject_id": "AC-001", "detail": "seeded later failure", "files": []}]},
+            )
     terminal = ledger.append(
         event_type="release_ready",
         state="RELEASE_READY",
@@ -137,6 +150,9 @@ def test_consistent_release_packets_remain_inspectable(
         "failed-criterion",
         "plan-stripped",
         "plan-criteria-missing",
+        "plan-criterion-malformed",
+        "plan-assertion-changed",
+        "later-verification-failure",
     ],
 )
 @pytest.mark.parametrize("command", ["status", "inspect"])

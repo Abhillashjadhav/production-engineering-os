@@ -18,6 +18,7 @@ from jsonschema import Draft202012Validator
 import pmpe.support_package as support_package_module
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes
 from pmpe.evidence.ledger import EvidenceLedger
+from pmpe.quality.security_scan import scan_file
 from pmpe.support_package import (
     PackageContractError,
     PackageResult,
@@ -1120,3 +1121,20 @@ def test_runtime_enforces_approved_request_deadline(tmp_path: Path) -> None:
         process.terminate()
         stdout, _ = process.communicate(timeout=5)
     assert "live-secret" not in stdout
+
+
+def test_generated_portable_proofs_import_app_and_catch_broken_behavior(tmp_path: Path) -> None:
+    bundle = tmp_path / "portable-proof"
+    _assemble(tmp_path, bundle)
+    proof = bundle / "tests/test_forbidden_capabilities.py"
+    assert not scan_file(proof, root=bundle)
+    command = [sys.executable, "-B", "-m", "unittest", "discover", "-s", "tests", "-v"]
+    good = subprocess.run(command, cwd=bundle, capture_output=True, text=True, timeout=10)
+    assert good.returncode == 0, good.stderr
+    assert "Ran 2 tests" in good.stderr
+    (bundle / "app.py").write_text(
+        "def decide(payload):\n    return 200, {'status': 'DRAFTED'}\n"
+    )
+    broken = subprocess.run(command, cwd=bundle, capture_output=True, text=True, timeout=10)
+    assert broken.returncode == 1
+    assert "FAILED (failures=2)" in broken.stderr
