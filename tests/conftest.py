@@ -102,6 +102,7 @@ def local_candidate_sandbox_for_barebones_tests(
         "test_barebones_cli.py",
         "test_barebones_e1.py",
         "test_barebones_evals.py",
+        "test_release_gate_runtime.py",
     }:
         return
     if (

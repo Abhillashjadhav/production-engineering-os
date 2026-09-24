@@ -32,6 +32,7 @@ from pmpe.domain.errors import ContractViolation
 from pmpe.evals.barebones_drift import observe_provider_behavior
 from pmpe.evidence.ledger import EvidenceLedger
 from pmpe.model_provider import ModelProvider
+from pmpe.release_gates import release_gate_results
 
 
 class RunState(StrEnum):
@@ -806,11 +807,14 @@ def _verify_snapshot(
     snapshot: Mapping[str, bytes],
     template: Template,
     sandbox: CandidateSandbox,
+    *,
+    criterion_results: dict[str, tuple[Finding, ...]] | None = None,
 ) -> tuple[Finding, ...]:
     """Verify each criterion against a fresh disposable copy of the exact snapshot."""
 
     findings: list[Finding] = []
     for criterion in plan.criteria:
+        first_finding = len(findings)
         with tempfile.TemporaryDirectory(prefix="pmpe-verification-") as temporary:
             isolated = Path(temporary)
             _materialize_snapshot(isolated, snapshot)
@@ -825,6 +829,10 @@ def _verify_snapshot(
                 )
             except ContractInvalidError as exc:
                 if criterion.human_test is None:
+                    if criterion_results is not None:
+                        criterion_results[criterion.criterion_id] = (
+                            Finding("CANDIDATE_EXECUTION_FAILED", criterion.criterion_id, str(exc)),
+                        )
                     raise
                 findings.append(
                     Finding(
@@ -857,6 +865,8 @@ def _verify_snapshot(
                         changed,
                     )
                 )
+            if criterion_results is not None:
+                criterion_results[criterion.criterion_id] = tuple(findings[first_finding:])
     return tuple(findings)
 
 
@@ -1086,6 +1096,33 @@ def run_to_release_ready(
             telemetry=dict(counters),
         )
 
+    def record_release_gates(
+        snapshot: Mapping[str, bytes],
+        criterion_results: Mapping[str, tuple[Finding, ...]],
+        attempt: int,
+        state: RunState,
+    ) -> tuple[str, list[dict[str, Any]]]:
+        if not plan.release_gates:
+            return "", []
+        gates = release_gate_results(plan.release_gates, criterion_results)
+        candidate_blob, candidate_file_blobs = _candidate_manifest(snapshot, ledger)
+        evidence = {
+            "attempt": attempt,
+            "contract_digest": subject_digest,
+            "plan_digest": plan.plan_digest,
+            "candidate_digest": candidate_blob,
+            "gates": gates,
+        }
+        blob = ledger.put_blob(json.dumps(evidence, sort_keys=True, separators=(",", ":")).encode())
+        ledger.append(
+            event_type="release_gates_evaluated",
+            state=state,
+            subject_digest=subject_digest,
+            blob_digests=(blob, candidate_blob, *candidate_file_blobs),
+            payload=evidence,
+        )
+        return blob, gates
+
     plan_blob = ledger.put_blob(
         json.dumps(plan.as_dict(), sort_keys=True, separators=(",", ":")).encode()
     )
@@ -1302,6 +1339,7 @@ def run_to_release_ready(
         )
         if blocking_security:
             findings = blocking_security
+            record_release_gates(verification_snapshot, {}, attempt, RunState.BUILDING)
             finding_blob = ledger.put_blob(
                 json.dumps(
                     [asdict(item) for item in findings],
@@ -1323,12 +1361,14 @@ def run_to_release_ready(
                 subject_digest=subject_digest,
                 payload={"attempt": attempt, "changed": list(changed)},
             )
+            criterion_results: dict[str, tuple[Finding, ...]] = {}
             try:
                 findings = _verify_snapshot(
                     plan,
                     verification_snapshot,
                     active_template,
                     active_sandbox,
+                    criterion_results=criterion_results,
                 )
             except ContractInvalidError as exc:
                 implicated_files = tuple(
@@ -1350,6 +1390,20 @@ def run_to_release_ready(
                         implicated_files,
                     ),
                 )
+            gate_evidence_digest, gates = record_release_gates(
+                verification_snapshot, criterion_results, attempt, RunState.VERIFYING
+            )
+            findings += tuple(
+                Finding(
+                    "RELEASE_GATE_FAILED"
+                    if gate["status"] == "FAIL"
+                    else "RELEASE_GATE_NOT_EVALUATED",
+                    gate["gate_id"],
+                    "every bound acceptance criterion must have explicit PASS evidence",
+                )
+                for gate in gates
+                if gate["status"] != "PASS"
+            )
             if not findings:
                 evidence = {
                     "assertions": "passed",
@@ -1386,6 +1440,8 @@ def run_to_release_ready(
                     "candidate_digest": candidate_blob,
                     "telemetry": _terminal_telemetry(),
                 }
+                if gate_evidence_digest:
+                    release_payload["release_gate_evidence_digest"] = gate_evidence_digest
                 advisory_behavior = _provider_behavior_payload("advisory_review", annotation)
                 if advisory_behavior is not None:
                     release_payload["provider_behavior"] = advisory_behavior
@@ -1393,7 +1449,12 @@ def run_to_release_ready(
                     event_type="release_ready",
                     state=RunState.RELEASE_READY,
                     subject_digest=subject_digest,
-                    blob_digests=(blob, candidate_blob, *candidate_file_blobs),
+                    blob_digests=(
+                        blob,
+                        candidate_blob,
+                        *candidate_file_blobs,
+                        *((gate_evidence_digest,) if gate_evidence_digest else ()),
+                    ),
                     payload=release_payload,
                 )
                 return finish(RunState.RELEASE_READY, "PASS", attempt, annotation)
