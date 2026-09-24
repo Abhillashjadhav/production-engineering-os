@@ -6,10 +6,13 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from pmpe.contracts.authoring import verify_contract_approval
 from pmpe.contracts.canonical import canonical_digest, strict_loads
 from pmpe.contracts.release_gates import compile_release_gates
+from pmpe.domain.errors import ContractViolation
 from pmpe.evidence.compiled_plan import validate_compiled_plan
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
+from pmpe.evidence.process_gate_validation import validate_process_gate_evidence
 
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}\Z")
 
@@ -26,7 +29,14 @@ def _object(ledger: EvidenceLedger, digest: Any) -> dict[str, Any]:
     return value
 
 
-def _check_results(expected: list[dict[str, Any]], results: Any) -> None:
+def _check_results(
+    expected: list[dict[str, Any]],
+    results: Any,
+    *,
+    ledger: EvidenceLedger,
+    criteria: list[dict[str, Any]],
+    attempt: int,
+) -> None:
     if not isinstance(results, list) or len(results) != len(expected):
         raise EvidenceIntegrityError("release gate result inventory is incomplete")
     by_id = {item["gate_id"]: item for item in expected}
@@ -48,6 +58,26 @@ def _check_results(expected: list[dict[str, Any]], results: Any) -> None:
                 or not result["evidence"]
             ):
                 raise EvidenceIntegrityError("release gate process binding is inconsistent")
+            evidence = result["evidence"]
+            if evidence.get("run_id") != ledger.run_id or evidence.get("attempt") != attempt:
+                raise EvidenceIntegrityError("release gate process identity is inconsistent")
+            try:
+                validate_process_gate_evidence(
+                    gate["binding"],
+                    evidence,
+                    criterion_ids=[item["criterion_id"] for item in criteria],
+                    baseline_ids={
+                        item["criterion_id"]
+                        for item in criteria
+                        if item.get("form") != "satisfied_by_template"
+                    },
+                    read_blob=ledger.read_blob,
+                    bindings=[item["binding"] for item in expected if "binding" in item],
+                )
+            except ValueError as exc:
+                raise EvidenceIntegrityError(
+                    "release gate process evidence is invalid: " + str(exc)
+                ) from exc
             continue
         refs = gate["acceptance_criterion_refs"]
         if canonical_digest(result.get("acceptance_criterion_refs")) != canonical_digest(refs):
@@ -90,9 +120,12 @@ def validate_release_gate_evidence(
         or terminal.get("event_digest") != expected_head_digest
     ):
         raise EvidenceIntegrityError("release evidence does not match trusted expected head")
-    if terminal.get("event_type") != "release_ready":
-        return
+    releasing = terminal.get("event_type") == "release_ready"
+    if releasing != (terminal.get("state") == "RELEASE_READY"):
+        raise EvidenceIntegrityError("release state does not match the terminal event")
     validations = [event for event in events if event.get("event_type") == "contract_validated"]
+    if not validations and not releasing:
+        return
     if len(validations) != 1:
         raise EvidenceIntegrityError("release gate evidence requires one contract validation")
     validation = validations[0]
@@ -105,6 +138,29 @@ def validate_release_gate_evidence(
         raise EvidenceIntegrityError("release gate contract blob is not bound")
     contract = _object(ledger, contract_blob)
     subject = canonical_digest(contract)
+    if any(event.get("subject_digest") != subject for event in events):
+        raise EvidenceIntegrityError("release gate contract identity is inconsistent")
+    approval = metadata.get("approval")
+    if not isinstance(approval, dict):
+        raise EvidenceIntegrityError("release gate approval metadata is malformed")
+    receipt_blob = approval.get("receipt_blob_digest")
+    if approval.get("status") == "VERIFIED":
+        authority = approval.get("authority")
+        if not isinstance(authority, str) or not authority or receipt_blob not in validation_blobs:
+            raise EvidenceIntegrityError("release gate approval reference is malformed")
+        receipt = _object(ledger, receipt_blob)
+        try:
+            receipt_digest = verify_contract_approval(
+                contract, receipt, expected_approver=authority
+            )
+        except ContractViolation as exc:
+            raise EvidenceIntegrityError(
+                "release approval is not bound to its authority and contract"
+            ) from exc
+        if receipt_digest != approval.get("receipt_digest"):
+            raise EvidenceIntegrityError("release gate approval receipt identity is inconsistent")
+    elif approval != {"status": "UNVERIFIED_DIRECT_CALL"}:
+        raise EvidenceIntegrityError("release gate approval metadata is malformed")
     gate_events = [
         event for event in events if event.get("event_type") == "release_gates_evaluated"
     ]
@@ -132,16 +188,6 @@ def validate_release_gate_evidence(
         raise EvidenceIntegrityError(
             "release gate declaration is invalid: " + ", ".join(diagnostics)
         )
-    if not gates:
-        if gate_events or "release_gate_evidence_digest" in payload:
-            raise EvidenceIntegrityError("release gate evidence has no declared gate")
-        return
-    if validation.get("subject_digest") != subject or terminal.get("subject_digest") != subject:
-        raise EvidenceIntegrityError("release gate contract identity is inconsistent")
-    approval = metadata.get("approval", {})
-    receipt_blob = approval.get("receipt_blob_digest") if isinstance(approval, dict) else None
-    if receipt_blob is not None and not isinstance(receipt_blob, str):
-        raise EvidenceIntegrityError("release gate approval reference is malformed")
     plan_blobs = [
         digest for digest in validation_blobs if digest not in {contract_blob, receipt_blob}
     ]
@@ -169,46 +215,58 @@ def validate_release_gate_evidence(
         plan.get("plan_digest") != plan_digest
         or canonical_digest(projection) != plan_digest
         or plan.get("contract_digest") != subject
-        or canonical_digest(plan.get("release_gates")) != canonical_digest(expected)
+        or canonical_digest(plan.get("release_gates", [])) != canonical_digest(expected)
     ):
         raise EvidenceIntegrityError("release gate plan binding is inconsistent")
+    if not releasing:
+        return
+    if payload.get("candidate_digest") not in terminal.get("blob_digests", []):
+        raise EvidenceIntegrityError("release candidate manifest is not bound")
     candidate_manifest = _object(ledger, payload.get("candidate_digest"))
     validate_compiled_plan(
         ledger, contract, plan, candidate_manifest, terminal.get("blob_digests", [])
     )
+    starts = [
+        index
+        for index, event in enumerate(events)
+        if event.get("event_type") == "verification_started"
+    ]
+    if not starts:
+        raise EvidenceIntegrityError("release evidence requires a verification start")
+    start_index = starts[-1]
+    start = events[start_index]
+    attempt = start.get("payload", {}).get("attempt")
+    if type(attempt) is not int or attempt < 1 or start.get("state") != "VERIFYING":
+        raise EvidenceIntegrityError("release verification attempt is malformed")
+    if start_index == 0:
+        raise EvidenceIntegrityError("release verification has no completed coder attempt")
+    coder = events[start_index - 1]
+    if (
+        coder.get("event_type") != "coder_completed"
+        or coder.get("state") != "BUILDING"
+        or type(coder.get("payload", {}).get("attempt")) is not int
+        or coder["payload"]["attempt"] != attempt
+    ):
+        raise EvidenceIntegrityError("release verification does not match the latest coder attempt")
+    expected_following = (
+        ["release_gates_evaluated", "release_ready"] if gates else ["release_ready"]
+    )
+    if [event.get("event_type") for event in events[start_index + 1 :]] != expected_following:
+        raise EvidenceIntegrityError("release verification event sequence is inconsistent")
+    if not gates:
+        if gate_events or "release_gate_evidence_digest" in payload:
+            raise EvidenceIntegrityError("release gate evidence has no declared gate")
+        return
+    if any(type(event.get("payload", {}).get("attempt")) is not int for event in gate_events):
+        raise EvidenceIntegrityError("release gate attempt is malformed")
+    if sum(event["payload"]["attempt"] == attempt for event in gate_events) != 1:
+        raise EvidenceIntegrityError("release gate attempt must have exactly one result event")
     digest = payload.get("release_gate_evidence_digest")
     if digest not in terminal.get("blob_digests", []) or not gate_events:
         raise EvidenceIntegrityError("release gate evidence is missing from release")
     evidence = _object(ledger, digest)
     gate_event = gate_events[-1]
-    following = events[gate_event["sequence"] : -1]
-    if any(
-        event.get("event_type")
-        in {
-            "coder_completed",
-            "verification_started",
-            "verification_failed",
-            "security_failed",
-            "halted",
-            "stopped",
-            "contract_validated",
-            "meaningful_red_confirmed",
-            "release_ready",
-        }
-        or event.get("state") in {"BUILDING", "HALTED", "STOPPED", "VALIDATED", "RELEASE_READY"}
-        or event.get("payload", {}).get("findings")
-        for event in following
-    ):
-        raise EvidenceIntegrityError("release gate PASS is contradicted by later run evidence")
-    starts = [
-        event
-        for event in events[: gate_event["sequence"] - 1]
-        if event.get("event_type") == "verification_started"
-    ]
-    if starts and (
-        starts[-1].get("payload", {}).get("attempt") != evidence.get("attempt")
-        or starts[-1].get("subject_digest") != subject
-    ):
+    if attempt != evidence.get("attempt"):
         raise EvidenceIntegrityError(
             "release gate evidence does not match the latest verification attempt"
         )
@@ -225,4 +283,6 @@ def validate_release_gate_evidence(
         or evidence["attempt"] < 1
     ):
         raise EvidenceIntegrityError("release gate evidence does not bind the released candidate")
-    _check_results(expected, evidence.get("gates"))
+    _check_results(
+        expected, evidence.get("gates"), ledger=ledger, criteria=criteria, attempt=attempt
+    )

@@ -69,7 +69,7 @@ def _packet(
     subject = canonical_digest(contract)
     plan = (
         compile_barebones_plan(contract=contract, repository_root=root).as_dict()
-        if form == "default"
+        if form in {"default", "rewritten-contract"}
         else compile_acceptance_plan(
             contract,
             repository_root=root,

@@ -23,7 +23,9 @@ def _rechain(ledger: EvidenceLedger, events: list[dict[str, Any]]) -> None:
         event.pop("event_digest", None)
         event["event_digest"] = canonical_digest(event)
         previous = event["event_digest"]
-    ledger.events_path.write_bytes(b"".join(canonical_json_bytes(event) + b"\n" for event in events))
+    ledger.events_path.write_bytes(
+        b"".join(canonical_json_bytes(event) + b"\n" for event in events)
+    )
     assert len(tuple(ledger.verify())) == len(events)
 
 
