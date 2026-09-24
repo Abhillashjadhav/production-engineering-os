@@ -1,5 +1,13 @@
 # Review closure — 24 September 2026
 
+**Status correction after external feedback: implemented, not merged.** All six
+change PRs remain draft/unmerged at `feedback-status-snapshot.json`. The proposed
+engine still has no owner-approved non-health end-to-end demonstration in this
+evidence set. The historical task-store result remains pinned to its old source.
+Use [FOLLOWUP_REVIEW_PROMPT.md](FOLLOWUP_REVIEW_PROMPT.md) to review the smallest
+semantics-preserving migration; no runtime migration is implemented by this
+documentation correction.
+
 The external review identified real integration defects. The confirmed defects
 have separate implementation PRs and reproducible evidence. This is a bounded
 engineering review, not a claim that every project or future AI output is ready.
@@ -18,8 +26,8 @@ both full test jobs; the original publication receipt remains historical.
 | F-01: declared release gates disappeared before release | Agree. The main compiler consumed ACs without enforcing the declared gates. | [PEOS #209](https://github.com/Abhillashjadhav/production-engineering-os/pull/209) compiles explicit AC bindings, retains per-gate snapshot evidence, and blocks missing/unsupported bindings or outcomes. Process/evidence gates are not guessed from prose. |
 | F-02: verifier expected a different PMOS JSON dialect | Agree. The actual publisher's PDC was rejected. | [AI-PM #64](https://github.com/Abhillashjadhav/AI-PM-essential-skills/pull/64) accepts and binds real PDC v1 sources without rewriting them. [#65](https://github.com/Abhillashjadhav/AI-PM-essential-skills/pull/65) documents the boundary separately. |
 | F-10: handoff test stopped at assessment | Agree. Admission alone did not prove a current-run result. | [PMOS #63](https://github.com/Abhillashjadhav/PM-agent-OS/pull/63) exercises the current runner through three terminal outcomes. [#64](https://github.com/Abhillashjadhav/PM-agent-OS/pull/64) updates the PMOS instructions. |
-| F-03: PEOS only builds health checks | Partly agree about the default template, not the whole engine. | The existing custom Template/file entry already produced the approved task-store feature. Its retained candidate passes all 14 criteria again. |
-| F-09 and wider deletion proposals | Insufficient evidence for a wholesale replacement/deletion. | The separate observation-plane source was not supplied. Similar responsibilities in documents do not establish safe code deletion. Contradictory deletion/retention instructions are not adopted. |
+| F-03: PEOS only builds health checks | Current non-health delivery proof remains OPEN; historical expressiveness is a separate claim. | The old custom Template/file entry produced the task store and its retained candidate passes 14 criteria, but this does not establish a run on the changed compiler. |
+| F-09 and wider deletion proposals | Consolidation remains owner decision (a); no wholesale deletion adopted. | The feedback says observation-plane.tar.gz was delivered. We withdraw the categorical “not supplied” claim: we did not inspect it in this repair and could not resolve it in this chat's filename searches. pm-evals-web is available in PEOS. Compare both sources before choosing a migration; contradictory deletion/retention advice remains unresolved. |
 | Local access concern | A concrete local network default needed correction. | [PEOS #208](https://github.com/Abhillashjadhav/production-engineering-os/pull/208) defaults Vite development/preview to loopback, preserving explicit sharing and Docker behavior. |
 
 The review's observational metrics were not independently reproduced. In

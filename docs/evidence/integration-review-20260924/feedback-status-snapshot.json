@@ -1,0 +1,72 @@
+{
+  "as_of": "2026-09-24T08:47:36.608Z",
+  "scope": "Status refresh for feedback revision; exact implementation pins remain unchanged.",
+  "prs": [
+    {
+      "unit": "peos-loopback",
+      "repo": "Abhillashjadhav/production-engineering-os",
+      "number": 208,
+      "pinned_head": "7b754b77635f8529d644f4777060cdb2258770ff",
+      "current_head": "7b754b77635f8529d644f4777060cdb2258770ff",
+      "base": "main",
+      "draft": true,
+      "merged": false,
+      "url": "https://github.com/Abhillashjadhav/production-engineering-os/pull/208"
+    },
+    {
+      "unit": "peos-gates",
+      "repo": "Abhillashjadhav/production-engineering-os",
+      "number": 209,
+      "pinned_head": "5ccc46ce220092451032397cd7a951a0e8d163e0",
+      "current_head": "5ccc46ce220092451032397cd7a951a0e8d163e0",
+      "base": "main",
+      "draft": true,
+      "merged": false,
+      "url": "https://github.com/Abhillashjadhav/production-engineering-os/pull/209"
+    },
+    {
+      "unit": "pmos-runtime",
+      "repo": "Abhillashjadhav/PM-agent-OS",
+      "number": 63,
+      "pinned_head": "0b6bd55152efc918f9a042fc898e961dcf527b96",
+      "current_head": "0b6bd55152efc918f9a042fc898e961dcf527b96",
+      "base": "main",
+      "draft": true,
+      "merged": false,
+      "url": "https://github.com/Abhillashjadhav/PM-agent-OS/pull/63"
+    },
+    {
+      "unit": "pmos-docs",
+      "repo": "Abhillashjadhav/PM-agent-OS",
+      "number": 64,
+      "pinned_head": "f7c1f41289e37690fc196dc7082991afe4e74d94",
+      "current_head": "f7c1f41289e37690fc196dc7082991afe4e74d94",
+      "base": "fix/current-peos-handoff-20260924",
+      "draft": true,
+      "merged": false,
+      "url": "https://github.com/Abhillashjadhav/PM-agent-OS/pull/64"
+    },
+    {
+      "unit": "aipm-runtime",
+      "repo": "Abhillashjadhav/AI-PM-essential-skills",
+      "number": 64,
+      "pinned_head": "155bc180a33b5917808f472718484a23beafac63",
+      "current_head": "155bc180a33b5917808f472718484a23beafac63",
+      "base": "fix/aipm-json-membership-20260923",
+      "draft": true,
+      "merged": false,
+      "url": "https://github.com/Abhillashjadhav/AI-PM-essential-skills/pull/64"
+    },
+    {
+      "unit": "aipm-docs",
+      "repo": "Abhillashjadhav/AI-PM-essential-skills",
+      "number": 65,
+      "pinned_head": "e17a6c3e060120cc5fe92db7d95ef5de24f8fb8c",
+      "current_head": "e17a6c3e060120cc5fe92db7d95ef5de24f8fb8c",
+      "base": "codex/pdc-repository-pilot-runtime",
+      "draft": true,
+      "merged": false,
+      "url": "https://github.com/Abhillashjadhav/AI-PM-essential-skills/pull/65"
+    }
+  ]
+}

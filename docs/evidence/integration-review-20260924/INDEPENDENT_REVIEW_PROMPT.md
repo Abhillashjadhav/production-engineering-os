@@ -1,5 +1,18 @@
 # Independent implementation review — PMOS, PEOS and AI-PM
 
+**Status: implemented, not merged.** The six change PRs remain draft/unmerged
+at the refreshed `feedback-status-snapshot.json` observation. The combined
+regression tree is a proposed integration, not main. No approved non-health
+contract has been demonstrated on the changed engine in this evidence set.
+
+**First review question:** what is the smallest semantics-preserving change
+that lets the task-store contract run on the changed engine with all five
+release gates evaluated? Distinguish a correct compatibility block from the
+remaining engineering work. Do not solve it by deleting gates, weakening their
+meaning, attaching process checks to unrelated product ACs, or treating a new
+approval as a substitute for missing checks. Use the gate-by-gate proposal in
+`FOLLOWUP_REVIEW_PROMPT.md`; independently challenge that proposal.
+
 Copy this entire document into the reviewing LLM. Give it read access to the
 linked repositories. If available, attach the original
 `REVIEW-PACKAGE-paste-into-other-LLM.md` for comparison; it contains third-party
@@ -31,19 +44,10 @@ then produce an explicit approved contract that PEOS can consume and implement.
 The intended outcome is working software with checkable acceptance evidence.
 Passing many tests or generating a valid JSON document is not that outcome.
 
-The proposed career assistant is the next product: conversational career
-guidance for India, initially in English, primarily students/recent graduates
-aged 14–27, with working professionals secondary. It should answer first, then
-ask contextual questions gradually; optionally use a résumé; remember context
-with user deletion; compare 5–6 paths; and give milestones, resources, timelines,
-costs and projects. Interests and market demand take priority. Applications,
-enrollment, résumé writing and mentor matching are excluded. Local Ollama/Qwen
-is the intended low-cost model route. These are requirements, not shipped claims.
-
-This implementation round repaired integration defects. It did not build or
-deploy that career-assistant MVP or settle its remaining product/metric choices.
-The existing bounded software demonstration is a task store, described below.
-Assess bounded repair completion separately from broad product readiness.
+The review is limited to the repaired integration and the task-store proof.
+Future career-assistant requirements are in `CAREER_ASSISTANT_BRIEF.md`, outside
+this repair review. They are not acceptance criteria for these PRs. Assess
+bounded repair completion separately from broad product readiness.
 
 ## Exact source set
 
@@ -145,8 +149,8 @@ Inspect package scripts, Vite configuration, regression tests and
 
 | Earlier claim/proposal | Our disposition and reason | What should change that disposition? |
 |---|---|---|
-| F-03: the whole engine can express only `health` | Partly disagree. The default template is limited, but the custom Template/file entry already produced the task-store feature. We did not switch the approved demonstration to LinkedIn OS. That would be a separately scoped feature. | Show the task-store evidence is invalid or does not exercise the claimed engine capability. A retained demonstration still does not prove arbitrary product generation. |
-| F-09: consolidate/delete a second observation plane immediately | Deferred, not refuted. The original packet describes another implementation, but its underlying source was not supplied for this repair. We cannot verify a safe replacement from prose or line counts. | Accessible exact source, live caller/data ownership analysis and a bounded migration that preserves needed behavior. |
+| F-03: current non-health delivery proof | OPEN on the changed engine. The historical custom Template/file task-store run proves non-health capability only for its pinned version; it does not establish current compatibility. Static extensibility and an approved end-to-end run are different claims. | A current-engine task-store run with preserved semantics, required checks, exact approval and retained evidence. A replay alone must not be described as a new generation. |
+| F-09: consolidate/delete a second observation plane immediately | Deferred to owner decision (a), not rejected. pm-evals-web is in the PEOS repo. The feedback says observation-plane.tar.gz was also delivered; our earlier categorical “not supplied” claim is withdrawn. We did not inspect that archive in this repair, and two filename searches did not resolve it in this chat. That retrieval limit is not proof of non-delivery. | Inspect both exact sources, compare callers/data/capabilities and present migration options and trade-offs for the owner; do not pick a survivor or delete either implementation unilaterally. |
 | F-12 and migration/delete lists: delete the PEOS skill mirror | Not adopted. The review also explicitly says to retain it because `production-engineer` is load-bearing. Contradictory deletion advice is insufficient authorization to break callers. | A dependency inventory and tested replacement path resolving the contradiction. |
 | F-07/F-13/F-19 and broad scaffold/legacy deletion | Deferred. Shared intake/receipt types and CI consumers require caller-by-caller verification. No wholesale deletion was necessary for these confirmed repairs. | Reproduced removal benefit and migration/rollback evidence with live consumers accounted for. |
 | Timestamp/core-ledger and judge-gate recommendations | Conflicting alternatives were not combined. The packet alternates on timestamps and on rejecting versus executing judge-kind gates. We preserved existing invariants and the deterministic gate subset. | One explicit coherent design with compatibility tests and required owner choices identified. |
@@ -181,8 +185,9 @@ AC-013 is sequential, not concurrent, creation. AC-014 checks ID continuity
 after rejection. Duplicate create is allowed to be non-idempotent; completion
 is idempotent. Do not silently broaden these approved criteria.
 
-The old packet is **CONTRACT_BLOCKED on the new stricter engine**: five prose
-gates lack executable bindings, and the engine differs from the frozen source.
+The old packet is **CONTRACT_BLOCKED on the new stricter engine**: all five
+gates, GATE-001 through GATE-005, lack executable bindings, and the engine differs
+from the frozen source. The feedback's “5 of 6” count does not match this packet.
 Only the all-ACs-pass gate maps directly to the current conjunction model.
 Other gates concern negative controls, digest integrity, actual session evidence
 and truthful execution limitations. Attaching those to unrelated product ACs
@@ -278,8 +283,9 @@ needed. Then provide:
    recommendations; whether you agree with each rationale and what would
    reverse your judgment. Track partially implemented F-01/F-02/F-10 honestly.
 4. **Readiness verdicts:** separately judge these repairs, the historical
-   task-store demonstration, a new run on the changed engine, and the career
-   assistant. Use PASS / FAIL / BLOCKED / UNVERIFIED with scope and evidence.
+   task-store demonstration and a new run on the changed engine. Future product
+   readiness is outside this repair review. Use PASS / FAIL / BLOCKED / UNVERIFIED
+   with scope and evidence.
 5. **Owner decisions only where necessary:** the precise question, options,
    trade-off and blocking consequence. Separate product judgment from routine
    engineering work the implementation agent can complete autonomously.

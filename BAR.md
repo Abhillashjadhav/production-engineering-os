@@ -169,3 +169,12 @@ script was committed or executed before the original documentation change.
 4. **Yes.** Before edit, `test -e docs/evidence/integration-review-20260924/INDEPENDENT_REVIEW_PROMPT.md` exited 1; after edit, verify the file, its pinned source references and disposition coverage. No product test suite is needed for this document.
 5. **Yes.** One documentation-only commit on the existing review-closure branch can be reverted independently.
 6. **No.** No setting, dependency, paid invocation, new evaluator, release tag or execution surface.
+
+## Unit — correct review dispositions after external feedback, 2026-09-24
+
+1. **Yes, restructured.** Revise the existing review packet and add a focused follow-up prompt; no new review system.
+2. **Yes.** Owner asks for critique and a proposed-change prompt after feedback identifying missing current task-store proof and incorrect source-availability framing.
+3. **No.** Documentation only; no runtime, frozen contract, approval, evaluator or integration behavior changes.
+4. **Yes.** Before-edit inspection shows no implemented-not-merged lead, historical F-03 partial-disagreement wording, an unsupported source-not-supplied assertion and career requirements inside the repair prompt. Check these are corrected, all five gate IDs preserved and source pins unchanged afterward.
+5. **Yes.** A single documentation commit can be reverted independently.
+6. **No.** The proposed evidence-gate work is explicitly for independent review, not implemented or approved by this document.
