@@ -205,3 +205,10 @@ def test_legitimate_payload_and_prose_are_not_gate_declarations(
     assert [item.criterion_id for item in plan.criteria] == ["AC-001"]
     assert "release_gates" not in plan.as_dict()
     assert contract == original
+
+
+def test_ordinary_scalar_release_date_is_not_a_two_edit_gate_alias(tmp_path: Path) -> None:
+    contract = _contract()
+    contract["release_date"] = "2026-09-24"
+    plan = compile_barebones_plan(contract=contract, repository_root=tmp_path)
+    assert "release_gates" not in plan.as_dict()

@@ -40,3 +40,16 @@ will reference the observed RED evidence before production files change.
    sibling process and inspection changes are independent.
 6. **New unrequested surface? No.** Fixed metadata boundaries and finite aliases
    only; no configuration, external inference, dependency or product policy.
+
+## C2-F4 follow-up — ordinary scalar release date
+
+1. **Already exists? Yes.** Narrow the same two-edit predicate; no second filter.
+2. **Required blocker? Yes.** Author probe on `343d590` confirms the new distance-2
+   rule rejects ordinary scalar `release_date`, contrary to C2-F4 preservation.
+3. **Existing behavior changes? Yes.** This isolated follow-up corrects that new
+   rejection while keeping the pre-existing one-edit malformed-key checks.
+4. **Automated RED before fix? Yes.** Add and commit a direct scalar-date compiler
+   regression before changing the predicate; retain its actual failure output.
+5. **Revertible? Yes.** One predicate adjustment with its regression and evidence.
+6. **New unrequested surface? No.** Parent explicitly approved container shape for
+   newly broadened two-edit matches only. No new keyword exception or setting.
