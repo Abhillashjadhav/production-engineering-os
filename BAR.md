@@ -178,3 +178,12 @@ script was committed or executed before the original documentation change.
 4. **Yes.** Before-edit inspection shows no implemented-not-merged lead, historical F-03 partial-disagreement wording, an unsupported source-not-supplied assertion and career requirements inside the repair prompt. Check these are corrected, all five gate IDs preserved and source pins unchanged afterward.
 5. **Yes.** A single documentation commit can be reverted independently.
 6. **No.** The proposed evidence-gate work is explicitly for independent review, not implemented or approved by this document.
+
+## Unit — R3 evidence completeness and reproducible integration source
+
+1. **Yes, restructured.** Repair existing replay evidence and publish the exact retained combined tree; no alternative evaluator.
+2. **Yes.** Owner authorizes implementation of R3; retained logs have only 28/28/26 boundaries instead of the runner's complete 30 each.
+3. **No.** Evidence/checker only, frozen source and contract untouched.
+4. **Yes.** Check existing boundary/process coverage before regeneration, rerun to terminal exit and require full ordered coverage before copying.
+5. **Yes.** One evidence repair commit can be reverted separately.
+6. **No.** No dependency, signing, sandbox change or new approval.
