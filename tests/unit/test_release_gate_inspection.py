@@ -133,6 +133,7 @@ def _packet(
         "unsafe-absolute": "/escaped.py",
         "unsafe-alias": "tests//escaped.py",
         "unsafe-nul": "tests/\x00escaped.py",
+        "unsafe-drive": "C:/escaped.py",
     }
     if mutation in unsafe_paths:
         manifest[unsafe_paths[mutation]] = app
@@ -251,6 +252,7 @@ def test_semantic_validation_preserves_retained_custom_forms_without_original_fi
         "unsafe-absolute",
         "unsafe-alias",
         "unsafe-nul",
+        "unsafe-drive",
     ],
 )
 @pytest.mark.parametrize("command", ["status", "inspect"])
