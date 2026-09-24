@@ -39,7 +39,8 @@ def _near_gate_key(key: str, value: Any) -> bool:
     if normalized in {"qualitygates", "golivegates"}:
         return True
     return any(
-        _within_edits(normalized, canonical, 2) or (container and canonical in normalized)
+        _within_edits(normalized, canonical, 1)
+        or (container and (_within_edits(normalized, canonical, 2) or canonical in normalized))
         for canonical in ("releasegates", "binaryreleasegates")
     )
 
@@ -60,8 +61,9 @@ def validate_gate_declaration_placement(
     ``quality_assurance.release_gates``. Inspect root, its three named metadata
     objects, and immediate requirement/criterion entry keys only. Known parent
     wrappers nested at those boundaries reject; their values are not traversed.
-    Generic gate words and prefixed/suffixed names require a container value;
-    canonical names, two-edit variants and the two explicit synonyms do not.
+    Generic gate words, two-edit variants and prefixed/suffixed names require a
+    container value; canonical names, one-edit variants and explicit synonyms
+    do not. A scalar release_date, for example, is business metadata.
     This finite grammar is not a general unknown-field or natural-language check.
     """
 
