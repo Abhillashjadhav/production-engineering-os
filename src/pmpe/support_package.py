@@ -22,6 +22,7 @@ from jsonschema import Draft7Validator
 
 from pmpe.contracts.canonical import canonical_digest, canonical_json_bytes, strict_loads
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
+from pmpe.evidence.release_gates import validate_release_gate_evidence
 from pmpe.quality.security_scan import contains_hardcoded_secret
 from pmpe.repository.redaction import contains_known_credential, is_sensitive_credential_field
 from pmpe.security_patterns import contains_prohibited_secret
@@ -557,6 +558,10 @@ def _load_release_candidate(
         raise PackageContractError("RELEASE_READY evidence is invalid") from exc
     if not events:
         raise PackageContractError("RELEASE_READY evidence is empty")
+    try:
+        validate_release_gate_evidence(ledger, events, expected_head_digest=expected_head_digest)
+    except EvidenceIntegrityError as exc:
+        raise PackageContractError("release gate evidence is invalid: " + str(exc)) from exc
     validation_events = [
         event for event in events if event.get("event_type") == "contract_validated"
     ]

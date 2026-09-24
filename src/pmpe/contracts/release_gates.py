@@ -14,6 +14,12 @@ class CompiledReleaseGate:
     gate_id: str
     acceptance_criterion_refs: tuple[str, ...]
 
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "gate_id": self.gate_id,
+            "acceptance_criterion_refs": list(self.acceptance_criterion_refs),
+        }
+
 
 def compile_release_gates(
     contract: Mapping[str, Any],
