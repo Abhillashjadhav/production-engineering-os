@@ -42,6 +42,7 @@ def test_claimed_process_pass_is_rederived(kind: str, evidence: dict[str, Any]) 
             criterion_ids=["AC-001"],
             baseline_ids={"AC-001"},
             read_blob=lambda digest: b"{}",
+            expected={},
         )
     assert "PROCESS_RUN_IDENTITY_INVALID" not in str(raised.value)
 
@@ -91,6 +92,7 @@ def test_negative_control_rederives_observer_markers(marker: Any) -> None:
                 "attempt": 1,
                 "mutant_digest": mutant,
                 "candidate_digest": candidate,
+                "plan_digest": "sha256:" + "a" * 64,
                 "changed_paths": ["product.py"],
                 "invalid_mutation": False,
                 "error": "",
@@ -119,6 +121,7 @@ def test_negative_control_rederives_observer_markers(marker: Any) -> None:
             criterion_ids=["AC-1"],
             baseline_ids={"AC-1"},
             read_blob=blobs.__getitem__,
+            expected={"candidate_digest": candidate, "plan_digest": "sha256:" + "a" * 64},
         )
     else:
         with pytest.raises(ValueError, match="MUTANT_OBSERVER_CRASH_OR_TIMEOUT"):
@@ -128,4 +131,5 @@ def test_negative_control_rederives_observer_markers(marker: Any) -> None:
                 criterion_ids=["AC-1"],
                 baseline_ids={"AC-1"},
                 read_blob=blobs.__getitem__,
+            expected={"candidate_digest": candidate, "plan_digest": "sha256:" + "a" * 64},
             )

@@ -281,3 +281,16 @@ def test_task_tracker_repair_targets_product_behind_protected_observer(tmp_path:
         process_gate_inputs=ProcessGateInputs(negative_controls=mutants),
     )
     assert result.state == "RELEASE_READY", result.cause
+
+
+def test_active_external_bytecode_cache_is_not_outside_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import pmpe.process_sources as sources
+    from pmpe.barebones import default_template
+
+    external_cache = tmp_path / "external.pyc"
+    external_cache.write_bytes(b"unbound external cache")
+    monkeypatch.setattr(sources, "__cached__", str(external_cache))
+    with pytest.raises(ValueError, match="bytecode"):
+        sources.build_source_manifest(default_template(), {"adapter": Path(__file__)}, b"{}", sandbox=LocalSandbox())

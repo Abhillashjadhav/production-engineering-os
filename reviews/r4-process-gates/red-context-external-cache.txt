@@ -1,0 +1,295 @@
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+____________ test_negative_control_rederives_observer_markers[None] ____________
+
+marker = None
+
+    @pytest.mark.parametrize("marker", [None, {"invalid_json": True}, {"exit_code": "timeout"}])
+    def test_negative_control_rederives_observer_markers(marker: Any) -> None:
+        import hashlib
+        import json
+    
+        from pmpe.evidence.process_gate_validation import validate_process_gate_evidence
+    
+        blobs: dict[str, bytes] = {}
+    
+        def put(value: Any) -> str:
+            payload = (
+                value
+                if isinstance(value, bytes)
+                else json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+            )
+            digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+            blobs[digest] = payload
+            return digest
+    
+        candidate = put({"product.py": put(b"original")})
+        mutant = put({"product.py": put(b"mutated")})
+        binding = {
+            "kind": "negative_controls",
+            "mutants": [
+                {
+                    "id": "m",
+                    "snapshot_digest": mutant,
+                    "must_fail": ["AC-1"],
+                    "must_not_touch": ["tests/"],
+                }
+            ],
+        }
+        finding = {"code": "ASSERTION_FAILED", "subject_id": "AC-1"}
+        evidence = {
+            "run_id": "test-only",
+            "attempt": 1,
+            "reasons": [],
+            "baseline_findings": [finding],
+            "mutants": [
+                {
+                    "mutant_id": "m",
+                    "run_id": "test-only",
+                    "attempt": 1,
+                    "mutant_digest": mutant,
+                    "candidate_digest": candidate,
+                    "plan_digest": "sha256:" + "a" * 64,
+                    "changed_paths": ["product.py"],
+                    "invalid_mutation": False,
+                    "error": "",
+                    "criterion_results": [
+                        {"criterion_id": "AC-1", "status": "FAIL", "findings": [finding]}
+                    ],
+                    "process_records": [
+                        {
+                            "criterion_id": "AC-1",
+                            "phase": "mutant:m",
+                            "run_id": "test-only",
+                            "attempt": 1,
+                            "executed_argv": ["observer"],
+                            "exit_code": 0,
+                            "stdout_digest": put({"observations": [marker or {"value": "wrong"}]}),
+                            "stderr_digest": put(b""),
+                        }
+                    ],
+                }
+            ],
+        }
+        if marker is None:
+>           validate_process_gate_evidence(
+                binding,
+                evidence,
+                criterion_ids=["AC-1"],
+                baseline_ids={"AC-1"},
+                read_blob=blobs.__getitem__,
+                expected={"candidate_digest": candidate, "plan_digest": "sha256:" + "a" * 64},
+            )
+E           TypeError: validate_process_gate_evidence() got an unexpected keyword argument 'expected'
+
+tests/unit/test_process_gate_evidence_r4.py:118: TypeError
+__________ test_negative_control_rederives_observer_markers[marker1] ___________
+
+marker = {'invalid_json': True}
+
+    @pytest.mark.parametrize("marker", [None, {"invalid_json": True}, {"exit_code": "timeout"}])
+    def test_negative_control_rederives_observer_markers(marker: Any) -> None:
+        import hashlib
+        import json
+    
+        from pmpe.evidence.process_gate_validation import validate_process_gate_evidence
+    
+        blobs: dict[str, bytes] = {}
+    
+        def put(value: Any) -> str:
+            payload = (
+                value
+                if isinstance(value, bytes)
+                else json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+            )
+            digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+            blobs[digest] = payload
+            return digest
+    
+        candidate = put({"product.py": put(b"original")})
+        mutant = put({"product.py": put(b"mutated")})
+        binding = {
+            "kind": "negative_controls",
+            "mutants": [
+                {
+                    "id": "m",
+                    "snapshot_digest": mutant,
+                    "must_fail": ["AC-1"],
+                    "must_not_touch": ["tests/"],
+                }
+            ],
+        }
+        finding = {"code": "ASSERTION_FAILED", "subject_id": "AC-1"}
+        evidence = {
+            "run_id": "test-only",
+            "attempt": 1,
+            "reasons": [],
+            "baseline_findings": [finding],
+            "mutants": [
+                {
+                    "mutant_id": "m",
+                    "run_id": "test-only",
+                    "attempt": 1,
+                    "mutant_digest": mutant,
+                    "candidate_digest": candidate,
+                    "plan_digest": "sha256:" + "a" * 64,
+                    "changed_paths": ["product.py"],
+                    "invalid_mutation": False,
+                    "error": "",
+                    "criterion_results": [
+                        {"criterion_id": "AC-1", "status": "FAIL", "findings": [finding]}
+                    ],
+                    "process_records": [
+                        {
+                            "criterion_id": "AC-1",
+                            "phase": "mutant:m",
+                            "run_id": "test-only",
+                            "attempt": 1,
+                            "executed_argv": ["observer"],
+                            "exit_code": 0,
+                            "stdout_digest": put({"observations": [marker or {"value": "wrong"}]}),
+                            "stderr_digest": put(b""),
+                        }
+                    ],
+                }
+            ],
+        }
+        if marker is None:
+            validate_process_gate_evidence(
+                binding,
+                evidence,
+                criterion_ids=["AC-1"],
+                baseline_ids={"AC-1"},
+                read_blob=blobs.__getitem__,
+                expected={"candidate_digest": candidate, "plan_digest": "sha256:" + "a" * 64},
+            )
+        else:
+            with pytest.raises(ValueError, match="MUTANT_OBSERVER_CRASH_OR_TIMEOUT"):
+>               validate_process_gate_evidence(
+                    binding,
+                    evidence,
+                    criterion_ids=["AC-1"],
+                    baseline_ids={"AC-1"},
+                    read_blob=blobs.__getitem__,
+                expected={"candidate_digest": candidate, "plan_digest": "sha256:" + "a" * 64},
+                )
+E               TypeError: validate_process_gate_evidence() got an unexpected keyword argument 'expected'
+
+tests/unit/test_process_gate_evidence_r4.py:128: TypeError
+__________ test_negative_control_rederives_observer_markers[marker2] ___________
+
+marker = {'exit_code': 'timeout'}
+
+    @pytest.mark.parametrize("marker", [None, {"invalid_json": True}, {"exit_code": "timeout"}])
+    def test_negative_control_rederives_observer_markers(marker: Any) -> None:
+        import hashlib
+        import json
+    
+        from pmpe.evidence.process_gate_validation import validate_process_gate_evidence
+    
+        blobs: dict[str, bytes] = {}
+    
+        def put(value: Any) -> str:
+            payload = (
+                value
+                if isinstance(value, bytes)
+                else json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+            )
+            digest = "sha256:" + hashlib.sha256(payload).hexdigest()
+            blobs[digest] = payload
+            return digest
+    
+        candidate = put({"product.py": put(b"original")})
+        mutant = put({"product.py": put(b"mutated")})
+        binding = {
+            "kind": "negative_controls",
+            "mutants": [
+                {
+                    "id": "m",
+                    "snapshot_digest": mutant,
+                    "must_fail": ["AC-1"],
+                    "must_not_touch": ["tests/"],
+                }
+            ],
+        }
+        finding = {"code": "ASSERTION_FAILED", "subject_id": "AC-1"}
+        evidence = {
+            "run_id": "test-only",
+            "attempt": 1,
+            "reasons": [],
+            "baseline_findings": [finding],
+            "mutants": [
+                {
+                    "mutant_id": "m",
+                    "run_id": "test-only",
+                    "attempt": 1,
+                    "mutant_digest": mutant,
+                    "candidate_digest": candidate,
+                    "plan_digest": "sha256:" + "a" * 64,
+                    "changed_paths": ["product.py"],
+                    "invalid_mutation": False,
+                    "error": "",
+                    "criterion_results": [
+                        {"criterion_id": "AC-1", "status": "FAIL", "findings": [finding]}
+                    ],
+                    "process_records": [
+                        {
+                            "criterion_id": "AC-1",
+                            "phase": "mutant:m",
+                            "run_id": "test-only",
+                            "attempt": 1,
+                            "executed_argv": ["observer"],
+                            "exit_code": 0,
+                            "stdout_digest": put({"observations": [marker or {"value": "wrong"}]}),
+                            "stderr_digest": put(b""),
+                        }
+                    ],
+                }
+            ],
+        }
+        if marker is None:
+            validate_process_gate_evidence(
+                binding,
+                evidence,
+                criterion_ids=["AC-1"],
+                baseline_ids={"AC-1"},
+                read_blob=blobs.__getitem__,
+                expected={"candidate_digest": candidate, "plan_digest": "sha256:" + "a" * 64},
+            )
+        else:
+            with pytest.raises(ValueError, match="MUTANT_OBSERVER_CRASH_OR_TIMEOUT"):
+>               validate_process_gate_evidence(
+                    binding,
+                    evidence,
+                    criterion_ids=["AC-1"],
+                    baseline_ids={"AC-1"},
+                    read_blob=blobs.__getitem__,
+                expected={"candidate_digest": candidate, "plan_digest": "sha256:" + "a" * 64},
+                )
+E               TypeError: validate_process_gate_evidence() got an unexpected keyword argument 'expected'
+
+tests/unit/test_process_gate_evidence_r4.py:128: TypeError
+___________ test_active_external_bytecode_cache_is_not_outside_guard ___________
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-61/test_active_external_bytecode_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f77a6f06e40>
+
+    def test_active_external_bytecode_cache_is_not_outside_guard(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import pmpe.process_sources as sources
+        from pmpe.barebones import default_template
+    
+        external_cache = tmp_path / "external.pyc"
+        external_cache.write_bytes(b"unbound external cache")
+        monkeypatch.setattr(sources, "__cached__", str(external_cache))
+>       with pytest.raises(ValueError, match="bytecode"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+tests/integration/test_process_gate_r4.py:295: Failed
+=========================== short test summary info ============================
+FAILED tests/unit/test_process_gate_evidence_r4.py::test_negative_control_rederives_observer_markers[None]
+FAILED tests/unit/test_process_gate_evidence_r4.py::test_negative_control_rederives_observer_markers[marker1]
+FAILED tests/unit/test_process_gate_evidence_r4.py::test_negative_control_rederives_observer_markers[marker2]
+FAILED tests/integration/test_process_gate_r4.py::test_active_external_bytecode_cache_is_not_outside_guard
