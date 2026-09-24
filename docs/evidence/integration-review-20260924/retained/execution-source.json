@@ -13,7 +13,7 @@
     "--candidate",
     "docs/evidence/task-tracker-live-20260918/live/candidate",
     "--output",
-    "/workspace/scratch/f9ac546f3a50/integration-20260924/peos-proof/docs/evidence/integration-review-20260924/retained",
+    "/workspace/scratch/f9ac546f3a50/r3-20260924/replay-fresh/retained",
     "--authorized-host-fallback"
   ],
   "entry_digest": "sha256:08d590186663d48a1ecfd34cb169240d07c9d65e132e4791c6816171f7ccf387",

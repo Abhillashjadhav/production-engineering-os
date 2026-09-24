@@ -13,5 +13,8 @@
     "PEOS PR208 loopback defaults",
     "PEOS PR209 release gates"
   ],
-  "command": "PYTHONPATH=src python -m pytest tests/unit/test_release_gate_compiler.py tests/integration/test_release_gate_runtime.py tests/unit/test_acceptance_compiler.py tests/integration/test_barebones_cli.py tests/e2e/test_barebones_e1.py tests/unit/test_pmos_contract_schema.py tests/unit/test_support_package_v1.py tests/unit/test_frontend_toolchain_migration.py"
+  "command": "PYTHONPATH=src python -m pytest tests/unit/test_release_gate_compiler.py tests/integration/test_release_gate_runtime.py tests/unit/test_acceptance_compiler.py tests/integration/test_barebones_cli.py tests/e2e/test_barebones_e1.py tests/unit/test_pmos_contract_schema.py tests/unit/test_support_package_v1.py tests/unit/test_frontend_toolchain_migration.py",
+  "published_commit": "766e13d553705b8465701bb97f9949bb58f4c415",
+  "published_branch": "repro/review-346-exact-tree-20260924",
+  "correction": "R3: original local tested tree is now available from a published exact-tree commit; no source substitution."
 }

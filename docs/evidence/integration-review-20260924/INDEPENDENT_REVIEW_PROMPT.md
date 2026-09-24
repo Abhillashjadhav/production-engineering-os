@@ -178,7 +178,7 @@ The approved task store creates and completes tasks. Source snapshots:
 - Freeze: `sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2`.
 
 The unchanged candidate replay passed 14/14. Persistence and filtering mutations
-failed 10 and 2 criteria respectively; 82 before/after digest observations had
+failed 10 and 2 criteria respectively; 90 before/after digest observations had
 no mismatch. This replay used an existing Python environment and retained
 software. It was not a new live generation or clean-install proof.
 AC-013 is sequential, not concurrent, creation. AC-014 checks ID continuity

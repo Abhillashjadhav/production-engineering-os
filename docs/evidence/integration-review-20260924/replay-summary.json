@@ -11,8 +11,9 @@
     "retained": {
       "pass_count": 14,
       "fail_ids": [],
-      "digest_observations": 28,
-      "digest_mismatches": 0
+      "digest_observations": 30,
+      "digest_mismatches": 0,
+      "process_records": 14
     },
     "persistence": {
       "pass_count": 4,
@@ -28,8 +29,9 @@
         "AC-013",
         "AC-014"
       ],
-      "digest_observations": 28,
-      "digest_mismatches": 0
+      "digest_observations": 30,
+      "digest_mismatches": 0,
+      "process_records": 14
     },
     "filtering": {
       "pass_count": 12,
@@ -37,8 +39,9 @@
         "AC-004",
         "AC-005"
       ],
-      "digest_observations": 26,
-      "digest_mismatches": 0
+      "digest_observations": 30,
+      "digest_mismatches": 0,
+      "process_records": 14
     }
   },
   "limitations": [
@@ -46,5 +49,6 @@
     "Root can modify evidence; digest checks are not tamper prevention",
     "No owner Mac, Ollama, Qwen, TypeSafe or new live generation exercised",
     "Historical approved runtime preserved; stricter release gate compiler assessed separately"
-  ]
+  ],
+  "correction": "R3: replaces incomplete 28/28/26 prefixes with terminal 30/30/30 observations; frozen source unchanged."
 }

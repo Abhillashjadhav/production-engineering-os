@@ -16,7 +16,7 @@
       "--candidate",
       "docs/evidence/task-tracker-live-20260918/live/candidate",
       "--output",
-      "/workspace/scratch/f9ac546f3a50/integration-20260924/peos-proof/docs/evidence/integration-review-20260924/retained",
+      "/workspace/scratch/f9ac546f3a50/r3-20260924/replay-fresh/retained",
       "--authorized-host-fallback"
     ],
     "exit_code": 0,
@@ -39,7 +39,8 @@
       "AC-014": "PASS"
     },
     "findings": [],
-    "new_model_generation": false
+    "new_model_generation": false,
+    "evidence_copied_after_exit": true
   },
   {
     "case": "persistence",
@@ -58,7 +59,7 @@
       "--candidate",
       "docs/evidence/task-tracker-live-20260918/mutations/persistence/candidate",
       "--output",
-      "/workspace/scratch/f9ac546f3a50/integration-20260924/peos-proof/docs/evidence/integration-review-20260924/persistence",
+      "/workspace/scratch/f9ac546f3a50/r3-20260924/replay-fresh/persistence",
       "--authorized-host-fallback"
     ],
     "exit_code": 1,
@@ -162,7 +163,8 @@
         "subject_id": "AC-014"
       }
     ],
-    "new_model_generation": false
+    "new_model_generation": false,
+    "evidence_copied_after_exit": true
   },
   {
     "case": "filtering",
@@ -181,7 +183,7 @@
       "--candidate",
       "docs/evidence/task-tracker-live-20260918/mutations/filtering/candidate",
       "--output",
-      "/workspace/scratch/f9ac546f3a50/integration-20260924/peos-proof/docs/evidence/integration-review-20260924/filtering",
+      "/workspace/scratch/f9ac546f3a50/r3-20260924/replay-fresh/filtering",
       "--authorized-host-fallback"
     ],
     "exit_code": 1,
@@ -221,6 +223,7 @@
         "subject_id": "AC-005"
       }
     ],
-    "new_model_generation": false
+    "new_model_generation": false,
+    "evidence_copied_after_exit": true
   }
 ]

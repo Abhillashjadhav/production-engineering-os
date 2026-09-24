@@ -1,5 +1,9 @@
 # Review closure — 24 September 2026
 
+R3 follow-up: [repairs and current limits](../r3-repair-20260924/README.md)
+supersede the incomplete replay counts and unpublished combined-source status
+below. Historical findings remain visible; draft PRs are not merged work.
+
 **Status correction after external feedback: implemented, not merged.** All six
 change PRs remain draft/unmerged at `feedback-status-snapshot.json`. The proposed
 engine still has no owner-approved non-health end-to-end demonstration in this
@@ -39,7 +43,7 @@ not treated as repository-correctness evidence.
 
 - The unchanged approved task-store candidate passes **14/14** criteria.
   Persistence and filtering mutations are rejected with **10** and **2** failed
-  criteria respectively. Across those replays, **82** digest observations have
+  criteria respectively. Across those replays, **90** digest observations have
   no mismatches. This uses the original approved runtime/profile and existing
   Python 3.12 environment; it is not a new model generation or clean install.
 - The combined proposed PEOS fixes pass **346/346** tests with no failures,
