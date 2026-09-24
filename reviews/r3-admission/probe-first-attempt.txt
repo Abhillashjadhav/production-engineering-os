@@ -1,0 +1,19 @@
+Traceback (most recent call last):
+  File "/workspace/scratch/f9ac546f3a50/r3-20260924/peos-admission/src/pmpe/barebones.py", line 1051, in run_to_release_ready
+    receipt_digest = verify_contract_approval(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/f9ac546f3a50/r3-20260924/peos-admission/src/pmpe/contracts/authoring.py", line 312, in verify_contract_approval
+    raise ContractViolation("approval receipt is not bound to the approved contract")
+pmpe.domain.errors.ContractViolation: approval receipt is not bound to the approved contract
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/workspace/scratch/f9ac546f3a50/r3-20260924/peos-admission/reviews/r3-admission/probe.py", line 81, in <module>
+    probe()
+  File "/workspace/scratch/f9ac546f3a50/r3-20260924/peos-admission/reviews/r3-admission/probe.py", line 36, in probe
+    result = run_to_release_ready(
+             ^^^^^^^^^^^^^^^^^^^^^
+  File "/workspace/scratch/f9ac546f3a50/r3-20260924/peos-admission/src/pmpe/barebones.py", line 1057, in run_to_release_ready
+    raise ContractInvalidError(str(exc)) from exc
+pmpe.barebones.ContractInvalidError: approval receipt is not bound to the approved contract

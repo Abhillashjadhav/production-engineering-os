@@ -1,0 +1,27 @@
+{
+  "implementation_commit": "8ba3476c5395192315477cabf8e8ab698224a737",
+  "implementation_tree": "3a6f2a3d689c9d5656336c8dde4bedfc3ab404e9",
+  "bounded_tests": {
+    "compiler": 44,
+    "inspection": 22,
+    "gate_runtime": 4,
+    "cli": 34,
+    "support_package": 84,
+    "total": 188,
+    "passed": true
+  },
+  "mypy_source_files": 191,
+  "static_scan_new_executables": "PASS_ZERO_FINDINGS",
+  "external_ci_claimed": false,
+  "unanchored_m4_authentication_claimed": false,
+  "source_sha256": {
+    "src/pmpe/cli/barebones_cmd.py": "461882863d4795a48c9c9fa142e2f2a5c8351ad6ad175dda3da7e165c94d7581",
+    "src/pmpe/contracts/gate_declarations.py": "2a26956d8a46d547b40de9dd0b2ac9e2c4cb73e5e99b8420dc4fa83f427d444b",
+    "src/pmpe/contracts/release_gates.py": "b473904de879ded4c9207dae54be976eaa0dc598a2e3a111e4ac62cfe6c9dcc3",
+    "src/pmpe/evidence/release_gates.py": "375a4718a0509ed7142be3ed34846dcc746200dcd1205dc2a5094483cb43f5e7",
+    "src/pmpe/support_package.py": "295e9d0008a46425dc9a6300250c13bcb786761018b460b618169f7b74bc79fb",
+    "tests/unit/test_release_gate_compiler.py": "cb33bd800df7e28d48dd642623500e760f22de11c14f850cea18a22b50e8c6fc",
+    "tests/unit/test_release_gate_inspection.py": "fe64e893e04765aa8dbd247b3c0b30bb23fb279c78cd90f4eb062cf386263c87",
+    "reviews/r3-admission/probe.py": "17a3b13e47d050b7cd4bfec3a6e68026b92e373a056fe5311eaaf6a1589829f1"
+  }
+}

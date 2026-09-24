@@ -1,0 +1,72 @@
+........................................................................ [ 38%]
+.............................F.......................................... [ 76%]
+............................................                             [100%]
+=================================== FAILURES ===================================
+_ test_compare_rejects_cross_subject_coder_and_release_evidence[release_ready-release candidate is not bound to the approved contract] _
+
+tmp_path = PosixPath('/tmp/pytest-of-root/pytest-13/test_compare_rejects_cross_sub1')
+capsys = <_pytest.capture.CaptureFixture object at 0x7f45dfe1fd10>
+event_type = 'release_ready'
+expected_detail = 'release candidate is not bound to the approved contract'
+
+    @pytest.mark.parametrize(
+        ("event_type", "expected_detail"),
+        (
+            ("coder_completed", "Coder behavior is not bound to the approved contract"),
+            ("release_ready", "release candidate is not bound to the approved contract"),
+        ),
+    )
+    def test_compare_rejects_cross_subject_coder_and_release_evidence(
+        tmp_path: Path,
+        capsys: pytest.CaptureFixture[str],
+        event_type: str,
+        expected_detail: str,
+    ) -> None:
+        baseline_root = tmp_path / "baseline"
+        current_root = tmp_path / "current"
+        _approved_comparable_run(
+            baseline_root,
+            run_id="baseline",
+            variant="first candidate",
+        )
+        _approved_comparable_run(
+            current_root,
+            run_id="current",
+            variant="second candidate",
+        )
+        _rewrite_subject_with_valid_hash_chain(
+            current_root,
+            run_id="current",
+            event_type=event_type,
+        )
+    
+        exit_code = main(
+            [
+                "barebones",
+                "compare",
+                "baseline",
+                "current",
+                "--baseline-root",
+                str(baseline_root),
+                "--current-root",
+                str(current_root),
+                "--expected-approver",
+                "fixture-human",
+                "--compiler-root",
+                str(_REPOSITORY),
+            ]
+        )
+    
+        assert exit_code == 3
+        comparison = json.loads(capsys.readouterr().out)
+        assert comparison["state"] == "HALTED"
+        assert comparison["cause"] == "EVIDENCE_INVALID"
+>       assert comparison["detail"] == expected_detail
+E       AssertionError: assert 'release gate... inconsistent' == 'release cand...oved contract'
+E         
+E         - release candidate is not bound to the approved contract
+E         + release gate contract identity is inconsistent
+
+tests/integration/test_barebones_cli.py:1125: AssertionError
+=========================== short test summary info ============================
+FAILED tests/integration/test_barebones_cli.py::test_compare_rejects_cross_subject_coder_and_release_evidence[release_ready-release candidate is not bound to the approved contract]
