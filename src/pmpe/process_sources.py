@@ -51,8 +51,12 @@ def build_source_manifest(
     sandbox: object | None = None,
 ) -> bytes:
     """No contract or receipt: an outer freeze can bind these after actual approval."""
-    if "adapter" not in source_paths or any(key.startswith("engine/") for key in source_paths):
-        raise ValueError("source manifest requires adapter and reserves engine/ names")
+    if "adapter" not in source_paths or any(
+        key.startswith(("engine/", "approval/", "protected/")) for key in source_paths
+    ):
+        raise ValueError(
+            "source manifest requires adapter and reserves engine/, approval/ and protected/ names"
+        )
     paths = {**engine_sources(), **source_paths}
     value = {
         "schema_version": "1",
@@ -90,8 +94,12 @@ def validate_sources(
         or manifest["schema_version"] != "1"
     ):
         raise ValueError("process gate source manifest shape is invalid")
-    if "adapter" not in source_paths or any(key.startswith("engine/") for key in source_paths):
-        raise ValueError("process gate source manifest requires current adapter")
+    if "adapter" not in source_paths or any(
+        key.startswith(("engine/", "approval/", "protected/")) for key in source_paths
+    ):
+        raise ValueError(
+            "process gate source manifest requires adapter and reserves evidence namespaces"
+        )
     paths = {**engine_sources(), **source_paths}
     expected = manifest["artifacts"]
     if not isinstance(expected, dict) or set(expected) != set(paths):

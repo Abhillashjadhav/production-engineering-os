@@ -205,6 +205,7 @@ def test_observed_integrity_mismatch_is_terminal_even_after_bytes_are_restored(
 @pytest.mark.parametrize("key", ["approval/contract", "protected/tests/check.py"])
 def test_source_inventory_reserves_outer_and_protected_namespaces(tmp_path: Path, key: str) -> None:
     from pmpe.process_gates import build_source_manifest
+
     sources = {"adapter": Path(__file__).resolve(), key: Path(__file__).resolve()}
     with pytest.raises(ValueError, match="reserves"):
         build_source_manifest(default_template(), sources, b"{}", sandbox=LocalSandbox())
