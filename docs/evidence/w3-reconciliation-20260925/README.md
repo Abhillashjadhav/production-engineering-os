@@ -31,11 +31,15 @@ export PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX="$(mktemp -d)"
 PYTHONPATH=src python scripts/r3_task_store_migration.py \
   --packet <PM-agent-OS@33a35962>/reviews/task-tracker-v1 \
   --historical-engine <production-engineering-os@c1ab2def189f> --output <new dir> --replay
+# Verify the new directory itself: ledger chain, ledger-bound gate evidence, verdicts, summary.
+PYTHONPATH=src python -B docs/evidence/w3-reconciliation-20260925/verify-replay.py <new dir>
+# Separately, the hardened checker's regression suite over the historical retained cases
+# (it reads docs/evidence/integration-review-20260924, not <new dir>):
 R4_REPLAY_PACKET=<packet> R4_REPLAY_SOURCE=<historical engine> \
   python -B docs/evidence/r4-repair-20260924/test_replay_checker.py -v
 ```
 
-The migration command relaunches itself source-only if started without those variables.
+The migration command relaunches itself source-only if started without those variables. `verify-replay.py` also accepts the retained archive once it is extracted (`tar xzf retained-replay.tar.gz`, then pass `w3-replay3`).
 
 Architecture scanner (invocation, environment and exit status in `architecture-scanner.txt`):
 
