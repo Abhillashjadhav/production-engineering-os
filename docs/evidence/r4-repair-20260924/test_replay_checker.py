@@ -46,6 +46,8 @@ class ReplayCheckerRegression(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / name
             shutil.copytree(EVIDENCE / name, root)
+            # The operator's independent launch record sits beside the case directories.
+            shutil.copyfile(EVIDENCE / "replay-commands.json", root.parent / "replay-commands.json")
             mutation(root)
             result = self.run_check(root, optimized)
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
@@ -175,6 +177,15 @@ class ReplayCheckerRegression(unittest.TestCase):
                     "retained",
                     lambda root, change=change: self.change_rows(root, "processes.jsonl", change),
                 )
+
+    def test_python_named_fake_interpreter_rejected(self):
+        """A fake path with an accepted basename must not match the operator's launcher."""
+
+        def change(rows):
+            for row in rows:
+                row["argv"][7] = "/tmp/python3"
+
+        self.mutate("retained", lambda root: self.change_rows(root, "processes.jsonl", change))
 
 
 if __name__ == "__main__":
