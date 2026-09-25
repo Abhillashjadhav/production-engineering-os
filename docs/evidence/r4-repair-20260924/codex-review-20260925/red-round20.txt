@@ -1,0 +1,4 @@
+# base eb1b7cd + tests only (Codex P2 on #226 2ffd31a: same-prefix runtime accepted)
+FAIL: test_compatibility_report_fields_rejected (__main__.ReplayCheckerRegression.test_compatibility_report_fields_rejected) (change='same-prefix-runtime')
+Ran 36 tests in 51.338s
+FAILED (failures=1)
