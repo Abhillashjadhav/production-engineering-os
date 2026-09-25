@@ -1,0 +1,7 @@
+# base 4c7f3ea0e1f72decfc7c5ecbae4fd84e5cebef9a + tests only; packet PM-agent-OS@33a35962, historical source peos@c1ab2de
+FAIL: test_duplicate_or_altered_findings_rejected (__main__.ReplayCheckerRegression.test_duplicate_or_altered_findings_rejected) (mutation='duplicate')
+FAIL: test_duplicate_or_altered_findings_rejected (__main__.ReplayCheckerRegression.test_duplicate_or_altered_findings_rejected) (mutation='alter')
+FAIL: test_nested_signal_exit_code_rejected (__main__.ReplayCheckerRegression.test_nested_signal_exit_code_rejected)
+FAIL: test_replaced_runner_program_rejected (__main__.ReplayCheckerRegression.test_replaced_runner_program_rejected)
+Ran 10 tests
+FAILED (failures=4)
