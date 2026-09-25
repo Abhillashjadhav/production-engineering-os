@@ -179,6 +179,37 @@ def frozen_timeout(source):
     raise ValueError("frozen engine action timeout not found")
 
 
+def frozen_output_limit(source, entry_relative):
+    """The digest-bound adapter's ``LIMIT`` on captured stdout/stderr bytes."""
+    for node in ast.parse((source / entry_relative).read_text()).body:
+        if (
+            isinstance(node, ast.Assign)
+            and [getattr(t, "id", None) for t in node.targets] == ["LIMIT"]
+            and isinstance(node.value, ast.Constant)
+            and type(node.value.value) is int
+        ):
+            return node.value.value
+    raise ValueError("frozen adapter output limit not found")
+
+
+# HostExecution.run adds exit_code/stdout/stderr only after success and "error" only
+# from its exception branch, so a successful record has exactly these keys.
+SUCCESS_RECORD_KEYS = frozenset(
+    {
+        "check_index",
+        "criterion_id",
+        "mode",
+        "argv",
+        "timeout_seconds",
+        "environment",
+        "exit_code",
+        "stdout",
+        "stderr",
+        "elapsed_ms",
+    }
+)
+
+
 def frozen_mode(source, entry_relative):
     """The one ``"mode"`` literal the digest-bound adapter records for each process."""
     modes = {
@@ -328,6 +359,7 @@ def check(directory, packet, source, case):
         environment = frozen_environment(source)
         timeout = frozen_timeout(source)
         mode = frozen_mode(source, entry_relative)
+        limit = frozen_output_limit(source, entry_relative)
         caps = read(packet / "execution-profile.json")["resource_caps"]
         # The historical host fallback's exact prlimit prefix, from the frozen profile.
         limits = [
@@ -415,6 +447,19 @@ def check(directory, packet, source, case):
             require(
                 process.get("timeout_seconds") == timeout and process.get("mode") == mode,
                 "observer timeout or execution mode differs from the frozen engine",
+            )
+            # Each captured byte decodes to at most one character, so more characters
+            # than LIMIT means the adapter would have refused the output.
+            elapsed = process.get("elapsed_ms")
+            require(
+                set(process) == SUCCESS_RECORD_KEYS
+                and type(elapsed) is float
+                and 0.0 <= elapsed < float("inf")
+                and isinstance(process["stdout"], str)
+                and len(process["stdout"]) <= limit
+                and isinstance(process["stderr"], str)
+                and len(process["stderr"]) <= limit,
+                "process record is not one the adapter's success path emits",
             )
             value = decode(process["stdout"])
             canonical(value)
