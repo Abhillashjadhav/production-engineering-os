@@ -1,0 +1,22 @@
+{
+  "approval": {
+    "status": "UNVERIFIED_DIRECT_CALL"
+  },
+  "cause": "ATTEMPT_BUDGET_EXHAUSTED",
+  "contract_digest": "sha256:52f1cb0955c50cb186c7b1044aa18d049d7e64f9bd63fe740feb614db234c06c",
+  "digest_boundaries": 117,
+  "fresh_model_calls": 0,
+  "gate_evidence_event_digest": "sha256:c8919e7876fddabb497f292d749526886462ea11b750f7a4df91e3d3941b23bc",
+  "gates": {
+    "GATE-001": "PASS",
+    "GATE-002": "PASS",
+    "GATE-003": "NOT_EVALUATED",
+    "GATE-004": "NOT_EVALUATED",
+    "GATE-005": "PASS"
+  },
+  "plan_digest": "sha256:f4485ba1cc5feadfe511107ad2385f9d9928174d708c7ce8168496b1e82dde5f",
+  "process_records": 56,
+  "run_id": "draft-v2-offline-retained-replay",
+  "state": "HALTED",
+  "status": "OFFLINE_REPLAY_NOT_APPROVED"
+}
