@@ -1,0 +1,2 @@
+# base 6d63ef1 + guard extension only: the guard names the test that writes bytecode under src/
+ERROR tests/integration/test_recorded_tool_agent_isolation.py::test_recorded_agent_runs_in_a_scrubbed_linux_process - test wrote bytecode under src/ (49 files)

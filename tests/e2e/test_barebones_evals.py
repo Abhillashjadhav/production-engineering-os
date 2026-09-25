@@ -1538,8 +1538,22 @@ def test_release_manifest_is_the_exact_snapshot_that_was_verified(tmp_path: Path
         "import pytest\nfrom product import health\n\n"
         "@pytest.fixture(autouse=True)\ndef readiness():\n"
         "    yield\n    assert health()['status'] == 'ok'\n\ndef test_health():\n    pass\n",
+        # Codex #223 P1: the test body cannot redefine what the trusted runner counts
+        # as an assertion failure once the runner has started.
+        "import pytest\n\nclass Fake(RuntimeError):\n    pytrace = False\n\n"
+        "def test_health():\n    pytest.fail.Exception = Fake\n"
+        "    raise Fake('not an assertion')\n",
+        "import builtins\n\ndef test_health():\n"
+        "    builtins.AssertionError = RuntimeError\n    raise RuntimeError('not an assertion')\n",
     ],
-    ids=["call-key-error", "call-runtime-error", "setup-assertion", "teardown-assertion"],
+    ids=[
+        "call-key-error",
+        "call-runtime-error",
+        "setup-assertion",
+        "teardown-assertion",
+        "rebound-pytest-fail-exception",
+        "rebound-builtin-assertion-error",
+    ],
 )
 def test_human_test_non_assertion_failure_cannot_satisfy_meaningful_red(
     tmp_path: Path, source: str
