@@ -77,3 +77,10 @@ claimed. Neither this packet nor the fixture results authorize a merge.
 Review-only branches retain exact snapshots without advancing PR-triggered CI
 that would run the screened probes. Publication mappings identify local and
 public Git trees separately. F-09 remains the owner's monitoring choice.
+
+The independent reviewer approved the decision packet at local `4779c8d`
+(public `a2401127`, identical tree) for documentation accuracy only. This
+receipt addition records that completed review; it is not runtime approval.
+See [review receipt](independent-packet-review.json),
+[packet validation](final-validation.json), and
+[exact publication mappings](publication-map.json).

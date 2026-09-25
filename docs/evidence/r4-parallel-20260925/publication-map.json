@@ -1,0 +1,168 @@
+{
+  "repository": "Abhillashjadhav/production-engineering-os",
+  "classification": "Exact local/public tree equivalence. Review-only publication does not establish runtime verification or release approval.",
+  "design_packet": {
+    "local": "4779c8de1422eae59b294ef07fff761d8eeb6463",
+    "remote": "a240112722633a1b06771a4f7d3f172aef7d89c0",
+    "tree": "aa7d6ad025973641e9445e0e75f89c93d4194984",
+    "parents": [
+      "76c22c1990ae19e3ca6238d86920f572f805bcfa"
+    ],
+    "files": 4
+  },
+  "architecture_decision": {
+    "local": "017c8fda9e6f618202e8c2b3bc51953e65373073",
+    "remote": "3b8a8f20c899572e1e465634ffce6571462aa65b",
+    "tree": "2599e2283be7d724c766e71f3f83dcb687d682cd",
+    "parents": [
+      "2bd72e525516eb485e5fc5cdb690cb94e16e6f9c"
+    ],
+    "files": 5
+  },
+  "branches": [
+    "review/r4-parallel-handoff-20260925",
+    "review/r4-architecture-decision-20260925"
+  ],
+  "commits": {
+    "a56c1c4671c34dd9748c30dd10cd1d0dcd6ecfc0": {
+      "remote": "4c7f3ea0e1f72decfc7c5ecbae4fd84e5cebef9a",
+      "tree": "2c46b0c1ac13119019fb14ff332f0d5807b2b548"
+    },
+    "c67716638731ba3be4ceeab20be6e6fdee631fd3": {
+      "remote": "ccabeecc7346dffa7354e88c1deec53b1674428a",
+      "tree": "872e53b7cb05bace2d825dca47ea7e27f78c7cf0"
+    },
+    "3dab1f175705664833793a2bea23028474be8150": {
+      "remote": "53c28daf92ee4b50c86a3215725ff0e5464e1310",
+      "tree": "589b5c45d9ef98fde76f7d96608b6d8fd18d6e1c",
+      "parents": [
+        "a56c1c4671c34dd9748c30dd10cd1d0dcd6ecfc0"
+      ],
+      "files": 3
+    },
+    "2bd72e525516eb485e5fc5cdb690cb94e16e6f9c": {
+      "remote": "7b2d9acf65d7ddbc1cc66d86ddf936d34be3f801",
+      "tree": "f68c573786857cf3e433f635b74076c5dd4ea4b1",
+      "parents": [
+        "c67716638731ba3be4ceeab20be6e6fdee631fd3"
+      ],
+      "files": 4
+    },
+    "017c8fda9e6f618202e8c2b3bc51953e65373073": {
+      "remote": "3b8a8f20c899572e1e465634ffce6571462aa65b",
+      "tree": "2599e2283be7d724c766e71f3f83dcb687d682cd",
+      "parents": [
+        "2bd72e525516eb485e5fc5cdb690cb94e16e6f9c"
+      ],
+      "files": 5
+    },
+    "aeb4f83e9656024cb77491412ca3be16ae76998e": {
+      "remote": "7a08cb33974d7484786e84cfd65e63d26f97567f",
+      "tree": "e938c7f168bc59a8a7e8f9837d4b5f7f7a828bf3",
+      "parents": [
+        "a56c1c4671c34dd9748c30dd10cd1d0dcd6ecfc0"
+      ],
+      "files": 4
+    },
+    "4dc7f452882290728fea17d05dc19214861037bf": {
+      "remote": "813674b85aeedba3f7f1b86c0f4039acd42dd441",
+      "tree": "0981673b3eb08318b4f799c1bfa6d6a26a68dfc1",
+      "parents": [
+        "aeb4f83e9656024cb77491412ca3be16ae76998e"
+      ],
+      "files": 5
+    },
+    "77b87e89f278d40cb8f79423e1beaa3483588076": {
+      "remote": "244b7a3a23212e542b07b0b8e949fb648eb73cca",
+      "tree": "1d95db14ebb8db7bac4e86b1a13b3adbb5322ffb",
+      "parents": [
+        "3dab1f175705664833793a2bea23028474be8150",
+        "4dc7f452882290728fea17d05dc19214861037bf"
+      ],
+      "files": 8
+    },
+    "73f19ad3ffa1a2095a38dde671030ee47bde30ea": {
+      "remote": "5aba95360c49249bf20964cfe9ead1dcc28383e9",
+      "tree": "4eb09949615b5efcf650bc0b1fa4bb9a8eb8a8a5",
+      "parents": [
+        "a56c1c4671c34dd9748c30dd10cd1d0dcd6ecfc0"
+      ],
+      "files": 5
+    },
+    "045765f3e668a2547c153292fec3667a8b2e4b35": {
+      "remote": "462b55b39eb518d54fdcb6de0f28af4eb682b696",
+      "tree": "de15da8cf7f92458a324212ad6967819843b6a5c",
+      "parents": [
+        "73f19ad3ffa1a2095a38dde671030ee47bde30ea"
+      ],
+      "files": 3
+    },
+    "6c4adfbb7c6f54e24423c2a1e1ddd0ef27b422ec": {
+      "remote": "87f3c39c2f46b3032070e74134faf2ce98934a36",
+      "tree": "ffc1f1d635167f91811757993cfb0aaa231ea050",
+      "parents": [
+        "77b87e89f278d40cb8f79423e1beaa3483588076",
+        "045765f3e668a2547c153292fec3667a8b2e4b35"
+      ],
+      "files": 7
+    },
+    "33338c3e1b10e9f09eb83c9009b6c2f96ea35100": {
+      "remote": "4b45d1c3d286cba31b8e25cf654f0512825c45a6",
+      "tree": "96ac576a6b6457c4fdc4772969052142531fc3fc",
+      "parents": [
+        "a56c1c4671c34dd9748c30dd10cd1d0dcd6ecfc0"
+      ],
+      "files": 4
+    },
+    "9122be33cd1dcdfd2e14238be110083708ac94bd": {
+      "remote": "7fce4c64c775f32e7a530c016ae925356423c5b3",
+      "tree": "a04d470e11edff21bbd5823b50dd538e9cda29f4",
+      "parents": [
+        "33338c3e1b10e9f09eb83c9009b6c2f96ea35100"
+      ],
+      "files": 4
+    },
+    "313ef2b4f3d82f4591653943b820563baa4f0ebf": {
+      "remote": "4d051cdaea21ddcefcecbaee9ac31bce00db1ae4",
+      "tree": "d80cebcf9d8839832c6c459765c06428c3ac04fd",
+      "parents": [
+        "9122be33cd1dcdfd2e14238be110083708ac94bd"
+      ],
+      "files": 2
+    },
+    "9e7559edf819e7245660dbeefc595bfb8d515d90": {
+      "remote": "c26a7d459152de62a3066196a4e45ce48ee78a68",
+      "tree": "aa89c68dd37d2135a1094e4dfa2e34be71925917",
+      "parents": [
+        "6c4adfbb7c6f54e24423c2a1e1ddd0ef27b422ec",
+        "313ef2b4f3d82f4591653943b820563baa4f0ebf"
+      ],
+      "files": 7
+    },
+    "1bacbd574b5c0035187ee5f9a3c620b0693de4e6": {
+      "remote": "39bcb0f54b80fe2f541f11e586f1a35d8fcc9fdf",
+      "tree": "6402096b2480755042ce28feee0c3d1f3639d67e",
+      "parents": [
+        "4dc7f452882290728fea17d05dc19214861037bf"
+      ],
+      "files": 1
+    },
+    "76c22c1990ae19e3ca6238d86920f572f805bcfa": {
+      "remote": "f8fd8e7eaa019b00cef9d3b81a8ce6f20a2e3573",
+      "tree": "5fdea32645aa42a0889f4286244a275d969a1593",
+      "parents": [
+        "9e7559edf819e7245660dbeefc595bfb8d515d90",
+        "1bacbd574b5c0035187ee5f9a3c620b0693de4e6"
+      ],
+      "files": 1
+    },
+    "4779c8de1422eae59b294ef07fff761d8eeb6463": {
+      "remote": "a240112722633a1b06771a4f7d3f172aef7d89c0",
+      "tree": "aa7d6ad025973641e9445e0e75f89c93d4194984",
+      "parents": [
+        "76c22c1990ae19e3ca6238d86920f572f805bcfa"
+      ],
+      "files": 4
+    }
+  }
+}

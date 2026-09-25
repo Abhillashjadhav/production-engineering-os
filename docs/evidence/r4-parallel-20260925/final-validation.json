@@ -1,0 +1,60 @@
+{
+  "date": "2026-09-25",
+  "status": "PASS",
+  "scope": "Final decision-packet structure and Git metadata only; no product or probe execution",
+  "reviewed_commit": "4779c8de1422eae59b294ef07fff761d8eeb6463",
+  "reviewed_tree": "aa7d6ad025973641e9445e0e75f89c93d4194984",
+  "changed_paths": 27,
+  "allowed_path_scope": true,
+  "json_files_parsed": 9,
+  "broken_relative_links": [],
+  "runtime_comparisons": {
+    "architecture": {
+      "base": "c67716638731ba3be4ceeab20be6e6fdee631fd3",
+      "protected_runtime_path_changes": []
+    },
+    "coordinator": {
+      "base": "a56c1c4671c34dd9748c30dd10cd1d0dcd6ecfc0",
+      "protected_runtime_path_changes": []
+    }
+  },
+  "fresh_model_calls": 0,
+  "new_contract_approval": false,
+  "architecture": "FAIL",
+  "screened_final_rechecks": "UNVERIFIED",
+  "github_pr_status": [
+    {
+      "repository": "Abhillashjadhav/production-engineering-os",
+      "number": 211,
+      "head": "db605aa48898cfd6f1a045b6e51f3a7972eda714",
+      "draft": true,
+      "state": "open",
+      "merged": false
+    },
+    {
+      "repository": "Abhillashjadhav/production-engineering-os",
+      "number": 212,
+      "head": "524fee6f8ab7ab33d745d26b4c2ed63356d68e90",
+      "draft": true,
+      "state": "open",
+      "merged": false
+    },
+    {
+      "repository": "Abhillashjadhav/PM-agent-OS",
+      "number": 65,
+      "head": "13a08d260d28043fe5901c11ed5764ebe135027c",
+      "draft": true,
+      "state": "open",
+      "merged": false
+    },
+    {
+      "repository": "Abhillashjadhav/PM-agent-OS",
+      "number": 66,
+      "head": "394f0386827c1c0e6357717c906323855c2c37e0",
+      "draft": true,
+      "state": "open",
+      "merged": false
+    }
+  ],
+  "verification_limit": "Data-only packet validation and retained worker checks. No architecture GREEN, runtime approval, new replay, final screened probes, model calls, contract approval, GitHub merge or deployment."
+}
