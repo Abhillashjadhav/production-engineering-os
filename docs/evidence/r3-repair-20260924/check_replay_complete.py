@@ -17,6 +17,8 @@ from pathlib import Path
 import rfc8785
 
 FREEZE = "sha256:1dd281e55cc20ce1861e3bed55799617191f38c5cc4e2322c7e463ef9a6e37f2"
+PRODUCT_EXIT_CODES = frozenset({0, 1, 2})
+INTERPRETER = re.compile(r"python3?(\.[0-9]+)?")
 EXPECTED_FAILURES = {
     "retained": [],
     "persistence": [
@@ -101,11 +103,11 @@ def crash_marker(value):
     if isinstance(value, dict):
         if value.get("invalid_json") is True:
             return True
-        # Ordinary product exits are small non-negative ints (0, 1, 2 here); a timeout
-        # label, a signal (negative or >= 128, e.g. 137) or any non-int is a crash.
+        # The frozen task tracker exits only 0, 1 or 2. Any other code (a timeout
+        # label, 127 command-not-found, a signal such as 137, a non-int) is a crash.
         if "exit_code" in value:
             code = value["exit_code"]
-            if type(code) is not int or not 0 <= code < 128:
+            if type(code) is not int or code not in PRODUCT_EXIT_CODES:
                 return True
         return any(crash_marker(child) for child in value.values())
     return isinstance(value, list) and any(crash_marker(child) for child in value)
@@ -232,6 +234,40 @@ def check(directory, packet, source, case):
         semantic = {}
         expected_findings = []
         runner = frozen_runner(source)
+        caps = read(packet / "execution-profile.json")["resource_caps"]
+        # The historical host fallback's exact prlimit prefix, from the frozen profile.
+        limits = [
+            "prlimit",
+            f"--as={caps['address_space_bytes']}",
+            f"--cpu={caps['action_cpu_seconds']}",
+            f"--fsize={caps['file_size_bytes']}",
+            f"--nofile={caps['open_files']}",
+            f"--nproc={caps['processes']}",
+            "--",
+        ]
+        interpreters = {p["argv"][7] for p in processes if isinstance(p.get("argv"), list)}
+        require(len(interpreters) == 1, "observer interpreter differs between processes")
+        interpreter = next(iter(interpreters))
+        require(
+            isinstance(interpreter, str)
+            and Path(interpreter).is_absolute()
+            and INTERPRETER.fullmatch(Path(interpreter).name) is not None,
+            "observer interpreter is not an absolute Python executable",
+        )
+        # The operator's launch record beside the case directories is written by the
+        # outer replay driver, not by the observed engine. It is still a retained
+        # operator record: this binds the two records, it does not authenticate the binary.
+        launches = read(root.parent / "replay-commands.json")
+        require(isinstance(launches, list), "replay launch record is not a list")
+        matching = [
+            item for item in launches if isinstance(item, dict) and item.get("case") == case
+        ]
+        require(len(matching) == 1, "replay launch record must name this case exactly once")
+        command = matching[0].get("command")
+        require(
+            isinstance(command, list) and bool(command) and command[0] == interpreter,
+            "observer interpreter differs from the operator's replay launch record",
+        )
         for index, (criterion, process) in enumerate(zip(plan.criteria, processes, strict=True)):
             require(
                 type(process["check_index"]) is int and process["check_index"] == index,
@@ -286,6 +322,10 @@ def check(directory, packet, source, case):
                 "observer target or arguments differ",
             )
             # The host fallback rewrites only the '/workspace' constant of the engine runner.
+            require(
+                len(argv) == 16 and argv[:7] == limits and argv[7] == interpreter,
+                "observer command prefix differs from the frozen host fallback",
+            )
             require(
                 argv[-8:-3]
                 == [

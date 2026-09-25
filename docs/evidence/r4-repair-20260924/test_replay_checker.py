@@ -46,6 +46,8 @@ class ReplayCheckerRegression(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary) / name
             shutil.copytree(EVIDENCE / name, root)
+            # The operator's independent launch record sits beside the case directories.
+            shutil.copyfile(EVIDENCE / "replay-commands.json", root.parent / "replay-commands.json")
             mutation(root)
             result = self.run_check(root, optimized)
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
@@ -143,6 +145,45 @@ class ReplayCheckerRegression(unittest.TestCase):
             argv[-5] = (
                 f"import sys;sys.path.insert(0,{workspace});print({rows[0]['stdout'].strip()!r})"
             )
+
+        self.mutate("retained", lambda root: self.change_rows(root, "processes.jsonl", change))
+
+    def test_non_signal_abnormal_exit_rejected(self):
+        """127 (command not found) is outside the frozen task tracker's 0/1/2 exits."""
+
+        def change(rows):
+            row = next(item for item in rows if item["criterion_id"] == "AC-002")
+            value = json.loads(row["stdout"])
+            value["observations"][-1]["exit_code"] = 127
+            row["stdout"] = json.dumps(value)
+
+        self.mutate("persistence", lambda root: self.change_rows(root, "processes.jsonl", change))
+
+    def test_replaced_interpreter_or_limits_rejected(self):
+        def one_interpreter(rows):
+            rows[0]["argv"][7] = "/usr/bin/python3"
+
+        def every_interpreter(rows):
+            for row in rows:
+                row["argv"][7] = "/tmp/fabricated-runner"
+
+        def limits(rows):
+            for row in rows:
+                row["argv"][2] = "--cpu=9999"
+
+        for change in (one_interpreter, every_interpreter, limits):
+            with self.subTest(change=change.__name__):
+                self.mutate(
+                    "retained",
+                    lambda root, change=change: self.change_rows(root, "processes.jsonl", change),
+                )
+
+    def test_python_named_fake_interpreter_rejected(self):
+        """A fake path with an accepted basename must not match the operator's launcher."""
+
+        def change(rows):
+            for row in rows:
+                row["argv"][7] = "/tmp/python3"
 
         self.mutate("retained", lambda root: self.change_rows(root, "processes.jsonl", change))
 
