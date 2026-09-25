@@ -1,5 +1,11 @@
 # R4 continuation — review remains open
 
+Follow-up on 2026-09-25: [parallel review and decision packet](../r4-parallel-20260925/README.md).
+The historical provenance gap below is now reconciled. Architecture remains
+blocked by a supported-execution decision, and fresh delivery also needs a
+freshness verification capability; contract approval alone is insufficient.
+The following records the earlier continuation's checks and status.
+
 The repairs are available on review branches. **Do not complete or merge:** the integrated process source fails the existing architecture gate, and two final independent adversarial rechecks remain unverified after the previous session's automatic security screening.
 
 | Verdict | Current evidence |

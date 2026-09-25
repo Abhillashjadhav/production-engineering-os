@@ -1,6 +1,8 @@
 # R4 parallel ownership, 2026-09-25
 
-Status: in progress. This packet extends the existing R4 handoff. Separate-chat
+Status: all four investigations completed; provenance closed, evidence checked,
+architecture and fresh-run implementation blocked by concrete design decisions.
+Documentation integration is sequential. This packet extends the existing R4 handoff. Separate-chat
 workers are not addressable through this thread's agent controls. Their live
 activity is unconfirmed; no coordination with that other thread is claimed.
 Each worker owns an isolated branch. Original worktrees and public PR heads are
@@ -13,6 +15,22 @@ not modified by concurrent workers.
 | Evidence review | `docs/r4-evidence-review-20260925` | Independent review of retained claims; permitted final-check inventory | Existing R4 source and evidence; final source review waits for architecture outcome |
 | Fresh-run readiness | `docs/r4-fresh-readiness-20260925` | Reachable approval/freshness mechanisms and exact remaining decisions | Existing process and PMOS sources; draft regeneration waits for final source |
 | Coordinator | `docs/r4-parallel-coordination-20260925` | Ownership, sequential integration, final checks, reviewable publication and accurate handoff | Completed worker results |
+
+## Completed worker identities
+
+| Worker | Final local commit | Outcome |
+| --- | --- | --- |
+| Architecture | `017c8fda9e6f618202e8c2b3bc51953e65373073` | Static RED retained; nine benign metadata cases and one ordinary fixture pass; production unchanged; execution-contract decision required. |
+| Provenance | `1bacbd574b5c0035187ee5f9a3c620b0693de4e6` | Two historical complete-tree mappings verified; original evidence untouched; verifier scope documented. |
+| Evidence review | `045765f3e668a2547c153292fec3667a8b2e4b35` | Retained byte/count consistency confirmed; independent source-only concurrence on both design blockers. |
+| Fresh-run readiness | `313ef2b4f3d82f4591653943b820563baa4f0ebf` | No current GATE-004 PASS path; trusted existing-access provenance capability unestablished; exact approval sequence documented. |
+
+The architecture result remains on a separate review branch and was not merged
+into the handoff's historical runtime tree. Only the additive documentation
+branches were integrated. Their merges are local review assembly, not GitHub
+PR merges. The publication map preserves each worker's test-before-report
+history. Runtime-bound drafts and replay were not regenerated because no
+production source changed.
 
 The three documentation branches start from
 `a56c1c4671c34dd9748c30dd10cd1d0dcd6ecfc0` (public

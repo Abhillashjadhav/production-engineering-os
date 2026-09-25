@@ -205,3 +205,12 @@ script was committed or executed before the original documentation change.
 4. **Yes.** Before editing, `test -e docs/evidence/r4-parallel-20260925/OWNERSHIP.md` exited 1. Afterward, check that all four isolated workstreams, their boundaries and sequential dependencies are recorded.
 5. **Yes.** One documentation commit can be reverted without changing the independently owned workstreams.
 6. **No.** No dependency, setting, execution surface or new verification authority is introduced.
+
+## Unit — integrate R4 parallel findings and decision packet, 2026-09-25
+
+1. **Yes, restructured.** Extend the existing R4 handoff with independently produced provenance, evidence, architecture and readiness findings; do not create a replacement implementation.
+2. **Yes.** The owner requested parallel completion of separate remaining tasks. The reproduced architecture failure and unresolved provenance/freshness items determine this packet's scope.
+3. **No.** This branch integrates documentation and data-only review scripts; production source and release behavior remain unchanged. Architecture regression evidence remains on its separate branch.
+4. **Yes.** Before this unit, `test -e docs/evidence/r4-parallel-20260925/README.md` exited 1. After integration, require the linked findings, exact publication mappings, unchanged runtime and independent packet consistency review.
+5. **Yes.** The additive handoff can be reverted independently of the existing runtime and separate architecture investigation.
+6. **No.** The packet proposes, but does not implement or approve, new execution/provenance mechanisms. The runtime implementation units remain stopped pending the BAR question 6 decision.
