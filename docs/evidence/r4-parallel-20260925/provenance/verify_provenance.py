@@ -40,7 +40,9 @@ def main() -> None:
     require(map_path.is_file(), "C7-01 direct provenance map is absent")
     mapping = json.loads(map_path.read_text())
     require(mapping["repository"] == REPOSITORY, "wrong repository")
-    require(mapping["classification"] == "EXACT_TREE_EQUIVALENCE_ONLY", "overstated proof")
+    require(
+        mapping["classification"] == "EXACT_TREE_EQUIVALENCE_ONLY", "overstated proof"
+    )
     require(set(mapping["claims"]) == set(CLAIMS), "historical claim set changed")
 
     source = mapping["original_claim_file"]
@@ -55,46 +57,100 @@ def main() -> None:
     )
 
     public_path = HERE / "public-commits.json"
-    require(digest(public_path.read_bytes()) == mapping["public_metadata_sha256"], "public metadata changed")
+    require(
+        digest(public_path.read_bytes()) == mapping["public_metadata_sha256"],
+        "public metadata changed",
+    )
     public = json.loads(public_path.read_text())
-    require(public["method"] == "GitHub Git-data API GET; relevant-field projection", "unidentified evidence")
+    require(
+        public["method"] == "GitHub Git-data API GET; relevant-field projection",
+        "unidentified evidence",
+    )
+    public_files = {entry["path"]: entry for entry in public["files"]}
+    public_original = public_files[source["path"]]
+    require(
+        public_original["git_blob"] == source["git_blob"], "public historical blob differs"
+    )
+    require(
+        public_original["ref"] == source["public_commit"], "historical public ref differs"
+    )
     for field, expected_local in CLAIMS.items():
         claim = mapping["claims"][field]
         require(claim["local"] == expected_local, "wrong local alias")
-        require(object_id(expected_local + "^{tree}") == claim["tree"], "wrong local tree")
+        require(
+            object_id(expected_local + "^{tree}") == claim["tree"], "wrong local tree"
+        )
         record = public["commits"][claim["public"]]
         require(record["sha"] == claim["public"], "wrong public commit")
         require(record["tree"] == claim["tree"], "public/local tree mismatch")
+        source_url = (
+            f"https://api.github.com/repos/{REPOSITORY}/git/commits/{claim['public']}"
+        )
         require(
-            record["source_url"] == f"https://api.github.com/repos/{REPOSITORY}/git/commits/{claim['public']}",
+            record["source_url"] == source_url,
             "metadata is not pinned to the public commit",
         )
 
     chain = mapping["existing_publication_chain"]
     publication_ref = BASE + ":" + chain["path"]
     publication_bytes = git("show", publication_ref)
-    require(digest(publication_bytes) == chain["sha256"], "prior publication record changed")
+    require(
+        digest(publication_bytes) == chain["sha256"], "prior publication record changed"
+    )
+    require(
+        public_files[chain["path"]]["git_blob"] == object_id(publication_ref),
+        "public prior publication record differs",
+    )
     publication = json.loads(publication_bytes)
     entries = publication["peos_migration_commits"]
     prior = next(entry for entry in entries if entry["local"] == chain["local"])
     claim = mapping["claims"]["combined_tests_and_docs_head"]
     require(prior["remote"] == claim["public"], "existing public alias differs")
     require(prior["tree"] == claim["tree"], "existing publication tree differs")
-    require(object_id(chain["local"] + "^{tree}") == claim["tree"], "replayed local tree differs")
+    require(
+        object_id(chain["local"] + "^{tree}") == claim["tree"],
+        "replayed local tree differs",
+    )
 
-    delta = git("diff", "--name-only", CLAIMS["implementation_source_commit"], CLAIMS["combined_tests_and_docs_head"]).decode().splitlines()
+    delta = (
+        git(
+            "diff",
+            "--name-only",
+            CLAIMS["implementation_source_commit"],
+            CLAIMS["combined_tests_and_docs_head"],
+        )
+        .decode()
+        .splitlines()
+    )
     require(delta == mapping["historical_delta_paths"], "historical tree delta differs")
     for subtree, expected in mapping["unchanged_subtrees"].items():
         for local in CLAIMS.values():
-            require(object_id(local + ":" + subtree) == expected, "source subtree differs")
+            require(
+                object_id(local + ":" + subtree) == expected, "source subtree differs"
+            )
     changed = git("diff", "--name-only", BASE, "--").decode().splitlines()
     require(
         all(path.startswith("docs/evidence/r4-parallel-20260925/") for path in changed),
         "workstream changed material outside its evidence directory",
     )
-    require(mapping["new_test_execution"] is False, "mapping must not claim new product tests")
-    require(mapping["approval_or_release_proof"] is False, "mapping must not claim approval or release")
-    print(json.dumps({"status": "PASS", "verified_historical_mappings": 2, "historical_claim_blob_preserved": True, "product_code_executed": False}, indent=2))
+    require(
+        mapping["new_test_execution"] is False, "mapping must not claim new product tests"
+    )
+    require(
+        mapping["approval_or_release_proof"] is False,
+        "mapping must not claim approval or release",
+    )
+    print(
+        json.dumps(
+            {
+                "status": "PASS",
+                "verified_historical_mappings": 2,
+                "historical_claim_blob_preserved": True,
+                "product_code_executed": False,
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

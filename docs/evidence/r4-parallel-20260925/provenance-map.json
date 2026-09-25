@@ -1,0 +1,48 @@
+{
+  "repository": "Abhillashjadhav/production-engineering-os",
+  "finding": "C7-01",
+  "classification": "EXACT_TREE_EQUIVALENCE_ONLY",
+  "original_claim_file": {
+    "local_commit": "fd367478ac42f3d876393c1782379bd9a9c09579",
+    "public_commit": "524fee6f8ab7ab33d745d26b4c2ed63356d68e90",
+    "path": "reviews/r3-process-gates/FINAL.json",
+    "git_blob": "1762fccb2005edf7e833000223573c7ea559b88a",
+    "sha256": "sha256:d1fce625ff5c53525f0735adbef1c02d64adb8111260831d979ccfbc50a73102"
+  },
+  "claims": {
+    "combined_tests_and_docs_head": {
+      "local": "733a409d5b0a72f7ad0550db974f70623e259992",
+      "public": "e091917babec860aea7e789c00fd22e4ea2a43c9",
+      "tree": "460d443b7f5cae7585d6182db661c991193e7d38",
+      "scope": "complete Git tree; commit identity and ancestry are different"
+    },
+    "implementation_source_commit": {
+      "local": "68ae80fbe85332551b36f2a0b6dfe24d7ba1bc3d",
+      "public": "8be179fab325b78f170adf474057536d944b788c",
+      "tree": "537b78a0492328e2b29737db9b2763413eb11f38",
+      "scope": "complete Git tree; commit identity and ancestry are different"
+    }
+  },
+  "public_metadata_sha256": "sha256:9c9ae124dff78d85b883e8a0649dab972f9662126adff9c869231fa0f19a84d2",
+  "existing_publication_chain": {
+    "path": "docs/evidence/r3-repair-20260924/final-publication.json",
+    "local": "c209e7d9ff00f94ece14bdd5238b5891c84d59dc",
+    "sha256": "sha256:8a83ebdfd34c4d30f208eddd4a97dd881ee6addd910b0ba88aafb7c21a4bdfdc"
+  },
+  "historical_delta_paths": [
+    "reviews/r3-admission/SECRET-FOLLOWUP.md",
+    "reviews/r3-admission/secret-followup-after.json",
+    "reviews/r3-admission/secret-followup-before.json",
+    "reviews/r3-admission/secret-followup-regression.txt",
+    "tests/unit/test_support_package_portable_proofs.py",
+    "tests/unit/test_support_package_v1.py"
+  ],
+  "unchanged_subtrees": {
+    "src": "becb37d09c36137a1fad45975125df53e8cb1cf5",
+    "scripts": "0730877f9493380d4b4e5cabfd7d75877bc565a5",
+    "schemas": "772cf8e9058cba2f68bf391524c3140221404b98"
+  },
+  "new_test_execution": false,
+  "approval_or_release_proof": false,
+  "status": "C7-01_MAPPING_RECONCILED"
+}
