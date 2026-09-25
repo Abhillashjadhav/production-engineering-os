@@ -10,6 +10,7 @@ import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict
 from pathlib import Path
+from types import CodeType
 from typing import TYPE_CHECKING, Any
 
 from pmpe.contracts.canonical import canonical_digest, strict_loads
@@ -37,33 +38,69 @@ def _startup_record(name: str) -> list[bytes] | None:
         return None
 
 
-def _given_at_startup(cmdline: list[bytes], option: str) -> bool:
-    value = b"pycache_prefix=" + os.fsencode(option)
-    return any(
-        token == b"-X" + value or (token == value and index > 0 and cmdline[index - 1] == b"-X")
-        for index, token in enumerate(cmdline)
-    )
+def _interpreter_xoptions(cmdline: list[bytes]) -> list[bytes]:
+    """``-X`` values given to the interpreter itself, before the script, ``-c`` or ``-m``.
+
+    Anything after that boundary is an argument to the program, not a startup option.
+    """
+    values: list[bytes] = []
+    index = 1
+    while index < len(cmdline):
+        token = cmdline[index]
+        if token == b"--" or token == b"-" or not token.startswith(b"-"):
+            break
+        if token.startswith(b"--"):
+            index += 2 if token == b"--check-hash-based-pycs" else 1
+            continue
+        flags = token[1:]
+        for position in range(len(flags)):
+            flag = flags[position : position + 1]
+            if flag in (b"c", b"m"):
+                return values
+            if flag in (b"X", b"W"):
+                inline = flags[position + 1 :]
+                if not inline:
+                    index += 1
+                    inline = cmdline[index] if index < len(cmdline) else b""
+                if flag == b"X":
+                    values.append(inline)
+                break
+        index += 1
+    return values
 
 
 def _startup_pycache_prefix() -> str | None:
-    """The cache prefix this interpreter was started with (``-X`` wins over the env)."""
+    """The cache prefix this interpreter was started with (``-X`` wins over the env).
+
+    Where ``/proc`` exists only the kernel's startup records count: runtime edits to
+    ``sys._xoptions`` or ``os.environ`` can neither add a prefix nor remove the startup
+    ``-X`` that overrode the environment.
+    """
+    cmdline = _startup_record("cmdline")
+    if cmdline is not None:
+        prefixes = [
+            value.removeprefix(b"pycache_prefix=")
+            for value in _interpreter_xoptions(cmdline)
+            if value.startswith(b"pycache_prefix=")
+        ]
+        if prefixes:
+            return os.fsdecode(prefixes[-1]) or None
+        if sys.flags.ignore_environment:
+            return None
+        # getenv() returns the first entry, so the first one is what CPython read.
+        entries = [
+            entry.removeprefix(b"PYTHONPYCACHEPREFIX=")
+            for entry in _startup_record("environ") or []
+            if entry.startswith(b"PYTHONPYCACHEPREFIX=")
+        ]
+        return os.fsdecode(entries[0]) or None if entries else None
+    # No /proc (for example macOS): only runtime values exist here (open question Q20).
     option = sys._xoptions.get("pycache_prefix")
     if isinstance(option, str) and option:
-        cmdline = _startup_record("cmdline")
-        if cmdline is not None and not _given_at_startup(cmdline, option):
-            return None
         return option
     if sys.flags.ignore_environment:
         return None
-    value = os.environ.get("PYTHONPYCACHEPREFIX") or None
-    environ = _startup_record("environ")
-    if (
-        value is not None
-        and environ is not None
-        and b"PYTHONPYCACHEPREFIX=" + os.fsencode(value) not in environ
-    ):
-        return None
-    return value
+    return os.environ.get("PYTHONPYCACHEPREFIX") or None
 
 
 def require_source_only_interpreter() -> Path:
@@ -173,6 +210,43 @@ def _defining_namespace(cls: type) -> dict[str, Any]:
     return namespaces[0]
 
 
+def _compiled_code(source: str) -> dict[str, list[CodeType]]:
+    """Every code object compiled from ``source``, keyed by qualified name."""
+    try:
+        root = compile(Path(source).read_bytes(), source, "exec", dont_inherit=True)
+    except (OSError, SyntaxError, ValueError) as exc:
+        raise ValueError("process gate implementation source does not compile") from exc
+    codes: dict[str, list[CodeType]] = {}
+    pending = [root]
+    while pending:
+        for constant in pending.pop().co_consts:
+            if isinstance(constant, CodeType):
+                codes.setdefault(constant.co_qualname, []).append(constant)
+                pending.append(constant)
+    return codes
+
+
+def _require_compiled_methods(klass: type) -> None:
+    if klass.__module__ == "builtins":
+        return
+    source = inspect.getsourcefile(klass)
+    if source is None:
+        raise ValueError("process gate implementation has no inspectable source")
+    compiled = _compiled_code(source)
+    for value in vars(klass).values():
+        function = getattr(value, "__func__", value)
+        if isinstance(function, property):
+            function = function.fget
+        if not inspect.isfunction(function):
+            continue
+        code = inspect.unwrap(function).__code__
+        # The code must be this class's own method, not other code from the same file.
+        if code.co_qualname != klass.__qualname__ + "." + code.co_name or not any(
+            code == candidate for candidate in compiled.get(code.co_qualname, ())
+        ):
+            raise ValueError("process gate implementation is not its canonical module class")
+
+
 def implementation_identity(implementation: object) -> dict[str, Any]:
     cls = type(implementation)
     namespace = _defining_namespace(cls)
@@ -184,11 +258,18 @@ def implementation_identity(implementation: object) -> dict[str, Any]:
     canonical = namespace.get(parts[0])
     for name in parts[1:]:
         canonical = vars(canonical).get(name) if isinstance(canonical, type) else None
-    if canonical is not cls:
+    # A dict that merely claims the module's name (for example one filled by exec) is not
+    # the loaded module; the class's own functions must close over the real module's dict.
+    module = inspect.getmodule(cls)
+    if canonical is not cls or module is None or vars(module) is not namespace:
         raise ValueError("process gate implementation is not its canonical module class")
     source = inspect.getsourcefile(cls)
     if source is None:
         raise ValueError("process gate implementation has no inspectable source")
+    # A replacement module can take the approved name and __file__, but not the approved
+    # code: every method must be the code compiled from its class's own source file.
+    for klass in cls.__mro__[:-1]:
+        _require_compiled_methods(klass)
     identity: dict[str, Any] = {
         "class": type(implementation).__module__ + "." + type(implementation).__qualname__,
         "source_digest": raw_digest(Path(source).read_bytes()),

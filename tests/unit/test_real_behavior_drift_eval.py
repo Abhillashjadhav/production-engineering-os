@@ -117,6 +117,12 @@ def test_source_snapshot_is_the_captured_git_tree_and_read_only(tmp_path: Path) 
             destination.chmod(0o755)
 
 
+def _decode_snapshot_image(descriptor: int) -> tuple[dict[str, object], bytes]:
+    image = os.pread(descriptor, 1 << 20, 0)
+    header_size = int.from_bytes(image[:8], "big")
+    return json.loads(image[8 : 8 + header_size]), image[8 + header_size :]
+
+
 def test_snapshot_command_uses_read_only_mount_and_rechecks_the_tree(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -141,9 +147,15 @@ def test_snapshot_command_uses_read_only_mount_and_rechecks_the_tree(
     ) -> tuple[int, str]:
         assert len(pass_fds) == 1
         descriptor = pass_fds[0]
-        assert os.pread(descriptor, 64, 0) == b"VALUE = 1\n"
         with pytest.raises(OSError):
             os.pwrite(descriptor, b"tampered", 0)
+        header, contents = _decode_snapshot_image(descriptor)
+        assert header == {
+            "directories": [["package", 0o550]],
+            "files": [["package/source.py", 0o440, len(b"VALUE = 1\n")]],
+            "root_mode": 0o555,
+        }
+        assert contents == b"VALUE = 1\n"
         assert argv == [
             "/usr/bin/bwrap",
             "--die-with-parent",
@@ -151,18 +163,25 @@ def test_snapshot_command_uses_read_only_mount_and_rechecks_the_tree(
             "/",
             "/",
             "--perms",
-            "0555",
+            "0700",
             "--tmpfs",
             str(source_checkout),
-            "--perms",
-            "0550",
-            "--dir",
-            str(source_directory),
-            "--perms",
-            "0440",
-            "--file",
+            "--chdir",
+            "/",
+            "--",
+            sys.executable,
+            "-I",
+            "-B",
+            "-S",
+            "-c",
+            drift_eval._SNAPSHOT_MATERIALIZER,
             str(descriptor),
-            str(source_file),
+            str(source_checkout),
+            "/usr/bin/bwrap",
+            "--die-with-parent",
+            "--bind",
+            "/",
+            "/",
             "--remount-ro",
             str(source_checkout),
             "--chdir",
@@ -192,6 +211,215 @@ def test_snapshot_command_uses_read_only_mount_and_rechecks_the_tree(
         source_checkout.chmod(0o755)
         source_directory.chmod(0o755)
         source_file.chmod(0o644)
+
+
+def _many_file_snapshot(root: Path, count: int) -> Path:
+    source_checkout = root / "source-snapshot"
+    for index in range(count):
+        path = source_checkout / f"package{index % 7}" / f"module{index}.py"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"VALUE = {index}\n")
+        path.chmod(0o444 if index % 2 else 0o440)
+    for directory in sorted(source_checkout.iterdir()):
+        directory.chmod(0o555)
+    source_checkout.chmod(0o555)
+    return source_checkout
+
+
+def _release_snapshot(source_checkout: Path) -> None:
+    for path in sorted(source_checkout.rglob("*"), key=lambda item: len(item.parts)):
+        path.chmod(0o755 if path.is_dir() else 0o644)
+    source_checkout.chmod(0o755)
+
+
+def test_snapshot_command_argv_does_not_grow_with_the_source_tree(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """bwrap refuses more than 9000 arguments, so the repository size must not reach argv."""
+
+    lengths: list[int] = []
+
+    def command(
+        argv: list[str],
+        *,
+        environment: dict[str, str],
+        pass_fds: tuple[int, ...],
+        timeout: int,
+        cwd: Path,
+    ) -> tuple[int, str]:
+        del environment, pass_fds, timeout, cwd
+        lengths.append(len(argv))
+        return 0, ""
+
+    monkeypatch.setattr(drift_eval, "_command", command)
+    for count in (3, 2000):
+        source_checkout = _many_file_snapshot(tmp_path / str(count), count)
+        try:
+            drift_eval._snapshot_command(
+                ["/bin/true"],
+                bwrap_executable="/usr/bin/bwrap",
+                environment={"PATH": "/trusted"},
+                expected_tree_digest=drift_eval._snapshot_tree_digest(source_checkout),
+                source_checkout=source_checkout,
+                timeout=60,
+            )
+        finally:
+            _release_snapshot(source_checkout)
+
+    assert lengths[0] == lengths[1] < 64
+
+
+_TREE_PROBE = (
+    "import json,os,stat,sys\n"
+    "root=sys.argv[1]\n"
+    "seen=[]\n"
+    "for top,dirs,files in os.walk(root):\n"
+    "    dirs.sort()\n"
+    "    for name in sorted(dirs+files):\n"
+    "        path=os.path.join(top,name)\n"
+    "        data=None if os.path.isdir(path) else open(path,'rb').read().decode()\n"
+    "        seen.append([os.path.relpath(path,root),stat.S_IMODE(os.lstat(path).st_mode),data])\n"
+    "print(json.dumps([stat.S_IMODE(os.stat(root).st_mode),sorted(seen)]))\n"
+)
+
+
+def _host_tree(source_checkout: Path) -> list[object]:
+    seen = [
+        [
+            path.relative_to(source_checkout).as_posix(),
+            path.stat().st_mode & 0o7777,
+            None if path.is_dir() else path.read_text(),
+        ]
+        for path in source_checkout.rglob("*")
+    ]
+    return [source_checkout.stat().st_mode & 0o7777, sorted(seen)]
+
+
+def test_snapshot_materializer_reproduces_the_verified_tree_exactly(tmp_path: Path) -> None:
+    """The in-sandbox unpacker rebuilds paths, modes and bytes, then runs the child."""
+
+    source_checkout = _many_file_snapshot(tmp_path / "source", 40)
+    target = tmp_path / "target"
+    target.mkdir(mode=0o700)
+    try:
+        entries, files = drift_eval._snapshot_image(source_checkout)
+        descriptor = drift_eval._sealed_memfd(drift_eval._snapshot_image_bytes(entries, files))
+        try:
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-I",
+                    "-B",
+                    "-S",
+                    "-c",
+                    drift_eval._SNAPSHOT_MATERIALIZER,
+                    str(descriptor),
+                    str(target),
+                    sys.executable,
+                    "-I",
+                    "-B",
+                    "-c",
+                    _TREE_PROBE,
+                    str(target),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+                pass_fds=(descriptor,),
+            )
+        finally:
+            os.close(descriptor)
+        assert completed.returncode == 0, completed.stderr
+        assert json.loads(completed.stdout) == _host_tree(source_checkout)
+        assert drift_eval._snapshot_tree_digest(target) == drift_eval._snapshot_tree_digest(
+            source_checkout
+        )
+    finally:
+        _release_snapshot(source_checkout)
+        if target.exists():
+            _release_snapshot(target)
+
+
+@pytest.mark.parametrize(
+    ("damage", "message"),
+    [
+        (lambda image: image[:-1], "truncated"),
+        (lambda image: image + b"x", "trailing"),
+    ],
+)
+def test_snapshot_materializer_refuses_a_damaged_image(
+    tmp_path: Path, damage: object, message: str
+) -> None:
+    source_checkout = _many_file_snapshot(tmp_path / "source", 3)
+    target = tmp_path / "target"
+    target.mkdir(mode=0o700)
+    try:
+        entries, files = drift_eval._snapshot_image(source_checkout)
+        assert callable(damage)
+        descriptor = drift_eval._sealed_memfd(
+            damage(drift_eval._snapshot_image_bytes(entries, files))
+        )
+        try:
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    "-I",
+                    "-B",
+                    "-S",
+                    "-c",
+                    drift_eval._SNAPSHOT_MATERIALIZER,
+                    str(descriptor),
+                    str(target),
+                    "/bin/true",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=60,
+                check=False,
+                pass_fds=(descriptor,),
+            )
+        finally:
+            os.close(descriptor)
+        assert completed.returncode != 0
+        assert message in completed.stderr
+    finally:
+        _release_snapshot(source_checkout)
+        _release_snapshot(target)
+
+
+@pytest.mark.skipif(
+    os.environ.get("PMPE_TEST_REAL_SANDBOX") != "true",
+    reason="requires the dedicated CI namespace runtime",
+)
+def test_real_snapshot_command_mounts_a_large_tree_read_only(tmp_path: Path) -> None:
+    """More files than bwrap's 9000-argument limit could name one by one."""
+
+    source_checkout = _many_file_snapshot(tmp_path / "source", 2000)
+    bwrap_executable = shutil.which("bwrap")
+    assert bwrap_executable is not None
+    probe = (
+        _TREE_PROBE
+        + "try:\n"
+        + "    open(os.path.join(root,'package0','module0.py'),'a').close()\n"
+        + "except OSError:\n"
+        + "    pass\n"
+        + "else:\n"
+        + "    raise SystemExit('snapshot is writable')\n"
+    )
+    try:
+        exit_code, output = drift_eval._snapshot_command(
+            [sys.executable, "-I", "-B", "-c", probe, str(source_checkout)],
+            bwrap_executable=bwrap_executable,
+            environment=drift_eval._sanitized_environment(),
+            expected_tree_digest=drift_eval._snapshot_tree_digest(source_checkout),
+            source_checkout=source_checkout,
+            timeout=120,
+        )
+        assert exit_code == 0, output
+        assert json.loads(output) == _host_tree(source_checkout)
+    finally:
+        _release_snapshot(source_checkout)
 
 
 def test_snapshot_command_detects_owner_mutation_after_the_child(

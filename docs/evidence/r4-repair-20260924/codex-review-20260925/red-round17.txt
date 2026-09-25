@@ -1,0 +1,6 @@
+# base 219909a + tests only (Codex P1 on #226 0fd6b4c: observation counts)
+FAIL: test_observation_counts_differ_from_the_action_arguments_rejected (__main__.ReplayCheckerRegression.test_observation_counts_differ_from_the_action_arguments_rejected) (change='dropped-observation')
+FAIL: test_observation_counts_differ_from_the_action_arguments_rejected (__main__.ReplayCheckerRegression.test_observation_counts_differ_from_the_action_arguments_rejected) (change='dropped-setup-observation')
+FAIL: test_observation_counts_differ_from_the_action_arguments_rejected (__main__.ReplayCheckerRegression.test_observation_counts_differ_from_the_action_arguments_rejected) (change='process-count')
+Ran 33 tests in 30.896s
+FAILED (failures=3)

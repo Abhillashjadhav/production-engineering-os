@@ -213,7 +213,7 @@ with tempfile.TemporaryDirectory(prefix="pmpe-pinned-runtime-") as directory:
             try:
                 if documented_url is None:
                     with open(documented_port_file, encoding="utf-8") as handle:
-                        documented_url = "http://127.0.0.1:" + handle.read() + "/health"
+                        documented_url = "http://127.0.0.1:%d/health" % int(handle.read())
                 with urllib.request.urlopen(documented_url, timeout=0.1) as response:
                     documented_health = json.loads(response.read())
                 assert documented.poll() is None

@@ -1,0 +1,8 @@
+# base a011c24 + tests only (Codex P1 on #226 5ff10ae, P2 on #221 a011c24: literal and derived return values)
+FAIL: test_values_the_frozen_evaluator_cannot_return_rejected (__main__.ReplayCheckerRegression.test_values_the_frozen_evaluator_cannot_return_rejected) (change='literal-workload')
+FAIL: test_values_the_frozen_evaluator_cannot_return_rejected (__main__.ReplayCheckerRegression.test_values_the_frozen_evaluator_cannot_return_rejected) (change='literal-units')
+FAIL: test_values_the_frozen_evaluator_cannot_return_rejected (__main__.ReplayCheckerRegression.test_values_the_frozen_evaluator_cannot_return_rejected) (change='count-differs')
+FAIL: test_values_the_frozen_evaluator_cannot_return_rejected (__main__.ReplayCheckerRegression.test_values_the_frozen_evaluator_cannot_return_rejected) (change='unsorted')
+FAIL: test_values_the_frozen_evaluator_cannot_return_rejected (__main__.ReplayCheckerRegression.test_values_the_frozen_evaluator_cannot_return_rejected) (change='comparison-not-bool')
+Ran 34 tests in 32.900s
+FAILED (failures=5)
