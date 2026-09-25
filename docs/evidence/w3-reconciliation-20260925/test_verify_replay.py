@@ -129,6 +129,19 @@ class VerifyReplayRegression(unittest.TestCase):
                     name,
                 )
 
+    def test_exported_publisher_input_must_hash_to_the_bound_source_digest(self):
+        """The input behind the draft is the one the ledger-bound contract names (Codex #231)."""
+        cases = {
+            "input": lambda replay: (replay / "publisher-input.proposed.json").write_text("{}"),
+            "result-digest": lambda replay: self.change_json(
+                replay / "publisher-result.json",
+                lambda value: value.update({"source_digest": "sha256:" + "0" * 64}),
+            ),
+        }
+        for name, change in cases.items():
+            with self.subTest(change=name):
+                self.refused(change, "publisher")
+
     def test_exported_candidate_and_mutants_must_match_the_ledger(self):
         """The product and negative controls behind the verdicts are the bound ones (Codex)."""
         cases = {
