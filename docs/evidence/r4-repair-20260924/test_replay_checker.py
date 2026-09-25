@@ -375,6 +375,40 @@ class ReplayCheckerRegression(unittest.TestCase):
             lambda root: self.change_json(root, "result.json", lambda v: v.update(cause="PASS")),
         )
 
+    def test_malformed_digest_observation_rejected(self):
+        """DigestGuard.check writes six fields with a list of mismatches."""
+        changes = {
+            "mismatches-object": lambda row: row.update(mismatches={}),
+            "mismatches-string": lambda row: row.update(mismatches=""),
+            "extra-field": lambda row: row.update(verdict="clean"),
+        }
+        for name, change in changes.items():
+            with self.subTest(change=name):
+                self.mutate(
+                    "retained",
+                    lambda root, change=change: self.change_rows(
+                        root, "digest-checks.jsonl", lambda rows: change(rows[0])
+                    ),
+                )
+
+    def test_reformatted_observer_output_rejected(self):
+        """The frozen runner prints one compact, key-sorted JSON line."""
+        changes = {
+            "leading-spaces": lambda row: row.update(stdout="   " + row["stdout"]),
+            "trailing-blank-lines": lambda row: row.update(stdout=row["stdout"] + "\n\n"),
+            "spaced-separators": lambda row: row.update(
+                stdout=json.dumps(json.loads(row["stdout"]), sort_keys=True) + "\n"
+            ),
+        }
+        for name, change in changes.items():
+            with self.subTest(change=name):
+                self.mutate(
+                    "retained",
+                    lambda root, change=change: self.change_rows(
+                        root, "processes.jsonl", lambda rows: change(rows[0])
+                    ),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
