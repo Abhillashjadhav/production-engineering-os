@@ -103,6 +103,32 @@ class VerifyReplayRegression(unittest.TestCase):
         with tarfile.open(ARCHIVE) as archive:
             self.assertIn(member, archive.getnames())
 
+    def test_exported_contract_and_plan_must_hash_to_the_bound_digests(self):
+        """The exports behind the 14/14 result are the ones the ledger binds (Codex #231)."""
+        for name in ("contract.draft.json", "compiled-plan.proposed.json"):
+            with self.subTest(export=name):
+                self.refused(
+                    lambda replay, name=name: (replay / name).write_text("{}"),
+                    name,
+                )
+
+    def test_retained_no_approval_claims_must_hold(self):
+        """Approval, receipt and model-call claims in the exports must match the verdicts."""
+        cases = {
+            "migration-status": ("migration.json", {"status": "APPROVED"}),
+            "migration-receipt": ("migration.json", {"approval_receipt_created": True}),
+            "migration-model-calls": ("migration.json", {"fresh_model_calls": 1}),
+            "publisher-approval": ("publisher-result.json", {"approval": "APPROVED"}),
+        }
+        for label, (name, change) in cases.items():
+            with self.subTest(change=label):
+                self.refused(
+                    lambda replay, name=name, change=change: self.change_json(
+                        replay / name, lambda value: value.update(change)
+                    ),
+                    name,
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
