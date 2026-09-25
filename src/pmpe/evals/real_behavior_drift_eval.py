@@ -215,7 +215,7 @@ def _pmpe_command(source_checkout: Path = ROOT) -> list[str]:
         f"import sys;sys.path.insert(0,{source_root!r});"
         "from pmpe.cli import main;raise SystemExit(main())"
     )
-    return [sys.executable, "-I", "-c", launcher]
+    return [sys.executable, "-I", "-B", "-c", launcher]
 
 
 def _run_wrapper_timeout(provider_timeout: int) -> int:

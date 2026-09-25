@@ -76,7 +76,7 @@ def test_pmpe_command_binds_the_active_interpreter_to_this_checkout() -> None:
 def test_pmpe_command_can_bind_an_immutable_source_snapshot(tmp_path: Path) -> None:
     command = drift_eval._pmpe_command(tmp_path / "source-snapshot")
 
-    assert str(tmp_path / "source-snapshot" / "src") in command[3]
+    assert str(tmp_path / "source-snapshot" / "src") in command[-1]
 
 
 def test_source_snapshot_is_the_captured_git_tree_and_read_only(tmp_path: Path) -> None:
