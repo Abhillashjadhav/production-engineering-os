@@ -29,6 +29,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--process", type=Path, required=True)
     parser.add_argument("--pmos", type=Path, required=True)
+    parser.add_argument("--historical", type=Path)
     args = parser.parse_args()
     here = Path(__file__).resolve().parent
     report_path = here / "assessment.json"
@@ -40,10 +41,12 @@ def main() -> int:
         require(report["status"] == "BLOCKED", "readiness must stay BLOCKED")
         peos = report["sources"]["peos"]
         pmos = report["sources"]["pmos"]
+        historical = report["sources"]["historical"]
+        require(args.historical is not None, "historical source path is required for this assessment")
         require(peos["commit"] == "c67716638731ba3be4ceeab20be6e6fdee631fd3", "wrong PEOS revision")
         require(pmos["commit"] == "639875203503ae5c9f15e2ff0f7f8317c788e5a1", "wrong PMOS revision")
         text_sources: dict[str, bytes] = {}
-        for label, repo, identity in (("peos", args.process, peos), ("pmos", args.pmos, pmos)):
+        for label, repo, identity in (("peos", args.process, peos), ("pmos", args.pmos, pmos), ("historical", args.historical, historical)):
             tree = subprocess.check_output(["git", "-C", str(repo), "rev-parse", identity["commit"] + "^{tree}"], text=True).strip()
             require(tree == identity["tree"], "wrong tree identity: " + label)
             for path, expected in identity["files"].items():
