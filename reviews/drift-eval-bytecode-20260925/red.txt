@@ -1,0 +1,4 @@
+# base ccabeecc7346dffa7354e88c1deec53b1674428a + test change only; source-only env
+FAILED tests/unit/test_real_behavior_drift_eval.py::test_pmpe_command_binds_the_active_interpreter_to_this_checkout
+FAILED tests/unit/test_real_behavior_drift_eval.py::test_pmpe_child_writes_no_bytecode_into_the_checkout
+pyc files under src after run: 171
