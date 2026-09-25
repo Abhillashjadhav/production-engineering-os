@@ -1,0 +1,7 @@
+# Architecture scanner run (the edge check only, not the composed CI job)
+# source: 1b680fff5cc3f5aaa58c7e21cd12ce8bcd75510c (#227 head), clean checkout
+# script: architecture-scanner.py in this directory, copied to the checkout root before running
+# environment: CPython 3.11.15, PYTHONPATH=src:., PYTHONDONTWRITEBYTECODE=1, PYTHONPYCACHEPREFIX=<fresh empty private dir>
+# cmd: python -B architecture-scanner.py > architecture-scanner.json
+# exit: 0
+# stdout: byte-identical to architecture-scanner.json

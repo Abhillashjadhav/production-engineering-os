@@ -37,6 +37,13 @@ R4_REPLAY_PACKET=<packet> R4_REPLAY_SOURCE=<historical engine> \
 
 The migration command relaunches itself source-only if started without those variables.
 
+Architecture scanner (invocation, environment and exit status in `architecture-scanner.txt`):
+
+```bash
+cp docs/evidence/w3-reconciliation-20260925/architecture-scanner.py <checkout>/
+cd <checkout> && PYTHONPATH=src:. python -B architecture-scanner.py   # exit 0, prints architecture-scanner.json
+```
+
 Release-gate comparison (per-case outcomes in `release-gates-*.junit.xml`):
 
 ```bash
