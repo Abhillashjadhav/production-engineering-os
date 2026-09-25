@@ -64,6 +64,8 @@ def test_every_answer_source_names_a_time_or_an_exact_message() -> None:
     for decision_id, decision in register()["decisions"].items():
         if decision["status"] != "OPEN":
             assert SOURCE_LOCATOR.match(decision["source"]), decision_id
+            # Sources locate private material; they never quote it (answers are paraphrased).
+            assert '"' not in decision["source"], decision_id
 
 
 def test_requirements_reference_known_decisions_and_block_on_open_parts() -> None:
