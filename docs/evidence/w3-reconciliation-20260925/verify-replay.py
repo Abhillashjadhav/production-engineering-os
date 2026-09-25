@@ -10,7 +10,10 @@ Checks, exiting 1 on the first failure:
    contract_digest and plan_digest equal that payload's;
 3. criterion and gate verdicts derived from that ledger payload equal verdicts.json;
 4. <dir>/source-manifest.json hashes to the source_manifest_digest that the ledger's
-   gate evidence and <dir>/migration.json both bind;
+   gate evidence and <dir>/migration.json both bind; contract.draft.json and
+   compiled-plan.proposed.json hash to the bound contract and plan digests; and
+   migration.json's status, receipt and model-call claims and publisher-result.json's
+   approval match the recorded no-approval run;
 5. status, approval, state, cause, gates and record counts in <dir>/replay-summary.json
    equal the recorded replay-summary.json (source-bound digests are expected to differ).
 """
@@ -20,6 +23,7 @@ import json
 import sys
 from pathlib import Path
 
+from pmpe.contracts.canonical import canonical_digest
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
 
 HERE = Path(__file__).resolve().parent
@@ -74,6 +78,36 @@ def main(directory):
     migration = json.loads((directory / "migration.json").read_text())
     if bound != {manifest} or migration.get("source_manifest_digest") != manifest:
         fail("source-manifest.json differs from the manifest the ledger and migration bind")
+    # The exports behind the verdicts must be the contract and plan the ledger binds.
+    contract = json.loads((directory / "contract.draft.json").read_text())
+    if not isinstance(contract, dict) or canonical_digest(contract) != summary["contract_digest"]:
+        fail("contract.draft.json differs from the ledger-bound contract digest")
+    plan = json.loads((directory / "compiled-plan.proposed.json").read_text())
+    if (
+        not isinstance(plan, dict)
+        or plan.get("plan_digest") != summary["plan_digest"]
+        or canonical_digest({k: v for k, v in plan.items() if k != "plan_digest"})
+        != summary["plan_digest"]
+        or plan.get("contract_digest") != summary["contract_digest"]
+    ):
+        fail("compiled-plan.proposed.json differs from the ledger-bound plan digest")
+    # The retained no-approval and no-model-call claims behind the verdicts.
+    recorded_migration = json.loads((HERE / "migration.json").read_text())
+    if (
+        any(
+            migration.get(key) != recorded_migration[key]
+            for key in ("status", "approval_receipt_created", "fresh_model_calls")
+        )
+        or migration.get("fresh_model_calls") != summary["fresh_model_calls"]
+        or migration.get("proposed_contract_digest") != summary["contract_digest"]
+    ):
+        fail("migration.json approval or model-call claims differ from the recorded run")
+    publisher = json.loads((directory / "publisher-result.json").read_text())
+    if (
+        publisher.get("approval") != "NOT_APPROVED"
+        or publisher.get("draft_digest") != summary["contract_digest"]
+    ):
+        fail("publisher-result.json approval claim differs from the recorded run")
     criteria, gates = {}, {}
     for gate in evidence["gates"]:
         reasons = gate.get("evidence", {}).get("reasons", [])
