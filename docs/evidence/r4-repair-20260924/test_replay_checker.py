@@ -514,6 +514,38 @@ class ReplayCheckerRegression(unittest.TestCase):
                     ),
                 )
 
+    def test_observation_counts_differ_from_the_action_arguments_rejected(self):
+        """observe() emits one _call record per step and setup entry, and counts them."""
+
+        def change_output(change):
+            def apply(row):
+                value = json.loads(row["stdout"])
+                change(value)
+                row["stdout"] = json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+
+            return apply
+
+        cases = {
+            "dropped-observation": (1, change_output(lambda v: v["observations"].pop())),
+            "dropped-setup-observation": (
+                2,
+                change_output(lambda v: v["setup_observations"].pop()),
+            ),
+            "process-count": (
+                1,
+                change_output(lambda v: v.update(process_count=v["process_count"] + 1)),
+            ),
+        }
+        # AC-002 and AC-003 already FAIL in the persistence case, so no assertion refuses these.
+        for name, (index, change) in cases.items():
+            with self.subTest(change=name):
+                self.mutate(
+                    "persistence",
+                    lambda root, index=index, change=change: self.change_rows(
+                        root, "processes.jsonl", lambda rows: change(rows[index])
+                    ),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
