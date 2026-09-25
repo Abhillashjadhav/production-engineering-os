@@ -3,10 +3,10 @@
     "status": "UNVERIFIED_DIRECT_CALL"
   },
   "cause": "ATTEMPT_BUDGET_EXHAUSTED",
-  "contract_digest": "sha256:f0087bd2099a2085c5354f1e28f82e1346c614bbf763a5f57ab5654f1d89fff3",
+  "contract_digest": "sha256:f0f3e47c2a4428b2bd4949506c87649bc3327551019b6dd1cafc8cdcb0ae9edf",
   "digest_boundaries": 117,
   "fresh_model_calls": 0,
-  "gate_evidence_event_digest": "sha256:96eed9a12ee689992ef08951b8683efcfdba5f6f38a7608576d8ed8c4915ec0d",
+  "gate_evidence_event_digest": "sha256:dbf59aecf796ab759dd39485a0fd5deedb797bb52c2c4f9e6325f5fe24078410",
   "gates": {
     "GATE-001": "PASS",
     "GATE-002": "PASS",
@@ -14,7 +14,7 @@
     "GATE-004": "NOT_EVALUATED",
     "GATE-005": "PASS"
   },
-  "plan_digest": "sha256:34a441ecf06297605e1df5bfbba00585acb2212736227bd1a0d7403e5874d859",
+  "plan_digest": "sha256:daf0f1c43ac53711e734b58d6d9d1046216dd96ccccde619068798f9801edd1a",
   "process_records": 56,
   "run_id": "draft-v2-offline-retained-replay",
   "state": "HALTED",

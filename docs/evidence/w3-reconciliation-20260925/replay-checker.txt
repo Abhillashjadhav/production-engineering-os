@@ -1,10 +1,24 @@
-# cmd: R4_REPLAY_PACKET=<PM-agent-OS@33a35962>/reviews/task-tracker-v1 R4_REPLAY_SOURCE=<peos@c1ab2de> python -B docs/evidence/r4-repair-20260924/test_replay_checker.py -v  (checker from ad774ee, the #221 head)
+# cmd: R4_REPLAY_PACKET=<PM-agent-OS@33a35962>/reviews/task-tracker-v1 R4_REPLAY_SOURCE=<peos@c1ab2de> python -B docs/evidence/r4-repair-20260924/test_replay_checker.py -v  (checker last changed in 0e6b680, carried by the #227 head)
+test_compatibility_report_fields_rejected (__main__.ReplayCheckerRegression.test_compatibility_report_fields_rejected)
+Every field of the adapter's report is fixed by the frozen profile and runtime. ... ok
 test_duplicate_or_altered_findings_rejected (__main__.ReplayCheckerRegression.test_duplicate_or_altered_findings_rejected) ... ok
+test_execution_source_fields_rejected (__main__.ReplayCheckerRegression.test_execution_source_fields_rejected)
+contract-file.py writes exactly four execution-source fields and a literal kind. ... ok
+test_extra_result_field_rejected (__main__.ReplayCheckerRegression.test_extra_result_field_rejected)
+The adapter's verify flow writes result.json with exactly criteria and findings. ... ok
 test_failed_outer_launch_rejected (__main__.ReplayCheckerRegression.test_failed_outer_launch_rejected) ... ok
 test_fake_matching_inventories_rejected (__main__.ReplayCheckerRegression.test_fake_matching_inventories_rejected) ... ok
 test_forged_summary_rejected (__main__.ReplayCheckerRegression.test_forged_summary_rejected) ... ok
+test_incompatible_or_reprofiled_report_rejected (__main__.ReplayCheckerRegression.test_incompatible_or_reprofiled_report_rejected)
+The adapter aborts before any execution when compatibility is false. ... ok
+test_integer_outside_canonical_domain_rejected (__main__.ReplayCheckerRegression.test_integer_outside_canonical_domain_rejected)
+The frozen engine canonicalizes every action value; 2**53 cannot be produced. ... ok
 test_invalid_measure_sample_type_rejected (__main__.ReplayCheckerRegression.test_invalid_measure_sample_type_rejected)
 The frozen engine aborts on a non-integer sample_size; it never yields FAIL. ... ok
+test_malformed_digest_observation_rejected (__main__.ReplayCheckerRegression.test_malformed_digest_observation_rejected)
+DigestGuard.check writes six fields with a list of mismatches. ... ok
+test_multibyte_output_over_byte_limit_rejected (__main__.ReplayCheckerRegression.test_multibyte_output_over_byte_limit_rejected)
+The adapter limits captured bytes, not decoded characters. ... ok
 test_nested_signal_exit_code_rejected (__main__.ReplayCheckerRegression.test_nested_signal_exit_code_rejected)
 A killed observer subprocess (137) inside an already-failing criterion. ... ok
 test_non_json_constant_in_stdout_rejected (__main__.ReplayCheckerRegression.test_non_json_constant_in_stdout_rejected)
@@ -17,12 +31,26 @@ test_original_cases_pass (__main__.ReplayCheckerRegression.test_original_cases_p
 test_paired_interpreter_and_launch_record_rejected (__main__.ReplayCheckerRegression.test_paired_interpreter_and_launch_record_rejected)
 Editing the records and the launch record together must still fail. ... ok
 test_process_crash_rejected (__main__.ReplayCheckerRegression.test_process_crash_rejected) ... ok
+test_process_timeout_or_mode_rejected (__main__.ReplayCheckerRegression.test_process_timeout_or_mode_rejected)
+Each record states the frozen 10 s timeout and the host-fallback mode. ... ok
 test_python_named_fake_interpreter_rejected (__main__.ReplayCheckerRegression.test_python_named_fake_interpreter_rejected)
 A fake path with an accepted basename must not match the operator's launcher. ... ok
+test_record_the_adapter_cannot_emit_rejected (__main__.ReplayCheckerRegression.test_record_the_adapter_cannot_emit_rejected)
+Success records have a fixed key set, a non-negative elapsed time and bounded output. ... ok
+test_recorded_invocation_differs_from_launch_rejected (__main__.ReplayCheckerRegression.test_recorded_invocation_differs_from_launch_rejected)
+execution-source.json must repeat the pinned launch command after the interpreter. ... ok
+test_reformatted_action_argument_rejected (__main__.ReplayCheckerRegression.test_reformatted_action_argument_rejected)
+The frozen engine passes arguments as the exact output of json.dumps(arguments). ... ok
+test_reformatted_observer_output_rejected (__main__.ReplayCheckerRegression.test_reformatted_observer_output_rejected)
+The frozen runner prints one compact, key-sorted JSON line. ... ok
+test_replaced_execution_environment_rejected (__main__.ReplayCheckerRegression.test_replaced_execution_environment_rejected)
+A PATH naming a fake prlimit keeps argv intact; the frozen environment is fixed. ... ok
 test_replaced_interpreter_or_limits_rejected (__main__.ReplayCheckerRegression.test_replaced_interpreter_or_limits_rejected) ... ok
 test_replaced_runner_program_rejected (__main__.ReplayCheckerRegression.test_replaced_runner_program_rejected)
 A fabricated -c program that only prints the recorded stdout. ... ok
+test_substituted_adapter_rejected (__main__.ReplayCheckerRegression.test_substituted_adapter_rejected)
+A different adapter in the supplied source cannot be paired with matching records. ... ok
 test_swapped_stdout_rejected (__main__.ReplayCheckerRegression.test_swapped_stdout_rejected) ... ok
 ----------------------------------------------------------------------
-Ran 17 tests in 15.689s
+Ran 31 tests in 35.817s
 OK

@@ -1,5 +1,5 @@
 # Release-gate suites: the same test files from the evidence tree run against two source trees.
-# Test files (byte-identical at 76008fc93e0090482a8ab688c6822b3a187a5fa3 and 1b680fff5cc3f5aaa58c7e21cd12ce8bcd75510c):
+# Test files (byte-identical at 76008fc93e0090482a8ab688c6822b3a187a5fa3 and 933fdc786a991a62ff37f8848360db2c5749b92d):
 #   tests/unit/test_release_gate_compiler.py tests/unit/test_release_gate_admission_boundaries.py tests/integration/test_release_gate_runtime.py
 # Environment: CPython 3.11.15, PYTHONDONTWRITEBYTECODE=1, PYTHONPYCACHEPREFIX=<fresh empty private dir>
 #
@@ -8,7 +8,7 @@
 # exit: 1
 # result: 131 tests, 108 failed, 23 passed (junit)
 #
-## repaired source (1b680fff5cc3f5aaa58c7e21cd12ce8bcd75510c, the #227 head)
+## repaired source (933fdc786a991a62ff37f8848360db2c5749b92d, the #227 head)
 # cmd: PYTHONPATH=<repo>/src:<repo> python -m pytest -p no:cacheprovider -q tests/unit/test_release_gate_compiler.py tests/unit/test_release_gate_admission_boundaries.py tests/integration/test_release_gate_runtime.py --junitxml=release-gates-head.junit.xml
 # exit: 0
 # result: 131 tests, 0 failed, 131 passed (junit)

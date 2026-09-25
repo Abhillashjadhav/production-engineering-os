@@ -1,13 +1,13 @@
 # W3 — proof reconciliation on the repaired source (2026-09-25)
 
-Source under test: the W2 head `1b680fff5cc3f5aaa58c7e21cd12ce8bcd75510c` (#227). It contains:
+Source under test: the W2 head `933fdc786a991a62ff37f8848360db2c5749b92d` (#227). It contains:
 - the R4 process line `ccabeecc`
 - W1a/W1b (#222, #223)
 - the checker and contract-file line (#221, merged in #226)
 - W2 source-only admission (#227)
 - the fixes from today's review: #225, #229, per-gate negative-control scoping, the protected-inventory binding, and checker round 3 (interpreter bound to the launch record)
 
-The first version of this evidence ran on `cecf9e9`, before the protected-inventory binding. It was refreshed on `1b680ff`: criteria, gate statuses and reasons, record counts and the scanner result are unchanged, and only the source-bound digests differ.
+Earlier versions of this evidence ran on `cecf9e9` and `1b680ff`. It was refreshed on `933fdc7`, which adds the Codex-review repairs to source-only admission, the cache-hygiene fixes and checker rounds 5–13. Criteria, gate statuses and reasons, record counts and the scanner result are unchanged; only the source-bound digests differ.
 
 Historical inputs are unchanged: the PM-agent-OS packet at `33a35962` (`reviews/task-tracker-v1`, 218-artifact freeze) and the historical PEOS engine at `c1ab2def189f`. This unit adds evidence only; no source or frozen artifact changes.
 
@@ -16,7 +16,7 @@ Historical inputs are unchanged: the PM-agent-OS packet at `33a35962` (`reviews/
 | Dimension | Verdict | Evidence in this directory |
 |---|---|---|
 | Source correctness (settled repairs) | **REPAIRED, pending CI and review on the stack** | The architecture scanner, unchanged, reports `unapproved_edges: []` (`architecture-scanner.json`). The release-gate suites fail 108 of 131 on `main` and pass 131 on this head (`release-gates-main-vs-head.txt`). Malformed-binding and setup-crash RED/GREEN evidence is in #222/#223. |
-| Replay proof (historical task store) | **REPRODUCED, bounded** | **14/14** historical criteria PASS. 56 process records, 117 digest boundaries, 0 fresh model calls. G1/G2/G5 PASS; G3 NOT_EVALUATED (`APPROVAL_PACKET_NOT_BOUND`); G4 NOT_EVALUATED (`FRESH_MODEL_SESSION_NOT_ATTESTED`); state HALTED (`verdicts.json`, `replay-summary.json`). The hardened historical checker passes all 17 tests: 1 aggregate historical test (3 historical case subtests) and 16 tamper tests (`replay-checker.txt`). This replays retained behaviour; it does not authenticate the historical execution. |
+| Replay proof (historical task store) | **REPRODUCED, bounded** | **14/14** historical criteria PASS. 56 process records, 117 digest boundaries, 0 fresh model calls. G1/G2/G5 PASS; G3 NOT_EVALUATED (`APPROVAL_PACKET_NOT_BOUND`); G4 NOT_EVALUATED (`FRESH_MODEL_SESSION_NOT_ATTESTED`); state HALTED (`verdicts.json`, `replay-summary.json`). The hardened historical checker passes all 31 tests: 1 aggregate historical test (3 historical case subtests) and 30 tamper tests (`replay-checker.txt`). This replays retained behaviour; it does not authenticate the historical execution. |
 | Fresh approved delivery | **NOT ESTABLISHED** | There is no owner-approved v2 contract or receipt and no outer freeze, and no model was called. G4 has no PASS path until owner decision D2; the G2 claim waits on D3. |
 | Merge readiness | **NOT READY** | Stacked PRs are open and unmerged. The lower PRs carry the known `ARCHITECTURE_BOUNDARY_DRIFT` until #227 is merged into them (proposed top-down merge). A named human makes every merge decision. |
 
@@ -39,7 +39,7 @@ R4_REPLAY_PACKET=<packet> R4_REPLAY_SOURCE=<historical engine> \
   python -B docs/evidence/r4-repair-20260924/test_replay_checker.py -v
 ```
 
-The migration command relaunches itself source-only if started without those variables. `verify-replay.py` also accepts the retained archive once it is extracted (`tar xzf retained-replay.tar.gz`, then pass `w3-replay3`).
+The migration command relaunches itself source-only if started without those variables. `verify-replay.py` also accepts the retained archive once it is extracted (`tar xzf retained-replay.tar.gz`, then pass `w3-replay4`).
 
 Architecture scanner (invocation, environment and exit status in `architecture-scanner.txt`):
 
