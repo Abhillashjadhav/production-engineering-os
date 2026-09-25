@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from pmpe.barebones import Template
+from pmpe.barebones import Template, _safe_path
 from pmpe.contracts.canonical import canonical_digest, strict_loads
 from pmpe.process_gate_inputs import ProcessGateInputs
 from pmpe.process_sources import engine_sources, raw_digest
@@ -37,6 +37,14 @@ _TARGET = re.compile(r"([A-Za-z_][A-Za-z0-9_.]*):([A-Za-z_][A-Za-z0-9_]*)")
 
 class BundleError(ValueError):
     """The bundle cannot be admitted; nothing has been executed."""
+
+
+def _materializable(relative: str, what: str) -> None:
+    """The candidate runtime writes only names matching its own path grammar."""
+    try:
+        _safe_path(Path("/"), relative)
+    except ValueError as exc:
+        raise BundleError(f"bundle {what} path is not materializable: {relative}") from exc
 
 
 @dataclass(frozen=True)
@@ -112,7 +120,9 @@ def _snapshot(directory: Path) -> dict[str, bytes]:
         if path.is_symlink():
             raise BundleError("bundle negative control contains a symlink")
         if path.is_file():
-            snapshot[path.relative_to(directory).as_posix()] = path.read_bytes()
+            relative = path.relative_to(directory).as_posix()
+            _materializable(relative, "negative control")
+            snapshot[relative] = path.read_bytes()
     if not snapshot:
         raise BundleError("bundle negative control snapshot is empty")
     return snapshot
@@ -147,6 +157,7 @@ def _template(payload: bytes) -> Template:
         raise BundleError("bundle bindings require a version")
     for relative, content in template.files.items():
         _relative(relative, "template file")
+        _materializable(relative, "template file")
         if not isinstance(content, str):
             raise BundleError("bundle template file contents must be text")
     bindings = [(target, False) for target in template.actions.values()]
