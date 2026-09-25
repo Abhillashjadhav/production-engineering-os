@@ -29,8 +29,13 @@ The current R4 runtime and its outstanding checks retain their separate identiti
 
 The repository BAR requires a check before this documentation change. The first commit writes an offline verifier and records its expected failure because the direct C7-01 map is missing. After adding the map, the same check validates both local trees, both public tree receipts, the original local/public claim blob, the existing publication chain and its public blob, the complete historical file delta, the unchanged implementation subtrees, and the workstream's additive scope.
 
+Run the verifier in the original isolated provenance worktree, with its originating Git object database intact. It requires the historical local commits, including `733a409d`, `68ae80fb` and `c209e7d9`, and checks that every change from base `a56c1c4671c34dd9748c30dd10cd1d0dcd6ecfc0` stays within this evidence directory. The coordinator includes other changes, such as its root `BAR.md`; running this workstream-specific check there intentionally fails the narrow scope assertion.
+
 ```sh
+cd /workspace/scratch/b6efdedb2992/pmos-parallel-20260925/provenance
 python3 -B docs/evidence/r4-parallel-20260925/provenance/verify_provenance.py
 ```
+
+A standalone GitHub clone does not contain the unpublished local commit objects merely because their public tree equivalents are available. Readers of such a clone can inspect the pinned public Git-data tree responses and retained receipts in `provenance/public-commits.json`; reconstructing the local-object comparisons requires the originating object database as well. The recorded GREEN result applies to the isolated worktree above.
 
 The retained RED output is [`provenance/red.txt`](provenance/red.txt); the GREEN result is [`provenance/green.json`](provenance/green.json). The check imports no product code, executes no historical test or adversarial probe, and makes no remote writes. No frozen v1 file, scanner, policy, allowlist, approval receipt or original evidence file was edited.
