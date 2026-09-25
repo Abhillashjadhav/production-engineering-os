@@ -127,6 +127,13 @@ def test_free_text_in_a_source_is_refused() -> None:
         assert source_errors(value) == ["D1"], suffix
 
 
+def test_opening_request_locator_is_bound_to_its_decision() -> None:
+    """Only the spending constraint came from the opening request (Codex #219)."""
+    value = register()
+    value["decisions"]["D1"]["source"] = value["decisions"]["D25"]["source"]
+    assert source_errors(value) == ["D1"]
+
+
 def test_requirements_reference_known_decisions_and_block_on_open_parts() -> None:
     assert requirement_errors(register()) == []
 
