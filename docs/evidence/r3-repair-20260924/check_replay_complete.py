@@ -237,9 +237,16 @@ def check(directory, packet, source, case):
             canonical(plan.as_dict()) == canonical(read(packet / "compiled-plan.json")),
             "historical plan differs",
         )
+        # The adapter aborts before any execution unless the report is compatible with
+        # the frozen profile, so a run with records cannot carry any other report.
+        compatibility = read(root / "compatibility.json")
+        require(compatibility["plan_digest"] == plan.plan_digest, "recorded plan differs")
         require(
-            read(root / "compatibility.json")["plan_digest"] == plan.plan_digest,
-            "recorded plan differs",
+            compatibility["compatible"] is True
+            and compatibility["reasons"] == []
+            and compatibility["profile_digest"]
+            == raw((packet / "execution-profile.json").read_bytes()),
+            "compatibility report is not the frozen profile's compatible report",
         )
         result = read(root / "result.json")
         ids = [c.criterion_id for c in plan.criteria]
@@ -317,6 +324,10 @@ def check(directory, packet, source, case):
         require(
             isinstance(command, list) and bool(command) and command[0] == interpreter,
             "observer interpreter differs from the operator's replay launch record",
+        )
+        require(
+            command[1:] == execution["argv"],
+            "recorded invocation differs from the operator's replay launch record",
         )
         for index, (criterion, process) in enumerate(zip(plan.criteria, processes, strict=True)):
             require(
