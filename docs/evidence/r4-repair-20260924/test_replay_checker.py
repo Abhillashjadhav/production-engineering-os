@@ -339,6 +339,26 @@ class ReplayCheckerRegression(unittest.TestCase):
                     lambda root, change=change: self.change_rows(root, "processes.jsonl", change),
                 )
 
+    def test_record_the_adapter_cannot_emit_rejected(self):
+        """Success records have a fixed key set, a non-negative elapsed time and bounded output."""
+        changes = {
+            "error-key": lambda row: row.update(error="TimeoutExpired: fabricated"),
+            "negative-elapsed": lambda row: row.update(elapsed_ms=-1.0),
+            "string-elapsed": lambda row: row.update(elapsed_ms="120"),
+            "stdout-over-limit": lambda row: row.update(
+                stdout=row["stdout"].rstrip("\n") + " " * 1_000_001 + "\n"
+            ),
+            "stderr-over-limit": lambda row: row.update(stderr="x" * 1_000_001),
+        }
+        for name, change in changes.items():
+            with self.subTest(change=name):
+                self.mutate(
+                    "retained",
+                    lambda root, change=change: self.change_rows(
+                        root, "processes.jsonl", lambda rows: change(rows[0])
+                    ),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
