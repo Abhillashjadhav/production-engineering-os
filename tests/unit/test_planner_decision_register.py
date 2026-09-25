@@ -58,8 +58,12 @@ SOURCE_LOCATOR = re.compile(
     r"|owner task instructions, this session's opening request)"
 )
 
-# The rule so far: a locator, then any text without an ASCII double quote.
-SOURCE_FORMAT = re.compile(SOURCE_LOCATOR.pattern + r'[^"]*')
+# The whole source: a locator plus exactly one approved annotation, nothing else.
+SOURCE_FORMAT = re.compile(
+    r"owner (interview|message) \d{4}-\d{2}-\d{2} \d{2}:\d{2}(-\d{2}:\d{2})? IST"
+    r" \((private handoff|this session); paraphrased\)"
+    r"|owner task instructions, this session's opening request \(constraint list; paraphrased\)"
+)
 
 
 def source_errors(value: dict[str, Any]) -> list[str]:
