@@ -69,6 +69,8 @@ they must not be rerun, rephrased, relocated, or replaced with equivalent execut
 
 ## Unit — replay checker hardening from Codex review, rounds 1–20 (2026-09-25)
 
+**Gate timing — retrospective violation.** This entry was first written in `eb1b7cd`, after rounds 1–19 (through `4ea8e39`) were already committed. For those rounds it is a retrospective record, not evidence that the gate was answered before the work began, and it is recorded here as a violation of the BAR gate's timing. Round 20 (`5995927`) was started after this entry existed.
+
 Round 19 (`4ea8e39`) pins the three replayed candidate trees to their retained digests on the launch `--candidate` path, pins the frozen evaluator source, and bounds the measure's values to the evaluator's domain (one `range(N)` workload, `0 <= value <= sample_size <= N`, distinct positive integer `missing_ids`). Round 20 pins the compatibility report's runtime to the exact recorded `sys.version` string instead of a `3.12.` prefix.
 
 1. **Already exists? Yes.** Extend the existing `check_replay_complete.py` and its `test_replay_checker.py`; no second checker or evaluator.
