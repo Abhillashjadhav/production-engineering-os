@@ -9,3 +9,6 @@ FAILED tests/unit/test_process_source_architecture.py::test_process_source_guard
 FAILED tests/unit/test_process_source_only_admission.py::test_bytecode_paths_match_the_import_system[None]
 FAILED tests/unit/test_process_source_only_admission.py::test_bytecode_paths_match_the_import_system[absolute]
 FAILED tests/unit/test_process_source_only_admission.py::test_bytecode_paths_match_the_import_system[relative]
+# relative-prefix probe on 3d36543 + test only (Codex review #227 P1)
+E       AssertionError: ADMITTED
+E        +  where 0 = CompletedProcess(args=['/home/user/venv/bin/python', '-B', '-X', 'pycache_prefix=relative-cache', '-c', '\nimport sys\...print("REFUSED:", error)\n    raise SystemExit(3)\nprint("ADMITTED")\n'], returncode=0, stdout='ADMITTED\n', stderr='').returncode
