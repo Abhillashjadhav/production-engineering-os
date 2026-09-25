@@ -1,0 +1,4 @@
+# base 5aabcd7a2d09b5c943236dec551238d34bb20fc1 + test only (Codex review #220 P2, protected inventory)
+FAILED tests/unit/test_protected_inventory_binding.py::test_rechained_protected_inventory_is_refused[emptied]
+FAILED tests/unit/test_protected_inventory_binding.py::test_rechained_protected_inventory_is_refused[wrong-digest]
+FAILED tests/unit/test_protected_inventory_binding.py::test_rechained_protected_inventory_is_refused[extra-path]

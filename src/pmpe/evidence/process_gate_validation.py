@@ -6,6 +6,7 @@ import hashlib
 import json
 import re
 from collections.abc import Callable, Mapping, Sequence
+from pathlib import PurePosixPath
 from typing import Any
 
 from pmpe.contracts.canonical import canonical_digest, strict_loads
@@ -182,6 +183,26 @@ def expected_boundaries(
     return expected
 
 
+def _required_protected(
+    plan: Mapping[str, Any], context: Mapping[str, str], read_blob: BlobReader
+) -> dict[str, str]:
+    """Exactly what the engine protects: template tests/ and human tests with initializers."""
+    required = {
+        "protected/" + path: digest for path, digest in plan.get("trusted_test_digests", [])
+    }
+    human = [item["human_test"] for item in plan.get("criteria", []) if item.get("human_test")]
+    if not human:
+        return required
+    candidate = _object(context["candidate_digest"], read_blob)
+    for test in human:
+        required["protected/" + test["path"]] = test["file_digest"]
+        for parent in PurePosixPath(test["path"]).parents:
+            initializer = str(parent / "__init__.py")
+            if str(parent) != "." and initializer in candidate:
+                required["protected/" + initializer] = candidate[initializer]
+    return required
+
+
 def _validate_boundaries(
     binding: Mapping[str, Any],
     evidence: Mapping[str, Any],
@@ -255,6 +276,9 @@ def _validate_boundaries(
     _require(
         isinstance(protected, dict) and all(key.startswith("protected/") for key in protected),
         "PROTECTED_INVENTORY_INVALID",
+    )
+    _require(
+        protected == _required_protected(plan, context, read_blob), "PROTECTED_INVENTORY_MISMATCH"
     )
     for digest in protected.values():
         _blob(digest, read_blob)
