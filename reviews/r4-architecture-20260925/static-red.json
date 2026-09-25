@@ -1,0 +1,22 @@
+{
+  "base_commit": "c67716638731ba3be4ceeab20be6e6fdee631fd3",
+  "base_tree": "872e53b7cb05bace2d825dca47ea7e27f78c7cf0",
+  "scope": "Text-only static regression; does not import or execute the scanned guard text.",
+  "unavailable_venv_attempt": {
+    "chunk_id": "f25992",
+    "wall_time_seconds": 0.00014301,
+    "exit_code": 127,
+    "original_token_count": 29,
+    "output": "/bin/bash: line 1: /workspace/scratch/f9ac546f3a50/overnight-20260923/venv/bin/python: No such file or directory\n"
+  },
+  "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX=/workspace/scratch/b6efdedb2992/pmos-parallel-20260925/architecture-private-cache-red PYTHONPATH=src:.:/workspace/scratch/f9ac546f3a50/overnight-20260923/venv/lib/python3.12/site-packages python3 -B -m pytest -q -p no:cacheprovider tests/unit/test_process_source_architecture.py",
+  "result": {
+    "chunk_id": "59ae0c",
+    "wall_time_seconds": 0.706085579,
+    "exit_code": 1,
+    "original_token_count": 329,
+    "output": "F                                                                        [100%]\n=================================== FAILURES ===================================\n________ test_process_source_guard_has_no_unresolved_architecture_edge _________\n\ntmp_path = PosixPath('/tmp/pytest-of-root/pytest-0/test_process_source_guard_has_0')\n\n    def test_process_source_guard_has_no_unresolved_architecture_edge(tmp_path: Path) -> None:\n        \"\"\"Scan the real guard source without importing or executing its contents.\"\"\"\n        root = Path(__file__).resolve().parents[2]\n        relative_source = Path(\"src/pmpe/process_sources.py\")\n        target = tmp_path / relative_source\n        target.parent.mkdir(parents=True)\n        target.write_bytes((root / relative_source).read_bytes())\n    \n        edges = _observed_architecture_edges(tmp_path)\n    \n>       assert (\"core\", \"unresolved_dynamic\") not in edges, edges\nE       AssertionError: (('core', 'unresolved_dynamic'),)\nE       assert ('core', 'unresolved_dynamic') not in (('core', 'unresolved_dynamic'),)\n\ntests/unit/test_process_source_architecture.py:18: AssertionError\n=========================== short test summary info ============================\nFAILED tests/unit/test_process_source_architecture.py::test_process_source_guard_has_no_unresolved_architecture_edge\n"
+  },
+  "bytecode_adversarial_recheck": "UNVERIFIED - not run; screening boundary",
+  "process_context_adversarial_recheck": "UNVERIFIED - not run; screening boundary"
+}
