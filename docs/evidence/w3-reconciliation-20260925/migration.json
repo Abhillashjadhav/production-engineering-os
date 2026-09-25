@@ -25,12 +25,12 @@
     "mutant/filtering exact snapshot manifest",
     "profile and evaluator/bindings"
   ],
-  "proposed_contract_digest": "sha256:f0f3e47c2a4428b2bd4949506c87649bc3327551019b6dd1cafc8cdcb0ae9edf",
+  "proposed_contract_digest": "sha256:17968a90152006d468fa7dcf450eba5a6abdfacfc09d959621dd44cdd9e692d6",
   "runtime_imports": {
     "pmpe": "/home/user/peos-w2head/src/pmpe/__init__.py",
     "pmpe.barebones": "/home/user/peos-w2head/src/pmpe/barebones.py"
   },
   "source_approval": "Pending owner review of exact new source/adapter/manifest and proposed bindings",
-  "source_manifest_digest": "sha256:81cd0e18311f369beff0453045af73d440715e51024c83398faed6d648bea784",
+  "source_manifest_digest": "sha256:0805e8391ca6512ebc08033a6f868d918667ec61c4ff95f9dbf1a6a88a16f66b",
   "status": "DRAFT_NOT_APPROVED"
 }

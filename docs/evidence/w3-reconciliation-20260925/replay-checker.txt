@@ -1,4 +1,4 @@
-# cmd: R4_REPLAY_PACKET=<PM-agent-OS@33a35962>/reviews/task-tracker-v1 R4_REPLAY_SOURCE=<peos@c1ab2de> python -B docs/evidence/r4-repair-20260924/test_replay_checker.py -v  (checker last changed in 0e6b680, carried by the #227 head)
+# cmd: R4_REPLAY_PACKET=<PM-agent-OS@33a35962>/reviews/task-tracker-v1 R4_REPLAY_SOURCE=<peos@c1ab2de> python -B docs/evidence/r4-repair-20260924/test_replay_checker.py -v  (checker last changed in 85dd770, carried by the #227 head 80cd230)
 test_compatibility_report_fields_rejected (__main__.ReplayCheckerRegression.test_compatibility_report_fields_rejected)
 Every field of the adapter's report is fixed by the frozen profile and runtime. ... ok
 test_duplicate_or_altered_findings_rejected (__main__.ReplayCheckerRegression.test_duplicate_or_altered_findings_rejected) ... ok
@@ -8,6 +8,8 @@ test_extra_result_field_rejected (__main__.ReplayCheckerRegression.test_extra_re
 The adapter's verify flow writes result.json with exactly criteria and findings. ... ok
 test_failed_outer_launch_rejected (__main__.ReplayCheckerRegression.test_failed_outer_launch_rejected) ... ok
 test_fake_matching_inventories_rejected (__main__.ReplayCheckerRegression.test_fake_matching_inventories_rejected) ... ok
+test_fields_the_frozen_evaluator_cannot_return_rejected (__main__.ReplayCheckerRegression.test_fields_the_frozen_evaluator_cannot_return_rejected)
+observe(), the measure and _call() each return a fixed set of fields. ... ok
 test_forged_summary_rejected (__main__.ReplayCheckerRegression.test_forged_summary_rejected) ... ok
 test_incompatible_or_reprofiled_report_rejected (__main__.ReplayCheckerRegression.test_incompatible_or_reprofiled_report_rejected)
 The adapter aborts before any execution when compatibility is false. ... ok
@@ -25,6 +27,8 @@ test_non_json_constant_in_stdout_rejected (__main__.ReplayCheckerRegression.test
 The frozen engine rejects NaN and infinities before producing a result. ... ok
 test_non_signal_abnormal_exit_rejected (__main__.ReplayCheckerRegression.test_non_signal_abnormal_exit_rejected)
 127 (command not found) is outside the frozen task tracker's 0/1/2 exits. ... ok
+test_observation_counts_differ_from_the_action_arguments_rejected (__main__.ReplayCheckerRegression.test_observation_counts_differ_from_the_action_arguments_rejected)
+observe() emits one _call record per step and setup entry, and counts them. ... ok
 test_observer_markers_rejected (__main__.ReplayCheckerRegression.test_observer_markers_rejected) ... ok
 test_optimized_interpreter_rejects_missing_boundary (__main__.ReplayCheckerRegression.test_optimized_interpreter_rejects_missing_boundary) ... ok
 test_original_cases_pass (__main__.ReplayCheckerRegression.test_original_cases_pass) ... ok
@@ -51,6 +55,10 @@ A fabricated -c program that only prints the recorded stdout. ... ok
 test_substituted_adapter_rejected (__main__.ReplayCheckerRegression.test_substituted_adapter_rejected)
 A different adapter in the supplied source cannot be paired with matching records. ... ok
 test_swapped_stdout_rejected (__main__.ReplayCheckerRegression.test_swapped_stdout_rejected) ... ok
+test_values_the_frozen_evaluator_cannot_return_rejected (__main__.ReplayCheckerRegression.test_values_the_frozen_evaluator_cannot_return_rejected)
+Literal and derived return values are fixed by the frozen source (Codex #221/#226). ... ok
+
 ----------------------------------------------------------------------
-Ran 31 tests in 35.817s
+Ran 34 tests in 34.195s
+
 OK
