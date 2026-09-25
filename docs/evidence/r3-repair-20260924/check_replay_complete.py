@@ -192,6 +192,15 @@ def frozen_output_limit(source, entry_relative):
     raise ValueError("frozen adapter output limit not found")
 
 
+def min_captured_bytes(text):
+    """Fewest raw bytes that decode (errors="replace") to ``text``.
+
+    Every character re-encodes to its own UTF-8 bytes, except that U+FFFD may stand
+    for a single invalid byte, so each one can account for as little as one byte.
+    """
+    return len(text.encode("utf-8")) - 2 * text.count("\ufffd")
+
+
 # HostExecution.run adds exit_code/stdout/stderr only after success and "error" only
 # from its exception branch, so a successful record has exactly these keys.
 SUCCESS_RECORD_KEYS = frozenset(
@@ -448,17 +457,16 @@ def check(directory, packet, source, case):
                 process.get("timeout_seconds") == timeout and process.get("mode") == mode,
                 "observer timeout or execution mode differs from the frozen engine",
             )
-            # Each captured byte decodes to at most one character, so more characters
-            # than LIMIT means the adapter would have refused the output.
+            # The adapter caps captured bytes; min_captured_bytes is a lower bound on them.
             elapsed = process.get("elapsed_ms")
             require(
                 set(process) == SUCCESS_RECORD_KEYS
                 and type(elapsed) is float
                 and 0.0 <= elapsed < float("inf")
                 and isinstance(process["stdout"], str)
-                and len(process["stdout"]) <= limit
+                and min_captured_bytes(process["stdout"]) <= limit
                 and isinstance(process["stderr"], str)
-                and len(process["stderr"]) <= limit,
+                and min_captured_bytes(process["stderr"]) <= limit,
                 "process record is not one the adapter's success path emits",
             )
             value = decode(process["stdout"])

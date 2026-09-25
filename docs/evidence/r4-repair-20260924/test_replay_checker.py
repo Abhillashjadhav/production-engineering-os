@@ -359,6 +359,15 @@ class ReplayCheckerRegression(unittest.TestCase):
                     ),
                 )
 
+    def test_multibyte_output_over_byte_limit_rejected(self):
+        """The adapter limits captured bytes, not decoded characters."""
+
+        def change(rows):
+            text = rows[0]["stdout"].rstrip()
+            rows[0]["stdout"] = text[:-1] + ', "extra": "' + "\u00e9" * 500_001 + '"}\n'
+
+        self.mutate("retained", lambda root: self.change_rows(root, "processes.jsonl", change))
+
 
 if __name__ == "__main__":
     unittest.main()
