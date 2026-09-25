@@ -129,6 +129,26 @@ class VerifyReplayRegression(unittest.TestCase):
                     name,
                 )
 
+    def test_exported_candidate_and_mutants_must_match_the_ledger(self):
+        """The product and negative controls behind the verdicts are the bound ones (Codex)."""
+        cases = {
+            "candidate": (
+                lambda replay: (replay / "candidate/product.py").write_text("# replaced\n"),
+                "candidate",
+            ),
+            "mutant-manifest": (
+                lambda replay: (replay / "mutants/filtering.manifest.json").write_text("{}"),
+                "mutant",
+            ),
+            "extra-mutant": (
+                lambda replay: (replay / "mutants/extra.manifest.json").write_text("{}"),
+                "mutant",
+            ),
+        }
+        for name, (change, message) in cases.items():
+            with self.subTest(change=name):
+                self.refused(change, message)
+
 
 if __name__ == "__main__":
     unittest.main()
