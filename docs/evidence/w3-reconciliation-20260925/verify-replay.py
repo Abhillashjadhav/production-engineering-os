@@ -5,8 +5,9 @@ Usage (from a PEOS checkout, source-only interpreter):
 
 Checks, exiting 1 on the first failure:
 1. the replay's evidence ledger (<dir>/.pmpe) verifies end to end (hash chain and blobs);
-2. its one release_gates_evaluated event is the summary's gate_evidence_event_digest, and
-   <dir>/gate-evidence.json equals that event's payload;
+2. its one release_gates_evaluated event is the summary's gate_evidence_event_digest,
+   <dir>/gate-evidence.json equals that event's payload, and the summary's
+   contract_digest and plan_digest equal that payload's;
 3. criterion and gate verdicts derived from that ledger payload equal verdicts.json;
 4. <dir>/source-manifest.json hashes to the source_manifest_digest that the ledger's
    gate evidence and <dir>/migration.json both bind;
@@ -61,6 +62,9 @@ def main(directory):
     if len(events) != 1 or events[0]["event_digest"] != summary["gate_evidence_event_digest"]:
         fail("ledger gate-evidence event differs from the summary's digest")
     evidence = events[0]["payload"]
+    # Source-bound digests may differ between runs, but never from their own ledger.
+    if any(summary[key] != evidence.get(key) for key in ("contract_digest", "plan_digest")):
+        fail("replay-summary.json digests differ from the ledger's gate evidence")
     if json.loads((directory / "gate-evidence.json").read_text()) != evidence:
         fail("gate-evidence.json differs from the ledger's gate-evidence event")
     manifest = (
