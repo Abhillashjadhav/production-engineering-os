@@ -334,6 +334,11 @@ def check(directory, packet, source, case):
             "compatibility report is not the frozen profile's compatible report",
         )
         result = read(root / "result.json")
+        # contract-file.py's verify flow writes exactly these two fields.
+        require(
+            isinstance(result, dict) and set(result) == {"criteria", "findings"},
+            "result.json has fields the adapter does not write",
+        )
         ids = [c.criterion_id for c in plan.criteria]
         require(ids == [f"AC-{i:03d}" for i in range(1, 15)], "criterion coverage")
         observations, processes = rows(root / "digest-checks.jsonl"), rows(root / "processes.jsonl")
