@@ -546,6 +546,35 @@ class ReplayCheckerRegression(unittest.TestCase):
                     ),
                 )
 
+    def test_values_the_frozen_evaluator_cannot_return_rejected(self):
+        """Literal and derived return values are fixed by the frozen source (Codex #221/#226)."""
+
+        def change_output(change):
+            def apply(row):
+                value = json.loads(row["stdout"])
+                change(value)
+                row["stdout"] = json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+
+            return apply
+
+        # Persistence AC-013 (measure, row 12) and AC-002 (row 1) already FAIL.
+        cases = {
+            "literal-workload": (12, lambda v: v.update(workload_size=11)),
+            "literal-units": (12, lambda v: v.update(units="items")),
+            "count-differs": (12, lambda v: v.update(missing_ids=[1, 2])),
+            "unsorted": (12, lambda v: v.update(missing_ids=[2, 1], value=2)),
+            "comparison-not-bool": (1, lambda v: v.update(store_unchanged="true")),
+        }
+        for name, (index, change) in cases.items():
+            apply = change_output(change)
+            with self.subTest(change=name):
+                self.mutate(
+                    "persistence",
+                    lambda root, index=index, apply=apply: self.change_rows(
+                        root, "processes.jsonl", lambda rows: apply(rows[index])
+                    ),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

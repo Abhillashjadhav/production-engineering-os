@@ -296,3 +296,67 @@ def test_script_arguments_are_not_startup_options(tmp_path: Path) -> None:
     )
     assert result.returncode == 3, result.stdout + result.stderr
     assert "source-only" in result.stdout
+
+
+@pytest.mark.skipif(not Path("/proc/self/cmdline").exists(), reason="needs /proc startup records")
+def test_deleted_startup_xoption_cannot_fall_back_to_the_environment(tmp_path: Path) -> None:
+    """A startup -X prefix overrides the environment even after sys._xoptions is edited.
+
+    Codex #227: with environment prefix A and -X prefix B, deleting the runtime -X entry
+    and pointing sys.pycache_prefix at A must not admit A; imports before that used B.
+    """
+    environment_prefix = empty_prefix(tmp_path, "environment-cache")
+    startup_prefix = empty_prefix(tmp_path, "startup-cache")
+    (startup_prefix / "stale.pyc").write_bytes(b"stale")
+    adapter = tmp_path / "adapter" / "runner.py"
+    adapter.parent.mkdir(exist_ok=True)
+    adapter.write_text("# exact adapter source; never imported\n")
+    forge = f"del sys._xoptions['pycache_prefix']\nsys.pycache_prefix = {str(environment_prefix)!r}"
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if key not in {"PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX", "PYTHONPATH"}
+    }
+    environment.update(PYTHONPATH=str(ROOT / "src"), PYTHONPYCACHEPREFIX=str(environment_prefix))
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-B",
+            "-X",
+            f"pycache_prefix={startup_prefix}",
+            "-c",
+            PROBE.format(pre=forge, adapter=str(adapter)),
+        ],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=120,
+        check=False,
+    )
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert "source-only" in result.stdout
+
+
+def test_class_in_a_registered_replacement_module_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Registering the forged namespace in sys.modules does not make its code canonical.
+
+    Codex #227: a replacement module under the approved name, holding a forged class and
+    pointing __file__ at the approved source, must not borrow that source's identity.
+    """
+    real = sys.modules[CanonicalImplementation.__module__]
+    replacement = types.ModuleType(real.__name__)
+    replacement.__file__ = real.__file__
+
+    def forged_run(self: object) -> str:
+        return "forged"
+
+    run = types.FunctionType(forged_run.__code__, vars(replacement), "run")
+    forged = type("CanonicalImplementation", (), {"__module__": real.__name__, "run": run})
+    forged.__qualname__ = CanonicalImplementation.__qualname__
+    replacement.CanonicalImplementation = forged  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, real.__name__, replacement)
+    with pytest.raises(ValueError, match="canonical"):
+        implementation_identity(forged())
