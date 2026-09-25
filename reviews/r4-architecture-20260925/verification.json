@@ -1,0 +1,69 @@
+{
+  "scope": "Decision investigation and regression/benign metadata coverage. Production unchanged; no repair GREEN.",
+  "base_commit": "c67716638731ba3be4ceeab20be6e6fdee631fd3",
+  "base_tree": "872e53b7cb05bace2d825dca47ea7e27f78c7cf0",
+  "static_red_commit": "2bd72e525516eb485e5fc5cdb690cb94e16e6f9c",
+  "static_red_tree": "f68c573786857cf3e433f635b74076c5dd4ea4b1",
+  "environment": {
+    "python": "/opt/codex/runtimes/codex-primary-runtime/dependencies/python/bin/python3",
+    "version": "3.12.14",
+    "dependency_source": "/workspace/scratch/f9ac546f3a50/overnight-20260923/venv/lib/python3.12/site-packages",
+    "reason": "Supplied venv/bin/python was absent. Shared venv was not modified.",
+    "import_controls": "Every Python check used -B, PYTHONDONTWRITEBYTECODE=1 and a unique private PYTHONPYCACHEPREFIX; no existing cache was deleted."
+  },
+  "checks": [
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX=/workspace/scratch/b6efdedb2992/pmos-parallel-20260925/architecture-private-cache-static PYTHONPATH=src:.:/workspace/scratch/f9ac546f3a50/overnight-20260923/venv/lib/python3.12/site-packages python3 -B - <<'PY'\nimport hashlib\nimport json\nimport subprocess\nfrom pathlib import Path\nfrom scripts.ci.evaluate_security_profile import _observed_architecture_edges, _reviewed_policy_config\nroot = Path.cwd()\nconfig = _reviewed_policy_config(json.loads((root / \"security/security-profile-policy.json\").read_bytes()))\nallowlist = tuple(\n    (str(item[\"path\"]), int(item[\"line\"]), str(item[\"line_fingerprint\"]), str(item[\"file_digest\"]))\n    for item in config[\"dynamic_import_allowlist\"]\n)\nobserved = _observed_architecture_edges(root, dynamic_import_allowlist=allowlist)\nallowed = set(map(tuple, config[\"allowed_architecture_edges\"]))\nunapproved = sorted(set(observed) - allowed)\nprotected = {}\nfor name in (\n    \"scripts/ci/evaluate_security_profile.py\",\n    \"security/security-profile-policy.json\",\n    \"security/secret-allowlist.json\",\n    \"src/pmpe/process_sources.py\",\n):\n    current = (root / name).read_bytes()\n    baseline = subprocess.check_output([\"git\", \"show\", \"c67716638731ba3be4ceeab20be6e6fdee631fd3:\" + name])\n    protected[name] = {\"sha256\": hashlib.sha256(current).hexdigest(), \"same_as_base\": current == baseline}\nprint(json.dumps({\n    \"scope\": \"existing text-only architecture scanner and unchanged reviewed policy; not composed CI\",\n    \"observed_edges\": observed,\n    \"unapproved_edges\": unapproved,\n    \"files\": protected,\n}, indent=2))\nraise SystemExit(bool(unapproved))\nPY",
+      "result": {
+        "chunk_id": "f4130f",
+        "wall_time_seconds": 5.216274104,
+        "exit_code": 1,
+        "original_token_count": 419,
+        "output": "{\n  \"scope\": \"existing text-only architecture scanner and unchanged reviewed policy; not composed CI\",\n  \"observed_edges\": [\n    [\n      \"core\",\n      \"delivery\"\n    ],\n    [\n      \"core\",\n      \"interfaces\"\n    ],\n    [\n      \"core\",\n      \"orchestration\"\n    ],\n    [\n      \"core\",\n      \"unresolved_dynamic\"\n    ],\n    [\n      \"core\",\n      \"verification\"\n    ],\n    [\n      \"delivery\",\n      \"core\"\n    ],\n    [\n      \"delivery\",\n      \"verification\"\n    ],\n    [\n      \"interfaces\",\n      \"core\"\n    ],\n    [\n      \"interfaces\",\n      \"delivery\"\n    ],\n    [\n      \"interfaces\",\n      \"orchestration\"\n    ],\n    [\n      \"interfaces\",\n      \"verification\"\n    ],\n    [\n      \"orchestration\",\n      \"core\"\n    ],\n    [\n      \"orchestration\",\n      \"delivery\"\n    ],\n    [\n      \"orchestration\",\n      \"verification\"\n    ],\n    [\n      \"verification\",\n      \"core\"\n    ],\n    [\n      \"verification\",\n      \"delivery\"\n    ]\n  ],\n  \"unapproved_edges\": [\n    [\n      \"core\",\n      \"unresolved_dynamic\"\n    ]\n  ],\n  \"files\": {\n    \"scripts/ci/evaluate_security_profile.py\": {\n      \"sha256\": \"1991d09117a4a8385726f04e5bcdc6f80ed3a645b8aab07fac215dd60e06a5fd\",\n      \"same_as_base\": true\n    },\n    \"security/security-profile-policy.json\": {\n      \"sha256\": \"417ddd1deaea43983901e8577dc42920a8979a98b7755d8510e74fa755af081a\",\n      \"same_as_base\": true\n    },\n    \"security/secret-allowlist.json\": {\n      \"sha256\": \"77db25c79d5210a72c147f1c27cfffa7daba8c7d2400a5a63fa97424fe9c0965\",\n      \"same_as_base\": true\n    },\n    \"src/pmpe/process_sources.py\": {\n      \"sha256\": \"417d49a505e0bb303421dea273b18e1474dd4e1acfbb0b41c1d1a2844e419359\",\n      \"same_as_base\": true\n    }\n  }\n}\n"
+      }
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX=/workspace/scratch/b6efdedb2992/pmos-parallel-20260925/architecture-private-cache-metadata PYTHONPATH=src:.:/workspace/scratch/f9ac546f3a50/overnight-20260923/venv/lib/python3.12/site-packages python3 -B -m pytest -q -p no:cacheprovider tests/unit/test_process_source_inventory.py",
+      "exit_code": 0,
+      "observed_output": ".........                                                                [100%]",
+      "passing_cases": 9,
+      "limitation": "Guard registry view mocked with SimpleNamespace metadata; fixture files are inert markers. No fixture code or bytecode was executed; not the final adversarial recheck."
+    },
+    {
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPYCACHEPREFIX=/workspace/scratch/b6efdedb2992/pmos-parallel-20260925/architecture-private-cache-fixture PYTHONPATH=src:.:/workspace/scratch/f9ac546f3a50/overnight-20260923/venv/lib/python3.12/site-packages python3 -B -m pytest -q -p no:cacheprovider tests/integration/test_process_gate_runtime.py::test_retained_replay_passes_mechanical_gates_but_never_fresh_gate",
+      "result": {
+        "chunk_id": "4015e7",
+        "wall_time_seconds": 0.000022158,
+        "exit_code": 0,
+        "original_token_count": 20,
+        "output": ".                                                                        [100%]\n"
+      },
+      "asserted_gate_statuses": [
+        "PASS",
+        "NOT_EVALUATED",
+        "NOT_EVALUATED",
+        "PASS"
+      ],
+      "asserted_terminal_state": "HALTED",
+      "limitation": "Existing deterministic provider fixture, not a new historical 218-artifact replay or fresh generation."
+    },
+    {
+      "command": "/workspace/scratch/f9ac546f3a50/overnight-20260923/venv/bin/ruff check --no-cache tests/unit/test_process_source_architecture.py tests/unit/test_process_source_inventory.py && /workspace/scratch/f9ac546f3a50/overnight-20260923/venv/bin/ruff format --check --no-cache tests/unit/test_process_source_architecture.py tests/unit/test_process_source_inventory.py",
+      "result": {
+        "chunk_id": "8dbe10",
+        "wall_time_seconds": 0.000024894,
+        "exit_code": 0,
+        "original_token_count": 12,
+        "output": "All checks passed!\n2 files already formatted\n"
+      }
+    }
+  ],
+  "architecture": "FAIL",
+  "implementation": "Not started; BAR question 6 execution-boundary decision required",
+  "bytecode_adversarial_recheck": "UNVERIFIED - not run due to screening boundary",
+  "process_context_adversarial_recheck": "UNVERIFIED - not run due to screening boundary",
+  "fresh_model_calls": 0,
+  "final_source_correctness": "Not established",
+  "fresh_approval": "None",
+  "remote_publication_merge_deployment": "None"
+}

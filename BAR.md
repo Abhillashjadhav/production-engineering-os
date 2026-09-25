@@ -23,6 +23,14 @@ clean inventory/provider fixtures, lint/types, and benign data-only/mocked check
 screening-stopped bytecode injection and evidence-forgery final checks remain UNVERIFIED;
 they must not be rerun, rephrased, relocated, or replaced with equivalent execution.
 
+**Decision outcome:** stop the implementation unit under question 6. The roots-only API
+and already-constructed provider/sandbox inputs cannot establish completeness of a
+module inventory before import. Mandatory source-only bootstrap would change the
+supported execution contract. The root coordinator confirmed that parallel-work
+authorization does not approve that trust-boundary change. Retain the failing static
+regression, benign metadata coverage, existing clean control, and a concrete proposal
+in `reviews/r4-architecture-20260925/DECISION_REQUIRED.md`; no production repair is claimed.
+
 ## Distinct support-package caller unit
 
 1. **Existing path? Yes.** Extend the package reader's current contract/receipt/candidate checks; do not synthesize a barebones plan or add another engine.
