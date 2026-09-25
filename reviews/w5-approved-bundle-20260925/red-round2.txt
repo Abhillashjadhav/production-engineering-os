@@ -1,0 +1,5 @@
+# base 8e6cd62 + tests only (Codex #228: unbound bindings/profile; symlinked control parent)
+FAILED tests/integration/test_approved_bundle_run.py::test_bindings_and_profile_are_bound_to_the_approved_source_manifest[bindings]
+FAILED tests/integration/test_approved_bundle_run.py::test_bindings_and_profile_are_bound_to_the_approved_source_manifest[execution-profile]
+FAILED tests/integration/test_approved_bundle_run.py::test_symlinked_negative_control_parent_is_refused
+3 failed, 19 passed in 8.56s

@@ -331,3 +331,39 @@ def test_wrong_shaped_binding_maps_halt_instead_of_crashing(
     code, marker = run_cli(tmp_path, bundle, digest)
     output = refused_before_side_effects(tmp_path, code, marker, capsys)
     assert "bundle bindings" in output["detail"]
+
+
+@pytest.mark.parametrize("artifact", ["bindings", "execution-profile"])
+def test_bindings_and_profile_are_bound_to_the_approved_source_manifest(
+    tmp_path: Path, artifact: str
+) -> None:
+    """Codex #228 P1: bundle.json's bindings and profile sit outside the approval freeze.
+
+    The loader itself must tie them to the approved source manifest, whichever process
+    gates the contract declares, before the engine sees the template.
+    """
+    from pmpe.approved_bundle import BundleError
+
+    bundle, digest, *_ = write_bundle(tmp_path)
+    if artifact == "bindings":
+        bindings = json.loads((bundle / "bindings.json").read_text())
+        bindings["context"] = {**bindings["context"], "changed_after_approval": True}
+        (bundle / "bindings.json").write_text(json.dumps(bindings))
+    else:
+        profile = json.loads((bundle / "execution-profile.json").read_text())
+        profile["changed_after_approval"] = True
+        (bundle / "execution-profile.json").write_text(json.dumps(profile))
+    with pytest.raises(BundleError, match="source manifest"):
+        load(bundle, digest)
+
+
+def test_symlinked_negative_control_parent_is_refused(tmp_path: Path) -> None:
+    """Codex #228 P2: every component of a control path is checked, not just the last."""
+    from pmpe.approved_bundle import BundleError
+
+    bundle, digest, *_ = write_bundle(tmp_path)
+    outside = tmp_path / "outside-controls"
+    shutil.move(str(bundle / "controls"), outside)
+    (bundle / "controls").symlink_to(outside, target_is_directory=True)
+    with pytest.raises(BundleError, match="symlink"):
+        load(bundle, digest)
