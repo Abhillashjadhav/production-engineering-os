@@ -222,6 +222,21 @@ SUCCESS_RECORD_KEYS = frozenset(
 )
 
 
+def returned_fields(module_source, function):
+    """The one key set that ``function`` returns as a literal dict in the frozen module."""
+    shapes = {
+        frozenset(key.value for key in node.value.keys)
+        for definition in ast.walk(ast.parse(module_source))
+        if isinstance(definition, ast.FunctionDef) and definition.name == function
+        for node in ast.walk(definition)
+        if isinstance(node, ast.Return)
+        and isinstance(node.value, ast.Dict)
+        and all(isinstance(key, ast.Constant) for key in node.value.keys)
+    }
+    require(len(shapes) == 1, f"frozen evaluator {function} has no single return shape")
+    return next(iter(shapes))
+
+
 def frozen_mode(source, entry_relative):
     """The one ``"mode"`` literal the digest-bound adapter records for each process."""
     modes = {
@@ -536,6 +551,15 @@ def check(directory, packet, source, case):
                 passed = all(
                     _assertion_passes(x, template.context) for x in criterion.given
                 ) and all(_assertion_passes(x, {"result": value}) for x in criterion.then)
+            # The frozen evaluator (digest-bound in the template) returns exactly these
+            # fields, so any other top-level field cannot come from it.
+            module, function = target.split(":")
+            require(
+                isinstance(value, dict)
+                and set(value)
+                == returned_fields(template.files[module.replace(".", "/") + ".py"], function),
+                "observer output has fields the frozen evaluator does not return",
+            )
             require(
                 argv[-3:-1] == target.split(":")
                 # _run_action passes json.dumps(arguments) verbatim as the last argument.
