@@ -71,7 +71,15 @@ def requirement_errors(value: dict[str, Any]) -> list[str]:
         errors.append("requirements: inventory must be R1-R17")
     if set(decisions) != DECISIONS:
         errors.append("decisions: inventory changed")
+    errors.extend(
+        f"{decision_id}: a DECIDED entry has open_parts"
+        for decision_id, decision in decisions.items()
+        if decision["status"] == "DECIDED" and decision.get("open_parts")
+    )
     for requirement_id, requirement in value["requirements"].items():
+        statement = requirement.get("statement")
+        if not (isinstance(statement, str) and statement.strip()):
+            errors.append(requirement_id + ": statement is missing")
         refs = requirement["decision_refs"]
         pinned = REQUIREMENT_REFS.get(requirement_id)
         if pinned is not None and refs != pinned:
