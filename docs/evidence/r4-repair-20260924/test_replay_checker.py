@@ -104,6 +104,48 @@ class ReplayCheckerRegression(unittest.TestCase):
 
         self.mutate("retained", lambda root: self.change_rows(root, "processes.jsonl", change))
 
+    def test_nested_signal_exit_code_rejected(self):
+        """A killed observer subprocess (137) inside an already-failing criterion."""
+
+        def change(rows):
+            # AC-002 already fails in the persistence case, so its status is unchanged.
+            row = next(item for item in rows if item["criterion_id"] == "AC-002")
+            value = json.loads(row["stdout"])
+            value["observations"][-1]["exit_code"] = 137
+            row["stdout"] = json.dumps(value)
+
+        self.mutate("persistence", lambda root: self.change_rows(root, "processes.jsonl", change))
+
+    def test_duplicate_or_altered_findings_rejected(self):
+        def duplicate(root):
+            path = root / "result.json"
+            value = json.loads(path.read_text())
+            value["findings"].append(dict(value["findings"][0]))
+            path.write_text(json.dumps(value))
+
+        def alter(root):
+            path = root / "result.json"
+            value = json.loads(path.read_text())
+            value["findings"][0]["message"] = "edited after the run"
+            value["findings"][0]["files"] = ["product.py"]
+            path.write_text(json.dumps(value))
+
+        for mutation in (duplicate, alter):
+            with self.subTest(mutation=mutation.__name__):
+                self.mutate("persistence", mutation)
+
+    def test_replaced_runner_program_rejected(self):
+        """A fabricated -c program that only prints the recorded stdout."""
+
+        def change(rows):
+            argv = rows[0]["argv"]
+            workspace = argv[-5].split("sys.path.insert(0,", 1)[1].split(");", 1)[0]
+            argv[-5] = (
+                f"import sys;sys.path.insert(0,{workspace});print({rows[0]['stdout'].strip()!r})"
+            )
+
+        self.mutate("retained", lambda root: self.change_rows(root, "processes.jsonl", change))
+
 
 if __name__ == "__main__":
     unittest.main()

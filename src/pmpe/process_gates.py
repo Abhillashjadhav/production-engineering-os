@@ -249,10 +249,17 @@ class ProcessGateRuntime:
                 continue
             kind = binding["kind"]
             if kind == "negative_controls":
+                own = [mutant["id"] for mutant in binding["mutants"]]
+                scoped = [
+                    control
+                    for identifier in own
+                    for control in self.controls
+                    if control["mutant_id"] == identifier
+                ]
                 status, evidence = negative_controls_result(
                     binding,
                     self.baseline,
-                    self.controls,
+                    scoped,
                     ids,
                     {
                         item.criterion_id
