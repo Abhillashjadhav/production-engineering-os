@@ -1,0 +1,13 @@
+# head: 98d1ea80c6d41836c0f99ffbda0cb01bf512e1a4  worktree-dirty: 1 files
+# cmd: pytest tests/e2e/test_barebones_evals.py
+_ test_human_test_non_assertion_failure_cannot_satisfy_meaningful_red[call-key-error] _
+        ids=["call-key-error", "call-runtime-error", "setup-assertion", "teardown-assertion"],
+_ test_human_test_non_assertion_failure_cannot_satisfy_meaningful_red[call-runtime-error] _
+        ids=["call-key-error", "call-runtime-error", "setup-assertion", "teardown-assertion"],
+        ids=["call-key-error", "call-runtime-error", "setup-assertion", "teardown-assertion"],
+        ids=["call-key-error", "call-runtime-error", "setup-assertion", "teardown-assertion"],
+FAILED tests/e2e/test_barebones_evals.py::test_human_test_non_assertion_failure_cannot_satisfy_meaningful_red[call-key-error]
+FAILED tests/e2e/test_barebones_evals.py::test_human_test_non_assertion_failure_cannot_satisfy_meaningful_red[call-runtime-error]
+FAILED tests/e2e/test_barebones_evals.py::test_human_test_non_assertion_failure_cannot_satisfy_meaningful_red[setup-assertion]
+FAILED tests/e2e/test_barebones_evals.py::test_human_test_non_assertion_failure_cannot_satisfy_meaningful_red[teardown-assertion]
+4 failed, 44 passed in 14.17s

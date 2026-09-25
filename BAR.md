@@ -26,3 +26,12 @@ No frozen source, trusted policy, scanner, allowlist, model, deployment, merge, 
 4. **Failing check first? Yes.** Test commit precedes the fix commit.
 5. **Revert as one unit? Yes.** Two commits, one test file and one source function.
 6. **New setting/dependency/extension? No.**
+
+## W1b — setup/teardown failures counted as meaningful RED on the R4 process line (2026-09-25)
+
+1. **Already exists? Yes.** PR #204 (`12fa805`, `c061e21`) fixed this against `main`; this unit reuses its tests (including the allowlisted-fixture position) and source change on top of W1a.
+2. **Reproduced blocker? Yes.** Handoff W1 / review P1: a fixture failing before the test body was classified as an assertion failure. `reviews/w1-consolidation-20260925/call-phase-red-red.txt` records 4 failing / 44 passing on unchanged W1a source.
+3. **Changes behaviour with callers/tests? Yes.** `_run_pytest_node` now raises `ContractInvalidError` for setup/teardown failures and non-assertion exceptions that previously counted as RED; intentional `pytest.fail` and assertion failures keep their meaning.
+4. **Failing check first? Yes.** Test commit precedes the fix commit.
+5. **Revert as one unit? Yes.** One source function and one test file.
+6. **New setting/dependency/extension? No.**

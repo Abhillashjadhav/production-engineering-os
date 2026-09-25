@@ -1524,3 +1524,135 @@ def test_release_manifest_is_the_exact_snapshot_that_was_verified(tmp_path: Path
     manifest = json.loads(manifest_path.read_text())
     product_blob = tmp_path / ".pmpe/blobs" / manifest["product.py"].removeprefix("sha256:")
     assert product_blob.read_text() == "def health():\n    return {'status': 'ok'}\n"
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from product import health\n\ndef test_health():\n    health()['unchecked']\n",
+        "from product import health\n\ndef test_health():\n"
+        "    if health()['status'] != 'ok':\n        raise RuntimeError('not ready')\n",
+        "import pytest\nfrom product import health\n\n"
+        "@pytest.fixture(autouse=True)\ndef readiness():\n"
+        "    assert health()['status'] == 'ok'\n\ndef test_health():\n    pass\n",
+        "import pytest\nfrom product import health\n\n"
+        "@pytest.fixture(autouse=True)\ndef readiness():\n"
+        "    yield\n    assert health()['status'] == 'ok'\n\ndef test_health():\n    pass\n",
+        # Codex #223 P1: the test body cannot redefine what the trusted runner counts
+        # as an assertion failure once the runner has started.
+        "import pytest\n\nclass Fake(RuntimeError):\n    pytrace = False\n\n"
+        "def test_health():\n    pytest.fail.Exception = Fake\n"
+        "    raise Fake('not an assertion')\n",
+        "import builtins\n\ndef test_health():\n"
+        "    builtins.AssertionError = RuntimeError\n    raise RuntimeError('not an assertion')\n",
+    ],
+    ids=[
+        "call-key-error",
+        "call-runtime-error",
+        "setup-assertion",
+        "teardown-assertion",
+        "rebound-pytest-fail-exception",
+        "rebound-builtin-assertion-error",
+    ],
+)
+def test_human_test_non_assertion_failure_cannot_satisfy_meaningful_red(
+    tmp_path: Path, source: str
+) -> None:
+    test_file = tmp_path / "tests/acceptance/test_health.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text(source)
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"] = {
+        "requirement_refs": ["FR-001"],
+        "human_test": {
+            "path": "tests/acceptance/test_health.py",
+            "node_id": "test_health",
+            "command": [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/acceptance/test_health.py::test_health",
+            ],
+        },
+    }
+
+    class UntestedProvider(PassingProvider):
+        calls = 0
+
+        def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+            self.calls += 1
+            response = dict(super().invoke(purpose=purpose, request=request))
+            if purpose == "code":
+                response["files"] = {
+                    "product.py": "def health():\n    return {'status': 'ok', 'unchecked': True}\n"
+                }
+            return response
+
+    provider = UntestedProvider()
+    with pytest.raises(ContractInvalidError, match="baseline must fail"):
+        run_to_release_ready(
+            contract=contract,
+            repository_root=tmp_path,
+            workspace=tmp_path / "candidate",
+            run_id="human-non-assertion-baseline",
+            provider=provider,
+        )
+    assert provider.calls == 0
+    events = EvidenceLedger.open_existing(tmp_path, "human-non-assertion-baseline").verify()
+    assert not any(event["event_type"] == "meaningful_red_confirmed" for event in events)
+
+
+@pytest.mark.parametrize(
+    ("source", "product"),
+    [
+        (
+            "import pytest\nfrom product import health\n\ndef test_health():\n"
+            "    if health()['status'] != 'ok':\n        pytest.fail('health must report ok')\n",
+            "def health():\n    return {'status': 'ok'}\n",
+        ),
+        (
+            "import pytest\nfrom product import health\n\ndef test_health():\n"
+            "    with pytest.raises(ValueError):\n        health()\n",
+            "def health():\n    raise ValueError('expected')\n",
+        ),
+    ],
+    ids=["pytest-fail", "pytest-raises"],
+)
+def test_intentional_pytest_assertion_failure_satisfies_meaningful_red(
+    tmp_path: Path, source: str, product: str
+) -> None:
+    test_file = tmp_path / "tests/acceptance/test_health.py"
+    test_file.parent.mkdir(parents=True)
+    test_file.write_text(source)
+    contract = _contract()
+    contract["acceptance_criteria"]["AC-001"] = {
+        "requirement_refs": ["FR-001"],
+        "human_test": {
+            "path": "tests/acceptance/test_health.py",
+            "node_id": "test_health",
+            "command": [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "tests/acceptance/test_health.py::test_health",
+            ],
+        },
+    }
+
+    class AssertionProvider(PassingProvider):
+        def invoke(self, *, purpose: str, request: Mapping[str, Any]) -> Mapping[str, Any]:
+            response = dict(super().invoke(purpose=purpose, request=request))
+            if purpose == "code":
+                response["files"] = {"product.py": product}
+            return response
+
+    result = run_to_release_ready(
+        contract=contract,
+        repository_root=tmp_path,
+        workspace=tmp_path / "candidate",
+        run_id="intentional-pytest-assertion",
+        provider=AssertionProvider(),
+    )
+    assert result.state is RunState.RELEASE_READY
