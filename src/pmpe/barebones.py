@@ -644,9 +644,15 @@ def _run_pytest_node(
         "sys.addaudithook(audit)\n"
         "class Recorder:\n"
         " def __init__(self): self.reports = {}\n"
-        " def pytest_runtest_logreport(self, report):\n"
+        " @pytest.hookimpl(hookwrapper=True)\n"
+        " def pytest_runtest_makereport(self, item, call):\n"
+        "  outcome = yield\n"
+        "  report = outcome.get_result()\n"
         "  if report.when == 'call' or report.outcome != 'passed':\n"
-        "   self.reports[report.nodeid] = {'outcome': report.outcome, 'when': report.when}\n"
+        "   assertion_failure = call.excinfo is not None and isinstance(\n"
+        "    call.excinfo.value, (AssertionError, pytest.fail.Exception))\n"
+        "   self.reports[report.nodeid] = {'outcome': report.outcome,\n"
+        "    'when': report.when, 'assertion_failure': assertion_failure}\n"
         "recorder = Recorder()\n"
         "sys.path.insert(0, root)\n"
         "code = pytest.main(sys.argv[2:], plugins=[recorder])\n"
@@ -703,9 +709,18 @@ def _run_pytest_node(
     report = structured.get("reports", {}).get(expected_node)
     if not isinstance(report, Mapping):
         raise ContractInvalidError("bound human test node did not execute exactly once")
-    if report.get("outcome") == "failed" and completed.returncode == 1:
+    if (
+        report.get("outcome") == "failed"
+        and report.get("when") == "call"
+        and report.get("assertion_failure") is True
+        and completed.returncode == 1
+    ):
         return False
-    if report.get("outcome") == "passed" and completed.returncode == 0:
+    if (
+        report.get("outcome") == "passed"
+        and report.get("when") == "call"
+        and completed.returncode == 0
+    ):
         return True
     raise ContractInvalidError(
         "bound human test was skipped, errored, or mutated evidence: "

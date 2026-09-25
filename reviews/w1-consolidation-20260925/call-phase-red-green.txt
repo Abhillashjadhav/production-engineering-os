@@ -1,0 +1,3 @@
+# head: 3f7bb36f846ea5ae327bfd4ec5617c02587285e9  worktree-dirty: 1 files
+# cmd: pytest tests/e2e/test_barebones_evals.py
+48 passed in 12.66s
