@@ -18,10 +18,10 @@ The command relaunches itself in a source-only interpreter (`-B` plus a fresh, e
 | Field | Meaning |
 |---|---|
 | `schema_version` | `"1"` |
-| `approval` | Approval-packet key → bundle-relative file. Keys must equal the freeze's `artifacts`; each file must match its frozen digest. `contract`, `receipt` and `source_manifest` are required. The engine additionally requires `draft`, `plan`, `publisher_input` and `mutant/<id>`. |
+| `approval` | Approval-packet key → bundle-relative file. Keys must equal the freeze's `artifacts`; each file must match its frozen digest. `contract`, `receipt`, `source_manifest`, `draft`, `plan` and `publisher_input` (plus `mutant/<id>` for each bound mutant) are required for every bundle. Before the run, the command compiles the contract's plan and checks the whole packet: the approved contract, the publisher input that rebuilds the reviewed draft, the receipt for that draft, and the plan equal to this contract's plan. This holds whatever gates the contract declares. |
 | `approval_freeze` | Outer freeze file. Its raw sha256 must equal `--freeze-digest`. |
 | `bindings` | Template: `version`, `files`, `actions`, `context`, optional `measures`. Targets are `module:function` in an explicit template file; measures (evaluators) must be frozen `tests/` files. |
-| `execution_profile` | The bound execution profile. Its optional `build_budget` sets the engine's `BudgetCaps`. |
+| `execution_profile` | The bound execution profile. Its optional `build_budget` sets the engine's `BudgetCaps`. It may name only `BudgetCaps` fields, and every value must be a positive integer (not a boolean). |
 | `source_paths` | Name → `{"root": NAME, "path": relative}`. `bundle` is the bundle directory; other roots come from `--root`. |
 | `negative_controls` | Mutant id → bundle-relative directory holding the exact snapshot. |
 | `generation` | `mode` and `provider_attestation` (`kind`, `statement`), passed through unchanged. The fresh-generation gate (G4) keeps its current behaviour until owner decision D2. |

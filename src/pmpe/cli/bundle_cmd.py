@@ -9,17 +9,24 @@ It adds no engine, product rule or sandbox of its own.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import os
 import sys
 import tempfile
 from pathlib import Path
 
 from pmpe.approved_bundle import BundleError, load_approved_bundle
-from pmpe.barebones import BudgetCaps, ContractInvalidError, run_to_release_ready
+from pmpe.barebones import (
+    BudgetCaps,
+    ContractInvalidError,
+    compile_barebones_plan,
+    run_to_release_ready,
+)
 from pmpe.cli.barebones_cmd import CommandModelProvider, _json, _require_approved_contract
 from pmpe.contracts.acceptance import AcceptanceCompileError
 from pmpe.contracts.canonical import CanonicalInputError, strict_loads
 from pmpe.evidence.ledger import EvidenceIntegrityError, EvidenceLedger
+from pmpe.process_approval import validate_approval_packet
 from pmpe.process_sources import require_source_only_interpreter
 
 _RELAUNCHED = "PMPE_SOURCE_ONLY_RELAUNCHED"
@@ -63,6 +70,21 @@ def _relaunch_source_only(args: argparse.Namespace) -> None:
     )
 
 
+def _budget(profile: object) -> BudgetCaps:
+    """The profile's build budget, refused unless every value is a positive integer."""
+    if not isinstance(profile, dict) or "build_budget" not in profile:
+        return BudgetCaps()
+    values = profile["build_budget"]
+    known = {field.name for field in dataclasses.fields(BudgetCaps)}
+    if (
+        not isinstance(values, dict)
+        or not set(values) <= known
+        or any(type(value) is not int or value <= 0 for value in values.values())
+    ):
+        raise BundleError("bundle build_budget must map budget fields to positive integers")
+    return BudgetCaps(**values)
+
+
 def _halted(detail: str) -> int:
     _json({"state": "HALTED", "cause": "CONTRACT_INVALID", "detail": detail})
     return 3
@@ -83,12 +105,17 @@ def _run_bundle(args: argparse.Namespace) -> int:
             Path(args.bundle), freeze_digest=args.freeze_digest, roots=roots
         )
         _require_approved_contract(bundle.contract, bundle.receipt, args.expected_approver)
-        profile = strict_loads(bundle.inputs.execution_profile, "application/json")
-        budget = (
-            BudgetCaps(**profile["build_budget"])
-            if isinstance(profile, dict) and isinstance(profile.get("build_budget"), dict)
-            else BudgetCaps()
+        # The engine checks the approval packet only for digest-bound process gates; a
+        # bundle is admitted only with its whole packet, whatever gates the contract has.
+        plan = compile_barebones_plan(
+            contract=bundle.contract,
+            repository_root=Path(args.repository_root).resolve(),
+            template=bundle.template,
         )
+        validate_approval_packet(
+            bundle.inputs, plan, receipt_bytes=bundle.receipt_bytes, approval_verified=True
+        )
+        budget = _budget(strict_loads(bundle.inputs.execution_profile, "application/json"))
         result = run_to_release_ready(
             contract=bundle.contract,
             repository_root=Path(args.repository_root).resolve(),
