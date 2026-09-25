@@ -312,6 +312,74 @@ def returned_call_lists(module_source, function):
     return lists, counts, defaults
 
 
+def returned_value_rules(module_source, function):
+    """Values fixed by ``function``'s one literal-dict return, read from the frozen AST.
+
+    Returns ``(constants, comparisons, lengths, ordered)``: keys returning a literal,
+    keys returning a comparison (always a bool), and keys returning ``len(name)`` or
+    ``sorted(name)``, each mapped to that local name. A function with more than one
+    literal-dict return yields no rules.
+    """
+    tree = ast.parse(module_source)
+    returns = [
+        node.value
+        for definition in ast.walk(tree)
+        if isinstance(definition, ast.FunctionDef) and definition.name == function
+        for node in ast.walk(definition)
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Dict)
+    ]
+    constants, comparisons, lengths, ordered = {}, set(), {}, {}
+    if len(returns) != 1:
+        return constants, comparisons, lengths, ordered
+    for key, value in zip(returns[0].keys, returns[0].values, strict=True):
+        if not isinstance(key, ast.Constant):
+            continue
+        if isinstance(value, ast.Constant):
+            constants[key.value] = value.value
+        elif isinstance(value, ast.Compare):
+            comparisons.add(key.value)
+        elif (
+            isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Name)
+            and value.func.id in {"len", "sorted"}
+            and len(value.args) == 1
+            and not value.keywords
+            and isinstance(value.args[0], ast.Name)
+        ):
+            (lengths if value.func.id == "len" else ordered)[key.value] = value.args[0].id
+    return constants, comparisons, lengths, ordered
+
+
+def check_returned_values(value, module_source, function):
+    """Refuse values the frozen function's literal return could not have produced."""
+    constants, comparisons, lengths, ordered = returned_value_rules(module_source, function)
+    for key, literal in constants.items():
+        require(
+            type(value[key]) is type(literal) and value[key] == literal,
+            f"observer {key} differs from the frozen evaluator's literal",
+        )
+    for key in comparisons:
+        require(type(value[key]) is bool, f"observer {key} is not the comparison's bool")
+    for key in ordered:
+        items = value[key]
+        try:
+            in_order = isinstance(items, list) and items == sorted(items)
+        except TypeError:
+            in_order = False
+        require(in_order, f"observer {key} is not the sorted list the evaluator returns")
+    for key, name in lengths.items():
+        require(
+            type(value[key]) is int and value[key] >= 0,
+            f"observer {key} is not the length the evaluator returns",
+        )
+        for other, other_name in ordered.items():
+            if other_name == name:
+                require(
+                    value[key] == len(value[other]),
+                    f"observer {key} is not len({other}) as the evaluator returns",
+                )
+
+
 def iterated(node, bound):
     """The value a frozen comprehension iterates over: a parameter, or ``parameter or []``."""
     if isinstance(node, ast.Name):
@@ -660,6 +728,8 @@ def check(directory, packet, source, case):
             # Each list holds one record per item it iterates over (the runner calls the
             # function with **arguments), and a len()-sum field counts exactly those records.
             module_source = template.files[module.replace(".", "/") + ".py"]
+            # Literal, comparison, len() and sorted() return values are fixed by the source.
+            check_returned_values(value, module_source, function)
             lists, counts, defaults = returned_call_lists(module_source, function)
             bound = {**defaults, **arguments}
             for key, (callee, iterable) in lists.items():
