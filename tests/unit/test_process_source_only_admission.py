@@ -183,3 +183,23 @@ def test_relative_startup_cache_prefix_is_refused(tmp_path: Path) -> None:
     result = run_probe(tmp_path, ["-B", "-X", "pycache_prefix=relative-cache"])
     assert result.returncode == 3, result.stdout + result.stderr
     assert "absolute" in result.stdout
+
+
+@pytest.mark.parametrize("entry", ["directory-symlink", "empty-directory", "file-symlink"])
+def test_any_entry_in_startup_cache_prefix_is_refused(tmp_path: Path, entry: str) -> None:
+    """CPython follows directory symlinks in the parallel cache tree; rglob files do not
+    see through them, so a supposedly empty prefix must hold no entry at all (Codex #227 P1).
+    """
+    prefix = empty_prefix(tmp_path)
+    outside = tmp_path / "outside-cache"
+    outside.mkdir()
+    (outside / "stale.pyc").write_bytes(b"inert cache-presence marker; never executed")
+    if entry == "directory-symlink":
+        (prefix / "usr").symlink_to(outside, target_is_directory=True)
+    elif entry == "empty-directory":
+        (prefix / "usr").mkdir()
+    else:
+        (prefix / "stale.pyc").symlink_to(outside / "stale.pyc")
+    result = run_probe(tmp_path, ["-B", "-X", f"pycache_prefix={prefix}"])
+    assert result.returncode == 3, result.stdout + result.stderr
+    assert "not empty" in result.stdout
