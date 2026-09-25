@@ -7,8 +7,8 @@ hand-built planner does not count as proof.
 `decision-register.json` is the machine-checked source of truth; see
 `tests/unit/test_planner_decision_register.py`. A requirement is `SETTLED` only
 when every decision it depends on is fully `DECIDED`. An `OPEN` decision has no
-answer and no default. Owner answers are referenced by interview time and are not
-copied from private material.
+answer and no default. Owner answers are referenced by interview or message time, or by the exact
+session instruction they come from, and are not copied from private material.
 
 | Requirement | Status | Blocked by |
 |---|---|---|
