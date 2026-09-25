@@ -898,6 +898,10 @@ def register(sub: argparse._SubParsersAction) -> None:  # type: ignore[type-arg]
     run_parser.add_argument("--provider-timeout", type=int, default=960)
     run_parser.set_defaults(fn=_run)
 
+    from pmpe.cli import bundle_cmd
+
+    bundle_cmd.register(commands)
+
     for name, function, help_text in (
         ("status", _status, "show the verified state of an existing run"),
         ("evidence", _evidence, "verify and locate an existing evidence chain"),

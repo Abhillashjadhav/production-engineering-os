@@ -27,11 +27,15 @@ from tests.integration.test_process_gate_runtime import (
 
 
 def approved_fixture(
-    tmp_path: Path, *, include_fresh_gate: bool = True
+    tmp_path: Path,
+    *,
+    include_fresh_gate: bool = True,
+    process_bindings: bool = True,
+    profile_extra: dict[str, Any] | None = None,
 ) -> tuple[Any, dict[str, Any], bytes]:
     from pmpe.process_gates import raw_digest
 
-    inputs, items = make_inputs(tmp_path)
+    inputs, items = make_inputs(tmp_path, profile_extra=profile_extra)
     from pmpe.contracts.authoring import build_contract_draft
 
     answers = json.loads(
@@ -47,9 +51,18 @@ def approved_fixture(
         answers.pop(field)
     answers["contract_id"] = "TEST-ONLY-PROCESS-PUBLISHER"
     answers["acceptance_criteria"][0].update(bound_contract(items)["acceptance_criteria"]["AC-001"])
-    answers["binary_release_gates"] = bound_contract(items)["binary_release_gates"]
-    if not include_fresh_gate:
-        del answers["binary_release_gates"][2]
+    if process_bindings:
+        answers["binary_release_gates"] = bound_contract(items)["binary_release_gates"]
+        if not include_fresh_gate:
+            del answers["binary_release_gates"][2]
+    else:
+        answers["binary_release_gates"] = [
+            {
+                "id": "GATE-001",
+                "description": "TEST ONLY criterion gate",
+                "acceptance_criterion_refs": ["AC-001"],
+            }
+        ]
     draft_result = build_contract_draft(answers)
     assert draft_result.draft is not None
     draft = draft_result.draft

@@ -132,7 +132,9 @@ def bound_contract(items: list[dict[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def make_inputs(tmp_path: Path) -> tuple[Any, list[dict[str, Any]]]:
+def make_inputs(
+    tmp_path: Path, *, profile_extra: dict[str, Any] | None = None
+) -> tuple[Any, list[dict[str, Any]]]:
     from pmpe.process_gates import ProcessGateInputs, build_source_manifest, raw_digest
 
     profile = json.dumps(
@@ -141,6 +143,7 @@ def make_inputs(tmp_path: Path) -> tuple[Any, list[dict[str, Any]]]:
             "authorized_fallback": {
                 "unavailable_additional_protections": ["namespaces", "network"]
             },
+            **(profile_extra or {}),
         }
     ).encode()
     manifest_paths = {

@@ -9,6 +9,24 @@
 
 No frozen source, trusted policy, scanner, allowlist, model, deployment, merge, or publication changes. A self-consistent unsigned rewrite remains unauthenticated without an independently retained head.
 
+## W5 — supported approved-bundle run (#224) — 2026-09-25
+
+1. **Already exists? Partly.** `examples/barebones/contract-file.py` loads frozen bindings, and the migration script assembles `ProcessGateInputs`. Neither is a supported CLI path. The loader's bindings and safe-path rules are promoted into `pmpe.approved_bundle`, and the example stays frozen as historical evidence.
+2. **Reproduced blocker? Yes.** The review (2026-09-25) found that `barebones_cmd._run` passes no bindings and no `ProcessGateInputs`, so gated contracts cannot run through the CLI.
+3. **Changes existing behaviour? No.** A new `run-bundle` subcommand; `run` and the other commands are unchanged.
+4. **Failing check first? Yes.** `reviews/w5-approved-bundle-20260925/red.txt`: 13 failing before implementation.
+5. **Revert as one unit? Yes.** Two new modules, one registration line, docs and tests.
+6. **New setting/dependency/extension? No new dependency.** The bundle layout is a fixed schema with no plugin surface. Measures must be frozen `tests/` files; actions may target explicit template modules, as the engine's default template does.
+
+## W5 test fix — criterion-only provider test on the local sandbox (#228) — 2026-09-25
+
+1. **Already exists? Yes.** Reuse the file's existing `LocalSandbox`, which the other engine-path tests in this file already use; no new test sandbox.
+2. **Reproduced blocker? Yes.** CI `tests (3.11)` on `460e104` failed in `test_complete_criterion_only_bundle_reaches_the_provider` with "candidate OS sandbox is unavailable": the plain `tests` job installs no `bwrap`, so the test reached the engine's default `BubblewrapCandidateSandbox`.
+3. **Changes behaviour with callers/tests? Yes, one test only.** That test now swaps `barebones.BubblewrapCandidateSandbox` for `LocalSandbox`, so it no longer depends on host `bwrap`. No source file changes. The real sandbox stays proven by the `candidate-isolation` job, which is unchanged; this test no longer adds host-sandbox coverage.
+4. **Failing check first? Yes.** `reviews/w5-approved-bundle-20260925/sandbox-red.txt`: with `bwrap` hidden, the test fails on `a556d40` (exit 1); `sandbox-green.txt`: the same command passes on `a1d257e` (exit 0).
+5. **Revert as one unit? Yes.** One test-only commit (`a1d257e`) plus this entry and its evidence.
+6. **New setting/dependency/extension? No.** No setting, dependency, workflow or skip marker; the test still runs in every job.
+
 ## W2 — source-only admission replaces registry scans (#217) — 2026-09-25
 
 Owner decision, 2026-09-25 18:29 IST, answering `reviews/r4-architecture-20260925/DECISION_REQUIRED.md`: **"Approve source-only start"**. Gated runs must start in a fresh source-only interpreter. The guard checks process state instead of scanning `sys.modules`. Gated direct calls in an unprepared interpreter are refused.

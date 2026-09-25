@@ -1,0 +1,11 @@
+# source: a556d40; bwrap hidden by pointing the engine's fixed sandbox PATH at a missing directory
+# cmd: python -B -c "import sys, pytest; from pmpe import barebones; barebones._SANDBOX_PATH = \"/nonexistent\"; sys.exit(pytest.main([\"-p\", \"no:cacheprovider\", \"-o\", \"addopts=\", \"-q\", \"tests/integration/test_approved_bundle_run.py::test_complete_criterion_only_bundle_reaches_the_provider\"]))"
+E       AssertionError: {'cause': 'CONTRACT_INVALID', 'detail': 'candidate OS sandbox is unavailable', 'state': 'HALTED'}
+E       assert False
+E        +  where False = exists()
+E        +    where exists = PosixPath('<tmp>
+tests/integration/test_approved_bundle_run.py:462: AssertionError
+=========================== short test summary info ============================
+FAILED tests/integration/test_approved_bundle_run.py::test_complete_criterion_only_bundle_reaches_the_provider
+1 failed in 1.44s
+# exit: 1
