@@ -66,6 +66,20 @@ def test_dropped_or_invented_blockers_are_detected() -> None:
     assert any(error.startswith("R1:") for error in requirement_errors(invented))
 
 
+def test_task_inference_waits_on_the_data_handling_decision() -> None:
+    """Inferring tasks sends transcript text to a model service, which D20 governs (Codex #219)."""
+    value = register()
+    assert "D20" in value["requirements"]["R4"]["decision_refs"]
+    for decision_id in ("D18", "D23"):
+        value["decisions"][decision_id]["status"] = "DECIDED"
+    value["requirements"]["R4"]["blocked_by"] = ["D20"]
+    value["requirements"]["R4"]["status"] = "BLOCKED"
+    assert not any(error.startswith("R4:") for error in requirement_errors(value))
+    value["requirements"]["R4"]["blocked_by"] = []
+    value["requirements"]["R4"]["status"] = "SETTLED"
+    assert any(error.startswith("R4:") for error in requirement_errors(value))
+
+
 def test_no_open_decision_carries_an_implementation_default() -> None:
     for decision_id, decision in register()["decisions"].items():
         assert "default" not in decision, decision_id
