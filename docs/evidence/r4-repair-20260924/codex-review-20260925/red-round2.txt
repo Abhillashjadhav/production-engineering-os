@@ -1,0 +1,7 @@
+# base 95c7ff049c2876adae82713ad6baa3d93657b9c0 + tests only (Codex review #226 round 2)
+FAIL: test_non_signal_abnormal_exit_rejected (__main__.ReplayCheckerRegression.test_non_signal_abnormal_exit_rejected)
+FAIL: test_replaced_interpreter_or_limits_rejected (__main__.ReplayCheckerRegression.test_replaced_interpreter_or_limits_rejected) (change='one_interpreter')
+FAIL: test_replaced_interpreter_or_limits_rejected (__main__.ReplayCheckerRegression.test_replaced_interpreter_or_limits_rejected) (change='every_interpreter')
+FAIL: test_replaced_interpreter_or_limits_rejected (__main__.ReplayCheckerRegression.test_replaced_interpreter_or_limits_rejected) (change='limits')
+Ran 12 tests
+FAILED (failures=4)
