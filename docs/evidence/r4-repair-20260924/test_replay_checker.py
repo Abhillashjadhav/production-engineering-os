@@ -472,6 +472,33 @@ class ReplayCheckerRegression(unittest.TestCase):
                     ),
                 )
 
+    def test_fields_the_frozen_evaluator_cannot_return_rejected(self):
+        """observe(), the measure and _call() each return a fixed set of fields."""
+
+        def extra_top(row):
+            value = json.loads(row["stdout"])
+            value["extra"] = 1
+            row["stdout"] = json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+
+        def extra_nested(row):
+            value = json.loads(row["stdout"])
+            value["observations"][0]["extra"] = 1
+            row["stdout"] = json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n"
+
+        cases = {
+            "action-top-level": ("retained", 0, extra_top),
+            "action-observation": ("retained", 0, extra_nested),
+            "measure-top-level": ("persistence", 12, extra_top),
+        }
+        for name, (case, index, change) in cases.items():
+            with self.subTest(change=name):
+                self.mutate(
+                    case,
+                    lambda root, index=index, change=change: self.change_rows(
+                        root, "processes.jsonl", lambda rows: change(rows[index])
+                    ),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
