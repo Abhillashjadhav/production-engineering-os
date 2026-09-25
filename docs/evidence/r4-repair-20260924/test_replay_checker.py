@@ -60,6 +60,30 @@ class ReplayCheckerRegression(unittest.TestCase):
         # Write exactly as the adapter does, so each mutation tests its own check.
         path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows))
 
+    def test_reformatted_adapter_json_rejected(self):
+        """write_json() emits sorted, two-space-indented JSON plus a newline (Codex #221)."""
+
+        def compact(root):
+            path = root / "execution-source.json"
+            path.write_text(json.dumps(json.loads(path.read_text()), sort_keys=True))
+
+        def no_final_newline(root):
+            path = root / "compatibility.json"
+            path.write_bytes(path.read_bytes()[:-1])
+
+        def unsorted_keys(root):
+            path = root / "result.json"
+            value = json.loads(path.read_text())
+            path.write_text(json.dumps(dict(reversed(list(value.items()))), indent=2) + "\n")
+
+        for name, change in {
+            "compact": compact,
+            "no-final-newline": no_final_newline,
+            "unsorted-keys": unsorted_keys,
+        }.items():
+            with self.subTest(change=name):
+                self.mutate("retained", change)
+
     def test_reformatted_jsonl_rejected(self):
         """The adapter writes each row as sorted json.dumps plus a newline (Codex #221)."""
 
@@ -300,7 +324,8 @@ class ReplayCheckerRegression(unittest.TestCase):
         path = root / filename
         value = json.loads(path.read_text())
         change(value)
-        path.write_text(json.dumps(value, indent=2) + "\n")
+        # Write exactly as the adapter's write_json() does, so each mutation tests its own check.
+        path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
 
     def test_incompatible_or_reprofiled_report_rejected(self):
         """The adapter aborts before any execution when compatibility is false."""

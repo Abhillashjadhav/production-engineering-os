@@ -1,0 +1,6 @@
+# base 9d685cf + tests only (Codex P2 on #221 9d685cf: reformatted adapter JSON accepted; helper now writes write_json's serialization)
+FAIL: test_reformatted_adapter_json_rejected (__main__.ReplayCheckerRegression.test_reformatted_adapter_json_rejected) (change='compact')
+FAIL: test_reformatted_adapter_json_rejected (__main__.ReplayCheckerRegression.test_reformatted_adapter_json_rejected) (change='no-final-newline')
+FAIL: test_reformatted_adapter_json_rejected (__main__.ReplayCheckerRegression.test_reformatted_adapter_json_rejected) (change='unsorted-keys')
+Ran 38 tests in 52.994s
+FAILED (failures=3)
