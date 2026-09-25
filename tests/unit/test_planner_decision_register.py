@@ -179,6 +179,34 @@ def test_task_inference_waits_on_the_data_handling_decision() -> None:
     assert any(error.startswith("R4:") for error in requirement_errors(value))
 
 
+def test_no_decision_can_go_missing() -> None:
+    """Deleting an unreferenced open decision must not leave the register green (Codex #219)."""
+    value = register()
+    del value["decisions"]["D4"]
+    assert "decisions: inventory changed" in requirement_errors(value)
+
+
+def test_requirement_dependencies_are_pinned() -> None:
+    """Dropping a blocker and reconciling the requirement must still fail (Codex #219)."""
+    value = register()
+    value["requirements"]["R6"]["decision_refs"] = ["D16"]
+    value["requirements"]["R6"]["blocked_by"] = []
+    value["requirements"]["R6"]["status"] = "SETTLED"
+    assert "R6: decision_refs must be ['D16', 'D19b']" in requirement_errors(value)
+
+
+def test_undecided_entries_carry_no_default() -> None:
+    """A partially decided entry still has an unanswered part, so no fallback (Codex #219)."""
+    for change in (
+        lambda decision: decision.update({"default": "manual export"}),
+        lambda decision: decision.update({"note": "Default to manual export meanwhile"}),
+        lambda decision: decision.update({"note": "assumed: copy-paste until decided"}),
+    ):
+        value = register()
+        change(value["decisions"]["D22"])
+        assert default_errors(value) == ["D22"]
+
+
 def test_no_open_decision_carries_an_implementation_default() -> None:
     for decision_id, decision in register()["decisions"].items():
         assert "default" not in decision, decision_id
