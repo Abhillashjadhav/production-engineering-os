@@ -15,7 +15,7 @@ copied from private material.
 | R1 daily review at 20:00 Asia/Kolkata | SETTLED | — |
 | R2 read ChatGPT (primary), Claude (optional), Wispr and other authorized text | BLOCKED | D20 data handling, D22 ChatGPT access path |
 | R3 no live audio capture | SETTLED | — |
-| R4 infer tasks; follow the latest agreed state | BLOCKED | D18 uncertainty, D23 runtime AI |
+| R4 infer tasks; follow the latest agreed state | BLOCKED | D18 uncertainty, D20 data handling, D23 runtime AI |
 | R5 process all agreed upcoming dates | SETTLED | — |
 | R6 place tasks with the existing scheduling rules | BLOCKED | D19b conflicts / priority |
 | R7 missing duration → ask | SETTLED | — |
