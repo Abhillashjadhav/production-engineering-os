@@ -238,37 +238,98 @@ def returned_fields(module_source, function):
 
 
 def returned_call_lists(module_source, function):
-    """Returned keys whose value is a list built as ``[callee(...) for ...]`` in ``function``.
+    """How ``function`` builds the lists it returns, read from the frozen evaluator's AST.
 
-    Maps each such key to the module-level ``callee``; its records must have that shape.
+    Returns ``(lists, counts, defaults)``: ``lists`` maps each returned key built as
+    ``[callee(...) for _ in <iterable>]`` to ``(callee, iterable)``; ``counts`` maps each
+    returned key computed as ``len(a) + len(b) + ...`` over those lists to their keys; and
+    ``defaults`` holds the function's literal parameter defaults.
     """
     tree = ast.parse(module_source)
     defined = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
-    fields = {}
-    for definition in ast.walk(tree):
-        if not (isinstance(definition, ast.FunctionDef) and definition.name == function):
-            continue
-        built = {
-            target.id: node.value.elt.func.id
-            for node in ast.walk(definition)
-            if isinstance(node, ast.Assign)
-            and isinstance(node.value, ast.ListComp)
-            and isinstance(node.value.elt, ast.Call)
-            and isinstance(node.value.elt.func, ast.Name)
-            and node.value.elt.func.id in defined
-            for target in node.targets
-            if isinstance(target, ast.Name)
-        }
-        for node in ast.walk(definition):
-            if isinstance(node, ast.Return) and isinstance(node.value, ast.Dict):
-                for key, value in zip(node.value.keys, node.value.values, strict=True):
-                    if (
-                        isinstance(key, ast.Constant)
-                        and isinstance(value, ast.Name)
-                        and value.id in built
-                    ):
-                        fields[key.value] = built[value.id]
-    return fields
+    (definition,) = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == function
+    ]
+    parameters = definition.args.args
+    defaults = {
+        parameter.arg: ast.literal_eval(default)
+        for parameter, default in zip(
+            parameters[len(parameters) - len(definition.args.defaults) :],
+            definition.args.defaults,
+            strict=True,
+        )
+    }
+    built = {
+        target.id: (node.value.elt.func.id, node.value.generators)
+        for node in ast.walk(definition)
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.ListComp)
+        and isinstance(node.value.elt, ast.Call)
+        and isinstance(node.value.elt.func, ast.Name)
+        and node.value.elt.func.id in defined
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+
+    def summed_lengths(node):
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+            left, right = summed_lengths(node.left), summed_lengths(node.right)
+            return None if left is None or right is None else left + right
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "len"
+            and len(node.args) == 1
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id in built
+        ):
+            return [node.args[0].id]
+        return None
+
+    lists, counts = {}, {}
+    for node in ast.walk(definition):
+        if isinstance(node, ast.Return) and isinstance(node.value, ast.Dict):
+            names = {}
+            for key, value in zip(node.value.keys, node.value.values, strict=True):
+                if (
+                    isinstance(key, ast.Constant)
+                    and isinstance(value, ast.Name)
+                    and value.id in built
+                ):
+                    callee, generators = built[value.id]
+                    require(
+                        len(generators) == 1 and not generators[0].ifs,
+                        f"frozen evaluator list {key.value} is not one filter-free loop",
+                    )
+                    lists[key.value] = (callee, generators[0].iter)
+                    names[value.id] = key.value
+            for key, value in zip(node.value.keys, node.value.values, strict=True):
+                summed = summed_lengths(value)
+                if isinstance(key, ast.Constant) and summed:
+                    counts[key.value] = [names[name] for name in summed]
+    return lists, counts, defaults
+
+
+def iterated(node, bound):
+    """The value a frozen comprehension iterates over: a parameter, or ``parameter or []``."""
+    if isinstance(node, ast.Name):
+        require(node.id in bound, f"frozen evaluator iterates unbound {node.id}")
+        return bound[node.id]
+    if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
+        # Python's `a or b`: the first truthy operand, else the last one.
+        for operand in node.values:
+            value = (
+                iterated(operand, bound)
+                if isinstance(operand, ast.Name)
+                else ast.literal_eval(operand)
+            )
+            if value:
+                break
+        return value
+    require(False, "frozen evaluator iterates an unsupported expression")
+    return None
 
 
 def frozen_mode(source, entry_relative):
@@ -596,13 +657,28 @@ def check(directory, packet, source, case):
             )
             # Lists the evaluator fills with one helper's records (observe() builds
             # observations and setup_observations from _call) carry only that helper's fields.
+            # Each list holds one record per item it iterates over (the runner calls the
+            # function with **arguments), and a len()-sum field counts exactly those records.
             module_source = template.files[module.replace(".", "/") + ".py"]
-            for key, callee in returned_call_lists(module_source, function).items():
+            lists, counts, defaults = returned_call_lists(module_source, function)
+            bound = {**defaults, **arguments}
+            for key, (callee, iterable) in lists.items():
                 shape = returned_fields(module_source, callee)
                 require(
                     isinstance(value[key], list)
                     and all(isinstance(item, dict) and set(item) == shape for item in value[key]),
                     f"observer {key} records have fields {callee} does not return",
+                )
+                items = iterated(iterable, bound)
+                require(
+                    isinstance(items, list) and len(value[key]) == len(items),
+                    f"observer {key} has a record count its arguments cannot produce",
+                )
+            for key, summed in counts.items():
+                require(
+                    type(value[key]) is int
+                    and value[key] == sum(len(value[name]) for name in summed),
+                    f"observer {key} differs from the records it counts",
                 )
             require(
                 argv[-3:-1] == target.split(":")
