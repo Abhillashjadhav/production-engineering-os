@@ -99,10 +99,31 @@ def recorded_paths(argv):
 
 def crash_marker(value):
     if isinstance(value, dict):
-        if value.get("invalid_json") is True or value.get("exit_code") == "timeout":
+        if value.get("invalid_json") is True:
             return True
+        # Ordinary product exits are small non-negative ints (0, 1, 2 here); a timeout
+        # label, a signal (negative or >= 128, e.g. 137) or any non-int is a crash.
+        if "exit_code" in value:
+            code = value["exit_code"]
+            if type(code) is not int or not 0 <= code < 128:
+                return True
         return any(crash_marker(child) for child in value.values())
     return isinstance(value, list) and any(crash_marker(child) for child in value)
+
+
+def frozen_runner(source):
+    """The action runner literal inside the frozen engine's ``_run_action``."""
+    tree = ast.parse((source / "src/pmpe/barebones.py").read_text())
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and node.name == "_run_action":
+            for item in ast.walk(node):
+                if isinstance(item, ast.Assign) and [
+                    getattr(t, "id", None) for t in item.targets
+                ] == ["runner"]:
+                    value = ast.literal_eval(item.value)
+                    require(isinstance(value, str), "frozen runner is not a string")
+                    return value
+    raise ValueError("frozen engine action runner not found")
 
 
 def check(directory, packet, source, case):
@@ -209,6 +230,8 @@ def check(directory, packet, source, case):
         inventory(observations[0], base + [(entry_label, entry_hash)])
         inventory(observations[-1], base + [(entry_label, entry_hash)])
         semantic = {}
+        expected_findings = []
+        runner = frozen_runner(source)
         for index, (criterion, process) in enumerate(zip(plan.criteria, processes, strict=True)):
             require(
                 type(process["check_index"]) is int and process["check_index"] == index,
@@ -262,18 +285,41 @@ def check(directory, packet, source, case):
                 and canonical(decode(argv[-1])) == canonical(arguments),
                 "observer target or arguments differ",
             )
+            # The host fallback rewrites only the '/workspace' constant of the engine runner.
+            require(
+                argv[-8:-3]
+                == [
+                    "-I",
+                    "-B",
+                    "-c",
+                    runner.replace("'/workspace'", repr(workspace)),
+                    "unused-workspace-argument",
+                ],
+                "observer runner differs from the frozen engine runner",
+            )
             semantic[criterion.criterion_id] = "PASS" if passed else "FAIL"
+            if not passed:
+                expected_findings.append(
+                    {
+                        "code": "ASSERTION_FAILED",
+                        "files": [target.split(":", 1)[0].replace(".", "/") + ".py"],
+                        "message": (
+                            "compiled measure assertion failed"
+                            if criterion.form == "measure"
+                            else "compiled acceptance assertion failed"
+                        ),
+                        "subject_id": criterion.criterion_id,
+                    }
+                )
         require(
             inventory_mismatches == 0, f"{inventory_mismatches} reconstructed inventories differ"
         )
         require(semantic == result["criteria"], "recorded criterion statuses disagree with stdout")
         failed = [cid for cid, status in semantic.items() if status == "FAIL"]
         require(failed == EXPECTED_FAILURES[case], "case has unexpected criterion outcomes")
-        findings = result["findings"]
         require(
-            {f["subject_id"] for f in findings} == set(failed)
-            and all(f["code"] == "ASSERTION_FAILED" for f in findings),
-            "findings mismatch",
+            canonical(result["findings"]) == canonical(expected_findings),
+            "findings differ from one canonical finding per failed criterion",
         )
         return {
             "digest_observations": len(observations),
