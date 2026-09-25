@@ -187,6 +187,64 @@ class ReplayCheckerRegression(unittest.TestCase):
 
         self.mutate("retained", lambda root: self.change_rows(root, "processes.jsonl", change))
 
+    def change_launch(self, root, change):
+        path = root.parent / "replay-commands.json"
+        launches = json.loads(path.read_text())
+        change(next(item for item in launches if item["case"] == root.name))
+        path.write_text(json.dumps(launches, indent=2) + "\n")
+
+    def test_paired_interpreter_and_launch_record_rejected(self):
+        """Editing the records and the launch record together must still fail."""
+
+        def change(root):
+            def rows(items):
+                for row in items:
+                    row["argv"][7] = "/tmp/python3"
+
+            self.change_rows(root, "processes.jsonl", rows)
+            self.change_launch(root, lambda item: item["command"].__setitem__(0, "/tmp/python3"))
+
+        self.mutate("retained", change)
+
+    def test_failed_outer_launch_rejected(self):
+        for field, value in (("exit_code", 137), ("passed", False)):
+            with self.subTest(field=field):
+                self.mutate(
+                    "retained",
+                    lambda root, field=field, value=value: self.change_launch(
+                        root, lambda item: item.__setitem__(field, value)
+                    ),
+                )
+
+    def test_invalid_measure_sample_type_rejected(self):
+        """The frozen engine aborts on a non-integer sample_size; it never yields FAIL."""
+        for sample in (True, "1"):
+            with self.subTest(sample=sample):
+
+                def change(rows, sample=sample):
+                    value = json.loads(rows[12]["stdout"])
+                    value["sample_size"] = sample
+                    rows[12]["stdout"] = json.dumps(value)
+
+                self.mutate(
+                    "persistence",
+                    lambda root, change=change: self.change_rows(root, "processes.jsonl", change),
+                )
+
+    def test_non_json_constant_in_stdout_rejected(self):
+        """The frozen engine rejects NaN and infinities before producing a result."""
+        for constant in ("NaN", "Infinity", "-Infinity"):
+            with self.subTest(constant=constant):
+
+                def change(rows, constant=constant):
+                    text = rows[0]["stdout"].rstrip()
+                    rows[0]["stdout"] = text[:-1] + ', "extra": ' + constant + "}\n"
+
+                self.mutate(
+                    "retained",
+                    lambda root, change=change: self.change_rows(root, "processes.jsonl", change),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
