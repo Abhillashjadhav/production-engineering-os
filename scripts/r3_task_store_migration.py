@@ -22,10 +22,22 @@ if __name__ == "__main__" and not (
     sys.flags.dont_write_bytecode
     and (sys._xoptions.get("pycache_prefix") or os.environ.get("PYTHONPYCACHEPREFIX"))
 ):
+    # Keep the caller's interpreter options (-I, -E, -O, -W ...): sys.orig_argv holds
+    # them between the executable and the script arguments that sys.argv repeats.
+    _options = sys.orig_argv[1 : len(sys.orig_argv) - len(sys.argv)]
+    if sys.orig_argv[len(_options) + 1 :] != sys.argv:
+        raise SystemExit("cannot relaunch source-only: interpreter options are ambiguous")
     _private_import_cache = tempfile.mkdtemp(prefix="pmpe-clean-import-")
     os.execv(
         sys.executable,
-        [sys.executable, "-B", "-X", "pycache_prefix=" + _private_import_cache, *sys.argv],
+        [
+            sys.executable,
+            *_options,
+            "-B",
+            "-X",
+            "pycache_prefix=" + _private_import_cache,
+            *sys.argv,
+        ],
     )
 
 import pmpe

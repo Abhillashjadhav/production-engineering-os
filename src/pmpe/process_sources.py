@@ -25,14 +25,45 @@ def raw_digest(value: bytes) -> str:
     return "sha256:" + hashlib.sha256(value).hexdigest()
 
 
+def _startup_record(name: str) -> list[bytes] | None:
+    """The kernel's copy of this process's startup argv or environment, where available.
+
+    Runtime edits to ``os.environ`` or ``sys._xoptions`` do not change these records.
+    Platforms without ``/proc`` (for example macOS) fall back to the runtime values.
+    """
+    try:
+        return (Path("/proc/self") / name).read_bytes().split(b"\0")
+    except OSError:
+        return None
+
+
+def _given_at_startup(cmdline: list[bytes], option: str) -> bool:
+    value = b"pycache_prefix=" + os.fsencode(option)
+    return any(
+        token == b"-X" + value or (token == value and index > 0 and cmdline[index - 1] == b"-X")
+        for index, token in enumerate(cmdline)
+    )
+
+
 def _startup_pycache_prefix() -> str | None:
     """The cache prefix this interpreter was started with (``-X`` wins over the env)."""
     option = sys._xoptions.get("pycache_prefix")
     if isinstance(option, str) and option:
+        cmdline = _startup_record("cmdline")
+        if cmdline is not None and not _given_at_startup(cmdline, option):
+            return None
         return option
     if sys.flags.ignore_environment:
         return None
-    return os.environ.get("PYTHONPYCACHEPREFIX") or None
+    value = os.environ.get("PYTHONPYCACHEPREFIX") or None
+    environ = _startup_record("environ")
+    if (
+        value is not None
+        and environ is not None
+        and b"PYTHONPYCACHEPREFIX=" + os.fsencode(value) not in environ
+    ):
+        return None
+    return value
 
 
 def require_source_only_interpreter() -> Path:
