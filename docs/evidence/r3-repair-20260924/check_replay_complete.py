@@ -167,6 +167,31 @@ def frozen_environment(source):
     raise ValueError("frozen engine action environment not found")
 
 
+def frozen_timeout(source):
+    """``_ACTION_TIMEOUT_SECONDS`` of the frozen engine."""
+    for node in ast.parse((source / "src/pmpe/barebones.py").read_text()).body:
+        if (
+            isinstance(node, ast.Assign)
+            and [getattr(t, "id", None) for t in node.targets] == ["_ACTION_TIMEOUT_SECONDS"]
+            and isinstance(node.value, ast.Constant)
+        ):
+            return node.value.value
+    raise ValueError("frozen engine action timeout not found")
+
+
+def frozen_mode(source, entry_relative):
+    """The one ``"mode"`` literal the digest-bound adapter records for each process."""
+    modes = {
+        value.value
+        for node in ast.walk(ast.parse((source / entry_relative).read_text()))
+        if isinstance(node, ast.Dict)
+        for key, value in zip(node.keys, node.values, strict=True)
+        if isinstance(key, ast.Constant) and key.value == "mode" and isinstance(value, ast.Constant)
+    }
+    require(len(modes) == 1, "frozen adapter execution mode is ambiguous")
+    return next(iter(modes))
+
+
 def check(directory, packet, source, case):
     root, packet, source = Path(directory), Path(packet).resolve(), Path(source).resolve()
     local_roots = {"PM-agent-OS": packet.parents[1], "production-engineering-os": source}
@@ -241,11 +266,31 @@ def check(directory, packet, source, case):
         # the frozen profile, so a run with records cannot carry any other report.
         compatibility = read(root / "compatibility.json")
         require(compatibility["plan_digest"] == plan.plan_digest, "recorded plan differs")
+        # Every field is fixed by the adapter's compatibility(): the frozen profile, the
+        # CPython 3.12 constraint it enforces, and its literal scope statement.
+        profile = read(packet / "execution-profile.json")
         require(
-            compatibility["compatible"] is True
+            set(compatibility)
+            == {
+                "compatible",
+                "reasons",
+                "plan_digest",
+                "runtime",
+                "dependencies",
+                "profile_digest",
+                "missing_isolations",
+                "scope",
+            }
+            and compatibility["compatible"] is True
             and compatibility["reasons"] == []
             and compatibility["profile_digest"]
-            == raw((packet / "execution-profile.json").read_bytes()),
+            == raw((packet / "execution-profile.json").read_bytes())
+            and compatibility["dependencies"] == profile["candidate_dependencies"] == []
+            and compatibility["missing_isolations"]
+            == profile["authorized_fallback"]["unavailable_additional_protections"]
+            and compatibility["scope"] == "can attempt and evaluate; not a delivery guarantee"
+            and isinstance(compatibility["runtime"], str)
+            and compatibility["runtime"].startswith("3.12."),
             "compatibility report is not the frozen profile's compatible report",
         )
         result = read(root / "result.json")
@@ -281,6 +326,8 @@ def check(directory, packet, source, case):
         expected_findings = []
         runner = frozen_runner(source)
         environment = frozen_environment(source)
+        timeout = frozen_timeout(source)
+        mode = frozen_mode(source, entry_relative)
         caps = read(packet / "execution-profile.json")["resource_caps"]
         # The historical host fallback's exact prlimit prefix, from the frozen profile.
         limits = [
@@ -364,6 +411,10 @@ def check(directory, packet, source, case):
             require(
                 process.get("environment") == environment,
                 "observer environment differs from the frozen engine",
+            )
+            require(
+                process.get("timeout_seconds") == timeout and process.get("mode") == mode,
+                "observer timeout or execution mode differs from the frozen engine",
             )
             value = decode(process["stdout"])
             canonical(value)
