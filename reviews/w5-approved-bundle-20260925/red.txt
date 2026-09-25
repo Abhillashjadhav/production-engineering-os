@@ -12,3 +12,8 @@ FAILED tests/integration/test_approved_bundle_run.py::test_missing_process_input
 FAILED tests/integration/test_approved_bundle_run.py::test_unknown_bundle_field_is_refused
 FAILED tests/integration/test_approved_bundle_run.py::test_approver_mismatch_is_refused_before_provider
 FAILED tests/integration/test_approved_bundle_run.py::test_unprepared_interpreter_relaunches_source_only
+# wrong-shaped bindings on 95502bb + test only (Codex review #228 P2)
+FAILED tests/integration/test_approved_bundle_run.py::test_wrong_shaped_binding_maps_halt_instead_of_crashing[files]
+FAILED tests/integration/test_approved_bundle_run.py::test_wrong_shaped_binding_maps_halt_instead_of_crashing[actions]
+FAILED tests/integration/test_approved_bundle_run.py::test_wrong_shaped_binding_maps_halt_instead_of_crashing[measures]
+FAILED tests/integration/test_approved_bundle_run.py::test_wrong_shaped_binding_maps_halt_instead_of_crashing[context]

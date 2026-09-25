@@ -317,3 +317,17 @@ def test_bindings_keep_evaluators_frozen_and_explicit(
     code, marker = run_cli(tmp_path, bundle, digest)
     output = refused_before_side_effects(tmp_path, code, marker, capsys)
     assert "bundle" in output["detail"]
+
+
+@pytest.mark.parametrize("field", ["files", "actions", "measures", "context"])
+def test_wrong_shaped_binding_maps_halt_instead_of_crashing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], field: str
+) -> None:
+    """Codex #228 P2: a list where a map is required must be a HALTED refusal."""
+    bundle, digest, *_ = write_bundle(tmp_path)
+    bindings = json.loads((bundle / "bindings.json").read_text())
+    bindings[field] = []
+    (bundle / "bindings.json").write_text(json.dumps(bindings))
+    code, marker = run_cli(tmp_path, bundle, digest)
+    output = refused_before_side_effects(tmp_path, code, marker, capsys)
+    assert "bundle bindings" in output["detail"]
