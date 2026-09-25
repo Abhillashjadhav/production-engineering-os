@@ -214,14 +214,14 @@
       ]
     },
     "D22": {
-      "status": "OPEN",
+      "status": "PARTIALLY_DECIDED",
       "question": "ChatGPT has no official automatable read path for consumer chat history (feasibility 2026-09-25). How should the required ChatGPT source be read?",
-      "answer": null,
-      "source": null,
+      "answer": "ChatGPT stays the required primary source and evening processing must be automatic. Daily manual export, copy-paste, dropping ChatGPT and scraping are not approved; no workaround may be chosen without the owner.",
+      "source": "owner message 2026-09-25 21:35 IST (this session; paraphrased)",
       "open_parts": [
-        "ChatGPT access path"
+        "a supported automatic ChatGPT access route, or the owner's choice of the smallest change that makes one available"
       ],
-      "notes": "Options found: periodic manual data export (delay up to days; not a daily automatic read), unofficial scraping (violates OpenAI Terms; account risk), or a different capture route chosen by the owner. No option is selected here."
+      "notes": "Verification 2026-09-25 (search-engine excerpts of help.openai.com and developers.openai.com; those domains were not fetchable from the build environment): no supported automatic read of consumer (Plus/Pro) ChatGPT conversations was found. The OpenAI API cannot read chatgpt.com chats; self-service export is manual (up to 7 days, link expires after 24 h); apps/MCP connectors receive only what a live chat sends and must not request chat history; the macOS app encrypts its local store. Supported routes with limits: (1) the Compliance Platform delivers conversation logs for ChatGPT Enterprise and Edu workspaces only (sales-led, org-level); (2) a ChatGPT scheduled task can deliver a daily result by push or email, but whether a task sees chat history is unverified and output would be a summary, not transcripts. Requirement R2 stays BLOCKED."
     },
     "D23": {
       "status": "OPEN",
