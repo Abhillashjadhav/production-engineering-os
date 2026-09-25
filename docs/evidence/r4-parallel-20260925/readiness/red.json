@@ -1,0 +1,6 @@
+{
+  "command": "python3 -B docs/evidence/r4-parallel-20260925/readiness/verify_static.py --process /workspace/scratch/f9ac546f3a50/r4-20260924/peos-process --pmos /workspace/scratch/b6efdedb2992/pmos-r4-resume/pmos-runtime-worktree",
+  "exit_code": 1,
+  "result": {"status": "FAIL", "reason": "assessment.json is missing"},
+  "scope": "Documentation evidence check; no product imports, provider calls or adversarial execution"
+}
