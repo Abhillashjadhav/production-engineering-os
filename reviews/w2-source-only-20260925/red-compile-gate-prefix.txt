@@ -1,0 +1,3 @@
+# base 0ae0320 + test only: compileall in the quality gate writes into the inherited PYTHONPYCACHEPREFIX (CI job 108093142777: 'process gate bytecode prefix is not empty')
+FAILED tests/integration/test_quality_gates.py::test_candidate_compile_never_writes_into_the_callers_cache_prefix
+1 failed, 5 deselected in 1.24s

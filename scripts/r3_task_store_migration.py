@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -13,11 +14,34 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-# Set before importing the engine. -B alone still reads existing local .pyc files.
-if __name__ == "__main__":
-    _private_import_cache = tempfile.TemporaryDirectory(prefix="pmpe-clean-import-")
-    sys.pycache_prefix = _private_import_cache.name
-    sys.dont_write_bytecode = True
+# Gated runs need a source-only interpreter (owner decision 2026-09-25): bytecode writes
+# off and an empty private cache prefix, both fixed at start. -B alone still reads
+# existing .pyc files, and a prefix assigned now cannot vouch for earlier imports, so
+# relaunch with the same arguments before importing the engine.
+if __name__ == "__main__" and not (
+    sys.flags.dont_write_bytecode
+    and (sys._xoptions.get("pycache_prefix") or os.environ.get("PYTHONPYCACHEPREFIX"))
+):
+    # Keep the caller's interpreter options (-I, -E, -O, -W ...): sys.orig_argv holds
+    # them between the executable and the script arguments that sys.argv repeats.
+    _options = sys.orig_argv[1 : len(sys.orig_argv) - len(sys.argv)]
+    if sys.orig_argv[len(_options) + 1 :] != sys.argv:
+        raise SystemExit("cannot relaunch source-only: interpreter options are ambiguous")
+    # A trailing "--" ends the interpreter options, so the added flags go before it.
+    _terminator = _options[-1:] == ["--"]
+    _private_import_cache = tempfile.mkdtemp(prefix="pmpe-clean-import-")
+    os.execv(
+        sys.executable,
+        [
+            sys.executable,
+            *(_options[:-1] if _terminator else _options),
+            "-B",
+            "-X",
+            "pycache_prefix=" + _private_import_cache,
+            *(["--"] if _terminator else []),
+            *sys.argv,
+        ],
+    )
 
 import pmpe
 import pmpe.barebones
