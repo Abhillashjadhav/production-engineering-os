@@ -89,7 +89,18 @@ def read(path):
 
 
 def rows(path):
-    return [decode(row) for row in path.read_text().splitlines()]
+    """Each row exactly as the adapter's append() writes it: sorted json.dumps plus "\\n"."""
+    text = path.read_bytes().decode("utf-8")
+    require(text == "" or text.endswith("\n"), path.name + " is not newline-terminated JSONL")
+    values = []
+    for line in text.split("\n")[:-1]:
+        value = decode(line)
+        require(
+            json.dumps(value, sort_keys=True) == line,
+            path.name + " row differs from the adapter's serialization",
+        )
+        values.append(value)
+    return values
 
 
 def safe_file(root, relative):
