@@ -149,3 +149,29 @@ def test_spoof_with_own_code_is_refused() -> None:
     Spoof.__qualname__ = CanonicalImplementation.__qualname__
     with pytest.raises(ValueError, match="canonical"):
         implementation_identity(Spoof())
+
+
+@pytest.mark.parametrize("prefix", [None, "absolute", "relative"])
+def test_bytecode_paths_match_the_import_system(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, prefix: str | None
+) -> None:
+    """The guard derives cache paths without importlib; they must match it exactly."""
+    import importlib.util
+
+    from pmpe.process_sources import bytecode_paths
+
+    source = tmp_path / "pkg" / "module.name.py"
+    source.parent.mkdir()
+    source.write_text("# never imported\n")
+    monkeypatch.chdir(tmp_path)
+    if prefix == "absolute":
+        monkeypatch.setattr(sys, "pycache_prefix", str(tmp_path / "cache"))
+    elif prefix == "relative":
+        monkeypatch.setattr(sys, "pycache_prefix", "relative-cache")
+    else:
+        monkeypatch.setattr(sys, "pycache_prefix", None)
+    expected = tuple(
+        Path(importlib.util.cache_from_source(str(source), optimization=level)).absolute()
+        for level in ("", "1", "2")
+    )
+    assert tuple(path.absolute() for path in bytecode_paths(source)) == expected
