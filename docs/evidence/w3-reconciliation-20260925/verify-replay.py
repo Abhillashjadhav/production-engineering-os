@@ -11,7 +11,8 @@ Checks, exiting 1 on the first failure:
 3. criterion and gate verdicts derived from that ledger payload equal verdicts.json;
 4. <dir>/source-manifest.json hashes to the source_manifest_digest that the ledger's
    gate evidence and <dir>/migration.json both bind; contract.draft.json and
-   compiled-plan.proposed.json hash to the bound contract and plan digests; and
+   compiled-plan.proposed.json hash to the bound contract and plan digests; candidate/
+   and each mutants/<id>.manifest.json match the bound candidate and mutant digests; and
    migration.json's status, receipt and model-call claims and publisher-result.json's
    approval match the recorded no-approval run;
 5. status, approval, state, cause, gates and record counts in <dir>/replay-summary.json
@@ -56,6 +57,22 @@ def bound_manifest_digests(value):
             yield from bound_manifest_digests(item)
 
 
+def tree_digest(root):
+    """Raw digest of the sorted {relative path: raw file digest} map, as the engine binds."""
+    if root.is_symlink() or not root.is_dir():
+        fail(f"{root.name}/ is not a directory")
+    files = {}
+    for path in sorted(root.rglob("*")):
+        if path.is_symlink() or not (path.is_dir() or path.is_file()):
+            fail(f"{root.name}/ holds a symlink or special file")
+        if path.is_file():
+            files[path.relative_to(root).as_posix()] = (
+                "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+            )
+    encoded = json.dumps(files, sort_keys=True, separators=(",", ":")).encode()
+    return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
 def main(directory):
     summary = json.loads((directory / "replay-summary.json").read_text())
     try:
@@ -91,6 +108,22 @@ def main(directory):
         or plan.get("contract_digest") != summary["contract_digest"]
     ):
         fail("compiled-plan.proposed.json differs from the ledger-bound plan digest")
+    # The candidate and negative controls behind the verdicts are the ones the ledger binds.
+    if tree_digest(directory / "candidate") != evidence.get("candidate_digest"):
+        fail("candidate/ differs from the ledger-bound candidate digest")
+    mutants = {
+        mutant["id"]: mutant["snapshot_digest"]
+        for gate in evidence["gates"]
+        if (gate.get("binding") or {}).get("kind") == "negative_controls"
+        for mutant in gate["binding"]["mutants"]
+    }
+    exported = {path.name: path for path in (directory / "mutants").iterdir()}
+    if set(exported) != {identifier + ".manifest.json" for identifier in mutants} or any(
+        "sha256:" + hashlib.sha256(exported[identifier + ".manifest.json"].read_bytes()).hexdigest()
+        != digest
+        for identifier, digest in mutants.items()
+    ):
+        fail("mutants/ manifests differ from the ledger-bound mutant snapshot digests")
     # The retained no-approval and no-model-call claims behind the verdicts.
     recorded_migration = json.loads((HERE / "migration.json").read_text())
     if (
