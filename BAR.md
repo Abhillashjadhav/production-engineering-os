@@ -9,6 +9,17 @@
 
 No frozen source, trusted policy, scanner, allowlist, model, deployment, merge, or publication changes. A self-consistent unsigned rewrite remains unauthenticated without an independently retained head.
 
+## W2 — source-only admission replaces registry scans (#217) — 2026-09-25
+
+Owner decision, 2026-09-25 18:29 IST, answering `reviews/r4-architecture-20260925/DECISION_REQUIRED.md`: **"Approve source-only start"**. Gated runs must start in a fresh source-only interpreter. The guard checks process state instead of scanning `sys.modules`. Gated direct calls in an unprepared interpreter are refused.
+
+1. **Already exists? Yes.** Extend `reject_bytecode` / `implementation_identity` in place; no parallel checker.
+2. **Approved criterion or reproduced blocker? Yes.** `tests/unit/test_process_source_architecture.py` fails on the unchanged scanner; the owner decision above authorizes the boundary.
+3. **Changes behaviour with callers/tests? Yes.** Every gated path (manifest build, source validation, typed process admission) now refuses interpreters without `-B`/`PYTHONDONTWRITEBYTECODE` plus an unchanged, empty startup cache prefix. CI's `tests` job already sets both. `scripts/r3_task_store_migration.py` relaunches itself source-only with unchanged arguments. Local `pytest` must use the same environment (CONTRIBUTING). Classes with no own functions can no longer establish canonical identity.
+4. **Failing check first? Yes.** `reviews/w2-source-only-20260925/red.txt`: the architecture test, four subprocess admission probes and the cache-path parity test fail before the fix commit.
+5. **Revert as one unit? Yes.** One source file, the migration bootstrap, and docs; the tests stay as the RED evidence.
+6. **New setting/dependency/extension? No.** No scanner, policy or allowlist change. The startup requirement is the owner-approved boundary; no new flag or loader API.
+
 ## R4 architecture compatibility repair — 2026-09-25
 
 1. **Does this already exist in either repository? Yes.** The existing `reject_bytecode` path owns this check; a parallel checker is stopped. This unit extends that path only if equivalent coverage is demonstrated.
