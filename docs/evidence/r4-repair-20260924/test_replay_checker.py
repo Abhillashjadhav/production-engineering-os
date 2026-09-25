@@ -57,7 +57,34 @@ class ReplayCheckerRegression(unittest.TestCase):
         path = root / filename
         rows = [json.loads(row) for row in path.read_text().splitlines()]
         change(rows)
-        path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+        # Write exactly as the adapter does, so each mutation tests its own check.
+        path.write_text("".join(json.dumps(row, sort_keys=True) + "\n" for row in rows))
+
+    def test_reformatted_jsonl_rejected(self):
+        """The adapter writes each row as sorted json.dumps plus a newline (Codex #221)."""
+
+        def no_final_newline(root):
+            path = root / "processes.jsonl"
+            path.write_bytes(path.read_bytes()[:-1])
+
+        def leading_space(root):
+            path = root / "digest-checks.jsonl"
+            path.write_bytes(b" " + path.read_bytes())
+
+        def unsorted_keys(root):
+            path = root / "processes.jsonl"
+            lines = path.read_text().splitlines()
+            first = json.loads(lines[0])
+            lines[0] = json.dumps(dict(reversed(list(first.items()))))
+            path.write_text("".join(line + "\n" for line in lines))
+
+        for name, change in {
+            "no-final-newline": no_final_newline,
+            "leading-space": leading_space,
+            "unsorted-keys": unsorted_keys,
+        }.items():
+            with self.subTest(change=name):
+                self.mutate("retained", change)
 
     def test_optimized_interpreter_rejects_missing_boundary(self):
         self.mutate(
