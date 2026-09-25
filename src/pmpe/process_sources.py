@@ -59,9 +59,9 @@ def require_source_only_interpreter() -> Path:
     if not prefix.is_absolute():
         # A relative prefix names a different directory after any chdir.
         raise ValueError("process gate requires an absolute private bytecode prefix fixed at start")
-    if prefix.exists() and (
-        not prefix.is_dir() or any(path.is_file() for path in prefix.rglob("*"))
-    ):
+    # CPython follows directory symlinks while resolving its parallel cache tree, so an
+    # "empty" prefix may hold no entry at all: no file, directory or link of any kind.
+    if prefix.is_symlink() or (prefix.exists() and (not prefix.is_dir() or any(prefix.iterdir()))):
         raise ValueError("process gate bytecode prefix is not empty: " + str(prefix))
     return prefix
 
